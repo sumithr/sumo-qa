@@ -1,0 +1,237 @@
+api_contract_change:
+  must_consider:
+    - backward compatibility
+    - schema validation
+    - consumer impact
+    - error response shape
+  suggested_test_types:
+    - contract
+    - integration
+    - functional
+  avoid_testing:
+    - broad end-to-end suites that do not assert the changed request or response contract
+  risk_templates:
+    - Consumer behavior can break if payload shape or validation changes silently.
+    - Backward compatibility risk exists until old and new payload examples are verified.
+  test_design_techniques:
+    - equivalence partitioning of valid and invalid payload classes
+    - boundary value analysis on payload size, field length, numeric ranges
+    - decision table for request validation rules
+    - pairwise / orthogonal-array combinations of optional fields
+  quality_characteristics:
+    - functional_correctness
+    - functional_appropriateness
+    - compatibility_co_existence
+    - compatibility_interoperability
+
+business_logic_change:
+  must_consider:
+    - decision boundaries
+    - negative cases
+    - regression blast radius
+    - test data representativeness
+  suggested_test_types:
+    - unit
+    - functional
+    - integration
+  avoid_testing:
+    - UI-only checks that do not exercise the changed rule
+  risk_templates:
+    - Business rule drift can create correct-looking but wrong customer outcomes.
+  test_design_techniques:
+    - decision table for rule combinations
+    - boundary value analysis on numeric thresholds and quantity limits
+    - equivalence partitioning over input domains
+    - error guessing on historically broken rule corners
+  quality_characteristics:
+    - functional_correctness
+    - functional_appropriateness
+
+state_transition_change:
+  must_consider:
+    - valid transitions
+    - invalid transitions
+    - rollback or compensation
+    - auditability
+  suggested_test_types:
+    - unit
+    - integration
+    - functional
+  avoid_testing:
+    - happy-path-only testing
+  risk_templates:
+    - Invalid state movement can leave orders or stock in an unrecoverable state.
+  test_design_techniques:
+    - state transition testing including invalid transitions
+    - 0-switch and 1-switch coverage of the state model
+    - decision table for transition guards
+  quality_characteristics:
+    - functional_correctness
+    - reliability_recoverability
+    - reliability_maturity
+
+ui_only_change:
+  must_consider:
+    - display correctness
+    - accessibility
+    - browser compatibility
+  suggested_test_types:
+    - functional
+    - nonfunctional
+  avoid_testing:
+    - backend integration regression unless the UI change alters submitted data
+  risk_templates:
+    - Visual behavior can regress without changing backend correctness.
+  test_design_techniques:
+    - exploratory testing charters for visual regressions
+    - equivalence partitioning of viewport / device classes
+    - pairwise testing of display option combinations
+  quality_characteristics:
+    - usability_appropriateness_recognisability
+    - usability_accessibility
+    - compatibility_co_existence
+
+configuration_change:
+  must_consider:
+    - default values
+    - environment override behavior
+    - feature flag fallback
+    - deployment rollback
+  suggested_test_types:
+    - integration
+    - functional
+  avoid_testing:
+    - unrelated business rule permutations
+  risk_templates:
+    - Environment-specific configuration can pass locally and fail after deployment.
+  test_design_techniques:
+    - decision table for flag-on / flag-off / fallback paths
+    - equivalence partitioning over environment classes
+    - pairwise testing of flag combinations
+  quality_characteristics:
+    - reliability_availability
+    - portability_adaptability
+
+data_mapping_change:
+  must_consider:
+    - source-to-target parity
+    - null and missing values
+    - quantity boundaries
+    - field ownership
+  suggested_test_types:
+    - unit
+    - integration
+    - contract
+  avoid_testing:
+    - full journey tests that do not assert mapped fields
+  risk_templates:
+    - Incorrect mapping can preserve technical success while corrupting fulfilment or stock decisions.
+  test_design_techniques:
+    - boundary value analysis on numeric and string length boundaries
+    - equivalence partitioning of null / empty / typical / extreme classes
+    - decision table for conditional mappings
+    - cause-effect graphing for combined source fields
+  quality_characteristics:
+    - functional_correctness
+    - functional_completeness
+
+error_handling_change:
+  must_consider:
+    - user-visible failure
+    - retryability
+    - logging and diagnostics
+    - fallback behavior
+  suggested_test_types:
+    - unit
+    - integration
+    - functional
+  avoid_testing:
+    - success-only regression checks
+  risk_templates:
+    - Failure paths often lack coverage and can hide production-impacting defects.
+  test_design_techniques:
+    - error guessing focused on partial-failure modes
+    - equivalence partitioning of failure classes (transient, permanent, partial)
+    - decision table for retry / fallback / surface-error outcomes
+  quality_characteristics:
+    - reliability_fault_tolerance
+    - reliability_recoverability
+    - usability_user_error_protection
+
+async_flow_change:
+  must_consider:
+    - retries
+    - idempotency
+    - timeout handling
+    - race conditions
+    - duplicate messages
+  suggested_test_types:
+    - unit
+    - integration
+    - nonfunctional
+  avoid_testing:
+    - single-thread happy path only
+  risk_templates:
+    - Async behavior can pass once but fail under retries, duplicates, or timing variation.
+  test_design_techniques:
+    - state transition testing across consumer states
+    - decision table for retry / idempotency-key / dedupe outcomes
+    - boundary value analysis on timeout and backoff windows
+    - error guessing on concurrent / out-of-order delivery
+  quality_characteristics:
+    - reliability_fault_tolerance
+    - reliability_maturity
+    - performance_efficiency_time_behaviour
+
+security_change:
+  must_consider:
+    - "Token lifecycle (issue, refresh, rotate, revoke)"
+    - "Replay protection on stateful tokens"
+    - "Signature/integrity validation on every accept path"
+    - "Boundary value analysis on TTL / expiry windows"
+    - "Negative-path coverage (expired, tampered, malformed, replayed)"
+    - "Clock-skew tolerance windows are explicit, not implicit"
+    - "Rate limiting on auth-adjacent endpoints"
+  suggested_test_types:
+    - unit
+    - integration
+    - nonfunctional
+  test_design_techniques:
+    - boundary value analysis (TTL / expiry boundary)
+    - decision table (valid/expired/replayed/tampered x rotation state)
+    - state transition (token lifecycle ISSUED -> CONSUMED -> REVOKED)
+    - error guessing (clock skew, key rotation, mutated claims)
+    - fuzzing (token claim payload)
+  quality_characteristics:
+    - security_authenticity
+    - security_integrity
+    - security_non_repudiation
+    - security_accountability
+  risk_templates:
+    - "Replay of an expired or rotated token returning 5xx instead of 4xx leaks internals."
+    - "TTL evaluated with the wrong clock source silently extends or shortens the window."
+    - "Single-use semantics race: parallel consumers of the same token both succeed."
+
+caching_change:
+  must_consider:
+    - stale data
+    - TTL behavior
+    - invalidation
+    - cache miss fallback
+  suggested_test_types:
+    - unit
+    - integration
+    - nonfunctional
+  avoid_testing:
+    - tests that only cover warm cache success
+  risk_templates:
+    - Cache changes can return stale availability or stock decisions after upstream data changes.
+  test_design_techniques:
+    - boundary value analysis on TTL boundaries (just-fresh, just-stale)
+    - state transition testing for cache states (cold, warm, evicted, refreshing)
+    - decision table for invalidation triggers
+    - error guessing on partial-eviction races
+  quality_characteristics:
+    - performance_efficiency_time_behaviour
+    - reliability_maturity
+    - functional_correctness

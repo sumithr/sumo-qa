@@ -51,6 +51,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         acceptance_criteria: list | None = None,
         risk_notes: list | None = None,
         explicit_classifications: list | None = None,
+        target_paths: list | None = None,
         ctx: Context = None,
     ) -> dict:
         """Generate a QA plan from a work item, user story, ticket, or feature description.
@@ -64,6 +65,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         When supplied, the team's loaded standards/rules dispatch on them. When
         omitted, the AI-sampling path classifies dynamically; the deterministic
         harness no longer pattern-matches paths or text to guess.
+
+        `target_paths` (optional) anchors the plan to concrete files / classes
+        / modules in the supplied repo. When the work_item names a boundary
+        not present in `target_paths`, the AI surfaces the gap as
+        `missing_information` instead of fabricating artefacts.
 
         Canonical classification names: api_contract_change, business_logic_change,
         state_transition_change, ui_only_change, configuration_change,
@@ -82,11 +88,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "acceptance_criteria": acceptance_criteria,
                 "risk_notes": risk_notes,
                 "explicit_classifications": explicit_classifications,
+                "target_paths": target_paths,
             },
             output=_slim(await qa_service.aqa_prepare_for_work(
                 work_item, acceptance_criteria, risk_notes,
                 async_llm=_maybe_host_llm(ctx),
                 explicit_classifications=explicit_classifications,
+                target_paths=target_paths,
             )),
         )
 
