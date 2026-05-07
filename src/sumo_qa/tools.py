@@ -173,9 +173,11 @@ class QAShiftLeftService:
         acceptance_criteria: list[str] | None = None,
         risk_notes: list[str] | None = None,
         explicit_classifications: list[str] | None = None,
+        target_paths: list[str] | None = None,
     ) -> dict[str, Any]:
         criteria = acceptance_criteria or []
         provided_risks = risk_notes or []
+        targets = target_paths or []
         standards = self.standards_engine.evaluate("prepare")
         classification = self.classifier.classify(
             work_item,
@@ -247,6 +249,7 @@ class QAShiftLeftService:
                 "test_data_needs": _test_data_needs(work_item, criteria),
             },
             llm_analysis=asdict(llm),
+            target_paths=targets,
         )
         return response.model_dump(mode="json")
 
@@ -783,14 +786,22 @@ class QAShiftLeftService:
         risk_notes: list[str] | None = None,
         async_llm: AsyncLLMClient | None = None,
         explicit_classifications: list[str] | None = None,
+        target_paths: list[str] | None = None,
     ) -> dict[str, Any]:
         payload = self.qa_prepare_for_work(
             work_item, acceptance_criteria, risk_notes,
             explicit_classifications=explicit_classifications,
+            target_paths=target_paths,
         )
         if async_llm is None:
             return payload
-        prompt = _build_prepare_sampling_prompt(work_item, acceptance_criteria or [], risk_notes or [], payload)
+        prompt = _build_prepare_sampling_prompt(
+            work_item,
+            acceptance_criteria or [],
+            risk_notes or [],
+            payload,
+            target_paths=target_paths,
+        )
         await _apply_host_sampling(payload, async_llm, prompt)
         return payload
 
@@ -963,6 +974,12 @@ def _build_decide_approach_sampling_prompt(
         "Required: list the SMALLEST useful set of tests in suggested_tests. "
         "Each test MUST name an ISTQB technique and reference one of the "
         "top_risks. A laundry-list checklist is not acceptable.\n\n"
+        "HARD REQUIREMENT — specialty + tool pairing: every entry in "
+        "specialty_needs MUST pair the specialty with a concrete well-known "
+        "tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, axe-core / "
+        "Pa11y, Pact / Schemathesis, Cypress / Playwright, Appium / Maestro, "
+        "Promptfoo / DeepEval, Pitest / Stryker). A bare specialty label "
+        "without a tool is not acceptable.\n\n"
         "Output requirements (STRICT — your entire response must be valid JSON):\n"
         "{\n"
         '  "approach": "<canonical name OR a short kebab-case name you invent>",\n'
@@ -970,7 +987,9 @@ def _build_decide_approach_sampling_prompt(
         '  "next_action": {"tool": "<MCP tool to call next, or null if no tool>"} | null,\n'
         '  "follow_up": "<1-2 sentences of guidance regardless of which tool fires>",\n'
         '  "techniques": ["<ISTQB techniques most relevant>"],\n'
-        '  "specialty_needs": ["<extra capabilities to pull in, e.g. mutation testing tooling, Cypress, k6, OWASP ZAP>"],\n'
+        '  "specialty_needs": [\n'
+        '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}\n'
+        '  ],\n'
         '  "alternatives": [{"approach": "<name>", "when": "<when to pick instead>"}],\n'
         '  "top_risks": [\n'
         '    {\n'
@@ -1117,15 +1136,51 @@ def _build_review_sampling_prompt(change_summary: str, payload: dict[str, Any]) 
         schema_lines=[
             '  "narrative": "<3-6 sentences of senior-QA judgement on this specific change>",',
             '  "checks": ["<concrete check anchored to a touched file, class, or domain term>"],',
+            '  "specialty_needs": [',
+            '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}',
+            '  ],',
             '  "assumptions": ["<labelled assumption>", "..."]',
         ],
         extra_required=(
             "Required: list every behavioural claim you cannot verify from the "
             "supplied facts under \"assumptions\". Treat them as challengeable, "
-            "not as truth."
+            "not as truth.\n\n"
+            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
+            "specialty_needs MUST pair the specialty with a concrete "
+            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
+            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
+            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
+            "bare specialty label without a tool is not acceptable."
         ),
         has_targets=bool(touched),
     )
+
+
+_CRITICAL_PATH_TOKENS = (
+    "auth",
+    "authn",
+    "authz",
+    "payment",
+    "billing",
+    "encryption",
+    "rate-limit",
+    "rate limit",
+    "session",
+    "token",
+    "oauth",
+    "jwt",
+    "csrf",
+    "xss",
+    "sql injection",
+)
+
+
+def _critical_path_token_matches(*haystacks: str) -> list[str]:
+    """Return critical-path tokens that appear (case-insensitive substring)
+    in any of the supplied free-text haystacks. Structural detection only —
+    the AI still does all the QA reasoning."""
+    blob = " ".join(h or "" for h in haystacks).lower()
+    return [token for token in _CRITICAL_PATH_TOKENS if token in blob]
 
 
 def _build_prepare_sampling_prompt(
@@ -1133,6 +1188,7 @@ def _build_prepare_sampling_prompt(
     criteria: list[str],
     risk_notes: list[str],
     payload: dict[str, Any],
+    target_paths: list[str] | None = None,
 ) -> str:
     classification = payload.get("change_classification", {})
     primary = classification.get("primary") or "unclassified"
@@ -1142,7 +1198,10 @@ def _build_prepare_sampling_prompt(
         check["title"] for check in payload.get("standards", {}).get("checks", []) if check.get("title")
     ]
     rules = payload.get("applied_rules", {}).get("must_consider", [])
+    targets = target_paths or []
     facts = [f"Work item: {work_item}"]
+    if targets:
+        facts.append("Target paths: " + ", ".join(targets[:6]))
     if criteria:
         facts.append("Acceptance criteria:")
         facts.extend(f"  - {item}" for item in criteria)
@@ -1154,18 +1213,52 @@ def _build_prepare_sampling_prompt(
         facts=facts,
         classification_summary=classification_summary,
         missing_test_levels=[],
-        recommended_test_paths=[],
+        recommended_test_paths=list(targets),
         findings=payload.get("missing_information", []),
         standards=standards,
         rules=rules,
     )
-    return base + "\n\n" + _domain_anchoring_and_json_schema(
+    matched_tokens = _critical_path_token_matches(
+        " ".join(risk_notes or []),
+        " ".join(criteria or []),
+        work_item,
+    )
+    critical_uplift = ""
+    if matched_tokens:
+        critical_uplift = (
+            "\n\nCRITICAL-PATH UPLIFT (auto-detected: "
+            + ", ".join(matched_tokens)
+            + "):\n"
+            "  This change is on a critical path. ISTQB Foundation Principle 4\n"
+            "  (defects cluster) demands tighter coverage:\n"
+            "  - At least one boundary value test PER acceptance criterion rule.\n"
+            "  - At least one negative-path / abuse-case test per acceptance\n"
+            "    criterion (replay, expired, tampered, malformed, race-condition).\n"
+            "  - Specialty pairing REQUIRED: name the security tool you'd use\n"
+            "    (OWASP ZAP / Burp Suite / Semgrep / OWASP ASVS).\n"
+            "  - When the supplied repo does not contain the relevant boundary\n"
+            "    (e.g. work_item mentions auth but no auth module exists in\n"
+            "    target_paths), surface this as a missing_information item, not\n"
+            "    a fabrication."
+        )
+    return base + critical_uplift + "\n\n" + _domain_anchoring_and_json_schema(
         schema_lines=[
             '  "narrative": "<3-6 sentences of senior-QA judgement on this specific work item>",',
             '  "checks": ["<concrete check anchored to the work item, criterion, or domain term>"],',
+            '  "specialty_needs": [',
+            '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}',
+            '  ],',
             '  "assumptions": ["<labelled assumption>", "..."]',
         ],
-        has_targets=bool(criteria or risk_notes),
+        extra_required=(
+            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
+            "specialty_needs MUST pair the specialty with a concrete "
+            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
+            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
+            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
+            "bare specialty label without a tool is not acceptable."
+        ),
+        has_targets=bool(criteria or risk_notes or targets),
     )
 
 
@@ -1198,10 +1291,45 @@ def _build_question_sampling_prompt(
     return base + "\n\n" + _domain_anchoring_and_json_schema(
         schema_lines=[
             '  "short_answer": "<one-line senior-QA answer specific to this question>",',
-            '  "verify": ["<concrete check tied to the supplied question/context>"],',
-            '  "top_risks": ["<change-specific risk, not boilerplate>"],',
-            '  "assumptions": ["<labelled assumption>", "..."]',
+            '  "smallest_useful_tests": [',
+            '    {"name": "<concrete test>", "technique": "<ISTQB technique>", "covers_risk": "<one of top_risks>"}',
+            '  ],',
+            '  "top_risks": [',
+            '    {"risk": "<change-specific risk, not boilerplate>", "why_specific_to_this_change": "<reason>", "evidence_path": "<file/class/path>"}',
+            '  ],',
+            '  "assumptions": ["<labelled assumption>", "..."],',
+            '  "recommended_approach": {',
+            '    "approach": "<one of: tdd-scaffold | regression-first | coverage-first-then-refactor | strengthen-test-coverage | verify-existing | no-tests-recommended | spike-first-then-tests | strategy-orchestration>",',
+            '    "confidence": "<low | medium | high>",',
+            '    "next_action": "<MCP tool name OR a sub-skill name OR null>"',
+            '  },',
+            '  "principle_cited": "<ISTQB Foundation principle by name or number that shapes this answer>",',
+            '  "named_techniques": [',
+            '    {"technique": "<technique>", "covers_risk": "<one of top_risks>"}',
+            '  ],',
+            '  "specialty_needs": [',
+            '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}',
+            '  ]',
         ],
+        extra_required=(
+            "Routing rule: if the question is open-ended against a whole "
+            "service or a strategy / audit / pyramid / rollout ask, set "
+            "`recommended_approach.approach` to `strategy-orchestration` and "
+            "`next_action` to `sumo-qa-strategising`. Cap "
+            "`smallest_useful_tests` at 5 items — this is the minimum useful "
+            "set, not a checklist.\n\n"
+            "HARD REQUIREMENT — principle + minimum-set: `principle_cited` "
+            "MUST be non-empty when the answer touches risk, prioritisation, "
+            "or strategy. `smallest_useful_tests` MUST be the smallest set "
+            "that gives release confidence (typically 3-5 items), not an "
+            "exhaustive checklist.\n\n"
+            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
+            "specialty_needs MUST pair the specialty with a concrete "
+            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
+            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
+            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
+            "bare specialty label without a tool is not acceptable."
+        ),
         has_targets=bool(context),
     )
 
@@ -1828,8 +1956,31 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
             '  "task_refinements": [',
             '    {"task_id": "<scaffold task id>", "improved_assertion": "<sharper red-phase assertion tied to this file/class>"}',
             '  ],',
+            '  "principle_citations": [',
+            '    {"principle": "<ISTQB Foundation N - short name>", "applied_to_task_id": "<task id>"}',
+            '  ],',
+            '  "named_techniques": [',
+            '    {"technique": "<ISTQB test design technique>", "applied_to_task_id": "<task id>"}',
+            '  ],',
+            '  "specialty_needs": [',
+            '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}',
+            '  ],',
             '  "assumptions": ["<labelled assumption>", "..."]',
         ],
+        extra_required=(
+            "HARD REQUIREMENT — principle citation + named techniques: every "
+            "scaffold task MUST be supported by at least one named ISTQB "
+            "principle (cited by name or number) under principle_citations AND "
+            "at least one named ISTQB test design technique under "
+            "named_techniques. Generic mentions like \"follow QA best "
+            "practices\" or \"add edge cases\" are not acceptable.\n\n"
+            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
+            "specialty_needs MUST pair the specialty with a concrete "
+            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
+            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
+            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
+            "bare specialty label without a tool is not acceptable."
+        ),
         has_targets=bool(targets or tasks),
     )
 
@@ -2115,8 +2266,19 @@ def _build_test_plan_sampling_prompt(work_item: str, payload: dict[str, Any]) ->
             '    {"phase": "<analysis|design|execution|completion>", "focus": "<specific focus tied to this work>"}',
             '  ],',
             '  "open_questions": ["<change-specific open question>"],',
+            '  "specialty_needs": [',
+            '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}',
+            '  ],',
             '  "assumptions": ["<labelled assumption>", "..."]',
         ],
+        extra_required=(
+            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
+            "specialty_needs MUST pair the specialty with a concrete "
+            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
+            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
+            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
+            "bare specialty label without a tool is not acceptable."
+        ),
         has_targets=bool(plan.get("scope_in") or plan.get("approach")),
     )
 

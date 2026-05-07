@@ -100,6 +100,16 @@ Output discipline:
     domain terms drawn from the supplied context). Generic phrases like
     "the service", "the system", "the codebase", "the application" are
     forbidden when target paths or classifications are supplied.
+  - HARD REQUIREMENT — specialty + tool pairing: when a quality
+    characteristic beyond functional correctness is at stake
+    (security, performance, accessibility, contract, mobile, AI,
+    mutation-testing follow-up), name the specialty AND a concrete
+    well-known tool the team would use (e.g. OWASP ZAP / Burp Suite
+    for security; k6 / Locust / JMeter for performance; axe-core /
+    Pa11y for accessibility; Pact / Schemathesis for contract;
+    Cypress / Playwright for frontend; Appium / Maestro for mobile;
+    Promptfoo / DeepEval for AI; Pitest / Stryker for mutation).
+    A bare specialty label without a tool fails the senior-QA bar.
 """
 
 
