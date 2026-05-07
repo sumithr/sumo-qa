@@ -1,0 +1,23 @@
+id: stock.cache_refresh
+type: review
+input:
+  change_summary: "Change stock availability cache TTL and refresh behavior after inventory update events."
+  touched_files:
+    - src/stock/cache/availability_cache.py
+    - src/stock/events/inventory_update_consumer.py
+  diff: |
+    + cache_ttl_seconds = 300
+    + evict availability cache after InventoryUpdated event
+  classifications:
+    - caching_change
+    - async_flow_change
+expected:
+  risks:
+    - stale data
+    - TTL behavior
+    - cache miss fallback
+  test_types:
+    - unit
+    - integration
+    - nonfunctional
+  confidence: medium

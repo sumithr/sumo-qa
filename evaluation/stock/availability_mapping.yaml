@@ -1,0 +1,23 @@
+id: stock.availability_mapping
+type: review
+input:
+  change_summary: "Map Blue Yonder onHand and reserved quantities into availableToSell for stock availability."
+  touched_files:
+    - src/stock/mapper/availability_mapper.py
+    - src/stock/dto/stock_availability.py
+  diff: |
+    + availableToSell = onHand - reserved
+    + if availableToSell < 0: availableToSell = 0
+  classifications:
+    - data_mapping_change
+    - business_logic_change
+expected:
+  risks:
+    - source-to-target parity
+    - null and missing values
+    - quantity boundaries
+  test_types:
+    - unit
+    - integration
+    - contract
+  confidence: medium

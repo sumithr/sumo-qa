@@ -1,11 +1,27 @@
+import json
 import os
 from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import Field
+from pydantic import BaseModel, Field, RootModel
 
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.llm import HostSamplingClient
+from sumo_qa.models import (
+    CreateTestPlanResponse,
+    DecideApproachResponse,
+    PrepareForWorkResponse,
+    ReviewLocalChangeResponse,
+    ScaffoldTestsResponse,
+    TestingQuestionResponse,
+)
+from sumo_qa.render_preview import render_response
+from sumo_qa.tdm_models import (
+    TestDataFindResponse,
+    TestDataRegisterResponse,
+    TestDataRequirements,
+    TestDataValidateResponse,
+)
 from sumo_qa.tools import QAShiftLeftService, _slim
 
 
@@ -24,6 +40,35 @@ _HINT_TEST_DATA_WRITE = (
     "If the write fails, confirm `knowledge/test_data/` is writable and the entry's "
     "`domain` field matches an existing folder."
 )
+
+
+# Tool-name -> Pydantic response model. The model's JSON schema is advertised
+# as the tool's `outputSchema` so MCP hosts can render structured output
+# without round-tripping the full doc. We pair the schema with a permissive
+# `RootModel[dict]` validator so FastMCP's `convert_result()` doesn't reject
+# the slimmed output we return at runtime.
+_OUTPUT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
+    "sumo_qa_prepare_for_work": PrepareForWorkResponse,
+    "sumo_qa_review_local_change": ReviewLocalChangeResponse,
+    "sumo_qa_create_test_plan": CreateTestPlanResponse,
+    "sumo_qa_decide_approach": DecideApproachResponse,
+    "sumo_qa_scaffold_tests": ScaffoldTestsResponse,
+    "sumo_qa_answer_testing_question": TestingQuestionResponse,
+    "sumo_qa_explain_test_data_requirements": TestDataRequirements,
+    "sumo_qa_find_test_data": TestDataFindResponse,
+    "sumo_qa_validate_test_data": TestDataValidateResponse,
+    "sumo_qa_register_known_good_test_data": TestDataRegisterResponse,
+}
+
+
+class _PermissiveDictModel(RootModel[dict[str, Any]]):
+    """Permissive validator for tool output.
+
+    FastMCP requires both `output_schema` AND `output_model` to be set when a
+    tool advertises structured output. The advertised schema (rich Pydantic
+    model JSON schema) is for the host; the validator runs over the slimmed
+    runtime payload, so it has to accept anything dict-shaped.
+    """
 
 
 def _maybe_host_llm(ctx: Any) -> HostSamplingClient | None:
@@ -64,11 +109,59 @@ def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
     }
 
 
+def _format_response(payload: dict[str, Any], response_format: str) -> Any:
+    """Return the payload as-is for json, or a markdown wrapper for markdown.
+
+    Markdown rendering uses `render_response` for tools it knows; everything
+    else (including error envelopes) falls back to a JSON code block. The
+    wrapper carries `format` + `content` so the host can route. This is
+    advisory — hosts are free to ignore the wrapper and surface the raw
+    JSON; the parameter exists to advertise the rendering capability.
+    """
+    if (response_format or "json").lower() == "json":
+        return payload
+    if isinstance(payload, dict) and payload.get("isError"):
+        # Error envelopes never benefit from markdown — keep them structured.
+        return payload
+    try:
+        markdown = render_response(payload)
+    except (KeyError, AttributeError):
+        markdown = "```json\n" + json.dumps(payload, indent=2, default=str) + "\n```"
+    return {
+        "format": "markdown",
+        "tool": payload.get("tool") if isinstance(payload, dict) else None,
+        "content": markdown,
+    }
+
+
 def build_service() -> QAShiftLeftService:
     standards_path = Path(os.environ.get("QA_STANDARDS_PATH", "standards/packs"))
     rules_path = Path(os.environ.get("QA_RULES_PATH", "standards/rules/change_rules.yaml"))
     test_data_path = Path(os.environ.get("QA_TEST_DATA_PATH", "knowledge/test_data"))
     return QAShiftLeftService.from_standards_path(standards_path, rules_path, test_data_path)
+
+
+def _attach_output_schemas(mcp: Any) -> None:
+    """Wire each registered tool to its rich Pydantic JSON schema.
+
+    FastMCP's auto-derivation requires the runtime return type to match the
+    advertised schema; we slim our payloads aggressively and want hosts to
+    see the rich schema regardless. So we patch `fn_metadata.output_schema`
+    plus a permissive `output_model` AFTER registration. The cached
+    `Tool.output_schema` property reads through to `fn_metadata`, so
+    `list_tools()` advertises the correct shape.
+    """
+    tools = mcp._tool_manager._tools
+    for name, model in _OUTPUT_SCHEMA_MODELS.items():
+        tool = tools.get(name)
+        if tool is None:
+            continue
+        tool.fn_metadata.output_schema = model.model_json_schema()
+        tool.fn_metadata.output_model = _PermissiveDictModel
+        tool.fn_metadata.wrap_output = False
+        # Bust the cached_property so subsequent reads pick up the new schema.
+        if "output_schema" in tool.__dict__:
+            del tool.__dict__["output_schema"]
 
 
 def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
@@ -82,9 +175,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     mcp = FastMCP("sumo-qa")
 
     # Standard annotation patterns. The QA reasoning tools are read-only and
-    # idempotent. Only `qa_register_known_good_test_data` writes to disk, and
-    # even then the operation is additive (never deletes), so destructiveHint
-    # stays false.
+    # idempotent. Only `sumo_qa_register_known_good_test_data` writes to disk,
+    # and even then the operation is additive (never deletes), so
+    # destructiveHint stays false.
     _read_only_local = ToolAnnotations(
         readOnlyHint=True,
         destructiveHint=False,
@@ -104,8 +197,18 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         openWorldHint=False,
     )
 
+    _RESPONSE_FORMAT_FIELD: Any = Field(
+        default="json",
+        description=(
+            "Response format. 'json' returns the structured payload (default). "
+            "'markdown' returns a render-ready string the host can show "
+            "verbatim."
+        ),
+        examples=["json", "markdown"],
+    )
+
     @mcp.tool(annotations=_read_only_local)
-    async def qa_prepare_for_work(
+    async def sumo_qa_prepare_for_work(
         work_item: str,
         acceptance_criteria: Annotated[
             list | None,
@@ -134,7 +237,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             Field(
                 default=None,
                 description=(
-                    "Canonical change classifications. See qa_prepare_for_work "
+                    "Canonical change classifications. See sumo_qa_prepare_for_work "
                     "docstring for the full list."
                 ),
                 examples=[["api_contract_change", "data_mapping_change"]],
@@ -151,6 +254,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 ]],
             ),
         ] = None,
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
         ctx: Context = None,
     ) -> dict:
         """Generate a QA plan from a work item, user story, ticket, or feature description.
@@ -189,8 +293,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             ))
         except Exception as exc:  # noqa: BLE001 — wrap into isError envelope
             output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        return maybe_capture(
-            tool="qa_prepare_for_work",
+        captured = maybe_capture(
+            tool="sumo_qa_prepare_for_work",
             args={
                 "work_item": work_item,
                 "acceptance_criteria": acceptance_criteria,
@@ -200,9 +304,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.tool(annotations=_read_only_open_world)
-    async def qa_review_local_change(
+    async def sumo_qa_review_local_change(
         change_summary: str,
         diff: str = "",
         touched_files: Annotated[
@@ -231,10 +336,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             list | None,
             Field(
                 default=None,
-                description="Canonical change classifications (see qa_prepare_for_work).",
+                description="Canonical change classifications (see sumo_qa_prepare_for_work).",
                 examples=[["api_contract_change", "security_change"]],
             ),
         ] = None,
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
         ctx: Context = None,
     ) -> dict:
         """Review uncommitted code, a diff, or a list of touched files for QA risk.
@@ -246,7 +352,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         omitted, the server runs `git diff` in the working directory.
 
         `explicit_classifications`: list of canonical change classifications
-        this change falls under (see qa_prepare_for_work for the canonical
+        this change falls under (see sumo_qa_prepare_for_work for the canonical
         set). When supplied, the rules engine dispatches on them. When omitted,
         the AI-sampling path classifies dynamically.
 
@@ -264,8 +370,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             ))
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
-        return maybe_capture(
-            tool="qa_review_local_change",
+        captured = maybe_capture(
+            tool="sumo_qa_review_local_change",
             args={
                 "change_summary": change_summary,
                 "diff": diff,
@@ -275,9 +381,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.tool(annotations=_read_only_local)
-    async def qa_create_test_plan(
+    async def sumo_qa_create_test_plan(
         work_item: str,
         scope_size: str = "medium",
         acceptance_criteria: Annotated[
@@ -303,10 +410,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             list | None,
             Field(
                 default=None,
-                description="Canonical change classifications (see qa_prepare_for_work).",
+                description="Canonical change classifications (see sumo_qa_prepare_for_work).",
                 examples=[["api_contract_change", "security_change"]],
             ),
         ] = None,
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
         ctx: Context = None,
     ) -> dict:
         """Produce a phased ISTQB-style test plan with entry/exit criteria and deliverables.
@@ -335,8 +443,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             ))
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        return maybe_capture(
-            tool="qa_create_test_plan",
+        captured = maybe_capture(
+            tool="sumo_qa_create_test_plan",
             args={
                 "work_item": work_item,
                 "scope_size": scope_size,
@@ -346,9 +454,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.tool(annotations=_read_only_local)
-    async def qa_decide_approach(
+    async def sumo_qa_decide_approach(
         intent_text: str,
         target_paths: Annotated[
             list | None,
@@ -369,6 +478,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 examples=[{"has_existing_tests": True, "scope_size": "small"}],
             ),
         ] = None,
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
         ctx: Context = None,
     ) -> dict:  # noqa: D401  (long description below)
         """Decide which QA approach fits this change shape, before doing any deeper work.
@@ -383,7 +493,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
         Plus rationale, the next tool to call (or `null` if no tool), follow-up
         guidance, alternatives, and a confidence band. The host model uses this
-        to decide whether to call `qa_scaffold_tests`, `qa_review_local_change`,
+        to decide whether to call `sumo_qa_scaffold_tests`, `sumo_qa_review_local_change`,
         or skip QA tooling entirely.
 
         Common natural-language phrasings that map to this tool:
@@ -400,8 +510,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             ))
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        return maybe_capture(
-            tool="qa_decide_approach",
+        captured = maybe_capture(
+            tool="sumo_qa_decide_approach",
             args={
                 "intent_text": intent_text,
                 "target_paths": target_paths,
@@ -409,9 +519,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.tool(annotations=_read_only_local)
-    async def qa_scaffold_tests(
+    async def sumo_qa_scaffold_tests(
         work_item: str,
         test_conditions: Annotated[
             list | None,
@@ -436,10 +547,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             list | None,
             Field(
                 default=None,
-                description="Canonical change classifications (see qa_prepare_for_work).",
+                description="Canonical change classifications (see sumo_qa_prepare_for_work).",
                 examples=[["api_contract_change", "security_change"]],
             ),
         ] = None,
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
         ctx: Context = None,
     ) -> dict:
         """Produce structured test-scaffold tasks the host model writes with its own file tools.
@@ -481,8 +593,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             ))
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        return maybe_capture(
-            tool="qa_scaffold_tests",
+        captured = maybe_capture(
+            tool="sumo_qa_scaffold_tests",
             args={
                 "work_item": work_item,
                 "test_conditions": test_conditions,
@@ -491,19 +603,21 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.tool(annotations=_read_only_local)
-    async def qa_answer_testing_question(
+    async def sumo_qa_answer_testing_question(
         question: str,
         context: str = "",
         explicit_classifications: Annotated[
             list | None,
             Field(
                 default=None,
-                description="Canonical change classifications (see qa_prepare_for_work).",
+                description="Canonical change classifications (see sumo_qa_prepare_for_work).",
                 examples=[["api_contract_change"]],
             ),
         ] = None,
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
         ctx: Context = None,
     ) -> dict:
         """Answer a free-form testing question with risk-based, actionable QA guidance.
@@ -525,8 +639,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             ))
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        return maybe_capture(
-            tool="qa_answer_testing_question",
+        captured = maybe_capture(
+            tool="sumo_qa_answer_testing_question",
             args={
                 "question": question,
                 "context": context,
@@ -534,12 +648,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.tool(annotations=_read_only_local)
-    def qa_explain_test_data_requirements(
+    def sumo_qa_explain_test_data_requirements(
         question: str,
         environment: str = "",
         domain: str = "",
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
     ) -> dict:
         """Explain what test data shape and characteristics are needed for a scenario.
 
@@ -558,8 +674,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             output = _slim(qa_service.qa_explain_test_data_requirements(question, environment, domain))
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
-        return maybe_capture(
-            tool="qa_explain_test_data_requirements",
+        captured = maybe_capture(
+            tool="sumo_qa_explain_test_data_requirements",
             args={
                 "question": question,
                 "environment": environment,
@@ -567,9 +683,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.tool(annotations=_read_only_local)
-    def qa_find_test_data(
+    def sumo_qa_find_test_data(
         environment: str = "",
         domain: str = "",
         scenario_tags: Annotated[
@@ -592,6 +709,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         sku: str = "",
         limit: int = 5,
         offset: int = 0,
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
     ) -> dict:
         """Search the local known-good test data catalogue for entries that match a scenario.
 
@@ -622,8 +740,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             ))
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
-        return maybe_capture(
-            tool="qa_find_test_data",
+        captured = maybe_capture(
+            tool="sumo_qa_find_test_data",
             args={
                 "environment": environment,
                 "domain": domain,
@@ -636,11 +754,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.tool(annotations=_read_only_local)
-    def qa_validate_test_data(
+    def sumo_qa_validate_test_data(
         entry_id: str | None = None,
         entry: dict | None = None,
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
     ) -> dict:
         """Validate a test data entry without provisioning or mutating downstream systems.
 
@@ -656,17 +776,21 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             output = _slim(qa_service.qa_validate_test_data(entry_id, entry))
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
-        return maybe_capture(
-            tool="qa_validate_test_data",
+        captured = maybe_capture(
+            tool="sumo_qa_validate_test_data",
             args={
                 "entry_id": entry_id,
                 "entry": entry,
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.tool(annotations=_writer_local)
-    def qa_register_known_good_test_data(entry: dict) -> dict:
+    def sumo_qa_register_known_good_test_data(
+        entry: dict,
+        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
+    ) -> dict:
         """Add or update a known-good test data entry in the local YAML catalogue.
 
         Detects duplicates by environment + domain + product/SKU + scenario
@@ -681,16 +805,17 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             output = _slim(qa_service.qa_register_known_good_test_data(entry))
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_TEST_DATA_WRITE)
-        return maybe_capture(
-            tool="qa_register_known_good_test_data",
+        captured = maybe_capture(
+            tool="sumo_qa_register_known_good_test_data",
             args={
                 "entry": entry,
             },
             output=output,
         )
+        return _format_response(captured, response_format)
 
     @mcp.prompt(
-        name="qa_review_my_changes",
+        name="sumo_qa_review_my_changes",
         description="Review the user's current local changes for QA risk and missing test evidence.",
     )
     def qa_review_my_changes_prompt(scope: str = "") -> str:
@@ -702,7 +827,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             "Review my current local changes for QA risk and missing test evidence."
             f"{scope_line}\n\n"
             "Workflow (follow in order, do not skip steps):\n"
-            "1. Call the `qa_review_local_change` tool. Pass the change summary "
+            "1. Call the `sumo_qa_review_local_change` tool. Pass the change summary "
             "and any touched files I've named; otherwise let it run `git diff`.\n"
             "2. Read these fields literally: `verdict`, `change_classification.primary` "
             "(+ `primary_confidence`), `local_diff.missing_test_levels`, "
@@ -718,7 +843,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             "naming the approach + 2-3 well-known tools.\n"
             "7. End with one of:\n"
             "   - if verdict is `needs-test-evidence`: 'Want me to scaffold the missing tests? "
-            "(would call qa_scaffold_tests with the recommended_test_paths)'\n"
+            "(would call sumo_qa_scaffold_tests with the recommended_test_paths)'\n"
             "   - if `review-risk-before-handoff`: 'Which finding do you want to tackle first?'\n"
             "   - if `qa-risk-acceptable-for-phase-1-input`: 'Ready to merge unless you want me "
             "to dig into a specific risk.'\n"
@@ -726,7 +851,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         )
 
     @mcp.prompt(
-        name="qa_what_approach",
+        name="sumo_qa_what_approach",
         description="Pick the right QA approach (TDD scaffold / regression-first / refactor with coverage / verify existing / skip).",
     )
     def qa_what_approach_prompt(intent: str, target_path: str = "") -> str:
@@ -736,29 +861,29 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         return (
             f"Help me pick the right QA approach for: {intent}{target_line}\n\n"
             "Workflow (follow in order, do not skip):\n"
-            "1. Call the `qa_decide_approach` tool with the intent text and any target paths.\n"
+            "1. Call the `sumo_qa_decide_approach` tool with the intent text and any target paths.\n"
             "2. Read `recommended_approach`: `approach`, `rationale`, `next_action`, "
             "`follow_up`, `confidence`, `alternatives`.\n"
             "3. Announce the approach in one line, literally:\n"
             "   APPROACH: <approach> (<confidence>) -> next: <next_action.tool or 'no tool'>\n"
             "4. State the rationale in one sentence.\n"
             "5. Branch:\n"
-            "   - `tdd-scaffold` or `regression-first` -> propose calling `qa_create_test_plan` "
-            "(if scope is medium/large) or `qa_scaffold_tests` (smaller). Wait for confirmation.\n"
-            "   - `coverage-first-then-refactor` -> propose calling `qa_review_local_change` "
+            "   - `tdd-scaffold` or `regression-first` -> propose calling `sumo_qa_create_test_plan` "
+            "(if scope is medium/large) or `sumo_qa_scaffold_tests` (smaller). Wait for confirmation.\n"
+            "   - `coverage-first-then-refactor` -> propose calling `sumo_qa_review_local_change` "
             "to find coverage gaps first. Wait for confirmation.\n"
             "   - `verify-existing` -> tell me to run my existing test suite + a smoke; STOP.\n"
             "   - `no-tests-recommended` -> tell me to run the build / docs lint; STOP.\n"
             "   - `spike-first-then-tests` -> tell me to spike freely and capture conditions for later; STOP.\n"
             "6. If `confidence` is `low`, ask ONE focused clarifying question instead of guessing.\n"
             "7. List up to 2 alternatives so I can override if my context differs.\n\n"
-            "Hard rule: do not call qa_scaffold_tests / qa_create_test_plan / qa_review_local_change "
-            "BEFORE qa_decide_approach. The decision is the precondition; skipping it produces "
-            "wrong-shaped work."
+            "Hard rule: do not call sumo_qa_scaffold_tests / sumo_qa_create_test_plan / "
+            "sumo_qa_review_local_change BEFORE sumo_qa_decide_approach. The decision is "
+            "the precondition; skipping it produces wrong-shaped work."
         )
 
     @mcp.prompt(
-        name="qa_scaffold_tests_for_work",
+        name="sumo_qa_scaffold_tests_for_work",
         description="Produce honest-stub test scaffold tasks for a work item; host model writes the files.",
     )
     def qa_scaffold_tests_for_work_prompt(work_item: str, target_path: str = "") -> str:
@@ -773,7 +898,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         )
 
     @mcp.prompt(
-        name="qa_test_plan_for_work",
+        name="sumo_qa_test_plan_for_work",
         description="Produce a phased ISTQB-style test plan with entry/exit criteria for a substantial piece of work.",
     )
     def qa_test_plan_for_work_prompt(work_item: str, scope_size: str = "medium") -> str:
@@ -787,7 +912,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         )
 
     @mcp.prompt(
-        name="qa_plan_for_work",
+        name="sumo_qa_plan_for_work",
         description="Generate a QA plan for a user story, ticket, or feature before coding starts.",
     )
     def qa_plan_for_work_prompt(work_item: str) -> str:
@@ -799,7 +924,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         )
 
     @mcp.prompt(
-        name="qa_how_do_i_test",
+        name="sumo_qa_how_do_i_test",
         description="Answer 'how do I test X' for any topic, behaviour, or change.",
     )
     def qa_how_do_i_test_prompt(thing: str) -> str:
@@ -810,7 +935,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         )
 
     @mcp.prompt(
-        name="qa_find_data",
+        name="sumo_qa_find_data",
         description="Find a known-good test data record for a scenario.",
     )
     def qa_find_data_prompt(scenario: str) -> str:
@@ -821,7 +946,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         )
 
     @mcp.prompt(
-        name="qa_explain_data_needs",
+        name="sumo_qa_explain_data_needs",
         description="Explain the test data shape needed for a scenario before searching for records.",
     )
     def qa_explain_data_needs_prompt(scenario: str) -> str:
@@ -832,7 +957,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         )
 
     @mcp.prompt(
-        name="qa_validate_data",
+        name="sumo_qa_validate_data",
         description="Validate a known-good test data entry by id or full record.",
     )
     def qa_validate_data_prompt(entry_id_or_entry: str) -> str:
@@ -842,6 +967,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             "confidence."
         )
 
+    _attach_output_schemas(mcp)
     return mcp
 
 

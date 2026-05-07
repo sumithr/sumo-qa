@@ -75,13 +75,13 @@ def test_skill_has_red_flags_section(skill_name: str) -> None:
 @pytest.mark.parametrize(
     "skill_name,must_reference_tool",
     [
-        ("using-sumo-qa", "qa_decide_approach"),
-        ("sumo-qa-strategising", "qa_decide_approach"),
-        ("qa-deciding-approach", "qa_decide_approach"),
-        ("qa-implementing-with-tdd", "qa_scaffold_tests"),
-        ("qa-strengthening-tests", "qa_scaffold_tests"),
-        ("qa-reviewing-before-merge", "qa_review_local_change"),
-        ("qa-finding-test-data", "qa_find_test_data"),
+        ("using-sumo-qa", "sumo_qa_decide_approach"),
+        ("sumo-qa-strategising", "sumo_qa_decide_approach"),
+        ("qa-deciding-approach", "sumo_qa_decide_approach"),
+        ("qa-implementing-with-tdd", "sumo_qa_scaffold_tests"),
+        ("qa-strengthening-tests", "sumo_qa_scaffold_tests"),
+        ("qa-reviewing-before-merge", "sumo_qa_review_local_change"),
+        ("qa-finding-test-data", "sumo_qa_find_test_data"),
     ],
 )
 def test_skill_references_its_primary_mcp_tool(skill_name: str, must_reference_tool: str) -> None:
@@ -114,14 +114,14 @@ def test_host_agnostic_workflow_doc_exists_and_covers_every_tool() -> None:
     text = workflow.read_text(encoding="utf-8")
     # Every primary MCP tool must be referenced so the discipline is complete.
     for tool in (
-        "qa_decide_approach",
-        "qa_scaffold_tests",
-        "qa_review_local_change",
-        "qa_create_test_plan",
-        "qa_find_test_data",
-        "qa_explain_test_data_requirements",
-        "qa_validate_test_data",
-        "qa_register_known_good_test_data",
+        "sumo_qa_decide_approach",
+        "sumo_qa_scaffold_tests",
+        "sumo_qa_review_local_change",
+        "sumo_qa_create_test_plan",
+        "sumo_qa_find_test_data",
+        "sumo_qa_explain_test_data_requirements",
+        "sumo_qa_validate_test_data",
+        "sumo_qa_register_known_good_test_data",
     ):
         assert tool in text, f"workflow doc does not reference MCP tool {tool!r}"
 
