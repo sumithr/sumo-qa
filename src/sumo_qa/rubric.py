@@ -114,6 +114,15 @@ RUBRIC_DIMENSIONS: tuple[RubricDimension, ...] = (
             "concrete; junior QA voice is abstract."
         ),
     ),
+    RubricDimension(
+        id="no_generic_advice",
+        title="No generic advice",
+        description=(
+            "Every recommendation is tied to a specific risk of THIS change. "
+            "Boilerplate ('write more tests', 'consider edge cases', 'follow "
+            "QA best practices') is NOT a recommendation."
+        ),
+    ),
 )
 
 
