@@ -5,11 +5,16 @@ from sumo_qa.rubric import (
 )
 
 
-def test_rubric_has_nine_dimensions() -> None:
-    assert len(RUBRIC_DIMENSIONS) == 9
+def test_rubric_has_ten_dimensions() -> None:
+    assert len(RUBRIC_DIMENSIONS) == 10
 
 
 def test_rubric_dimensions_cover_spec() -> None:
+    """The rubric must implement EXACTLY the 10 dimensions from the spec.
+
+    Strict equality so a renamed / dropped / silently-folded dimension
+    surfaces as a test failure rather than a quiet drift.
+    """
     expected_ids = {
         "principle_citation",
         "smallest_useful_test_set",
@@ -23,11 +28,7 @@ def test_rubric_dimensions_cover_spec() -> None:
         "no_generic_advice",
     }
     actual_ids = {d.id for d in RUBRIC_DIMENSIONS}
-    # Spec lists 9 dimensions; "no_generic_advice" is one of them, so the
-    # canonical list has 9 of the 10 names above (one is folded into
-    # smallest_useful_test_set or named_techniques in the implementation).
-    assert actual_ids.issubset(expected_ids)
-    assert len(actual_ids) == 9
+    assert actual_ids == expected_ids
 
 
 def test_verdicts_match_spec() -> None:
