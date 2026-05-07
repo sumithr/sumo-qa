@@ -148,7 +148,6 @@ SCENARIOS: list[RepoScenario] = [
             "principle_citation",
             "decisive_routing",
             "no_waived_evidence",
-            "verify-existing",
         ],
         repo_files_to_load=["src/main/kotlin/com/johnlewis/byvariantdatafeeder"],
     ),
@@ -206,6 +205,36 @@ SCENARIOS: list[RepoScenario] = [
         specificity="moderate",
         rubric_focus=["decisive_routing", "no_generic_advice", "strengthen-test-coverage"],
         repo_files_to_load=["src/main/kotlin/com/johnlewis/byvariantdatafeeder"],
+    ),
+    RepoScenario(
+        id="moderate.config-ttl-bump",
+        description=(
+            "verify-existing scenario: bump the JWT refresh-token TTL from 7d to 14d "
+            "in application.yml — config-only change, no production code touched. "
+            "The AI must NOT scaffold new tests; it must say 'run the existing "
+            "auth integration suite + a smoke of the refresh path' and explain why "
+            "writing new tests would add no release confidence."
+        ),
+        tool="qa_decide_approach",
+        args={
+            "intent_text": (
+                "bump JWT refresh-token TTL from 7d to 14d in application.yml — "
+                "no code change, just a config tweak"
+            ),
+            "target_paths": [
+                "src/main/resources/application.yml",
+            ],
+            "signals": {"is_config_only": True},
+        },
+        specificity="moderate",
+        rubric_focus=[
+            "decisive_routing",
+            "no_generic_advice",
+            "verify-existing",
+        ],
+        repo_files_to_load=[
+            "src/main/resources",
+        ],
     ),
     # --------------------- generic (broad QA question) ----------------------
     RepoScenario(
