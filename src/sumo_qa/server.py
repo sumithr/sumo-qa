@@ -1,10 +1,29 @@
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.llm import HostSamplingClient
 from sumo_qa.tools import QAShiftLeftService, _slim
+
+
+# Reusable actionable hints for isError envelopes. Hosts surface these to the
+# user when a tool fails, so they should describe a concrete next step rather
+# than restate the error.
+_HINT_STANDARDS_MISSING = (
+    "If standards/packs/*.yaml is missing, run `git status` to confirm the working "
+    "tree is intact."
+)
+_HINT_LOCAL_FILES_MISSING = (
+    "If the working tree or knowledge/test_data/ is missing files, confirm the repo "
+    "is checked out."
+)
+_HINT_TEST_DATA_WRITE = (
+    "If the write fails, confirm `knowledge/test_data/` is writable and the entry's "
+    "`domain` field matches an existing folder."
+)
 
 
 def _maybe_host_llm(ctx: Any) -> HostSamplingClient | None:
@@ -29,6 +48,22 @@ def _maybe_host_llm(ctx: Any) -> HostSamplingClient | None:
     return HostSamplingClient(session=session)
 
 
+def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
+    """Wrap an exception in the MCP `isError` envelope.
+
+    The host surfaces `error.actionable_hint` to the user when the protocol
+    error pattern is suppressed in favour of structured tool output.
+    """
+    return {
+        "isError": True,
+        "error": {
+            "type": exc.__class__.__name__,
+            "message": str(exc).strip() or "(no message)",
+            "actionable_hint": actionable_hint,
+        },
+    }
+
+
 def build_service() -> QAShiftLeftService:
     standards_path = Path(os.environ.get("QA_STANDARDS_PATH", "standards/packs"))
     rules_path = Path(os.environ.get("QA_RULES_PATH", "standards/rules/change_rules.yaml"))
@@ -39,19 +74,83 @@ def build_service() -> QAShiftLeftService:
 def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     try:
         from mcp.server.fastmcp import Context, FastMCP
+        from mcp.types import ToolAnnotations
     except ImportError as exc:
         raise RuntimeError("The MCP SDK is not installed. Run `pip install -e .`.") from exc
 
     qa_service = service or build_service()
-    mcp = FastMCP("qa-shift-left-mcp")
+    mcp = FastMCP("sumo-qa")
 
-    @mcp.tool()
+    # Standard annotation patterns. The QA reasoning tools are read-only and
+    # idempotent. Only `qa_register_known_good_test_data` writes to disk, and
+    # even then the operation is additive (never deletes), so destructiveHint
+    # stays false.
+    _read_only_local = ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+    _read_only_open_world = ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+    _writer_local = ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=False,
+    )
+
+    @mcp.tool(annotations=_read_only_local)
     async def qa_prepare_for_work(
         work_item: str,
-        acceptance_criteria: list | None = None,
-        risk_notes: list | None = None,
-        explicit_classifications: list | None = None,
-        target_paths: list | None = None,
+        acceptance_criteria: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Acceptance criteria for this work, one per item.",
+                examples=[[
+                    "Refresh tokens older than 7 days are rejected",
+                    "Tokens are rotated on use",
+                ]],
+            ),
+        ] = None,
+        risk_notes: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Known risks the author already considered, one per item.",
+                examples=[[
+                    "Concurrent refresh from two devices may double-rotate",
+                    "Downstream service caches the old token for 60s",
+                ]],
+            ),
+        ] = None,
+        explicit_classifications: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description=(
+                    "Canonical change classifications. See qa_prepare_for_work "
+                    "docstring for the full list."
+                ),
+                examples=[["api_contract_change", "data_mapping_change"]],
+            ),
+        ] = None,
+        target_paths: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Concrete files / classes / modules in the target repo.",
+                examples=[[
+                    "src/auth/refresh.py",
+                    "src/auth/session.py::SessionManager.refresh",
+                ]],
+            ),
+        ] = None,
         ctx: Context = None,
     ) -> dict:
         """Generate a QA plan from a work item, user story, ticket, or feature description.
@@ -81,6 +180,15 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         I think about", "what tests should I write for this story", "what's the
         test plan for X".
         """
+        try:
+            output = _slim(await qa_service.aqa_prepare_for_work(
+                work_item, acceptance_criteria, risk_notes,
+                async_llm=_maybe_host_llm(ctx),
+                explicit_classifications=explicit_classifications,
+                target_paths=target_paths,
+            ))
+        except Exception as exc:  # noqa: BLE001 — wrap into isError envelope
+            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
         return maybe_capture(
             tool="qa_prepare_for_work",
             args={
@@ -90,21 +198,43 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "explicit_classifications": explicit_classifications,
                 "target_paths": target_paths,
             },
-            output=_slim(await qa_service.aqa_prepare_for_work(
-                work_item, acceptance_criteria, risk_notes,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-                target_paths=target_paths,
-            )),
+            output=output,
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=_read_only_open_world)
     async def qa_review_local_change(
         change_summary: str,
         diff: str = "",
-        touched_files: list | None = None,
-        test_evidence: list | None = None,
-        explicit_classifications: list | None = None,
+        touched_files: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Files modified by this change, relative to repo root.",
+                examples=[[
+                    "src/auth/refresh.py",
+                    "tests/test_refresh.py",
+                ]],
+            ),
+        ] = None,
+        test_evidence: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Evidence already gathered (test runs, manual checks).",
+                examples=[[
+                    "pytest tests/test_refresh.py -v (10 passed)",
+                    "Manually verified expired-token rejection",
+                ]],
+            ),
+        ] = None,
+        explicit_classifications: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Canonical change classifications (see qa_prepare_for_work).",
+                examples=[["api_contract_change", "security_change"]],
+            ),
+        ] = None,
         ctx: Context = None,
     ) -> dict:
         """Review uncommitted code, a diff, or a list of touched files for QA risk.
@@ -126,6 +256,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         change", "look at my diff and tell me what to test", "is this change
         risky".
         """
+        try:
+            output = _slim(await qa_service.aqa_review_local_change(
+                change_summary, diff, touched_files, test_evidence,
+                async_llm=_maybe_host_llm(ctx),
+                explicit_classifications=explicit_classifications,
+            ))
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
         return maybe_capture(
             tool="qa_review_local_change",
             args={
@@ -135,20 +273,40 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "test_evidence": test_evidence,
                 "explicit_classifications": explicit_classifications,
             },
-            output=_slim(await qa_service.aqa_review_local_change(
-                change_summary, diff, touched_files, test_evidence,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-            )),
+            output=output,
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=_read_only_local)
     async def qa_create_test_plan(
         work_item: str,
         scope_size: str = "medium",
-        acceptance_criteria: list | None = None,
-        risk_notes: list | None = None,
-        explicit_classifications: list | None = None,
+        acceptance_criteria: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Acceptance criteria, one per item.",
+                examples=[[
+                    "Refresh rejects tokens older than 7 days",
+                    "Refresh emits an audit event on every rotation",
+                ]],
+            ),
+        ] = None,
+        risk_notes: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Risks the author already considered.",
+                examples=[["Race between two refresh requests for the same token"]],
+            ),
+        ] = None,
+        explicit_classifications: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Canonical change classifications (see qa_prepare_for_work).",
+                examples=[["api_contract_change", "security_change"]],
+            ),
+        ] = None,
         ctx: Context = None,
     ) -> dict:
         """Produce a phased ISTQB-style test plan with entry/exit criteria and deliverables.
@@ -166,6 +324,17 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         "draft the test plan I should follow for X", "I'm starting a major
         feature, plan QA properly", "what are the entry/exit criteria for X".
         """
+        try:
+            output = _slim(await qa_service.aqa_create_test_plan(
+                work_item,
+                scope_size,
+                acceptance_criteria,
+                risk_notes,
+                async_llm=_maybe_host_llm(ctx),
+                explicit_classifications=explicit_classifications,
+            ))
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
         return maybe_capture(
             tool="qa_create_test_plan",
             args={
@@ -175,21 +344,31 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "risk_notes": risk_notes,
                 "explicit_classifications": explicit_classifications,
             },
-            output=_slim(await qa_service.aqa_create_test_plan(
-                work_item,
-                scope_size,
-                acceptance_criteria,
-                risk_notes,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-            )),
+            output=output,
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=_read_only_local)
     async def qa_decide_approach(
         intent_text: str,
-        target_paths: list | None = None,
-        signals: dict | None = None,
+        target_paths: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Concrete files / classes / modules the work touches.",
+                examples=[["src/auth/refresh.py", "src/auth/session.py"]],
+            ),
+        ] = None,
+        signals: Annotated[
+            dict | None,
+            Field(
+                default=None,
+                description=(
+                    "Optional signals the host has already gathered (e.g. "
+                    "{'has_existing_tests': true, 'is_bug_fix': false})."
+                ),
+                examples=[{"has_existing_tests": True, "scope_size": "small"}],
+            ),
+        ] = None,
         ctx: Context = None,
     ) -> dict:  # noqa: D401  (long description below)
         """Decide which QA approach fits this change shape, before doing any deeper work.
@@ -212,6 +391,15 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         "is this a TDD case or a regression test", "what's the right testing
         strategy for X", "do I even need tests for X".
         """
+        try:
+            output = _slim(await qa_service.aqa_decide_approach(
+                intent_text,
+                target_paths,
+                signals,
+                async_llm=_maybe_host_llm(ctx),
+            ))
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
         return maybe_capture(
             tool="qa_decide_approach",
             args={
@@ -219,20 +407,39 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "target_paths": target_paths,
                 "signals": signals,
             },
-            output=_slim(await qa_service.aqa_decide_approach(
-                intent_text,
-                target_paths,
-                signals,
-                async_llm=_maybe_host_llm(ctx),
-            )),
+            output=output,
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=_read_only_local)
     async def qa_scaffold_tests(
         work_item: str,
-        test_conditions: list | None = None,
-        target_paths: list | None = None,
-        explicit_classifications: list | None = None,
+        test_conditions: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Specific behaviours to cover, one per item.",
+                examples=[[
+                    "Reject tokens older than 7 days",
+                    "Rotate token on every successful refresh",
+                ]],
+            ),
+        ] = None,
+        target_paths: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Source paths to anchor the scaffold to.",
+                examples=[["src/auth/refresh.py"]],
+            ),
+        ] = None,
+        explicit_classifications: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Canonical change classifications (see qa_prepare_for_work).",
+                examples=[["api_contract_change", "security_change"]],
+            ),
+        ] = None,
         ctx: Context = None,
     ) -> dict:
         """Produce structured test-scaffold tasks the host model writes with its own file tools.
@@ -264,6 +471,16 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         test suite for X", "give me the failing tests so I can implement
         against them", "create the test stubs for X".
         """
+        try:
+            output = _slim(await qa_service.aqa_scaffold_tests(
+                work_item,
+                test_conditions,
+                target_paths,
+                async_llm=_maybe_host_llm(ctx),
+                explicit_classifications=explicit_classifications,
+            ))
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
         return maybe_capture(
             tool="qa_scaffold_tests",
             args={
@@ -272,20 +489,21 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "target_paths": target_paths,
                 "explicit_classifications": explicit_classifications,
             },
-            output=_slim(await qa_service.aqa_scaffold_tests(
-                work_item,
-                test_conditions,
-                target_paths,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-            )),
+            output=output,
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=_read_only_local)
     async def qa_answer_testing_question(
         question: str,
         context: str = "",
-        explicit_classifications: list | None = None,
+        explicit_classifications: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Canonical change classifications (see qa_prepare_for_work).",
+                examples=[["api_contract_change"]],
+            ),
+        ] = None,
         ctx: Context = None,
     ) -> dict:
         """Answer a free-form testing question with risk-based, actionable QA guidance.
@@ -299,6 +517,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         X", "should I write a unit or integration test for Z", "how do I verify
         X", "what tests would prove X".
         """
+        try:
+            output = _slim(await qa_service.aqa_answer_testing_question(
+                question, context,
+                async_llm=_maybe_host_llm(ctx),
+                explicit_classifications=explicit_classifications,
+            ))
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
         return maybe_capture(
             tool="qa_answer_testing_question",
             args={
@@ -306,14 +532,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "context": context,
                 "explicit_classifications": explicit_classifications,
             },
-            output=_slim(await qa_service.aqa_answer_testing_question(
-                question, context,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-            )),
+            output=output,
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=_read_only_local)
     def qa_explain_test_data_requirements(
         question: str,
         environment: str = "",
@@ -332,6 +554,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         "what's the minimum data setup for X", "what edge-case data should I
         test".
         """
+        try:
+            output = _slim(qa_service.qa_explain_test_data_requirements(question, environment, domain))
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
         return maybe_capture(
             tool="qa_explain_test_data_requirements",
             args={
@@ -339,18 +565,33 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "environment": environment,
                 "domain": domain,
             },
-            output=_slim(qa_service.qa_explain_test_data_requirements(question, environment, domain)),
+            output=output,
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=_read_only_local)
     def qa_find_test_data(
         environment: str = "",
         domain: str = "",
-        scenario_tags: list | None = None,
-        known_valid_for: list | None = None,
+        scenario_tags: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Scenario tags to match against catalogue entries.",
+                examples=[["out_of_area", "fulfilment_pricing"]],
+            ),
+        ] = None,
+        known_valid_for: Annotated[
+            list | None,
+            Field(
+                default=None,
+                description="Use-case labels the entry has been validated for.",
+                examples=[["out-of-area fulfilment pricing"]],
+            ),
+        ] = None,
         product_id: str = "",
         sku: str = "",
         limit: int = 5,
+        offset: int = 0,
     ) -> dict:
         """Search the local known-good test data catalogue for entries that match a scenario.
 
@@ -359,11 +600,28 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         only; no external lookups. Optional `scenario_tags` and `known_valid_for`
         narrow the search.
 
+        Pagination: pass `offset` to skip the first N matches, and read
+        `total_count`, `has_more`, and `next_offset` on the response to walk
+        pages. When `has_more` is false, `next_offset` is null.
+
         Common natural-language phrasings that map to this tool:
         "find me test data for X", "do we have a known-good record for X",
         "give me a SKU / product / account that does X", "is there a fixture
         for X", "what test data is available for X".
         """
+        try:
+            output = _slim(qa_service.qa_find_test_data(
+                environment,
+                domain,
+                scenario_tags,
+                known_valid_for,
+                product_id,
+                sku,
+                limit,
+                offset,
+            ))
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
         return maybe_capture(
             tool="qa_find_test_data",
             args={
@@ -374,19 +632,12 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "product_id": product_id,
                 "sku": sku,
                 "limit": limit,
+                "offset": offset,
             },
-            output=_slim(qa_service.qa_find_test_data(
-                environment,
-                domain,
-                scenario_tags,
-                known_valid_for,
-                product_id,
-                sku,
-                limit,
-            )),
+            output=output,
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=_read_only_local)
     def qa_validate_test_data(
         entry_id: str | None = None,
         entry: dict | None = None,
@@ -401,16 +652,20 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         "is this test data still valid", "validate this record", "is entry X
         still good", "check if X is fresh".
         """
+        try:
+            output = _slim(qa_service.qa_validate_test_data(entry_id, entry))
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
         return maybe_capture(
             tool="qa_validate_test_data",
             args={
                 "entry_id": entry_id,
                 "entry": entry,
             },
-            output=_slim(qa_service.qa_validate_test_data(entry_id, entry)),
+            output=output,
         )
 
-    @mcp.tool()
+    @mcp.tool(annotations=_writer_local)
     def qa_register_known_good_test_data(entry: dict) -> dict:
         """Add or update a known-good test data entry in the local YAML catalogue.
 
@@ -422,12 +677,16 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         can reuse it", "promote this record to known-good", "update the
         validated timestamp on entry X", "add this SKU to the catalogue".
         """
+        try:
+            output = _slim(qa_service.qa_register_known_good_test_data(entry))
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_TEST_DATA_WRITE)
         return maybe_capture(
             tool="qa_register_known_good_test_data",
             args={
                 "entry": entry,
             },
-            output=_slim(qa_service.qa_register_known_good_test_data(entry)),
+            output=output,
         )
 
     @mcp.prompt(
