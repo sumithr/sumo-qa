@@ -21,6 +21,16 @@ SPECIFICITY_VALUES: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class RepoScenario:
+    """One scenario the iteration loop dispatches to a subagent.
+
+    `rubric_focus` is a list of tags this scenario is meant to stress.
+    Tags can be either rubric dimension IDs (e.g. `principle_citation`,
+    `decisive_routing`) or canonical approach names (e.g. `tdd-scaffold`,
+    `verify-existing`). The mixed vocabulary is intentional — approach
+    names double as searchable tags so the canonical-approach coverage
+    test can find them.
+    """
+
     id: str
     description: str
     tool: str
@@ -28,10 +38,6 @@ class RepoScenario:
     specificity: str
     rubric_focus: list[str] = field(default_factory=list)
     repo_files_to_load: list[str] = field(default_factory=list)
-
-
-# Repo we test against. Read-only — never mutated by the iteration loop.
-_REPO = "/Users/SumithRamsookbhai/Desktop/repos/apo/apo-configurator/by-variant-data-feeder"
 
 
 SCENARIOS: list[RepoScenario] = [
