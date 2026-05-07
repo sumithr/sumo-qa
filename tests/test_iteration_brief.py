@@ -39,3 +39,39 @@ def test_brief_demands_structured_verdict_back_to_main_thread() -> None:
     assert "named_gaps" in brief
     assert "suggested_prompt_fixes" in brief
     assert "JSON" in brief or "json" in brief
+
+
+def test_target_repo_path_is_configurable_via_env(monkeypatch) -> None:
+    monkeypatch.setenv("SUMO_QA_TARGET_REPO", "/some/other/repo")
+    # The constant is read at import time; reload to pick up the override.
+    import importlib
+    import evaluation.iteration_brief as brief_mod
+    importlib.reload(brief_mod)
+    try:
+        assert brief_mod.TARGET_REPO_PATH == "/some/other/repo"
+    finally:
+        # Reload again without the env so other tests see the default.
+        monkeypatch.delenv("SUMO_QA_TARGET_REPO")
+        importlib.reload(brief_mod)
+
+
+def test_brief_uses_target_repo_path_constant() -> None:
+    from evaluation.iteration_brief import TARGET_REPO_PATH, build_subagent_brief
+    brief = build_subagent_brief(SCENARIOS[0])
+    assert TARGET_REPO_PATH in brief
+
+
+def test_brief_raises_for_unmapped_tool() -> None:
+    import pytest
+    from evaluation.iteration_brief import build_subagent_brief
+    from evaluation.repo_scenarios import RepoScenario
+
+    bogus = RepoScenario(
+        id="x",
+        description="x",
+        tool="qa_does_not_exist",
+        args={},
+        specificity="moderate",
+    )
+    with pytest.raises(ValueError, match="No prompt builder mapped"):
+        build_subagent_brief(bogus)

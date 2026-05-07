@@ -13,10 +13,18 @@ No disk writes; all the bulky context lives in the subagent's context.
 from __future__ import annotations
 
 import json
+import os
 
 from sumo_qa.rubric import build_rubric_prompt
 
 from evaluation.repo_scenarios import RepoScenario
+
+
+# Path to the repo we test against. Override via SUMO_QA_TARGET_REPO env var.
+TARGET_REPO_PATH = os.environ.get(
+    "SUMO_QA_TARGET_REPO",
+    "/Users/SumithRamsookbhai/Desktop/repos/apo/apo-configurator/by-variant-data-feeder",
+)
 
 
 _TOOL_TO_PROMPT_BUILDER: dict[str, str] = {
@@ -31,9 +39,13 @@ _TOOL_TO_PROMPT_BUILDER: dict[str, str] = {
 
 def build_subagent_brief(scenario: RepoScenario) -> str:
     """Return the prompt for a subagent that runs ONE scenario end-to-end."""
-    builder_name = _TOOL_TO_PROMPT_BUILDER.get(
-        scenario.tool, f"<no builder mapped for {scenario.tool}>"
-    )
+    try:
+        builder_name = _TOOL_TO_PROMPT_BUILDER[scenario.tool]
+    except KeyError as exc:
+        raise ValueError(
+            f"No prompt builder mapped for tool {scenario.tool!r}. "
+            f"Add it to _TOOL_TO_PROMPT_BUILDER in evaluation/iteration_brief.py."
+        ) from exc
     repo_files_block = (
         "\n".join(f"  - {p}" for p in scenario.repo_files_to_load)
         if scenario.repo_files_to_load
@@ -42,7 +54,7 @@ def build_subagent_brief(scenario: RepoScenario) -> str:
     rubric_prompt = build_rubric_prompt(
         scenario_id=scenario.id,
         scenario_description=scenario.description,
-        ai_output="<your output from step 4 below — substitute the full text here>",
+        ai_output="<your step-3 output — substitute the full text here>",
     )
 
     return (
@@ -59,7 +71,7 @@ def build_subagent_brief(scenario: RepoScenario) -> str:
         f"  - standards/rules/change_rules.yaml\n\n"
         f"## Step 2 — read the by-variant-data-feeder repo context\n\n"
         f"Read these paths from the by-variant-data-feeder repo (located at "
-        f"/Users/SumithRamsookbhai/Desktop/repos/apo/apo-configurator/by-variant-data-feeder):\n"
+        f"{TARGET_REPO_PATH}):\n"
         f"{repo_files_block}\n\n"
         f"## Step 3 — apply the prompts to the scenario inputs\n\n"
         f"The MCP would invoke `{scenario.tool}` with these arguments:\n"
