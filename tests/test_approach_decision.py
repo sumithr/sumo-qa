@@ -77,7 +77,7 @@ def test_acceptance_criteria_signal_lifts_default_confidence_to_medium() -> None
 
     assert decision["approach"] == "tdd-scaffold"
     assert decision["confidence"] == "medium"
-    assert decision["next_action"]["tool"] == "qa_scaffold_tests"
+    assert decision["next_action"]["tool"] == "sumo_qa_scaffold_tests"
 
 
 def test_alternatives_are_listed_so_user_can_override() -> None:
@@ -147,7 +147,7 @@ def test_is_bug_signal_routes_to_regression_first() -> None:
         signals={"is_bug": True},
     )
     assert decision["approach"] == "regression-first"
-    assert decision["next_action"]["tool"] == "qa_scaffold_tests"
+    assert decision["next_action"]["tool"] == "sumo_qa_scaffold_tests"
     rationale = decision["rationale"].lower()
     assert "reproduce" in rationale or "failing test" in rationale or "regression" in rationale
 
@@ -170,7 +170,7 @@ def test_is_test_only_signal_routes_to_strengthen_test_coverage() -> None:
         signals={"is_test_only": True},
     )
     assert decision["approach"] == "strengthen-test-coverage"
-    assert decision["next_action"]["tool"] == "qa_scaffold_tests"
+    assert decision["next_action"]["tool"] == "sumo_qa_scaffold_tests"
 
 
 def test_is_spike_signal_routes_to_spike_first_then_tests() -> None:

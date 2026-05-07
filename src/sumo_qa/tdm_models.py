@@ -61,7 +61,7 @@ class ValidationResult(BaseModel):
 class TestDataRequirements(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tool: Literal["qa_explain_test_data_requirements"] = "qa_explain_test_data_requirements"
+    tool: Literal["sumo_qa_explain_test_data_requirements"] = "sumo_qa_explain_test_data_requirements"
     summary: str
     domain: str
     environment: str | None = None
@@ -89,7 +89,7 @@ class TestDataSearchResult(BaseModel):
 class TestDataFindResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tool: Literal["qa_find_test_data"] = "qa_find_test_data"
+    tool: Literal["sumo_qa_find_test_data"] = "sumo_qa_find_test_data"
     query: dict[str, object]
     results: list[TestDataSearchResult]
     total_count: int = 0
@@ -104,7 +104,7 @@ class TestDataFindResponse(BaseModel):
 class TestDataValidateResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tool: Literal["qa_validate_test_data"] = "qa_validate_test_data"
+    tool: Literal["sumo_qa_validate_test_data"] = "sumo_qa_validate_test_data"
     entry: TestDataEntry
     validation: ValidationResult
 
@@ -112,7 +112,7 @@ class TestDataValidateResponse(BaseModel):
 class TestDataRegisterResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tool: Literal["qa_register_known_good_test_data"] = "qa_register_known_good_test_data"
+    tool: Literal["sumo_qa_register_known_good_test_data"] = "sumo_qa_register_known_good_test_data"
     action: Literal["created", "updated", "duplicate"]
     entry: TestDataEntry
     validation: ValidationResult

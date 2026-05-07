@@ -28,12 +28,12 @@ TARGET_REPO_PATH = os.environ.get(
 
 
 _TOOL_TO_PROMPT_BUILDER: dict[str, str] = {
-    "qa_decide_approach": "_build_decide_approach_sampling_prompt",
-    "qa_review_local_change": "_build_review_sampling_prompt",
-    "qa_prepare_for_work": "_build_prepare_sampling_prompt",
-    "qa_create_test_plan": "_build_test_plan_sampling_prompt",
-    "qa_scaffold_tests": "_build_scaffold_sampling_prompt",
-    "qa_answer_testing_question": "_build_question_sampling_prompt",
+    "sumo_qa_decide_approach": "_build_decide_approach_sampling_prompt",
+    "sumo_qa_review_local_change": "_build_review_sampling_prompt",
+    "sumo_qa_prepare_for_work": "_build_prepare_sampling_prompt",
+    "sumo_qa_create_test_plan": "_build_test_plan_sampling_prompt",
+    "sumo_qa_scaffold_tests": "_build_scaffold_sampling_prompt",
+    "sumo_qa_answer_testing_question": "_build_question_sampling_prompt",
 }
 
 

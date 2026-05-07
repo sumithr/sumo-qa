@@ -549,7 +549,7 @@ class QAShiftLeftService:
         )
         decision["reasoned_by"] = "deterministic"
         return {
-            "tool": "qa_decide_approach",
+            "tool": "sumo_qa_decide_approach",
             "intent_text": intent_text,
             "target_paths": targets,
             "change_classification": classification.to_dict(),
@@ -2465,36 +2465,36 @@ def _dedupe(items: list[str]) -> list[str]:
 #
 
 _PRIMARY_FIELDS_BY_TOOL: dict[str, tuple[str, ...]] = {
-    "qa_prepare_for_work": (
+    "sumo_qa_prepare_for_work": (
         "tool", "headline", "top_risks", "suggested_tests",
         "missing_information", "confidence", "presentation",
         "test_design_techniques", "specialty_testing_needs",
         "recommended_approach", "applied_rules",
     ),
-    "qa_review_local_change": (
+    "sumo_qa_review_local_change": (
         "tool", "headline", "verdict", "top_risks", "qa_findings",
         "suggested_tests", "missing_information", "confidence",
         "presentation", "test_design_techniques", "specialty_testing_needs",
         "recommended_approach", "applied_rules",
     ),
-    "qa_answer_testing_question": (
+    "sumo_qa_answer_testing_question": (
         "tool", "headline", "answer", "top_risks", "suggested_tests",
         "missing_information", "confidence", "presentation",
         "test_design_techniques", "specialty_testing_needs",
         "recommended_approach", "applied_rules",
     ),
-    "qa_create_test_plan": (
+    "sumo_qa_create_test_plan": (
         "tool", "headline", "test_plan", "top_risks", "suggested_tests",
         "missing_information", "confidence", "presentation",
         "test_design_techniques", "specialty_testing_needs",
         "recommended_approach", "scope_size", "applied_rules",
     ),
-    "qa_scaffold_tests": (
+    "sumo_qa_scaffold_tests": (
         "tool", "headline", "tasks", "execution_order",
         "missing_information", "confidence", "presentation",
         "specialty_testing_needs", "recommended_approach",
     ),
-    "qa_decide_approach": (
+    "sumo_qa_decide_approach": (
         "tool", "recommended_approach", "presentation",
     ),
 }

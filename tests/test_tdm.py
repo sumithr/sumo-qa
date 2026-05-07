@@ -40,7 +40,7 @@ def test_explain_test_data_requirements_is_senior_qa_focused() -> None:
         domain="fulfilment",
     )
 
-    assert result["tool"] == "qa_explain_test_data_requirements"
+    assert result["tool"] == "sumo_qa_explain_test_data_requirements"
     assert result["domain"] == "fulfilment"
     assert result["fulfilment_conditions"], "must surface fulfilment-condition skeleton"
     assert result["what_not_to_use"], "must surface what-not-to-use skeleton"
@@ -84,7 +84,7 @@ def test_find_test_data_filters_and_explains_suitability() -> None:
         known_valid_for=["out-of-area fulfilment pricing"],
     )
 
-    assert result["tool"] == "qa_find_test_data"
+    assert result["tool"] == "sumo_qa_find_test_data"
     assert result["results"]
     assert result["results"][0]["entry"]["id"] == "fulfilment-out-of-area-001"
     assert "known valid for" in result["results"][0]["suitability_reason"]
@@ -224,7 +224,7 @@ def test_mock_validator_flags_high_confidence_with_stale_freshness() -> None:
 def test_validate_test_data_reports_freshness_and_confidence() -> None:
     result = service().qa_validate_test_data(entry_id="stock-pricing-validation-001")
 
-    assert result["tool"] == "qa_validate_test_data"
+    assert result["tool"] == "sumo_qa_validate_test_data"
     assert result["validation"]["validation_source"] == "mock-heuristic-validator"
     assert result["validation"]["freshness"]["status"] == "aging"
     assert result["validation"]["confidence"]["level"] == "medium"

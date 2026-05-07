@@ -90,7 +90,7 @@ class QAResponseBase(BaseModel):
 
 
 class PrepareForWorkResponse(QAResponseBase):
-    tool: Literal["qa_prepare_for_work"] = "qa_prepare_for_work"
+    tool: Literal["sumo_qa_prepare_for_work"] = "sumo_qa_prepare_for_work"
     work_item: str
     target_paths: list[str] = Field(default_factory=list)
     standards: dict[str, Any]
@@ -103,7 +103,7 @@ class PrepareForWorkResponse(QAResponseBase):
 
 
 class ReviewLocalChangeResponse(QAResponseBase):
-    tool: Literal["qa_review_local_change"] = "qa_review_local_change"
+    tool: Literal["sumo_qa_review_local_change"] = "sumo_qa_review_local_change"
     change_summary: str
     standards: dict[str, Any]
     knowledge_context: dict[str, Any]
@@ -118,7 +118,7 @@ class ReviewLocalChangeResponse(QAResponseBase):
 
 
 class TestingQuestionResponse(QAResponseBase):
-    tool: Literal["qa_answer_testing_question"] = "qa_answer_testing_question"
+    tool: Literal["sumo_qa_answer_testing_question"] = "sumo_qa_answer_testing_question"
     question: str
     answer: dict[str, Any]
     standards: dict[str, Any]
@@ -154,7 +154,7 @@ class TestPlan(BaseModel):
 
 
 class CreateTestPlanResponse(QAResponseBase):
-    tool: Literal["qa_create_test_plan"] = "qa_create_test_plan"
+    tool: Literal["sumo_qa_create_test_plan"] = "sumo_qa_create_test_plan"
     work_item: str
     scope_size: Literal["small", "medium", "large"]
     test_plan: TestPlan
@@ -195,7 +195,7 @@ class ScaffoldTask(BaseModel):
 
 
 class ScaffoldTestsResponse(QAResponseBase):
-    tool: Literal["qa_scaffold_tests"] = "qa_scaffold_tests"
+    tool: Literal["sumo_qa_scaffold_tests"] = "sumo_qa_scaffold_tests"
     work_item: str
     target_paths: list[str] = Field(default_factory=list)
     tasks: list[ScaffoldTask] = Field(default_factory=list)
@@ -204,3 +204,23 @@ class ScaffoldTestsResponse(QAResponseBase):
     change_classification: dict[str, Any]
     applied_rules: dict[str, Any]
     llm_analysis: dict[str, Any]
+
+
+class DecideApproachResponse(BaseModel):
+    """Response shape for `sumo_qa_decide_approach`.
+
+    Mirrors the dict produced by `QAShiftLeftService.qa_decide_approach`.
+    The `recommended_approach` and `change_classification` payloads remain
+    loosely typed because they're built by `choose_approach` and the classifier
+    respectively, which can carry tool-specific or fallback fields the host
+    only renders opportunistically.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    tool: Literal["sumo_qa_decide_approach"] = "sumo_qa_decide_approach"
+    intent_text: str
+    target_paths: list[str] = Field(default_factory=list)
+    change_classification: dict[str, Any] = Field(default_factory=dict)
+    recommended_approach: dict[str, Any] = Field(default_factory=dict)
+    presentation: dict[str, Any] = Field(default_factory=dict)

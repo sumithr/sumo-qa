@@ -50,7 +50,7 @@ SCENARIOS: list[RepoScenario] = [
             "The AI must read the diff, name the boundary cases, and produce a "
             "smallest-useful-test-set (not a generic checklist)."
         ),
-        tool="qa_review_local_change",
+        tool="sumo_qa_review_local_change",
         args={
             "change_summary": "Add empty-variants branch to BundleVariantValidator (lines 42-47).",
             "diff": (
@@ -83,7 +83,7 @@ SCENARIOS: list[RepoScenario] = [
             "that bundles with stale stock get blocked at checkout. The AI must "
             "produce a reproducer-as-failing-test path, not a TDD scaffold."
         ),
-        tool="qa_decide_approach",
+        tool="sumo_qa_decide_approach",
         args={
             "intent_text": (
                 "fix the bug where bundles with stale stock get blocked at checkout"
@@ -103,7 +103,7 @@ SCENARIOS: list[RepoScenario] = [
             "class given two acceptance criteria. The AI must produce honest red-"
             "phase scaffolds with named ISTQB techniques."
         ),
-        tool="qa_scaffold_tests",
+        tool="sumo_qa_scaffold_tests",
         args={
             "work_item": (
                 "Scaffold tests for BundleVariantValidator that block invalid "
@@ -138,7 +138,7 @@ SCENARIOS: list[RepoScenario] = [
             "character (Foundation principle 4: defects cluster on critical paths) "
             "and recommend tighter coverage + at least one boundary test per rule."
         ),
-        tool="qa_prepare_for_work",
+        tool="sumo_qa_prepare_for_work",
         args={
             "work_item": "Add JWT refresh token validation in the auth boundary",
             "acceptance_criteria": [
@@ -170,7 +170,7 @@ SCENARIOS: list[RepoScenario] = [
             "scaffold new behaviour tests; it must say 'audit existing coverage "
             "first, add characterization tests for current behaviour, THEN refactor'."
         ),
-        tool="qa_decide_approach",
+        tool="sumo_qa_decide_approach",
         args={
             "intent_text": (
                 "refactor the pricing pipeline to extract the eligibility step into "
@@ -195,7 +195,7 @@ SCENARIOS: list[RepoScenario] = [
             "new behaviour tests; it must (a) propose ONE strengthening test per "
             "real mutant and (b) suppress equivalent mutants in tool config."
         ),
-        tool="qa_decide_approach",
+        tool="sumo_qa_decide_approach",
         args={
             "intent_text": (
                 "Pitest test strength is 86% (below 87% gate, build failing). "
@@ -225,7 +225,7 @@ SCENARIOS: list[RepoScenario] = [
             "auth integration suite + a smoke of the refresh path' and explain why "
             "writing new tests would add no release confidence."
         ),
-        tool="qa_decide_approach",
+        tool="sumo_qa_decide_approach",
         args={
             "intent_text": (
                 "bump JWT refresh-token TTL from 7d to 14d in application.yml — "
@@ -255,7 +255,7 @@ SCENARIOS: list[RepoScenario] = [
             "concrete things to verify with risk-based prioritisation, and (c) "
             "name the smallest useful test set rather than a checklist."
         ),
-        tool="qa_answer_testing_question",
+        tool="sumo_qa_answer_testing_question",
         args={
             "question": "How should I test the by-variant-data-feeder service?",
             "context": "It feeds product variant availability data downstream.",
@@ -279,7 +279,7 @@ SCENARIOS: list[RepoScenario] = [
             "recommend tests; it must say 'run the build, run any doc linters, "
             "no QA test work'."
         ),
-        tool="qa_decide_approach",
+        tool="sumo_qa_decide_approach",
         args={
             "intent_text": "update README and add architecture diagram",
             "target_paths": ["README.md", "docs/architecture.md"],
@@ -299,7 +299,7 @@ SCENARIOS: list[RepoScenario] = [
             "the pyramid (unit / integration / contract / e2e), gate calibration, "
             "CI feedback time, and rollout."
         ),
-        tool="qa_decide_approach",
+        tool="sumo_qa_decide_approach",
         args={
             "intent_text": (
                 "design and implement a test strategy for the by-variant-data-feeder "
@@ -336,7 +336,7 @@ SCENARIOS: list[RepoScenario] = [
             "must NOT demand TDD discipline on the spike itself; it must say "
             "'spike freely, capture conditions for the productionised pass'."
         ),
-        tool="qa_decide_approach",
+        tool="sumo_qa_decide_approach",
         args={
             "intent_text": (
                 "spike: prototype a new pricing engine to see if the model fits — "

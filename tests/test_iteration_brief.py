@@ -69,7 +69,7 @@ def test_brief_raises_for_unmapped_tool() -> None:
     bogus = RepoScenario(
         id="x",
         description="x",
-        tool="qa_does_not_exist",
+        tool="sumo_qa_does_not_exist",
         args={},
         specificity="moderate",
     )

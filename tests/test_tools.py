@@ -38,7 +38,7 @@ def test_prepare_for_work_is_qa_focused_and_offline() -> None:
         acceptance_criteria=["Invalid postcode returns a clear rejection"],
     )
 
-    assert result["tool"] == "qa_prepare_for_work"
+    assert result["tool"] == "sumo_qa_prepare_for_work"
     assert result["knowledge_context"]["items"] == []
     assert result["summary"]
     assert result["headline"]
@@ -70,7 +70,7 @@ def test_aqa_decide_approach_uses_host_llm_when_available() -> None:
             '"rationale": "Mutation-testing follow-up on unchanged production code; '
             "Foundation principle 5 (pesticide paradox) implies refresh assertions to "
             'kill survivors.", '
-            '"next_action": {"tool": "qa_scaffold_tests"}, '
+            '"next_action": {"tool": "sumo_qa_scaffold_tests"}, '
             '"techniques": ["targeted assertion strengthening per surviving mutant"], '
             '"specialty_needs": [], '
             '"alternatives": [], '
@@ -422,7 +422,7 @@ def test_create_test_plan_returns_phased_plan_with_entry_exit_criteria() -> None
         risk_notes=["Customer-visible failure on legitimate bundles is unacceptable."],
     )
 
-    assert result["tool"] == "qa_create_test_plan"
+    assert result["tool"] == "sumo_qa_create_test_plan"
     assert result["headline"]
     # Test plan structure
     plan = result["test_plan"]
@@ -535,7 +535,7 @@ def test_answer_testing_question_returns_actionable_testing_answer() -> None:
         context="Endpoint returns eligible slots for a postcode.",
     )
 
-    assert result["tool"] == "qa_answer_testing_question"
+    assert result["tool"] == "sumo_qa_answer_testing_question"
     assert result["summary"]
     assert result["headline"]
     assert "delivery api change" in result["headline"].lower()

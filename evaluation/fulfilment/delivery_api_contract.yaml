@@ -1,0 +1,23 @@
+id: fulfilment.delivery_api_contract
+type: review
+input:
+  change_summary: "Change delivery options API response to include twoPerson service and outlet eligibility errors."
+  touched_files:
+    - src/fulfilment/api/delivery_options_controller.py
+    - src/fulfilment/schema/delivery_options_response.py
+  diff: |
+    + twoPerson: true
+    + eligibilityErrorCode: OUTLET_NOT_ELIGIBLE
+  classifications:
+    - api_contract_change
+    - business_logic_change
+expected:
+  risks:
+    - backward compatibility
+    - schema validation
+    - consumer impact
+  test_types:
+    - contract
+    - integration
+    - functional
+  confidence: medium

@@ -41,7 +41,7 @@ def test_register_known_good_test_data_returns_is_error_on_invalid_entry(tmp_pat
 
     response = _invoke_tool(
         server,
-        "qa_register_known_good_test_data",
+        "sumo_qa_register_known_good_test_data",
         entry={"id": "broken", "missing": "almost everything"},
     )
 
@@ -60,7 +60,7 @@ def test_validate_test_data_returns_is_error_when_entry_missing(tmp_path: Path) 
 
     response = _invoke_tool(
         server,
-        "qa_validate_test_data",
+        "sumo_qa_validate_test_data",
         entry_id="this-entry-does-not-exist",
     )
 
@@ -76,7 +76,7 @@ def test_is_error_envelope_carries_actionable_hint() -> None:
 
     response = _invoke_tool(
         server,
-        "qa_register_known_good_test_data",
+        "sumo_qa_register_known_good_test_data",
         entry={"id": "broken"},
     )
 

@@ -26,7 +26,7 @@ def test_scaffold_tests_returns_structured_tasks() -> None:
         target_paths=["src/orders/api.py"],
     )
 
-    assert result["tool"] == "qa_scaffold_tests"
+    assert result["tool"] == "sumo_qa_scaffold_tests"
     assert result["headline"]
     tasks = result["tasks"]
     assert len(tasks) >= 1, "expected at least one scaffold task"

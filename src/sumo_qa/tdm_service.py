@@ -250,7 +250,7 @@ def _empty_result_hints(
     else:
         hints.append(
             "the catalogue is empty for this query - register a known-good entry "
-            "with qa_register_known_good_test_data."
+            "with sumo_qa_register_known_good_test_data."
         )
     return hints
 

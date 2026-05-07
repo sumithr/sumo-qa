@@ -9,7 +9,7 @@ def test_repo_scenario_has_required_fields() -> None:
     s = RepoScenario(
         id="x",
         description="x",
-        tool="qa_decide_approach",
+        tool="sumo_qa_decide_approach",
         args={},
         specificity="moderate",
         rubric_focus=["principle_citation"],
@@ -31,7 +31,7 @@ def test_specificity_values_cover_full_spectrum() -> None:
 
 def test_repo_scenario_is_frozen() -> None:
     s = RepoScenario(
-        id="x", description="x", tool="qa_decide_approach", args={},
+        id="x", description="x", tool="sumo_qa_decide_approach", args={},
         specificity="moderate", rubric_focus=[], repo_files_to_load=[],
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -77,12 +77,12 @@ def test_every_canonical_approach_has_a_scenario() -> None:
 
 def test_every_scenario_targets_an_existing_qa_tool() -> None:
     valid_tools = {
-        "qa_decide_approach",
-        "qa_review_local_change",
-        "qa_prepare_for_work",
-        "qa_create_test_plan",
-        "qa_scaffold_tests",
-        "qa_answer_testing_question",
+        "sumo_qa_decide_approach",
+        "sumo_qa_review_local_change",
+        "sumo_qa_prepare_for_work",
+        "sumo_qa_create_test_plan",
+        "sumo_qa_scaffold_tests",
+        "sumo_qa_answer_testing_question",
     }
     for s in SCENARIOS:
         assert s.tool in valid_tools, f"unknown tool {s.tool!r} in scenario {s.id!r}"
