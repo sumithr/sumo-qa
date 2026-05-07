@@ -1941,9 +1941,14 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
         )
     base = build_guardrailed_qa_prompt(
         goal=(
-            "Refine the scaffold tasks. Keep the file paths and frameworks. "
-            "Improve assertion phrasings only if they're vague; never silently "
-            "complete a stub - red phase first, green after the user implements."
+            "Refine the scaffold tasks AND surface gaps.\n"
+            "- Keep the file paths and frameworks of host-supplied tasks unchanged.\n"
+            "- Improve assertion phrasings when they are vague.\n"
+            "- Crucially: when the host-supplied task list under-covers the validator's\n"
+            "  branches OR the supplied acceptance criteria, list the gap under\n"
+            "  `uncovered_branches`. Never silently approve under-scaffolded coverage.\n"
+            "- Never silently complete a stub - red phase first; the host implements\n"
+            "  production code only after all scaffolds fail honestly."
         ),
         facts=facts,
         classification_summary=classification_summary,
@@ -1966,6 +1971,31 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
             '      "scaffold_assertion": "<concrete assertion proving the caller refuses the operation when the validator/predicate returns non-empty violations / fails>"',
             '    }',
             '  ],',
+            '  "uncovered_branches": [',
+            '    {',
+            '      "branch_or_ac": "<the validator branch or acceptance-criterion clause that no current scaffold covers>",',
+            '      "proposed_scaffold": {',
+            '        "file_path": "<expected test file path>",',
+            '        "framework": "<test framework, matching style of host-supplied tasks>",',
+            '        "assertion": "<concrete red-phase assertion the host should add>"',
+            '      },',
+            '      "why_minimum_useful": "<why this scaffold is needed for the smallest useful set, not a nice-to-have>"',
+            '    }',
+            '  ],',
+            '  "cross_cutting_assertions": [',
+            '    {',
+            '      "ac_text": "<the verbatim acceptance criterion that applies as a property to every result entry>",',
+            '      "applies_to": "<which return shape: each violation / each result entry / each error response / etc.>",',
+            '      "assertion_template": "<concrete assertion template the host should add to every relevant test>"',
+            '    }',
+            '  ],',
+            '  "top_risks": [',
+            '    {',
+            '      "risk": "<change-specific risk in this scaffold\'s target>",',
+            '      "why_specific_to_this_change": "<reason this risk is not generic>",',
+            '      "scaffold_coverage_task_id": "<id of the task_refinement OR boundary_scaffold that covers this risk, OR \\"NONE\\" if uncovered>"',
+            '    }',
+            '  ],',
             '  "principle_citations": [',
             '    {"principle": "<ISTQB Foundation N - short name>", "applied_to_task_id": "<task id>"}',
             '  ],',
@@ -1984,6 +2014,31 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
             "at least one named ISTQB test design technique under "
             "named_techniques. Generic mentions like \"follow QA best "
             "practices\" or \"add edge cases\" are not acceptable.\n\n"
+            "Required: surface 2-5 top_risks specific to THIS change. Each "
+            "risk MUST link to the scaffold (task_refinement or "
+            "boundary_scaffold) that covers it via scaffold_coverage_task_id; "
+            "if no current scaffold covers a real risk, set "
+            "scaffold_coverage_task_id to \"NONE\" and add a corresponding "
+            "entry under uncovered_branches (see below). Generic risks like "
+            "\"the service might fail\" are not acceptable — anchor each risk "
+            "to this scaffold's target.\n\n"
+            "Required when the host-supplied task list and any "
+            "boundary_scaffolds together leave a validator branch or "
+            "acceptance-criterion clause uncovered: list each gap under "
+            "uncovered_branches with a concrete proposed_scaffold "
+            "(file_path, framework, assertion). This is how the smallest "
+            "useful test set is reached when the host under-scaffolds; do "
+            "NOT inflate the test set with nice-to-haves, only fill genuine "
+            "minimum-coverage gaps. If host-supplied tasks plus "
+            "boundary_scaffolds already cover every branch and AC clause, "
+            "return `uncovered_branches: []`.\n\n"
+            "Required when an acceptance criterion is a cross-cutting "
+            "property of every result entry (e.g. \"each violation surfaces "
+            "a clear reason and the offending SKU\" applies to every "
+            "BundlesRuleViolation in the returned list): list it under "
+            "cross_cutting_assertions so it is asserted in every relevant "
+            "scaffold rather than only the top-level test. If no AC has "
+            "this shape, return cross_cutting_assertions: [].\n\n"
             "Required when an acceptance criterion uses enforcement language "
             "('blocked at write time', 'rejected at submit', 'fails at read', "
             "'refused at handoff'): produce one boundary_scaffold entry per "

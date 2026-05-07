@@ -478,3 +478,79 @@ def test_scaffold_prompt_has_boundary_scaffolds_slot() -> None:
     # field is required versus when `[]` is acceptable.
     assert "blocked at write time" in lower
     assert "enforcement language" in lower
+
+
+# --- Round 5: scaffold prompt gets top_risks + uncovered_branches +
+# cross_cutting_assertions, and goal text allows proposing missing scaffolds ---
+
+
+def test_scaffold_prompt_has_top_risks_slot() -> None:
+    """Round-5: scaffold builder must surface change-specific top_risks each
+    linked back to the scaffold (task_refinement or boundary_scaffold) that
+    covers it. Risks shouldn't only emerge incidentally in narrative."""
+    prompt = _scaffold_prompt()
+    assert '"top_risks":' in prompt
+    assert '"risk"' in prompt
+    assert '"why_specific_to_this_change"' in prompt
+    assert '"scaffold_coverage_task_id"' in prompt
+    lower = prompt.lower()
+    # The instruction must require 2-5 risks specific to THIS change and
+    # require linking each risk to a covering scaffold (or NONE -> uncovered).
+    assert "2-5 top_risks" in lower or "2-5 top_risks specific" in lower
+    assert "specific to this change" in lower
+    assert "scaffold_coverage_task_id" in lower
+    # The "NONE" linkback to uncovered_branches must be spelled out.
+    assert '"none"' in lower
+
+
+def test_scaffold_prompt_has_uncovered_branches_slot() -> None:
+    """Round-5: when host-supplied tasks under-cover validator branches or AC
+    clauses, scaffold builder must let the AI surface gaps under
+    uncovered_branches with a proposed minimal red-phase scaffold. The old
+    'refine only' phrasing blocked this; the goal text must now invite gap
+    surfacing."""
+    prompt = _scaffold_prompt()
+    assert '"uncovered_branches":' in prompt
+    assert '"branch_or_ac"' in prompt
+    assert '"proposed_scaffold"' in prompt
+    assert '"why_minimum_useful"' in prompt
+    lower = prompt.lower()
+    # Smallest-useful-set guard: AI must not pad the test set with
+    # nice-to-haves; only fill genuine minimum-coverage gaps.
+    assert "smallest useful test set" in lower or "minimum-coverage gaps" in lower
+    assert "nice-to-haves" in lower or "nice-to-have" in lower
+
+
+def test_scaffold_prompt_has_cross_cutting_assertions_slot() -> None:
+    """Round-5: ACs that apply as a property to every result entry (e.g.
+    'each violation surfaces a clear reason and offending SKU') must be
+    captured under cross_cutting_assertions so they get asserted in every
+    relevant scaffold rather than only at the top-level test."""
+    prompt = _scaffold_prompt()
+    assert '"cross_cutting_assertions":' in prompt
+    assert '"ac_text"' in prompt
+    assert '"applies_to"' in prompt
+    assert '"assertion_template"' in prompt
+    lower = prompt.lower()
+    assert "every result entry" in lower or "every violation" in lower
+    # Empty-list contract must be spelled out so [] is allowed when no AC
+    # has the cross-cutting shape.
+    assert "cross_cutting_assertions: []" in prompt or "cross_cutting_assertions: []" in lower
+
+
+def test_scaffold_prompt_allows_proposing_uncovered_scaffolds() -> None:
+    """Round-5: the goal text must invite the AI to surface gaps when the
+    host under-scaffolds, replacing the old 'refine only' phrasing. Without
+    this, the AI silently approves under-scaffolded coverage."""
+    prompt = _scaffold_prompt()
+    # The new goal phrasing must appear verbatim.
+    assert "Refine the scaffold tasks AND surface gaps" in prompt
+    lower = prompt.lower()
+    # Old "refine only" phrasing must be gone — the AI must be allowed to
+    # propose missing scaffolds for uncovered branches.
+    assert "improve assertion phrasings only if they're vague" not in lower
+    # Red-phase honesty must still be preserved.
+    assert "red phase first" in lower
+    # The AI must be told never to silently approve under-scaffolded
+    # coverage.
+    assert "never silently approve under-scaffolded coverage" in lower
