@@ -55,10 +55,7 @@ def test_suite_spans_full_specificity_spectrum() -> None:
 
 def test_every_canonical_approach_has_a_scenario() -> None:
     """Per spec: at least one scenario per canonical approach."""
-    descriptions = " ".join(s.description.lower() for s in SCENARIOS) + " ".join(
-        " ".join(s.rubric_focus).lower() for s in SCENARIOS
-    )
-    for approach in (
+    canonical_approaches = (
         "tdd-scaffold",
         "regression-first",
         "coverage-first-then-refactor",
@@ -67,8 +64,15 @@ def test_every_canonical_approach_has_a_scenario() -> None:
         "no-tests-recommended",
         "spike-first-then-tests",
         "strategy-orchestration",
-    ):
-        assert approach in descriptions, f"missing scenario for approach {approach!r}"
+    )
+    for approach in canonical_approaches:
+        matched = [
+            s
+            for s in SCENARIOS
+            if approach in s.description.lower()
+            or approach in [r.lower() for r in s.rubric_focus]
+        ]
+        assert matched, f"missing scenario for approach {approach!r}"
 
 
 def test_every_scenario_targets_an_existing_qa_tool() -> None:
