@@ -110,6 +110,18 @@ Output discipline:
     Cypress / Playwright for frontend; Appium / Maestro for mobile;
     Promptfoo / DeepEval for AI; Pitest / Stryker for mutation).
     A bare specialty label without a tool fails the senior-QA bar.
+    Specialty pairing is CONDITIONAL on the change's actual surface, not on
+    classification flags. If the target is purely in-process (a domain
+    validator, pure function, internal helper, or any code with no HTTP /
+    queue / UI / persistence / external integration boundary), specialty_needs
+    MAY be `[]` and the reason placed under `assumptions`. Do not invent a
+    specialty just because a classification flag (e.g. api_contract_change)
+    is present — name a specialty only when the target_paths or change
+    genuinely cross a service boundary, exercise non-functional concerns
+    (perf, security, a11y), or imply a specialty test discipline (mutation
+    testing, property-based testing). When you DO name a specialty, the tool
+    you name must FIT THE RISK (e.g. JJWT integration testing for a token
+    TTL bump, not OWASP ZAP DAST scanning).
 """
 
 

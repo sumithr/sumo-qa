@@ -416,3 +416,65 @@ def test_qa_prepare_for_work_accepts_target_paths_parameter() -> None:
     assert "target_paths" in asig.parameters, (
         "aqa_prepare_for_work must accept target_paths so the MCP tool can pass it."
     )
+
+
+# --- Round 4 Fix 1: specialty pairing is CONDITIONAL --------------------
+
+
+def test_system_prompt_marks_specialty_pairing_as_conditional() -> None:
+    """Round-4: the system prompt must spell out that specialty pairing is
+    CONDITIONAL on the change's actual surface — purely in-process work
+    legitimately has `specialty_needs: []`. Round-3's blanket HARD
+    REQUIREMENT was over-strict and forced fake specialties for
+    in-process validators."""
+    sp = SENIOR_QA_SYSTEM_PROMPT
+    assert "Specialty pairing is CONDITIONAL" in sp
+    lower = sp.lower()
+    # Empty list explicitly allowed for in-process work.
+    assert "in-process" in lower
+    assert "[]" in sp
+    # The fit-the-risk principle (JJWT vs OWASP ZAP) must be named so
+    # the AI cannot pair a specialty with a non-fitting tool.
+    assert "JJWT" in sp
+    assert "OWASP ZAP" in sp
+
+
+def test_every_builder_allows_empty_specialty_needs_for_in_process_work() -> None:
+    """Round-4: every per-tool sampling prompt must spell out that
+    specialty_needs MAY be `[]` for in-process unit-level work. Round-3's
+    HARD REQUIREMENT forced a specialty even for pure validators."""
+    for name, builder in _BUILDER_PROMPTS:
+        prompt = builder()
+        lower = prompt.lower()
+        assert "in-process" in lower, (
+            f"Builder {name!r} must mention in-process exemption."
+        )
+        assert "[]" in prompt, (
+            f"Builder {name!r} must allow empty specialty_needs list."
+        )
+        # The fit-the-risk principle must be present in every builder so
+        # the AI doesn't pair (e.g.) a JWT TTL bump with OWASP ZAP DAST.
+        assert "JJWT" in prompt and "OWASP ZAP" in prompt, (
+            f"Builder {name!r} must name the JJWT vs OWASP ZAP fit example."
+        )
+
+
+# --- Round 4 Fix 2: scaffold prompt has boundary_scaffolds slot ---------
+
+
+def test_scaffold_prompt_has_boundary_scaffolds_slot() -> None:
+    """Round-4: scaffold builder must surface boundary_scaffolds so the AI
+    can produce caller-level enforcement scaffolds when an AC uses
+    enforcement language ('blocked at write time', 'rejected at submit',
+    etc.). task_refinements alone only sharpens unit-level assertions and
+    misses the boundary above."""
+    prompt = _scaffold_prompt()
+    assert '"boundary_scaffolds":' in prompt
+    assert '"ac_text"' in prompt
+    assert '"boundary_layer"' in prompt
+    assert '"scaffold_assertion"' in prompt
+    lower = prompt.lower()
+    # The trigger language must be spelled out so the AI knows when this
+    # field is required versus when `[]` is acceptable.
+    assert "blocked at write time" in lower
+    assert "enforcement language" in lower
