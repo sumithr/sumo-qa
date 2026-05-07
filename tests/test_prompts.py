@@ -1,0 +1,229 @@
+"""Round-2 prompt-content guarantees.
+
+The round-1 ISTQB rubric run showed five aggregated failures: every per-tool
+output schema was missing an `assumptions` field, `qa_decide_approach` had
+no `top_risks` or `suggested_tests`, no per-tool builder forced domain
+anchoring, and `_testing_answer` was hard-coding generic risk strings the
+host LLM then parroted. These tests pin those fixes so a regression cannot
+silently slip back in.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from sumo_qa.prompts import SENIOR_QA_SYSTEM_PROMPT
+from sumo_qa.tools import (
+    _build_decide_approach_sampling_prompt,
+    _build_prepare_sampling_prompt,
+    _build_question_sampling_prompt,
+    _build_review_sampling_prompt,
+    _build_scaffold_sampling_prompt,
+    _build_test_plan_sampling_prompt,
+    _testing_answer,
+)
+
+
+# --- Fix 1: assumptions field everywhere ----------------------------------
+
+
+def test_system_prompt_has_hard_assumptions_rule() -> None:
+    """The standing system prompt must declare assumptions a hard requirement,
+    not aspiration. Round-1 showed 11/11 scenarios failing because the rule
+    only existed at the persona level — never as a hard contract."""
+    sp = SENIOR_QA_SYSTEM_PROMPT.lower()
+    assert "hard requirement" in sp
+    assert "assumptions" in sp
+    # The forbidden generic-language list must be present so the AI knows
+    # "the service / the system / the codebase" are anti-patterns.
+    assert '"the service"' in sp or "the service" in sp
+    assert "the system" in sp
+
+
+def _decide_prompt() -> str:
+    return _build_decide_approach_sampling_prompt(
+        intent_text="Add a small feature flag",
+        target_paths=["src/foo/bar.py"],
+        classifications=["business_logic_change"],
+        rules={"must_consider": ["boundary values"]},
+        standards_prompts=["team standard 1"],
+        deterministic_decision={"approach": "tdd-scaffold", "confidence": "medium"},
+    )
+
+
+def _review_prompt() -> str:
+    return _build_review_sampling_prompt(
+        change_summary="Tweak validator threshold",
+        payload={
+            "change_classification": {"primary": "business_logic_change", "primary_confidence": "high"},
+            "local_diff": {"touched_files": ["src/foo/validator.py"], "missing_test_levels": []},
+            "qa_findings": [],
+            "standards": {"checks": []},
+            "applied_rules": {"must_consider": []},
+        },
+    )
+
+
+def _prepare_prompt() -> str:
+    return _build_prepare_sampling_prompt(
+        work_item="Add expiry to refresh tokens",
+        criteria=["tokens older than 30d are rejected"],
+        risk_notes=["session continuity"],
+        payload={
+            "change_classification": {"primary": "auth_change", "primary_confidence": "high"},
+            "standards": {"checks": []},
+            "applied_rules": {"must_consider": []},
+            "missing_information": [],
+        },
+    )
+
+
+def _test_plan_prompt() -> str:
+    return _build_test_plan_sampling_prompt(
+        work_item="Refactor pricing pipeline",
+        payload={
+            "change_classification": {"primary": "refactor", "primary_confidence": "medium"},
+            "scope_size": "medium",
+            "standards": {"checks": []},
+            "applied_rules": {"must_consider": []},
+            "test_plan": {"scope_in": ["pricing math"], "approach": ["characterization tests"]},
+        },
+    )
+
+
+def _scaffold_prompt() -> str:
+    return _build_scaffold_sampling_prompt(
+        work_item="Cover bundle validator edge cases",
+        payload={
+            "change_classification": {"primary": "business_logic_change", "primary_confidence": "high"},
+            "standards": {"checks": []},
+            "applied_rules": {"must_consider": []},
+            "target_paths": ["src/bundle/validator.py"],
+            "tasks": [
+                {"id": "T1", "file_path": "tests/test_validator.py", "framework": "pytest"},
+            ],
+        },
+    )
+
+
+def _question_prompt() -> str:
+    return _build_question_sampling_prompt(
+        question="How should I test our new caching layer?",
+        context="Context: cache layer in src/cache.py",
+        payload={
+            "change_classification": {"primary": "caching_change", "primary_confidence": "medium"},
+            "standards": {"checks": []},
+            "answer": {"verify": ["cache invalidation"], "risk_areas": []},
+        },
+    )
+
+
+_BUILDER_PROMPTS = [
+    ("decide_approach", _decide_prompt),
+    ("review", _review_prompt),
+    ("prepare", _prepare_prompt),
+    ("test_plan", _test_plan_prompt),
+    ("scaffold", _scaffold_prompt),
+    ("question", _question_prompt),
+]
+
+
+def test_every_builder_requires_assumptions_in_output_schema() -> None:
+    """Every per-tool sampling prompt must extend its JSON schema with an
+    `assumptions` field and explicitly require the AI to populate it."""
+    for name, builder in _BUILDER_PROMPTS:
+        prompt = builder()
+        assert '"assumptions"' in prompt, (
+            f"Builder {name!r} must include `assumptions` in its JSON schema."
+        )
+        assert "assumptions" in prompt.lower()
+        # The hard-requirement language must be present, not just the field.
+        lower = prompt.lower()
+        assert "behavioural claim" in lower or "behavioral claim" in lower, (
+            f"Builder {name!r} must spell out the assumptions hard requirement."
+        )
+
+
+# --- Fix 2: top_risks in decide_approach ----------------------------------
+
+
+def test_decide_approach_prompt_requires_top_risks_with_evidence_path() -> None:
+    prompt = _decide_prompt()
+    assert '"top_risks"' in prompt
+    assert "why_specific_to_this_change" in prompt
+    assert "evidence_path" in prompt
+    # Must explicitly reject generic risks.
+    assert "generic phrases" in prompt.lower()
+
+
+# --- Fix 3: suggested_tests in decide_approach -----------------------------
+
+
+def test_decide_approach_prompt_requires_suggested_tests_tied_to_top_risks() -> None:
+    prompt = _decide_prompt()
+    assert '"suggested_tests"' in prompt
+    assert "covers_risk" in prompt
+    assert "ISTQB technique" in prompt or "istqb technique" in prompt.lower()
+    # Must reject laundry-list output.
+    assert "laundry-list" in prompt.lower() or "laundry list" in prompt.lower()
+
+
+# --- Fix 4: domain anchoring in every builder -----------------------------
+
+
+def test_every_builder_forces_domain_anchoring() -> None:
+    """The phrase 'Domain anchoring' must appear in every per-tool sampling
+    prompt — round-1 showed 8/11 scenarios failing because the prompts let
+    the AI talk about 'the service' / 'the system' abstractly."""
+    for name, builder in _BUILDER_PROMPTS:
+        prompt = builder()
+        assert "Domain anchoring" in prompt, (
+            f"Builder {name!r} must enforce Domain anchoring."
+        )
+        # The forbidden generic-language list must appear so the AI knows
+        # exactly which phrases are anti-patterns.
+        assert '"the service"' in prompt
+        assert '"the system"' in prompt
+
+
+# --- Fix 5: no hard-coded generic risks in _testing_answer ----------------
+
+
+def test_testing_answer_does_not_hard_code_generic_risks() -> None:
+    """The deterministic skeleton must NOT inject the rubric's stated
+    anti-pattern strings as risks. They were the exact generic phrases the
+    rubric calls out — the host LLM was parroting them."""
+    answer = _testing_answer(
+        question="How should I test the new caching layer?",
+        context=None,
+        classifications=[],
+        rules={"must_consider": []},
+    )
+    risk_areas = answer.get("risk_areas", [])
+    forbidden = {
+        "unclear acceptance criteria",
+        "missing test data",
+        "unverified downstream behavior",
+    }
+    for risk in risk_areas:
+        assert risk.lower() not in forbidden, (
+            f"_testing_answer must not hard-code generic risk {risk!r}."
+        )
+
+
+def test_testing_answer_with_classifications_does_not_inject_generic_risks() -> None:
+    """Even when classifications fire, the risk_areas list must stay free of
+    the generic anti-pattern strings (they describe input gaps, not risks)."""
+    answer = _testing_answer(
+        question="API contract change for /v1/orders",
+        context="src/api/orders.py",
+        classifications=["api_contract_change", "data_mapping_change"],
+        rules={"must_consider": []},
+    )
+    forbidden = {
+        "unclear acceptance criteria",
+        "missing test data",
+        "unverified downstream behavior",
+    }
+    for risk in answer.get("risk_areas", []):
+        assert risk.lower() not in forbidden
