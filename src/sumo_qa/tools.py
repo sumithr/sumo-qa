@@ -974,12 +974,13 @@ def _build_decide_approach_sampling_prompt(
         "Required: list the SMALLEST useful set of tests in suggested_tests. "
         "Each test MUST name an ISTQB technique and reference one of the "
         "top_risks. A laundry-list checklist is not acceptable.\n\n"
-        "HARD REQUIREMENT — specialty + tool pairing: every entry in "
-        "specialty_needs MUST pair the specialty with a concrete well-known "
-        "tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, axe-core / "
-        "Pa11y, Pact / Schemathesis, Cypress / Playwright, Appium / Maestro, "
-        "Promptfoo / DeepEval, Pitest / Stryker). A bare specialty label "
-        "without a tool is not acceptable.\n\n"
+        "Required: list specialty_needs ONLY when the change genuinely "
+        "implies a specialty surface. Empty list `[]` is acceptable for "
+        "in-process unit-level work; place justification under assumptions. "
+        "When non-empty, each entry's `tool` must fit the specific risk you "
+        "are addressing (named example: 'JJWT' for token-TTL boundary tests, "
+        "'OWASP ZAP' for DAST scans of HTTP endpoints — these are not "
+        "interchangeable).\n\n"
         "Output requirements (STRICT — your entire response must be valid JSON):\n"
         "{\n"
         '  "approach": "<canonical name OR a short kebab-case name you invent>",\n'
@@ -1145,12 +1146,13 @@ def _build_review_sampling_prompt(change_summary: str, payload: dict[str, Any]) 
             "Required: list every behavioural claim you cannot verify from the "
             "supplied facts under \"assumptions\". Treat them as challengeable, "
             "not as truth.\n\n"
-            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
-            "specialty_needs MUST pair the specialty with a concrete "
-            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
-            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
-            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
-            "bare specialty label without a tool is not acceptable."
+            "Required: list specialty_needs ONLY when the change genuinely "
+            "implies a specialty surface. Empty list `[]` is acceptable for "
+            "in-process unit-level work; place justification under assumptions. "
+            "When non-empty, each entry's `tool` must fit the specific risk "
+            "you are addressing (named example: 'JJWT' for token-TTL boundary "
+            "tests, 'OWASP ZAP' for DAST scans of HTTP endpoints — these are "
+            "not interchangeable)."
         ),
         has_targets=bool(touched),
     )
@@ -1251,12 +1253,13 @@ def _build_prepare_sampling_prompt(
             '  "assumptions": ["<labelled assumption>", "..."]',
         ],
         extra_required=(
-            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
-            "specialty_needs MUST pair the specialty with a concrete "
-            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
-            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
-            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
-            "bare specialty label without a tool is not acceptable."
+            "Required: list specialty_needs ONLY when the change genuinely "
+            "implies a specialty surface. Empty list `[]` is acceptable for "
+            "in-process unit-level work; place justification under assumptions. "
+            "When non-empty, each entry's `tool` must fit the specific risk "
+            "you are addressing (named example: 'JJWT' for token-TTL boundary "
+            "tests, 'OWASP ZAP' for DAST scans of HTTP endpoints — these are "
+            "not interchangeable)."
         ),
         has_targets=bool(criteria or risk_notes or targets),
     )
@@ -1323,12 +1326,12 @@ def _build_question_sampling_prompt(
             "or strategy. `smallest_useful_tests` MUST be the smallest set "
             "that gives release confidence (typically 3-5 items), not an "
             "exhaustive checklist.\n\n"
-            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
-            "specialty_needs MUST pair the specialty with a concrete "
-            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
-            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
-            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
-            "bare specialty label without a tool is not acceptable."
+            "Required: list specialty_needs ONLY when the question genuinely "
+            "implies a specialty surface. Empty list `[]` is acceptable for "
+            "in-process unit-level work. When non-empty, each entry's `tool` "
+            "must fit the specific risk you are addressing (named example: "
+            "'JJWT' for token-TTL boundary tests, 'OWASP ZAP' for DAST scans "
+            "of HTTP endpoints — these are not interchangeable)."
         ),
         has_targets=bool(context),
     )
@@ -1956,6 +1959,13 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
             '  "task_refinements": [',
             '    {"task_id": "<scaffold task id>", "improved_assertion": "<sharper red-phase assertion tied to this file/class>"}',
             '  ],',
+            '  "boundary_scaffolds": [',
+            '    {',
+            '      "ac_text": "<the verbatim acceptance criterion that demands enforcement at a boundary>",',
+            '      "boundary_layer": "<service|repository|controller|consumer|other>",',
+            '      "scaffold_assertion": "<concrete assertion proving the caller refuses the operation when the validator/predicate returns non-empty violations / fails>"',
+            '    }',
+            '  ],',
             '  "principle_citations": [',
             '    {"principle": "<ISTQB Foundation N - short name>", "applied_to_task_id": "<task id>"}',
             '  ],',
@@ -1974,12 +1984,20 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
             "at least one named ISTQB test design technique under "
             "named_techniques. Generic mentions like \"follow QA best "
             "practices\" or \"add edge cases\" are not acceptable.\n\n"
-            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
-            "specialty_needs MUST pair the specialty with a concrete "
-            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
-            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
-            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
-            "bare specialty label without a tool is not acceptable."
+            "Required when an acceptance criterion uses enforcement language "
+            "('blocked at write time', 'rejected at submit', 'fails at read', "
+            "'refused at handoff'): produce one boundary_scaffold entry per "
+            "such AC, naming the layer above the unit under test where the "
+            "enforcement actually happens. If no AC uses enforcement language, "
+            "return `boundary_scaffolds: []`. This is in addition to "
+            "task_refinements (which only sharpen unit-level assertions).\n\n"
+            "Required: list specialty_needs ONLY when the change genuinely "
+            "implies a specialty surface. Empty list `[]` is acceptable for "
+            "in-process unit-level work; place justification under assumptions. "
+            "When non-empty, each entry's `tool` must fit the specific risk "
+            "you are addressing (named example: 'JJWT' for token-TTL boundary "
+            "tests, 'OWASP ZAP' for DAST scans of HTTP endpoints — these are "
+            "not interchangeable)."
         ),
         has_targets=bool(targets or tasks),
     )
@@ -2272,12 +2290,13 @@ def _build_test_plan_sampling_prompt(work_item: str, payload: dict[str, Any]) ->
             '  "assumptions": ["<labelled assumption>", "..."]',
         ],
         extra_required=(
-            "HARD REQUIREMENT — specialty + tool pairing: every entry in "
-            "specialty_needs MUST pair the specialty with a concrete "
-            "well-known tool (OWASP ZAP / Burp Suite, k6 / Locust / JMeter, "
-            "axe-core / Pa11y, Pact / Schemathesis, Cypress / Playwright, "
-            "Appium / Maestro, Promptfoo / DeepEval, Pitest / Stryker). A "
-            "bare specialty label without a tool is not acceptable."
+            "Required: list specialty_needs ONLY when the work item genuinely "
+            "implies a specialty surface. Empty list `[]` is acceptable for "
+            "in-process unit-level work; place justification under assumptions. "
+            "When non-empty, each entry's `tool` must fit the specific risk "
+            "you are addressing (named example: 'JJWT' for token-TTL boundary "
+            "tests, 'OWASP ZAP' for DAST scans of HTTP endpoints — these are "
+            "not interchangeable)."
         ),
         has_targets=bool(plan.get("scope_in") or plan.get("approach")),
     )

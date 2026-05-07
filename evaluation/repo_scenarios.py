@@ -147,7 +147,11 @@ SCENARIOS: list[RepoScenario] = [
                 "Replay of an old refresh token returns 401, not 500",
             ],
             "risk_notes": ["Critical path — auth boundary. Regression hits all customers."],
-            "explicit_classifications": ["business_logic_change"],
+            "explicit_classifications": ["business_logic_change", "security_change"],
+            "target_paths": [
+                "src/main/kotlin/com/johnlewis/byvariantdatafeeder/auth/RefreshTokenValidator.kt",
+                "src/main/kotlin/com/johnlewis/byvariantdatafeeder/auth/RefreshTokenStore.kt",
+            ],
         },
         specificity="specific",
         rubric_focus=[
