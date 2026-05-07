@@ -91,6 +91,87 @@ def test_find_test_data_filters_and_explains_suitability() -> None:
     assert result["results"][0]["validation"]["freshness"]["status"] == "fresh"
 
 
+def test_find_test_data_pagination_metadata_present() -> None:
+    """Pagination fields are always populated so callers can decide whether more
+    results exist beyond the limit. Even single-page responses carry the totals."""
+    result = service().qa_find_test_data(
+        environment="integration",
+        domain="fulfilment",
+        scenario_tags=["out_of_area"],
+        known_valid_for=["out-of-area fulfilment pricing"],
+        limit=5,
+    )
+
+    assert "total_count" in result
+    assert "has_more" in result
+    assert "next_offset" in result
+    assert isinstance(result["total_count"], int)
+    # When limit covers everything, has_more is false and next_offset is None.
+    assert result["total_count"] == len(result["results"])
+    assert result["has_more"] is False
+    assert result["next_offset"] is None
+
+
+def test_find_test_data_pagination_truncates_and_signals_more(tmp_path: Path) -> None:
+    """When more entries match than the limit, has_more is true and next_offset
+    points at the next page."""
+    catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
+    assistant = Assistant(catalogue, MockValidator(now=NOW))
+    for index in range(7):
+        assistant.register_known_good_test_data(
+            {
+                "id": f"stock-pagination-{index:03d}",
+                "environment": "integration",
+                "domain": "stock",
+                "product_id": f"{1000 + index}",
+                "sku": f"{1000 + index}",
+                "scenario_tags": ["pagination_smoke"],
+                "known_valid_for": ["pagination smoke"],
+                "owner": "qa",
+                "confidence": "medium",
+                "source": "qa-curated",
+            }
+        )
+
+    page_one = assistant.find_test_data(
+        environment="integration",
+        domain="stock",
+        scenario_tags=["pagination_smoke"],
+        limit=3,
+    )
+
+    assert page_one["total_count"] == 7
+    assert len(page_one["results"]) == 3
+    assert page_one["has_more"] is True
+    assert page_one["next_offset"] == 3
+
+    page_two = assistant.find_test_data(
+        environment="integration",
+        domain="stock",
+        scenario_tags=["pagination_smoke"],
+        limit=3,
+        offset=3,
+    )
+
+    assert page_two["total_count"] == 7
+    assert len(page_two["results"]) == 3
+    assert page_two["has_more"] is True
+    assert page_two["next_offset"] == 6
+
+    page_three = assistant.find_test_data(
+        environment="integration",
+        domain="stock",
+        scenario_tags=["pagination_smoke"],
+        limit=3,
+        offset=6,
+    )
+
+    assert page_three["total_count"] == 7
+    assert len(page_three["results"]) == 1
+    assert page_three["has_more"] is False
+    assert page_three["next_offset"] is None
+
+
 def test_mock_validator_flags_future_validated_at() -> None:
     from sumo_qa.tdm_models import TestDataEntry as DEntry
     from datetime import timedelta as _td

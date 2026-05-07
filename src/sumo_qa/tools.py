@@ -146,6 +146,7 @@ class QAShiftLeftService:
         product_id: str | None = None,
         sku: str | None = None,
         limit: int = 5,
+        offset: int = 0,
     ) -> dict[str, Any]:
         return self.test_data_assistant.find_test_data(
             environment=environment,
@@ -155,6 +156,7 @@ class QAShiftLeftService:
             product_id=product_id,
             sku=sku,
             limit=limit,
+            offset=offset,
         )
 
     def qa_validate_test_data(
