@@ -989,7 +989,8 @@ def _build_decide_approach_sampling_prompt(
         '  "rationale": "<1-3 sentences citing at least one principle by number or name>",\n'
         '  "next_action": {\n'
         '    "tool": "<MCP tool name (e.g. sumo_qa_scaffold_tests) — for per-change approaches, otherwise null>",\n'
-        '    "skill": "<sub-skill name (e.g. sumo-qa-strategising) — for strategy-orchestration, otherwise null>"\n'
+        '    "skill": "<sub-skill name (e.g. sumo-qa-strategising) — for strategy-orchestration, otherwise null>",\n'
+        '    "deliverable": "<artefact name when neither tool nor skill is the right route (e.g. captured_conditions_and_fit_record for spikes), otherwise null>"\n'
         '  } | null,\n'
         '  "follow_up": "<1-2 sentences of guidance regardless of which tool fires>",\n'
         '  "techniques": ["<ISTQB techniques most relevant>"],\n'
@@ -1011,18 +1012,51 @@ def _build_decide_approach_sampling_prompt(
         '      "covers_risk": "<one of the risk strings from top_risks>"\n'
         '    }\n'
         '  ],\n'
+        '  "do_not_test": [\n'
+        '    {"area": "<area / surface explicitly NOT worth testing for this change>", "why_not": "<one-line reason it would not add release confidence>"}\n'
+        '  ],\n'
         '  "assumptions": ["<labelled assumption>", "..."],\n'
         '  "confidence": "low|medium|high",\n'
         '  "reasoned_by": "ai"\n'
         "}\n\n"
-        "next_action shape (HARD REQUIREMENT): exactly ONE of `tool` or "
-        "`skill` MUST be set; the other MUST be `null` or absent. For "
-        "per-change approaches (tdd-scaffold, regression-first, "
-        "coverage-first-then-refactor, strengthen-test-coverage, "
-        "verify-existing, no-tests-recommended, spike-first-then-tests) use "
-        "`tool` and leave `skill` null. For `strategy-orchestration` use "
-        "`skill: \"sumo-qa-strategising\"` and leave `tool` null. Never "
-        "both. Setting both is an error.\n\n"
+        "next_action shape (HARD REQUIREMENT): exactly ONE of `tool`, "
+        "`skill`, or `deliverable` MUST be set; the other two MUST be `null` "
+        "or absent. For per-change approaches that produce tests "
+        "(tdd-scaffold, regression-first, coverage-first-then-refactor, "
+        "strengthen-test-coverage, verify-existing) use `tool` and leave the "
+        "others null. For `strategy-orchestration` use "
+        "`skill: \"sumo-qa-strategising\"` and leave the others null. For "
+        "approaches that defer test discipline (`spike-first-then-tests`, "
+        "or `no-tests-recommended` in some shapes), `tool` and `skill` MAY "
+        "both be null with `deliverable` naming the artefact (e.g. "
+        "`\"captured_conditions_and_fit_record\"` for spikes; "
+        "`\"static_review_completed\"` for no-tests-recommended). Setting "
+        "more than one is an error.\n\n"
+        "Senior-QA voice — `do_not_test`: when the change implies tests "
+        "that would NOT add release confidence (e.g. exhaustive UI "
+        "snapshots for a backend change, contract tests for in-process "
+        "functions, mutation testing on generated code), enumerate them "
+        "under do_not_test with a one-line `why_not`. Empty list `[]` is "
+        "fine when nothing obvious needs skipping. Senior QA voice names "
+        "what to skip; junior voice tries to test everything.\n\n"
+        "ADDITIONAL HARD REQUIREMENT when `approach` is "
+        "\"coverage-first-then-refactor\": the response MUST also include "
+        "`characterization_tests`, a list of at least 2 entries:\n"
+        "{\n"
+        '  "characterization_tests": [\n'
+        '    {\n'
+        '      "test_name": "<concrete characterization test name>",\n'
+        '      "technique": "<characterization | golden master | approval | branch coverage>",\n'
+        '      "current_behaviour_pinned": "<one-line description of the existing behaviour the test pins>",\n'
+        '      "fails_after_extraction_if": "<concrete regression mode this test would catch>"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+        "Characterization tests pin existing behaviour BEFORE the refactor. "
+        "They are not new behavioural tests; they capture the current "
+        "outputs/branches so the post-refactor suite can prove behaviour "
+        "preserved. Each entry MUST name what fails-after-extraction signal "
+        "it provides.\n\n"
         "ADDITIONAL HARD REQUIREMENT when `approach` is "
         "\"strategy-orchestration\": the response MUST also include the "
         "following structured fields. For per-change approaches "
@@ -1093,13 +1127,14 @@ def _parse_ai_decision(content: str) -> dict[str, Any] | None:
     elif isinstance(parsed["next_action"], str):
         raw = parsed["next_action"]
         if raw.startswith("sumo_qa_"):
-            parsed["next_action"] = {"tool": raw, "skill": None}
+            parsed["next_action"] = {"tool": raw, "skill": None, "deliverable": None}
         else:
-            parsed["next_action"] = {"tool": None, "skill": raw}
+            parsed["next_action"] = {"tool": None, "skill": raw, "deliverable": None}
     elif isinstance(parsed["next_action"], dict):
         na = parsed["next_action"]
         na.setdefault("tool", None)
         na.setdefault("skill", None)
+        na.setdefault("deliverable", None)
     parsed.setdefault("follow_up", "")
     parsed.setdefault("techniques", [])
     parsed.setdefault("specialty_needs", [])
@@ -1199,6 +1234,9 @@ def _build_review_sampling_prompt(change_summary: str, payload: dict[str, Any]) 
             '  "smallest_useful_tests": [',
             '    {"name": "<concrete test>", "technique": "<ISTQB technique>", "covers_risk": "<one of top_risks>"}',
             '  ],',
+            '  "do_not_test": [',
+            '    {"area": "<area / surface explicitly NOT worth testing for this change>", "why_not": "<one-line reason it would not add release confidence>"}',
+            '  ],',
             '  "specialty_needs": [',
             '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}',
             '  ],',
@@ -1216,6 +1254,13 @@ def _build_review_sampling_prompt(change_summary: str, payload: dict[str, Any]) 
             "release confidence (3-7 items for a multi-risk review, fewer "
             "if the change is narrow); a laundry-list checklist is not "
             "acceptable.\n\n"
+            "Senior-QA voice — `do_not_test`: when the change implies tests "
+            "that would NOT add release confidence (e.g. exhaustive UI "
+            "snapshots for a backend change, contract tests for in-process "
+            "functions, mutation testing on generated code), enumerate them "
+            "under do_not_test with a one-line `why_not`. Empty list `[]` "
+            "is fine when nothing obvious needs skipping. Senior QA voice "
+            "names what to skip; junior voice tries to test everything.\n\n"
             "Required: list specialty_needs ONLY when the change genuinely "
             "implies a specialty surface. Empty list `[]` is acceptable for "
             "in-process unit-level work; place justification under assumptions. "
@@ -1316,13 +1361,43 @@ def _build_prepare_sampling_prompt(
     return base + critical_uplift + "\n\n" + _domain_anchoring_and_json_schema(
         schema_lines=[
             '  "narrative": "<3-6 sentences of senior-QA judgement on this specific work item>",',
-            '  "checks": ["<concrete check anchored to the work item, criterion, or domain term>"],',
+            '  "principle_cited": "<ISTQB Foundation principle by name or number that shapes this plan>",',
+            '  "top_risks": [',
+            '    {"risk": "<change-specific risk, not boilerplate>", "why_specific_to_this_change": "<reason>", "evidence_path": "<file/class/path>"}',
+            '  ],',
+            '  "named_techniques": [',
+            '    {"technique": "<named ISTQB test design technique>", "covers_risk": "<one of top_risks>"}',
+            '  ],',
+            '  "smallest_useful_tests": [',
+            '    {"name": "<concrete test>", "technique": "<ISTQB technique>", "covers_risk": "<one of top_risks>"}',
+            '  ],',
+            '  "do_not_test": [',
+            '    {"area": "<area / surface explicitly NOT worth testing for this change>", "why_not": "<one-line reason it would not add release confidence>"}',
+            '  ],',
             '  "specialty_needs": [',
             '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}',
             '  ],',
             '  "assumptions": ["<labelled assumption>", "..."]',
         ],
         extra_required=(
+            "HARD REQUIREMENT — principle + minimum-set: `principle_cited` "
+            "MUST be a non-empty ISTQB Foundation principle (by name or "
+            "number) that shapes this plan. `top_risks` MUST list 2-5 items "
+            "specific to this work item — generic phrases like \"missing test "
+            "data\" or \"unclear acceptance criteria\" are not acceptable. "
+            "`named_techniques` MUST tie each entry to one of the top_risks "
+            "via `covers_risk`. `smallest_useful_tests` MUST be the smallest "
+            "set that gives release confidence (3-7 items for a multi-risk "
+            "plan, fewer if the work is narrow); a laundry-list checklist is "
+            "not acceptable.\n\n"
+            "Senior-QA voice — `do_not_test`: when the work item or change "
+            "implies tests that would NOT add release confidence (e.g. "
+            "exhaustive UI snapshots for a backend change, contract tests for "
+            "in-process functions, mutation testing on generated code), "
+            "enumerate them under do_not_test with a one-line `why_not`. "
+            "Empty list `[]` is fine when nothing obvious needs skipping. "
+            "Senior QA voice names what to skip; junior voice tries to test "
+            "everything.\n\n"
             "Required: list specialty_needs ONLY when the change genuinely "
             "implies a specialty surface. Empty list `[]` is acceptable for "
             "in-process unit-level work; place justification under assumptions. "
@@ -1370,14 +1445,38 @@ def _build_question_sampling_prompt(
             '  "top_risks": [',
             '    {"risk": "<change-specific risk, not boilerplate>", "why_specific_to_this_change": "<reason>", "evidence_path": "<file/class/path>"}',
             '  ],',
+            '  "do_not_test": [',
+            '    {"area": "<area / surface explicitly NOT worth testing for this question>", "why_not": "<one-line reason it would not add release confidence>"}',
+            '  ],',
             '  "assumptions": ["<labelled assumption>", "..."],',
             '  "recommended_approach": {',
             '    "approach": "<one of: tdd-scaffold | regression-first | coverage-first-then-refactor | strengthen-test-coverage | verify-existing | no-tests-recommended | spike-first-then-tests | strategy-orchestration>",',
             '    "confidence": "<low | medium | high>",',
             '    "next_action": {',
             '      "tool": "<MCP tool name (e.g. sumo_qa_scaffold_tests) — for per-change approaches, otherwise null>",',
-            '      "skill": "<sub-skill name (e.g. sumo-qa-strategising) — for strategy-orchestration, otherwise null>"',
+            '      "skill": "<sub-skill name (e.g. sumo-qa-strategising) — for strategy-orchestration, otherwise null>",',
+            '      "deliverable": "<artefact name when neither tool nor skill is the right route, otherwise null>"',
             '    }',
+            '  },',
+            '  "strategy_extension": {',
+            '    "pyramid_shape": {',
+            '      "unit": "<one-line description of unit-test investment for this repo>",',
+            '      "component_integration": "<one-line description>",',
+            '      "integration": "<one-line description>",',
+            '      "contract": "<one-line description>",',
+            '      "e2e": "<one-line description; e2e should stay thin>"',
+            '    },',
+            '    "gate_calibration": {',
+            '      "pr_gate": "<what runs on every PR + wall-time target>",',
+            '      "merge_gate": "<what runs on merge + wall-time target>",',
+            '      "nightly": "<what runs nightly>"',
+            '    },',
+            '    "ci_feedback_time": {',
+            '      "target_pr_feedback": "<wall-time target>",',
+            '      "target_merge_feedback": "<wall-time target>",',
+            '      "actions": "<concrete actions to hit the targets>"',
+            '    },',
+            '    "rollout_plan": ["<ordered step 1>", "<ordered step 2>"]',
             '  },',
             '  "principle_cited": "<ISTQB Foundation principle by name or number that shapes this answer>",',
             '  "named_techniques": [',
@@ -1396,17 +1495,37 @@ def _build_question_sampling_prompt(
             "`smallest_useful_tests` at 5 items — this is the minimum useful "
             "set, not a checklist.\n\n"
             "next_action shape (HARD REQUIREMENT): exactly ONE of "
-            "`recommended_approach.next_action.tool` or "
-            "`recommended_approach.next_action.skill` MUST be set; the other "
-            "MUST be `null`. For per-change approaches use `tool` (e.g. "
-            "`sumo_qa_scaffold_tests`); for `strategy-orchestration` use "
-            "`skill: \"sumo-qa-strategising\"`. Never both. Setting both is "
-            "an error.\n\n"
+            "`recommended_approach.next_action.tool`, "
+            "`recommended_approach.next_action.skill`, or "
+            "`recommended_approach.next_action.deliverable` MUST be set; the "
+            "other two MUST be `null`. For per-change approaches that scaffold "
+            "tests use `tool` (e.g. `sumo_qa_scaffold_tests`); for "
+            "`strategy-orchestration` use `skill: \"sumo-qa-strategising\"`; "
+            "for approaches that defer test discipline "
+            "(`spike-first-then-tests`, or `no-tests-recommended` in some "
+            "shapes), `tool` and `skill` MAY both be null with `deliverable` "
+            "naming the artefact (e.g. `\"captured_conditions_and_fit_record\"` "
+            "for spikes; `\"static_review_completed\"` for "
+            "no-tests-recommended). Setting more than one is an error.\n\n"
+            "HARD REQUIREMENT — strategy_extension: when "
+            "`recommended_approach.approach == \"strategy-orchestration\"`, "
+            "the response MUST include `strategy_extension` with all four "
+            "sub-fields populated (`pyramid_shape`, `gate_calibration`, "
+            "`ci_feedback_time`, `rollout_plan`). For per-change "
+            "recommended_approach values, `strategy_extension` is omitted or "
+            "null.\n\n"
             "HARD REQUIREMENT — principle + minimum-set: `principle_cited` "
             "MUST be non-empty when the answer touches risk, prioritisation, "
             "or strategy. `smallest_useful_tests` MUST be the smallest set "
             "that gives release confidence (typically 3-5 items), not an "
             "exhaustive checklist.\n\n"
+            "Senior-QA voice — `do_not_test`: when the question implies "
+            "tests that would NOT add release confidence (e.g. exhaustive UI "
+            "snapshots for a backend question, contract tests for in-process "
+            "functions, mutation testing on generated code), enumerate them "
+            "under do_not_test with a one-line `why_not`. Empty list `[]` is "
+            "fine when nothing obvious needs skipping. Senior QA voice names "
+            "what to skip; junior voice tries to test everything.\n\n"
             "Required: list specialty_needs ONLY when the question genuinely "
             "implies a specialty surface. Empty list `[]` is acceptable for "
             "in-process unit-level work. When non-empty, each entry's `tool` "
@@ -2047,6 +2166,7 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
             '  ],',
             '  "boundary_scaffolds": [',
             '    {',
+            '      "id": "<stable boundary id, pattern B + integer (e.g. B1, B2)>",',
             '      "ac_text": "<the verbatim acceptance criterion that demands enforcement at a boundary>",',
             '      "boundary_layer": "<service|repository|controller|consumer|other>",',
             '      "scaffold_assertion": "<concrete assertion proving the caller refuses the operation when the validator/predicate returns non-empty violations / fails>"',
@@ -2054,6 +2174,7 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
             '  ],',
             '  "uncovered_branches": [',
             '    {',
+            '      "id": "<stable uncovered-branch id, pattern U + integer (e.g. U1, U2)>",',
             '      "branch_or_ac": "<the validator branch or acceptance-criterion clause that no current scaffold covers>",',
             '      "proposed_scaffold": {',
             '        "file_path": "<expected test file path>",',
@@ -2074,7 +2195,7 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
             '    {',
             '      "risk": "<change-specific risk in this scaffold\'s target>",',
             '      "why_specific_to_this_change": "<reason this risk is not generic>",',
-            '      "scaffold_coverage_task_id": "<id of the task_refinement OR boundary_scaffold that covers this risk, OR \\"NONE\\" if uncovered>"',
+            '      "scaffold_coverage_task_id": "<task_refinement task_id (e.g. T1) | uncovered_branch.id (e.g. U1) | boundary_scaffold.id (e.g. B1) | the literal string \\"NONE\\">"',
             '    }',
             '  ],',
             '  "principle_citations": [',
@@ -2095,14 +2216,19 @@ def _build_scaffold_sampling_prompt(work_item: str, payload: dict[str, Any]) -> 
             "at least one named ISTQB test design technique under "
             "named_techniques. Generic mentions like \"follow QA best "
             "practices\" or \"add edge cases\" are not acceptable.\n\n"
-            "Required: surface 2-5 top_risks specific to THIS change. Each "
-            "risk MUST link to the scaffold (task_refinement or "
-            "boundary_scaffold) that covers it via scaffold_coverage_task_id; "
-            "if no current scaffold covers a real risk, set "
-            "scaffold_coverage_task_id to \"NONE\" and add a corresponding "
-            "entry under uncovered_branches (see below). Generic risks like "
-            "\"the service might fail\" are not acceptable — anchor each risk "
-            "to this scaffold's target.\n\n"
+            "Required: surface 2-5 top_risks specific to THIS change. Every "
+            "top_risk MUST link to a covering scaffold via "
+            "scaffold_coverage_task_id. The link target must be either an "
+            "existing task_refinement.id (e.g. `T1`), an "
+            "uncovered_branch.id (e.g. `U1`), a boundary_scaffold.id (e.g. "
+            "`B1`), or the literal string \"NONE\" — meaning \"no scaffold "
+            "covers this risk and one is not proposed\". A top_risk linking "
+            "to \"NONE\" is a flag to the host that the smallest-useful-set "
+            "is incomplete. boundary_scaffolds MUST be given stable ids "
+            "(`B1`, `B2`, ...) and uncovered_branches MUST be given stable "
+            "ids (`U1`, `U2`, ...) so the link is unambiguous. Generic risks "
+            "like \"the service might fail\" are not acceptable — anchor "
+            "each risk to this scaffold's target.\n\n"
             "Required when the host-supplied task list and any "
             "boundary_scaffolds together leave a validator branch or "
             "acceptance-criterion clause uncovered: list each gap under "
@@ -2420,12 +2546,22 @@ def _build_test_plan_sampling_prompt(work_item: str, payload: dict[str, Any]) ->
             '    {"phase": "<analysis|design|execution|completion>", "focus": "<specific focus tied to this work>"}',
             '  ],',
             '  "open_questions": ["<change-specific open question>"],',
+            '  "do_not_test": [',
+            '    {"area": "<area / surface explicitly NOT worth testing for this work item>", "why_not": "<one-line reason it would not add release confidence>"}',
+            '  ],',
             '  "specialty_needs": [',
             '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}',
             '  ],',
             '  "assumptions": ["<labelled assumption>", "..."]',
         ],
         extra_required=(
+            "Senior-QA voice — `do_not_test`: when the work item implies "
+            "tests that would NOT add release confidence (e.g. exhaustive UI "
+            "snapshots for a backend change, contract tests for in-process "
+            "functions, mutation testing on generated code), enumerate them "
+            "under do_not_test with a one-line `why_not`. Empty list `[]` "
+            "is fine when nothing obvious needs skipping. Senior QA voice "
+            "names what to skip; junior voice tries to test everything.\n\n"
             "Required: list specialty_needs ONLY when the work item genuinely "
             "implies a specialty surface. Empty list `[]` is acceptable for "
             "in-process unit-level work; place justification under assumptions. "
@@ -2622,9 +2758,16 @@ def _slim(payload: dict[str, Any]) -> dict[str, Any]:
         next_action = full_ra.get("next_action")
         next_tool = next_action.get("tool") if isinstance(next_action, dict) else None
         next_skill = next_action.get("skill") if isinstance(next_action, dict) else None
+        next_deliverable = (
+            next_action.get("deliverable") if isinstance(next_action, dict) else None
+        )
         slim_next_action: dict[str, Any] | None
-        if next_tool or next_skill:
-            slim_next_action = {"tool": next_tool, "skill": next_skill}
+        if next_tool or next_skill or next_deliverable:
+            slim_next_action = {
+                "tool": next_tool,
+                "skill": next_skill,
+                "deliverable": next_deliverable,
+            }
         else:
             slim_next_action = None
         slim_ra: dict[str, Any] = {

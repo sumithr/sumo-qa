@@ -83,10 +83,19 @@ _NEXT_TOOL: dict[str, dict[str, Any] | None] = {
     },
     "verify-existing": None,
     "no-tests-recommended": None,
-    "spike-first-then-tests": None,
+    "spike-first-then-tests": {
+        "tool": None,
+        "skill": None,
+        "deliverable": "captured_conditions_and_fit_record",
+        "args_hint": {
+            "captured_conditions": "<list of boundaries / decision rules / state transitions discovered during the spike>",
+            "fit_record": "<one-paragraph 'model fits / does not fit / fits with caveats' decision>",
+        },
+    },
     "strategy-orchestration": {
         "tool": None,
         "skill": "sumo-qa-strategising",
+        "deliverable": None,
     },
 }
 
