@@ -75,6 +75,7 @@ Full list of env vars (including `QA_DISABLE_HOST_SAMPLING`, `SUMO_QA_DEBUG_DIR`
 ## Docs
 
 - [docs/TOOLS.md](docs/TOOLS.md) — full reference for the 10 MCP tools and 9 prompts.
+- [docs/SKILLS.md](docs/SKILLS.md) — the 7 Claude Code skills installed by `./install.sh`.
 - [docs/APPROACHES.md](docs/APPROACHES.md) — the 8 canonical QA approaches and how they're picked.
 - [docs/WORKFLOW-LOOP.md](docs/WORKFLOW-LOOP.md) — plan → scaffold → red → green → review per approach.
 - [docs/ISTQB-GROUNDING.md](docs/ISTQB-GROUNDING.md) — the senior-QA persona, ISTQB principles, ISO 25010, technique mapping.
