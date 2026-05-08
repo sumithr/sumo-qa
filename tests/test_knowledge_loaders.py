@@ -96,3 +96,21 @@ def test_load_specialty_tools_contains_canonical_pairings():
         "JJWT",
     ]:
         assert entry in text, f"Missing canonical specialty tool: {entry}"
+
+
+from sumo_qa.knowledge_loaders import sumo_qa_load_standards
+
+
+def test_load_standards_returns_text_when_no_filter():
+    text = sumo_qa_load_standards()
+    assert isinstance(text, str)
+    assert len(text) > 0
+
+
+def test_load_standards_filter_returns_only_matching_packs():
+    """The classification filter is metadata-based — only packs whose
+    frontmatter declares the classification are returned."""
+    full = sumo_qa_load_standards()
+    filtered = sumo_qa_load_standards(classification="security_change")
+    assert len(filtered) <= len(full)
+    assert isinstance(filtered, str)

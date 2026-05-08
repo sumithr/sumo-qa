@@ -14,6 +14,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import yaml
+
 _REPO_ROOT_KNOWLEDGE = Path(__file__).parent.parent.parent / "knowledge"
 _BUNDLED_KNOWLEDGE = Path(__file__).parent / "_data" / "knowledge"
 
@@ -59,3 +61,35 @@ def sumo_qa_load_techniques() -> str:
 def sumo_qa_load_specialty_tools() -> str:
     """Return the specialty + tool fit catalogue as text."""
     return _read("specialty_tools.md")
+
+
+def _standards_dir() -> Path:
+    """Return the standards directory, honouring QA_STANDARDS_PATH override."""
+    override = os.environ.get("QA_STANDARDS_PATH")
+    if override:
+        return Path(override) / "packs" if (Path(override) / "packs").is_dir() else Path(override)
+    bundled = Path(__file__).parent / "_data" / "standards" / "packs"
+    if bundled.is_dir():
+        return bundled
+    return Path(__file__).parent.parent.parent / "standards" / "packs"
+
+
+def sumo_qa_load_standards(classification: str | None = None) -> str:
+    """Return the team's loaded standards as text. Optional metadata filter
+    by classification — packs whose frontmatter declares this classification.
+    No keyword inference; the filter is pure file-metadata selection."""
+    root = _standards_dir()
+    packs: list[str] = []
+    pack_paths = sorted(list(root.glob("*.yaml")) + list(root.glob("*.yml")))
+    for path in pack_paths:
+        text = path.read_text(encoding="utf-8")
+        if classification is not None:
+            try:
+                doc = yaml.safe_load(text) or {}
+            except yaml.YAMLError:
+                continue
+            applies = doc.get("applies_to_classifications") or doc.get("classifications") or []
+            if classification not in applies:
+                continue
+        packs.append(f"# {path.name}\n\n{text}")
+    return "\n\n---\n\n".join(packs)
