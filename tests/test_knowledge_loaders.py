@@ -114,3 +114,18 @@ def test_load_standards_filter_returns_only_matching_packs():
     filtered = sumo_qa_load_standards(classification="security_change")
     assert len(filtered) <= len(full)
     assert isinstance(filtered, str)
+
+
+from sumo_qa.knowledge_loaders import sumo_qa_load_rules
+
+
+def test_load_rules_returns_text_when_no_filter():
+    text = sumo_qa_load_rules()
+    assert isinstance(text, str)
+    assert len(text) > 0
+
+
+def test_load_rules_filter_by_classification_is_smaller():
+    full = sumo_qa_load_rules()
+    filtered = sumo_qa_load_rules(classification="security_change")
+    assert len(filtered) <= len(full)
