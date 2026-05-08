@@ -58,3 +58,21 @@ def test_load_principles_contains_istqb_and_iso():
     assert "Pesticide paradox" in text
     assert "Defects cluster" in text
     assert "shift left" in text.lower() or "shift-left" in text.lower()
+
+
+from sumo_qa.knowledge_loaders import sumo_qa_load_techniques
+
+
+def test_load_techniques_contains_canonical_techniques():
+    text = sumo_qa_load_techniques()
+    for entry in [
+        "boundary value analysis",
+        "equivalence partitioning",
+        "decision tables",
+        "state transition testing",
+        "MC-DC",
+        "exploratory testing",
+        "property-based testing",
+        "mutation testing",
+    ]:
+        assert entry in text, f"Missing canonical technique: {entry}"

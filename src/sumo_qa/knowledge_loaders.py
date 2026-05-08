@@ -49,3 +49,8 @@ def sumo_qa_load_approaches() -> str:
 def sumo_qa_load_principles() -> str:
     """Return ISTQB Foundation + Advanced + ISO 25010 grounding as text."""
     return _read("principles.md")
+
+
+def sumo_qa_load_techniques() -> str:
+    """Return the test design technique catalogue as text."""
+    return _read("techniques.md")
