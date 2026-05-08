@@ -46,3 +46,15 @@ def test_load_approaches_contains_eight_canonical_entries():
         "spike-first-then-tests",
     ]:
         assert entry in text, f"Missing canonical approach: {entry}"
+
+
+from sumo_qa.knowledge_loaders import sumo_qa_load_principles
+
+
+def test_load_principles_contains_istqb_and_iso():
+    text = sumo_qa_load_principles()
+    assert "ISTQB Foundation" in text
+    assert "ISO/IEC 25010" in text
+    assert "Pesticide paradox" in text
+    assert "Defects cluster" in text
+    assert "shift left" in text.lower() or "shift-left" in text.lower()

@@ -44,3 +44,8 @@ def sumo_qa_load_classifications() -> str:
 def sumo_qa_load_approaches() -> str:
     """Return the catalogue of 8 canonical QA approaches as text."""
     return _read("approaches.md")
+
+
+def sumo_qa_load_principles() -> str:
+    """Return ISTQB Foundation + Advanced + ISO 25010 grounding as text."""
+    return _read("principles.md")
