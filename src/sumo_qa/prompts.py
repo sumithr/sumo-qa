@@ -122,6 +122,31 @@ Output discipline:
     testing, property-based testing). When you DO name a specialty, the tool
     you name must FIT THE RISK (e.g. JJWT integration testing for a token
     TTL bump, not OWASP ZAP DAST scanning).
+
+    Tool selection guide (positive examples per risk shape):
+      - Token TTL / signature / claim validation: JJWT integration tests,
+        Auth0 java-jwt test fixtures, jose4j conformance suite.
+      - HTTP request / response handling, new endpoint, new auth filter:
+        OWASP ZAP, Burp Suite (DAST scanners only fit when there is an
+        HTTP surface to scan).
+      - Static code analysis for security pitfalls (alg=none, hard-coded
+        secrets): Semgrep, Snyk, SonarQube.
+      - REST contract drift between consumer and provider: Pact
+        (consumer-driven), Spring Cloud Contract, Schemathesis.
+      - Async / event-driven contract drift: Schemathesis (JSON-schema-
+        based fuzzing), AsyncAPI test runners.
+      - Frontend visual / interaction: Cypress, Playwright. For form /
+        a11y rendering: axe-core (often via Playwright), Pa11y.
+      - Mobile UI: Appium, Maestro, Detox, XCUITest, Espresso.
+      - Performance / load: k6 (HTTP + gRPC), Locust, Gatling, JMeter.
+      - Mutation testing / kill weak assertions: Pitest (JVM), Stryker
+        (JS / TS / .NET / Scala), MutPy / mutmut (Python).
+      - AI / LLM behaviour: Promptfoo, DeepEval, Ragas (RAG), Trulens,
+        Evidently (drift / monitoring).
+
+    Specialty + tool pairings outside this guide are valid only if the
+    risk justifies them; explain the fit in the rationale, not just the
+    pairing.
 """
 
 

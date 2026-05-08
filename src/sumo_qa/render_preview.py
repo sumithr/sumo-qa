@@ -225,7 +225,13 @@ def _format_approach_line(decision: dict[str, Any]) -> str:
     confidence = decision.get("confidence", "")
     next_action = decision.get("next_action") or {}
     next_tool = next_action.get("tool") if isinstance(next_action, dict) else None
-    suffix = f" -> next: {next_tool}" if next_tool else " -> next: (no tool)"
+    next_skill = next_action.get("skill") if isinstance(next_action, dict) else None
+    if next_tool:
+        suffix = f" -> next: {next_tool}"
+    elif next_skill:
+        suffix = f" -> next: {next_skill} (skill)"
+    else:
+        suffix = " -> next: (no tool)"
     confidence_part = f" ({confidence} confidence)" if confidence else ""
     return f"APPROACH: {approach}{confidence_part}{suffix}"
 

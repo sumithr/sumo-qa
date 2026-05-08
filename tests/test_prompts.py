@@ -554,3 +554,145 @@ def test_scaffold_prompt_allows_proposing_uncovered_scaffolds() -> None:
     # The AI must be told never to silently approve under-scaffolded
     # coverage.
     assert "never silently approve under-scaffolded coverage" in lower
+
+
+# --- Round 6 Fix A: review-tool schema is harmonised with question schema ---
+
+
+def test_review_prompt_requires_principle_cited() -> None:
+    """Round-6: the review builder must emit `principle_cited` as a HARD
+    REQUIREMENT in its JSON schema — same bar as the question tool."""
+    prompt = _review_prompt()
+    assert '"principle_cited"' in prompt
+    lower = prompt.lower()
+    assert "istqb foundation principle" in lower or "foundation principle" in lower
+
+
+def test_review_prompt_requires_named_techniques() -> None:
+    """Round-6: every named technique in review must be tied to a top_risk
+    so the review can't list techniques with no risk grounding."""
+    prompt = _review_prompt()
+    assert '"named_techniques"' in prompt
+    assert "covers_risk" in prompt
+
+
+def test_review_prompt_requires_top_risks_with_evidence() -> None:
+    """Round-6: review schema must require top_risks specific to this
+    change, with evidence_path grounding (mirrors question + decide)."""
+    prompt = _review_prompt()
+    assert '"top_risks"' in prompt
+    assert "why_specific_to_this_change" in prompt
+    assert "evidence_path" in prompt
+    lower = prompt.lower()
+    assert "2-5" in lower or "2-5 items" in lower or "2-5 top_risks" in lower
+
+
+def test_review_prompt_replaces_checks_with_smallest_useful_tests() -> None:
+    """Round-6: the older `checks` field is replaced by
+    `smallest_useful_tests` — capped at 3-7 items (review can span more
+    risks than a single-question answer's 3-5)."""
+    prompt = _review_prompt()
+    assert '"smallest_useful_tests"' in prompt
+    lower = prompt.lower()
+    # Cap must be explicit so the AI doesn't dump a checklist.
+    assert "3-7" in prompt or "3-7 items" in lower
+    # The minimum-set framing must be there.
+    assert "smallest" in lower or "minimum useful set" in lower
+
+
+# --- Round 6 Fix B: decide_approach prompt has a structured
+# strategy-orchestration extension block ---
+
+
+def test_decide_prompt_has_strategy_orchestration_extension() -> None:
+    """Round-6: when approach is strategy-orchestration, the schema must
+    formally require pyramid_shape, gate_calibration, ci_feedback_time,
+    rollout_plan — not let the AI invent ad-hoc fields."""
+    prompt = _decide_prompt()
+    # Conditional block header must be present.
+    assert "ADDITIONAL HARD REQUIREMENT" in prompt
+    assert "strategy-orchestration" in prompt
+    # The four extension fields must all be listed.
+    assert '"pyramid_shape"' in prompt
+    assert '"gate_calibration"' in prompt
+    assert '"ci_feedback_time"' in prompt
+    assert '"rollout_plan"' in prompt
+
+
+def test_decide_prompt_strategy_extension_documents_subfields() -> None:
+    """Round-6: the strategy-orchestration extension must document the
+    sub-keys for each block so the AI emits structured output."""
+    prompt = _decide_prompt()
+    # pyramid_shape sub-keys.
+    assert '"unit"' in prompt
+    assert '"component_integration"' in prompt
+    assert '"integration"' in prompt
+    assert '"contract"' in prompt
+    assert '"e2e"' in prompt
+    # gate_calibration sub-keys.
+    assert '"pr_gate"' in prompt
+    assert '"merge_gate"' in prompt
+    assert '"nightly"' in prompt
+    # ci_feedback_time sub-keys.
+    assert '"target_pr_feedback"' in prompt
+    assert '"target_merge_feedback"' in prompt
+
+
+def test_decide_prompt_strategy_extension_optional_for_per_change_approaches() -> None:
+    """Round-6: per-change approaches (tdd-scaffold / regression-first /
+    etc.) must explicitly NOT require the strategy extension fields."""
+    prompt = _decide_prompt()
+    lower = prompt.lower()
+    assert "per-change" in lower or "per change" in lower
+    assert "not required" in lower or "can be omitted" in lower
+
+
+# --- Round 6 Fix C: next_action.tool vs next_action.skill disambiguation ---
+
+
+def test_decide_prompt_next_action_distinguishes_tool_and_skill() -> None:
+    """Round-6: the schema must show next_action with BOTH a `tool` slot
+    (for per-change approaches) and a `skill` slot (for
+    strategy-orchestration). Exactly one must be set; both being set is
+    an error."""
+    prompt = _decide_prompt()
+    # Both shapes must appear in the schema description.
+    assert '"tool"' in prompt
+    assert '"skill"' in prompt
+    lower = prompt.lower()
+    # Mutual-exclusivity rule must be spelled out.
+    assert "exactly one" in lower or "never both" in lower
+    # The skill name for strategy-orchestration must appear.
+    assert "sumo-qa-strategising" in prompt
+
+
+def test_question_prompt_next_action_distinguishes_tool_and_skill() -> None:
+    """Round-6: the question prompt's recommended_approach.next_action
+    must also have the `tool` vs `skill` disambiguation."""
+    prompt = _question_prompt()
+    assert '"tool"' in prompt
+    assert '"skill"' in prompt
+    lower = prompt.lower()
+    assert "exactly one" in lower or "never both" in lower
+    assert "sumo-qa-strategising" in prompt
+
+
+# --- Round 6 Fix D: specialty-tool fit examples per risk shape ---
+
+
+def test_system_prompt_lists_specialty_tool_fit_examples() -> None:
+    """Round-6: the system prompt must include positive tool-fit examples
+    per risk shape (token TTL -> JJWT; HTTP surface -> OWASP ZAP;
+    contract drift -> Pact; performance -> k6; mutation -> Pitest, etc.)
+    so the AI doesn't confuse 'has security flag' with 'reach for ZAP'."""
+    sp = SENIOR_QA_SYSTEM_PROMPT
+    # At least three of the canonical-fit tools must appear by name.
+    well_known = ["JJWT", "Pact", "k6", "Pitest"]
+    appearing = [t for t in well_known if t in sp]
+    assert len(appearing) >= 3, (
+        f"System prompt must name at least 3 fit-example tools, found {appearing}."
+    )
+    # The block must mark itself as a fit guide so future edits don't
+    # accidentally drop the section heading.
+    lower = sp.lower()
+    assert "tool selection guide" in lower or "positive examples per risk" in lower

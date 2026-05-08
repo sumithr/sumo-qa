@@ -987,7 +987,10 @@ def _build_decide_approach_sampling_prompt(
         "{\n"
         '  "approach": "<canonical name OR a short kebab-case name you invent>",\n'
         '  "rationale": "<1-3 sentences citing at least one principle by number or name>",\n'
-        '  "next_action": {"tool": "<MCP tool to call next, or null if no tool>"} | null,\n'
+        '  "next_action": {\n'
+        '    "tool": "<MCP tool name (e.g. sumo_qa_scaffold_tests) — for per-change approaches, otherwise null>",\n'
+        '    "skill": "<sub-skill name (e.g. sumo-qa-strategising) — for strategy-orchestration, otherwise null>"\n'
+        '  } | null,\n'
         '  "follow_up": "<1-2 sentences of guidance regardless of which tool fires>",\n'
         '  "techniques": ["<ISTQB techniques most relevant>"],\n'
         '  "specialty_needs": [\n'
@@ -1011,6 +1014,42 @@ def _build_decide_approach_sampling_prompt(
         '  "assumptions": ["<labelled assumption>", "..."],\n'
         '  "confidence": "low|medium|high",\n'
         '  "reasoned_by": "ai"\n'
+        "}\n\n"
+        "next_action shape (HARD REQUIREMENT): exactly ONE of `tool` or "
+        "`skill` MUST be set; the other MUST be `null` or absent. For "
+        "per-change approaches (tdd-scaffold, regression-first, "
+        "coverage-first-then-refactor, strengthen-test-coverage, "
+        "verify-existing, no-tests-recommended, spike-first-then-tests) use "
+        "`tool` and leave `skill` null. For `strategy-orchestration` use "
+        "`skill: \"sumo-qa-strategising\"` and leave `tool` null. Never "
+        "both. Setting both is an error.\n\n"
+        "ADDITIONAL HARD REQUIREMENT when `approach` is "
+        "\"strategy-orchestration\": the response MUST also include the "
+        "following structured fields. For per-change approaches "
+        "(tdd-scaffold, regression-first, etc.) these fields are not "
+        "required and can be omitted.\n"
+        "{\n"
+        '  "pyramid_shape": {\n'
+        '    "unit": "<one-line description of unit-test investment for this repo>",\n'
+        '    "component_integration": "<one-line description>",\n'
+        '    "integration": "<one-line description>",\n'
+        '    "contract": "<one-line description>",\n'
+        '    "e2e": "<one-line description; e2e should stay thin>"\n'
+        "  },\n"
+        '  "gate_calibration": {\n'
+        '    "pr_gate": "<what runs on every PR + wall-time target>",\n'
+        '    "merge_gate": "<what runs on merge + wall-time target>",\n'
+        '    "nightly": "<what runs nightly>"\n'
+        "  },\n"
+        '  "ci_feedback_time": {\n'
+        '    "target_pr_feedback": "<wall-time target>",\n'
+        '    "target_merge_feedback": "<wall-time target>",\n'
+        '    "actions": "<concrete actions to hit the targets>"\n'
+        "  },\n"
+        '  "rollout_plan": [\n'
+        '    "<ordered step 1>",\n'
+        '    "<ordered step 2>"\n'
+        "  ]\n"
         "}\n\n"
         "Return JSON only, no prose around it."
     )
@@ -1045,10 +1084,22 @@ def _parse_ai_decision(content: str) -> dict[str, Any] | None:
     if "rationale" not in parsed or not isinstance(parsed["rationale"], str):
         return None
     # Normalise next_action shape - allow null, dict, or string.
+    # Round-6: tool|skill disambiguation. If the AI emits a string, treat it
+    # as a tool name when it matches the MCP tool prefix (sumo_qa_*) and as
+    # a skill name otherwise. Always normalise dicts to have both keys so
+    # downstream consumers can branch cleanly.
     if "next_action" not in parsed:
         parsed["next_action"] = None
     elif isinstance(parsed["next_action"], str):
-        parsed["next_action"] = {"tool": parsed["next_action"]}
+        raw = parsed["next_action"]
+        if raw.startswith("sumo_qa_"):
+            parsed["next_action"] = {"tool": raw, "skill": None}
+        else:
+            parsed["next_action"] = {"tool": None, "skill": raw}
+    elif isinstance(parsed["next_action"], dict):
+        na = parsed["next_action"]
+        na.setdefault("tool", None)
+        na.setdefault("skill", None)
     parsed.setdefault("follow_up", "")
     parsed.setdefault("techniques", [])
     parsed.setdefault("specialty_needs", [])
@@ -1138,16 +1189,33 @@ def _build_review_sampling_prompt(change_summary: str, payload: dict[str, Any]) 
     return base + "\n\n" + _domain_anchoring_and_json_schema(
         schema_lines=[
             '  "narrative": "<3-6 sentences of senior-QA judgement on this specific change>",',
-            '  "checks": ["<concrete check anchored to a touched file, class, or domain term>"],',
+            '  "principle_cited": "<ISTQB Foundation principle by name or number that shapes this review>",',
+            '  "named_techniques": [',
+            '    {"technique": "<named ISTQB test design technique>", "covers_risk": "<one of top_risks>"}',
+            '  ],',
+            '  "top_risks": [',
+            '    {"risk": "<change-specific risk, not boilerplate>", "why_specific_to_this_change": "<reason>", "evidence_path": "<file/class/path>"}',
+            '  ],',
+            '  "smallest_useful_tests": [',
+            '    {"name": "<concrete test>", "technique": "<ISTQB technique>", "covers_risk": "<one of top_risks>"}',
+            '  ],',
             '  "specialty_needs": [',
             '    {"specialty": "<security|performance|frontend|contract|mobile|a11y|ai|mutation-testing|other>", "tool": "<concrete well-known tool name>"}',
             '  ],',
             '  "assumptions": ["<labelled assumption>", "..."]',
         ],
         extra_required=(
-            "Required: list every behavioural claim you cannot verify from the "
-            "supplied facts under \"assumptions\". Treat them as challengeable, "
-            "not as truth.\n\n"
+            "HARD REQUIREMENT — principle + minimum-set: `principle_cited` "
+            "MUST be a non-empty ISTQB Foundation principle (by name or "
+            "number) that shapes this review. `named_techniques` MUST tie "
+            "each entry to one of the top_risks via `covers_risk`. "
+            "`top_risks` MUST list 2-5 items specific to this change — "
+            "generic phrases like \"missing test data\" or \"unclear "
+            "acceptance criteria\" are not acceptable. "
+            "`smallest_useful_tests` MUST be the smallest set that gives "
+            "release confidence (3-7 items for a multi-risk review, fewer "
+            "if the change is narrow); a laundry-list checklist is not "
+            "acceptable.\n\n"
             "Required: list specialty_needs ONLY when the change genuinely "
             "implies a specialty surface. Empty list `[]` is acceptable for "
             "in-process unit-level work; place justification under assumptions. "
@@ -1306,7 +1374,10 @@ def _build_question_sampling_prompt(
             '  "recommended_approach": {',
             '    "approach": "<one of: tdd-scaffold | regression-first | coverage-first-then-refactor | strengthen-test-coverage | verify-existing | no-tests-recommended | spike-first-then-tests | strategy-orchestration>",',
             '    "confidence": "<low | medium | high>",',
-            '    "next_action": "<MCP tool name OR a sub-skill name OR null>"',
+            '    "next_action": {',
+            '      "tool": "<MCP tool name (e.g. sumo_qa_scaffold_tests) — for per-change approaches, otherwise null>",',
+            '      "skill": "<sub-skill name (e.g. sumo-qa-strategising) — for strategy-orchestration, otherwise null>"',
+            '    }',
             '  },',
             '  "principle_cited": "<ISTQB Foundation principle by name or number that shapes this answer>",',
             '  "named_techniques": [',
@@ -1320,9 +1391,17 @@ def _build_question_sampling_prompt(
             "Routing rule: if the question is open-ended against a whole "
             "service or a strategy / audit / pyramid / rollout ask, set "
             "`recommended_approach.approach` to `strategy-orchestration` and "
-            "`next_action` to `sumo-qa-strategising`. Cap "
+            "`recommended_approach.next_action.skill` to "
+            "`\"sumo-qa-strategising\"` (leave `tool` null). Cap "
             "`smallest_useful_tests` at 5 items — this is the minimum useful "
             "set, not a checklist.\n\n"
+            "next_action shape (HARD REQUIREMENT): exactly ONE of "
+            "`recommended_approach.next_action.tool` or "
+            "`recommended_approach.next_action.skill` MUST be set; the other "
+            "MUST be `null`. For per-change approaches use `tool` (e.g. "
+            "`sumo_qa_scaffold_tests`); for `strategy-orchestration` use "
+            "`skill: \"sumo-qa-strategising\"`. Never both. Setting both is "
+            "an error.\n\n"
             "HARD REQUIREMENT — principle + minimum-set: `principle_cited` "
             "MUST be non-empty when the answer touches risk, prioritisation, "
             "or strategy. `smallest_useful_tests` MUST be the smallest set "
@@ -2542,10 +2621,16 @@ def _slim(payload: dict[str, Any]) -> dict[str, Any]:
         full_ra = primary["recommended_approach"]
         next_action = full_ra.get("next_action")
         next_tool = next_action.get("tool") if isinstance(next_action, dict) else None
+        next_skill = next_action.get("skill") if isinstance(next_action, dict) else None
+        slim_next_action: dict[str, Any] | None
+        if next_tool or next_skill:
+            slim_next_action = {"tool": next_tool, "skill": next_skill}
+        else:
+            slim_next_action = None
         slim_ra: dict[str, Any] = {
             "approach": full_ra.get("approach"),
             "confidence": full_ra.get("confidence"),
-            "next_action": {"tool": next_tool} if next_tool else None,
+            "next_action": slim_next_action,
         }
         rationale = full_ra.get("rationale")
         if rationale:
