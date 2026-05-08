@@ -6,6 +6,15 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field, RootModel
 
 from sumo_qa.debug_capture import maybe_capture
+from sumo_qa.knowledge_loaders import (
+    sumo_qa_load_approaches as _load_approaches,
+    sumo_qa_load_classifications as _load_classifications,
+    sumo_qa_load_principles as _load_principles,
+    sumo_qa_load_rules as _load_rules,
+    sumo_qa_load_specialty_tools as _load_specialty_tools,
+    sumo_qa_load_standards as _load_standards,
+    sumo_qa_load_techniques as _load_techniques,
+)
 from sumo_qa.llm import HostSamplingClient
 from sumo_qa.models import (
     CreateTestPlanResponse,
@@ -967,6 +976,57 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             "confidence."
         )
 
+    def _register_knowledge_loaders(mcp):
+        """Register the 7 knowledge-provider tools.
+
+        Each tool is a thin wrapper around a markdown read. The host LLM picks
+        from the returned catalogue; this server does no inference."""
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_load_classifications() -> str:
+            """Return the 10 canonical change classifications as plain text. The
+            host LLM picks which apply to a given change."""
+            return _load_classifications()
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_load_approaches() -> str:
+            """Return the 8 canonical QA approaches as plain text. The host LLM
+            picks which approach fits a given piece of work."""
+            return _load_approaches()
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_load_principles() -> str:
+            """Return ISTQB Foundation + Advanced + ISO 25010 grounding as plain
+            text. The host LLM cites principles when shaping recommendations."""
+            return _load_principles()
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_load_techniques() -> str:
+            """Return the test design technique catalogue (black-box, white-box,
+            experience-based, static, property-based, mutation) as plain text.
+            The host LLM picks one technique per named risk."""
+            return _load_techniques()
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_load_specialty_tools() -> str:
+            """Return the specialty + tool fit catalogue as plain text. The host
+            LLM picks tools that fit the actual risk."""
+            return _load_specialty_tools()
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_load_standards(classification: str | None = None) -> str:
+            """Return the team's loaded standards packs as plain text. Optional
+            classification filter is metadata-based (packs whose frontmatter
+            declares the classification); no keyword inference."""
+            return _load_standards(classification=classification)
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_load_rules(classification: str | None = None) -> str:
+            """Return the team's loaded change rules as plain text. Optional
+            classification filter is metadata-based; no keyword inference."""
+            return _load_rules(classification=classification)
+
+    _register_knowledge_loaders(mcp)
     _attach_output_schemas(mcp)
     return mcp
 
