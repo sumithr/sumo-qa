@@ -28,3 +28,21 @@ def test_load_classifications_returns_non_empty_text():
     text = sumo_qa_load_classifications()
     assert isinstance(text, str)
     assert len(text) > 200
+
+
+from sumo_qa.knowledge_loaders import sumo_qa_load_approaches
+
+
+def test_load_approaches_contains_eight_canonical_entries():
+    text = sumo_qa_load_approaches()
+    for entry in [
+        "strategy-orchestration",
+        "tdd-scaffold",
+        "regression-first",
+        "coverage-first-then-refactor",
+        "strengthen-test-coverage",
+        "verify-existing",
+        "no-tests-recommended",
+        "spike-first-then-tests",
+    ]:
+        assert entry in text, f"Missing canonical approach: {entry}"
