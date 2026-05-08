@@ -54,3 +54,8 @@ def sumo_qa_load_principles() -> str:
 def sumo_qa_load_techniques() -> str:
     """Return the test design technique catalogue as text."""
     return _read("techniques.md")
+
+
+def sumo_qa_load_specialty_tools() -> str:
+    """Return the specialty + tool fit catalogue as text."""
+    return _read("specialty_tools.md")
