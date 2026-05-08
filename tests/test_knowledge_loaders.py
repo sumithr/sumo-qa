@@ -76,3 +76,23 @@ def test_load_techniques_contains_canonical_techniques():
         "mutation testing",
     ]:
         assert entry in text, f"Missing canonical technique: {entry}"
+
+
+from sumo_qa.knowledge_loaders import sumo_qa_load_specialty_tools
+
+
+def test_load_specialty_tools_contains_canonical_pairings():
+    text = sumo_qa_load_specialty_tools()
+    for entry in [
+        "OWASP ZAP",
+        "Pact",
+        "k6",
+        "Pitest",
+        "Stryker",
+        "Hypothesis",
+        "axe-core",
+        "Cypress",
+        "Promptfoo",
+        "JJWT",
+    ]:
+        assert entry in text, f"Missing canonical specialty tool: {entry}"
