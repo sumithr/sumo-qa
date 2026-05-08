@@ -93,3 +93,40 @@ def sumo_qa_load_standards(classification: str | None = None) -> str:
                 continue
         packs.append(f"# {path.name}\n\n{text}")
     return "\n\n---\n\n".join(packs)
+
+
+def _rules_path() -> Path:
+    override = os.environ.get("QA_RULES_PATH")
+    if override:
+        return Path(override)
+    bundled = Path(__file__).parent / "_data" / "standards" / "rules" / "change_rules.yaml"
+    if bundled.is_file():
+        return bundled
+    candidates = [
+        Path(__file__).parent.parent.parent / "standards" / "rules" / "change_rules.yaml",
+        Path(__file__).parent.parent.parent / "rules" / "change_rules.yaml",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p
+    return candidates[0]
+
+
+def sumo_qa_load_rules(classification: str | None = None) -> str:
+    """Return the team's loaded change rules as text. Optional metadata filter
+    by classification — the rules file is a dict keyed by classification, so
+    filtering returns just that classification's entry."""
+    path = _rules_path()
+    text = path.read_text(encoding="utf-8")
+    if classification is None:
+        return text
+    try:
+        doc = yaml.safe_load(text) or {}
+    except yaml.YAMLError:
+        return text
+    if not isinstance(doc, dict):
+        return text
+    entry = doc.get(classification)
+    if entry is None:
+        return yaml.safe_dump({}, sort_keys=False)
+    return yaml.safe_dump({classification: entry}, sort_keys=False)
