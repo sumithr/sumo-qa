@@ -78,6 +78,9 @@ def test_acceptance_criteria_signal_lifts_default_confidence_to_medium() -> None
     assert decision["approach"] == "tdd-scaffold"
     assert decision["confidence"] == "medium"
     assert decision["next_action"]["tool"] == "sumo_qa_scaffold_tests"
+    # Round-6: per-change approaches must also explicitly null out skill so
+    # downstream parsers can branch cleanly on tool vs skill.
+    assert decision["next_action"].get("skill") is None
 
 
 def test_alternatives_are_listed_so_user_can_override() -> None:
@@ -192,8 +195,18 @@ def test_is_strategic_planning_signal_routes_to_strategy_orchestration() -> None
     )
 
     assert decision["approach"] == "strategy-orchestration"
-    assert decision["next_action"] is None, (
-        "strategy-orchestration must not point at a per-change MCP tool"
+    # Round-6: strategy-orchestration must emit next_action with skill set
+    # (NOT tool) so strict parsers route to the sumo-qa-strategising skill,
+    # not a non-existent MCP tool of that name.
+    next_action = decision["next_action"]
+    assert isinstance(next_action, dict), (
+        "strategy-orchestration must still expose a structured next_action"
+    )
+    assert next_action.get("tool") is None, (
+        "strategy-orchestration must NOT name a per-change MCP tool"
+    )
+    assert next_action.get("skill") == "sumo-qa-strategising", (
+        "strategy-orchestration must set next_action.skill to the sub-skill name"
     )
     follow_up = decision["follow_up"].lower()
     assert "sumo-qa-strategising" in follow_up or "strategising" in follow_up

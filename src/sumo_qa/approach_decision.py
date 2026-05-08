@@ -46,6 +46,7 @@ from typing import Any
 _NEXT_TOOL: dict[str, dict[str, Any] | None] = {
     "tdd-scaffold": {
         "tool": "sumo_qa_scaffold_tests",
+        "skill": None,
         "args_hint": {
             "work_item": "<the work item / change summary>",
             "test_conditions": ["<each acceptance criterion as a test condition>"],
@@ -54,6 +55,7 @@ _NEXT_TOOL: dict[str, dict[str, Any] | None] = {
     },
     "regression-first": {
         "tool": "sumo_qa_scaffold_tests",
+        "skill": None,
         "args_hint": {
             "work_item": "<a 1-line description of the bug>",
             "test_conditions": ["Reproduce the failing case exactly as the bug presents."],
@@ -62,6 +64,7 @@ _NEXT_TOOL: dict[str, dict[str, Any] | None] = {
     },
     "coverage-first-then-refactor": {
         "tool": "sumo_qa_review_local_change",
+        "skill": None,
         "args_hint": {
             "change_summary": "<refactor description>",
             "touched_files": ["<files being refactored>"],
@@ -69,6 +72,7 @@ _NEXT_TOOL: dict[str, dict[str, Any] | None] = {
     },
     "strengthen-test-coverage": {
         "tool": "sumo_qa_scaffold_tests",
+        "skill": None,
         "args_hint": {
             "work_item": "Strengthen tests against unchanged production code (e.g. kill surviving mutants / raise coverage)",
             "test_conditions": [
@@ -80,7 +84,10 @@ _NEXT_TOOL: dict[str, dict[str, Any] | None] = {
     "verify-existing": None,
     "no-tests-recommended": None,
     "spike-first-then-tests": None,
-    "strategy-orchestration": None,
+    "strategy-orchestration": {
+        "tool": None,
+        "skill": "sumo-qa-strategising",
+    },
 }
 
 
