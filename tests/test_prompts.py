@@ -696,3 +696,196 @@ def test_system_prompt_lists_specialty_tool_fit_examples() -> None:
     # accidentally drop the section heading.
     lower = sp.lower()
     assert "tool selection guide" in lower or "positive examples per risk" in lower
+
+
+# --- Round 7 Fix 1: prepare prompt schema is harmonised with question + review ---
+
+
+def test_prepare_prompt_requires_principle_cited() -> None:
+    """Round-7: the prepare builder must emit `principle_cited` as a HARD
+    REQUIREMENT — same bar as question and review."""
+    prompt = _prepare_prompt()
+    assert '"principle_cited"' in prompt
+    lower = prompt.lower()
+    assert "istqb foundation principle" in lower or "foundation principle" in lower
+
+
+def test_prepare_prompt_requires_top_risks_named_techniques_and_smallest_useful_tests() -> None:
+    """Round-7: prepare must surface change-specific top_risks (with
+    evidence_path), named_techniques tied to those risks, and replace the
+    bare `checks` field with `smallest_useful_tests` capped at 3-7 items."""
+    prompt = _prepare_prompt()
+    assert '"top_risks"' in prompt
+    assert "why_specific_to_this_change" in prompt
+    assert "evidence_path" in prompt
+    assert '"named_techniques"' in prompt
+    assert "covers_risk" in prompt
+    assert '"smallest_useful_tests"' in prompt
+    lower = prompt.lower()
+    assert "3-7" in prompt or "3-7 items" in lower
+    # The senior-QA minimum-set framing must be there.
+    assert "smallest" in lower or "minimum useful set" in lower
+
+
+# --- Round 7 Fix 2: question prompt strategy_extension extension ---
+
+
+def test_question_prompt_has_strategy_extension_when_strategy_orchestration() -> None:
+    """Round-7: the question schema must include the structured
+    strategy_extension block so a strategy-orchestration recommendation
+    routes the same shape as decide_approach."""
+    prompt = _question_prompt()
+    assert '"strategy_extension"' in prompt
+    # All four sub-blocks must be listed.
+    assert '"pyramid_shape"' in prompt
+    assert '"gate_calibration"' in prompt
+    assert '"ci_feedback_time"' in prompt
+    assert '"rollout_plan"' in prompt
+    # The conditional rule must spell out when strategy_extension is
+    # required vs omitted/null.
+    lower = prompt.lower()
+    assert "strategy_extension" in lower
+    assert "strategy-orchestration" in prompt
+    assert "omitted or" in lower or "omitted or null" in lower
+
+
+# --- Round 7 Fix 3: scaffold uncovered_branches + boundary_scaffolds get stable IDs ---
+
+
+def test_scaffold_prompt_uncovered_branches_have_stable_ids() -> None:
+    """Round-7: each uncovered_branches entry must have a stable `id` field
+    following the U + integer pattern, so top_risks can link to it."""
+    prompt = _scaffold_prompt()
+    # Uncovered branches must have an id slot in the schema, and the
+    # pattern must be spelled out.
+    lower = prompt.lower()
+    assert "u1" in lower or "u + integer" in lower
+    assert '"id"' in prompt
+    # The uncovered_branches entry must mention the id pattern.
+    assert "U1" in prompt
+
+
+def test_scaffold_prompt_boundary_scaffolds_have_stable_ids() -> None:
+    """Round-7: boundary_scaffolds entries must also expose stable `id`
+    values (B + integer) so top_risks.scaffold_coverage_task_id can link
+    back to them unambiguously."""
+    prompt = _scaffold_prompt()
+    assert "B1" in prompt
+    lower = prompt.lower()
+    assert "b + integer" in lower or "b1" in lower
+
+
+def test_scaffold_top_risks_link_targets_documented() -> None:
+    """Round-7: top_risks.scaffold_coverage_task_id must accept any of:
+    task_refinement.id (T1), uncovered_branch.id (U1), boundary_scaffold.id
+    (B1), or the literal "NONE". The instruction must spell out all four
+    link-target shapes so the AI doesn't guess."""
+    prompt = _scaffold_prompt()
+    assert "scaffold_coverage_task_id" in prompt
+    # All four link-target shapes must be documented.
+    assert "T1" in prompt
+    assert "U1" in prompt
+    assert "B1" in prompt
+    assert '"NONE"' in prompt
+    lower = prompt.lower()
+    # The "no scaffold covers this risk" wording must be present so the
+    # AI knows NONE is a flag, not an ignore signal.
+    assert "no scaffold covers" in lower or "smallest-useful-set is incomplete" in lower
+
+
+# --- Round 7 Fix 4: do_not_test field across builders ---
+
+
+def test_decide_review_prepare_question_test_plan_have_do_not_test_field() -> None:
+    """Round-7: the senior-QA voice must be supported with a structured
+    `do_not_test` slot. It is OPTIONAL ([] is fine), but every relevant
+    builder must offer it so the AI can name what to skip."""
+    builders = [
+        ("decide_approach", _decide_prompt),
+        ("review", _review_prompt),
+        ("prepare", _prepare_prompt),
+        ("question", _question_prompt),
+        ("test_plan", _test_plan_prompt),
+    ]
+    for name, builder in builders:
+        prompt = builder()
+        assert '"do_not_test"' in prompt, (
+            f"Builder {name!r} must include do_not_test slot."
+        )
+        assert '"why_not"' in prompt, (
+            f"Builder {name!r}'s do_not_test entries must include why_not."
+        )
+        lower = prompt.lower()
+        # The senior-QA voice nudge must be present.
+        assert "senior qa voice" in lower or "senior-qa voice" in lower, (
+            f"Builder {name!r} must spell out the senior-QA voice instruction."
+        )
+
+
+# --- Round 7 Fix 5: spike-first-then-tests routes to deliverable, not a tool ---
+
+
+def test_spike_first_then_tests_routes_to_deliverable() -> None:
+    """Round-7: spike approaches don't produce a test scaffold yet. The
+    next_action must route to a `deliverable` artefact name
+    ('captured_conditions_and_fit_record'), with `tool` and `skill` both
+    null."""
+    from sumo_qa.approach_decision import _NEXT_TOOL
+
+    spike = _NEXT_TOOL["spike-first-then-tests"]
+    assert isinstance(spike, dict)
+    assert spike.get("tool") is None, "spike must not route to an MCP tool"
+    assert spike.get("skill") is None, "spike must not route to a sub-skill"
+    assert spike.get("deliverable") == "captured_conditions_and_fit_record"
+    # The args_hint must guide the host on what to capture.
+    args_hint = spike.get("args_hint")
+    assert isinstance(args_hint, dict)
+    assert "captured_conditions" in args_hint
+    assert "fit_record" in args_hint
+
+
+def test_decide_prompt_next_action_has_deliverable_slot() -> None:
+    """Round-7: the decide_approach JSON schema must show next_action.deliverable
+    so the AI can route spikes / no-tests-recommended approaches without
+    fabricating a tool or skill that doesn't fit."""
+    prompt = _decide_prompt()
+    assert '"deliverable"' in prompt
+    lower = prompt.lower()
+    # The exclusivity rule must extend to all three slots.
+    assert "exactly one" in lower
+    # The canonical spike deliverable name must appear.
+    assert "captured_conditions_and_fit_record" in prompt
+
+
+def test_question_prompt_next_action_has_deliverable_slot() -> None:
+    """Round-7: the question prompt's recommended_approach.next_action must
+    also expose `deliverable` for symmetry with decide_approach."""
+    prompt = _question_prompt()
+    assert '"deliverable"' in prompt
+    lower = prompt.lower()
+    assert "exactly one" in lower
+    assert "captured_conditions_and_fit_record" in prompt
+
+
+# --- Round 7 Fix 6: characterization_tests for coverage-first-then-refactor ---
+
+
+def test_decide_prompt_requires_characterization_tests_for_refactor() -> None:
+    """Round-7: when approach is coverage-first-then-refactor, the schema
+    must demand characterization_tests with at least 2 entries. Each entry
+    must name what fails-after-extraction signal it provides."""
+    prompt = _decide_prompt()
+    assert '"characterization_tests"' in prompt
+    # Required sub-fields.
+    assert '"test_name"' in prompt
+    assert '"current_behaviour_pinned"' in prompt
+    assert '"fails_after_extraction_if"' in prompt
+    lower = prompt.lower()
+    # The minimum-2 requirement must be explicit.
+    assert "at least 2" in lower or "minimum 2" in lower or "2 entries" in lower
+    # The conditional trigger must be spelled out.
+    assert "coverage-first-then-refactor" in prompt
+    assert "additional hard requirement" in lower
+    # The "pin existing behaviour BEFORE the refactor" framing must be
+    # present so the AI doesn't write new behavioural tests here.
+    assert "before the refactor" in lower or "pin existing behaviour" in lower
