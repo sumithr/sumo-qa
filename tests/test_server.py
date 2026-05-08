@@ -1,6 +1,35 @@
 from sumo_qa.server import build_mcp_server
 
 
+# The 10 "heavy" QA reasoning tools that emit structured Pydantic-validated
+# payloads. The 7 sumo_qa_load_* knowledge tools registered alongside them
+# are deliberately simpler (plain-text str returners, no response_format),
+# so tests that assert structured-output invariants scope themselves to
+# this set rather than every registered tool.
+_HEAVY_QA_TOOL_NAMES = {
+    "sumo_qa_prepare_for_work",
+    "sumo_qa_review_local_change",
+    "sumo_qa_answer_testing_question",
+    "sumo_qa_create_test_plan",
+    "sumo_qa_scaffold_tests",
+    "sumo_qa_decide_approach",
+    "sumo_qa_explain_test_data_requirements",
+    "sumo_qa_find_test_data",
+    "sumo_qa_validate_test_data",
+    "sumo_qa_register_known_good_test_data",
+}
+
+_KNOWLEDGE_LOADER_TOOL_NAMES = {
+    "sumo_qa_load_classifications",
+    "sumo_qa_load_approaches",
+    "sumo_qa_load_principles",
+    "sumo_qa_load_techniques",
+    "sumo_qa_load_specialty_tools",
+    "sumo_qa_load_standards",
+    "sumo_qa_load_rules",
+}
+
+
 def test_builds_mcp_server_with_registered_tools() -> None:
     server = build_mcp_server()
 
@@ -12,18 +41,7 @@ def test_registers_all_qa_tools() -> None:
 
     tool_names = set(server._tool_manager._tools.keys())
 
-    assert tool_names == {
-        "sumo_qa_prepare_for_work",
-        "sumo_qa_review_local_change",
-        "sumo_qa_answer_testing_question",
-        "sumo_qa_create_test_plan",
-        "sumo_qa_scaffold_tests",
-        "sumo_qa_decide_approach",
-        "sumo_qa_explain_test_data_requirements",
-        "sumo_qa_find_test_data",
-        "sumo_qa_validate_test_data",
-        "sumo_qa_register_known_good_test_data",
-    }
+    assert tool_names == _HEAVY_QA_TOOL_NAMES | _KNOWLEDGE_LOADER_TOOL_NAMES
 
 
 def test_registers_natural_language_prompts() -> None:
@@ -147,8 +165,11 @@ def test_every_tool_output_schema_round_trips_through_list_tools() -> None:
     server = build_mcp_server()
     listed = asyncio.run(server.list_tools())
     by_name = {t.name: t for t in listed}
-    assert len(by_name) == 10
-    for name, mcp_tool in by_name.items():
+    # Only the heavy QA tools advertise an outputSchema (they emit structured
+    # dicts validated against Pydantic models). The sumo_qa_load_* knowledge
+    # tools are plain-text returners and intentionally omit outputSchema.
+    for name in _HEAVY_QA_TOOL_NAMES:
+        mcp_tool = by_name[name]
         assert mcp_tool.outputSchema is not None, (
             f"tool {name!r} did not surface outputSchema in list_tools()"
         )
@@ -201,11 +222,14 @@ def test_response_format_markdown_falls_back_for_unknown_tool_payloads() -> None
 
 
 def test_every_tool_accepts_response_format_parameter() -> None:
-    """Each tool's input schema declares the `response_format` parameter so
-    hosts can advertise the rendering choice in their UI."""
+    """Each heavy QA tool's input schema declares the `response_format`
+    parameter so hosts can advertise the rendering choice in their UI. The
+    sumo_qa_load_* knowledge tools are plain-text returners with no JSON /
+    markdown duality, so they intentionally omit the parameter."""
     server = build_mcp_server()
     tools = server._tool_manager._tools
-    for name, tool in tools.items():
+    for name in _HEAVY_QA_TOOL_NAMES:
+        tool = tools[name]
         params = tool.parameters or {}
         properties = params.get("properties") or {}
         assert "response_format" in properties, (
@@ -237,3 +261,19 @@ def test_tool_descriptions_avoid_directive_language() -> None:
                 f"tool {name!r} description contains directive phrase {phrase!r}; "
                 "rewrite as a declarative description of what the tool returns."
             )
+
+
+def test_knowledge_loader_tools_are_registered():
+    """The 7 sumo_qa_load_* tools must appear in the server's tool list."""
+    server = build_mcp_server()
+    tool_names = set(server._tool_manager._tools.keys())
+    for name in [
+        "sumo_qa_load_classifications",
+        "sumo_qa_load_approaches",
+        "sumo_qa_load_principles",
+        "sumo_qa_load_techniques",
+        "sumo_qa_load_specialty_tools",
+        "sumo_qa_load_standards",
+        "sumo_qa_load_rules",
+    ]:
+        assert name in tool_names, f"Missing tool: {name}"
