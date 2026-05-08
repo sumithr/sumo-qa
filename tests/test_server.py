@@ -44,22 +44,34 @@ def test_registers_all_qa_tools() -> None:
     assert tool_names == _HEAVY_QA_TOOL_NAMES | _KNOWLEDGE_LOADER_TOOL_NAMES
 
 
+# The 9 hardcoded natural-language prompts (legacy "use this tool" hints).
+# Phase 1 ADDS dynamic skills/*/SKILL.md prompts alongside these; the legacy
+# set is deleted in Phase 4. Tests in this file scope themselves to this set
+# rather than asserting the exact registered prompt list, which now includes
+# 10 skill-derived prompts validated by tests/test_skill_prompts.py.
+_LEGACY_PROMPT_NAMES = {
+    "sumo_qa_review_my_changes",
+    "sumo_qa_plan_for_work",
+    "sumo_qa_test_plan_for_work",
+    "sumo_qa_scaffold_tests_for_work",
+    "sumo_qa_what_approach",
+    "sumo_qa_how_do_i_test",
+    "sumo_qa_find_data",
+    "sumo_qa_explain_data_needs",
+    "sumo_qa_validate_data",
+}
+
+
 def test_registers_natural_language_prompts() -> None:
     server = build_mcp_server()
 
     prompt_names = set(server._prompt_manager._prompts.keys())
 
-    assert prompt_names == {
-        "sumo_qa_review_my_changes",
-        "sumo_qa_plan_for_work",
-        "sumo_qa_test_plan_for_work",
-        "sumo_qa_scaffold_tests_for_work",
-        "sumo_qa_what_approach",
-        "sumo_qa_how_do_i_test",
-        "sumo_qa_find_data",
-        "sumo_qa_explain_data_needs",
-        "sumo_qa_validate_data",
-    }
+    # Subset assertion: skill-derived prompts (validated separately in
+    # tests/test_skill_prompts.py) coexist with the legacy hardcoded ones
+    # until Phase 4.
+    missing = _LEGACY_PROMPT_NAMES - prompt_names
+    assert not missing, f"Missing legacy prompts: {missing}"
 
 
 def test_tool_descriptions_advertise_natural_language_triggers() -> None:
@@ -101,20 +113,25 @@ def test_prompt_bodies_do_not_instruct_the_model_to_call_tools() -> None:
         "use the sumo_qa_explain_test_data_requirements",
     ]
 
+    # Sample args for the 9 legacy prompts. Skill-derived prompts (e.g.
+    # `qa_deciding_approach`) are SKILL.md content, not user-style prompt
+    # bodies, so the directive-phrase rule doesn't apply to them and they're
+    # excluded from this scan.
+    sample_args_by_name = {
+        "sumo_qa_review_my_changes": {"scope": ""},
+        "sumo_qa_plan_for_work": {"work_item": "x"},
+        "sumo_qa_test_plan_for_work": {"work_item": "x", "scope_size": "medium"},
+        "sumo_qa_scaffold_tests_for_work": {"work_item": "x", "target_path": ""},
+        "sumo_qa_what_approach": {"intent": "x", "target_path": ""},
+        "sumo_qa_how_do_i_test": {"thing": "x"},
+        "sumo_qa_find_data": {"scenario": "x"},
+        "sumo_qa_explain_data_needs": {"scenario": "x"},
+        "sumo_qa_validate_data": {"entry_id_or_entry": "x"},
+    }
+
     async def collect_bodies() -> list[tuple[str, str]]:
         results: list[tuple[str, str]] = []
-        for name in server._prompt_manager._prompts:
-            sample_args = {
-                "sumo_qa_review_my_changes": {"scope": ""},
-                "sumo_qa_plan_for_work": {"work_item": "x"},
-                "sumo_qa_test_plan_for_work": {"work_item": "x", "scope_size": "medium"},
-                "sumo_qa_scaffold_tests_for_work": {"work_item": "x", "target_path": ""},
-                "sumo_qa_what_approach": {"intent": "x", "target_path": ""},
-                "sumo_qa_how_do_i_test": {"thing": "x"},
-                "sumo_qa_find_data": {"scenario": "x"},
-                "sumo_qa_explain_data_needs": {"scenario": "x"},
-                "sumo_qa_validate_data": {"entry_id_or_entry": "x"},
-            }[name]
+        for name, sample_args in sample_args_by_name.items():
             rendered = await server.get_prompt(name, sample_args)
             for message in rendered.messages:
                 text = getattr(message.content, "text", "") or ""

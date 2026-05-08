@@ -25,6 +25,7 @@ from sumo_qa.models import (
     TestingQuestionResponse,
 )
 from sumo_qa.render_preview import render_response
+from sumo_qa.skill_prompts import register_skills_as_prompts
 from sumo_qa.tdm_models import (
     TestDataFindResponse,
     TestDataRegisterResponse,
@@ -1027,6 +1028,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             return _load_rules(classification=classification)
 
     _register_knowledge_loaders(mcp)
+    register_skills_as_prompts(mcp)
     _attach_output_schemas(mcp)
     return mcp
 
