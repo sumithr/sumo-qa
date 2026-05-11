@@ -39,7 +39,7 @@ def _install_mcp_server() -> None:
         print('  Windows (PS):   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"')
         sys.exit(1)
     subprocess.run(
-        ["uv", "tool", "install", "--from", str(REPO_ROOT), "sumo-qa-mcp"],
+        ["uv", "tool", "install", "--from", str(REPO_ROOT), "sumo-qa", "--reinstall"],
         check=True,
     )
     print("  done.")
