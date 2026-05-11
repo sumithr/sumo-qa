@@ -1,88 +1,51 @@
 # sumo-qa MCP
 
-Turns the host LLM into a senior ISTQB-certified QA engineer. Works with any MCP-compliant host (Claude Code, Cursor, Copilot, Windsurf, IntelliJ AI Assistant). No external services, no Jira / Confluence / vector DB / KB dependency.
+A senior-QA MCP server that delivers ISTQB-grade testing discipline to AI coding agents in
+Claude Code, IntelliJ AI Assistant, and VS Code + GitHub Copilot. The discipline lives in
+[skill files](skills/) the host LLM follows literally; MCP tools provide canonical
+knowledge catalogues; nothing runs through heavy single-shot sampling.
 
-The output is structured and senior-QA-shaped: top risks tied to evidence paths, smallest useful test set, named ISTQB techniques, what NOT to test, explicit assumptions, decisive routing.
+## Setup
 
-## Install
+**AI agents:** read [AGENTS.md](AGENTS.md) — bootstraps automatically per host.
 
+**Humans:**
 ```bash
-./install.sh
+python install.py
 ```
 
-The script installs `uv`, isolates the MCP into its own environment, puts `sumo-qa-mcp` on your PATH, and prints the JSON to paste.
+Runs on Windows, macOS, and Linux. Installs the MCP server via `uv`, symlinks skills
+into Claude Code's skills directory if present, and prints the MCP config snippet to
+paste into your host's settings.
 
-```json
-{
-  "mcpServers": {
-    "sumo-qa": {
-      "command": "sumo-qa-mcp"
-    }
-  }
-}
-```
+## What you get
 
-| Host | Where to paste |
+| Layer | What it is |
 |---|---|
-| Claude Code | `~/.config/claude/claude_desktop_config.json` (`mcpServers`) or `claude mcp add` |
-| Cursor | Settings → Tools & Integrations → MCP → Add server |
-| Windsurf | Settings → MCP Servers |
-| IntelliJ AI Assistant | Settings → Tools → AI Assistant → Model Context Protocol |
-| GitHub Copilot (VS Code) | Settings → Copilot → MCP Servers |
+| **10 skills** (`skills/*/SKILL.md`) | Iron-Law-enforced procedures the host LLM follows. Cover deciding approach, planning, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising. |
+| **11 MCP tools** | 7 knowledge loaders (classifications, approaches, principles, techniques, specialty tools, standards, rules) + 4 test-data tools. Thin file-IO; no inference. |
+| **5 knowledge catalogues** (`knowledge/*.md`) | Authoritative — the LLM picks from these, not from training-data recall. Editable as plain markdown. |
 
-Manual `uv` / `pipx` / Docker paths: see [docs/INSTALL.md](docs/INSTALL.md).
+## Host coverage
 
-## Use it
-
-Type your question in chat. The host model picks the right tool from the registry.
-
-| What you say | Tool the model picks |
+| Host | Skill delivery |
 |---|---|
-| "What QA approach should I take for X" / "do I even need tests" | `sumo_qa_decide_approach` |
-| "Review my changes" / "is this safe to merge?" | `sumo_qa_review_local_change` |
-| "Plan QA for this story" / "what should I test for X?" | `sumo_qa_prepare_for_work` |
-| "Create a test plan for X" / "give me entry/exit criteria for X" | `sumo_qa_create_test_plan` |
-| "Scaffold the failing tests for X" | `sumo_qa_scaffold_tests` |
-| "How do I test this?" | `sumo_qa_answer_testing_question` |
-| "What test data do I need for X?" | `sumo_qa_explain_test_data_requirements` |
-| "Find me a known-good SKU for X" | `sumo_qa_find_test_data` |
-| "Is this test data still valid?" | `sumo_qa_validate_test_data` |
-| "Save this as known-good test data" | `sumo_qa_register_known_good_test_data` |
-
-`sumo_qa_decide_approach` is the entry point on any QA intent — it picks the shape of the work (TDD scaffold, regression-first, refactor-with-coverage, strengthen-tests, verify-existing, no-tests, spike, repo-wide strategy) before any deeper tool is called. See [docs/APPROACHES.md](docs/APPROACHES.md).
-
-## Custom team standards
-
-Override only if you want your team's own:
-
-```json
-{
-  "mcpServers": {
-    "sumo-qa": {
-      "command": "sumo-qa-mcp",
-      "env": {
-        "QA_STANDARDS_PATH": "/abs/path/to/team-standards/packs",
-        "QA_RULES_PATH": "/abs/path/to/team-standards/rules/change_rules.yaml",
-        "QA_TEST_DATA_PATH": "/abs/path/to/team-test-data"
-      }
-    }
-  }
-}
-```
-
-Full list of env vars (including `QA_DISABLE_HOST_SAMPLING`, `SUMO_QA_DEBUG_DIR`, `SUMO_QA_TARGET_REPO`): see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+| Claude Code | Skills symlinked into `~/.claude/skills/sumo-qa/`; auto-load on QA-shaped intents |
+| IntelliJ AI Assistant | Skills exposed as MCP prompts; invoke by name (`qa_creating_test_plan`, etc.) |
+| VS Code + GitHub Copilot | Skills exposed as MCP prompts; `.github/copilot-instructions.md` points Copilot at them |
 
 ## Docs
 
-- [docs/TOOLS.md](docs/TOOLS.md) — full reference for the 10 MCP tools and 9 prompts.
-- [docs/SKILLS.md](docs/SKILLS.md) — the 7 Claude Code skills installed by `./install.sh`.
-- [docs/APPROACHES.md](docs/APPROACHES.md) — the 8 canonical QA approaches and how they're picked.
-- [docs/WORKFLOW-LOOP.md](docs/WORKFLOW-LOOP.md) — plan → scaffold → red → green → review per approach.
-- [docs/ISTQB-GROUNDING.md](docs/ISTQB-GROUNDING.md) — the senior-QA persona, ISTQB principles, ISO 25010, technique mapping.
-- [docs/SPECIALTY-ROUTING.md](docs/SPECIALTY-ROUTING.md) — when to pull in Cypress / k6 / ZAP / Pact / Appium / axe-core / Promptfoo, and how to pick the tool that fits the risk.
-- [docs/TEST-DATA.md](docs/TEST-DATA.md) — the local known-good test-data catalogue, its shape, validation, and registration.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — file map and the two-layer (deterministic + host-LLM) design.
-- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars.
-- [docs/INSTALL.md](docs/INSTALL.md) — manual install paths (uv / pipx / Docker).
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev, render preview, evaluation suite.
-- [docs/QA_WORKFLOW.md](docs/QA_WORKFLOW.md) — host-agnostic discipline doc, drop-in for `.cursorrules` / `.windsurfrules` / `AGENTS.md`.
+- [AGENTS.md](AGENTS.md) — AI-agent bootstrap (the canonical setup walkthrough)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — three layers, host delivery, knowledge authority
+- [docs/SKILLS.md](docs/SKILLS.md) — the 10 skills with their Iron Laws
+- [docs/TOOLS.md](docs/TOOLS.md) — the 11 MCP tools
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
+- [docs/INSTALL.md](docs/INSTALL.md) — manual install
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
+- [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
+- [docs/superpowers/](docs/superpowers/) — design spec, implementation plans, iteration history
+
+## Status
+
+Branch `feat/superpowers-restructure`, local only. Built via a 5-phase superpowers-style restructure (see [`docs/superpowers/specs/2026-05-08-superpowers-restructure-design.md`](docs/superpowers/specs/2026-05-08-superpowers-restructure-design.md)).
