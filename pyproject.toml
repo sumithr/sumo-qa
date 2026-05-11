@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sumo-qa"
+version = "0.1.0"
+description = "Sumo QA — a senior-QA-shaped MCP server for shift-left testing, mutation-testing follow-up, code review, and test-data discovery."
+readme = "README.md"
+# Cap at <3.14 because pydantic-core's Rust extension does not yet ship
+# wheels for Python 3.14, and PyO3 doesn't support 3.14 either. When pydantic-core
+# adds 3.14 wheels, this cap can be widened.
+requires-python = ">=3.10,<3.14"
+dependencies = [
+  # Loose pins so the package builds against whatever pre-built wheels are
+  # available for the user's Python version. Tighten only when a specific
+  # incompatibility is found.
+  "mcp>=1.12,<2",
+  "pydantic>=2.8,<3",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-cov>=6,<7",
+]
+vertex = [
+  "google-cloud-aiplatform>=1.71.0",
+]
+
+[project.scripts]
+sumo-qa-mcp = "sumo_qa.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sumo_qa"]
+
+# Bundle the standards packs, change rules, and known-good test data into the
+# wheel so users who install via pipx/uv/pip get a working server with no env
+# vars or paths to configure. The package's resolver falls back to these
+# bundled resources when the user hasn't pointed env vars elsewhere.
+[tool.hatch.build.targets.wheel.force-include]
+"standards" = "sumo_qa/_data/standards"
+"knowledge" = "sumo_qa/_data/knowledge"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
