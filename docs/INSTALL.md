@@ -1,58 +1,61 @@
 # Install
 
-Manual install paths. The recommended path is the one-command installer at the repo root:
+## One-line (recommended)
 
 ```bash
-./install.sh
+python install.py
 ```
 
-That script installs `uv` if needed, isolates the MCP into its own environment with a known-working Python, puts `sumo-qa-mcp` on your PATH, and prints the JSON config block to paste.
+Runs on Windows, macOS, and Linux. Does:
 
-If you'd rather not run the script, pick whichever of the following you already have.
+1. Installs `sumo-qa-mcp` via `uv tool install`
+2. Symlinks `skills/` into `~/.claude/skills/sumo-qa/` if Claude Code is detected (copies on Windows without developer mode)
+3. Prints the MCP config snippet to paste into your host
 
-## uv (recommended manual path)
+If `uv` isn't installed, the script tells you how to install it for your OS.
 
-`uv` downloads its own Python if needed, sidestepping the "your Python is 3.14 / pydantic-core has no wheel / Rust missing" trap.
+## AI agent setup
+
+If you're running an AI agent (Claude Code, Copilot CLI, etc.) in this repo, just point it at [AGENTS.md](../AGENTS.md). It walks through the per-host setup, detects which host it's in, runs what it can with its existing tools, and hands off steps it can't do (e.g. IntelliJ Settings UI) to you.
+
+## Manual (per host)
+
+### Claude Code
 
 ```bash
-uv tool install /path/to/sumo-qa-mcp
+ln -sfn "$(pwd)/skills" ~/.claude/skills/sumo-qa   # macOS / Linux
+# Windows (PowerShell, developer mode on):
+# New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.claude\skills\sumo-qa" -Target "$(Get-Location)\skills"
 ```
 
-## pipx
-
-Requires Python 3.10–3.13 already on PATH.
-
-```bash
-pipx install --python python3.12 /path/to/sumo-qa-mcp
-```
-
-## Docker
-
-```bash
-docker build -t sumo-qa-mcp .
-```
-
-Then in your host's MCP config:
+Add to `~/.config/claude/claude_desktop_config.json` (macOS/Linux) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
   "mcpServers": {
-    "sumo-qa": {
-      "command": "docker",
-      "args": ["run", "--rm", "-i", "sumo-qa-mcp"]
-    }
+    "sumo-qa": { "command": "sumo-qa-mcp" }
   }
 }
 ```
 
-## Where each host wants the JSON
+### IntelliJ AI Assistant
 
-| Host | Path / location |
-|---|---|
-| Claude Code | `~/.config/claude/claude_desktop_config.json` (`mcpServers`), or `claude mcp add` |
-| Cursor | Settings → Tools & Integrations → MCP → Add server |
-| Windsurf | Settings → MCP Servers |
-| IntelliJ AI Assistant | Settings → Tools → AI Assistant → Model Context Protocol (2025.x+) |
-| GitHub Copilot (VS Code) | Settings → Copilot → MCP Servers |
+Settings → Tools → AI Assistant → Model Context Protocol → Add server with command `sumo-qa-mcp`. Skills auto-register as MCP prompts at startup.
 
-For env-var configuration (custom standards / rules / test data paths), see [docs/CONFIGURATION.md](CONFIGURATION.md).
+### VS Code + GitHub Copilot
+
+Edit `.vscode/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "sumo-qa": { "command": "sumo-qa-mcp" }
+  }
+}
+```
+
+`.github/copilot-instructions.md` already tells Copilot to fetch the sumo-qa prompts.
+
+## Verify
+
+Ask your host to call `sumo_qa_load_classifications()`. If the response contains the 10 canonical classification names, you're done.
