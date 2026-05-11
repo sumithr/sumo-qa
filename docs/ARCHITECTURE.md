@@ -1,45 +1,99 @@
 # Architecture
 
-How sumo-qa is laid out and the two-layer design that makes it work.
+Three layers, clean separation:
 
-## Two-layer design
+## 1. Skills (markdown) — the orchestration layer
 
-The QA reasoning is split across two layers, by design:
+Each skill is a single `skills/<name>/SKILL.md` with:
 
-1. **Deterministic guardrails.** Classification, missing test levels, recommended test paths, plausibility checks, freshness scoring, rule-template attribution, signal-driven approach fallback. Always run, fully offline. This is the floor a senior QA never forgets.
+- YAML frontmatter (`name` + `description`) used by hosts to auto-trigger
+- An Iron Law — non-negotiable rule for the skill
+- A When-to-Use paragraph
+- A Checklist (numbered items the host LLM works through; each becomes a TodoWrite todo)
+- A Process Flow (graphviz `dot` block)
+- A Red Flags table (rationalisations to reject)
+- Good/Bad examples
 
-2. **Host LLM brain (via [MCP sampling](https://modelcontextprotocol.io/specification/server/sampling)).** When the host advertises sampling, the server calls back through `ctx.session.create_message(...)`, supplying the senior-QA system prompt and a guardrailed user prompt that includes the deterministic findings as constraints. The host runs the completion using whatever model the user has configured — Claude Opus in Claude Code, the user's chosen Copilot model, Sonnet in Cursor, etc. The MCP never picks the model.
+All senior-QA discipline lives here. There is no Python file that decides
+which approach a change needs, or what techniques apply to a risk, or which
+specialty tool fits an HTTP surface. The host LLM does that work, guided by
+the skill.
 
-The user prompt explicitly states the deterministic guardrails as constraints the LLM must respect: classification + confidence, missing test levels, canonical test paths to add, deterministic findings, team standards, rule expectations. The LLM can reason about novel code and propose checks the rules can't see — but it cannot waive a missing test level or bless a change that lacks evidence. Guardrails are the floor, not the ceiling.
+## 2. MCP tools (Python) — atomic knowledge providers
 
-If the host doesn't support sampling, or the user opts out via `QA_DISABLE_HOST_SAMPLING=1`, the response degrades to the deterministic-only payload. The `llm_analysis.metadata.fallback_reason` field, when set, explains why the host narrative is missing for a given call.
+11 tools, all thin: each is file IO. Seven knowledge loaders (`sumo_qa_load_*`)
+return markdown catalogues as text. Four test-data tools read/write the local
+known-good catalogue under `knowledge/test_data/`.
 
-## File map
+See [TOOLS.md](TOOLS.md) for the full list.
 
-Source under [`src/sumo_qa/`](../src/sumo_qa/):
+## 3. Knowledge & data
 
-- `server.py` — FastMCP wrapper. Registers the 10 tools and 9 prompts, attaches output schemas, wraps exceptions in the `isError` envelope.
-- `tools.py` — `QAShiftLeftService`: sync + async (`aqa_*`) orchestration, deterministic response construction, sampling integration.
-- `models.py` — strongly typed Pydantic response models for the QA tools.
-- `tdm_models.py` — strongly typed test-data, validation, freshness, and requirement models.
-- `prompts.py` — `SENIOR_QA_SYSTEM_PROMPT` and the per-tool guardrailed prompt builders.
-- `approach_decision.py` — canonical approach list, `_NEXT_TOOL`, `_FOLLOW_UP`, `_ALTERNATIVES_BY_APPROACH`, signal-driven fallback decider.
-- `classification.py` — heuristic change classification from paths, filenames, keywords, diff snippets.
-- `rules.py` — standards rules engine for classification-specific QA expectations.
-- `standards.py` — versioned YAML standards pack loader.
-- `specialty_routing.py` — `SPECIALTY_REGISTRY` and registry-only structural detector.
-- `scaffolder.py` — scaffold-task construction (file paths, frameworks, skeletons, verify commands).
-- `local_diff.py` — lightweight `git diff` and nearby-test inspection.
-- `knowledge.py` — pluggable `KnowledgeProvider` contract; default is `NullKnowledgeProvider`.
-- `llm.py` — `HostSamplingClient` plus a deterministic `MockLLMClient` for tests.
-- `tdm_catalogue.py` — local YAML-backed test-data catalogue.
-- `tdm_validation.py` — pluggable validation abstraction with a heuristic `MockValidator`.
-- `tdm_service.py` — TDM orchestration.
-- `rubric.py` — ISTQB-grade rubric used by the evaluation harness to score scenario output.
-- `debug_capture.py` — `SUMO_QA_DEBUG_DIR` capture (args + output + trace per invocation).
-- `evaluation.py` — fixture-driven evaluation harness; runs from `evaluation/` YAMLs.
-- `render_preview.py` / `render_cli.py` — local rendering preview without burning host LLM tokens.
+Plain markdown under `knowledge/`:
 
-## Standards and rules
+- `classifications.md` — 10 canonical change classifications
+- `approaches.md` — 8 canonical QA approaches
+- `principles.md` — ISTQB Foundation, Advanced, ISO/IEC 25010
+- `techniques.md` — black-box / white-box / experience / static / property-based / mutation
+- `specialty_tools.md` — specialty + tool fit catalogue
+- `test_data/` — known-good test data entries
 
-Versioned QA standards live in [`standards/packs/`](../standards/packs/). Change-specific rules live in [`standards/rules/change_rules.yaml`](../standards/rules/change_rules.yaml) — each classification (`api_contract_change`, `business_logic_change`, `state_transition_change`, `ui_only_change`, `configuration_change`, `data_mapping_change`, `error_handling_change`, `async_flow_change`, `caching_change`, `security_change`) maps to `must_consider`, `suggested_test_types`, `test_design_techniques`, `quality_characteristics`, and `risk_templates`. The service applies these rules automatically before producing the response schema.
+Plus team-loaded `standards/packs/*.yml` and `standards/rules/change_rules.yaml`.
+
+## Host delivery
+
+| Host | How skills reach it | Duplication |
+|---|---|---|
+| Claude Code | `install.py` symlinks `skills/` → `~/.claude/skills/sumo-qa/`. Auto-loads on QA-shaped intents via SKILL.md frontmatter description. | None (symlink) |
+| IntelliJ AI Assistant | MCP server reads `skills/*/SKILL.md` at startup and registers each as an MCP prompt. AI Assistant surfaces prompts in chat. | None (server reads canonical files at request time) |
+| VS Code + GitHub Copilot | Same MCP prompts as IntelliJ. `.github/copilot-instructions.md` (~5 lines) tells Copilot to fetch them. | None (instructions file is a pointer, not a copy) |
+
+## Knowledge authority hierarchy
+
+A global rule declared in `using-sumo-qa`:
+
+1. **Loaded knowledge files** (`sumo_qa_load_*` tools). Authoritative.
+2. **Training data** — fallback only; must be flagged when used.
+3. **Web search** — fallback for post-training-cutoff topics; citation required.
+4. **"I don't know"** — the only acceptable answer when 1, 2 and 3 fail. Hallucinating a technique/tool/principle is forbidden.
+
+This means catalogue files are the LLM's source of truth, not its training-data recall.
+
+## Token-weight discipline
+
+A typical end-to-end flow (e.g. `qa-creating-test-plan`):
+
+| Layer | Typical token cost |
+|---|---|
+| Skill body (loaded once via MCP prompt or symlink) | ~1500 tokens |
+| Catalogue loads (`load_classifications`, `load_approaches`, `load_techniques`, `load_specialty_tools`) | ~2300 tokens total |
+| Total MCP-call surface | ~2300 tokens |
+| Old heavy-path single call | ~3000+ tokens of structured JSON (the IntelliJ SSE failure mode) |
+
+The new path is enforced by `tests/test_token_weight_regression.py` and `tests/test_phase3_e2e_skill_path.py`. No single MCP call returns more than ~700 tokens; no full flow exceeds 2600 tokens.
+
+## How a typical request flows
+
+```
+User: "create a test plan for refactoring the pricing pipeline"
+    │
+    ▼
+Host LLM auto-loads `using-sumo-qa` (Iron Law: decide approach first)
+    │
+    ▼
+Routes to `qa-deciding-approach`:
+    - calls sumo_qa_load_classifications, _approaches, _rules, _standards
+    - reasons: classification = business_logic_change + refactor modifier
+    - approach = coverage-first-then-refactor (skill flowchart, LLM applies)
+    - no user question — intent + cited words covered it
+    │
+    ▼
+Routes to `qa-creating-test-plan` (Iron Law: NO PLAN WITHOUT EXPLICIT ENTRY/EXIT CRITERIA):
+    - reads actual files via host file tools
+    - identifies 3-7 named risks anchored in evidence
+    - calls sumo_qa_load_techniques, picks one per risk
+    - calls sumo_qa_load_specialty_tools, picks Pitest for mutation coverage
+    - synthesises plan inline (conversational, sectioned)
+```
+
+No single MCP call returns a heavy JSON blob. The LLM does the synthesis, guided by the skill's checklist, anchored to catalogue text.
