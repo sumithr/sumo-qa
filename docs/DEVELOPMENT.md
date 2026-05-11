@@ -1,93 +1,75 @@
 # Development
 
-Local dev, render preview, evaluation suite.
+Local dev guide for sumo-qa.
+
+## Prerequisites
+
+- Python 3.10+ (capped at <3.14 per `pyproject.toml`)
+- [uv](https://docs.astral.sh/uv/) — install via `curl -LsSf https://astral.sh/uv/install.sh | sh` (or PowerShell equivalent on Windows)
 
 ## Setup
 
-Python 3.10+ is supported.
-
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-pytest
-sumo-qa-eval
+git clone <repo>
+cd qa-shift-left-mcp
+uv tool install --from . sumo-qa --reinstall
 ```
 
-Or with `uv`:
+For development without installing to the user tool dir, use `uv run`:
 
 ```bash
-uv sync
 uv run pytest
-uv run sumo-qa-eval
+uv run sumo-qa-mcp --help
 ```
 
-## Local rendering preview
-
-When iterating on the `presentation` hints, the response shape, or the headline copy, don't loop through a real MCP host — you'll burn tokens watching the host model expand structured fields into wall-of-text essays.
-
-Use the bundled `sumo-qa-render` CLI. It calls a tool, applies the response's `presentation.render_instructions` exactly the way a well-behaved host should, and prints the rendered text plus a word count. Zero tokens, deterministic, ~50ms per call.
+## Test suite
 
 ```bash
-sumo-qa-render prepare --work-item "add bundle variant validation"
-sumo-qa-render review --change-summary "Changed API payload" --touched-files src/orders/api.py
-sumo-qa-render question --question "How do I test a webhook retry?"
-sumo-qa-render testplan --work-item "Add bundle variant validation API" --scope-size medium \
-    --acceptance-criteria "Invalid bundle variants are blocked at write time."
-sumo-qa-render scaffold --work-item "Add bundle variant validation API" \
-    --test-condition "Valid bundle passes" \
-    --test-condition "Missing variant id is blocked" \
-    --target-path src/orders/api.py
-sumo-qa-render decide --intent "fix the broken oauth refresh in production" \
-    --target-path src/auth/refresh.py
+uv run pytest
 ```
 
-Each command prints something like:
+The full suite covers:
 
-```
-VERDICT: needs-test-evidence
+- `test_knowledge_loaders.py` — 7 catalogue loaders return canonical entries
+- `test_skill_conformance.py` — every `skills/*/SKILL.md` has the required structure
+- `test_skill_prompts.py` — every skill registers as an MCP prompt
+- `test_phase3_e2e_skill_path.py` — end-to-end smoke through the new surface
+- `test_token_weight_regression.py` — per-call and per-flow token budgets (the IntelliJ-SSE regression test)
+- `test_server.py` — tool registration
+- `test_tdm.py` — test-data tools
+- `test_tools.py` — service factory
+- `test_standards.py`, `test_rules.py` — file loading
+- `test_debug_capture.py` — `SUMO_QA_DEBUG_DIR` capture
 
-No test evidence found for src/orders/api.py. Add or name a test before merging.
+## Branch workflow
 
-Findings:
-- [high] No test evidence or nearby test file was found...
-- [medium] Expected contract coverage... (tests/orders/test_api_contract.py)
-...
+Feature work goes on a feature branch off `main`. Plans and specs land under
+`docs/superpowers/`. Iteration notes go under `docs/superpowers/iteration-runs/`.
+Don't push without explicit review approval.
 
---- 131 words (cap 160) ---
-```
+## Editing skills
 
-Pass `--raw` to also print the underlying JSON.
+Plain markdown. Edit `skills/<name>/SKILL.md`. Conformance tests catch structural
+drift (Iron Law section, Checklist ≥4 items, graphviz dot block, Red Flags table).
 
-The same scenarios are pinned as `pytest tests/test_render_preview.py`, which fails when:
+## Editing knowledge catalogues
 
-- the rendered output exceeds the response's `max_words` cap, or
-- it omits the headline / verdict / short-answer, or
-- it contains essay markers (`## `, `### `, `Decision-boundary tests`, etc.).
+Plain markdown under `knowledge/`. The LLM picks from what these files say.
+Adding a new technique, classification, or specialty tool = editing one file.
 
-So `pytest tests/test_render_preview.py` is your fast feedback loop. The only thing it can't catch is "the real host model ignores the hint" — that's a single binary check at the end via your real host, not a per-iteration concern.
+## Adding a new skill
 
-## Evaluation
+1. Create `skills/<new-name>/SKILL.md` following the template in `docs/SKILLS.md`.
+2. `register_skills_as_prompts` (server startup) picks it up automatically.
+3. Conformance tests parametrise over `skills/*/SKILL.md` — they run on the new skill too.
+4. If the skill is meant to auto-trigger in Claude Code, the frontmatter `description` is what the host LLM uses to route.
 
-Fixtures live under:
-
-- [`evaluation/fulfilment/`](../evaluation/fulfilment/)
-- [`evaluation/stock/`](../evaluation/stock/)
-
-Each fixture defines input, expected risks, expected test types, and expected confidence. The eval harness scores each scenario against the ISTQB-grade rubric defined in [`src/sumo_qa/rubric.py`](../src/sumo_qa/rubric.py).
-
-Run:
+## Reinstalling locally
 
 ```bash
-sumo-qa-eval
+uv tool install --from . sumo-qa --reinstall
 ```
 
-or:
-
-```bash
-python -m sumo_qa.evaluation
-```
-
-The current eval suite is 28/28 across 4 fixture YAMLs.
-
-For repo-level scenario evaluation against a real codebase, see [`evaluation/repo_scenarios.py`](../evaluation/repo_scenarios.py) and set `SUMO_QA_TARGET_REPO` (see [docs/CONFIGURATION.md](CONFIGURATION.md)).
+Picks up server.py changes. For skill edits, no reinstall needed — Claude Code reads
+`~/.claude/skills/sumo-qa/` via the symlink that `install.py` set up, and the MCP server
+reads `skills/*/SKILL.md` fresh on each prompt request.
