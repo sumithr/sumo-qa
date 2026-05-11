@@ -1,32 +1,16 @@
 # Configuration
 
-Environment variables sumo-qa reads. All optional — the package ships with a working set of standards, rules, and known-good test data.
+All optional. Defaults work out of the box after `python install.py`.
 
-## `QA_STANDARDS_PATH`
+| Env var | Default | Purpose |
+|---|---|---|
+| `QA_STANDARDS_PATH` | bundled `_data/standards/packs` / repo `standards/packs` | Override the team's loaded standards packs |
+| `QA_RULES_PATH` | bundled `_data/standards/rules/change_rules.yaml` / repo `standards/rules/change_rules.yaml` | Override the team's loaded change rules |
+| `QA_TEST_DATA_PATH` | bundled `_data/knowledge/test_data` / repo `knowledge/test_data` | Override the known-good test data catalogue |
+| `QA_KNOWLEDGE_PATH` | bundled `_data/knowledge` / repo `knowledge` | Override the canonical knowledge catalogues (classifications, approaches, principles, techniques, specialty_tools) |
+| `SUMO_QA_DEBUG_DIR` | unset | Directory to capture per-tool-call args + output as JSON for debugging / grading |
 
-Defaults to the bundled `standards/packs`. Override to point at your team's own versioned YAML standards packs. The loader picks up every `*.yaml` / `*.yml` file in the directory.
-
-## `QA_RULES_PATH`
-
-Defaults to the bundled `standards/rules/change_rules.yaml`. Override to point at your team's own change-classification rules. Each classification (e.g. `api_contract_change`, `security_change`) maps to `must_consider`, `suggested_test_types`, `test_design_techniques`, `quality_characteristics`, `risk_templates`.
-
-## `QA_TEST_DATA_PATH`
-
-Defaults to the bundled `knowledge/test_data`. Override to point at your team's own test-data catalogue root. Subdirectories under this path become `domain` values. See [docs/TEST-DATA.md](TEST-DATA.md) for the entry shape.
-
-## `QA_DISABLE_HOST_SAMPLING`
-
-Set to `1` / `true` / `yes` to skip the host-LLM call and return deterministic-only output. Useful when the host doesn't support MCP sampling, when a team wants cost-free responses, or for testing the deterministic floor in isolation. Without sampling, the AI-shaped fields fall back to structural skeletons (see [docs/APPROACHES.md](APPROACHES.md) for what the fallback does in `sumo_qa_decide_approach`).
-
-## `SUMO_QA_DEBUG_DIR`
-
-When set to a writable directory, every tool invocation captures `args`, `output`, and the rendered markdown trace to `<dir>/<timestamp>-<tool>/`. Used for offline review of MCP exchanges without re-running the host. Source: [`src/sumo_qa/debug_capture.py`](../src/sumo_qa/debug_capture.py).
-
-## `SUMO_QA_TARGET_REPO`
-
-Used by the evaluation harness ([`src/sumo_qa/evaluation.py`](../src/sumo_qa/evaluation.py)) to resolve repo-relative paths in evaluation fixtures. Set to the absolute path of the repository under evaluation. Has no effect on normal MCP runtime.
-
-## Setting env vars in the host MCP config
+## Example: custom team standards
 
 ```json
 {
@@ -36,11 +20,26 @@ Used by the evaluation harness ([`src/sumo_qa/evaluation.py`](../src/sumo_qa/eva
       "env": {
         "QA_STANDARDS_PATH": "/abs/path/to/team-standards/packs",
         "QA_RULES_PATH": "/abs/path/to/team-standards/rules/change_rules.yaml",
-        "QA_TEST_DATA_PATH": "/abs/path/to/team-test-data",
-        "QA_DISABLE_HOST_SAMPLING": "0",
+        "QA_TEST_DATA_PATH": "/abs/path/to/team-test-data"
+      }
+    }
+  }
+}
+```
+
+## Debugging
+
+```json
+{
+  "mcpServers": {
+    "sumo-qa": {
+      "command": "sumo-qa-mcp",
+      "env": {
         "SUMO_QA_DEBUG_DIR": "/tmp/sumo-qa-debug"
       }
     }
   }
 }
 ```
+
+Each tool call writes a JSON file under `SUMO_QA_DEBUG_DIR` capturing the args and output. Useful for grading skill-driven output and reproducing host-side issues.
