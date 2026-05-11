@@ -1,134 +1,94 @@
 ---
 name: qa-finding-test-data
-description: Use when the user asks about test data — "what data do I need to test X", "find me a known-good record", "is this entry still valid", "save this as known-good". Routes between sumo_qa_explain_test_data_requirements, sumo_qa_find_test_data, sumo_qa_validate_test_data, and sumo_qa_register_known_good_test_data.
+description: Use when the user asks about test data — what data to test X, find a known-good record, validate an entry, register new known-good data. Routes between sumo_qa_explain_test_data_requirements, sumo_qa_find_test_data, sumo_qa_validate_test_data, and sumo_qa_register_known_good_test_data.
 ---
 
-## When to load
-
-Triggers:
-- "what test data do I need for X" → `sumo_qa_explain_test_data_requirements`
-- "find me a known-good record / SKU / postcode for X" → `sumo_qa_find_test_data`
-- "is this test data still valid / is entry X still good" → `sumo_qa_validate_test_data`
-- "save this as known-good / register this fixture" → `sumo_qa_register_known_good_test_data`
-
-If the user is asking about test data IN THE CONTEXT of planning or scaffolding a piece of work, the parent skill (`qa-implementing-with-tdd`) handles routing.
+# Finding test data
 
 ## The Iron Law
+STALE IS A DEFECT. NEVER INVENT ENTRIES NOT IN THE CATALOGUE.
 
+A known-good record the catalogue can't validate is a defect, not a usable test data point. Inventing a SKU "that should work" is junior-QA failure mode — when it doesn't work mid-test, you've wasted time and possibly corrupted state.
+
+## When to Use
+
+User intents that trigger this skill:
+
+- "what test data do I need for X"
+- "find me a known-good record for X"
+- "is this SKU still valid"
+- "save this as known-good test data"
+- "I need a fulfilment-eligible order for the refund test"
+
+## Checklist
+You MUST create a TodoWrite item per checklist item and complete in order:
+
+1. Read the user's intent. Identify which of the four routes applies:
+   - **Explain requirements:** "what data do I need" → `sumo_qa_explain_test_data_requirements`
+   - **Find:** "find me a record" → `sumo_qa_find_test_data`
+   - **Validate:** "is this still valid" → `sumo_qa_validate_test_data`
+   - **Register:** "save this as known-good" → `sumo_qa_register_known_good_test_data`
+2. For explain: provide the question, environment, and domain. Return the requirements as text.
+3. For find: provide the question, environment, domain, criteria. Return matching entries. If none match, say so — do NOT invent.
+4. For validate: provide the entry path. Run validation against the source system if reachable. Report fresh state — never assume.
+5. For register: only after the user confirms the entry is genuinely known-good and validated. Write to the catalogue.
+6. If a found entry fails validation, mark it stale. Surface the failure. Do not silently use it.
+
+## Process Flow
+
+```dot
+digraph qa_finding_test_data {
+    rankdir=TB;
+    "User asks about test data" [shape=doublecircle];
+    "Route?" [shape=diamond];
+    "Explain requirements" [shape=box];
+    "Find entry" [shape=box];
+    "Validate entry" [shape=box];
+    "Register known-good" [shape=box];
+    "Entry valid?" [shape=diamond];
+    "Use entry" [shape=box];
+    "Mark stale + surface" [shape=box];
+    "Return result" [shape=doublecircle];
+
+    "User asks about test data" -> "Route?";
+    "Route?" -> "Explain requirements" [label="explain"];
+    "Route?" -> "Find entry" [label="find"];
+    "Route?" -> "Validate entry" [label="validate"];
+    "Route?" -> "Register known-good" [label="register"];
+    "Explain requirements" -> "Return result";
+    "Find entry" -> "Validate entry";
+    "Validate entry" -> "Entry valid?";
+    "Entry valid?" -> "Use entry" [label="yes"];
+    "Entry valid?" -> "Mark stale + surface" [label="no"];
+    "Use entry" -> "Return result";
+    "Mark stale + surface" -> "Return result";
+    "Register known-good" -> "Return result";
+}
 ```
-TEST DATA IS PART OF THE TEST. Honour freshness, ownership, and validity.
-```
 
-Three sub-rules:
-1. **Stale data is a defect**, not a footnote — flag it, don't paper over it.
-2. **Owned data wins over found-by-search data** — registered known-good entries are first-class.
-3. **High confidence requires validation** — never claim a fixture is solid without checking freshness.
-
-## Decision flow
-
-```
-Is the user asking what data they NEED?     → sumo_qa_explain_test_data_requirements
-Is the user asking where to FIND it?         → sumo_qa_find_test_data
-Is the user CHECKING a specific entry?       → sumo_qa_validate_test_data
-Is the user CONTRIBUTING a known-good?       → sumo_qa_register_known_good_test_data
-```
-
-## Sub-flows
-
-### "What test data do I need for X"
-
-1. Call `sumo_qa_explain_test_data_requirements(question=..., environment=..., domain=...)`.
-2. Read the response:
-   - `required_product_characteristics`
-   - `stock_conditions` / `fulfilment_conditions`
-   - `downstream_dependencies`
-   - `edge_case_recommendations`
-   - `what_not_to_use` ← surface this prominently
-3. Surface the requirements as an actionable shopping list.
-4. Offer to chain to `sumo_qa_find_test_data` if the user says "now find me one".
-
-### "Find me a known-good record for X"
-
-1. Call `sumo_qa_find_test_data(environment=..., domain=..., scenario_tags=[...], known_valid_for=[...])`.
-2. Read `results[]` (already ranked by confidence + freshness):
-   - Lead with the top match's `entry`, `validation.confidence`, `validation.freshness`, `suitability_reason`.
-3. If `results == []`, surface `missing_information` — it includes filter-too-narrow hints.
-4. NEVER fabricate an entry that isn't in the catalogue. If nothing matches, recommend registering one OR widening the filter.
-
-### "Is this test data still valid"
-
-1. Call `sumo_qa_validate_test_data(entry_id=...)` or `sumo_qa_validate_test_data(entry={...})`.
-2. Read `validation`:
-   - `valid` — boolean
-   - `confidence.level` — high/medium/low
-   - `freshness.status` — fresh / aging / stale / unknown / not_applicable
-   - `issues[]` — the plausibility checks (future timestamps, high-confidence-without-validation, etc.)
-3. **If `valid: false`, lead with that.** Do not soften it. List the specific `issues[]` so the user can fix them.
-
-### "Save this as known-good"
-
-1. Call `sumo_qa_register_known_good_test_data(entry={...})`.
-2. Read `action`: `created` / `updated` / `duplicate`.
-3. If `duplicate`, surface `duplicate_of` so the user sees they're re-adding existing data.
-4. The MCP rejects entries with `confidence: "high"` and no `last_validated_at`. If the user wants high confidence, they need to validate first; surface the rejection's `ValueError` message verbatim.
-
-## Red Flags — STOP
+## Red Flags
 
 | Thought | Reality |
-|---------|---------|
-| "results is empty; I'll suggest a SKU I made up" | Catalogue-only. Recommend registering a known-good or widening the filter. |
-| "The entry is stale, I'll downgrade the warning" | Stale = defect. Flag prominently. |
-| "User wants high-confidence, I'll register with confidence: high anyway" | The MCP refuses. Tell the user "validate first, then promote to high". |
-| "freshness.status: unknown — I'll ignore it" | Unknown = never validated = not valid. Surface it. |
-| "User said 'find me anything reasonable', I'll skip filters" | Empty filters return everything; ranking is degraded; user gets noise. Make the user state at least one constraint. |
-| "I'll combine results from multiple find calls into one synthetic answer" | Don't aggregate. The ranking the MCP returns is honest about confidence and freshness; aggregating loses signal. |
+|---|---|
+| "I'll just make up a SKU that probably works" | Iron Law violated. Catalogue entries only. |
+| "Validation is expensive — assume it's still good" | Stale is a defect. Always validate before use, especially for shared catalogues. |
+| "User said 'find me one' — I'll skip validation" | Validate. The whole point of the catalogue is freshness. |
+| "Register this as known-good without testing it first" | Don't. Register only after the user confirms it's been used successfully. |
+| "If no entry matches, I'll fabricate one" | Surface the gap. The user might need to register a new entry — let them decide. |
 
 ## Examples
 
-### Need a fixture for out-of-area pricing
+### Good
 
-User: *"what test data do I need to test out-of-area fulfilment pricing?"*
+User: "find me a refund-eligible order for the refund-flow test."
+- Route: find.
+- Call `sumo_qa_find_test_data(question="refund-eligible order", environment="staging", domain="orders", criteria=...)`.
+- Returns: 2 entries.
+- For each, call `sumo_qa_validate_test_data` against staging. Entry A: still valid. Entry B: stale (order has been refunded).
+- Return entry A with timestamp + validation evidence. Flag entry B as stale.
 
-→ `sumo_qa_explain_test_data_requirements(question="out-of-area fulfilment pricing", environment="integration", domain="fulfilment")`.
+### Bad
 
-Surface:
-```
-For out-of-area fulfilment pricing tests:
-- Required: stable product identifier, product active in target environment, location outside configured fulfilment coverage, clear expected rejection reason.
-- Stock conditions: known stock state before test execution.
-- Fulfilment conditions: location outside configured fulfilment coverage, borderline postcode near service boundary, eligible product with ineligible address.
-- Downstream dependencies: product catalogue, pricing service, fulfilment eligibility service.
-- Edge cases: borderline postcode near service boundary, eligible product with ineligible address.
-- What NOT to use: products that fail because of stock rather than area eligibility.
-
-Want me to find a matching known-good record? (would call sumo_qa_find_test_data)
-```
-
-### Validate a specific entry
-
-User: *"is entry stock-pricing-validation-001 still good?"*
-
-→ `sumo_qa_validate_test_data(entry_id="stock-pricing-validation-001")`.
-
-If `valid: true, freshness: "aging", confidence.level: "medium"`:
-```
-Valid (with caveats):
-- freshness: aging — validated 16 days ago; refresh before release sign-off.
-- confidence: medium.
-- No plausibility issues.
-```
-
-If `valid: false`:
-```
-NOT valid:
-- issues: <list each issue verbatim>
-- freshness: <status>
-- confidence: low
-Fix the listed issues OR re-validate before using.
-```
-
-## Final rule
-
-```
-Test data has a lifecycle. Honour freshness, ownership, validity. Never invent entries.
-```
+Same user.
+"Try order ID 12345 — that should work for refund testing."
+- Inventing an entry. Iron Law violated. If 12345 doesn't exist or is already refunded, the test fails for the wrong reason and the user loses trust.
