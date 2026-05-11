@@ -1,9 +1,8 @@
-import json
 import os
 from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, RootModel
+from pydantic import Field
 
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.knowledge_loaders import (
@@ -15,33 +14,13 @@ from sumo_qa.knowledge_loaders import (
     sumo_qa_load_standards as _load_standards,
     sumo_qa_load_techniques as _load_techniques,
 )
-from sumo_qa.llm import HostSamplingClient
-from sumo_qa.models import (
-    CreateTestPlanResponse,
-    DecideApproachResponse,
-    PrepareForWorkResponse,
-    ReviewLocalChangeResponse,
-    ScaffoldTestsResponse,
-    TestingQuestionResponse,
-)
-from sumo_qa.render_preview import render_response
 from sumo_qa.skill_prompts import register_skills_as_prompts
-from sumo_qa.tdm_models import (
-    TestDataFindResponse,
-    TestDataRegisterResponse,
-    TestDataRequirements,
-    TestDataValidateResponse,
-)
-from sumo_qa.tools import QAShiftLeftService, _slim
+from sumo_qa.tools import QAShiftLeftService
 
 
 # Reusable actionable hints for isError envelopes. Hosts surface these to the
 # user when a tool fails, so they should describe a concrete next step rather
 # than restate the error.
-_HINT_STANDARDS_MISSING = (
-    "If standards/packs/*.yaml is missing, run `git status` to confirm the working "
-    "tree is intact."
-)
 _HINT_LOCAL_FILES_MISSING = (
     "If the working tree or knowledge/test_data/ is missing files, confirm the repo "
     "is checked out."
@@ -50,57 +29,6 @@ _HINT_TEST_DATA_WRITE = (
     "If the write fails, confirm `knowledge/test_data/` is writable and the entry's "
     "`domain` field matches an existing folder."
 )
-
-
-# Tool-name -> Pydantic response model. The model's JSON schema is advertised
-# as the tool's `outputSchema` so MCP hosts can render structured output
-# without round-tripping the full doc. We pair the schema with a permissive
-# `RootModel[dict]` validator so FastMCP's `convert_result()` doesn't reject
-# the slimmed output we return at runtime.
-_OUTPUT_SCHEMA_MODELS: dict[str, type[BaseModel]] = {
-    "sumo_qa_prepare_for_work": PrepareForWorkResponse,
-    "sumo_qa_review_local_change": ReviewLocalChangeResponse,
-    "sumo_qa_create_test_plan": CreateTestPlanResponse,
-    "sumo_qa_decide_approach": DecideApproachResponse,
-    "sumo_qa_scaffold_tests": ScaffoldTestsResponse,
-    "sumo_qa_answer_testing_question": TestingQuestionResponse,
-    "sumo_qa_explain_test_data_requirements": TestDataRequirements,
-    "sumo_qa_find_test_data": TestDataFindResponse,
-    "sumo_qa_validate_test_data": TestDataValidateResponse,
-    "sumo_qa_register_known_good_test_data": TestDataRegisterResponse,
-}
-
-
-class _PermissiveDictModel(RootModel[dict[str, Any]]):
-    """Permissive validator for tool output.
-
-    FastMCP requires both `output_schema` AND `output_model` to be set when a
-    tool advertises structured output. The advertised schema (rich Pydantic
-    model JSON schema) is for the host; the validator runs over the slimmed
-    runtime payload, so it has to accept anything dict-shaped.
-    """
-
-
-def _maybe_host_llm(ctx: Any) -> HostSamplingClient | None:
-    """Return a HostSamplingClient if the host advertises sampling and the user hasn't opted out.
-
-    Returns None when:
-      - the user opted out via QA_DISABLE_HOST_SAMPLING
-      - no Context was supplied (unit-test invocation)
-      - the FastMCP request context isn't established (no live host session)
-      - the host's session does not implement create_message
-    """
-    if os.environ.get("QA_DISABLE_HOST_SAMPLING", "").lower() in {"1", "true", "yes"}:
-        return None
-    if ctx is None:
-        return None
-    try:
-        session = ctx.session
-    except (ValueError, AttributeError):
-        return None
-    if session is None or not hasattr(session, "create_message"):
-        return None
-    return HostSamplingClient(session=session)
 
 
 def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
@@ -119,31 +47,6 @@ def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
     }
 
 
-def _format_response(payload: dict[str, Any], response_format: str) -> Any:
-    """Return the payload as-is for json, or a markdown wrapper for markdown.
-
-    Markdown rendering uses `render_response` for tools it knows; everything
-    else (including error envelopes) falls back to a JSON code block. The
-    wrapper carries `format` + `content` so the host can route. This is
-    advisory — hosts are free to ignore the wrapper and surface the raw
-    JSON; the parameter exists to advertise the rendering capability.
-    """
-    if (response_format or "json").lower() == "json":
-        return payload
-    if isinstance(payload, dict) and payload.get("isError"):
-        # Error envelopes never benefit from markdown — keep them structured.
-        return payload
-    try:
-        markdown = render_response(payload)
-    except (KeyError, AttributeError):
-        markdown = "```json\n" + json.dumps(payload, indent=2, default=str) + "\n```"
-    return {
-        "format": "markdown",
-        "tool": payload.get("tool") if isinstance(payload, dict) else None,
-        "content": markdown,
-    }
-
-
 def build_service() -> QAShiftLeftService:
     standards_path = Path(os.environ.get("QA_STANDARDS_PATH", "standards/packs"))
     rules_path = Path(os.environ.get("QA_RULES_PATH", "standards/rules/change_rules.yaml"))
@@ -151,32 +54,9 @@ def build_service() -> QAShiftLeftService:
     return QAShiftLeftService.from_standards_path(standards_path, rules_path, test_data_path)
 
 
-def _attach_output_schemas(mcp: Any) -> None:
-    """Wire each registered tool to its rich Pydantic JSON schema.
-
-    FastMCP's auto-derivation requires the runtime return type to match the
-    advertised schema; we slim our payloads aggressively and want hosts to
-    see the rich schema regardless. So we patch `fn_metadata.output_schema`
-    plus a permissive `output_model` AFTER registration. The cached
-    `Tool.output_schema` property reads through to `fn_metadata`, so
-    `list_tools()` advertises the correct shape.
-    """
-    tools = mcp._tool_manager._tools
-    for name, model in _OUTPUT_SCHEMA_MODELS.items():
-        tool = tools.get(name)
-        if tool is None:
-            continue
-        tool.fn_metadata.output_schema = model.model_json_schema()
-        tool.fn_metadata.output_model = _PermissiveDictModel
-        tool.fn_metadata.wrap_output = False
-        # Bust the cached_property so subsequent reads pick up the new schema.
-        if "output_schema" in tool.__dict__:
-            del tool.__dict__["output_schema"]
-
-
 def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     try:
-        from mcp.server.fastmcp import Context, FastMCP
+        from mcp.server.fastmcp import FastMCP
         from mcp.types import ToolAnnotations
     except ImportError as exc:
         raise RuntimeError("The MCP SDK is not installed. Run `pip install -e .`.") from exc
@@ -184,8 +64,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     qa_service = service or build_service()
     mcp = FastMCP("sumo-qa")
 
-    # Standard annotation patterns. The QA reasoning tools are read-only and
-    # idempotent. Only `sumo_qa_register_known_good_test_data` writes to disk,
+    # Standard annotation patterns. The QA test-data reasoning tools are read-only
+    # and idempotent. Only `sumo_qa_register_known_good_test_data` writes to disk,
     # and even then the operation is additive (never deletes), so
     # destructiveHint stays false.
     _read_only_local = ToolAnnotations(
@@ -194,12 +74,6 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         idempotentHint=True,
         openWorldHint=False,
     )
-    _read_only_open_world = ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
     _writer_local = ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=False,
@@ -207,465 +81,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         openWorldHint=False,
     )
 
-    _RESPONSE_FORMAT_FIELD: Any = Field(
-        default="json",
-        description=(
-            "Response format. 'json' returns the structured payload (default). "
-            "'markdown' returns a render-ready string the host can show "
-            "verbatim."
-        ),
-        examples=["json", "markdown"],
-    )
-
-    @mcp.tool(annotations=_read_only_local)
-    async def sumo_qa_prepare_for_work(
-        work_item: str,
-        acceptance_criteria: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Acceptance criteria for this work, one per item.",
-                examples=[[
-                    "Refresh tokens older than 7 days are rejected",
-                    "Tokens are rotated on use",
-                ]],
-            ),
-        ] = None,
-        risk_notes: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Known risks the author already considered, one per item.",
-                examples=[[
-                    "Concurrent refresh from two devices may double-rotate",
-                    "Downstream service caches the old token for 60s",
-                ]],
-            ),
-        ] = None,
-        explicit_classifications: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description=(
-                    "Canonical change classifications. See sumo_qa_prepare_for_work "
-                    "docstring for the full list."
-                ),
-                examples=[["api_contract_change", "data_mapping_change"]],
-            ),
-        ] = None,
-        target_paths: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Concrete files / classes / modules in the target repo.",
-                examples=[[
-                    "src/auth/refresh.py",
-                    "src/auth/session.py::SessionManager.refresh",
-                ]],
-            ),
-        ] = None,
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
-        ctx: Context = None,
-    ) -> dict:
-        """Generate a QA plan from a work item, user story, ticket, or feature description.
-
-        Returns: top risks, smallest useful test set, missing information, and
-        entry questions. Optional `acceptance_criteria` and `risk_notes` lists,
-        when supplied, are folded into the plan.
-
-        `explicit_classifications` is the list of canonical change classifications
-        this work falls under (e.g. ["api_contract_change", "data_mapping_change"]).
-        When supplied, the team's loaded standards/rules dispatch on them. When
-        omitted, the AI-sampling path classifies dynamically; the deterministic
-        harness no longer pattern-matches paths or text to guess.
-
-        `target_paths` (optional) anchors the plan to concrete files / classes
-        / modules in the supplied repo. When the work_item names a boundary
-        not present in `target_paths`, the AI surfaces the gap as
-        `missing_information` instead of fabricating artefacts.
-
-        Canonical classification names: api_contract_change, business_logic_change,
-        state_transition_change, ui_only_change, configuration_change,
-        data_mapping_change, error_handling_change, async_flow_change, caching_change.
-
-        Common natural-language phrasings that map to this tool:
-        "plan QA for this", "what should I test for X", "QA strategy for X",
-        "what could go wrong if we add X", "before I start coding X what should
-        I think about", "what tests should I write for this story", "what's the
-        test plan for X".
-        """
-        try:
-            output = _slim(await qa_service.aqa_prepare_for_work(
-                work_item, acceptance_criteria, risk_notes,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-                target_paths=target_paths,
-            ))
-        except Exception as exc:  # noqa: BLE001 — wrap into isError envelope
-            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        captured = maybe_capture(
-            tool="sumo_qa_prepare_for_work",
-            args={
-                "work_item": work_item,
-                "acceptance_criteria": acceptance_criteria,
-                "risk_notes": risk_notes,
-                "explicit_classifications": explicit_classifications,
-                "target_paths": target_paths,
-            },
-            output=output,
-        )
-        return _format_response(captured, response_format)
-
-    @mcp.tool(annotations=_read_only_open_world)
-    async def sumo_qa_review_local_change(
-        change_summary: str,
-        diff: str = "",
-        touched_files: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Files modified by this change, relative to repo root.",
-                examples=[[
-                    "src/auth/refresh.py",
-                    "tests/test_refresh.py",
-                ]],
-            ),
-        ] = None,
-        test_evidence: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Evidence already gathered (test runs, manual checks).",
-                examples=[[
-                    "pytest tests/test_refresh.py -v (10 passed)",
-                    "Manually verified expired-token rejection",
-                ]],
-            ),
-        ] = None,
-        explicit_classifications: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Canonical change classifications (see sumo_qa_prepare_for_work).",
-                examples=[["api_contract_change", "security_change"]],
-            ),
-        ] = None,
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
-        ctx: Context = None,
-    ) -> dict:
-        """Review uncommitted code, a diff, or a list of touched files for QA risk.
-
-        Returns: verdict (`needs-test-evidence` / `review-risk-before-handoff` /
-        `qa-risk-acceptable-for-phase-1-input`), classified change type with
-        confidence, missing test levels, recommended test paths, and findings
-        keyed to the actual touched files. When `diff` and `touched_files` are
-        omitted, the server runs `git diff` in the working directory.
-
-        `explicit_classifications`: list of canonical change classifications
-        this change falls under (see sumo_qa_prepare_for_work for the canonical
-        set). When supplied, the rules engine dispatches on them. When omitted,
-        the AI-sampling path classifies dynamically.
-
-        Common natural-language phrasings that map to this tool:
-        "review my changes", "is this safe to merge", "QA risk on this PR",
-        "what could break if I ship this", "did I miss any tests for this
-        change", "look at my diff and tell me what to test", "is this change
-        risky".
-        """
-        try:
-            output = _slim(await qa_service.aqa_review_local_change(
-                change_summary, diff, touched_files, test_evidence,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-            ))
-        except Exception as exc:  # noqa: BLE001
-            output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
-        captured = maybe_capture(
-            tool="sumo_qa_review_local_change",
-            args={
-                "change_summary": change_summary,
-                "diff": diff,
-                "touched_files": touched_files,
-                "test_evidence": test_evidence,
-                "explicit_classifications": explicit_classifications,
-            },
-            output=output,
-        )
-        return _format_response(captured, response_format)
-
-    @mcp.tool(annotations=_read_only_local)
-    async def sumo_qa_create_test_plan(
-        work_item: str,
-        scope_size: str = "medium",
-        acceptance_criteria: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Acceptance criteria, one per item.",
-                examples=[[
-                    "Refresh rejects tokens older than 7 days",
-                    "Refresh emits an audit event on every rotation",
-                ]],
-            ),
-        ] = None,
-        risk_notes: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Risks the author already considered.",
-                examples=[["Race between two refresh requests for the same token"]],
-            ),
-        ] = None,
-        explicit_classifications: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Canonical change classifications (see sumo_qa_prepare_for_work).",
-                examples=[["api_contract_change", "security_change"]],
-            ),
-        ] = None,
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
-        ctx: Context = None,
-    ) -> dict:
-        """Produce a phased ISTQB-style test plan with entry/exit criteria and deliverables.
-
-        For larger or formally-tracked pieces of work where a flat risk list isn't
-        enough. Returns a structured `test_plan` (scope in/out, test basis,
-        approach, entry criteria, exit criteria, phases with deliverables,
-        residual risks, open questions) plus the usual top risks, suggested
-        tests, ISTQB techniques, ISO 25010 quality characteristics, and any
-        specialty testing capabilities the change implies (e.g. Cypress for
-        frontend, k6 for performance).
-
-        Common natural-language phrasings that map to this tool:
-        "create a test plan for X", "give me a formal QA plan for X",
-        "draft the test plan I should follow for X", "I'm starting a major
-        feature, plan QA properly", "what are the entry/exit criteria for X".
-        """
-        try:
-            output = _slim(await qa_service.aqa_create_test_plan(
-                work_item,
-                scope_size,
-                acceptance_criteria,
-                risk_notes,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-            ))
-        except Exception as exc:  # noqa: BLE001
-            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        captured = maybe_capture(
-            tool="sumo_qa_create_test_plan",
-            args={
-                "work_item": work_item,
-                "scope_size": scope_size,
-                "acceptance_criteria": acceptance_criteria,
-                "risk_notes": risk_notes,
-                "explicit_classifications": explicit_classifications,
-            },
-            output=output,
-        )
-        return _format_response(captured, response_format)
-
-    @mcp.tool(annotations=_read_only_local)
-    async def sumo_qa_decide_approach(
-        intent_text: str,
-        target_paths: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Concrete files / classes / modules the work touches.",
-                examples=[["src/auth/refresh.py", "src/auth/session.py"]],
-            ),
-        ] = None,
-        signals: Annotated[
-            dict | None,
-            Field(
-                default=None,
-                description=(
-                    "Optional signals the host has already gathered (e.g. "
-                    "{'has_existing_tests': true, 'is_bug_fix': false})."
-                ),
-                examples=[{"has_existing_tests": True, "scope_size": "small"}],
-            ),
-        ] = None,
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
-        ctx: Context = None,
-    ) -> dict:  # noqa: D401  (long description below)
-        """Decide which QA approach fits this change shape, before doing any deeper work.
-
-        Returns a `recommended_approach` with one of:
-          - tdd-scaffold (greenfield-ish; plan -> scaffold -> implement -> green)
-          - regression-first (bug fix; reproduce as failing test, then fix)
-          - coverage-first-then-refactor (refactor with no behaviour change)
-          - verify-existing (config-only / trivial tweak; no new tests)
-          - no-tests-recommended (pure docs / typos / comments)
-          - spike-first-then-tests (exploratory prototype)
-
-        Plus rationale, the next tool to call (or `null` if no tool), follow-up
-        guidance, alternatives, and a confidence band. The host model uses this
-        to decide whether to call `sumo_qa_scaffold_tests`, `sumo_qa_review_local_change`,
-        or skip QA tooling entirely.
-
-        Common natural-language phrasings that map to this tool:
-        "what QA approach should I take for X", "should I write tests for X",
-        "is this a TDD case or a regression test", "what's the right testing
-        strategy for X", "do I even need tests for X".
-        """
-        try:
-            output = _slim(await qa_service.aqa_decide_approach(
-                intent_text,
-                target_paths,
-                signals,
-                async_llm=_maybe_host_llm(ctx),
-            ))
-        except Exception as exc:  # noqa: BLE001
-            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        captured = maybe_capture(
-            tool="sumo_qa_decide_approach",
-            args={
-                "intent_text": intent_text,
-                "target_paths": target_paths,
-                "signals": signals,
-            },
-            output=output,
-        )
-        return _format_response(captured, response_format)
-
-    @mcp.tool(annotations=_read_only_local)
-    async def sumo_qa_scaffold_tests(
-        work_item: str,
-        test_conditions: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Specific behaviours to cover, one per item.",
-                examples=[[
-                    "Reject tokens older than 7 days",
-                    "Rotate token on every successful refresh",
-                ]],
-            ),
-        ] = None,
-        target_paths: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Source paths to anchor the scaffold to.",
-                examples=[["src/auth/refresh.py"]],
-            ),
-        ] = None,
-        explicit_classifications: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Canonical change classifications (see sumo_qa_prepare_for_work).",
-                examples=[["api_contract_change", "security_change"]],
-            ),
-        ] = None,
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
-        ctx: Context = None,
-    ) -> dict:
-        """Produce structured test-scaffold tasks the host model writes with its own file tools.
-
-        Returns a list of `tasks`, each with:
-          - file_path (chosen by convention from the target source path)
-          - framework (pytest / Vitest / Jest / Playwright / Cypress / k6 /
-            Schemathesis / Promptfoo / axe-core / Appium / JUnit 5 / XCTest)
-          - language
-          - level (unit / integration / contract / functional / nonfunctional)
-          - techniques (named ISTQB techniques applied)
-          - assertions (named, tied to test conditions)
-          - skeleton (honestly-stubbed code - assertions raise / TODO so the
-            host knows nothing has been verified yet; this is TDD red phase)
-          - verify_command (e.g. `pytest tests/orders/test_api.py -v`)
-          - specialty + specialty_mcp_hint when the task should be routed to a
-            specialty MCP (Cypress, k6, Pact, Playwright + axe-core, etc.)
-
-        Plus an `execution_order` (unit -> integration -> contract -> functional -> nonfunctional)
-        and the deterministic guardrails (top_risks, classification, standards).
-
-        The MCP itself does NOT write files. The host model iterates through
-        `execution_order`, writes each `tasks[i].file_path` with `tasks[i].skeleton`
-        using its Edit/Write tools, runs `tasks[i].verify_command`, sees the
-        test fail (red), and only then writes the production code.
-
-        Common natural-language phrasings that map to this tool:
-        "scaffold tests for X", "write the test files for X", "set up the
-        test suite for X", "give me the failing tests so I can implement
-        against them", "create the test stubs for X".
-        """
-        try:
-            output = _slim(await qa_service.aqa_scaffold_tests(
-                work_item,
-                test_conditions,
-                target_paths,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-            ))
-        except Exception as exc:  # noqa: BLE001
-            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        captured = maybe_capture(
-            tool="sumo_qa_scaffold_tests",
-            args={
-                "work_item": work_item,
-                "test_conditions": test_conditions,
-                "target_paths": target_paths,
-                "explicit_classifications": explicit_classifications,
-            },
-            output=output,
-        )
-        return _format_response(captured, response_format)
-
-    @mcp.tool(annotations=_read_only_local)
-    async def sumo_qa_answer_testing_question(
-        question: str,
-        context: str = "",
-        explicit_classifications: Annotated[
-            list | None,
-            Field(
-                default=None,
-                description="Canonical change classifications (see sumo_qa_prepare_for_work).",
-                examples=[["api_contract_change"]],
-            ),
-        ] = None,
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
-        ctx: Context = None,
-    ) -> dict:
-        """Answer a free-form testing question with risk-based, actionable QA guidance.
-
-        Returns: a short answer, what to verify, risk areas, and the smallest
-        useful test set. Optional `context` (code snippet, ticket text, etc.)
-        is folded into the reasoning.
-
-        Common natural-language phrasings that map to this tool:
-        "how do I test X", "how should I test Y", "what's the right way to test
-        X", "should I write a unit or integration test for Z", "how do I verify
-        X", "what tests would prove X".
-        """
-        try:
-            output = _slim(await qa_service.aqa_answer_testing_question(
-                question, context,
-                async_llm=_maybe_host_llm(ctx),
-                explicit_classifications=explicit_classifications,
-            ))
-        except Exception as exc:  # noqa: BLE001
-            output = _error_envelope(exc, _HINT_STANDARDS_MISSING)
-        captured = maybe_capture(
-            tool="sumo_qa_answer_testing_question",
-            args={
-                "question": question,
-                "context": context,
-                "explicit_classifications": explicit_classifications,
-            },
-            output=output,
-        )
-        return _format_response(captured, response_format)
-
     @mcp.tool(annotations=_read_only_local)
     def sumo_qa_explain_test_data_requirements(
         question: str,
         environment: str = "",
         domain: str = "",
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
     ) -> dict:
         """Explain what test data shape and characteristics are needed for a scenario.
 
@@ -681,7 +101,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         test".
         """
         try:
-            output = _slim(qa_service.qa_explain_test_data_requirements(question, environment, domain))
+            output = qa_service.qa_explain_test_data_requirements(question, environment, domain)
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
         captured = maybe_capture(
@@ -693,7 +113,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
-        return _format_response(captured, response_format)
+        return captured
 
     @mcp.tool(annotations=_read_only_local)
     def sumo_qa_find_test_data(
@@ -719,7 +139,6 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         sku: str = "",
         limit: int = 5,
         offset: int = 0,
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
     ) -> dict:
         """Search the local known-good test data catalogue for entries that match a scenario.
 
@@ -738,7 +157,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         for X", "what test data is available for X".
         """
         try:
-            output = _slim(qa_service.qa_find_test_data(
+            output = qa_service.qa_find_test_data(
                 environment,
                 domain,
                 scenario_tags,
@@ -747,7 +166,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 sku,
                 limit,
                 offset,
-            ))
+            )
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
         captured = maybe_capture(
@@ -764,13 +183,12 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
-        return _format_response(captured, response_format)
+        return captured
 
     @mcp.tool(annotations=_read_only_local)
     def sumo_qa_validate_test_data(
         entry_id: str | None = None,
         entry: dict | None = None,
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
     ) -> dict:
         """Validate a test data entry without provisioning or mutating downstream systems.
 
@@ -783,7 +201,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         still good", "check if X is fresh".
         """
         try:
-            output = _slim(qa_service.qa_validate_test_data(entry_id, entry))
+            output = qa_service.qa_validate_test_data(entry_id, entry)
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_LOCAL_FILES_MISSING)
         captured = maybe_capture(
@@ -794,12 +212,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
-        return _format_response(captured, response_format)
+        return captured
 
     @mcp.tool(annotations=_writer_local)
     def sumo_qa_register_known_good_test_data(
         entry: dict,
-        response_format: Annotated[str, _RESPONSE_FORMAT_FIELD] = "json",
     ) -> dict:
         """Add or update a known-good test data entry in the local YAML catalogue.
 
@@ -812,7 +229,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         validated timestamp on entry X", "add this SKU to the catalogue".
         """
         try:
-            output = _slim(qa_service.qa_register_known_good_test_data(entry))
+            output = qa_service.qa_register_known_good_test_data(entry)
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_TEST_DATA_WRITE)
         captured = maybe_capture(
@@ -822,160 +239,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
-        return _format_response(captured, response_format)
-
-    @mcp.prompt(
-        name="sumo_qa_review_my_changes",
-        description="Review the user's current local changes for QA risk and missing test evidence.",
-    )
-    def qa_review_my_changes_prompt(scope: str = "") -> str:
-        scope_line = f"\n\nFocus: {scope}" if scope else ""
-        # Long-form workflow body so prompt-only hosts (IntelliJ AI Assistant,
-        # Cursor, etc.) get the same discipline Claude Code gets via the
-        # qa-reviewing-before-merge skill file.
-        return (
-            "Review my current local changes for QA risk and missing test evidence."
-            f"{scope_line}\n\n"
-            "Workflow (follow in order, do not skip steps):\n"
-            "1. Call the `sumo_qa_review_local_change` tool. Pass the change summary "
-            "and any touched files I've named; otherwise let it run `git diff`.\n"
-            "2. Read these fields literally: `verdict`, `change_classification.primary` "
-            "(+ `primary_confidence`), `local_diff.missing_test_levels`, "
-            "`qa_findings` (each with `severity` and `recommended_test_path`), "
-            "`top_risks`, `recommended_approach`, `specialty_testing_needs`.\n"
-            "3. Surface the verdict literally as the first line: 'VERDICT: <verdict>'. "
-            "Do not paraphrase, do not soften. If the verdict is `needs-test-evidence` "
-            "or `review-risk-before-handoff`, the change is NOT ready to merge.\n"
-            "4. List every `qa_findings` item with its severity and (if present) "
-            "the `recommended_test_path` inline.\n"
-            "5. List the top 3 `top_risks`. Show the highest-severity ones first.\n"
-            "6. If `specialty_testing_needs` is non-empty, surface a 'Pull in:' line "
-            "naming the approach + 2-3 well-known tools.\n"
-            "7. End with one of:\n"
-            "   - if verdict is `needs-test-evidence`: 'Want me to scaffold the missing tests? "
-            "(would call sumo_qa_scaffold_tests with the recommended_test_paths)'\n"
-            "   - if `review-risk-before-handoff`: 'Which finding do you want to tackle first?'\n"
-            "   - if `qa-risk-acceptable-for-phase-1-input`: 'Ready to merge unless you want me "
-            "to dig into a specific risk.'\n"
-            "Hard rule: never claim 'safe to merge' unless the tool's verdict says so."
-        )
-
-    @mcp.prompt(
-        name="sumo_qa_what_approach",
-        description="Pick the right QA approach (TDD scaffold / regression-first / refactor with coverage / verify existing / skip).",
-    )
-    def qa_what_approach_prompt(intent: str, target_path: str = "") -> str:
-        target_line = f"\nPrimary path: {target_path}" if target_path else ""
-        # Long-form workflow body so prompt-only hosts get the same discipline
-        # Claude Code gets via the qa-deciding-approach skill file.
-        return (
-            f"Help me pick the right QA approach for: {intent}{target_line}\n\n"
-            "Workflow (follow in order, do not skip):\n"
-            "1. Call the `sumo_qa_decide_approach` tool with the intent text and any target paths.\n"
-            "2. Read `recommended_approach`: `approach`, `rationale`, `next_action`, "
-            "`follow_up`, `confidence`, `alternatives`.\n"
-            "3. Announce the approach in one line, literally:\n"
-            "   APPROACH: <approach> (<confidence>) -> next: <next_action.tool or 'no tool'>\n"
-            "4. State the rationale in one sentence.\n"
-            "5. Branch:\n"
-            "   - `tdd-scaffold` or `regression-first` -> propose calling `sumo_qa_create_test_plan` "
-            "(if scope is medium/large) or `sumo_qa_scaffold_tests` (smaller). Wait for confirmation.\n"
-            "   - `coverage-first-then-refactor` -> propose calling `sumo_qa_review_local_change` "
-            "to find coverage gaps first. Wait for confirmation.\n"
-            "   - `verify-existing` -> tell me to run my existing test suite + a smoke; STOP.\n"
-            "   - `no-tests-recommended` -> tell me to run the build / docs lint; STOP.\n"
-            "   - `spike-first-then-tests` -> tell me to spike freely and capture conditions for later; STOP.\n"
-            "6. If `confidence` is `low`, ask ONE focused clarifying question instead of guessing.\n"
-            "7. List up to 2 alternatives so I can override if my context differs.\n\n"
-            "Hard rule: do not call sumo_qa_scaffold_tests / sumo_qa_create_test_plan / "
-            "sumo_qa_review_local_change BEFORE sumo_qa_decide_approach. The decision is "
-            "the precondition; skipping it produces wrong-shaped work."
-        )
-
-    @mcp.prompt(
-        name="sumo_qa_scaffold_tests_for_work",
-        description="Produce honest-stub test scaffold tasks for a work item; host model writes the files.",
-    )
-    def qa_scaffold_tests_for_work_prompt(work_item: str, target_path: str = "") -> str:
-        target_line = f"\nPrimary source path: {target_path}" if target_path else ""
-        return (
-            f"Scaffold the failing tests I should write for: {work_item}{target_line}\n\n"
-            "Return the task list with file paths, frameworks, named assertions, "
-            "and verify commands. After I confirm, write each file using your "
-            "file tools and run the verify command for each (TDD red phase). "
-            "If a task is tagged with a specialty (Cypress, k6, Pact, axe-core), "
-            "prefer routing to that specialty MCP if one is available."
-        )
-
-    @mcp.prompt(
-        name="sumo_qa_test_plan_for_work",
-        description="Produce a phased ISTQB-style test plan with entry/exit criteria for a substantial piece of work.",
-    )
-    def qa_test_plan_for_work_prompt(work_item: str, scope_size: str = "medium") -> str:
-        return (
-            f"Create a test plan for this work item: {work_item}\n"
-            f"Scope size: {scope_size} (small / medium / large).\n\n"
-            "Show me the scope, entry criteria, the analysis-design-execution-completion "
-            "phases with their deliverables, and the exit criteria. Call out any extra "
-            "specialty testing capabilities I should pull in (e.g. Cypress, k6, OWASP ZAP, "
-            "Appium) and any open questions I need to resolve before starting."
-        )
-
-    @mcp.prompt(
-        name="sumo_qa_plan_for_work",
-        description="Generate a QA plan for a user story, ticket, or feature before coding starts.",
-    )
-    def qa_plan_for_work_prompt(work_item: str) -> str:
-        return (
-            f"Plan QA for this work item: {work_item}\n\n"
-            "Lead with the top QA risk, then list the smallest useful test set "
-            "I should write before merging, and call out anything that needs "
-            "clarification before I start coding."
-        )
-
-    @mcp.prompt(
-        name="sumo_qa_how_do_i_test",
-        description="Answer 'how do I test X' for any topic, behaviour, or change.",
-    )
-    def qa_how_do_i_test_prompt(thing: str) -> str:
-        return (
-            f"How do I test {thing}?\n\n"
-            "Give me concrete things to verify, the likely risk areas, and the "
-            "smallest useful test set."
-        )
-
-    @mcp.prompt(
-        name="sumo_qa_find_data",
-        description="Find a known-good test data record for a scenario.",
-    )
-    def qa_find_data_prompt(scenario: str) -> str:
-        return (
-            f"Find known-good test data for: {scenario}\n\n"
-            "Show me the highest-confidence match first, with the suitability "
-            "reason and freshness status."
-        )
-
-    @mcp.prompt(
-        name="sumo_qa_explain_data_needs",
-        description="Explain the test data shape needed for a scenario before searching for records.",
-    )
-    def qa_explain_data_needs_prompt(scenario: str) -> str:
-        return (
-            f"What test data do I need to test {scenario}?\n\n"
-            "Tell me the required characteristics, the edge cases I should "
-            "also cover, and what NOT to use."
-        )
-
-    @mcp.prompt(
-        name="sumo_qa_validate_data",
-        description="Validate a known-good test data entry by id or full record.",
-    )
-    def qa_validate_data_prompt(entry_id_or_entry: str) -> str:
-        return (
-            f"Validate this test data: {entry_id_or_entry}\n\n"
-            "Lead with whether it's valid and why, including freshness and "
-            "confidence."
-        )
+        return captured
 
     def _register_knowledge_loaders(mcp):
         """Register the 7 knowledge-provider tools.
@@ -1029,7 +293,6 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
     _register_knowledge_loaders(mcp)
     register_skills_as_prompts(mcp)
-    _attach_output_schemas(mcp)
     return mcp
 
 
