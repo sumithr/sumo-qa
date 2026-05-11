@@ -8,8 +8,6 @@ from sumo_qa.tdm_catalogue import TestDataCatalogue as Catalogue
 from sumo_qa.tdm_models import TestDataEntry as Entry
 from sumo_qa.tdm_service import TestDataAssistant as Assistant
 from sumo_qa.tdm_validation import MockValidator
-from sumo_qa.rules import StandardsRulesEngine
-from sumo_qa.standards import StandardsEngine
 from sumo_qa.tools import QAShiftLeftService
 
 
@@ -22,11 +20,7 @@ def service() -> QAShiftLeftService:
         Catalogue(ROOT / "knowledge" / "test_data"),
         MockValidator(now=NOW),
     )
-    return QAShiftLeftService(
-        standards_engine=StandardsEngine.from_directory(ROOT / "standards" / "packs"),
-        rules_engine=StandardsRulesEngine.from_file(ROOT / "standards" / "rules" / "change_rules.yaml"),
-        test_data_assistant=assistant,
-    )
+    return QAShiftLeftService(test_data_assistant=assistant)
 
 
 def test_explain_test_data_requirements_is_senior_qa_focused() -> None:

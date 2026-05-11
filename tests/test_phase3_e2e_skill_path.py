@@ -120,10 +120,11 @@ def test_typical_flow_stays_under_token_budget():
     )
 
 
-def test_heavy_tools_and_skill_path_coexist():
-    """Phase 3 precondition: heavy tools still register so we can compare
-    senior-istqb-grade output between the old and new paths during
-    verification. Phase 4 deletes the heavy tools after this gate."""
+def test_heavy_tools_are_deleted_and_skill_path_is_canonical():
+    """Phase 4 postcondition: the 6 heavy reasoning tools are gone. The 7
+    knowledge loader tools remain so skill prompts can drive the host LLM.
+    The 4 test-data tools remain because they back deterministic catalogue
+    operations (find / validate / register / explain)."""
     mcp = build_mcp_server()
     tool_names = set(mcp._tool_manager._tools.keys())
     heavy = {
@@ -131,7 +132,8 @@ def test_heavy_tools_and_skill_path_coexist():
         "sumo_qa_create_test_plan", "sumo_qa_review_local_change",
         "sumo_qa_scaffold_tests", "sumo_qa_answer_testing_question",
     }
-    assert heavy.issubset(tool_names), f"Heavy tools missing: {heavy - tool_names}"
+    leaked = heavy & tool_names
+    assert not leaked, f"Heavy tools must be deleted in Phase 4 but still registered: {leaked}"
     knowledge = {
         "sumo_qa_load_classifications", "sumo_qa_load_approaches",
         "sumo_qa_load_principles", "sumo_qa_load_techniques",
@@ -139,3 +141,8 @@ def test_heavy_tools_and_skill_path_coexist():
         "sumo_qa_load_rules",
     }
     assert knowledge.issubset(tool_names), f"Knowledge tools missing: {knowledge - tool_names}"
+    test_data = {
+        "sumo_qa_explain_test_data_requirements", "sumo_qa_find_test_data",
+        "sumo_qa_validate_test_data", "sumo_qa_register_known_good_test_data",
+    }
+    assert test_data.issubset(tool_names), f"Test-data tools missing: {test_data - tool_names}"
