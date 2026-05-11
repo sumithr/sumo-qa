@@ -52,14 +52,12 @@ def test_skill_descriptions_are_unique():
 
 
 # Structure checks — un-skipped in Phase 2.
-@pytest.mark.skip(reason="Phase 2 skill content; un-skip when full content lands")
 @pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
 def test_skill_has_iron_law_section(skill_path):
     text = skill_path.read_text(encoding="utf-8")
     assert "## The Iron Law" in text or "## Iron Law" in text
 
 
-@pytest.mark.skip(reason="Phase 2 skill content")
 @pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
 def test_skill_has_checklist_section_with_at_least_four_items(skill_path):
     text = skill_path.read_text(encoding="utf-8")
@@ -69,14 +67,12 @@ def test_skill_has_checklist_section_with_at_least_four_items(skill_path):
     assert len(items) >= 4
 
 
-@pytest.mark.skip(reason="Phase 2 skill content")
 @pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
 def test_skill_has_process_flow_dot_block(skill_path):
     text = skill_path.read_text(encoding="utf-8")
     assert "```dot" in text
 
 
-@pytest.mark.skip(reason="Phase 2 skill content")
 @pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
 def test_skill_has_red_flags_section(skill_path):
     text = skill_path.read_text(encoding="utf-8")
