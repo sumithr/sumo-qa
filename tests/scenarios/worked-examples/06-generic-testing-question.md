@@ -1,6 +1,6 @@
 # Scenario 06 — Generic testing question
 
-> **Demo arc:** *"the AI gave a 4-sentence answer that cited an ISTQB principle by number, named a specific design technique, and recommended a specialty tool — instead of 'add unit tests and consider edge cases'."*
+> **Summary:** *"the AI gave a 4-sentence answer that cited an ISTQB principle by number, named a specific design technique, and recommended a specialty tool — instead of 'add unit tests and consider edge cases'."*
 >
 > Shows: catalogue-anchored reasoning, one focused clarification (not an interrogation), concise senior-QA answer, specialty tool picked by fit not by reflex.
 
@@ -26,7 +26,7 @@ One quick check before I name a perf tool: **does this service rank feeds at req
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **Cited principle by number.** *"Principle 4 — defects cluster"* — not a vague *"this is a risky area"*. The principle is doing actual work in the recommendation.
 - **Named technique from the catalogue.** *"Decision table for the rule interactions; equivalence partitioning for feed sizes"* — two techniques, each tied to the specific risk shape. Not *"consider edge cases"*.

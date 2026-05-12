@@ -1,6 +1,6 @@
 # Scenario 01 — Plan QA for a new story
 
-> **Demo arc:** *"the AI prepped a real QA plan with named risks for a story — anchored to actual file paths, not generic edge-case-shaped advice."*
+> **Summary:** *"the AI prepped a real QA plan with named risks for a story — anchored to actual file paths, not generic edge-case-shaped advice."*
 >
 > Shows: explore-before-asking discipline, 3–7 risks anchored to file:line, one technique per risk from the loaded catalogue, smallest-useful test set tied to those risks, sectioned conversational pacing with a single confirmation gate.
 
@@ -102,7 +102,7 @@ That's the prep brief — 5 risks, 5 tests, 2 specialty fits offered, 3 assumpti
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **Read the files before asking.** Two reads (`refund.py`, `invoice.py`) before a single risk was named. The `total`-vs-`sum(line_items)` drift only surfaces because the file was actually read — no amount of reasoning from the prompt alone would have caught it.
 - **Risks anchored to file:line, not vibes.** *"`services/billing/invoice.py:12` — `Decimal` vs `float` at the JSON boundary"* — not *"check for input validation"*. Every risk names the failure mode and the specific line where it lives.

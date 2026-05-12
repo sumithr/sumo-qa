@@ -1,6 +1,6 @@
 # Scenario 10 — Trivial change, no tests needed
 
-> **Demo arc:** *"my AI would have written a docs-rendering smoke test, added a CI check, and walked me through a 5-section formal review — for a typo. sumo-qa said: no tests needed, just check it renders. That IS the senior-QA answer."*
+> **Summary:** *"my AI would have written a docs-rendering smoke test, added a CI check, and walked me through a 5-section formal review — for a typo. sumo-qa said: no tests needed, just check it renders. That IS the senior-QA answer."*
 >
 > Shows: restraint. Knowing when NOT to add tests. The taxonomy ran end-to-end internally — `docs_change` -> `no-tests-recommended` — and the user-facing answer was one natural-English paragraph, not a checklist.
 
@@ -42,7 +42,7 @@ Sensible. Ship it.
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **Restraint is the feature.** The shortest correct answer here is *"no tests needed."* Adding a docs-rendering smoke test, a CI gate, or a formal review for a typo is noise — it dilutes the signal of real QA work and trains the team to ignore QA gates.
 - **The taxonomy ran — invisibly.** Classification (`docs_change`) and approach (`no-tests-recommended`) were both decided from the catalogue, but the user never saw those labels. They saw natural English. That's the discipline: the taxonomy is internal scaffolding, not a deliverable.
