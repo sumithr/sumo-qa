@@ -185,7 +185,7 @@ def _install_mcp_binary() -> Path | None:
         return None
     try:
         subprocess.run(
-            ["uv", "tool", "install", "--from", str(REPO_ROOT), "sumo-qa-mcp", "--reinstall"],
+            ["uv", "tool", "install", "--from", str(REPO_ROOT), "sumo-qa", "--reinstall"],
             check=True,
         )
     except subprocess.CalledProcessError as exc:
@@ -196,7 +196,7 @@ def _install_mcp_binary() -> Path | None:
         # Fall back to the conventional uv tool bin dir.
         for candidate in [
             Path.home() / ".local" / "bin" / "sumo-qa",
-            Path.home() / ".local" / "share" / "uv" / "tools" / "sumo-qa-mcp" / "bin" / "sumo-qa",
+            Path.home() / ".local" / "share" / "uv" / "tools" / "sumo-qa" / "bin" / "sumo-qa",
         ]:
             if candidate.is_file():
                 return candidate.resolve()
