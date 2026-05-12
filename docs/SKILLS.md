@@ -1,6 +1,6 @@
 # Skills
 
-The sumo-qa MCP ships 10 skills under [`skills/`](../skills/). Each is a single
+The sumo-qa MCP ships 13 skills under [`skills/`](../skills/). Each is a single
 `SKILL.md` file the host LLM follows literally: YAML frontmatter, an Iron Law, a
 checklist, a graphviz process flow, a Red Flags table, examples.
 
@@ -14,7 +14,7 @@ Slash-menu conventions differ per host:
 
 All paths invoke the same SKILL.md body.
 
-## The 10 skills
+## The 13 skills
 
 | Skill | When to use | Iron Law |
 |---|---|---|
@@ -28,6 +28,9 @@ All paths invoke the same SKILL.md body.
 | [qa-finding-test-data](../skills/qa-finding-test-data/SKILL.md) | Test data discovery / validation / registration | STALE IS A DEFECT. NEVER INVENT ENTRIES NOT IN THE CATALOGUE. |
 | [qa-answering-testing-question](../skills/qa-answering-testing-question/SKILL.md) | Generic "how do I test this?" / "what should I check for X?" | NO ANSWER WITHOUT A CITED PRINCIPLE OR TECHNIQUE. |
 | [sumo-qa-strategising](../skills/sumo-qa-strategising/SKILL.md) | Repo-wide QA strategy / audit / pyramid design | WALK THE REPO FIRST. |
+| [qa-planning-qa-rollout](../skills/qa-planning-qa-rollout/SKILL.md) | Turn a QA chunk (story, PR, strategy phase) into a written plan with bite-sized, parallel-dispatchable tasks | NO EXECUTION FROM THE PLANNER. THE PLAN IS THE DELIVERABLE. |
+| [qa-executing-qa-rollout](../skills/qa-executing-qa-rollout/SKILL.md) | Dispatch a signed-off plan task-by-task to fresh subagents with two-stage review | ONE FRESH SUBAGENT PER TASK. TWO-STAGE REVIEW. CONTINUOUS EXECUTION. |
+| [qa-finishing-qa-work](../skills/qa-finishing-qa-work/SKILL.md) | Close the loop on a multi-task QA rollout — fresh suite run + risk-to-test map + PR-ready summary | NO FINISH WITHOUT FRESH EVIDENCE + WRITTEN SUMMARY. |
 
 ## Global discipline (declared in using-sumo-qa, inherited by all sub-skills)
 

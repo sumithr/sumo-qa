@@ -71,7 +71,7 @@ python3 install.py --vscode --skip-mcp-install   # skip uv reinstall (faster re-
 1. Symlinks each repo `skills/<name>/` directory into `~/.claude/skills/<name>/` so Claude Code's native skill loader picks them up as top-level skills. Earlier versions used a wrapper symlink (`~/.claude/skills/sumo-qa/`) — that was wrong because Claude Code doesn't recurse. Each skill is now its own top-level entry.
 2. Writes the MCP server entry into `claude_desktop_config.json` (at `~/.config/claude/` on macOS/Linux, `%APPDATA%\Claude\` on Windows) with the absolute binary path.
 
-After install: restart Claude Code. Type `/qa-` in chat — you should see the 10 skills in autocomplete.
+After install: restart Claude Code. Type `/qa-` in chat — you should see the 13 skills in autocomplete.
 
 **MCP tools are NOT slash-invocable in Claude Code.** Only skill files (the 10 `qa-*` and `using-sumo-qa`, `sumo-qa-strategising`) show up in the `/` menu. To call an MCP tool, ask in natural language (*"load the QA classifications"*) and Claude Code's AI picks it up by description.
 
@@ -160,7 +160,7 @@ You should get 10 names back: api_contract_change, business_logic_change, securi
 | "no tools available" in Copilot Chat | VS Code reloaded with old schema or no MCP entry visible | Cmd+Shift+P → Developer: Reload Window; verify `.vscode/mcp.json` has `"servers"` key (not `"mcpServers"`) |
 | "LazyStandaloneCoroutine was cancelled" in JetBrains MCP list | External XML write didn't register the runtime coroutine | Remove the entry; re-add via Settings UI with absolute path |
 | Claude Code shows only some skills | Earlier wrapper-symlink install left stale top-level dirs | `python3 install.py --claude-code` cleans up and re-symlinks at the right granularity |
-| "Unknown command: /sumo_qa_load_classifications" in Claude Code | MCP tools aren't slash-invocable in Claude Code by design | Use natural language ("load the QA classifications") instead, OR use `/qa-*` skill names (hyphens) for the 10 skills |
+| "Unknown command: /sumo_qa_load_classifications" in Claude Code | MCP tools aren't slash-invocable in Claude Code by design | Use natural language ("load the QA classifications") instead, OR use `/qa-*` skill names (hyphens) for the 13 skills |
 | install.py says "VS Code skipped: not a workspace" | Ran from `$HOME` or a directory without `.git`/`.vscode`/project marker | Re-run with `--workspace /path/to/repo`, or cd into a workspace first |
 | Copilot says "I don't have access to those tools" with mini model | Mini/fast model can't reliably call MCP tools | Switch to Claude Sonnet 4.5 or GPT-5 full in Copilot's model picker |
 
