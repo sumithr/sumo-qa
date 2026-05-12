@@ -18,7 +18,7 @@ Add sumo-qa to the `plugin` array in your `opencode.json` (global or project-lev
 Then install the MCP server binary that the skills call into:
 
 ```bash
-uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa-mcp
+uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
 ```
 
 Restart OpenCode. The plugin registers all sumo-qa skills.

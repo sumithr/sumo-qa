@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sumo-qa-mcp"
+name = "sumo-qa"
 version = "0.1.0"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
