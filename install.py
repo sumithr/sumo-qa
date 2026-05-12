@@ -68,19 +68,84 @@ class HostResult:
 
 
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Install sumo-qa MCP for one or more hosts. With no host flags, "
+            "configures every supported host found on this machine."
+        ),
+    )
+    parser.add_argument(
+        "--claude-code",
+        action="store_true",
+        help="Configure Claude Code only (symlink skills + write claude_desktop_config.json).",
+    )
+    parser.add_argument(
+        "--vscode",
+        action="store_true",
+        help=(
+            "Configure VS Code + Copilot only. Writes .vscode/mcp.json in the "
+            "current workspace (or use --workspace to point elsewhere)."
+        ),
+    )
+    parser.add_argument(
+        "--jetbrains",
+        action="store_true",
+        help="Print JetBrains setup instructions only.",
+    )
+    parser.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help=(
+            "VS Code workspace path. Defaults to the current directory. "
+            "Required if CWD is your home directory (VS Code won't read "
+            "~/.vscode/mcp.json — that's not a workspace)."
+        ),
+    )
+    parser.add_argument(
+        "--skip-mcp-install",
+        action="store_true",
+        help="Don't reinstall the MCP binary via uv (assume it's already installed).",
+    )
+    args = parser.parse_args()
+
+    # If no host flag is set, default to all.
+    explicit_hosts = bool(args.claude_code or args.vscode or args.jetbrains)
+    do_claude = args.claude_code or not explicit_hosts
+    do_vscode = args.vscode or not explicit_hosts
+    do_jetbrains = args.jetbrains or not explicit_hosts
+
     system = platform.system()
-    print(f"sumo-qa installer  (OS: {system})\n")
+    print(f"sumo-qa installer  (OS: {system})")
+    hosts_str = ", ".join(
+        h for h, do in [("Claude Code", do_claude), ("VS Code", do_vscode), ("JetBrains", do_jetbrains)] if do
+    )
+    print(f"Configuring: {hosts_str}\n")
 
-    mcp_path = _install_mcp_binary()
-    if mcp_path is None:
-        return 1
-    print(f"\nMCP binary: {mcp_path}\n")
+    if args.skip_mcp_install:
+        binary = shutil.which("sumo-qa-mcp")
+        mcp_path = Path(binary).resolve() if binary else None
+        if mcp_path is None:
+            print("ERROR: --skip-mcp-install was set but sumo-qa-mcp is not on PATH.")
+            return 1
+        print(f"MCP binary (existing): {mcp_path}\n")
+    else:
+        mcp_path = _install_mcp_binary()
+        if mcp_path is None:
+            return 1
+        print(f"\nMCP binary: {mcp_path}\n")
 
-    results = [
-        _setup_claude_code(mcp_path, system),
-        _setup_vscode_copilot(mcp_path),
-        _setup_intellij(mcp_path, system),
-    ]
+    workspace = args.workspace.resolve() if args.workspace else Path.cwd()
+
+    results: list[HostResult] = []
+    if do_claude:
+        results.append(_setup_claude_code(mcp_path, system))
+    if do_vscode:
+        results.append(_setup_vscode_copilot(mcp_path, workspace))
+    if do_jetbrains:
+        results.append(_setup_intellij(mcp_path, system))
 
     print("Host setup:")
     for r in results:
@@ -273,18 +338,32 @@ def _install_claude_code_skills_per_dir(skills_dir: Path, system: str) -> str:
 # VS Code + GitHub Copilot
 # ----------------------------------------------------------------------
 
-def _setup_vscode_copilot(mcp_path: Path) -> HostResult:
+def _setup_vscode_copilot(mcp_path: Path, workspace: Path) -> HostResult:
     r = HostResult("VS Code + Copilot")
-    workspace = Path.cwd()
 
-    # Only write if we look like we're in a workspace (this is the install
-    # script's CWD, which the user ran from the repo). Use that workspace's
-    # .vscode/ dir. If we're running from the repo root, .vscode/ is the
-    # repo's; if we're running from a different workspace, that workspace's.
-    if not (workspace / ".git").exists() and not (workspace / ".vscode").exists():
+    # Refuse to write to the user's home directory. VS Code reads
+    # .vscode/mcp.json from the WORKSPACE root, not from $HOME. Writing to
+    # ~/.vscode/mcp.json silently does nothing useful.
+    if workspace == Path.home():
         r.message = (
-            f"skipped: no .git or .vscode in {workspace}; not a workspace. "
-            "Run install.py from within a workspace to configure it."
+            "skipped: refused to write to $HOME/.vscode/mcp.json — VS Code "
+            "only reads .vscode/mcp.json from a workspace root, not from "
+            "your home directory. Re-run with --workspace <path-to-repo> "
+            "from inside a workspace, or use Cmd+Shift+P -> MCP: Add Server "
+            "in VS Code to set it user-wide."
+        )
+        return r
+
+    # Heuristic: a workspace has either a .git dir, an existing .vscode dir,
+    # or a recognisable project file. If none, surface a clear skip rather
+    # than write to an arbitrary path.
+    project_markers = [".git", ".vscode", "package.json", "pyproject.toml", "pom.xml", "build.gradle", "build.gradle.kts", "Cargo.toml", "go.mod"]
+    if not any((workspace / marker).exists() for marker in project_markers):
+        r.message = (
+            f"skipped: {workspace} doesn't look like a workspace (no .git, "
+            ".vscode, or project file). Re-run with --workspace <path> from "
+            "inside a real project, or use Cmd+Shift+P -> MCP: Add Server "
+            "in VS Code to set it user-wide."
         )
         return r
 
