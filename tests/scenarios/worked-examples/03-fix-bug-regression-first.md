@@ -199,4 +199,4 @@ Red → green → targeted regression, all evidence on screen. The bug has a nam
 - **Targeted regression catches what local re-runs miss.** Two sibling tests (non-VIP-with-promo, expired-promo-falls-back-to-VIP) confirm the precedence rule didn't over-apply. The AI calls those out by name.
 - **Refuses to claim safe-to-merge.** That verdict belongs to `qa-reviewing-before-merge`, and the handoff is offered cleanly. This skill's job ends at "regression test in place, green, surrounding suite still green."
 
-This is what *"shift-left QA"* looks like in practice: the test exists *because* it caught the bug; the fix exists *because* the test demanded it; and the next time the regression tries to return, the suite will see it before a customer does.
+This is what *"senior QA"* looks like in practice: the test exists *because* it caught the bug; the fix exists *because* the test demanded it; and the next time the regression tries to return, the suite will see it before a customer does.

@@ -14,4 +14,4 @@ COPY knowledge ./knowledge
 
 RUN pip install --no-cache-dir .
 
-CMD ["sumo-qa-mcp"]
+CMD ["sumo-qa"]
