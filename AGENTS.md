@@ -1,67 +1,45 @@
 # AGENTS.md — sumo-qa setup
 
-If you're an AI agent in a code editor, run the installer. It handles
-every supported host on this machine automatically, except the one
-IntelliJ step that needs the Settings UI.
+One command. Idempotent. Works on Claude Code, JetBrains IDEs, and VS Code + Copilot, on Windows, macOS, and Linux.
 
-## The whole install
+## Install
 
 ```bash
 python3 install.py
 ```
 
-What it does:
+What it does end-to-end:
 
-1. Installs `sumo-qa-mcp` via `uv` (installs `uv` instructions if missing).
-2. For **Claude Code** (if `~/.claude/` exists): symlinks `skills/` into
-   `~/.claude/skills/sumo-qa`, writes `claude_desktop_config.json` with the
-   absolute path to the binary.
-3. For **VS Code + Copilot** (if running inside a `.git`/`.vscode` workspace):
-   writes `.vscode/mcp.json` in the workspace with the absolute path.
-4. For **IntelliJ AI Assistant** (if a JetBrains config dir exists): prints
-   the exact Settings-UI fields to fill in, with the absolute binary path
-   pre-filled. The JetBrains MCP plugin doesn't expose a programmable
-   config API; this step is unavoidable until JetBrains ships one.
+1. Installs `sumo-qa-mcp` via `uv` (prints `uv` install instructions if missing).
+2. **Claude Code** (if `~/.claude/` exists): symlinks `skills/` into `~/.claude/skills/sumo-qa`; writes `claude_desktop_config.json` with the MCP entry pointing at the absolute binary path.
+3. **JetBrains IDEs** (any IntelliJ / PyCharm / GoLand / WebStorm / RubyMine / PhpStorm / CLion / Rider / DataGrip / AppCode / Android Studio installation found): writes a `sumo-qa` entry into each IDE's `options/llm.mcpServers.xml` with the absolute binary path. Preserves any existing MCP entries the user already had.
+4. **VS Code + Copilot** (if run inside a workspace with `.git` or `.vscode`): writes `.vscode/mcp.json` with the absolute binary path.
 5. Verifies the binary responds to a JSON-RPC `initialize` ping.
 
-Re-run any time. Idempotent.
+Re-run any time to refresh.
 
-## The IntelliJ step
+## After install — restart the host
 
-After install.py finishes it prints something like:
+The host needs to re-read its MCP config:
 
-```
-[...] IntelliJ AI Assistant: detected IntelliJIdea2026.1.
-      Open IntelliJ -> Settings -> Tools -> AI Assistant ->
-      Model Context Protocol -> Add server, with these fields:
-
-        Name:    sumo-qa
-        Command: /Users/.../.local/share/uv/tools/sumo-qa/bin/sumo-qa-mcp
-        Args:    (empty)
-
-      Apply, then restart the AI Assistant chat panel.
-```
-
-Follow that. The absolute path matters — IntelliJ's subprocess launcher
-doesn't inherit your shell PATH, so a bare `sumo-qa-mcp` command will fail
-to start (LazyStandaloneCoroutine cancelled).
-
-If you already added the MCP with a bare command and it's broken, edit the
-existing entry in Settings and replace the Command field with the absolute
-path shown by install.py.
+- Claude Code: restart the app
+- JetBrains IDEs: restart the IDE (or just the AI Assistant tool window)
+- VS Code: restart the Copilot extension or reload the window
 
 ## Verify
 
-In any host, ask it to call `sumo_qa_load_classifications`. If you get back
-text containing the 10 canonical classification names (api_contract_change,
-business_logic_change, security_change, performance_change, frontend_change,
-infrastructure_change, test_change, docs_change, config_change,
-data_migration), the MCP is wired correctly.
+In any host, ask it to call `sumo_qa_load_classifications`. Expected response: text containing the 10 canonical classification names (api_contract_change, business_logic_change, security_change, …, data_migration).
+
+## Why absolute paths
+
+JetBrains IDEs and some other hosts launch MCP subprocesses without inheriting your shell PATH. Using `sumo-qa-mcp` as a bare command fails with `LazyStandaloneCoroutine was cancelled` (or similar) because the binary isn't found. `install.py` writes the absolute uv-tool path everywhere, so this never happens.
 
 ## What an AI agent can vs. must ask the user for
 
 | You (the agent) CAN | You MUST ASK the user |
 |---|---|
-| Run `python3 install.py` | The IntelliJ Settings-UI step (you can't click into Settings panels programmatically) |
-| Run the verification call | Restarting the AI Assistant chat panel after IntelliJ Settings change |
-| Re-run install.py to refresh | Editing user-level files outside what install.py already handles |
+| Run `python3 install.py` | Restart their host application(s) after the MCP entries land |
+| Run the verification call | Anything that requires admin / sudo elevation |
+| Re-run install.py to refresh | — |
+
+There are no remaining manual config-paste steps. Every supported host's MCP entry is written by `install.py`.
