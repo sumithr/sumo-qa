@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Tests for the isError envelope wrapping.
 
 Best practice for MCP tool errors is to return a structured response with

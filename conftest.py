@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Repo-root conftest to make top-level packages (e.g. ``evaluation``) importable in tests.
 
 The ``[tool.pytest.ini_options].pythonpath`` setting in pyproject.toml only
