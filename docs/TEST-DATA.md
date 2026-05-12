@@ -6,20 +6,23 @@ The Test Data Assistant is intentionally lightweight. It helps teams discover an
 
 ## Catalogue structure
 
+Catalogue entries are organised by **domain folder** — pick whatever names match your team's surfaces (auth, billing, payments, search, inventory, scheduling, etc.). The repo ships two domain-neutral sample folders to show the shape; replace or supplement with your own.
+
 ```text
 knowledge/test_data/
-  fulfilment/
-    home_delivery.yaml
-  stock/
-    stock_scenarios.yaml
+  auth/
+    sample_accounts.yaml       # ships in-repo: neutral sample for the shape
+  billing/
+    sample_invoices.yaml       # ships in-repo: neutral sample for the shape
+  <your-domain>/
+    <your-fixtures>.yaml       # add as needed; .gitignore your local team data if not for upstream
 ```
 
 Catalogue entries are version-controlled YAML and include:
 
+- `id` — stable, unique
 - `environment`
-- `domain`
-- `product_id`
-- `sku`
+- `domain` — your team's chosen folder name
 - `scenario_tags`
 - `known_valid_for`
 - `constraints`
@@ -28,6 +31,9 @@ Catalogue entries are version-controlled YAML and include:
 - `confidence`
 - `source`
 - `notes`
+- `product_id`, `sku` — *optional, for product-style domains*
+
+`product_id` / `sku` are illustrative optional identifier fields for retail-style domains. Non-retail domains (auth, billing, infrastructure, ML, etc.) leave them blank.
 
 Override the path via `QA_TEST_DATA_PATH` (see [docs/CONFIGURATION.md](CONFIGURATION.md)).
 
@@ -52,6 +58,6 @@ The pluggable `TestDataValidator` abstraction is ready for live validators / dow
 
 ## Registration
 
-`sumo_qa_register_known_good_test_data` writes to `knowledge/test_data/<domain>/known_good.yaml`, updates timestamps when needed, and avoids duplicate entries with the same environment, domain, product/SKU, and overlapping scenario use.
+`sumo_qa_register_known_good_test_data` writes to `knowledge/test_data/<domain>/known_good.yaml`, updates timestamps when needed, and avoids duplicate entries with the same environment, domain, optional identifier (`product_id` / `sku`), and overlapping scenario use.
 
 The operation is additive (never deletes), so it carries `destructiveHint=false` despite not being read-only.

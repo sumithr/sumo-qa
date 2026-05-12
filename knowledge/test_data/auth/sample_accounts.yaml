@@ -1,0 +1,38 @@
+entries:
+  - id: auth-mfa-required-001
+    environment: integration
+    domain: auth
+    scenario_tags:
+      - mfa_required
+      - active_account
+    known_valid_for:
+      - mfa enforcement testing
+      - active account login
+    constraints:
+      - Reset MFA state after test execution.
+      - Revalidate before release testing if MFA policy changed.
+    owner: identity-platform
+    last_validated_at: "2026-05-06T09:00:00Z"
+    confidence: high
+    source: qa-curated
+    validation_source: mock-heuristic-validator
+    notes: Active account with enforced MFA for login-flow testing in integration.
+
+  - id: auth-locked-account-001
+    environment: integration
+    domain: auth
+    scenario_tags:
+      - account_locked
+      - failed_login
+    known_valid_for:
+      - locked account rejection
+      - failed-login lockout testing
+    constraints:
+      - Use a fresh impersonation token for each test run.
+      - Expected failure must be account-locked, not invalid credentials.
+    owner: identity-platform
+    last_validated_at: "2026-05-04T11:30:00Z"
+    confidence: high
+    source: qa-curated
+    validation_source: mock-heuristic-validator
+    notes: Useful for validating that locked-account rejection is not conflated with invalid credentials.
