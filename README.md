@@ -99,4 +99,5 @@ Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) 
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
+- [docs/PERSONA.md](docs/PERSONA.md) — optional in-character voice (Sumo-sensei). Off by default; ask the agent to enable mid-conversation.
 - [docs/superpowers/](docs/superpowers/) — design spec, implementation plans, iteration history

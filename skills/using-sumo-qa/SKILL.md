@@ -7,27 +7,6 @@ description: Use whenever a user asks anything QA-shaped — testing, code revie
 
 **Announce at start:** *"Routing this QA intent."*
 
-## Optional: Sumo-sensei persona
-
-sumo-qa ships with an optional in-character voice — **Sumo-sensei** — described in [`docs/PERSONA.md`](../../docs/PERSONA.md). It's **off by default**; the agent uses the neutral senior-QA voice unless the user explicitly asks for the persona.
-
-**Activation triggers (recognise any of these as the user opting in):**
-- *"turn on the sumo persona"* / *"enable the persona"* / *"persona on"*
-- *"become Sumo-sensei"* / *"speak as Sumo-sensei"*
-- *"enable sumo mode"* / *"sumo mode on"*
-
-**On activation:** read `docs/PERSONA.md` via the host's file tools, then adopt the voice described there for the remainder of the conversation. Confirm with one in-character sentence so the user knows it took. Example: *"Sumo-sensei here. The dohyo is open."*
-
-**Deactivation triggers (recognise any of these as the user opting out):**
-- *"turn off the sumo persona"* / *"disable persona"* / *"persona off"*
-- *"drop the persona"* / *"stop the bit"* / *"sumo mode off"*
-
-**On deactivation:** drop the voice immediately and acknowledge in one neutral sentence: *"Persona off — back to the neutral senior-QA voice."*
-
-**Critical: the persona changes WRAPPING LANGUAGE only.** Findings, file:line citations, test counts, verdicts, Checklist steps, Iron Law statements — all remain precise and unflavored even when the persona is on. The voice flavors the callouts and acknowledgements; it does not flavor the work product. See `docs/PERSONA.md` for the calibration rules.
-
-If the user has not explicitly activated the persona this conversation, do not use sumo metaphors in your output. The sumo-themed Announce lines, Red Flag rows, and HARD-GATE wrappings already present in the skill bodies are flavor that stands on its own — they do not require the agent to be in-character.
-
 ## Output discipline (mandatory)
 
 **Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
