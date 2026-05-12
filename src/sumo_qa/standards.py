@@ -62,7 +62,7 @@ class StandardsEngine:
         self._packs = packs
 
     @classmethod
-    def from_directory(cls, directory: str | Path) -> "StandardsEngine":
+    def from_directory(cls, directory: str | Path) -> StandardsEngine:
         root = Path(directory)
         if not root.exists():
             raise FileNotFoundError(f"Standards directory not found: {root}")
@@ -125,5 +125,3 @@ class StandardsEngine:
             checks=matched,
             prompts=prompts,
         )
-
-

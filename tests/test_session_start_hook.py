@@ -10,6 +10,7 @@ These tests don't exercise the host runtime — they verify that the script
 itself produces well-formed JSON containing the skill body, and that the
 plugin/hook manifests reference the right paths.
 """
+
 from __future__ import annotations
 
 import json
@@ -36,7 +37,11 @@ def test_session_start_emits_valid_json_with_skill_content() -> None:
         ["bash", str(HOOK_SCRIPT)],
         capture_output=True,
         text=True,
-        env={k: v for k, v in os.environ.items() if k not in {"CLAUDE_PLUGIN_ROOT", "CURSOR_PLUGIN_ROOT", "COPILOT_CLI"}},
+        env={
+            k: v
+            for k, v in os.environ.items()
+            if k not in {"CLAUDE_PLUGIN_ROOT", "CURSOR_PLUGIN_ROOT", "COPILOT_CLI"}
+        },
         timeout=10,
     )
 
@@ -67,7 +72,10 @@ def test_session_start_uses_claude_code_envelope_when_plugin_root_set() -> None:
     payload = json.loads(result.stdout)
     assert "hookSpecificOutput" in payload
     assert payload["hookSpecificOutput"]["hookEventName"] == "SessionStart"
-    assert "NO QA WORK WITHOUT FIRST DECIDING THE APPROACH" in payload["hookSpecificOutput"]["additionalContext"]
+    assert (
+        "NO QA WORK WITHOUT FIRST DECIDING THE APPROACH"
+        in payload["hookSpecificOutput"]["additionalContext"]
+    )
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")

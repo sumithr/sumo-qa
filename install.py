@@ -20,9 +20,11 @@ Requires Python 3.10+. If you see a SyntaxError around type annotations,
 you're running Python 2 (`python` on macOS resolves there by default).
 Use `python3 install.py` instead.
 """
+
 from __future__ import annotations
 
 import sys
+
 if sys.version_info < (3, 10):
     sys.stderr.write(
         "install.py requires Python 3.10+ (you have "
@@ -37,7 +39,6 @@ import platform
 import shutil
 import subprocess
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parent
 SKILLS_SRC = REPO_ROOT / "skills"
@@ -120,7 +121,13 @@ def main() -> int:
     system = platform.system()
     print(f"sumo-qa installer  (OS: {system})")
     hosts_str = ", ".join(
-        h for h, do in [("Claude Code", do_claude), ("VS Code", do_vscode), ("JetBrains", do_jetbrains)] if do
+        h
+        for h, do in [
+            ("Claude Code", do_claude),
+            ("VS Code", do_vscode),
+            ("JetBrains", do_jetbrains),
+        ]
+        if do
     )
     print(f"Configuring: {hosts_str}\n")
 
@@ -167,6 +174,7 @@ def main() -> int:
 # MCP binary
 # ----------------------------------------------------------------------
 
+
 def _install_mcp_binary() -> Path | None:
     print("Installing the MCP server via uv...")
     if shutil.which("uv") is None:
@@ -202,6 +210,7 @@ def _install_mcp_binary() -> Path | None:
 # ----------------------------------------------------------------------
 # Claude Code
 # ----------------------------------------------------------------------
+
 
 def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
     r = HostResult("Claude Code")
@@ -338,6 +347,7 @@ def _install_claude_code_skills_per_dir(skills_dir: Path, system: str) -> str:
 # VS Code + GitHub Copilot
 # ----------------------------------------------------------------------
 
+
 def _setup_vscode_copilot(mcp_path: Path, workspace: Path) -> HostResult:
     r = HostResult("VS Code + Copilot")
 
@@ -357,7 +367,17 @@ def _setup_vscode_copilot(mcp_path: Path, workspace: Path) -> HostResult:
     # Heuristic: a workspace has either a .git dir, an existing .vscode dir,
     # or a recognisable project file. If none, surface a clear skip rather
     # than write to an arbitrary path.
-    project_markers = [".git", ".vscode", "package.json", "pyproject.toml", "pom.xml", "build.gradle", "build.gradle.kts", "Cargo.toml", "go.mod"]
+    project_markers = [
+        ".git",
+        ".vscode",
+        "package.json",
+        "pyproject.toml",
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "Cargo.toml",
+        "go.mod",
+    ]
     if not any((workspace / marker).exists() for marker in project_markers):
         r.message = (
             f"skipped: {workspace} doesn't look like a workspace (no .git, "
@@ -425,6 +445,7 @@ _JB_IDE_PREFIXES = (
     "AndroidStudio",
 )
 
+
 def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
     """Print manual setup instructions for JetBrains IDEs.
 
@@ -453,7 +474,8 @@ def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
 
     ide_dirs = sorted(
         (
-            p for p in jb_root.iterdir()
+            p
+            for p in jb_root.iterdir()
             if p.is_dir()
             and any(p.name.startswith(prefix) for prefix in _JB_IDE_PREFIXES)
             and (p / "options").exists()
@@ -492,6 +514,7 @@ def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
 # ----------------------------------------------------------------------
 # Verification
 # ----------------------------------------------------------------------
+
 
 def _verify_mcp_responds(mcp_path: Path) -> bool:
     """Send a JSON-RPC initialize and confirm the binary responds."""

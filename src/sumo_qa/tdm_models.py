@@ -5,7 +5,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 TDMConfidenceLevel = Literal["low", "medium", "high"]
 FreshnessStatus = Literal["fresh", "aging", "stale", "unknown", "not_applicable"]
 
@@ -61,7 +60,9 @@ class ValidationResult(BaseModel):
 class TestDataRequirements(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tool: Literal["sumo_qa_explain_test_data_requirements"] = "sumo_qa_explain_test_data_requirements"
+    tool: Literal["sumo_qa_explain_test_data_requirements"] = (
+        "sumo_qa_explain_test_data_requirements"
+    )
     summary: str
     domain: str
     environment: str | None = None

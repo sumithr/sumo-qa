@@ -5,7 +5,6 @@ import yaml
 
 from sumo_qa.standards import StandardsEngine
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

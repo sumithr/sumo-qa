@@ -8,13 +8,11 @@ outside this file.
 This test is the regression sentinel that catches "did Phase 4's deletion
 break the skill-driven path?"
 """
+
 from __future__ import annotations
 
 import asyncio
 
-import pytest
-
-from sumo_qa.server import build_mcp_server
 from sumo_qa.knowledge_loaders import (
     sumo_qa_load_approaches,
     sumo_qa_load_classifications,
@@ -22,7 +20,7 @@ from sumo_qa.knowledge_loaders import (
     sumo_qa_load_specialty_tools,
     sumo_qa_load_techniques,
 )
-
+from sumo_qa.server import build_mcp_server
 
 EXPECTED_SKILL_PROMPTS = {
     "using_sumo_qa",
@@ -83,14 +81,18 @@ def test_knowledge_loaders_return_canonical_entries():
     Confirms Phase 1's loaders still work after Phase 2's content rewrite."""
     classifications = sumo_qa_load_classifications()
     for entry in [
-        "api_contract_change", "business_logic_change", "security_change",
+        "api_contract_change",
+        "business_logic_change",
+        "security_change",
         "data_migration",
     ]:
         assert entry in classifications
 
     approaches = sumo_qa_load_approaches()
     for entry in [
-        "tdd-scaffold", "regression-first", "coverage-first-then-refactor",
+        "tdd-scaffold",
+        "regression-first",
+        "coverage-first-then-refactor",
         "strategy-orchestration",
     ]:
         assert entry in approaches
@@ -140,21 +142,29 @@ def test_heavy_tools_are_deleted_and_skill_path_is_canonical():
     mcp = build_mcp_server()
     tool_names = set(mcp._tool_manager._tools.keys())
     heavy = {
-        "sumo_qa_decide_approach", "sumo_qa_prepare_for_work",
-        "sumo_qa_create_test_plan", "sumo_qa_review_local_change",
-        "sumo_qa_scaffold_tests", "sumo_qa_answer_testing_question",
+        "sumo_qa_decide_approach",
+        "sumo_qa_prepare_for_work",
+        "sumo_qa_create_test_plan",
+        "sumo_qa_review_local_change",
+        "sumo_qa_scaffold_tests",
+        "sumo_qa_answer_testing_question",
     }
     leaked = heavy & tool_names
     assert not leaked, f"Heavy tools must be deleted in Phase 4 but still registered: {leaked}"
     knowledge = {
-        "sumo_qa_load_classifications", "sumo_qa_load_approaches",
-        "sumo_qa_load_principles", "sumo_qa_load_techniques",
-        "sumo_qa_load_specialty_tools", "sumo_qa_load_standards",
+        "sumo_qa_load_classifications",
+        "sumo_qa_load_approaches",
+        "sumo_qa_load_principles",
+        "sumo_qa_load_techniques",
+        "sumo_qa_load_specialty_tools",
+        "sumo_qa_load_standards",
         "sumo_qa_load_rules",
     }
     assert knowledge.issubset(tool_names), f"Knowledge tools missing: {knowledge - tool_names}"
     test_data = {
-        "sumo_qa_explain_test_data_requirements", "sumo_qa_find_test_data",
-        "sumo_qa_validate_test_data", "sumo_qa_register_known_good_test_data",
+        "sumo_qa_explain_test_data_requirements",
+        "sumo_qa_find_test_data",
+        "sumo_qa_validate_test_data",
+        "sumo_qa_register_known_good_test_data",
     }
     assert test_data.issubset(tool_names), f"Test-data tools missing: {test_data - tool_names}"

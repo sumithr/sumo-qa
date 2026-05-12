@@ -1,0 +1,18 @@
+line-length = 100
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]  # line-length handled by formatter
+
+[lint.per-file-ignores]
+# Tests intentionally interleave imports with setup writes (yaml fixtures
+# materialised before importing the loader under test).
+"tests/test_knowledge_loaders.py" = ["E402"]
+# install.py runs under the user's system Python (which may pre-date 3.10);
+# the version check is the whole point and must execute before any 3.10-only
+# syntax.
+"install.py" = ["UP036"]
+
+[format]
+quote-style = "double"

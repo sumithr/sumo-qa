@@ -5,12 +5,11 @@ Best practice for MCP tool errors is to return a structured response with
 propagate as a protocol-level error. The host can then surface the
 `actionable_hint` to the user.
 """
+
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-
-import pytest
 
 from sumo_qa.server import build_mcp_server
 from sumo_qa.tools import QAShiftLeftService

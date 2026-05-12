@@ -6,6 +6,7 @@ for the user's manual review during the FINAL verification round —
 not used during the inner iteration loop (subagents grade in their
 own context).
 """
+
 from __future__ import annotations
 
 import json
@@ -15,9 +16,7 @@ from pathlib import Path
 from typing import Any
 
 
-def maybe_capture(
-    *, tool: str, args: dict[str, Any], output: dict[str, Any]
-) -> dict[str, Any]:
+def maybe_capture(*, tool: str, args: dict[str, Any], output: dict[str, Any]) -> dict[str, Any]:
     """Persist the tool exchange when SUMO_QA_DEBUG_DIR is set; passthrough always.
 
     Returns the `output` dict unchanged so callers can wrap returns

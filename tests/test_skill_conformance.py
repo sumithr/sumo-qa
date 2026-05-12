@@ -4,6 +4,7 @@ superpowers structure.
 In Phase 1, only frontmatter checks are active. Phase 2 unskips the
 structure checks (Iron Law, Checklist, Process Flow, Red Flags, Examples)
 once the stub skills get their full content."""
+
 import re
 from pathlib import Path
 
@@ -39,9 +40,7 @@ def test_skill_name_matches_directory_name(skill_path):
 def test_skill_descriptions_are_non_empty(skill_path):
     fm = _frontmatter(skill_path)
     desc = fm.get("description") or ""
-    assert len(desc.strip()) >= 30, (
-        f"Description too short in {skill_path}: {desc[:80]}"
-    )
+    assert len(desc.strip()) >= 30, f"Description too short in {skill_path}: {desc[:80]}"
 
 
 def test_skill_descriptions_are_unique():

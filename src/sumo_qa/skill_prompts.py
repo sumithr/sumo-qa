@@ -23,6 +23,7 @@ no longer creates the symlink.
 The SKILL.md file is read fresh on each invocation so editing it propagates
 without restart.
 """
+
 from __future__ import annotations
 
 import re

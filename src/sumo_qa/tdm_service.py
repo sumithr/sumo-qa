@@ -55,7 +55,10 @@ class TestDataAssistant:
             product_id=_clean(product_id),
             sku=_clean(sku),
         )
-        results = [_search_result(entry, self.validator, scenario_tags or [], known_valid_for or []) for entry in entries]
+        results = [
+            _search_result(entry, self.validator, scenario_tags or [], known_valid_for or [])
+            for entry in entries
+        ]
         results.sort(key=lambda result: result.rank_score, reverse=True)
         total_count = len(results)
         safe_offset = max(offset, 0)
@@ -64,14 +67,22 @@ class TestDataAssistant:
         end_index = safe_offset + len(limited_results)
         has_more = total_count > end_index
         next_offset = end_index if has_more else None
-        response_confidence = _aggregate_confidence([result.validation.confidence.level for result in limited_results])
-        freshness = limited_results[0].validation.freshness if limited_results else not_applicable_freshness("No catalogue entry matched the query.")
+        response_confidence = _aggregate_confidence(
+            [result.validation.confidence.level for result in limited_results]
+        )
+        freshness = (
+            limited_results[0].validation.freshness
+            if limited_results
+            else not_applicable_freshness("No catalogue entry matched the query.")
+        )
         missing_information = _find_missing_information(
             environment, domain, scenario_tags, known_valid_for, product_id, sku
         )
         if not limited_results:
             missing_information.extend(
-                _empty_result_hints(environment, domain, scenario_tags, known_valid_for, product_id, sku)
+                _empty_result_hints(
+                    environment, domain, scenario_tags, known_valid_for, product_id, sku
+                )
             )
         response = TestDataFindResponse(
             query={
@@ -89,7 +100,9 @@ class TestDataAssistant:
             has_more=has_more,
             next_offset=next_offset,
             missing_information=missing_information,
-            confidence=TestDataConfidence(level=response_confidence, reason=_find_confidence_reason(limited_results)),
+            confidence=TestDataConfidence(
+                level=response_confidence, reason=_find_confidence_reason(limited_results)
+            ),
             freshness=freshness,
             validation_source=self.validator.validation_source,
         )
@@ -180,7 +193,9 @@ def _requirements_for(question: str, domain: str, environment: str | None) -> Te
             level="medium",
             reason="Requirement reasoning is deterministic and rule-based, but not backed by live downstream validation.",
         ),
-        freshness=not_applicable_freshness("Requirements reasoning does not validate a specific catalogue entry."),
+        freshness=not_applicable_freshness(
+            "Requirements reasoning does not validate a specific catalogue entry."
+        ),
         validation_source="requirements-heuristic",
     )
 
@@ -194,7 +209,9 @@ def _search_result(
     validation = validator.validate(entry)
     score = _rank_score(entry, validation.confidence.level, scenario_tags, known_valid_for)
     reason = _suitability_reason(entry, validation.confidence.level, scenario_tags, known_valid_for)
-    return TestDataSearchResult(entry=entry, validation=validation, suitability_reason=reason, rank_score=score)
+    return TestDataSearchResult(
+        entry=entry, validation=validation, suitability_reason=reason, rank_score=score
+    )
 
 
 def _rank_score(
@@ -204,8 +221,16 @@ def _rank_score(
     known_valid_for: list[str],
 ) -> int:
     score = {"high": 60, "medium": 35, "low": 10}[confidence]
-    score += 10 * len({item.lower() for item in scenario_tags}.intersection({item.lower() for item in entry.scenario_tags}))
-    score += 12 * len({item.lower() for item in known_valid_for}.intersection({item.lower() for item in entry.known_valid_for}))
+    score += 10 * len(
+        {item.lower() for item in scenario_tags}.intersection(
+            {item.lower() for item in entry.scenario_tags}
+        )
+    )
+    score += 12 * len(
+        {item.lower() for item in known_valid_for}.intersection(
+            {item.lower() for item in entry.known_valid_for}
+        )
+    )
     if entry.owner:
         score += 5
     return score
@@ -219,11 +244,19 @@ def _suitability_reason(
 ) -> str:
     matches = []
     if scenario_tags:
-        matched_tags = sorted({item.lower() for item in scenario_tags}.intersection({item.lower() for item in entry.scenario_tags}))
+        matched_tags = sorted(
+            {item.lower() for item in scenario_tags}.intersection(
+                {item.lower() for item in entry.scenario_tags}
+            )
+        )
         if matched_tags:
             matches.append(f"matches scenario tag(s): {', '.join(matched_tags)}")
     if known_valid_for:
-        matched_uses = sorted({item.lower() for item in known_valid_for}.intersection({item.lower() for item in entry.known_valid_for}))
+        matched_uses = sorted(
+            {item.lower() for item in known_valid_for}.intersection(
+                {item.lower() for item in entry.known_valid_for}
+            )
+        )
         if matched_uses:
             matches.append(f"known valid for: {', '.join(matched_uses)}")
     matches.append(f"{confidence} confidence")
