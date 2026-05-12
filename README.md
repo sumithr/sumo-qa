@@ -1,53 +1,56 @@
 # sumo-qa MCP
 
+[![tests](https://github.com/SumithRamsookbhai/qa-shift-left-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/SumithRamsookbhai/qa-shift-left-mcp/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/sumo-qa.svg)](https://pypi.org/project/sumo-qa/)
+[![Python](https://img.shields.io/pypi/pyversions/sumo-qa.svg)](https://pypi.org/project/sumo-qa/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 A senior-QA MCP server + skills library that delivers ISTQB-grade testing discipline to AI coding agents across **Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot**. The discipline lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical knowledge catalogues; a SessionStart hook auto-injects the `using-sumo-qa` router so the agent reliably runs the workflow without you having to remember to invoke it.
 
 > ### 🚀 New here? **[5-minute demo →](DEMO.md)**
 > Install with one line, run one prompt on your real repo, see the senior-QA workflow happen on actual code. No staged data, no scripted output.
 
-## Setup
+## Why sumo-qa?
 
-### Easy path — native plugin (Claude Code, Cursor, Codex, OpenCode)
+Most AI coding assistants approach QA the way a junior engineer would: *"add unit tests, consider edge cases, maybe test performance too."* That's a checklist, not testing. sumo-qa makes the AI work like a senior QA — risks named against specific lines, design techniques (boundary-value, decision-table, property-based, mutation) picked from a loaded ISTQB-grounded catalogue, test suites run fresh in *this* turn before any "safe to merge" claim.
 
-These hosts have their own plugin systems. One-line install:
+The discipline is enforced by [13 skill files](skills/) the host LLM follows literally — each one with an Iron Law (TDD's red phase before any production code; mutation-strengthening keeps production code locked; no plan ships without measurable entry AND exit criteria) and a HARD-GATE callout the LLM can't talk itself past. A SessionStart hook auto-injects the entry router on every conversation, so the workflow kicks in without you having to remember to invoke it.
 
-**Claude Code** (recommended):
+Read [DEMO.md](DEMO.md) for the 5-minute install-and-run-this-prompt walkthrough.
+
+## Install
+
+### One-line install (PyPI)
+
+```bash
+pip install sumo-qa
+# or:  uv tool install sumo-qa
+```
+
+After install, restart your MCP host (Claude Code / Cursor / Codex / OpenCode / JetBrains AI Assistant / VS Code + Copilot) so it picks up the new MCP server.
+
+### Claude Code plugin
+
 ```text
 /plugin marketplace add SumithRamsookbhai/qa-shift-left-mcp
 /plugin install sumo-qa@sumo-qa-dev
 ```
 
-**Cursor:**
-```text
-/add-plugin sumo-qa
+Then `uv tool install sumo-qa` (or `pip install sumo-qa`) so the MCP server binary is on PATH. The skills come from the plugin; the MCP tools come from the binary.
+
+### Multi-host batch install (JetBrains + VS Code + everywhere)
+
+```bash
+python3 install.py
 ```
 
-**OpenCode** — add to `opencode.json`:
-```json
-{ "plugin": ["sumo-qa@git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git"] }
-```
+Configures every supported host detected on this machine. Per-host flags + troubleshooting in [docs/INSTALL.md](docs/INSTALL.md).
 
-Then install the MCP server binary that the skills call into:
+### From a git URL (latest main)
+
 ```bash
 uv tool install --from git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git sumo-qa
 ```
-
-### Multi-host path — install.py (everything else)
-
-For JetBrains AI Assistant, Junie, VS Code + Copilot — or to set up multiple hosts at once:
-
-```bash
-python3 install.py                           # configure every detected host
-python3 install.py --claude-code             # Claude Code only
-python3 install.py --vscode                  # VS Code workspace (run from inside it)
-python3 install.py --vscode --workspace /path/to/repo
-python3 install.py --jetbrains               # prints JetBrains Settings UI steps
-python3 install.py --vscode --skip-mcp-install   # don't reinstall uv tool
-```
-
-Re-runs are idempotent. Runs on Windows, macOS, and Linux. Installs the MCP via `uv`, configures host-specific MCP entries, and prints any manual steps remaining.
-
-**AI agents:** read [AGENTS.md](AGENTS.md) — bootstraps automatically per host.
 
 ## What you get
 
@@ -82,6 +85,10 @@ Ten polished worked examples showing what sumo-qa actually looks like in convers
 - **[tests/scenarios/worked-examples/](tests/scenarios/worked-examples/)** — start with [02 — review-my-changes](tests/scenarios/worked-examples/02-review-my-changes.md) for the strongest demo opener.
 - **[tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md)** — the underlying scenario specs (user prompt → expected interaction shape → anti-patterns the skill prevents).
 
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for attribution requirements that apply to forks and redistributors.
+
 ## Docs
 
 - [AGENTS.md](AGENTS.md) — AI-agent bootstrap and per-host setup
@@ -93,7 +100,3 @@ Ten polished worked examples showing what sumo-qa actually looks like in convers
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
 - [docs/superpowers/](docs/superpowers/) — design spec, implementation plans, iteration history
-
-## Status
-
-Branch `feat/superpowers-restructure`, validated end-to-end on Claude Code, IntelliJ + Junie + Claude Opus 4.7, IntelliJ AI Assistant + GPT-5.5, and VS Code Copilot + Claude Sonnet 4.5. Architecture spec: [`docs/superpowers/specs/2026-05-08-superpowers-restructure-design.md`](docs/superpowers/specs/2026-05-08-superpowers-restructure-design.md).
