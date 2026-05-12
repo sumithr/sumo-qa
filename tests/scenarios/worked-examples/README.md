@@ -1,10 +1,10 @@
 # Worked examples — sumo-qa in action
 
-Ten polished interaction transcripts showing what sumo-qa looks like when a user actually asks it to do real QA work. These are the demo references — if you're showing this tool to your team, lead with these.
+Ten interaction transcripts showing what sumo-qa looks like in conversation when a user asks it to do real QA work.
 
-Each example covers a distinct QA scenario, follows the same shape (Demo arc → multi-turn interaction with internal-thinking blockquotes → "Why this is senior QA" footer), and demonstrates one or more discipline beats sumo-qa enforces that a generic AI would skip.
+Each example covers a distinct QA scenario and follows the same shape: a one-line summary, the multi-turn interaction (with internal-thinking blockquotes for the agent's reasoning), and a closing "Why this is senior QA" footer that names the discipline beats the agent applied.
 
-| # | Scenario | Skill activated | Demo beat |
+| # | Scenario | Skill activated | Key discipline beat |
 |---|---|---|---|
 | [01](01-plan-qa-for-story.md) | Plan QA for a new story before coding | `qa-preparing-for-work` | Walks the repo before asking; risks anchored to file:line. |
 | [02](02-review-my-changes.md) | Review uncommitted changes before merging | `qa-reviewing-before-merge` | HARD GATE on fresh test evidence; risk-to-test coverage map; refuses to declare safe-to-merge with an uncovered risk. |
@@ -17,17 +17,17 @@ Each example covers a distinct QA scenario, follows the same shape (Demo arc →
 | [09](09-formal-test-plan.md) | Formal test plan with entry/exit criteria | `qa-creating-test-plan` | HARD GATE — no plan without measurable entry AND exit criteria. |
 | [10](10-no-tests-needed.md) | Trivial change — typo in a doc | `qa-deciding-approach` (terminates) | Restraint — picks `no-tests-recommended` and stops. Doesn't manufacture work. |
 
-## What to point at in a demo
+## Notable examples
 
-- **[02 — review-my-changes](02-review-my-changes.md)** is the highest-impact opener. It shows the AI refusing to declare safe-to-merge, naming a real risk with no covering test, and producing a concrete suggested-fix path. *"Most AIs would have said this is safe. Mine caught the gap."*
-- **[03 — regression-first bug fix](03-fix-bug-regression-first.md)** is the strongest demonstration of TDD discipline visibly enforced — the agent refuses to bundle the test and the production fix, surfaces the red output, and hands off cleanly.
-- **[06 — generic testing question](06-generic-testing-question.md)** is the shortest, sharpest example. Use it as the "before-and-after" beat: contrast the 4-sentence catalogue-anchored answer against the generic-AI checklist that says nothing.
-- **[10 — no tests needed](10-no-tests-needed.md)** is the surprising one. The wow factor here is RESTRAINT — most AI assistants over-test. This one correctly says "no tests needed" for a typo and stops.
+- **[02 — review-my-changes](02-review-my-changes.md)** — the agent refuses to declare safe-to-merge when a named risk has no covering test, and suggests the exact regression test that would close the gap.
+- **[03 — regression-first bug fix](03-fix-bug-regression-first.md)** — TDD discipline visibly enforced: the agent refuses to bundle the test and the production fix in one turn, surfaces the red output as proof, and hands off cleanly.
+- **[06 — generic testing question](06-generic-testing-question.md)** — the shortest example. A 4-sentence catalogue-anchored answer that cites an ISTQB principle by number, names a specific design technique, and recommends a specialty tool by fit.
+- **[10 — no tests needed](10-no-tests-needed.md)** — the restraint case. For a documentation typo, the agent correctly picks `no-tests-recommended` and stops, rather than manufacturing test work.
 
 ## How these were produced
 
 For each scenario, the relevant skill file (`skills/<name>/SKILL.md`) defines the discipline. An agent followed the skill literally on the scenario prompt; the resulting transcript was captured here. These are point-in-time validations that the skills produce the interaction quality the scenario specs in [`../SCENARIOS.md`](../SCENARIOS.md) describe.
 
-They're **not regenerated on every commit** (would cost API credits each time). The skills' Iron Laws, HARD GATEs, anti-pattern callouts, and red-flag tables are what enforce the discipline in production. These transcripts are the visible proof that the discipline produces good interactions, and the demo material you can show without running the tool live.
+They are **not regenerated on every commit**. The skills' Iron Laws, HARD-GATE callouts, anti-pattern callouts, and red-flag tables are what enforce the discipline at runtime. These transcripts document the resulting interaction style for readers who want to see it without installing the tool.
 
-To regenerate or extend a worked example after changing a skill, dispatch an agent with the scenario prompt + the updated skill and let it role-play. Pull the result into `worked-examples/`.
+To regenerate or extend an example after changing a skill, dispatch an agent with the scenario prompt plus the updated skill and let it role-play. Pull the result into `worked-examples/`.

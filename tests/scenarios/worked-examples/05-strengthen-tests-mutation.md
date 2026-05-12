@@ -1,6 +1,6 @@
 # Scenario 05 — Strengthen tests against mutation-testing survivors
 
-> **Demo arc:** *"the AI didn't batch-fix all 6 survivors in one go. It walked them one at a time, killing each mutant with a confirmed technique, never touching production code."*
+> **Summary:** *"the AI didn't batch-fix all 6 survivors in one go. It walked them one at a time, killing each mutant with a confirmed technique, never touching production code."*
 >
 > Shows: Pitest report read without prompting, per-survivor tautology check, technique drawn from the catalogue (not invention), strengthening test written → run → mutant re-killed in evidence, and the Iron Law made visible — production code stays exactly where it is.
 
@@ -296,7 +296,7 @@ Carry on with M4 next, or do you want to look at M6 first to take the likely-equ
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **Read the Pitest report before asking.** Most AI assistants would ask the user to paste the survivor list — this one reads `target/pit-reports/.../index.html` directly and pulls the line + mutator type for each.
 - **The Iron Law made visible.** Production file stays read-only, verified with `git diff -- pricing/calculator.py → empty` after every strengthening test. No "while I'm in here" refactors.

@@ -82,7 +82,7 @@ In Claude Code, MCP tools are NOT slash-invocable directly — use natural langu
 
 Ten polished worked examples showing what sumo-qa actually looks like in conversation — diff reviews refusing to declare safe-to-merge, TDD cycles with the red output surfaced verbatim, mutation survivors walked one-at-a-time, formal test plans gated on measurable entry/exit criteria, and the surprising one where it correctly says *"no tests needed"* and stops:
 
-- **[tests/scenarios/worked-examples/](tests/scenarios/worked-examples/)** — start with [02 — review-my-changes](tests/scenarios/worked-examples/02-review-my-changes.md) for the strongest demo opener.
+- **[tests/scenarios/worked-examples/](tests/scenarios/worked-examples/)** — see [02 — review-my-changes](tests/scenarios/worked-examples/02-review-my-changes.md) for a representative end-to-end transcript.
 - **[tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md)** — the underlying scenario specs (user prompt → expected interaction shape → anti-patterns the skill prevents).
 
 ## License

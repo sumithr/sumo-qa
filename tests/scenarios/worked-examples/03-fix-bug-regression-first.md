@@ -1,6 +1,6 @@
 # Scenario 03 — Fix a production bug regression-first
 
-> **Demo arc:** *"the AI didn't write the test AND the fix in one shot — it proved the test catches the bug FIRST, then handed off. The red-then-green cycle is non-negotiable."*
+> **Summary:** *"the AI didn't write the test AND the fix in one shot — it proved the test catches the bug FIRST, then handed off. The red-then-green cycle is non-negotiable."*
 >
 > Shows: repo-walk before any questions, ONE focused product question, tautology check (a wrong assertion is rejected before it's written), HARD GATE refusing to write production code alongside the failing test, verbatim red output, then verbatim green + targeted regression after handoff.
 
@@ -188,7 +188,7 @@ Red → green → targeted regression, all evidence on screen. The bug has a nam
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **Repo-walk before any questions.** The user didn't say "use pytest" or "the fixtures are dataclasses" — the AI read the sibling tests and surfaced what it found. The only question asked is one the code genuinely *can't* answer: the product rule for VIP-vs-promo precedence.
 - **One focused product question, not four.** *"VIP overrides entirely, or stack-but-cap?"* — and that's it. No interrogation about frameworks, file locations, or assertion libraries.

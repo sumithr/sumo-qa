@@ -1,6 +1,6 @@
 # Scenario 04 — Add tests for a new behaviour-driven feature (TDD-scaffold)
 
-> **Demo arc:** *"the AI didn't scaffold 5 tests up front and walk away. It started with the highest-value boundary test, confirmed it red, then handed off — TDD is one red→green cycle at a time."*
+> **Summary:** *"the AI didn't scaffold 5 tests up front and walk away. It started with the highest-value boundary test, confirmed it red, then handed off — TDD is one red→green cycle at a time."*
 >
 > Shows: repo-walk before asking, risk surfaces named *before* assertions, refusal to write 5 tests at once, observable-behaviour assertions (not internal counters), red output shown verbatim, hand-off after red, second cycle only after the first is green.
 
@@ -190,7 +190,7 @@ This is the test that distinguishes "sliding" from "fixed-window-relabelled". A 
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **Walks the repo before asking.** FastAPI, pytest, `httpx.AsyncClient`, `freezegun`, `ASGITransport`, `conftest.py` fixture shape — all read from the codebase, none asked.
 - **Names risk surfaces *before* writing assertions.** R1–R5 are anchored in observable behaviours, not in implementation hunches. The test order follows the risk priority.
