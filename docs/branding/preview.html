@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>sumo-qa — logo concepts</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: #fafaf8;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 40px 24px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.01em; }
+  p.lede { margin: 0 0 32px; color: #555; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .card {
+    background: #fff;
+    border: 1px solid #e5e5e0;
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .card h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .card .tag {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .svg-host {
+    border: 1px dashed #e5e5e0;
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1 / 1;
+    background: #fff;
+  }
+  .svg-host.dark { background: #1a1a1a; }
+  .svg-host img { width: 100%; height: 100%; max-width: 200px; max-height: 200px; object-fit: contain; }
+  .note { font-size: 13px; color: #555; line-height: 1.55; margin: 0; }
+  footer { margin-top: 40px; color: #888; font-size: 13px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>sumo-qa — logo concepts</h1>
+  <p class="lede">Three SVG concepts. Each shown on light and dark. Pick one (or "none, generate via AI later").</p>
+
+  <div class="grid">
+
+    <div class="card">
+      <h2>1. Line art <span class="tag">— minimal</span></h2>
+      <div class="row">
+        <div class="svg-host"><img src="logo-line.svg" alt="line-art sumo logo" /></div>
+        <div class="svg-host dark"><img src="logo-line.svg" alt="line-art sumo logo on dark" /></div>
+      </div>
+      <p class="note">Single-stroke silhouette in shiko (wide) stance. Monochrome. Best for docs headers + favicon. Lowest brand presence.</p>
+    </div>
+
+    <div class="card">
+      <h2>2. Geometric <span class="tag">— on dohyo</span></h2>
+      <div class="row">
+        <div class="svg-host"><img src="logo-geometric.svg" alt="geometric sumo logo" /></div>
+        <div class="svg-host dark"><img src="logo-geometric.svg" alt="geometric sumo logo on dark" /></div>
+      </div>
+      <p class="note">Abstract sumo on a sand-coloured ring (dohyo). Red mawashi accent. Reads at small sizes. Best for repo social-card / GitHub avatar.</p>
+    </div>
+
+    <div class="card">
+      <h2>3. Bold mark <span class="tag">— Q in belt</span></h2>
+      <div class="row">
+        <div class="svg-host"><img src="logo-bold.svg" alt="bold sumo logo with Q" /></div>
+        <div class="svg-host dark"><img src="logo-bold.svg" alt="bold sumo logo with Q on dark" /></div>
+      </div>
+      <p class="note">Filled silhouette with serif Q in the mawashi — QA tie-in is immediately visible. Strongest brand presence. Best for slides + stickers.</p>
+    </div>
+
+  </div>
+
+  <footer>
+    Open this file directly: <code>open docs/branding/preview.html</code> (macOS) or drag-drop into a browser.
+  </footer>
+</div>
+</body>
+</html>
