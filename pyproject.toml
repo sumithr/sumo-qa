@@ -4,16 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.1.0"
+version = "0.1.1"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Sumith Ramsookbhai", email = "sumithr51@gmail.com" }]
-# Cap at <3.14 because pydantic-core's Rust extension does not yet ship
-# wheels for Python 3.14, and PyO3 doesn't support 3.14 either. When pydantic-core
-# adds 3.14 wheels, this cap can be widened.
-requires-python = ">=3.10,<3.14"
+# No upper cap — packaging.python.org's current guidance is not to pin an
+# upper bound on requires-python. All three dependencies (mcp, pydantic,
+# PyYAML) ship cp310 through cp314 wheels as of 2026-05; future-Python
+# compatibility is best handled by re-releasing when issues actually
+# surface, not by gating installs in advance.
+requires-python = ">=3.10"
 dependencies = [
   # Loose pins so the package builds against whatever pre-built wheels are
   # available for the user's Python version. Tighten only when a specific
