@@ -1,99 +1,67 @@
 # AGENTS.md — sumo-qa setup
 
-If you are an AI agent in a code editor, follow these steps to set up
-sumo-qa for the host you're running in. Do what you can with your
-existing tools (bash, edit, write); explicitly hand off to the user
-when you hit a step that needs UI clicks or admin permissions.
+If you're an AI agent in a code editor, run the installer. It handles
+every supported host on this machine automatically, except the one
+IntelliJ step that needs the Settings UI.
 
-## Step 1 — detect your host
-
-| Cue | Host |
-|---|---|
-| You have a `Skill` tool and `~/.claude/` exists | Claude Code |
-| You're in a JetBrains IDE with MCP support but no `Skill` tool | IntelliJ AI Assistant |
-| You're in VS Code with GitHub Copilot and MCP support | VS Code + Copilot |
-
-## Step 2 — install the MCP server (host-agnostic)
+## The whole install
 
 ```bash
-uv tool install --from . sumo-qa-mcp
-sumo-qa-mcp --help
+python3 install.py
 ```
 
-If `uv` isn't installed:
+What it does:
 
-- macOS / Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- Windows: `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`
+1. Installs `sumo-qa-mcp` via `uv` (installs `uv` instructions if missing).
+2. For **Claude Code** (if `~/.claude/` exists): symlinks `skills/` into
+   `~/.claude/skills/sumo-qa`, writes `claude_desktop_config.json` with the
+   absolute path to the binary.
+3. For **VS Code + Copilot** (if running inside a `.git`/`.vscode` workspace):
+   writes `.vscode/mcp.json` in the workspace with the absolute path.
+4. For **IntelliJ AI Assistant** (if a JetBrains config dir exists): prints
+   the exact Settings-UI fields to fill in, with the absolute binary path
+   pre-filled. The JetBrains MCP plugin doesn't expose a programmable
+   config API; this step is unavoidable until JetBrains ships one.
+5. Verifies the binary responds to a JSON-RPC `initialize` ping.
 
-## Step 3 — register the MCP and load skills
+Re-run any time. Idempotent.
 
-### Claude Code
+## The IntelliJ step
 
-1. Symlink skills:
+After install.py finishes it prints something like:
 
-   - macOS / Linux:
-     ```bash
-     ln -sfn "$(pwd)/skills" ~/.claude/skills/sumo-qa
-     ```
-   - Windows (PowerShell, developer mode on):
-     ```powershell
-     New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.claude\skills\sumo-qa" -Target "$(Get-Location)\skills"
-     ```
+```
+[...] IntelliJ AI Assistant: detected IntelliJIdea2026.1.
+      Open IntelliJ -> Settings -> Tools -> AI Assistant ->
+      Model Context Protocol -> Add server, with these fields:
 
-2. Add MCP server. Edit:
+        Name:    sumo-qa
+        Command: /Users/.../.local/share/uv/tools/sumo-qa/bin/sumo-qa-mcp
+        Args:    (empty)
 
-   - macOS / Linux: `~/.config/claude/claude_desktop_config.json`
-   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+      Apply, then restart the AI Assistant chat panel.
+```
 
-   Add:
-   ```json
-   {
-     "mcpServers": {
-       "sumo-qa": { "command": "sumo-qa-mcp" }
-     }
-   }
-   ```
+Follow that. The absolute path matters — IntelliJ's subprocess launcher
+doesn't inherit your shell PATH, so a bare `sumo-qa-mcp` command will fail
+to start (LazyStandaloneCoroutine cancelled).
 
-### IntelliJ AI Assistant
+If you already added the MCP with a bare command and it's broken, edit the
+existing entry in Settings and replace the Command field with the absolute
+path shown by install.py.
 
-The agent typically cannot edit IntelliJ Settings programmatically. Hand
-off to the user with these exact steps:
+## Verify
 
-1. Open Settings (Cmd/Ctrl + ,)
-2. Tools → AI Assistant → Model Context Protocol
-3. Add server: command = `sumo-qa-mcp`
-4. Skills are auto-exposed as MCP prompts. Invoke by name in AI Assistant chat.
+In any host, ask it to call `sumo_qa_load_classifications`. If you get back
+text containing the 10 canonical classification names (api_contract_change,
+business_logic_change, security_change, performance_change, frontend_change,
+infrastructure_change, test_change, docs_change, config_change,
+data_migration), the MCP is wired correctly.
 
-### VS Code + Copilot
+## What an AI agent can vs. must ask the user for
 
-1. Edit `.vscode/mcp.json` in the workspace (or VS Code MCP config). Add:
-   ```json
-   {
-     "mcpServers": {
-       "sumo-qa": { "command": "sumo-qa-mcp" }
-     }
-   }
-   ```
-
-2. Skills are auto-exposed as MCP prompts. The repo's
-   `.github/copilot-instructions.md` already tells Copilot to use them.
-
-## Step 4 — verify
-
-Ask the host to call `sumo_qa_load_classifications()`. If the response
-contains the 10 canonical classification names (api_contract_change,
-business_logic_change, security_change, ...), setup is complete.
-
-If verification fails, check:
-- `sumo-qa-mcp` is on PATH (`which sumo-qa-mcp` / `where sumo-qa-mcp`)
-- The host's MCP config is syntactically valid
-- The host has been restarted since the config edit
-
-## What you can do, what you must ask the user for
-
-| You CAN | You MUST ASK |
+| You (the agent) CAN | You MUST ASK the user |
 |---|---|
-| Run `uv tool install` | Edits to user-level config files outside the workspace (claude_desktop_config.json, IntelliJ Settings UI) |
-| Create symlinks (with developer mode on Windows) | Steps requiring sudo or admin elevation |
-| Edit `.vscode/mcp.json` in the workspace | Steps requiring restarting the host |
-| Run the verification step | |
+| Run `python3 install.py` | The IntelliJ Settings-UI step (you can't click into Settings panels programmatically) |
+| Run the verification call | Restarting the AI Assistant chat panel after IntelliJ Settings change |
+| Re-run install.py to refresh | Editing user-level files outside what install.py already handles |
