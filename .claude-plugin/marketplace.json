@@ -2,7 +2,8 @@
   "name": "sumo-qa-dev",
   "description": "Self-hosted marketplace for the sumo-qa skills library + MCP server.",
   "owner": {
-    "name": "Sumith Ramsookbhai"
+    "name": "Sumith Ramsookbhai",
+    "email": "sumithr51@gmail.com"
   },
   "plugins": [
     {
@@ -11,7 +12,8 @@
       "version": "0.1.0",
       "source": "./",
       "author": {
-        "name": "Sumith Ramsookbhai"
+        "name": "Sumith Ramsookbhai",
+        "email": "sumithr51@gmail.com"
       }
     }
   ]

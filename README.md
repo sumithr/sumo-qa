@@ -93,8 +93,8 @@ Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) 
 
 - [AGENTS.md](AGENTS.md) — AI-agent bootstrap and per-host setup
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — three layers, host delivery, knowledge authority
-- [docs/SKILLS.md](docs/SKILLS.md) — the 10 skills with their Iron Laws
-- [docs/TOOLS.md](docs/TOOLS.md) — the 21 MCP entry points
+- [docs/SKILLS.md](docs/SKILLS.md) — the 13 skills with their Iron Laws
+- [docs/TOOLS.md](docs/TOOLS.md) — the 24 MCP entry points
 - [docs/INSTALL.md](docs/INSTALL.md) — per-host install detail, schema differences, troubleshooting
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
