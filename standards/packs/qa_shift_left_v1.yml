@@ -1,0 +1,51 @@
+id: qa-shift-left-core
+version: "1.0.0"
+name: QA Shift-Left Core Standards
+domain: qa
+description: Baseline standards for moving QA thinking into discovery, implementation, and local review.
+checks:
+  - id: work.testability
+    title: Testable Work Item
+    applies_to: ["prepare"]
+    severity: high
+    qa_focus: "Acceptance criteria must be observable, bounded, and independently verifiable."
+    pass_criteria:
+      - "Expected outcomes are explicit."
+      - "Negative and edge cases are identified."
+      - "Dependencies and assumptions are visible before implementation."
+  - id: work.risk_model
+    title: QA Risk Model
+    applies_to: ["prepare", "review"]
+    severity: high
+    qa_focus: "Risk areas should cover customer impact, integrations, data, contracts, and regression blast radius."
+    pass_criteria:
+      - "High-impact paths are named."
+      - "Integration and data risks have matching tests."
+      - "Known unknowns are converted into questions."
+  - id: change.evidence
+    title: Test Evidence
+    applies_to: ["review"]
+    severity: high
+    qa_focus: "Local changes should include direct evidence for the changed behavior and the highest-risk regression path."
+    pass_criteria:
+      - "Relevant automated tests are named."
+      - "Manual verification is documented where automation is not practical."
+      - "Unverified risk is called out explicitly."
+  - id: change.contracts
+    title: Contract and Integration Safety
+    applies_to: ["review"]
+    severity: medium
+    qa_focus: "Contract, API, payload, and schema changes need compatibility checks and focused regression coverage."
+    pass_criteria:
+      - "Request and response shape changes are reviewed."
+      - "Backward compatibility is considered."
+      - "Consumer-visible behavior is tested."
+  - id: question.qa_answer
+    title: QA-Centered Answer
+    applies_to: ["question"]
+    severity: medium
+    qa_focus: "Testing answers should produce a usable QA decision, not generic implementation advice."
+    pass_criteria:
+      - "Answer identifies what to verify."
+      - "Answer names likely risk areas."
+      - "Answer distinguishes facts from assumptions."
