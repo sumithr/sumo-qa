@@ -7,10 +7,14 @@ description: Use as the FIRST step on any QA intent. Loads classifications, appr
 
 **Announce at start:** *"I'm using qa-deciding-approach to pick the right approach for this change shape."*
 
-## The Iron Law
-SHAPE FIRST.
+## Output discipline (mandatory)
 
-Decide single-change vs repo-wide vs no-tests-recommended *before* picking a per-change approach. Wrong shape = wrong-shaped tests.
+**Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
+
+Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit).
+
+## The Iron Law
+SHAPE FIRST. Decide single-change vs repo-wide vs no-tests-recommended *before* picking a per-change approach — wrong shape means wrong-shaped tests.
 
 ## When to Use
 
@@ -22,41 +26,15 @@ You MUST create a TodoWrite item per checklist item and complete in order:
 1. Read the user's intent verbatim and any supplied target paths.
 2. Call `sumo_qa_load_classifications()` and `sumo_qa_load_approaches()`. Read both catalogues.
 3. Call `sumo_qa_load_principles()` if a principle citation is needed in the output.
-4. Reason about classification: which of the 10 catalogue entries apply to this intent? Cite the words / paths internally.
+4. Reason about classification: which catalogue entry applies? Cite the words / paths internally.
 5. Reason about shape: single change vs repo-wide / strategy ask vs config tweak vs docs-only? Strategy-shaped asks ("audit", "strategy", "pyramid", "rollout") route to `strategy-orchestration` — do NOT force per-change output.
 6. Pick the approach. The catalogue is authoritative; describe a new one only when none fits, with rationale.
-7. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question to the user. Otherwise, do not ask.
-8. Return INTERNALLY: `{approach, classification, rationale (1-3 sentences citing one ISTQB principle), next_action: {skill: <name>}}` — this is routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; the sub-skill produces what the user sees. Do NOT echo "Classification: X" or "Approach: Y" to the user — the taxonomy is internal. If the user genuinely needs to know the shape of the work, translate to natural English in one sentence (e.g. *"this is a refactor — characterization tests first"*, not *"Approach: coverage-first-then-refactor"*).
+7. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question. Otherwise, do not ask.
+8. Return INTERNALLY: `{approach, classification, rationale, next_action: {skill: <name>}}` — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; the sub-skill produces what the user sees.
 
 ## Process Flow
 
-```dot
-digraph qa_deciding_approach {
-    rankdir=TB;
-    "Receive intent" [shape=doublecircle];
-    "Load catalogues" [shape=box];
-    "Reason classification + shape" [shape=box];
-    "Strategy-shaped?" [shape=diamond];
-    "Approach: strategy-orchestration" [shape=box];
-    "Single-change reasoning" [shape=box];
-    "Ambiguity remains?" [shape=diamond];
-    "Ask user one question" [shape=box];
-    "Pick approach, cite principle" [shape=box];
-    "Route to sub-skill" [shape=doublecircle];
-
-    "Receive intent" -> "Load catalogues";
-    "Load catalogues" -> "Reason classification + shape";
-    "Reason classification + shape" -> "Strategy-shaped?";
-    "Strategy-shaped?" -> "Approach: strategy-orchestration" [label="yes"];
-    "Strategy-shaped?" -> "Single-change reasoning" [label="no"];
-    "Approach: strategy-orchestration" -> "Route to sub-skill";
-    "Single-change reasoning" -> "Ambiguity remains?";
-    "Ambiguity remains?" -> "Ask user one question" [label="yes"];
-    "Ambiguity remains?" -> "Pick approach, cite principle" [label="no"];
-    "Ask user one question" -> "Pick approach, cite principle";
-    "Pick approach, cite principle" -> "Route to sub-skill";
-}
-```
+See the Checklist above — that's the flow.
 
 ## Routing table (approach → next skill)
 
@@ -83,24 +61,20 @@ For "create a test plan" / "plan QA for this story" intents, after approach is p
 | "Description says docs-only change but I'll add tests anyway" | `no-tests-recommended` is honest senior-QA. Adding tests where none are needed wastes signal. |
 | "Mutation testing follow-up needs new prod code" | No — that's `strengthen-test-coverage`. Production code stays unchanged. |
 | "I'll ask the user 3 clarifying questions to be sure" | Ask ONE if needed. More than one means the skill is hoarding context; the LLM should infer. |
-| "I'll show the user 'Classification: X, Approach: Y, Rationale: …' so they know what I decided" | Internal scaffolding. Route silently. If the work-shape genuinely needs surfacing, translate to one natural-English sentence. |
 
 ## Examples
 
 ### Good
 
-User: "create a test plan for refactoring the pricing pipeline". 
+User: "create a test plan for refactoring the pricing pipeline".
 - Load classifications + approaches.
-- Classification: `business_logic_change` (cited word: "pricing"). Modifier: refactor (cited word: "refactoring").
-- Shape: single change. Not strategy.
-- Approach: `coverage-first-then-refactor` — refactor implies behaviour-preserving; characterization tests must pin behaviour BEFORE the refactor.
-- Cite: ISTQB Principle 4 (defects cluster — refactor risks introducing bugs at extraction boundaries).
-- `next_action.skill: "qa-creating-test-plan"`.
+- Internally: refactor of pricing logic — behaviour-preserving, so characterization tests pin behaviour before any code moves.
+- Cite ISTQB Principle 4 (defects cluster — refactor risks introducing bugs at extraction boundaries).
+- Route to `qa-creating-test-plan`.
 
 ### Bad
 
-User: "create a test plan for refactoring the pricing pipeline".
-Pick `tdd-scaffold` because "test plan" sounds like adding tests. Wrong — refactor needs characterization tests first, not new behaviour scaffolding. The Iron Law (`SHAPE FIRST`) was violated by ignoring "refactoring" in the intent.
+User: "create a test plan for refactoring the pricing pipeline". Pick `tdd-scaffold` because "test plan" sounds like adding tests. Wrong — refactor needs characterization tests first. SHAPE FIRST was violated by ignoring "refactoring" in the intent.
 
 ## Next skill in the chain
 

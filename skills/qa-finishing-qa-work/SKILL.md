@@ -9,15 +9,17 @@ Close the loop on a QA rollout. The execution is done; now the user needs eviden
 
 **Announce at start:** *"I'm using qa-finishing-qa-work to capture evidence and write the PR-ready summary."*
 
+## Output discipline (mandatory)
+
+**Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
+
 <HARD-GATE>
 Do NOT mark the work finished or claim "QA done" without a fresh test run in this turn. Stale "CI was green when I dispatched" is not finishing evidence.
 </HARD-GATE>
 
 ## The Iron Law
 
-**NO FINISH WITHOUT FRESH EVIDENCE + WRITTEN SUMMARY.**
-
-A QA rollout that ends with *"I think it's good"* is not finished — it's abandoned. The deliverable is a written summary another engineer could read tomorrow and know: what was covered, what wasn't, what to do next.
+**NO FINISH WITHOUT FRESH EVIDENCE + WRITTEN SUMMARY.** The deliverable is a written summary another engineer could read tomorrow and know what was covered, what wasn't, and what to do next.
 
 ## When to Use
 
@@ -88,41 +90,7 @@ You MUST work through these in order. Steps 1–4 are AI-only homework. Step 5 i
 
 ## Process Flow
 
-```dot
-digraph qa_finishing {
-    rankdir=TB;
-    "Execution complete" [shape=doublecircle];
-    "Fresh suite run (AI homework)" [shape=box];
-    "All tests pass?" [shape=diamond];
-    "Surface failures, stop" [shape=box];
-    "Coverage snapshot (AI homework)" [shape=box];
-    "Risk-to-test map (AI homework)" [shape=box];
-    "Open follow-ups (AI homework)" [shape=box];
-    "Write run summary" [shape=box];
-    "Offer PR-description draft" [shape=diamond];
-    "Draft PR description" [shape=box];
-    "Done" [shape=doublecircle];
-
-    "Execution complete" -> "Fresh suite run (AI homework)";
-    "Fresh suite run (AI homework)" -> "All tests pass?";
-    "All tests pass?" -> "Surface failures, stop" [label="no"];
-    "All tests pass?" -> "Coverage snapshot (AI homework)" [label="yes"];
-    "Coverage snapshot (AI homework)" -> "Risk-to-test map (AI homework)";
-    "Risk-to-test map (AI homework)" -> "Open follow-ups (AI homework)";
-    "Open follow-ups (AI homework)" -> "Write run summary";
-    "Write run summary" -> "Offer PR-description draft";
-    "Offer PR-description draft" -> "Draft PR description" [label="user wants it"];
-    "Offer PR-description draft" -> "Done" [label="user declines"];
-    "Draft PR description" -> "Done";
-}
-```
-
-## Key Principles
-
-- **Fresh evidence, every time.** The summary is dated by the suite run in *this* turn. Stale CI green doesn't count.
-- **Known gaps are surfaced, not hidden.** If R3 is uncovered, the summary says R3 is uncovered. Don't pad coverage numbers; don't omit risks; the user's trust depends on the honesty.
-- **PR description is optional, gated on user ask.** Some teams want the AI to write the PR description; some want to write it themselves. Don't push — offer and stop.
-- **The summary file is the durable artefact.** It lives in `docs/qa/runs/` next to the plan in `docs/qa/plans/`. Pair them so future spelunkers find both.
+See the Checklist above — that's the flow.
 
 ## Red Flags — STOP and rework
 
@@ -139,21 +107,15 @@ digraph qa_finishing {
 
 ### Good (fresh evidence + honest gap surface)
 
-> **AI (announce):** *"I'm using qa-finishing-qa-work to capture evidence and write the PR-ready summary."*
+> **AI (internal):** runs `uv run pytest` → 47 passed, 1 xfailed, 0 failed (2.34s); captures coverage deltas; walks 5 risks (R1–R4 covered, R5 uncovered); writes `docs/qa/runs/2026-05-12-billing-refund-coverage.md`.
 >
-> **AI (steps 1–4, internal):** runs `uv run pytest` → 47 passed, 1 xfailed, 0 failed (2.34s). Runs `pytest --cov=pricing --cov=billing` → captures per-file deltas. Walks the plan's 5 risks against the new tests; R1–R4 covered, R5 (float-rounding) uncovered. Notes one stale `xfail` that's now obsolete.
->
-> **AI (step 5):** writes `docs/qa/runs/2026-05-12-billing-refund-coverage.md` with suite output, coverage delta table (`pricing/calculator.py` 64% → 91%), risk-to-test map (R1–R4 ✅, R5 ❌ KNOWN GAP), open follow-ups (R5 → ticket BILL-489, stale xfail → delete, portal contract bump → PORT-204).
->
-> **AI (user-facing):** *"Run summary at `docs/qa/runs/2026-05-12-billing-refund-coverage.md`. Suite green: 47 passed, 1 xfailed, 0 failed. 4 of 5 risks covered; R5 (float-rounding edge) raised as BILL-489 — that's the known gap. Stale xfail at `test_idempotency.py:42` should be deleted now the new behaviour ships. Anything to add before this is the record?"*
->
-> **AI (step 6):** *"Want me to draft the PR description from this summary? Saw `.github/PULL_REQUEST_TEMPLATE.md` — I'll match its sections."*
+> **AI (user-facing):** *"Run summary at `docs/qa/runs/2026-05-12-billing-refund-coverage.md`. Suite green: 47 passed, 0 failed. 4 of 5 risks covered; R5 (float-rounding edge) raised as BILL-489 — known gap. Stale xfail at `test_idempotency.py:42` should be deleted. Anything to add?"*
 
 ### Bad (claim "done" without fresh evidence)
 
-> **AI:** *"QA done. CI was green when I dispatched the agents, so we're good to merge. Coverage is around 90% I think."*
+> **AI:** *"QA done. CI was green when I dispatched the agents, so we're good. Coverage is around 90% I think."*
 >
-> Iron Law violated. No fresh run, no risk-to-test map, no surfaced gaps, fabricated coverage number. Not a finish — an abandonment.
+> Iron Law violated: no fresh run, fabricated coverage number, gaps hidden.
 
 ## End of the chain
 

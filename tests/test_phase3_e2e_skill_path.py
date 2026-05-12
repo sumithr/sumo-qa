@@ -71,7 +71,10 @@ def test_each_skill_tool_body_carries_iron_law_and_checklist():
     for name, body in bodies.items():
         assert "## The Iron Law" in body, f"{name}: missing Iron Law in served body"
         assert "## Checklist" in body, f"{name}: missing Checklist in served body"
-        assert "```dot" in body, f"{name}: missing Process Flow dot block in served body"
+        # Process Flow section is required; the inline graphviz `dot` block
+        # is optional after the token-reduction pass (skills now point at the
+        # Checklist as the canonical flow encoding).
+        assert "## Process Flow" in body, f"{name}: missing Process Flow section in served body"
         assert "## Red Flags" in body, f"{name}: missing Red Flags in served body"
 
 
