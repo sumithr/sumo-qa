@@ -1,14 +1,31 @@
 # MCP Tools
 
-The sumo-qa MCP exposes 11 tools, all thin: each is file IO or a small
-deterministic operation. No inference, no sampling. The host LLM picks
-from the returned data; the tool only provides it.
+The sumo-qa MCP exposes **21 entry points**: 10 skill tools + 7 knowledge loaders + 4 test-data tools. All are thin — each is file IO or a small deterministic operation. No inference, no host-LLM sampling. The host LLM reasons over what they return.
 
-## Knowledge providers (7)
+## Skill tools (10)
 
-Each returns a markdown catalogue as plain text. The host LLM reasons over the
-returned content. The classification-filter tools (`load_standards`, `load_rules`)
-filter by metadata declared in the file's frontmatter — no keyword matching.
+Each returns the full body of a `skills/<name>/SKILL.md` file. The host LLM treats the returned markdown as the procedure to follow (Iron Law + checklist + flowchart + Red Flags + examples).
+
+| Tool | Returns SKILL.md for |
+|---|---|
+| `using_sumo_qa` | Entry router — Iron Law: NO QA WORK WITHOUT FIRST DECIDING THE APPROACH |
+| `qa_deciding_approach` | Pick the canonical approach for the work |
+| `qa_preparing_for_work` | Lightweight QA prep brief |
+| `qa_creating_test_plan` | Formal phased test plan with entry / exit criteria |
+| `qa_implementing_with_tdd` | Red → green → review walk |
+| `qa_reviewing_before_merge` | Review local diff, run tests, surface verdict |
+| `qa_strengthening_tests` | Mutation testing follow-up |
+| `qa_finding_test_data` | Test-data discovery / validation / registration |
+| `qa_answering_testing_question` | Generic "how do I test this?" |
+| `sumo_qa_strategising` | Repo-wide QA strategy / audit |
+
+In JetBrains AI Assistant these are slash commands (`/qa_deciding_approach`). In Claude Code the equivalent slash commands come from the native skill files (`/qa-deciding-approach`, hyphens) — the MCP tools are still callable but only via natural language ("decide the QA approach for this refactor"). VS Code Copilot and Junie pick them by description in Agent / agentic mode.
+
+See [SKILLS.md](SKILLS.md) for the Iron Law per skill.
+
+## Knowledge loaders (7)
+
+Each returns a markdown catalogue as plain text. The host LLM reasons over the returned content. The classification-filter tools (`load_standards`, `load_rules`) filter by metadata declared in the file's frontmatter — no keyword matching.
 
 | Tool | Returns |
 |---|---|
@@ -22,8 +39,7 @@ filter by metadata declared in the file's frontmatter — no keyword matching.
 
 ## Test-data tools (4)
 
-Manage the local known-good test data catalogue under `knowledge/test_data/`.
-File-IO + validation against source systems where applicable.
+Manage the local known-good test data catalogue under `knowledge/test_data/`. File IO + validation against source systems where applicable.
 
 | Tool | Purpose |
 |---|---|
@@ -34,8 +50,6 @@ File-IO + validation against source systems where applicable.
 
 ## Why the surface is so small
 
-The discipline (when to ask the user, when to call which tool, what to assert, how
-to cite a principle) lives in the [skill files](../skills/). The host LLM follows
-the skill literally. Tools just provide the source of truth.
+The discipline (when to ask the user, when to call which tool, what to assert, how to cite a principle) lives in the [skill files](../skills/). The host LLM follows the skill literally. The MCP tools just provide the source of truth.
 
 This is the architectural difference from the pre-restructure version, which had 10 heavy MCP tools each producing 1500-token structured JSON output via host-LLM sampling. That model broke on hosts with smaller token caps or less robust SSE handling. See [`docs/superpowers/specs/2026-05-08-superpowers-restructure-design.md`](superpowers/specs/2026-05-08-superpowers-restructure-design.md) for the full rationale.
