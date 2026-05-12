@@ -72,6 +72,13 @@ In Claude Code, MCP tools are NOT slash-invocable directly — use natural langu
 
 **Quick test in any host:** ask in chat *"load the QA classifications"*. Should return 10 names: api_contract_change, business_logic_change, security_change, performance_change, frontend_change, infrastructure_change, test_change, docs_change, config_change, data_migration. If yes, you're wired correctly.
 
+## See it in action
+
+Ten polished worked examples showing what sumo-qa actually looks like in conversation — diff reviews refusing to declare safe-to-merge, TDD cycles with the red output surfaced verbatim, mutation survivors walked one-at-a-time, formal test plans gated on measurable entry/exit criteria, and the surprising one where it correctly says *"no tests needed"* and stops:
+
+- **[tests/scenarios/worked-examples/](tests/scenarios/worked-examples/)** — start with [02 — review-my-changes](tests/scenarios/worked-examples/02-review-my-changes.md) for the strongest demo opener.
+- **[tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md)** — the underlying scenario specs (user prompt → expected interaction shape → anti-patterns the skill prevents).
+
 ## Docs
 
 - [AGENTS.md](AGENTS.md) — AI-agent bootstrap and per-host setup
