@@ -158,20 +158,21 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
 
     r.detected = True
 
-    # 1. Symlink skills into ~/.claude/skills/sumo-qa so Claude Code's
-    #    native skill loader exposes them as /qa-deciding-approach etc.
-    #    in the slash menu. Claude Code's slash menu DOES NOT surface
-    #    MCP tools the way IntelliJ does — it only surfaces native skill
-    #    files. Without this symlink, Claude Code users have no slash
-    #    access to skills at all (the LLM can still pick MCP tools by
-    #    description in natural language, but no /slash entry exists).
+    # 1. Symlink each skill directory individually at the TOP LEVEL of
+    #    ~/.claude/skills/.
     #
-    #    Cost: Claude Code's menu shows hyphenated names (qa-creating-
-    #    test-plan) while IntelliJ shows underscored (qa_creating_test_plan).
-    #    Both invoke the same SKILL.md body.
-    skills_target = claude_home / "skills" / "sumo-qa"
-    skills_target.parent.mkdir(parents=True, exist_ok=True)
-    symlink_msg = _install_skills_link(skills_target, system)
+    #    Why per-skill, not a wrapper: Claude Code reads skills at
+    #    ~/.claude/skills/<name>/SKILL.md. It does NOT recurse into
+    #    subdirectories. So a wrapper like ~/.claude/skills/sumo-qa/qa-*
+    #    is invisible to Claude Code's discovery; only top-level names
+    #    surface in the slash menu.
+    #
+    #    Also clean up: previous install.py versions used the wrapper and
+    #    earlier versions left stale copies at the top level. This pass
+    #    removes both so the user ends with exactly 10 fresh symlinks.
+    skills_dir = claude_home / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    symlink_msg = _install_claude_code_skills_per_dir(skills_dir, system)
 
     # 2. claude_desktop_config.json
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -197,26 +198,76 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
     return r
 
 
-def _install_skills_link(target: Path, system: str) -> str:
-    """Symlink (or copy on Windows w/o devmode) skills into the target path.
+def _install_claude_code_skills_per_dir(skills_dir: Path, system: str) -> str:
+    """Symlink each skills/<name>/ directory individually at the top level of
+    ~/.claude/skills/. Cleans up the legacy wrapper (sumo-qa/) and any stale
+    top-level copies left by earlier install.py versions.
 
-    Replaces any existing entry at the target so re-runs are idempotent."""
-    if target.exists() or target.is_symlink():
-        if target.is_symlink() or target.is_file():
+    Claude Code's native skill discovery reads top-level directories only —
+    nested subdirectories are invisible. So skills MUST sit directly under
+    ~/.claude/skills/ to surface in the slash menu.
+
+    Returns a one-line summary for the install.py output.
+    """
+    # 1. Cleanup the legacy wrapper.
+    wrapper = skills_dir / "sumo-qa"
+    if wrapper.is_symlink() or wrapper.is_file():
+        wrapper.unlink()
+    elif wrapper.is_dir():
+        shutil.rmtree(wrapper)
+
+    # 2. Cleanup any stale top-level copies of OUR skills (only the ones in
+    #    repo/skills/) — don't touch other unrelated skills the user has
+    #    installed (e.g. codex-review, graphify).
+    repo_skill_names = {p.name for p in SKILLS_SRC.iterdir() if p.is_dir()}
+
+    cleaned: list[str] = []
+    for name in repo_skill_names:
+        target = skills_dir / name
+        if not (target.exists() or target.is_symlink()):
+            continue
+        if target.is_symlink():
             target.unlink()
-        else:
+            cleaned.append(name)
+            continue
+        # Real directory or file — only delete if its content matches our
+        # repo version (so we don't accidentally nuke a user-customised one).
+        repo_skill = SKILLS_SRC / name / "SKILL.md"
+        target_skill = target / "SKILL.md"
+        if (
+            target.is_dir()
+            and repo_skill.is_file()
+            and target_skill.is_file()
+            and repo_skill.read_text() == target_skill.read_text()
+        ):
             shutil.rmtree(target)
-    try:
-        target.symlink_to(SKILLS_SRC, target_is_directory=True)
-        return f"symlinked {target}"
-    except OSError:
-        if system == "Windows":
-            shutil.copytree(SKILLS_SRC, target)
-            return (
-                f"copied skills to {target} (Windows developer mode off; "
-                f"re-run install.py to refresh after edits)"
-            )
-        raise
+            cleaned.append(name)
+
+    # 3. Symlink each skill dir from the repo to the top level.
+    linked: list[str] = []
+    copied: list[str] = []
+    for name in sorted(repo_skill_names):
+        src = SKILLS_SRC / name
+        if not src.is_dir():
+            continue
+        target = skills_dir / name
+        try:
+            target.symlink_to(src, target_is_directory=True)
+            linked.append(name)
+        except OSError:
+            if system == "Windows":
+                shutil.copytree(src, target)
+                copied.append(name)
+            else:
+                raise
+
+    parts = []
+    if cleaned:
+        parts.append(f"cleaned up {len(cleaned)} stale entries")
+    parts.append(f"symlinked {len(linked)} skills")
+    if copied:
+        parts.append(f"copied {len(copied)} (Windows fallback)")
+    return "; ".join(parts) + f" under {skills_dir}"
 
 
 # ----------------------------------------------------------------------
@@ -282,6 +333,29 @@ _JB_IDE_PREFIXES = (
     "AndroidStudio",
 )
 
+_JB_PROCESS_HINTS = ("idea", "pycharm", "goland", "webstorm", "phpstorm", "clion", "rubymine", "rider", "datagrip", "appcode", "android studio")
+
+
+def _detect_running_jetbrains(system: str) -> list[str]:
+    """Return a list of running JetBrains IDE process names, or [] if none."""
+    try:
+        if system == "Windows":
+            out = subprocess.run(
+                ["tasklist"], capture_output=True, text=True, timeout=5
+            ).stdout
+        else:
+            out = subprocess.run(
+                ["ps", "-Ao", "comm="], capture_output=True, text=True, timeout=5
+            ).stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+    running: list[str] = []
+    out_lower = out.lower()
+    for hint in _JB_PROCESS_HINTS:
+        if hint in out_lower:
+            running.append(hint)
+    return running
+
 
 def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
     r = HostResult("JetBrains IDEs")
@@ -296,6 +370,20 @@ def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
 
     if not jb_root.exists():
         r.message = "not detected (no JetBrains config dir)"
+        return r
+
+    # JetBrains IDEs hold MCP config in memory while running and write it
+    # back to llm.mcpServers.xml on shutdown — overwriting any external
+    # edits we make. Detect a running JetBrains process and bail with a
+    # clear message; the user must quit the IDE before our XML write
+    # will stick.
+    running = _detect_running_jetbrains(system)
+    if running:
+        r.message = (
+            f"detected running JetBrains process(es): {', '.join(running)}. "
+            "Quit completely (Cmd/Ctrl+Q) before running install.py — "
+            "otherwise the IDE overwrites our config on its shutdown."
+        )
         return r
 
     # Find every JetBrains IDE installation that has an options/ dir.
