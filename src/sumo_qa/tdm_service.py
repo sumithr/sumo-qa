@@ -128,31 +128,58 @@ class TestDataAssistant:
 
 def _requirements_for(question: str, domain: str, environment: str | None) -> TestDataRequirements:
     """Generic test-data requirements skeleton. Senior-QA discipline applies
-    universally: stable identifiers, known starting state, named edge cases,
-    explicit 'what NOT to use'. Domain-specific specialisation (out-of-area
-    addresses, pricing bands, slot booking, stock boundaries) is the AI's
-    job — the AI is grounded in ISTQB risk-based testing in the system
-    prompt and reads the question verbatim via MCP sampling.
+    universally across domains: stable identifiers, known starting state,
+    named edge cases, explicit 'what NOT to use'. Domain-specific
+    specialisation (whatever the actual domain is — auth, billing, ML
+    inference, retail fulfilment, infrastructure, etc.) is the AI's job —
+    the AI is grounded in ISTQB risk-based testing and reads the question
+    verbatim via MCP sampling.
     """
-    product_characteristics = ["stable product identifier and SKU", "active product in the target environment"]
-    stock_conditions = ["known stock state before test execution"]
-    fulfilment_conditions = ["clear fulfilment eligibility for the requested location or channel"]
-    dependencies = ["product catalogue", "pricing service", "stock or availability source", "fulfilment eligibility service"]
-    edges = ["invalid postcode or location", "zero stock", "disabled fulfilment option"]
-    what_not = ["random products found manually", "data with unknown owner", "entries not validated in the target environment"]
+    entity_characteristics = [
+        "stable identifier for the entity under test",
+        "entity exists and is in the expected state in the target environment",
+    ]
+    resource_state_conditions = ["known starting state of the resource before test execution"]
+    scenario_preconditions = [
+        "all prerequisite conditions for the scenario are satisfied in the target environment",
+    ]
+    dependencies = [
+        "any upstream system the entity depends on",
+        "any downstream system the test exercises",
+    ]
+    edges = [
+        "boundary values for the inputs the test exercises",
+        "unavailable or degraded dependency",
+        "invalid or out-of-policy input",
+    ]
+    what_not = [
+        "records discovered ad-hoc with no validation history",
+        "data with unknown owner",
+        "entries not validated against the target environment",
+    ]
 
     return TestDataRequirements(
-        summary=f"Use owned, recently validated {domain} data in {environment or 'the target integration environment'}; avoid manually discovered stale products.",
+        summary=(
+            f"Use owned, recently validated {domain} data in "
+            f"{environment or 'the target integration environment'}; "
+            "avoid ad-hoc records with no validation history."
+        ),
         domain=domain,
         environment=environment,
-        required_product_characteristics=_dedupe(product_characteristics),
-        stock_conditions=_dedupe(stock_conditions),
-        fulfilment_conditions=_dedupe(fulfilment_conditions),
+        required_entity_characteristics=_dedupe(entity_characteristics),
+        resource_state_conditions=_dedupe(resource_state_conditions),
+        scenario_preconditions=_dedupe(scenario_preconditions),
         downstream_dependencies=_dedupe(dependencies),
         edge_case_recommendations=_dedupe(edges),
         what_not_to_use=_dedupe(what_not),
-        assumptions=["No live downstream validation is configured yet.", "Catalogue entries are local YAML until provider integrations are added."],
-        confidence=TestDataConfidence(level="medium", reason="Requirement reasoning is deterministic and rule-based, but not backed by live downstream validation."),
+        assumptions=[
+            "No live downstream validation is configured yet.",
+            "Catalogue entries are local YAML until provider integrations are added.",
+        ],
+        confidence=TestDataConfidence(
+            level="medium",
+            reason="Requirement reasoning is deterministic and rule-based, but not backed by live downstream validation.",
+        ),
         freshness=not_applicable_freshness("Requirements reasoning does not validate a specific catalogue entry."),
         validation_source="requirements-heuristic",
     )
@@ -294,8 +321,10 @@ def _detect_domain(question: str) -> str:
     """Domain auto-detection used to phrase-match the question. That's the
     AI's job now — `qa_explain_test_data_requirements` callers should pass
     `domain` explicitly if they know it. Returns 'general' so the tool
-    produces generic requirements; pass `domain=...` for catalogued
-    domains like 'stock', 'fulfilment', or 'pricing'."""
+    produces generic requirements; pass `domain=...` to scope to whichever
+    domain folder the catalogue uses (e.g. 'auth', 'billing', 'payments',
+    'inventory' — whatever the team's `knowledge/test_data/` layout
+    declares)."""
     return "general"
 
 

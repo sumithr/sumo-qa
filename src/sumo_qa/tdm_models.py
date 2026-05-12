@@ -65,9 +65,9 @@ class TestDataRequirements(BaseModel):
     summary: str
     domain: str
     environment: str | None = None
-    required_product_characteristics: list[str] = Field(default_factory=list)
-    stock_conditions: list[str] = Field(default_factory=list)
-    fulfilment_conditions: list[str] = Field(default_factory=list)
+    required_entity_characteristics: list[str] = Field(default_factory=list)
+    resource_state_conditions: list[str] = Field(default_factory=list)
+    scenario_preconditions: list[str] = Field(default_factory=list)
     downstream_dependencies: list[str] = Field(default_factory=list)
     edge_case_recommendations: list[str] = Field(default_factory=list)
     what_not_to_use: list[str] = Field(default_factory=list)
