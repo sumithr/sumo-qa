@@ -5,6 +5,8 @@ description: Use when the user asks to plan QA for a story, ticket, or piece of 
 
 # Preparing for QA work
 
+**Announce at start:** *"I'm using qa-preparing-for-work to name the risks and propose the smallest useful test set before any code is written."*
+
 ## The Iron Law
 NO TEST IDEA WITHOUT A NAMED RISK.
 
@@ -84,3 +86,9 @@ User: "I'm adding a refund endpoint to the payments service. What should I test?
 Same user.
 "Test that the endpoint returns 200 on success. Test that it handles invalid amounts. Test edge cases. Test the happy path. Consider adding security testing."
 - No named risks, no anchors, no specific values, generic technique calls, no specialty fits. Senior QA bar failed.
+
+## Next skill in the chain
+
+When the prep brief is signed off → `qa-implementing-with-tdd` to walk red → green for the agreed risks (the most common path).
+
+When the work has 3+ independent tasks the user wants to dispatch across subagents → `qa-planning-qa-rollout` to turn the brief into a bite-sized, dispatchable plan first.

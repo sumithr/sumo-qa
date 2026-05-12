@@ -7,6 +7,8 @@ description: Use after qa-deciding-approach picks tdd-scaffold, regression-first
 
 Help the user drive a change through TDD discipline by walking the cycle one step at a time, confirming the test idea before writing it, and proving the red phase happened before handing back the green-making step. The user has product context (what "wrong" looks like, what shape the API should take) the AI can't infer from code alone — surface it through questions, don't assume it.
 
+**Announce at start:** *"I'm using qa-implementing-with-tdd to walk the red→green cycle with confirmation between phases."*
+
 <HARD-GATE>
 Do NOT write the failing test in the same turn you propose the test idea. Walk through risk → assertion shape → smallest failing test → confirm → write → run → show red. Tests written before the user agrees on what they're meant to catch are guesses, not red-phase evidence.
 </HARD-GATE>
@@ -149,3 +151,9 @@ digraph qa_implementing_with_tdd {
 > **AI:** *"Before I can write the test: (1) which test framework do you use? (2) where do the discount tests live? (3) what's the fixture pattern? (4) is `Order` a dataclass or an ORM model?"*
 >
 > All four questions are answerable by reading the repo. The AI should have explored first and surfaced what it found, then asked only the genuinely-ambiguous *"is 90.0 the right expected value?"* question.
+
+## Next skill in the chain
+
+When green is confirmed and the targeted regression passes → `qa-reviewing-before-merge` to deliver the safe-to-merge verdict against fresh evidence.
+
+If this task is part of a multi-task rollout dispatched by `qa-executing-qa-rollout` → `qa-finishing-qa-work` instead, to capture the evidence and produce the PR-ready summary.

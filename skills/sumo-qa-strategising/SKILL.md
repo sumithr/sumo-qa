@@ -7,6 +7,8 @@ description: Use for repo-wide / policy-shaped asks — "audit our test coverage
 
 Help the user produce a risk-prioritised, repo-anchored QA strategy by walking the strategy one section at a time: inventory the actual repo, surface per-area risks, fit specialty tools, prioritise, design the pyramid, phase the rollout. The user has org context (team size, release cadence, regulatory pressure, current pain points) the AI can't infer from code alone — surface it through questions, don't assume it.
 
+**Announce at start:** *"I'm using sumo-qa-strategising to walk the repo, name risks per area, and design a phased rollout."*
+
 <HARD-GATE>
 Do NOT emit a strategy in one message. Walk the sections one at a time: inventory → risks → tools → prioritisation → pyramid → rollout → residual. A strategy dumped in one turn is generic consulting; a strategy built collaboratively is implementable.
 </HARD-GATE>
@@ -157,3 +159,7 @@ digraph sumo_qa_strategising {
 > **AI:** *"Before I can plan: (1) what services do you have? (2) what languages? (3) where do tests live? (4) do you have CI? (5) what frameworks?"*
 >
 > All five answerable by walking the repo. The AI should have explored first and surfaced what it found, then asked only the genuinely-ambiguous *"are all 4 services in scope?"* question.
+
+## Next skill in the chain
+
+When the strategy is signed off → `qa-planning-qa-rollout` to turn Phase 1 into bite-sized, dispatchable tasks, then `qa-executing-qa-rollout` to run them with two-stage review per task.

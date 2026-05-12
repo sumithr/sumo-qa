@@ -5,6 +5,8 @@ description: Use whenever a user asks anything QA-shaped — testing, code revie
 
 # Using sumo-qa
 
+**Announce at start:** *"I'm using using-sumo-qa to route this QA-shaped intent through the right discipline."*
+
 ## The Iron Law
 NO QA WORK WITHOUT FIRST DECIDING THE APPROACH.
 
@@ -133,3 +135,7 @@ User: "review my changes". Skill response (internal): load Iron Law, invoke `qa-
 
 ### Bad
 User: "review my changes". Skill response: "Sure! Looking at your diff, the main concerns are …" — skipping the approach decision, going straight to review. Iron Law violated. The reviewer might be the wrong shape for the change (e.g. a docs-only change doesn't need a code review skill).
+
+## Next skill in the chain
+
+Always → `qa-deciding-approach`. That is the router's only job — set the global discipline, then hand the intent over so the approach can be picked before any QA output is produced.

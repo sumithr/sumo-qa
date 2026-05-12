@@ -5,6 +5,8 @@ description: Use when the user asks about test data — what data to test X, fin
 
 # Finding test data
 
+**Announce at start:** *"I'm using qa-finding-test-data to route this between explain / find / validate / register and surface fresh-validated evidence."*
+
 ## The Iron Law
 
 **STALE IS A DEFECT. NEVER INVENT ENTRIES NOT IN THE CATALOGUE.**
@@ -124,3 +126,7 @@ Inventing an entry. Iron Law violated. If `ORD-12345` doesn't exist or has alrea
 > **AI:** *(internally finds `ORD-77900` is stale, silently substitutes `ORD-77821` from the catalogue without telling the user)* *"Here you go — order ready for the refund test."*
 
 The substitution hides drift in the catalogue. The user should hear *"`ORD-77900` is stale (refunded on 2026-05-10); `ORD-77821` is fresh — use that one?"* and decide.
+
+## Next skill in the chain
+
+Terminal skill — no next-skill handoff. Returns the data (with freshness evidence) to the caller, which is usually a TDD / review / strengthening flow already mid-conversation.
