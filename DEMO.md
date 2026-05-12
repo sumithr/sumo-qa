@@ -1,27 +1,68 @@
 # 5-minute sumo-qa demo
 
-Open any real repo. Run one of the prompts below. Watch the senior-QA workflow happen on actual code, in front of you. No staged data, no scripted output — sumo-qa walks your repo and produces senior-grade QA on whatever it finds.
+Open any real repo. Run one of the prompts below. Watch the senior-QA workflow happen on actual code. No staged data, no scripted output — sumo-qa walks your repo and produces senior-grade QA on whatever it finds.
 
-## Step 1 — Install (60 seconds)
+## Prerequisites
 
-**Claude Code:**
+- **Python 3.10 or newer** (3.10, 3.11, 3.12, 3.13, or 3.14). Check with `python3 --version`.
+- **An MCP-capable host:** Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant or Junie, or VS Code + GitHub Copilot (Agent mode, with Claude Sonnet 4.5 or GPT-5 full).
+- **`uv` or `pip`** to install the package. `uv` is faster; install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS/Linux or the PowerShell equivalent on Windows.
 
-```text
-/plugin marketplace add sumithr/sumo-qa
-/plugin install sumo-qa@sumo-qa-dev
-```
+## Step 1 — Install the MCP server (one line)
+
+This is the same step for *every* host. It puts the `sumo-qa` binary on your `PATH` — your MCP host will call it.
 
 ```bash
-uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
+pip install sumo-qa
+# or:
+uv tool install sumo-qa
 ```
 
-Restart Claude Code. That's it. The SessionStart hook auto-loads `using-sumo-qa` on every conversation; the 13 skills are slash-invocable; the 21 MCP tools are available by natural language.
+## Step 2 — Connect your host
 
-For Cursor / Codex / OpenCode / JetBrains / VS Code + Copilot: see [`docs/INSTALL.md`](docs/INSTALL.md).
+Pick the line that matches your editor / agent. Each host needs a one-time pointer at the `sumo-qa` binary (with the absolute path).
 
-## Step 2 — Run one of these prompts on your repo
+### Claude Code
 
-Open your repo in Claude Code. Pick the prompt that matches the QA situation you actually have. Each is a one-liner.
+```bash
+python3 install.py --claude-code
+```
+
+Symlinks the 13 skills into `~/.claude/skills/` so they show up in the `/qa-*` slash menu, and writes the MCP server entry to `claude_desktop_config.json` so the 7 knowledge-loader + 4 test-data tools are callable. Restart Claude Code afterwards.
+
+### VS Code + GitHub Copilot
+
+```bash
+python3 install.py --vscode --workspace <path-to-your-repo>
+```
+
+Writes `<repo>/.vscode/mcp.json`. Then in VS Code: **Cmd+Shift+P → Developer: Reload Window**, switch Copilot Chat to **Agent mode**, pick a capable model (Claude Sonnet 4.5 or GPT-5 full).
+
+### JetBrains AI Assistant
+
+```bash
+python3 install.py --jetbrains
+```
+
+Prints the exact Settings UI fields to fill in (JetBrains' MCP plugin needs in-IDE registration on IDEA 2026.1; can't be scripted from outside).
+
+### Cursor, Codex, OpenCode
+
+Per-host plugin install paths in [`docs/INSTALL.md`](docs/INSTALL.md). On Cursor: `/add-plugin sumo-qa`. On OpenCode: add a line to your `opencode.json`. The same `sumo-qa` binary you installed in Step 1 is what they call into.
+
+### Want it on every host at once?
+
+```bash
+python3 install.py
+```
+
+With no flags, install.py configures every host detected on this machine.
+
+---
+
+## Step 3 — Run one of these prompts on your repo
+
+Open your repo in the host you configured. Pick the prompt that matches the QA situation you actually have. Each is a one-liner.
 
 ---
 

@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Tests for sumo_qa.knowledge_loaders.
 
 These tools read markdown catalogues and return them verbatim. No inference,

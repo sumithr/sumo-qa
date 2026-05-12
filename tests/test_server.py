@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from sumo_qa.server import build_mcp_server
 
 # Phase 4 slimmed surface: 4 test-data tools + 7 knowledge loaders = 11 atomic tools.

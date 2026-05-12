@@ -4,12 +4,30 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.1.1"
+version = "0.1.2"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Sumith Ramsookbhai", email = "sumithr51@gmail.com" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
 # No upper cap — packaging.python.org's current guidance is not to pin an
 # upper bound on requires-python. All three dependencies (mcp, pydantic,
 # PyYAML) ship cp310 through cp314 wheels as of 2026-05; future-Python

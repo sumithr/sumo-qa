@@ -21,7 +21,7 @@ the skill.
 
 ## 2. MCP tools (Python) — atomic knowledge providers
 
-11 tools, all thin: each is file IO. Seven knowledge loaders (`sumo_qa_load_*`)
+24 tools, all thin: each is file IO. Thirteen skill tools (one per SKILL.md), seven knowledge loaders (`sumo_qa_load_*`)
 return markdown catalogues as text. Four test-data tools read/write the local
 known-good catalogue under `knowledge/test_data/`.
 
