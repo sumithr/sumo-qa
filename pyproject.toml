@@ -7,6 +7,9 @@ name = "sumo-qa"
 version = "0.1.0"
 description = "Sumo QA — a senior-QA-shaped MCP server for shift-left testing, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Sumith Ramsookbhai" }]
 # Cap at <3.14 because pydantic-core's Rust extension does not yet ship
 # wheels for Python 3.14, and PyO3 doesn't support 3.14 either. When pydantic-core
 # adds 3.14 wheels, this cap can be widened.
@@ -28,6 +31,11 @@ dev = [
 vertex = [
   "google-cloud-aiplatform>=1.71.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/SumithRamsookbhai/qa-shift-left-mcp"
+Repository = "https://github.com/SumithRamsookbhai/qa-shift-left-mcp"
+Issues = "https://github.com/SumithRamsookbhai/qa-shift-left-mcp/issues"
 
 [project.scripts]
 sumo-qa-mcp = "sumo_qa.server:main"
