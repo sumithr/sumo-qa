@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 import os
 from pathlib import Path
 from typing import Annotated, Any
@@ -72,7 +73,15 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         raise RuntimeError("The MCP SDK is not installed. Run `pip install -e .`.") from exc
 
     qa_service = service or build_service()
-    mcp = FastMCP("sumo-qa")
+    mcp = FastMCP(
+        "sumo-qa",
+        instructions=(
+            "sumo-qa — senior-QA-shaped MCP server + skills library. "
+            "Created by Sumith Ramsookbhai (https://github.com/sumithr). "
+            "Licensed under Apache-2.0; please preserve the NOTICE file when redistributing."
+        ),
+        website_url="https://github.com/sumithr/sumo-qa",
+    )
 
     # Standard annotation patterns. The QA test-data reasoning tools are read-only
     # and idempotent. Only `sumo_qa_register_known_good_test_data` writes to disk,

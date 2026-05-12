@@ -1,6 +1,6 @@
 # Scenario 08 — Audit test coverage + design QA strategy
 
-> **Demo arc:** *"the AI walked the repo, named per-area risks anchored to file paths, and gave a phased rollout with gates — not 'aim for 80% coverage'. This is what 'QA strategy' actually looks like."*
+> **Summary:** *"the AI walked the repo, named per-area risks anchored to file paths, and gave a phased rollout with gates — not 'aim for 80% coverage'. This is what 'QA strategy' actually looks like."*
 >
 > Shows: repo walk before any question, per-area classification + named risks anchored to file paths, specialty-tool fit per surface, risk × gap prioritisation, risk-shaped pyramid (not uniform), phased rollout with named gates (not a calendar), residual risks named honestly, written deliverable on confirmation.
 
@@ -222,7 +222,7 @@ Confirm and I'll write it now, then run the Phase 1 install + seed I offered ear
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **Walked the repo before asking anything.** Inventory came from the file system — 5 areas, not the 4 the user mentioned, because `shared/` is doing real work. A junior consultant would have asked "what services do you have?". This one read the tree.
 - **Risks anchored to file + construct.** Not *"add more unit tests on billing"* — `services/billing/calculator.py:227 — currency-conversion order-of-operations not pinned by test`. Every risk cites a path the user can `cat`.

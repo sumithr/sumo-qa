@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Skill conformance — every skills/*/SKILL.md must follow the upstream
 superpowers structure.
 
