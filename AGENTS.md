@@ -10,7 +10,7 @@ python3 install.py
 
 What this does:
 
-1. Installs `sumo-qa-mcp` via `uv` (prints `uv` install instructions if missing).
+1. Installs `sumo-qa` via `uv` (prints `uv` install instructions if missing).
 2. **Claude Code** (if `~/.claude/` exists): symlinks each `skills/<name>/` into `~/.claude/skills/<name>/`. Writes `claude_desktop_config.json` with the MCP entry pointing at the absolute binary path.
 3. **VS Code + Copilot** (if cwd is a workspace with `.git` / `.vscode` / `package.json` / etc.): writes `.vscode/mcp.json` with the **VS Code-native schema** (`servers` key, `type: stdio`).
 4. **JetBrains IDEs** (if JetBrains config dir exists): prints exact Settings UI steps. JetBrains' MCP plugin requires Settings UI registration — external XML writes don't reliably register the runtime coroutine.

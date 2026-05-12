@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "sumo-qa",
-      "description": "Senior-QA-shaped MCP server + skills library: shift-left testing, mutation-testing follow-up, code review, test-data discovery.",
+      "description": "Senior-QA-shaped MCP server + skills library: pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, test-data discovery.",
       "version": "0.1.0",
       "source": "./",
       "author": {

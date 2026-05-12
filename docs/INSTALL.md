@@ -12,14 +12,14 @@ These hosts have plugin systems that read `.claude-plugin/`, `.cursor-plugin/`, 
 ### Claude Code
 
 ```text
-/plugin marketplace add SumithRamsookbhai/qa-shift-left-mcp
+/plugin marketplace add sumithr/sumo-qa
 /plugin install sumo-qa@sumo-qa-dev
 ```
 
 This installs the skills, registers the SessionStart hook (auto-injects the `using-sumo-qa` router on every conversation), and you're done. To also get the MCP tools (knowledge loaders + test-data tools), install the server binary:
 
 ```bash
-uv tool install --from git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git sumo-qa
+uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
 ```
 
 Then add it to `claude_desktop_config.json` (or let `install.py --claude-code` do it).
@@ -38,7 +38,7 @@ Install from the Codex plugin marketplace — search for "Sumo QA". The plugin s
 
 ### OpenCode
 
-See [`.opencode/INSTALL.md`](../.opencode/INSTALL.md) — add `"sumo-qa@git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git"` to your `opencode.json` plugin array. Includes a Claude-Code-to-OpenCode tool-name mapping table for skill authors.
+See [`.opencode/INSTALL.md`](../.opencode/INSTALL.md) — add `"sumo-qa@git+https://github.com/sumithr/sumo-qa.git"` to your `opencode.json` plugin array. Includes a Claude-Code-to-OpenCode tool-name mapping table for skill authors.
 
 ## install.py path (JetBrains, VS Code + Copilot, batch installs)
 
@@ -84,7 +84,7 @@ JetBrains' MCP plugin in IDEA 2026.1 has an undocumented internal flow we can't 
 ```
 Settings → Tools → AI Assistant → Model Context Protocol → + Add server
   Name:    sumo-qa
-  Command: /abs/path/to/sumo-qa-mcp
+  Command: /abs/path/to/sumo-qa
   Args:    (empty)
   Working directory: (empty)
 Apply.
@@ -98,7 +98,7 @@ Add once; persists across restarts. After it's added, every MCP entry — `/qa_d
 {
   "mcpServers": {
     "sumo-qa": {
-      "command": "/abs/path/to/sumo-qa-mcp"
+      "command": "/abs/path/to/sumo-qa"
     }
   }
 }
@@ -115,7 +115,7 @@ Add once; persists across restarts. After it's added, every MCP entry — `/qa_d
   "servers": {
     "sumo-qa": {
       "type": "stdio",
-      "command": "/abs/path/to/sumo-qa-mcp",
+      "command": "/abs/path/to/sumo-qa",
       "args": []
     }
   }
@@ -170,7 +170,7 @@ If you're not running install.py for any reason, the binary path you need everyw
 
 ```bash
 uv tool install --from . sumo-qa --reinstall
-which sumo-qa-mcp   # or: ls ~/.local/share/uv/tools/sumo-qa/bin/sumo-qa-mcp
+which sumo-qa   # or: ls ~/.local/share/uv/tools/sumo-qa/bin/sumo-qa
 ```
 
 Then paste that absolute path into each host's MCP config in the schema appropriate to that host (see "Per-host detail" above).

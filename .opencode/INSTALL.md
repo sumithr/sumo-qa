@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - [OpenCode.ai](https://opencode.ai) installed
-- `uv` (used to install the `sumo-qa-mcp` server binary that the skills call). Get it with `curl -LsSf https://astral.sh/uv/install.sh | sh` if you don't have it.
+- `uv` (used to install the `sumo-qa` server binary that the skills call). Get it with `curl -LsSf https://astral.sh/uv/install.sh | sh` if you don't have it.
 
 ## Installation
 
@@ -11,14 +11,14 @@ Add sumo-qa to the `plugin` array in your `opencode.json` (global or project-lev
 
 ```json
 {
-  "plugin": ["sumo-qa@git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git"]
+  "plugin": ["sumo-qa@git+https://github.com/sumithr/sumo-qa.git"]
 }
 ```
 
 Then install the MCP server binary that the skills call into:
 
 ```bash
-uv tool install --from git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git sumo-qa
+uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
 ```
 
 Restart OpenCode. The plugin registers all sumo-qa skills.
@@ -43,7 +43,7 @@ Or just describe a QA task in natural language ("plan QA for this story", "revie
 
 ```json
 {
-  "plugin": ["sumo-qa@git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git#v0.1.0"]
+  "plugin": ["sumo-qa@git+https://github.com/sumithr/sumo-qa.git#v0.1.0"]
 }
 ```
 
@@ -74,8 +74,8 @@ The sumo-qa skills are written in tool-name-agnostic prose, so this mapping most
 3. Make sure you're running a recent version of OpenCode
 
 ### MCP tools not available
-Confirm `sumo-qa-mcp` is on `PATH`:
+Confirm `sumo-qa` is on `PATH`:
 ```bash
-which sumo-qa-mcp
+which sumo-qa
 ```
 If not, re-run the `uv tool install` step above.

@@ -1,6 +1,6 @@
 # sumo-qa MCP
 
-[![tests](https://github.com/SumithRamsookbhai/qa-shift-left-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/SumithRamsookbhai/qa-shift-left-mcp/actions/workflows/test.yml)
+[![tests](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml/badge.svg)](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/sumo-qa.svg)](https://pypi.org/project/sumo-qa/)
 [![Python](https://img.shields.io/pypi/pyversions/sumo-qa.svg)](https://pypi.org/project/sumo-qa/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -32,7 +32,7 @@ After install, restart your MCP host (Claude Code / Cursor / Codex / OpenCode / 
 ### Claude Code plugin
 
 ```text
-/plugin marketplace add SumithRamsookbhai/qa-shift-left-mcp
+/plugin marketplace add sumithr/sumo-qa
 /plugin install sumo-qa@sumo-qa-dev
 ```
 
@@ -49,7 +49,7 @@ Configures every supported host detected on this machine. Per-host flags + troub
 ### From a git URL (latest main)
 
 ```bash
-uv tool install --from git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git sumo-qa
+uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
 ```
 
 ## What you get
@@ -66,7 +66,7 @@ Each host surfaces the same skills and tools differently — that's a host-API d
 
 | Host | Slash invocation | Setup |
 |---|---|---|
-| **Claude Code** | `/qa-deciding-approach` (hyphens) | Native plugin: `/plugin marketplace add SumithRamsookbhai/qa-shift-left-mcp` then `/plugin install sumo-qa@sumo-qa-dev`. Or `install.py --claude-code`. |
+| **Claude Code** | `/qa-deciding-approach` (hyphens) | Native plugin: `/plugin marketplace add sumithr/sumo-qa` then `/plugin install sumo-qa@sumo-qa-dev`. Or `install.py --claude-code`. |
 | **Cursor** | Natural language; Cursor picks skills by description | Native plugin: `/add-plugin sumo-qa` |
 | **Codex** | Natural language; Codex picks skills by description | Codex plugin marketplace (search "Sumo QA") |
 | **OpenCode** | `skill` tool (`use skill tool to load sumo-qa/...`) | Add `"sumo-qa@git+..."` to `opencode.json` plugin array, restart |

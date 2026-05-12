@@ -113,4 +113,4 @@ That's the prep brief — 5 risks, 5 tests, 2 specialty fits offered, 3 assumpti
 - **Internal labels translated to English.** No *"Classification: business_logic_change, Approach: risk-first-prep"* in the user-facing output. The taxonomy stays behind the curtain; the user gets named risks.
 - **Open assumptions are explicit.** Three assumptions named at the bottom — what the test set *currently* encodes that hasn't been confirmed by the product call. Senior QA surfaces these *before* code is written, not after a bug ships.
 
-This is what *"shift-left QA"* looks like before the first line of production code: the risks are on the wall, the tests have addresses, and the assumptions are visible.
+This is what *"senior QA"* looks like before the first line of production code: the risks are on the wall, the tests have addresses, and the assumptions are visible.

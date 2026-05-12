@@ -132,10 +132,10 @@ def main() -> int:
     print(f"Configuring: {hosts_str}\n")
 
     if args.skip_mcp_install:
-        binary = shutil.which("sumo-qa-mcp")
+        binary = shutil.which("sumo-qa")
         mcp_path = Path(binary).resolve() if binary else None
         if mcp_path is None:
-            print("ERROR: --skip-mcp-install was set but sumo-qa-mcp is not on PATH.")
+            print("ERROR: --skip-mcp-install was set but sumo-qa is not on PATH.")
             return 1
         print(f"MCP binary (existing): {mcp_path}\n")
     else:
@@ -191,16 +191,16 @@ def _install_mcp_binary() -> Path | None:
     except subprocess.CalledProcessError as exc:
         print(f"  ERROR: uv tool install failed ({exc.returncode})")
         return None
-    binary = shutil.which("sumo-qa-mcp")
+    binary = shutil.which("sumo-qa")
     if binary is None:
         # Fall back to the conventional uv tool bin dir.
         for candidate in [
-            Path.home() / ".local" / "bin" / "sumo-qa-mcp",
-            Path.home() / ".local" / "share" / "uv" / "tools" / "sumo-qa" / "bin" / "sumo-qa-mcp",
+            Path.home() / ".local" / "bin" / "sumo-qa",
+            Path.home() / ".local" / "share" / "uv" / "tools" / "sumo-qa" / "bin" / "sumo-qa",
         ]:
             if candidate.is_file():
                 return candidate.resolve()
-        print("  ERROR: uv install succeeded but sumo-qa-mcp is not on PATH and")
+        print("  ERROR: uv install succeeded but sumo-qa is not on PATH and")
         print("  not at any conventional uv tool location. Restart your shell")
         print("  and re-run python install.py.")
         return None

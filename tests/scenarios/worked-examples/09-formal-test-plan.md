@@ -203,4 +203,4 @@ Structure: scope → named risks (R1–R6) → entry criteria (E1–E7) → phas
 - **Residual risks named honestly with mitigation reasoning.** RR1, RR2, RR3 are each *"we are not covering this AND here is why that is the right call AND here is what catches it if it bites us"*. That's the part most plans skip.
 - **Section-by-section confirmation gates.** Six confirmation moments across the plan (scope → risks → entry → phases → exit → residuals). The user can redirect at any one; a single-shot dump cannot be redirected without rewriting the whole document.
 
-This is what *"shift-left QA"* looks like at the formal-plan altitude: the gates are real, the criteria are arguable, and the residual risks are named on the page — not discovered in a post-mortem.
+This is what *"senior QA"* looks like at the formal-plan altitude: the gates are real, the criteria are arguable, and the residual risks are named on the page — not discovered in a post-mortem.
