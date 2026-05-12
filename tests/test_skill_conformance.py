@@ -68,9 +68,17 @@ def test_skill_has_checklist_section_with_at_least_four_items(skill_path):
 
 
 @pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
-def test_skill_has_process_flow_dot_block(skill_path):
+def test_skill_has_process_flow_section(skill_path):
+    """Every skill declares a Process Flow section.
+
+    Originally required an inline graphviz ``dot`` block. The token-reduction
+    pass replaced verbose dot diagrams with a one-line pointer to the
+    Checklist (the dot block was duplicating what the numbered checklist
+    already encoded). Skills MAY still inline a dot block — we just don't
+    require it.
+    """
     text = skill_path.read_text(encoding="utf-8")
-    assert "```dot" in text
+    assert "## Process Flow" in text
 
 
 @pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
