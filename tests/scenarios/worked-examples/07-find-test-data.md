@@ -1,6 +1,6 @@
 # Scenario 07 — Find a known-good test data record
 
-> **Demo arc:** *"the AI found 2 entries, validated both in real-time, surfaced one as stale (instead of silently dropping it), and asked before writing anything new to the team catalogue."*
+> **Summary:** *"the AI found 2 entries, validated both in real-time, surfaced one as stale (instead of silently dropping it), and asked before writing anything new to the team catalogue."*
 >
 > Shows: catalogue lookup (no inventing IDs), fresh per-turn validation against staging with timestamp evidence, explicit stale surfacing instead of silent substitution, and a hard confirmation gate before any write to the shared catalogue.
 
@@ -148,7 +148,7 @@ For the partial-refund flow test, use `billing-paid-partial-refund-001` (or `INV
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **No invented IDs.** The agent never says *"try `INV-12345`, that should work"*. Every record returned is either pulled from the catalogue and re-validated, or it's the user's own ID being validated before it's added.
 - **Per-turn validation, not cached freshness.** The catalogue's `last_validated_at` is treated as a hint, not as truth. Both entries are re-hit against staging in this turn, with a timestamp the user can see.

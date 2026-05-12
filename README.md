@@ -1,9 +1,9 @@
 # sumo-qa MCP
 
 [![tests](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml/badge.svg)](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml)
-[![PyPI](https://img.shields.io/pypi/v/sumo-qa.svg)](https://pypi.org/project/sumo-qa/)
-[![Python](https://img.shields.io/pypi/pyversions/sumo-qa.svg)](https://pypi.org/project/sumo-qa/)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300)](https://pypi.org/project/sumo-qa/)
+[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300)](https://pypi.org/project/sumo-qa/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
 A senior-QA MCP server + skills library that delivers ISTQB-grade testing discipline to AI coding agents across **Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot**. The discipline lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical knowledge catalogues; a SessionStart hook auto-injects the `using-sumo-qa` router so the agent reliably runs the workflow without you having to remember to invoke it.
 
@@ -82,7 +82,7 @@ In Claude Code, MCP tools are NOT slash-invocable directly — use natural langu
 
 Ten polished worked examples showing what sumo-qa actually looks like in conversation — diff reviews refusing to declare safe-to-merge, TDD cycles with the red output surfaced verbatim, mutation survivors walked one-at-a-time, formal test plans gated on measurable entry/exit criteria, and the surprising one where it correctly says *"no tests needed"* and stops:
 
-- **[tests/scenarios/worked-examples/](tests/scenarios/worked-examples/)** — start with [02 — review-my-changes](tests/scenarios/worked-examples/02-review-my-changes.md) for the strongest demo opener.
+- **[tests/scenarios/worked-examples/](tests/scenarios/worked-examples/)** — see [02 — review-my-changes](tests/scenarios/worked-examples/02-review-my-changes.md) for a representative end-to-end transcript.
 - **[tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md)** — the underlying scenario specs (user prompt → expected interaction shape → anti-patterns the skill prevents).
 
 ## License

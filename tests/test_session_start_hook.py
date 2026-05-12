@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Smoke tests for the SessionStart hook.
 
 The hook ships in `hooks/session-start` and is registered by

@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from pathlib import Path
 
 import pytest

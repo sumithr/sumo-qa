@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use sumo-qa in academic, professional, or derivative work, please cite this repository and preserve the NOTICE file per the Apache License 2.0."
+title: "sumo-qa"
+abstract: "A senior-QA-shaped MCP server + skills library that delivers ISTQB-grade testing discipline (risk-anchored test design, TDD discipline, mutation-testing follow-up, fresh-evidence merge review) to AI coding agents across Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant, and VS Code + GitHub Copilot."
+type: software
+authors:
+  - family-names: Ramsookbhai
+    given-names: Sumith
+    email: sumithr51@gmail.com
+    orcid: ""
+license: Apache-2.0
+url: "https://github.com/sumithr/sumo-qa"
+repository-code: "https://github.com/sumithr/sumo-qa"
+version: 0.1.1
+date-released: "2026-05-12"
+keywords:
+  - qa
+  - testing
+  - tdd
+  - mutation-testing
+  - code-review
+  - mcp
+  - mcp-server
+  - claude-code
+  - ai-agents
+  - istqb
+  - senior-qa

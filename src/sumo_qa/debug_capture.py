@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Optional debug capture for the live MCP server.
 
 When `SUMO_QA_DEBUG_DIR` is set, every tool invocation writes its
