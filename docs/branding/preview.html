@@ -2,92 +2,248 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>sumo-qa — logo concepts</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>sumo-qa — logo concepts v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    background: #fafaf8;
-    color: #1a1a1a;
-    margin: 0;
-    padding: 40px 24px;
+  :root {
+    --ink: #0a0a0a;
+    --red: #dc2626;
+    --cream: #faf5ee;
+    --paper: #f3eee2;
+    --rule: #e2dccc;
+    --muted: #777063;
+    --mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+    --display: 'Anton', 'Impact', 'Arial Black', sans-serif;
   }
-  .wrap { max-width: 1100px; margin: 0 auto; }
-  h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.01em; }
-  p.lede { margin: 0 0 32px; color: #555; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.55;
+    padding: 64px 32px 96px;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; }
+
+  /* Header — editorial, asymmetric */
+  header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 32px;
+    padding-bottom: 24px;
+    margin-bottom: 56px;
+    border-bottom: 2px solid var(--ink);
+  }
+  header h1 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(56px, 9vw, 132px);
+    line-height: 0.85;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-transform: uppercase;
+  }
+  header h1 .red { color: var(--red); }
+  header .meta {
+    text-align: right;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+    line-height: 1.8;
+  }
+  header .meta strong { color: var(--ink); }
+
+  /* Grid of cards */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+  }
+  @media (max-width: 980px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
   .card {
-    background: #fff;
-    border: 1px solid #e5e5e0;
-    border-radius: 12px;
-    padding: 24px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 0;
+    background: var(--cream);
+    border: 1px solid var(--ink);
+    overflow: hidden;
   }
-  .card h2 { margin: 0; font-size: 16px; font-weight: 600; }
-  .card .tag {
-    font-size: 11px;
-    color: #888;
+  .card .num {
+    font-family: var(--display);
+    font-size: 14px;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    padding: 14px 20px;
+    background: var(--ink);
+    color: var(--cream);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
   }
-  .svg-host {
-    border: 1px dashed #e5e5e0;
-    border-radius: 8px;
-    padding: 16px;
+  .card .num .name { color: var(--cream); }
+  .card .num .style { color: var(--red); font-size: 11px; letter-spacing: 0.18em; }
+
+  .swatch-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid var(--ink);
+  }
+  .swatch {
+    aspect-ratio: 1 / 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    aspect-ratio: 1 / 1;
-    background: #fff;
+    padding: 28px;
   }
-  .svg-host.dark { background: #1a1a1a; }
-  .svg-host img { width: 100%; height: 100%; max-width: 200px; max-height: 200px; object-fit: contain; }
-  .note { font-size: 13px; color: #555; line-height: 1.55; margin: 0; }
-  footer { margin-top: 40px; color: #888; font-size: 13px; }
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .swatch.light { background: var(--cream); }
+  .swatch.dark { background: var(--ink); border-left: 1px solid var(--cream); }
+  .swatch img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+  /* Wide aspect for the wordmark concept */
+  .card.wide .swatch { aspect-ratio: 2.4 / 1; padding: 20px 28px; }
+
+  .card .copy { padding: 20px 24px 24px; }
+  .card .copy h2 {
+    font-family: var(--display);
+    font-size: 28px;
+    line-height: 1;
+    letter-spacing: 0;
+    margin: 0 0 12px;
+    text-transform: uppercase;
+  }
+  .card .copy p {
+    margin: 0 0 8px;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .card .copy .why {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--rule);
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* Footer */
+  footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--ink);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 24px;
+    align-items: end;
+  }
+  footer .pick {
+    font-family: var(--display);
+    font-size: 28px;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+  footer .pick em { color: var(--red); font-style: normal; }
+  footer .small {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: right;
+    line-height: 1.8;
+  }
+
+  /* Decorative red brand stripe in the top-left corner */
+  .brand-stripe {
+    position: fixed;
+    top: 0; left: 0;
+    width: 6px;
+    height: 100vh;
+    background: var(--red);
+    z-index: 5;
+  }
 </style>
 </head>
 <body>
+<div class="brand-stripe" aria-hidden="true"></div>
+
 <div class="wrap">
-  <h1>sumo-qa — logo concepts</h1>
-  <p class="lede">Three SVG concepts. Each shown on light and dark. Pick one (or "none, generate via AI later").</p>
+
+  <header>
+    <h1>SUMO<span class="red">·</span>QA<br/><span class="red">LOGO·MARKS</span></h1>
+    <div class="meta">
+      <div><strong>v2</strong> · concept set</div>
+      <div>display: <strong>anton</strong></div>
+      <div>mono: <strong>jetbrains</strong></div>
+      <div>ink <strong>#0a0a0a</strong> · red <strong>#dc2626</strong> · cream <strong>#faf5ee</strong></div>
+    </div>
+  </header>
 
   <div class="grid">
 
     <div class="card">
-      <h2>1. Line art <span class="tag">— minimal</span></h2>
-      <div class="row">
-        <div class="svg-host"><img src="logo-line.svg" alt="line-art sumo logo" /></div>
-        <div class="svg-host dark"><img src="logo-line.svg" alt="line-art sumo logo on dark" /></div>
+      <div class="num"><span class="name">01 · HANKO</span><span class="style">Japanese stamp</span></div>
+      <div class="swatch-row">
+        <div class="swatch light"><img src="logo-stamp.svg" alt="hanko sumo logo on light" /></div>
+        <div class="swatch dark"><img src="logo-stamp.svg" alt="hanko sumo logo on dark" /></div>
       </div>
-      <p class="note">Single-stroke silhouette in shiko (wide) stance. Monochrome. Best for docs headers + favicon. Lowest brand presence.</p>
+      <div class="copy">
+        <h2>HANKO</h2>
+        <p>Solid red stamp with a hard inner border — references both the traditional Japanese personal seal and a QA approval stamp at the same time. Bold stacked wordmark with a mawashi bar between SUMO and QA.</p>
+        <p class="why">best for · github avatar · social card · favicon</p>
+      </div>
+    </div>
+
+    <div class="card wide">
+      <div class="num"><span class="name">02 · WORDMARK</span><span class="style">heavy collision</span></div>
+      <div class="swatch-row">
+        <div class="swatch light"><img src="logo-wordmark.svg" alt="sumo-qa heavy wordmark on light" /></div>
+        <div class="swatch dark"><img src="logo-wordmark.svg" alt="sumo-qa heavy wordmark on dark" /></div>
+      </div>
+      <div class="copy">
+        <h2>WORDMARK</h2>
+        <p>Ultra-condensed black "SUMO" with red "QA" deliberately crashing into the trailing O. Mawashi bar underneath with a hard knot. Tiny mono baseline tick (version + license) — engineering-ledger feel. Editorial, strong, screenshots clean.</p>
+        <p class="why">best for · readme banner · slides · sticker run</p>
+      </div>
     </div>
 
     <div class="card">
-      <h2>2. Geometric <span class="tag">— on dohyo</span></h2>
-      <div class="row">
-        <div class="svg-host"><img src="logo-geometric.svg" alt="geometric sumo logo" /></div>
-        <div class="svg-host dark"><img src="logo-geometric.svg" alt="geometric sumo logo on dark" /></div>
+      <div class="num"><span class="name">03 · DOHYO</span><span class="style">ring + S mark</span></div>
+      <div class="swatch-row">
+        <div class="swatch light"><img src="logo-ring.svg" alt="dohyo ring logo on light" /></div>
+        <div class="swatch dark"><img src="logo-ring.svg" alt="dohyo ring logo on dark" /></div>
       </div>
-      <p class="note">Abstract sumo on a sand-coloured ring (dohyo). Red mawashi accent. Reads at small sizes. Best for repo social-card / GitHub avatar.</p>
-    </div>
-
-    <div class="card">
-      <h2>3. Bold mark <span class="tag">— Q in belt</span></h2>
-      <div class="row">
-        <div class="svg-host"><img src="logo-bold.svg" alt="bold sumo logo with Q" /></div>
-        <div class="svg-host dark"><img src="logo-bold.svg" alt="bold sumo logo with Q on dark" /></div>
+      <div class="copy">
+        <h2>DOHYO</h2>
+        <p>Off-centred red dohyo (sumo ring) with a hard black depth shadow. Brutalist squared "S" carved into the centre — geometric construction, not handwriting. Compact SUMO·QA wordmark underneath. Confident from across the room.</p>
+        <p class="why">best for · application icon · cover art · merch</p>
       </div>
-      <p class="note">Filled silhouette with serif Q in the mawashi — QA tie-in is immediately visible. Strongest brand presence. Best for slides + stickers.</p>
     </div>
 
   </div>
 
   <footer>
-    Open this file directly: <code>open docs/branding/preview.html</code> (macOS) or drag-drop into a browser.
+    <p class="pick">Pick one. <em>Or say "go fancier"</em> and I'll commission an AI-render or open a different direction.</p>
+    <div class="small">
+      <div>open · <strong>docs/branding/preview.html</strong></div>
+      <div>raw · <strong>logo-stamp.svg · logo-wordmark.svg · logo-ring.svg</strong></div>
+    </div>
   </footer>
+
 </div>
 </body>
 </html>

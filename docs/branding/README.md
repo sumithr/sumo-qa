@@ -1,39 +1,50 @@
 # sumo-qa branding
 
-Three logo concepts for sumo-qa. Open each `.svg` in your browser or any image viewer to compare. Pick one (or none) and I'll wire it into the main README + plugin manifest.
-
-## Concepts
-
-### 1. `logo-line.svg` — Minimalist line art
-
-Single-stroke wrestler silhouette in shiko stance (the classic wide stance, knees over toes). Monochrome, transparent background, scales cleanly down to favicon size. Best for documentation headers; lowest brand presence.
-
-### 2. `logo-geometric.svg` — Geometric on a dohyo
-
-Abstract sumo (head + body stacked) inside a circular dohyo (the sand-coloured ring). Red mawashi belt across the middle as the colour accent. Reads at small sizes and from a distance. Best for repo social-card / GitHub avatar.
-
-### 3. `logo-bold.svg` — Bold mark with Q
-
-Filled silhouette with a red mawashi carrying a serif "Q" — the QA tie-in is visible at a glance, so it earns its keep as a mark you might put on slides / a sticker. Strongest brand presence; least subtle.
-
-## How to view locally
+Three logo concepts. **Open `preview.html`** to see them side-by-side with proper typography (Anton + JetBrains Mono loaded via Google Fonts), on light and dark backgrounds.
 
 ```bash
-# macOS — open all three in default viewer
-open docs/branding/*.svg
-
-# any platform — open in your browser
-python3 -m http.server 8000
-# then visit http://localhost:8000/docs/branding/
+open docs/branding/preview.html   # macOS
+# or just drag preview.html into any browser
 ```
 
-## What gets touched when you pick one
+## The concepts
 
-When you say which one (or "none, I'll generate via Midjourney later"), I'll:
+### 1. `logo-stamp.svg` — Hanko
 
-- Copy the chosen SVG to `assets/logo.svg`
-- Embed it at the top of `README.md` (replacing the H1 heading)
-- Reference it as `composerIcon` in `.codex-plugin/plugin.json`
-- Leave the other two concepts in `docs/branding/` as alternates
+Solid red Japanese stamp with hard inner border. Stacked `SUMO` / `QA` wordmark in heavy condensed white, mawashi bar between them. References both the traditional `hanko` (personal seal) and a QA approval stamp at the same time.
 
-If you want to upgrade later to an AI-generated raster (Midjourney / DALL-E / Stable Diffusion), drop the file into `assets/` and point the README / Codex plugin at it.
+**Best for:** GitHub avatar · social card · favicon
+
+### 2. `logo-wordmark.svg` — Wordmark
+
+Ultra-condensed black `SUMO` with red `QA` deliberately overlapping the trailing `O`. Red mawashi underline with a hard black knot. Tiny mono baseline tick (`v0.1.2 · apache-2.0`) gives it engineering-ledger character.
+
+**Best for:** README banner · slides · sticker run
+
+### 3. `logo-ring.svg` — Dohyo
+
+Off-centre red dohyo (the sumo ring) with a hard black depth shadow underneath. Brutalist squared `S` geometrically carved into the centre — not handwriting, construction. Compact `SUMO·QA` wordmark below.
+
+**Best for:** Application icon · cover art · merch
+
+## Typography
+
+The wordmark glyphs in each SVG are set in **Anton** (Google Fonts) with a fallback stack of `Impact, Arial Black, sans-serif` for systems without Anton — strong even on the fallback. The `preview.html` loads Anton + JetBrains Mono from Google Fonts to show the intended typographic weight.
+
+## Palette
+
+| | hex | role |
+|---|---|---|
+| ink black | `#0a0a0a` | primary weight |
+| sumo red | `#dc2626` | accent · stamp · belt |
+| cream | `#faf5ee` | paper background · wordmark on dark |
+
+## What gets wired when you pick one
+
+When you say which (or "none, generate via AI"), the chosen SVG is copied to `assets/logo.svg` and referenced as:
+
+- Top-of-README banner
+- `composerIcon` in `.codex-plugin/plugin.json`
+- Favicon (rasterised later)
+
+The other two stay in `docs/branding/` as alternates.

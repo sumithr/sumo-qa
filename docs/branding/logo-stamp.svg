@@ -1,0 +1,33 @@
+<svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="sumo-qa hanko-stamp logo">
+  <title>sumo-qa — hanko-stamp wordmark</title>
+  <defs>
+    <filter id="grain-1" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="3" />
+      <feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.08 0"/>
+      <feComposite in="SourceGraphic" in2="grain" operator="in"/>
+    </filter>
+  </defs>
+  <!-- Solid red hanko block, slightly imperfect corners for ink-stamp feel -->
+  <path d="M 24 28
+           C 22 26 22 24 26 22
+           L 214 22
+           C 218 22 218 26 216 28
+           L 218 210
+           C 220 214 218 218 214 218
+           L 26 218
+           C 22 218 20 214 22 210
+           Z"
+        fill="#dc2626"/>
+  <!-- Hard inner border (stamp engraving) -->
+  <path d="M 38 42 L 202 42 L 202 198 L 38 198 Z"
+        fill="none" stroke="#faf5ee" stroke-width="3"/>
+  <!-- Wordmark: SUMO stacked over QA, separated by mawashi bar -->
+  <g fill="#faf5ee" font-family="Anton, 'Impact', 'Arial Black', sans-serif" font-weight="900" text-anchor="middle">
+    <text x="120" y="110" font-size="64" letter-spacing="4">SUMO</text>
+  </g>
+  <!-- Mawashi bar -->
+  <rect x="60" y="123" width="120" height="6" fill="#faf5ee"/>
+  <g fill="#faf5ee" font-family="Anton, 'Impact', 'Arial Black', sans-serif" font-weight="900" text-anchor="middle">
+    <text x="120" y="178" font-size="58" letter-spacing="14">QA</text>
+  </g>
+</svg>
