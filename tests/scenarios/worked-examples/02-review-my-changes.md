@@ -1,6 +1,6 @@
 # Scenario 02 — Review my changes
 
-> **Demo arc:** *"my AI told me my code was safe to merge. sumo-qa says: not quite — and here's the named risk that has no covering test."*
+> **Summary:** *"my AI told me my code was safe to merge. sumo-qa says: not quite — and here's the named risk that has no covering test."*
 >
 > Shows: diff-reading without asking, named risks anchored to file:line, fresh test-run evidence, risk-to-test coverage map, refusal to declare safe-to-merge until the gap is closed.
 
@@ -114,7 +114,7 @@ Want me to scaffold the regression test for R2 first (red-phase, you make it gre
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **Read the diff before asking.** Most AI assistants would say *"what files did you change?"* — this one walks the diff via git itself.
 - **Risks anchored to file:line.** Not *"check for edge cases"* — `domain/Refund.kt:18 — idempotency key derivation moved`.

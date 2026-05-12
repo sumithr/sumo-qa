@@ -1,6 +1,6 @@
 # Scenario 09 — Create a formal test plan
 
-> **Demo arc:** *"the AI didn't give a 'do the tests, sign off' plan. It walked the user through measurable entry criteria, phased gates, exit criteria — and even named what risks it's NOT going to cover and why."*
+> **Summary:** *"the AI didn't give a 'do the tests, sign off' plan. It walked the user through measurable entry criteria, phased gates, exit criteria — and even named what risks it's NOT going to cover and why."*
 >
 > Shows: the Iron Law of this skill made visible (no plan without explicit entry/exit), section-by-section pacing with confirmation gates, measurable entry criteria anchored to the search-relevance domain (NDCG, golden query set, shadow-traffic harness), phases that end at named gates not calendar dates, residual risks named honestly with mitigation reasoning.
 
@@ -192,7 +192,7 @@ Structure: scope → named risks (R1–R6) → entry criteria (E1–E7) → phas
 
 ---
 
-## Why this is "senior QA" — what to point at in the demo
+## Why this is senior QA
 
 - **The Iron Law made visible at turn 2.** The agent could have started drafting a plan immediately; instead it surfaces the hard rule (no plan without measurable entry/exit) before writing a single section. The user knows what they're going to get and what they're not.
 - **Scope confirmed with one focused question** — *"all three rollout stages, or just up to canary?"* — anchored to a file (`RolloutConfig.kt`) the agent actually read. Not *"tell me about your rollout"*.
