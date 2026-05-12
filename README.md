@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="sumo-qa — strong QA, crouching rikishi mark" width="520" />
+</p>
+
 # sumo-qa MCP
 
 [![tests](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml/badge.svg)](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml)

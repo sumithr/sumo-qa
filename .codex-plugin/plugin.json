@@ -27,6 +27,7 @@
     "longDescription": "Use Sumo QA to drive software changes through a disciplined senior-QA workflow: pick the right approach for the change shape, name risks anchored in code, scaffold red tests before production code, strengthen weak assertions against mutation survivors, review diffs with fresh verification evidence, and find or register known-good test data \u2014 all grounded in ISTQB principles, change classifications, and the team's loaded standards.",
     "developerName": "Sumith Ramsookbhai",
     "category": "Coding",
+    "composerIcon": "./assets/logo.png",
     "capabilities": [
       "Interactive",
       "Read",
