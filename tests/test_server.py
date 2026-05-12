@@ -68,11 +68,14 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
     )
 
 
-def test_skills_registered_as_both_tools_and_prompts() -> None:
-    """Each SKILL.md is registered twice: once as an MCP tool (for hosts
-    whose slash menus surface tools — IntelliJ AI Assistant, VS Code +
-    Copilot) and once as an MCP prompt (for hosts that surface prompts —
-    Claude Code). Both routes return the same SKILL.md body."""
+def test_skills_registered_as_tools_only() -> None:
+    """Each SKILL.md is registered as an MCP tool, NOT as a prompt.
+
+    Single delivery channel rationale: MCP tools are surfaced in the
+    slash menu by Claude Code, IntelliJ AI Assistant, and VS Code +
+    Copilot — registering as tools alone gives identical slash-menu
+    behavior across hosts. Registering as both creates duplicate
+    entries in Claude Code and is the confusion this design avoids."""
     server = build_mcp_server()
     tool_names = set(server._tool_manager._tools.keys())
     prompt_names = set(server._prompt_manager._prompts.keys())
@@ -80,8 +83,8 @@ def test_skills_registered_as_both_tools_and_prompts() -> None:
     assert _SKILL_TOOL_NAMES.issubset(tool_names), (
         f"Missing skill tools: {_SKILL_TOOL_NAMES - tool_names}"
     )
-    assert _SKILL_TOOL_NAMES.issubset(prompt_names), (
-        f"Missing skill prompts: {_SKILL_TOOL_NAMES - prompt_names}"
+    assert _SKILL_TOOL_NAMES.isdisjoint(prompt_names), (
+        f"Skill names leaked into prompts: {_SKILL_TOOL_NAMES & prompt_names}"
     )
 
 

@@ -158,10 +158,12 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
 
     r.detected = True
 
-    # 1. Skills symlink
-    skills_target = claude_home / "skills" / "sumo-qa"
-    skills_target.parent.mkdir(parents=True, exist_ok=True)
-    skills_msg = _install_skills_link(skills_target, system)
+    # 1. Remove any prior native-skill symlink so Claude Code doesn't show
+    #    hyphenated /qa-* duplicates alongside the underscored /qa_* MCP
+    #    tools. Single delivery channel for skills = MCP tools, identical
+    #    in every host. See src/sumo_qa/skill_prompts.py module docstring
+    #    for the rationale.
+    symlink_msg = _remove_legacy_skills_link(claude_home / "skills" / "sumo-qa")
 
     # 2. claude_desktop_config.json
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -183,28 +185,26 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
 
     r.configured = True
     r.config_path = config_path
-    r.message = f"{skills_msg}; wrote {config_path}"
+    r.message = f"{symlink_msg}; wrote {config_path}"
     return r
 
 
-def _install_skills_link(target: Path, system: str) -> str:
-    """Symlink (or copy on Windows w/o devmode) skills into the target path."""
-    if target.exists() or target.is_symlink():
-        if target.is_symlink() or target.is_file():
-            target.unlink()
-        else:
-            shutil.rmtree(target)
-    try:
-        target.symlink_to(SKILLS_SRC, target_is_directory=True)
-        return f"symlinked {target}"
-    except OSError:
-        if system == "Windows":
-            shutil.copytree(SKILLS_SRC, target)
-            return (
-                f"copied skills to {target} (Windows developer mode off; "
-                f"re-run install.py to refresh after edits)"
-            )
-        raise
+def _remove_legacy_skills_link(target: Path) -> str:
+    """Idempotently remove an old ~/.claude/skills/sumo-qa entry if present.
+
+    Earlier versions of install.py symlinked the skills/ dir here so Claude
+    Code's native skill loader would auto-trigger on intent. That created
+    duplicate slash-menu entries (hyphenated native + underscored MCP) and
+    asymmetric behavior between Claude Code and IntelliJ. The MCP tools are
+    now the single delivery channel for skills, so this symlink is removed.
+    """
+    if not (target.exists() or target.is_symlink()):
+        return "no legacy native-skills symlink to clean up"
+    if target.is_symlink() or target.is_file():
+        target.unlink()
+    else:
+        shutil.rmtree(target)
+    return f"removed legacy native-skills link {target}"
 
 
 # ----------------------------------------------------------------------

@@ -1,21 +1,24 @@
-"""Register every skills/*/SKILL.md so every supported host can invoke them.
+"""Register every skills/*/SKILL.md as an MCP tool.
 
-MCP hosts surface skills differently in their slash menu:
+Single delivery channel for skills across every supported host. MCP tools
+are surfaced in the slash menu by Claude Code, IntelliJ AI Assistant, and
+VS Code + Copilot — so registering each SKILL.md as a tool means
+`/qa_deciding_approach`, `/qa_creating_test_plan`, etc. appear identically
+in every host. Calling the tool returns the SKILL.md body, which the host
+LLM follows.
 
-- Claude Code auto-loads `~/.claude/skills/sumo-qa/` natively (you see
-  `/qa-deciding-approach`, hyphens, in the slash menu) AND surfaces MCP
-  prompts. Both routes point at the same SKILL.md files.
-- IntelliJ AI Assistant and VS Code + Copilot surface MCP **tools** in the
-  slash menu but not MCP prompts. They have no native skill loader.
+Why not also register as MCP prompts? MCP prompts are surfaced by Claude
+Code but not by IntelliJ. Registering as both creates duplicate entries
+in Claude Code's slash menu — same name, two routes — which is the
+confusion the user pushed back on. One channel keeps the experience
+identical.
 
-To make every host expose the 10 skills, this module registers each
-SKILL.md as:
-
-1. An MCP prompt (`qa_creating_test_plan` etc.) — for hosts that surface
-   prompts (Claude Code), and as the canonical MCP prompts surface.
-2. An MCP tool with the same name — for hosts that surface tools only
-   (IntelliJ, Copilot). Calling the tool returns the SKILL.md body, which
-   the host LLM then follows as if the skill had been loaded natively.
+Why not also symlink into ~/.claude/skills/ for Claude Code's native
+skill loader? The native loader has richer features (auto-loads checklist
+into TodoWrite, treats Iron Law as system-prompt-grade discipline) but
+those features don't exist in IntelliJ or Copilot. Symlinking creates
+asymmetric behavior the user shouldn't have to think about. install.py
+no longer creates the symlink.
 
 The SKILL.md file is read fresh on each invocation so editing it propagates
 without restart.
@@ -46,11 +49,11 @@ def _parse_frontmatter(text: str) -> dict:
 
 
 def register_skills_as_prompts(mcp: Any) -> None:
-    """Register every SKILL.md under skills/ as both an MCP prompt and an MCP tool.
+    """Register every SKILL.md under skills/ as an MCP tool.
 
     Name kept as the historic `register_skills_as_prompts` for backwards
-    compatibility with `server.py`; the implementation now does dual
-    registration so every host has a slash-command surface.
+    compatibility with existing `server.py` call sites. The implementation
+    is now tool-only (see module docstring for why).
 
     Name: directory name with `-` -> `_`. Description: from frontmatter.
     Body: full file content (including frontmatter), read fresh on each call
@@ -72,7 +75,6 @@ def register_skills_as_prompts(mcp: Any) -> None:
         # hosts that render descriptions inline don't show stray newlines.
         if isinstance(description, str):
             description = " ".join(description.split())
-        _bind_prompt(mcp, name, description, skill_path)
         _bind_tool(mcp, name, description, skill_path)
 
 
@@ -91,20 +93,9 @@ def _make_skill_callable(path: Path):
     return _skill_body
 
 
-def _bind_prompt(mcp: Any, name: str, description: str, path: Path) -> None:
-    """Bind one SKILL.md as an MCP prompt named `name`."""
-    fn = _make_skill_callable(path)
-    fn.__name__ = name
-    mcp.prompt(name=name, description=description)(fn)
-
-
 def _bind_tool(mcp: Any, name: str, description: str, path: Path) -> None:
-    """Bind one SKILL.md as an MCP tool named `name`.
-
-    Same content as the prompt registration, exposed via the tools surface
-    so hosts whose slash menus only surface tools (IntelliJ AI Assistant,
-    VS Code + Copilot) can still invoke skills.
-    """
+    """Bind one SKILL.md as an MCP tool named `name`. The tool returns the
+    SKILL.md body, which the host LLM follows."""
     fn = _make_skill_callable(path)
     fn.__name__ = name
     mcp.tool(name=name, description=description)(fn)

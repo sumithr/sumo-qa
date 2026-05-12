@@ -38,24 +38,33 @@ EXPECTED_SKILL_PROMPTS = {
 }
 
 
-def test_all_ten_skill_prompts_register():
+def test_all_ten_skills_register_as_tools():
+    """Skills are registered as MCP tools (not prompts) so every host's
+    slash menu surfaces them identically. See skill_prompts.py docstring."""
     mcp = build_mcp_server()
-    registered = set(mcp._prompt_manager._prompts.keys())
+    registered = set(mcp._tool_manager._tools.keys())
     missing = EXPECTED_SKILL_PROMPTS - registered
-    assert not missing, f"Missing skill prompts: {missing}"
+    assert not missing, f"Missing skill tools: {missing}"
 
 
-def test_each_skill_prompt_body_carries_iron_law_and_checklist():
+def test_each_skill_tool_body_carries_iron_law_and_checklist():
     """Every skill body must show Iron Law + Checklist + Process Flow + Red Flags
-    when served via the MCP prompts protocol. This catches drift between
+    when served via the MCP tools protocol. This catches drift between
     SKILL.md on disk and what hosts actually see."""
     mcp = build_mcp_server()
 
     async def _fetch_all():
         bodies = {}
         for name in EXPECTED_SKILL_PROMPTS:
-            result = await mcp.get_prompt(name, {})
-            bodies[name] = result.messages[0].content.text
+            result = await mcp.call_tool(name, {})
+            text = ""
+            if isinstance(result, tuple) and result:
+                for content in result[0]:
+                    block_text = getattr(content, "text", None)
+                    if block_text:
+                        text = block_text
+                        break
+            bodies[name] = text
         return bodies
 
     bodies = asyncio.run(_fetch_all())
