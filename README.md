@@ -2,6 +2,9 @@
 
 A senior-QA MCP server + skills library that delivers ISTQB-grade testing discipline to AI coding agents across **Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot**. The discipline lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical knowledge catalogues; a SessionStart hook auto-injects the `using-sumo-qa` router so the agent reliably runs the workflow without you having to remember to invoke it.
 
+> ### 🚀 New here? **[5-minute demo →](DEMO.md)**
+> Install with one line, run one prompt on your real repo, see the senior-QA workflow happen on actual code. No staged data, no scripted output.
+
 ## Setup
 
 ### Easy path — native plugin (Claude Code, Cursor, Codex, OpenCode)
@@ -50,8 +53,8 @@ Re-runs are idempotent. Runs on Windows, macOS, and Linux. Installs the MCP via 
 
 | Layer | What it is |
 |---|---|
-| **10 skills** (`skills/*/SKILL.md`) | Iron-Law-enforced procedures the host LLM follows. Cover deciding approach, planning, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising. |
-| **21 MCP entry points** | 10 skill tools + 7 knowledge loaders + 4 test-data tools. Thin file IO; no inference. |
+| **13 skills** (`skills/*/SKILL.md`) | Iron-Law-enforced procedures the host LLM follows. Cover deciding approach, preparing for work, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising — **plus planning + subagent execution + finishing chain** (planning → dispatch parallel subagents → capture evidence + PR-ready summary). |
+| **24 MCP entry points** | 13 skill tools + 7 knowledge loaders + 4 test-data tools. Thin file IO; no inference. |
 | **5 knowledge catalogues** (`knowledge/*.md`) | 4 authoritative catalogues (classifications, approaches, principles, techniques) — the LLM picks from these, not from training-data recall. Plus 1 category-fit primer (specialty_tools) where the LLM picks tool brands from its training knowledge and the file confirms the category fits. Editable as plain markdown. |
 
 ## Host support
