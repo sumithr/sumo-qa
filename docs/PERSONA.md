@@ -33,35 +33,36 @@ Don't use the glossary as a checklist. Use one term where it lands. If a sentenc
 - Test output blocks. Verbatim, unflavored.
 - The verdict line itself (SAFE TO MERGE / NOT SAFE / NEEDS WORK). The reasons can be sumo-flavored; the verdict word is exact.
 
-## Toggle: how to enable / disable
+## Toggle: just ask
 
 The persona is **off by default**. Default sumo-qa is the neutral senior-QA voice.
 
-To enable, set `SUMO_PERSONA=on` in the environment the MCP host inherits.
+You enable it by asking, mid-conversation, in any host. The agent (per the activation rules in `skills/using-sumo-qa/SKILL.md`) will recognise any of these as opting in:
 
-### Per-shell (one-off)
+- *"turn on the sumo persona"*
+- *"enable the persona"*
+- *"become Sumo-sensei"*
+- *"speak as Sumo-sensei"*
+- *"sumo mode on"*
 
-```bash
-export SUMO_PERSONA=on
-# then launch your host (Claude Code, Cursor, etc.) from that shell
-```
+On activation, the agent loads this file via the host's file tools and adopts the voice for the rest of the conversation. It'll confirm with one in-character sentence so you know it took.
 
-### Per-host (persistent)
+To turn it back off:
 
-**Claude Code** — edit `~/.config/claude/claude_desktop_config.json` (or `%APPDATA%\Claude\claude_desktop_config.json` on Windows). On the `sumo-qa` MCP server entry, add an `env` block:
+- *"turn off the sumo persona"* / *"persona off"*
+- *"drop the persona"* / *"stop the bit"*
+- *"sumo mode off"*
 
-```json
-"sumo-qa": {
-  "command": "/path/to/sumo-qa",
-  "env": { "SUMO_PERSONA": "on" }
-}
-```
+The agent drops the voice immediately and acknowledges in one neutral sentence.
 
-**Cursor / Codex / OpenCode** — your `opencode.json` / Cursor config supports a similar `env` block on MCP server entries; consult the host's docs.
+### Scope
 
-**JetBrains AI Assistant** — the in-IDE Settings → MCP server config doesn't always expose env vars cleanly; setting `SUMO_PERSONA=on` in your shell before launching the IDE is the simplest path.
+- **Per-conversation.** The toggle lives in the agent's working context, not in any config file. Starting a new conversation drops the persona — re-ask if you want it back. This is deliberate: the persona is a nice-to-have, not a default-on identity.
+- **No environment variables, no host config edits, no restarts.** The whole mechanism is conversational.
 
-To **disable**, unset the variable or set `SUMO_PERSONA=off`.
+### Why not a config flag?
+
+The persona is flavor. The discipline (Iron Laws, file:line citations, fresh test evidence, risk-to-test coverage) is the value. A config flag would suggest the persona is load-bearing — it isn't. Asking-when-you-want-it keeps the right hierarchy.
 
 ## Why opt-in?
 

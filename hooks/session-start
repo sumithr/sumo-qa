@@ -30,22 +30,12 @@ escape_for_json() {
 
 using_sumo_qa_escaped=$(escape_for_json "$using_sumo_qa_content")
 
-# Optional Sumo-sensei persona — opt in via `SUMO_PERSONA=on` env var on the
-# host. Defaults to off so a fresh install gets the neutral senior-QA voice;
-# the sumo-themed flavor in skill bodies (Announce lines, Red Flag rows,
-# HARD-GATE wrappings) is always present and is written to be intelligible
-# without the persona enabled. See docs/PERSONA.md for the toggle details.
-persona_preamble=""
-if [ "${SUMO_PERSONA:-off}" = "on" ]; then
-  persona_file="${PLUGIN_ROOT}/docs/PERSONA.md"
-  if [ -f "$persona_file" ]; then
-    persona_content=$(cat "$persona_file")
-    persona_escaped=$(escape_for_json "$persona_content")
-    persona_preamble="<SUMO_PERSONA>\n${persona_escaped}\n</SUMO_PERSONA>\n\n"
-  fi
-fi
+# Note: the Sumo-sensei persona is OFF by default. The user can ask for it
+# mid-conversation ('turn on the sumo persona', 'enable sumo-sensei', etc.)
+# and the agent will load docs/PERSONA.md and adopt the voice for the rest
+# of the session. See docs/PERSONA.md + skills/using-sumo-qa/SKILL.md.
 
-session_context="${persona_preamble}<EXTREMELY_IMPORTANT>\nYou have sumo-qa: a senior-QA skills library + MCP server.\n\n**Below is the full content of your 'sumo-qa:using-sumo-qa' skill - your entry router for every QA-shaped task. For all other sumo-qa skills, use the 'Skill' tool:**\n\n${using_sumo_qa_escaped}\n</EXTREMELY_IMPORTANT>"
+session_context="<EXTREMELY_IMPORTANT>\nYou have sumo-qa: a senior-QA skills library + MCP server.\n\n**Below is the full content of your 'sumo-qa:using-sumo-qa' skill - your entry router for every QA-shaped task. For all other sumo-qa skills, use the 'Skill' tool:**\n\n${using_sumo_qa_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON.
 # Cursor hooks expect additional_context (snake_case).
