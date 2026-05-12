@@ -33,7 +33,7 @@ Each returns a markdown catalogue as plain text. The host LLM reasons over the r
 | `sumo_qa_load_approaches()` | The 8 canonical QA approaches (tdd-scaffold, regression-first, …, spike-first-then-tests) |
 | `sumo_qa_load_principles()` | ISTQB Foundation principles, Advanced certifications, ISO/IEC 25010 quality characteristics |
 | `sumo_qa_load_techniques()` | Test design techniques (black-box, white-box, experience-based, static, property-based, mutation) |
-| `sumo_qa_load_specialty_tools()` | Specialty + tool fit catalogue (Pitest, OWASP ZAP, Pact, k6, Hypothesis, axe-core, etc.) |
+| `sumo_qa_load_specialty_tools()` | Category-fit primer: when does each specialty surface (mutation / contract / DAST / a11y / load / property-based / LLM / mobile) apply. NOT a brand whitelist — the LLM recommends best-fit tools from its knowledge of the ecosystem, with this file as a category-check frame. |
 | `sumo_qa_load_standards(classification?)` | Team's loaded standards packs; optional metadata-based filter by classification |
 | `sumo_qa_load_rules(classification?)` | Team's loaded change rules; optional metadata-based filter |
 

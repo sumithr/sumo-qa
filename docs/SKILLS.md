@@ -33,7 +33,8 @@ All paths invoke the same SKILL.md body.
 
 - **Knowledge authority hierarchy:** loaded knowledge files (via `sumo_qa_load_*` tools) are authoritative. Training data is a fallback that must be flagged. Web search is a fallback for post-training-cutoff topics. "I don't know" is acceptable; inventing a technique, tool, or principle is not.
 - **Citations live in reasoning, not output:** the LLM thinks in terms of cited evidence (which words in the user's intent, which file paths, which catalogue entries) but the user-facing output omits the citations unless asked.
-- **Specialty + tool fit applies broadly:** any tool that meaningfully improves quality fits — Pitest on pure functions, Hypothesis for property-based tests, Pact for REST contracts, OWASP ZAP for HTTP DAST, axe-core for a11y. Empty list is acceptable.
+- **Specialty + tool fit is judgment-driven, not whitelisted:** when a risk needs a specialty tool, the LLM recommends the best fit from its knowledge of the ecosystem anchored to the user's stack. `specialty_tools.md` is a category-fit primer, not a brand whitelist. Brand names are illustrative — recommend whatever genuinely fits, verify currency with web search when uncertain.
+- **Set the tool up, don't narrate the setup.** sumo-qa is the analytical layer (classify, name risks, pick approach + technique + tool category). The tool is just the means to coverage. Once chosen, the AI should install and configure it via the shortest path (package manager / framework CLI / config edit / MCP — whichever is fastest for that tool) and scaffold the first tests against the named risks. Confirm before installing dependencies; default to doing the work once confirmed.
 
 ## Conformance
 
