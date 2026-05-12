@@ -34,7 +34,7 @@ Re-runs are idempotent. Runs on Windows, macOS, and Linux. Installs the MCP via
 |---|---|
 | **10 skills** (`skills/*/SKILL.md`) | Iron-Law-enforced procedures the host LLM follows. Cover deciding approach, planning, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising. |
 | **21 MCP entry points** | 10 skill tools + 7 knowledge loaders + 4 test-data tools. Thin file IO; no inference. |
-| **5 knowledge catalogues** (`knowledge/*.md`) | Authoritative — the LLM picks from these, not from training-data recall. Editable as plain markdown. |
+| **5 knowledge catalogues** (`knowledge/*.md`) | 4 authoritative catalogues (classifications, approaches, principles, techniques) — the LLM picks from these, not from training-data recall. Plus 1 category-fit primer (specialty_tools) where the LLM picks tool brands from its training knowledge and the file confirms the category fits. Editable as plain markdown. |
 
 ## Host support
 

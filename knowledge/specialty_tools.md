@@ -1,79 +1,54 @@
-# Specialty + tool fit catalogue
+# Specialty + tool fit — category primer
 
-When a particular testing tool would meaningfully improve quality for a risk,
-pick the fit from this catalogue. Specialty + tool fit applies to any quality
-improvement, not only non-functional surfaces. Empty selection is acceptable
-when nothing genuinely applies. The catalogue below is authoritative — do
-not invent tools not in this list. If a risk needs a tool not catalogued,
-flag the gap rather than confabulating.
+Category-fit primer, **NOT** a brand whitelist. Each section says WHEN that
+specialty category applies. Brand names are illustrative — pick the best fit
+from your knowledge of the user's stack, verify currency via web search when
+uncertain. Once chosen, **install and set the tool up** (package manager,
+framework CLI, config edit, or MCP server — whichever path is shortest) and
+write the first tests against the named risks. Empty selection is acceptable.
 
-## Token TTL / signature / claim validation
-- JJWT integration tests
-- Auth0 java-jwt test fixtures
-- jose4j conformance suite
+---
 
-## HTTP request / response handling, new endpoint, new auth filter
-- OWASP ZAP (DAST)
-- Burp Suite (DAST)
+**Token TTL / signature / claim validation** — JWT/JOSE/OAuth, signature
+verify, claims, expiry. Examples: JJWT, Auth0 java-jwt, jose4j.
 
-DAST scanners only fit when there is an HTTP surface to scan. Do NOT
-recommend ZAP or Burp for in-process pure functions.
+**HTTP DAST — new endpoint / auth filter** — header/CORS/auth bypasses on a
+real HTTP surface (not in-process pure functions). Examples: OWASP ZAP, Burp Suite.
 
-## Static code analysis for security pitfalls (alg=none, hard-coded secrets)
-- Semgrep
-- Snyk
-- SonarQube
+**Static security analysis** — hard-coded secrets, `alg=none`, SQLi, unsafe
+deserialisation. Examples: Semgrep, Snyk, SonarQube.
 
-## REST contract drift (consumer / provider)
-- Pact (consumer-driven)
-- Spring Cloud Contract
-- Schemathesis (OpenAPI fuzzing)
+**REST contract drift** — HTTP service with external consumers. Examples:
+Pact (consumer-driven), Spring Cloud Contract, Schemathesis (OpenAPI fuzzing).
 
-## Async / event-driven contract drift
-- Schemathesis (JSON-schema-based fuzzing)
-- AsyncAPI test runners
+**Async / event contract drift** — handlers consuming events whose schemas
+may drift. Examples: Schemathesis, AsyncAPI test runners.
 
-## Frontend visual / interaction
-- Cypress
-- Playwright
+**Frontend visual / interaction** — UI needing end-to-end browser coverage.
+Examples: Cypress, Playwright. (MCP servers exist for some; package-manager
+install is usually shorter.)
 
-## Frontend accessibility (a11y)
-- axe-core (often via Playwright)
-- Pa11y
+**Frontend a11y** — keyboard nav, screen readers, ARIA, contrast. Examples:
+axe-core (often via Playwright), Pa11y.
 
-## Mobile UI
-- Appium
-- Maestro
-- Detox
-- XCUITest
-- Espresso
+**Mobile UI** — mobile app surface. Examples: Appium, Maestro, Detox, XCUITest, Espresso.
 
-## Performance / load
-- k6 (HTTP + gRPC)
-- Locust
-- Gatling
-- JMeter
+**Performance / load** — hot path with articulated SLO (p95, RPS). Without a
+budget it's theatre. Examples: k6, Locust, Gatling, JMeter.
 
-## Mutation testing / kill weak assertions
-- Pitest (JVM)
-- Stryker (JS / TS / .NET / Scala)
-- MutPy / mutmut (Python)
+**Mutation testing** — coverage looks good but assertion strength suspect.
+Examples: Pitest (JVM), Stryker (JS/TS/.NET/Scala), MutPy / mutmut (Python).
 
-## Property-based testing
-- Hypothesis (Python)
-- jqwik (JVM)
-- fast-check (JS / TS)
-- ScalaCheck (Scala)
+**Property-based** — invariant across many inputs (commutativity, idempotency,
+round-trip, monotonicity). Examples: Hypothesis (Python), jqwik (JVM),
+fast-check (JS/TS), ScalaCheck.
 
-## AI / LLM behaviour
-- Promptfoo
-- DeepEval
-- Ragas (RAG)
-- TruLens
-- Evidently (drift / monitoring)
+**AI / LLM behaviour** — probabilistic surfaces: prompts, RAG, agents.
+Examples: Promptfoo, DeepEval, Ragas, TruLens, Evidently.
 
-## Tool fit discipline
+---
 
-Specialty + tool pairings outside this catalogue are valid only if the
-risk genuinely justifies them. Flag the fit in narrative; do not silently
-introduce un-catalogued tools.
+Discipline: pick by fit, not familiarity. Verify currency before naming.
+Once chosen, set the tool up yourself (install, config, scaffold the first
+tests) — don't hand the user a list of commands. Confirm before installing
+dependencies. Empty selection is honest; most changes don't need this.

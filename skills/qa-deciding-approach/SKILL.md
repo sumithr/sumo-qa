@@ -24,7 +24,7 @@ You MUST create a TodoWrite item per checklist item and complete in order:
 5. Reason about shape: single change vs repo-wide / strategy ask vs config tweak vs docs-only? Strategy-shaped asks ("audit", "strategy", "pyramid", "rollout") route to `strategy-orchestration` — do NOT force per-change output.
 6. Pick the approach. The catalogue is authoritative; describe a new one only when none fits, with rationale.
 7. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question to the user. Otherwise, do not ask.
-8. Return: `{approach, classification, rationale (1-3 sentences citing one ISTQB principle), next_action: {skill: <name>}}`. Route to the named sub-skill.
+8. Return INTERNALLY: `{approach, classification, rationale (1-3 sentences citing one ISTQB principle), next_action: {skill: <name>}}` — this is routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; the sub-skill produces what the user sees. Do NOT echo "Classification: X" or "Approach: Y" to the user — the taxonomy is internal. If the user genuinely needs to know the shape of the work, translate to natural English in one sentence (e.g. *"this is a refactor — characterization tests first"*, not *"Approach: coverage-first-then-refactor"*).
 
 ## Process Flow
 
@@ -81,6 +81,7 @@ For "create a test plan" / "plan QA for this story" intents, after approach is p
 | "Description says docs-only change but I'll add tests anyway" | `no-tests-recommended` is honest senior-QA. Adding tests where none are needed wastes signal. |
 | "Mutation testing follow-up needs new prod code" | No — that's `strengthen-test-coverage`. Production code stays unchanged. |
 | "I'll ask the user 3 clarifying questions to be sure" | Ask ONE if needed. More than one means the skill is hoarding context; the LLM should infer. |
+| "I'll show the user 'Classification: X, Approach: Y, Rationale: …' so they know what I decided" | Internal scaffolding. Route silently. If the work-shape genuinely needs surfacing, translate to one natural-English sentence. |
 
 ## Examples
 

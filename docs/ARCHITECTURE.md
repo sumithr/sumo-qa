@@ -35,7 +35,7 @@ Plain markdown under `knowledge/`:
 - `approaches.md` — 8 canonical QA approaches
 - `principles.md` — ISTQB Foundation, Advanced, ISO/IEC 25010
 - `techniques.md` — black-box / white-box / experience / static / property-based / mutation
-- `specialty_tools.md` — specialty + tool fit catalogue
+- `specialty_tools.md` — category-fit primer (when each specialty surface applies); tool brand picks are training-primary, not whitelisted
 - `test_data/` — known-good test data entries
 
 Plus team-loaded `standards/packs/*.yml` and `standards/rules/change_rules.yaml`.
@@ -97,7 +97,7 @@ Routes to `qa-creating-test-plan` (Iron Law: NO PLAN WITHOUT EXPLICIT ENTRY/EXIT
     - reads actual files via host file tools
     - identifies 3-7 named risks anchored in evidence
     - calls sumo_qa_load_techniques, picks one per risk
-    - calls sumo_qa_load_specialty_tools, picks Pitest for mutation coverage
+    - consults sumo_qa_load_specialty_tools as a category-fit primer, then recommends the best-fit tool from its training-data knowledge (e.g. Pitest for mutation coverage on a JVM repo); offers to install + configure + seed the first tests via the shortest setup path (package manager, framework CLI, config edit, or MCP server — whichever is fastest for that tool)
     - synthesises plan inline (conversational, sectioned)
 ```
 

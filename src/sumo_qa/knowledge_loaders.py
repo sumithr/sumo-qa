@@ -59,7 +59,12 @@ def sumo_qa_load_techniques() -> str:
 
 
 def sumo_qa_load_specialty_tools() -> str:
-    """Return the specialty + tool fit catalogue as text."""
+    """Return the specialty + tool fit category primer as text.
+
+    Category-fit primer (does mutation testing apply? does DAST apply?),
+    NOT a brand whitelist. Tool brand picks come from the host LLM's
+    training-data knowledge of the ecosystem, anchored to the user's stack.
+    """
     return _read("specialty_tools.md")
 
 
