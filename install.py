@@ -36,7 +36,6 @@ import os
 import platform
 import shutil
 import subprocess
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -333,31 +332,18 @@ _JB_IDE_PREFIXES = (
     "AndroidStudio",
 )
 
-_JB_PROCESS_HINTS = ("idea", "pycharm", "goland", "webstorm", "phpstorm", "clion", "rubymine", "rider", "datagrip", "appcode", "android studio")
-
-
-def _detect_running_jetbrains(system: str) -> list[str]:
-    """Return a list of running JetBrains IDE process names, or [] if none."""
-    try:
-        if system == "Windows":
-            out = subprocess.run(
-                ["tasklist"], capture_output=True, text=True, timeout=5
-            ).stdout
-        else:
-            out = subprocess.run(
-                ["ps", "-Ao", "comm="], capture_output=True, text=True, timeout=5
-            ).stdout
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return []
-    running: list[str] = []
-    out_lower = out.lower()
-    for hint in _JB_PROCESS_HINTS:
-        if hint in out_lower:
-            running.append(hint)
-    return running
-
-
 def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
+    """Print manual setup instructions for JetBrains IDEs.
+
+    History note (left here so future-us doesn't re-walk this path): earlier
+    versions of install.py tried to write llm.mcpServers.xml directly to
+    pre-register sumo-qa. That worked once, then failed unreliably — IntelliJ
+    silently dropped externally-written entries between IDE startup and steady
+    state on IDEA 2026.1, leaving entries marked disabled with a generic
+    "LazyStandaloneCoroutine was cancelled" error. We could not reverse-
+    engineer the JetBrains MCP plugin's internal flow to make external writes
+    stick reliably. The Settings UI add does work — that's what we point at.
+    """
     r = HostResult("JetBrains IDEs")
     home = Path.home()
 
@@ -372,22 +358,6 @@ def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
         r.message = "not detected (no JetBrains config dir)"
         return r
 
-    # JetBrains IDEs hold MCP config in memory while running and write it
-    # back to llm.mcpServers.xml on shutdown — overwriting any external
-    # edits we make. Detect a running JetBrains process and bail with a
-    # clear message; the user must quit the IDE before our XML write
-    # will stick.
-    running = _detect_running_jetbrains(system)
-    if running:
-        r.message = (
-            f"detected running JetBrains process(es): {', '.join(running)}. "
-            "Quit completely (Cmd/Ctrl+Q) before running install.py — "
-            "otherwise the IDE overwrites our config on its shutdown."
-        )
-        return r
-
-    # Find every JetBrains IDE installation that has an options/ dir.
-    # We write to all of them so any IDE the user opens picks up sumo-qa.
     ide_dirs = sorted(
         (
             p for p in jb_root.iterdir()
@@ -403,106 +373,27 @@ def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
         return r
 
     r.detected = True
-    written: list[str] = []
-    for ide_dir in ide_dirs:
-        xml_path = ide_dir / "options" / "llm.mcpServers.xml"
-        try:
-            _write_intellij_mcp_entry(xml_path, mcp_path)
-            written.append(ide_dir.name)
-        except (ET.ParseError, OSError) as exc:
-            # Don't fail the whole install if one IDE config is malformed
-            print(f"  ! {ide_dir.name}: {exc}")
-
-    if written:
-        r.configured = True
-        r.config_path = ide_dirs[0] / "options" / "llm.mcpServers.xml"
-        r.message = (
-            f"wrote sumo-qa entry to {len(written)} IDE config(s): "
-            f"{', '.join(written)}"
-        )
-        r.followup = (
-            "      Restart any open JetBrains IDE so the new MCP entry loads.\n"
-            "      Then in AI Assistant chat type /sumo_qa_load_classifications\n"
-            "      to verify."
-        )
-    else:
-        r.message = (
-            f"detected {len(ide_dirs)} IDE(s) but none could be updated. "
-            "Add manually in Settings -> Tools -> AI Assistant -> Model Context Protocol "
-            f"with command: {mcp_path}"
-        )
+    latest = ide_dirs[0]
+    r.message = (
+        f"detected {latest.name} (and {len(ide_dirs) - 1} other IDE(s)). "
+        "JetBrains MCP plugin requires one-time Settings-UI add."
+    )
+    r.followup = (
+        "      In any JetBrains IDE, open the chat / AI Assistant panel,\n"
+        "      then:\n"
+        "        Settings -> Tools -> AI Assistant -> Model Context Protocol\n"
+        "        Click + Add server, fill in:\n"
+        "          Name:    sumo-qa\n"
+        f"          Command: {mcp_path}\n"
+        "          Arguments / Working directory: leave empty\n"
+        "        Apply.\n"
+        "\n"
+        "      Why manual: external writes to JetBrains' MCP config XML are\n"
+        "      not reliably picked up on IDEA 2026.1 (we tried). The UI add\n"
+        "      registers it via the supported path and persists across\n"
+        "      restarts."
+    )
     return r
-
-
-def _write_intellij_mcp_entry(xml_path: Path, mcp_path: Path) -> None:
-    """Write or update the sumo-qa MCP entry in JetBrains' llm.mcpServers.xml.
-
-    Schema reverse-engineered from a working install:
-
-        <application>
-          <component name="McpApplicationServerCommands" modifiable="true">
-            <McpServerCommand sourceId="UserConfigurationSource">
-              <option name="allowedToolsNames" />
-              <option name="enabled" value="true" />
-              <option name="name" value="sumo-qa" />
-              <option name="programPath" value="<absolute path>" />
-              <option name="arguments" value="" />
-              <option name="workingDirectory" value="" />
-              <envs />
-            </McpServerCommand>
-          </component>
-        </application>
-    """
-    if xml_path.exists():
-        tree = ET.parse(xml_path)
-        root = tree.getroot()
-    else:
-        xml_path.parent.mkdir(parents=True, exist_ok=True)
-        root = ET.Element("application")
-        tree = ET.ElementTree(root)
-
-    component = root.find("component[@name='McpApplicationServerCommands']")
-    if component is None:
-        component = ET.SubElement(
-            root,
-            "component",
-            {"name": "McpApplicationServerCommands", "modifiable": "true"},
-        )
-
-    # Look for an existing sumo-qa entry; update it in place if present.
-    existing = None
-    for cmd in component.findall("McpServerCommand"):
-        name_opt = cmd.find("option[@name='name']")
-        if name_opt is not None and name_opt.get("value") == "sumo-qa":
-            existing = cmd
-            break
-
-    if existing is not None:
-        # Refresh programPath + ensure enabled. Leave other fields alone so
-        # any user tweaks (allowed tool restrictions, env vars) are preserved.
-        program_opt = existing.find("option[@name='programPath']")
-        if program_opt is None:
-            program_opt = ET.SubElement(existing, "option", {"name": "programPath"})
-        program_opt.set("value", str(mcp_path))
-        enabled_opt = existing.find("option[@name='enabled']")
-        if enabled_opt is None:
-            enabled_opt = ET.SubElement(existing, "option", {"name": "enabled"})
-        enabled_opt.set("value", "true")
-    else:
-        cmd = ET.SubElement(
-            component, "McpServerCommand", {"sourceId": "UserConfigurationSource"}
-        )
-        ET.SubElement(cmd, "option", {"name": "allowedToolsNames"})
-        ET.SubElement(cmd, "option", {"name": "enabled", "value": "true"})
-        ET.SubElement(cmd, "option", {"name": "name", "value": "sumo-qa"})
-        ET.SubElement(cmd, "option", {"name": "programPath", "value": str(mcp_path)})
-        ET.SubElement(cmd, "option", {"name": "arguments", "value": ""})
-        ET.SubElement(cmd, "option", {"name": "workingDirectory", "value": ""})
-        ET.SubElement(cmd, "envs")
-
-    # Pretty-print with 2-space indent matching JetBrains' own format.
-    ET.indent(tree, space="  ", level=0)
-    tree.write(xml_path, encoding="UTF-8", xml_declaration=False)
 
 
 # ----------------------------------------------------------------------
