@@ -1,9 +1,11 @@
 """Tests for src/sumo_qa/skill_prompts.py.
 
-Every skills/*/SKILL.md must register as an MCP prompt at server startup.
-The prompt name is the skill directory name with `-` replaced by `_`.
-The prompt description matches the skill's frontmatter `description`.
-The prompt body is the full SKILL.md content, read fresh on each call.
+Every skills/*/SKILL.md must register as an MCP TOOL at server startup
+(not a prompt). Single delivery channel across hosts — Claude Code,
+IntelliJ AI Assistant, and VS Code + Copilot all surface MCP tools in
+their slash menu identically. Registering as prompts would only surface
+in Claude Code, creating asymmetric behavior. See
+src/sumo_qa/skill_prompts.py module docstring for the full rationale.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ from sumo_qa.server import build_mcp_server
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SKILLS_DIR = _REPO_ROOT / "skills"
 
-_EXPECTED_SKILL_PROMPT_NAMES = {
+_EXPECTED_SKILL_TOOL_NAMES = {
     "using_sumo_qa",
     "qa_deciding_approach",
     "qa_preparing_for_work",
@@ -29,57 +31,75 @@ _EXPECTED_SKILL_PROMPT_NAMES = {
 }
 
 
-def test_every_skill_registers_as_an_mcp_prompt() -> None:
-    """Every skills/*/SKILL.md must surface as an MCP prompt at startup."""
+def test_every_skill_registers_as_an_mcp_tool() -> None:
+    """Every skills/*/SKILL.md must surface as an MCP tool at startup."""
+    server = build_mcp_server()
+    tool_names = set(server._tool_manager._tools.keys())
+
+    missing = _EXPECTED_SKILL_TOOL_NAMES - tool_names
+    assert not missing, f"Missing skill tools: {missing}"
+
+
+def test_no_skill_registered_as_a_prompt() -> None:
+    """Skills must register as tools only, never as prompts. Dual
+    registration would create duplicate slash-menu entries in Claude
+    Code (the host that surfaces both) — the confusion this design
+    explicitly avoids."""
     server = build_mcp_server()
     prompt_names = set(server._prompt_manager._prompts.keys())
 
-    missing = _EXPECTED_SKILL_PROMPT_NAMES - prompt_names
-    assert not missing, f"Missing skill prompts: {missing}"
+    leaked = _EXPECTED_SKILL_TOOL_NAMES & prompt_names
+    assert not leaked, f"Skills leaked into MCP prompts: {leaked}"
 
 
-def test_skill_prompt_body_matches_skill_md_content() -> None:
-    """The prompt body for each skill must be the full SKILL.md text,
-    read fresh from disk on each invocation (single source of truth)."""
+def test_skill_tool_body_matches_skill_md_content() -> None:
+    """Calling each skill tool returns the full SKILL.md content, read
+    fresh from disk on each invocation (single source of truth)."""
     server = build_mcp_server()
 
     async def collect() -> dict[str, str]:
         bodies: dict[str, str] = {}
-        for prompt_name in _EXPECTED_SKILL_PROMPT_NAMES:
-            rendered = await server.get_prompt(prompt_name, {})
-            text_parts: list[str] = []
-            for message in rendered.messages:
-                text = getattr(message.content, "text", "") or ""
-                text_parts.append(text)
-            bodies[prompt_name] = "\n".join(text_parts)
+        for tool_name in _EXPECTED_SKILL_TOOL_NAMES:
+            result = await server.call_tool(tool_name, {})
+            # FastMCP returns (content_list, structured_content) for tool
+            # results. Extract the text from the first text content block.
+            text = ""
+            if isinstance(result, tuple) and result:
+                content_list = result[0]
+                for content in content_list:
+                    block_text = getattr(content, "text", None)
+                    if block_text:
+                        text = block_text
+                        break
+            bodies[tool_name] = text
         return bodies
 
     bodies = asyncio.run(collect())
 
-    for prompt_name in _EXPECTED_SKILL_PROMPT_NAMES:
-        skill_dir_name = prompt_name.replace("_", "-")
+    for tool_name in _EXPECTED_SKILL_TOOL_NAMES:
+        skill_dir_name = tool_name.replace("_", "-")
         # `sumo-qa-strategising` is the only multi-hyphen name; `_` -> `-`
         # round-trips correctly because none of the directory names contain
         # underscores.
         skill_path = _SKILLS_DIR / skill_dir_name / "SKILL.md"
         assert skill_path.is_file(), f"missing skill file: {skill_path}"
         expected_text = skill_path.read_text(encoding="utf-8")
-        assert expected_text in bodies[prompt_name], (
-            f"prompt {prompt_name!r} body does not contain SKILL.md content"
+        assert expected_text in bodies[tool_name], (
+            f"tool {tool_name!r} body does not contain SKILL.md content"
         )
 
 
-def test_skill_prompt_description_matches_frontmatter() -> None:
-    """Each skill prompt's MCP description should come from the SKILL.md
-    frontmatter `description`, so hosts that show prompt menus surface the
+def test_skill_tool_description_matches_frontmatter() -> None:
+    """Each skill tool's MCP description should come from the SKILL.md
+    frontmatter `description`, so hosts that show tool menus surface the
     canonical sentence the skill author wrote."""
     import yaml
 
     server = build_mcp_server()
-    prompts = server._prompt_manager._prompts
+    tools = server._tool_manager._tools
 
-    for prompt_name in _EXPECTED_SKILL_PROMPT_NAMES:
-        skill_dir_name = prompt_name.replace("_", "-")
+    for tool_name in _EXPECTED_SKILL_TOOL_NAMES:
+        skill_dir_name = tool_name.replace("_", "-")
         skill_path = _SKILLS_DIR / skill_dir_name / "SKILL.md"
         text = skill_path.read_text(encoding="utf-8")
         # Cheap frontmatter parse mirroring the implementation; if this
@@ -92,9 +112,12 @@ def test_skill_prompt_description_matches_frontmatter() -> None:
         assert expected_description, (
             f"{skill_path} frontmatter missing `description`"
         )
+        # The implementation collapses folded YAML descriptions to a single
+        # line, so compare against the same transformation.
+        expected_collapsed = " ".join(expected_description.split())
 
-        prompt = prompts[prompt_name]
-        assert prompt.description == expected_description, (
-            f"prompt {prompt_name!r} description mismatch: "
-            f"expected={expected_description!r} got={prompt.description!r}"
+        tool = tools[tool_name]
+        assert tool.description == expected_collapsed, (
+            f"tool {tool_name!r} description mismatch: "
+            f"expected={expected_collapsed!r} got={tool.description!r}"
         )
