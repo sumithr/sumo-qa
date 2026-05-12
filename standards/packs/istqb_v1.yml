@@ -1,0 +1,135 @@
+id: istqb-aligned
+version: "1.0.0"
+name: ISTQB-Aligned Senior QA Standards
+domain: qa
+description: >
+  Standards aligned with ISTQB Foundation, Advanced (Test Analyst / Technical
+  Test Analyst), and Test Manager syllabi, plus ISO/IEC 25010 quality
+  characteristics. Supplements the core shift-left pack.
+checks:
+  - id: principles.early_testing
+    title: Early Testing (ISTQB Foundation Principle 3)
+    applies_to: ["prepare", "review"]
+    severity: high
+    qa_focus: >
+      Test artifacts (acceptance criteria, test conditions, contract examples,
+      test data) should exist before code, not after. Cost of finding defects
+      grows the later they are found.
+    pass_criteria:
+      - "Acceptance criteria are explicit and observable before implementation."
+      - "Test conditions and data are identified during analysis, not at execution."
+      - "Static testing (review of design, criteria, test basis) precedes dynamic testing."
+
+  - id: principles.defects_cluster
+    title: Defects Cluster (ISTQB Foundation Principle 4)
+    applies_to: ["prepare", "review"]
+    severity: medium
+    qa_focus: >
+      A small number of modules contain most defects. Concentrate test design
+      on areas of historical defect density, recent change, and high inherent
+      risk - not uniformly across the system.
+    pass_criteria:
+      - "High-risk and frequently-changed modules have explicit additional coverage."
+      - "Test selection reflects defect history, not just code coverage uniformity."
+
+  - id: principles.pesticide_paradox
+    title: Pesticide Paradox (ISTQB Foundation Principle 5)
+    applies_to: ["review", "question"]
+    severity: medium
+    qa_focus: >
+      The same tests run repeatedly stop finding new defects. Existing test
+      suites must be reviewed and refreshed when the change shifts the risk
+      profile (new boundaries, new failure modes, new interactions).
+    pass_criteria:
+      - "Tests added for this change exercise new boundaries or failure modes, not duplicate existing assertions."
+      - "Stale tests that no longer add risk coverage are flagged for retirement or update."
+
+  - id: principles.absence_of_errors_fallacy
+    title: Absence-of-Errors Fallacy (ISTQB Foundation Principle 7)
+    applies_to: ["prepare", "review", "question"]
+    severity: medium
+    qa_focus: >
+      Software with zero defects is still useless if it does not solve the
+      user's problem or fit the use context. Tests must cover validation
+      (right system) as well as verification (system right).
+    pass_criteria:
+      - "Validation against acceptance criteria is explicit, not just verification of code-level behaviour."
+      - "Customer-visible outcome is named in at least one test."
+
+  - id: risk_based.product_vs_project
+    title: Product vs Project Risk (ISTQB Advanced Test Manager)
+    applies_to: ["prepare", "review"]
+    severity: high
+    qa_focus: >
+      Product risk (a defect reaching production) drives test design, depth,
+      and prioritisation. Project risk (delivery, schedule, resource) drives
+      planning. Both should be assessed before scoping QA effort.
+    pass_criteria:
+      - "Product risks are listed with likelihood and impact."
+      - "Test depth and order are derived from product risk priority."
+      - "Project risks (gaps in environments, data, skills) are flagged separately."
+
+  - id: techniques.choose_deliberately
+    title: Deliberate Test Design Technique Choice (ISTQB Advanced Test Analyst)
+    applies_to: ["prepare", "review", "question"]
+    severity: medium
+    qa_focus: >
+      Each kind of change has techniques that fit. Decision logic - decision
+      tables. Workflows and lifecycles - state transition testing. Numeric or
+      ordered inputs - boundary value analysis and equivalence partitioning.
+      Combined inputs - pairwise / orthogonal arrays. Failure paths - error
+      guessing and fault injection. Pick deliberately rather than reflexively.
+    pass_criteria:
+      - "At least one named ISTQB technique appears in the test plan, matched to the change shape."
+      - "Generic 'cover edge cases' bullets are replaced by specific named techniques where applicable."
+
+  - id: testing.confirmation_vs_regression
+    title: Confirmation Testing vs Regression Testing (ISTQB Foundation)
+    applies_to: ["review"]
+    severity: medium
+    qa_focus: >
+      Confirmation testing re-runs the failing case after a fix, to prove the
+      defect is gone. Regression testing re-runs broader tests to catch
+      collateral breakage. Both are required and distinct; they should not
+      be conflated in the test plan.
+    pass_criteria:
+      - "Bug fixes have an explicit confirmation test reproducing the original failure."
+      - "Regression scope is named (impacted areas, not the whole suite by default)."
+
+  - id: structural.coverage
+    title: Structural Coverage Awareness (ISTQB Advanced Technical Test Analyst)
+    applies_to: ["review"]
+    severity: low
+    qa_focus: >
+      For complex business logic, structural (white-box) coverage of the
+      changed code complements specification-based testing. Statement coverage
+      is the floor; branch / condition / MC-DC are stronger guarantees for
+      decision-heavy code.
+    pass_criteria:
+      - "Branch coverage on the changed function is considered, not assumed adequate from line coverage."
+      - "Decision-heavy code has condition or MC-DC coverage planned where the risk justifies it."
+
+  - id: quality.iso25010
+    title: ISO/IEC 25010 Quality Characteristics
+    applies_to: ["prepare", "review", "question"]
+    severity: medium
+    qa_focus: >
+      Functional correctness is one of eight quality characteristics. Reliability,
+      performance efficiency, security, usability, compatibility, maintainability,
+      and portability also matter and have their own characteristic test types.
+    pass_criteria:
+      - "Non-functional risks (performance, reliability, security) are considered alongside functional ones."
+      - "Quality characteristics most affected by this change type are named."
+
+  - id: question.qa_answer_disciplined
+    title: QA Answer with Named Techniques
+    applies_to: ["question"]
+    severity: medium
+    qa_focus: >
+      A senior QA answer cites named test design techniques and quality
+      characteristics, not just generic checks. It distinguishes test basis
+      (acceptance criteria, contract, model) from test conditions and test
+      cases.
+    pass_criteria:
+      - "Answer names at least one ISTQB technique relevant to the question."
+      - "Answer separates test basis, test conditions, and concrete test cases."
