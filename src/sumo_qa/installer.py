@@ -9,6 +9,9 @@ pip generates `.exe` wrappers, so users don't fight `python` vs `python3` vs
 
 What this script does:
 
+- Locates the `sumo-qa` MCP binary. If pip already put it on PATH (the
+  common case), uses that path directly — does NOT invoke uv. Falls back
+  to `uv tool install` only when the binary is not yet on PATH.
 - Claude Code: symlinks skills/ into ~/.claude/skills/sumo-qa and writes
   the MCP server entry into claude_desktop_config.json.
 - VS Code + Copilot: writes .vscode/mcp.json in the current workspace.
@@ -208,9 +211,25 @@ def main() -> int:
 
 
 def _install_mcp_binary() -> Path | None:
-    print("Installing the MCP server via uv...")
+    # Fast path: if the user already has `sumo-qa` on PATH — because they
+    # installed sumo-qa via pip / pipx / uv tool / their own venv — we don't
+    # need to install it a second time. Use the path they already have.
+    existing = shutil.which("sumo-qa")
+    if existing is not None:
+        resolved = Path(existing).resolve()
+        print(f"Using existing sumo-qa binary at {resolved}")
+        return resolved
+
+    # Fall back to uv tool install. This branch is mostly for users who
+    # somehow ran sumo-qa-install without pip-installing sumo-qa first
+    # (e.g. from a fresh clone with a dev environment that doesn't add
+    # console scripts to PATH).
+    print("sumo-qa not on PATH. Installing the MCP server via uv...")
     if shutil.which("uv") is None:
-        print("  ERROR: uv is not installed. Install it first:")
+        print("  ERROR: uv is not installed and sumo-qa is not on PATH.")
+        print("  The simplest fix is to install sumo-qa via pip (no uv needed):")
+        print("    pip install --upgrade sumo-qa")
+        print("  Or, if you prefer uv, install it first:")
         print("    macOS / Linux:  curl -LsSf https://astral.sh/uv/install.sh | sh")
         print('    Windows (PS):   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"')
         print("  Then re-run: sumo-qa-install")
