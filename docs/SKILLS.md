@@ -4,9 +4,15 @@ The sumo-qa MCP ships 10 skills under [`skills/`](../skills/). Each is a single
 `SKILL.md` file the host LLM follows literally: YAML frontmatter, an Iron Law, a
 checklist, a graphviz process flow, a Red Flags table, examples.
 
-Hosts that support superpowers-style skill auto-loading (Claude Code) load the
-files directly from `~/.claude/skills/sumo-qa/`. Other hosts (IntelliJ AI
-Assistant, VS Code + Copilot) get the same content via MCP `prompts/get`.
+Each skill is also exposed as an MCP tool with the same name (e.g. `qa_deciding_approach`). The tool returns the SKILL.md body verbatim, so hosts that don't have a native skill loader (JetBrains AI Assistant, Junie, VS Code Copilot) get the same content.
+
+Slash-menu conventions differ per host:
+
+- **Claude Code**: `/qa-deciding-approach` (hyphens) — comes from `~/.claude/skills/<name>/SKILL.md` symlinks. MCP tools (atomic + skill-wrapped) are NOT slash-invocable in Claude Code; call them via natural language.
+- **JetBrains AI Assistant**: `/qa_deciding_approach` (underscores) — comes from the MCP tool. Every MCP entry is slash-invocable.
+- **JetBrains Junie / VS Code Copilot**: Natural language; the AI picks the tool by description in Agent mode.
+
+All paths invoke the same SKILL.md body.
 
 ## The 10 skills
 
@@ -39,7 +45,9 @@ present.
 
 ## Editing a skill
 
-Skills are plain markdown. Edit `skills/<name>/SKILL.md`; the change propagates
-to every host on next reload (Claude Code reads the symlinked file; IntelliJ /
-Copilot fetch the MCP prompt fresh on each invocation). Conformance tests run
-in CI to catch structural drift.
+Skills are plain markdown. Edit `skills/<name>/SKILL.md`; the change propagates to every host on next reload:
+
+- Claude Code reads the symlinked file (and may cache the skill list at startup — restart Claude Code to refresh).
+- JetBrains AI Assistant / Junie / VS Code Copilot fetch the MCP tool body fresh on each invocation (no restart needed), BUT they cache the *tool list* at MCP-server start, so adding a NEW skill requires a host restart.
+
+Conformance tests run in CI to catch structural drift.

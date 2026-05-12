@@ -42,11 +42,16 @@ Plus team-loaded `standards/packs/*.yml` and `standards/rules/change_rules.yaml`
 
 ## Host delivery
 
-| Host | How skills reach it | Duplication |
-|---|---|---|
-| Claude Code | `install.py` symlinks `skills/` → `~/.claude/skills/sumo-qa/`. Auto-loads on QA-shaped intents via SKILL.md frontmatter description. | None (symlink) |
-| IntelliJ AI Assistant | MCP server reads `skills/*/SKILL.md` at startup and registers each as an MCP prompt. AI Assistant surfaces prompts in chat. | None (server reads canonical files at request time) |
-| VS Code + GitHub Copilot | Same MCP prompts as IntelliJ. `.github/copilot-instructions.md` (~5 lines) tells Copilot to fetch them. | None (instructions file is a pointer, not a copy) |
+Different hosts surface MCP entries through different UIs and (in some cases) different config schemas. install.py handles each correctly; the same MCP server and SKILL.md content reach every host.
+
+| Host | Setup | Slash convention | Schema |
+|---|---|---|---|
+| **Claude Code** | `install.py --claude-code` symlinks each `skills/<name>/` to `~/.claude/skills/<name>/` (per-skill, NOT a wrapper — Claude Code doesn't recurse). Writes `claude_desktop_config.json`. | `/qa-deciding-approach` (hyphens, from native skill files). MCP tools are NOT slash-invocable in Claude Code; call via natural language. | `{ "mcpServers": { ... } }` |
+| **JetBrains AI Assistant** | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `install.py --jetbrains` prints the exact fields. External XML writes don't reliably register the runtime coroutine in IDEA 2026.1 — must go through the UI. | `/qa_deciding_approach` (underscores, from MCP tools). Every MCP entry is slash-invocable. | XML at `~/Library/Application Support/JetBrains/<ide>/options/llm.mcpServers.xml` (managed by UI) |
+| **JetBrains Junie** | JSON file at `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per-project) | Natural language; Junie picks tools by description | `{ "mcpServers": { ... } }` (same as Claude Desktop) |
+| **VS Code + Copilot** | `install.py --vscode --workspace /path/to/repo` writes `<repo>/.vscode/mcp.json`. Use Agent mode + Claude Sonnet 4.5 or GPT-5 full. | Natural language; Copilot picks tools by description | `{ "servers": { "<name>": { "type": "stdio", "command": "...", "args": [] } } }` — **different from Claude Desktop's schema** |
+
+All routes ultimately call the same `sumo-qa-mcp` binary which reads the same `skills/*/SKILL.md` files and the same `knowledge/*.md` catalogues. Skill content is one source of truth.
 
 ## Knowledge authority hierarchy
 
