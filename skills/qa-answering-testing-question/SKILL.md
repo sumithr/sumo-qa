@@ -5,6 +5,8 @@ description: Use when the user asks a generic testing question — "how do I tes
 
 # Answering a testing question
 
+**Announce at start:** *"I'm using qa-answering-testing-question to cite a principle and technique that fit the actual concern — not generic advice."*
+
 ## The Iron Law
 NO ANSWER WITHOUT A CITED PRINCIPLE OR TECHNIQUE.
 
@@ -89,3 +91,7 @@ User: "how should I test a new feature that re-orders user feeds?"
 Same user.
 "You should add unit tests, integration tests, and consider edge cases. Maybe test performance too."
 - No cited principle. No named technique. No specialty tool named by fit. Senior-QA bar failed.
+
+## Next skill in the chain
+
+Terminal skill — the answer is the deliverable. If the question turns out to be a disguised plan / review / strategy ask, stop and route to the matching specific skill (see "disguised plan/review?" gate in the process flow).

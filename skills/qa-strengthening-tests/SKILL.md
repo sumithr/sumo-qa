@@ -7,6 +7,8 @@ description: Use after qa-deciding-approach picks strengthen-test-coverage. Muta
 
 Help the user kill weak assertions and surviving mutants by walking each survivor one at a time: triage tautology vs real, pick a technique, draft the strengthening test, confirm. The user has judgement context (is this mutant "real" given how the code is consumed in practice?) the AI can't infer from the report alone — surface it through questions, don't assume it.
 
+**Announce at start:** *"I'm using qa-strengthening-tests to kill the mutation survivors one at a time. Production code stays unchanged."*
+
 <HARD-GATE>
 Do NOT touch production code in this skill. Ever. If a mutant survives because the production code is wrong, that is a separate `regression-first` task — STOP this flow and route to `qa-implementing-with-tdd`. The Iron Law has no exceptions for "while I'm in here".
 </HARD-GATE>
@@ -157,3 +159,9 @@ digraph qa_strengthening_tests {
 > **AI:** writes 8 strengthening tests, edits `pitest.xml` for 3 suppressions, runs the suite, reports done — all in one message.
 >
 > No tautology check per mutant. No user confirmation on the classify-as-real call. The 3 "real" mutants the AI tested may include 1 that the user knows is equivalent given upstream type constraints — and now there's a test asserting the production logic verbatim.
+
+## Next skill in the chain
+
+When all survivors are processed (killed or suppressed with rationale) and the existing suite is still green → `qa-reviewing-before-merge` to deliver the verdict against fresh evidence, if this is a standalone task.
+
+If this task is part of a multi-task rollout dispatched by `qa-executing-qa-rollout` → `qa-finishing-qa-work` instead, to capture the strengthening evidence and produce the PR-ready summary.

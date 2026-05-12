@@ -7,6 +7,8 @@ description: Use when the user asks "review my changes" / "is this safe to merge
 
 Help the user decide whether a change is safe to ship by walking the review one section at a time: explore the diff, surface what was found, name the risks, run the verification, deliver the verdict. The user has product context (was this a deliberate behaviour change? is this consumer used externally?) the AI can't infer from the diff alone — surface it through questions, don't assume it.
 
+**Announce at start:** *"I'm using qa-reviewing-before-merge to read the diff, name the risks, run the suite, and deliver the verdict."*
+
 <HARD-GATE>
 Do NOT deliver a verdict before running tests in this turn. "CI was green earlier" is not fresh evidence. The Iron Law's only verdict source is the suite running RIGHT NOW against THIS diff, with the actual pass/fail counts surfaced.
 </HARD-GATE>
@@ -154,3 +156,7 @@ digraph qa_reviewing_before_merge {
 > **AI:** *"Before I can review: (1) what branch are you on? (2) which files did you change? (3) what's the base branch? (4) what tests should I run?"*
 >
 > All four answerable from `git status`, `git diff`, `git log`, `pyproject.toml` / `package.json`. The AI should have explored first.
+
+## Next skill in the chain
+
+When the verdict is delivered (SAFE / NOT SAFE / NEEDS WORK) with fresh evidence + risk-coverage map → `qa-finishing-qa-work` to capture the evidence and produce the PR-ready summary the user can paste into a description or release note.

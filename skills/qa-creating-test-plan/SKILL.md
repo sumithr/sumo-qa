@@ -7,6 +7,8 @@ description: Use when the user asks for a formal test plan, entry/exit criteria,
 
 Help the user turn a piece of upcoming work into a phased ISTQB-style test plan through natural collaborative dialogue. Walk through scope, risks, criteria, and phases one section at a time, confirming with them after each, until the full plan is on the page. The user has domain context the AI can't infer — surface it through questions, don't assume it.
 
+**Announce at start:** *"I'm using qa-creating-test-plan to walk scope → entry → phases → exit one section at a time. No plan ships without entry AND exit criteria."*
+
 <HARD-GATE>
 Do NOT emit a test plan in a single message. Walk through the sections one at a time, getting the user's confirmation or correction between each. A test plan dumped in one turn is a wishlist; a test plan built collaboratively is reviewable.
 </HARD-GATE>
@@ -150,3 +152,9 @@ digraph qa_creating_test_plan {
 > **AI:** *"Here's a plan: Phases — planning, testing, deployment. Tests — happy path, edge cases, integration. Entry criteria — code complete. Exit — tests pass. Done."*
 >
 > Generic phases, no risks named, tautological exit, no user collaboration. Iron Law violated.
+
+## Next skill in the chain
+
+When the plan is signed off → `qa-planning-qa-rollout` to break the phases into bite-sized, dispatchable tasks ready for subagent execution.
+
+If the user wants to act on a single phase directly rather than dispatch it → route to the matching execution skill instead (`qa-implementing-with-tdd` for new behaviour / regressions, `qa-strengthening-tests` for mutation follow-up, `qa-reviewing-before-merge` for review-shaped phases).

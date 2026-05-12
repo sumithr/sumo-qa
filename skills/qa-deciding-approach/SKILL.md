@@ -5,6 +5,8 @@ description: Use as the FIRST step on any QA intent. Loads classifications, appr
 
 # Deciding the QA approach
 
+**Announce at start:** *"I'm using qa-deciding-approach to pick the right approach for this change shape."*
+
 ## The Iron Law
 SHAPE FIRST.
 
@@ -99,3 +101,18 @@ User: "create a test plan for refactoring the pricing pipeline".
 
 User: "create a test plan for refactoring the pricing pipeline".
 Pick `tdd-scaffold` because "test plan" sounds like adding tests. Wrong — refactor needs characterization tests first, not new behaviour scaffolding. The Iron Law (`SHAPE FIRST`) was violated by ignoring "refactoring" in the intent.
+
+## Next skill in the chain
+
+Routes to exactly ONE of the following, based on the approach picked:
+
+- When the intent is *"plan QA for this story"* → `qa-preparing-for-work` to name the risks and propose the smallest useful test set before any code is written.
+- When the approach is `tdd-scaffold`, `regression-first`, or `coverage-first-then-refactor` → `qa-implementing-with-tdd` to walk red → hand-off → green with confirmation gates.
+- When the approach is `strengthen-test-coverage` → `qa-strengthening-tests` to kill mutation survivors one at a time (production code stays unchanged).
+- When the approach is `verify-existing` or the intent is review-shaped → `qa-reviewing-before-merge` to read the diff, name risks, run the suite, deliver the verdict.
+- When the user asks for a formal test plan with entry/exit criteria → `qa-creating-test-plan`.
+- When the intent is test-data-shaped → `qa-finding-test-data` to route between explain / find / validate / register.
+- When the intent is a generic testing question → `qa-answering-testing-question` to cite a principle and technique.
+- When the approach is `strategy-orchestration` → `sumo-qa-strategising` to walk the repo and design a phased rollout.
+- When the work has 3+ independent tasks needing dispatch → `qa-planning-qa-rollout` to turn the work into a bite-sized, dispatchable plan.
+- When the approach is `no-tests-recommended` → stop. No next-skill handoff.
