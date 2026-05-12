@@ -233,4 +233,4 @@ Confirm and I'll write it now, then run the Phase 1 install + seed I offered ear
 - **Residual risks named honestly.** Performance, cross-service e2e, portal-side participation, security — explicitly out of scope, with reasons. Not "none — this strategy is comprehensive".
 - **The deliverable is real work, not a deck.** Writes `docs/qa-strategy.md` on confirmation, then offers to install Phase 1 tooling and seed the first red test against the named rounding-mode risk. Strategy lands in code, not in a wiki page.
 
-This is what *"shift-left QA strategy"* looks like in practice: the repo gets walked, the risks have file paths, the gates are evidence-shaped, and Phase 1 starts before the conversation ends.
+This is what *"senior QA strategy"* looks like in practice: the repo gets walked, the risks have file paths, the gates are evidence-shaped, and Phase 1 starts before the conversation ends.

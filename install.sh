@@ -5,7 +5,7 @@
 #   1. Ensures `uv` (Astral's Python toolchain manager) is installed.
 #      uv handles Python version + venv + bin install in one step,
 #      and downloads its own Python if your system Python is too old/new.
-#   2. Installs this repo as a uv tool, putting `sumo-qa-mcp` on your PATH.
+#   2. Installs this repo as a uv tool, putting `sumo-qa` on your PATH.
 #   3. Prints the JSON config block to paste into your MCP host.
 #
 # What it explicitly avoids:
@@ -52,8 +52,8 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 ok "uv is available: $(uv --version)"
 
-# Step 2 — install sumo-qa-mcp as a uv tool.
-note "Installing sumo-qa-mcp from $REPO_DIR ..."
+# Step 2 — install sumo-qa as a uv tool.
+note "Installing sumo-qa from $REPO_DIR ..."
 INSTALL_FLAGS=()
 if [ "$FORCE" -eq 1 ]; then
     INSTALL_FLAGS+=(--reinstall)
@@ -69,14 +69,14 @@ if [ -n "$UV_BIN_DIR" ] && [ -d "$UV_BIN_DIR" ]; then
     : # uv knows where binaries go
 fi
 
-if ! command -v sumo-qa-mcp >/dev/null 2>&1; then
-    warn "sumo-qa-mcp is installed but not on PATH yet."
+if ! command -v sumo-qa >/dev/null 2>&1; then
+    warn "sumo-qa is installed but not on PATH yet."
     warn "Run 'uv tool update-shell' (it appends the right export to your shell rc),"
-    warn "then open a new terminal, then re-run 'which sumo-qa-mcp'."
+    warn "then open a new terminal, then re-run 'which sumo-qa'."
     exit 0
 fi
 
-ok "Installed: $(which sumo-qa-mcp)"
+ok "Installed: $(which sumo-qa)"
 
 # Step 3 — install the QA skill files for Claude Code (no-op for other hosts).
 # Skills follow the superpowers convention: live under ~/.claude/skills/<name>/SKILL.md.
@@ -112,7 +112,7 @@ cat <<'JSON'
   {
     "mcpServers": {
       "sumo-qa": {
-        "command": "sumo-qa-mcp"
+        "command": "sumo-qa"
       }
     }
   }

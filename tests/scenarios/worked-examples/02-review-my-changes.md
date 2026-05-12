@@ -123,4 +123,4 @@ Want me to scaffold the regression test for R2 first (red-phase, you make it gre
 - **Risk-to-test coverage map.** Every risk is matched to a passing test or flagged as uncovered. Two risks were uncovered — that's the verdict.
 - **Verdict refuses to soften the call.** The portal team's contract bump is real but separate; the suite-uncovered risks are the SAFE blockers.
 
-This is what *"shift-left QA"* looks like in practice: the bug doesn't ship; the AI doesn't pretend.
+This is what *"senior QA"* looks like in practice: the bug doesn't ship; the AI doesn't pretend.

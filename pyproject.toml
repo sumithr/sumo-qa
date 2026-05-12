@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sumo-qa"
 version = "0.1.0"
-description = "Sumo QA — a senior-QA-shaped MCP server for shift-left testing, mutation-testing follow-up, code review, and test-data discovery."
+description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -34,12 +34,12 @@ vertex = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/SumithRamsookbhai/qa-shift-left-mcp"
-Repository = "https://github.com/SumithRamsookbhai/qa-shift-left-mcp"
-Issues = "https://github.com/SumithRamsookbhai/qa-shift-left-mcp/issues"
+Homepage = "https://github.com/sumithr/sumo-qa"
+Repository = "https://github.com/sumithr/sumo-qa"
+Issues = "https://github.com/sumithr/sumo-qa/issues"
 
 [project.scripts]
-sumo-qa-mcp = "sumo_qa.server:main"
+sumo-qa = "sumo_qa.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sumo_qa"]

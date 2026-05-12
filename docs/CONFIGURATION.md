@@ -16,7 +16,7 @@ All optional. Defaults work out of the box after `python install.py`.
 {
   "mcpServers": {
     "sumo-qa": {
-      "command": "sumo-qa-mcp",
+      "command": "sumo-qa",
       "env": {
         "QA_STANDARDS_PATH": "/abs/path/to/team-standards/packs",
         "QA_RULES_PATH": "/abs/path/to/team-standards/rules/change_rules.yaml",
@@ -33,7 +33,7 @@ All optional. Defaults work out of the box after `python install.py`.
 {
   "mcpServers": {
     "sumo-qa": {
-      "command": "sumo-qa-mcp",
+      "command": "sumo-qa",
       "env": {
         "SUMO_QA_DEBUG_DIR": "/tmp/sumo-qa-debug"
       }

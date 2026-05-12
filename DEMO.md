@@ -7,12 +7,12 @@ Open any real repo. Run one of the prompts below. Watch the senior-QA workflow h
 **Claude Code:**
 
 ```text
-/plugin marketplace add SumithRamsookbhai/qa-shift-left-mcp
+/plugin marketplace add sumithr/sumo-qa
 /plugin install sumo-qa@sumo-qa-dev
 ```
 
 ```bash
-uv tool install --from git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git sumo-qa
+uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
 ```
 
 Restart Claude Code. That's it. The SessionStart hook auto-loads `using-sumo-qa` on every conversation; the 13 skills are slash-invocable; the 21 MCP tools are available by natural language.

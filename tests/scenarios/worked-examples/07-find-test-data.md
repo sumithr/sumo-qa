@@ -157,4 +157,4 @@ For the partial-refund flow test, use `billing-paid-partial-refund-001` (or `INV
 - **Hard confirmation gate before the catalogue write.** The new entry is fully drafted, validated, and shown to the user — but nothing is written until they say yes. The shared catalogue is a team artefact; the agent treats it like one.
 - **Bonus housekeeping with consent.** The stale timestamp on the boundary entry gets refreshed in the same write — but only after the user explicitly agrees. No piggy-backed side effects.
 
-This is what *"shift-left QA"* looks like for test data: the team's catalogue stays honest, drift is surfaced not hidden, and nothing gets written without a human signing off.
+This is what *"senior QA"* looks like for test data: the team's catalogue stays honest, drift is surfaced not hidden, and nothing gets written without a human signing off.

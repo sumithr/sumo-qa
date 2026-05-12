@@ -11,7 +11,7 @@ Local dev guide for sumo-qa.
 
 ```bash
 git clone <repo>
-cd qa-shift-left-mcp
+cd sumo-qa
 uv tool install --from . sumo-qa --reinstall
 ```
 
@@ -19,7 +19,7 @@ For development without installing to the user tool dir, use `uv run`:
 
 ```bash
 uv run pytest
-uv run sumo-qa-mcp --help
+uv run sumo-qa --help
 ```
 
 ## Test suite
