@@ -1,21 +1,40 @@
 # sumo-qa MCP
 
-A senior-QA MCP server that delivers ISTQB-grade testing discipline to AI coding agents in
-Claude Code, JetBrains IDEs (AI Assistant + Junie), and VS Code + GitHub Copilot. The discipline
-lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical
-knowledge catalogues; nothing runs through heavy single-shot sampling.
+A senior-QA MCP server + skills library that delivers ISTQB-grade testing discipline to AI coding agents across **Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot**. The discipline lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical knowledge catalogues; a SessionStart hook auto-injects the `using-sumo-qa` router so the agent reliably runs the workflow without you having to remember to invoke it.
 
 ## Setup
 
-**Default install (all detected hosts):**
+### Easy path — native plugin (Claude Code, Cursor, Codex, OpenCode)
 
-```bash
-python3 install.py
+These hosts have their own plugin systems. One-line install:
+
+**Claude Code** (recommended):
+```text
+/plugin marketplace add SumithRamsookbhai/qa-shift-left-mcp
+/plugin install sumo-qa@sumo-qa-dev
 ```
 
-**Just one host:**
+**Cursor:**
+```text
+/add-plugin sumo-qa
+```
+
+**OpenCode** — add to `opencode.json`:
+```json
+{ "plugin": ["sumo-qa@git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git"] }
+```
+
+Then install the MCP server binary that the skills call into:
+```bash
+uv tool install --from git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git sumo-qa
+```
+
+### Multi-host path — install.py (everything else)
+
+For JetBrains AI Assistant, Junie, VS Code + Copilot — or to set up multiple hosts at once:
 
 ```bash
+python3 install.py                           # configure every detected host
 python3 install.py --claude-code             # Claude Code only
 python3 install.py --vscode                  # VS Code workspace (run from inside it)
 python3 install.py --vscode --workspace /path/to/repo
@@ -23,8 +42,7 @@ python3 install.py --jetbrains               # prints JetBrains Settings UI step
 python3 install.py --vscode --skip-mcp-install   # don't reinstall uv tool
 ```
 
-Re-runs are idempotent. Runs on Windows, macOS, and Linux. Installs the MCP via
-`uv`, configures host-specific MCP entries, and prints any manual steps remaining.
+Re-runs are idempotent. Runs on Windows, macOS, and Linux. Installs the MCP via `uv`, configures host-specific MCP entries, and prints any manual steps remaining.
 
 **AI agents:** read [AGENTS.md](AGENTS.md) — bootstraps automatically per host.
 
@@ -42,7 +60,10 @@ Each host surfaces the same skills and tools differently — that's a host-API d
 
 | Host | Slash invocation | Setup |
 |---|---|---|
-| **Claude Code** | `/qa-deciding-approach` (hyphens) | `install.py --claude-code` symlinks each skill into `~/.claude/skills/<name>/` |
+| **Claude Code** | `/qa-deciding-approach` (hyphens) | Native plugin: `/plugin marketplace add SumithRamsookbhai/qa-shift-left-mcp` then `/plugin install sumo-qa@sumo-qa-dev`. Or `install.py --claude-code`. |
+| **Cursor** | Natural language; Cursor picks skills by description | Native plugin: `/add-plugin sumo-qa` |
+| **Codex** | Natural language; Codex picks skills by description | Codex plugin marketplace (search "Sumo QA") |
+| **OpenCode** | `skill` tool (`use skill tool to load sumo-qa/...`) | Add `"sumo-qa@git+..."` to `opencode.json` plugin array, restart |
 | **JetBrains AI Assistant** | `/qa_deciding_approach` (underscores) | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `install.py --jetbrains` prints the fields to paste. |
 | **JetBrains Junie** | Natural language; Junie picks tools by description | Drop the JSON `install.py` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per-project) |
 | **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language; Copilot picks tools by description | `install.py --vscode --workspace <repo>` writes `<repo>/.vscode/mcp.json` |
