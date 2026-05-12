@@ -7,13 +7,25 @@ description: Use after qa-planning-qa-rollout to dispatch a written QA plan task
 
 Take a written plan from `qa-planning-qa-rollout` (or a hand-written equivalent at `docs/qa/plans/...`) and execute it by dispatching one fresh subagent per task, then walking each subagent's output through a two-stage review.
 
-**Announce at start:** *"I'm using qa-executing-qa-rollout to dispatch the plan with subagents."*
+**Announce at start:** *"Dispatching the plan with subagents."*
 
 ## Output discipline (mandatory)
 
 **Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
 
 Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit).
+
+## Output economy (mandatory)
+
+Spend output tokens on findings, not framing.
+
+- **Don't preamble the work.** The host already shows tool calls — present findings, don't narrate *"I'll first read X, then Y, then deliver Z."*
+- **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
+- **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
+- **Don't restate the user's input.** They know what they asked.
+- **Section headings only when there are genuinely multiple sections.** A 3-line scope check doesn't need a `## Scope` heading.
+- **Tables only when comparing >2 things on >2 axes.** Otherwise prose is shorter.
+- **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff at the bottom of every skill is where routing lives.
 
 <HARD-GATE>
 Do NOT execute tasks inline. Every task goes to a fresh subagent. The orchestrator (you) does dispatch + review + coordination only — it never edits test files directly. If a subagent fails three times, escalate to the user.
@@ -83,11 +95,11 @@ Match the subagent model to the task shape via the Agent tool's `model` paramete
 ### Good (parallel wave 1, then sequential wave 2)
 
 > **User:** *"Execute the plan."*
-> **AI (announce):** *"I'm using qa-executing-qa-rollout to dispatch the plan with subagents."*
-> **AI (internal):** plan has 6 tasks; tasks 1–5 parallel, task 6 sequential on task 1's fixture.
-> **AI (wave 1):** dispatches 5 implementer subagents in one message. Each returns → spec-review → quality-review → mark done. Task 4 spec-review fails round 1; re-dispatched; passes round 2.
-> **AI (wave 2):** task 6 dispatches after task 1 commits. Two-stage review as before.
-> **AI (final):** cross-task reviewer confirms all 5 risks covered, full suite green. Routes to `qa-finishing-qa-work`.
+> **AI (announce):** *"Dispatching the plan with subagents."*
+> **AI:** 6 tasks; 1–5 parallel, 6 sequential on task 1's fixture.
+> **Wave 1:** 5 implementers dispatched in one message → spec → quality → done. Task 4 spec-review fails round 1; passes round 2.
+> **Wave 2:** task 6 dispatches after task 1 commits; two-stage review as before.
+> **Final:** cross-task reviewer confirms 5 risks covered, suite green. Routes to `qa-finishing-qa-work`.
 
 ### Bad (inline execution + skipped reviews)
 
