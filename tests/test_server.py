@@ -1,9 +1,11 @@
 from sumo_qa.server import build_mcp_server
 
 
-# Phase 4 slimmed surface: 4 test-data tools + 7 knowledge loaders = 11 tools.
-# The 6 heavy QA reasoning tools have been removed; that work is now driven
-# by the host LLM via skill prompts and knowledge loaders.
+# Phase 4 slimmed surface: 4 test-data tools + 7 knowledge loaders = 11 atomic tools.
+# Phase 5 follow-up: each of the 10 SKILL.md files is also registered as an MCP
+# tool (in addition to its MCP prompt) so hosts whose slash menus surface tools
+# but not prompts (IntelliJ AI Assistant, VS Code + Copilot) can invoke skills.
+# Total registered tools: 11 atomic + 10 skill = 21.
 _TEST_DATA_TOOL_NAMES = {
     "sumo_qa_explain_test_data_requirements",
     "sumo_qa_find_test_data",
@@ -19,6 +21,21 @@ _KNOWLEDGE_LOADER_TOOL_NAMES = {
     "sumo_qa_load_specialty_tools",
     "sumo_qa_load_standards",
     "sumo_qa_load_rules",
+}
+
+# Skills registered as MCP tools (parallel to their MCP-prompt registration).
+# Names match the skill directory with `-` -> `_`.
+_SKILL_TOOL_NAMES = {
+    "using_sumo_qa",
+    "qa_deciding_approach",
+    "qa_preparing_for_work",
+    "qa_creating_test_plan",
+    "qa_implementing_with_tdd",
+    "qa_reviewing_before_merge",
+    "qa_strengthening_tests",
+    "qa_finding_test_data",
+    "qa_answering_testing_question",
+    "sumo_qa_strategising",
 }
 
 # Heavy tools that MUST NOT be registered after Phase 4. The skills now drive
@@ -39,12 +56,33 @@ def test_builds_mcp_server_with_registered_tools() -> None:
     assert type(server).__name__ == "FastMCP"
 
 
-def test_registers_only_test_data_and_knowledge_loader_tools() -> None:
+def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
     server = build_mcp_server()
 
     tool_names = set(server._tool_manager._tools.keys())
 
-    assert tool_names == _TEST_DATA_TOOL_NAMES | _KNOWLEDGE_LOADER_TOOL_NAMES
+    assert tool_names == (
+        _TEST_DATA_TOOL_NAMES
+        | _KNOWLEDGE_LOADER_TOOL_NAMES
+        | _SKILL_TOOL_NAMES
+    )
+
+
+def test_skills_registered_as_both_tools_and_prompts() -> None:
+    """Each SKILL.md is registered twice: once as an MCP tool (for hosts
+    whose slash menus surface tools — IntelliJ AI Assistant, VS Code +
+    Copilot) and once as an MCP prompt (for hosts that surface prompts —
+    Claude Code). Both routes return the same SKILL.md body."""
+    server = build_mcp_server()
+    tool_names = set(server._tool_manager._tools.keys())
+    prompt_names = set(server._prompt_manager._prompts.keys())
+
+    assert _SKILL_TOOL_NAMES.issubset(tool_names), (
+        f"Missing skill tools: {_SKILL_TOOL_NAMES - tool_names}"
+    )
+    assert _SKILL_TOOL_NAMES.issubset(prompt_names), (
+        f"Missing skill prompts: {_SKILL_TOOL_NAMES - prompt_names}"
+    )
 
 
 def test_no_heavy_tools_leak_after_phase_4_deletion() -> None:
