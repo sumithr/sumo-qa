@@ -1,0 +1,38 @@
+entries:
+  - id: billing-paid-invoice-001
+    environment: integration
+    domain: billing
+    scenario_tags:
+      - invoice_paid
+      - refund_eligible
+    known_valid_for:
+      - paid invoice refund flow
+      - invoice state validation
+    constraints:
+      - Reset payment state before re-run.
+      - Release any holds after test execution.
+    owner: billing-platform
+    last_validated_at: "2026-05-05T15:15:00Z"
+    confidence: high
+    source: qa-curated
+    validation_source: mock-heuristic-validator
+    notes: Known-good paid invoice for refund-flow testing in integration.
+
+  - id: billing-pending-due-boundary-001
+    environment: integration
+    domain: billing
+    scenario_tags:
+      - invoice_pending
+      - boundary_due_date
+    known_valid_for:
+      - pending invoice due-date boundary
+      - boundary-value validation
+    constraints:
+      - Confirm clock skew is within tolerance before release sign-off.
+      - Avoid if promotion testing is not intended.
+    owner: billing-platform
+    last_validated_at: "2026-04-20T10:00:00Z"
+    confidence: medium
+    source: qa-curated
+    validation_source: mock-heuristic-validator
+    notes: Stable pending invoice for due-date boundary checks; also covers boundary-value technique.

@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+dist/
+build/
+.DS_Store
+.env
+
+# Per-machine MCP config written by install.py
+.vscode/mcp.json
+
+# Team-local test data fixtures. The repo ships domain-neutral samples
+# (auth/, billing/) — keep your team's actual catalogue entries local
+# rather than committing them. Add a line per domain folder you maintain
+# privately.
+knowledge/test_data/fulfilment/
+knowledge/test_data/stock/
