@@ -31,8 +31,24 @@ from typing import Any
 
 import yaml
 
-_SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
+_REPO_ROOT_SKILLS = Path(__file__).resolve().parent.parent.parent / "skills"
+_BUNDLED_SKILLS = Path(__file__).resolve().parent / "_data" / "skills"
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def _skills_dir() -> Path:
+    """Return the directory holding SKILL.md files.
+
+    Resolution order:
+    1. The bundled `_data/skills/` shipped inside the wheel (production
+       installs via uv/pipx land here).
+    2. The repo's top-level `skills/` (development / source checkout).
+
+    Returning a path that doesn't exist is fine — the iteration code below
+    no-ops cleanly when there are no skill dirs."""
+    if _BUNDLED_SKILLS.is_dir():
+        return _BUNDLED_SKILLS
+    return _REPO_ROOT_SKILLS
 
 
 def _parse_frontmatter(text: str) -> dict:
@@ -59,9 +75,10 @@ def register_skills_as_prompts(mcp: Any) -> None:
     Body: full file content (including frontmatter), read fresh on each call
     so editing the SKILL.md propagates without restart.
     """
-    if not _SKILLS_DIR.is_dir():
+    skills_dir = _skills_dir()
+    if not skills_dir.is_dir():
         return
-    for skill_dir in sorted(_SKILLS_DIR.iterdir()):
+    for skill_dir in sorted(skills_dir.iterdir()):
         if not skill_dir.is_dir():
             continue
         skill_path = skill_dir / "SKILL.md"
