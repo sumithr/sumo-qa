@@ -19,7 +19,7 @@ These hosts have plugin systems that read `.claude-plugin/`, `.cursor-plugin/`, 
 This installs the skills, registers the SessionStart hook (auto-injects the `using-sumo-qa` router on every conversation), and you're done. To also get the MCP tools (knowledge loaders + test-data tools), install the server binary:
 
 ```bash
-uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
+uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa-mcp
 ```
 
 Then add it to `claude_desktop_config.json` (or let `install.py --claude-code` do it).
@@ -169,7 +169,7 @@ You should get 10 names back: api_contract_change, business_logic_change, securi
 If you're not running install.py for any reason, the binary path you need everywhere is:
 
 ```bash
-uv tool install --from . sumo-qa --reinstall
+uv tool install --from . sumo-qa-mcp --reinstall
 which sumo-qa   # or: ls ~/.local/share/uv/tools/sumo-qa/bin/sumo-qa
 ```
 
