@@ -7,10 +7,14 @@ description: Use whenever a user asks anything QA-shaped — testing, code revie
 
 **Announce at start:** *"I'm using using-sumo-qa to route this QA-shaped intent through the right discipline."*
 
+## Output discipline (mandatory)
+
+**Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
+
 ## The Iron Law
 NO QA WORK WITHOUT FIRST DECIDING THE APPROACH.
 
-You may not produce test ideas, scaffolds, plans, reviews, or strategies without first invoking `qa-deciding-approach`. Skipping the approach decision routes wrong-shaped output to the user.
+You may not produce test ideas, scaffolds, plans, reviews, or strategies without first invoking `qa-deciding-approach`.
 
 ## When to Use
 
@@ -99,23 +103,7 @@ You MUST create a TodoWrite item per checklist item and complete in order:
 
 ## Process Flow
 
-```dot
-digraph using_sumo_qa {
-    rankdir=TB;
-    "User QA-shaped intent" [shape=doublecircle];
-    "Load this skill" [shape=box];
-    "Iron Law check" [shape=diamond];
-    "Invoke qa-deciding-approach" [shape=box];
-    "Follow next_action" [shape=box];
-    "Sub-skill executes" [shape=doublecircle];
-
-    "User QA-shaped intent" -> "Load this skill";
-    "Load this skill" -> "Iron Law check";
-    "Iron Law check" -> "Invoke qa-deciding-approach" [label="always — no exceptions"];
-    "Invoke qa-deciding-approach" -> "Follow next_action";
-    "Follow next_action" -> "Sub-skill executes";
-}
-```
+See the Checklist above — that's the flow.
 
 ## Red Flags
 
@@ -125,7 +113,6 @@ digraph using_sumo_qa {
 | "This question is too simple to need the approach skill" | Simple intents still need shape (no-tests-recommended is a valid approach). Skip the decision and you skip the safety net. |
 | "I'll cite the principles myself from training data" | Loaded catalogue is authoritative. Use `sumo_qa_load_principles()`. |
 | "Let me echo the citation reasoning in the answer for transparency" | Citations belong to internal scratch, not user output. They burn tokens. |
-| "I'll surface 'Classification: X' / 'Approach: Y' / 'Anchored to evidence' in the output" | Internal scaffolding. Burns tokens, adds noise. Translate to natural English; keep file:line citations the user can verify. |
 | "Specialty tools are only for non-functional surfaces" | Wrong. Mutation tools, property-based libraries, contract frameworks all fit functional surfaces too. Pick the best fit for the user's stack from your training-data knowledge; use `specialty_tools.md` to confirm the category applies. |
 
 ## Examples

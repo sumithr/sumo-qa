@@ -7,10 +7,14 @@ description: Use when the user asks to plan QA for a story, ticket, or piece of 
 
 **Announce at start:** *"I'm using qa-preparing-for-work to name the risks and propose the smallest useful test set before any code is written."*
 
-## The Iron Law
-NO TEST IDEA WITHOUT A NAMED RISK.
+## Output discipline (mandatory)
 
-Every test you propose ties to a specific risk you identified. Generic "add edge case tests", "test happy and sad paths", "check for null inputs" are senior-QA failure modes — they tell the user nothing they didn't already know.
+**Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
+
+Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit).
+
+## The Iron Law
+NO TEST IDEA WITHOUT A NAMED RISK. Every test you propose ties to a specific risk you identified.
 
 ## When to Use
 
@@ -31,33 +35,13 @@ You MUST create a TodoWrite item per checklist item and complete in order:
 3. Read the actual files in scope using the host's file tools. Do NOT ask the user for file content the host can read directly.
 4. Identify 3-7 named risks. Each risk MUST be specific (not "input validation breaks" but "currency conversion at the GBP→USD boundary rounds incorrectly when the rate is supplied with >6 decimal places"). Anchor each in a file path or domain term from the user's words.
 5. Call `sumo_qa_load_techniques()`. Pick one technique per named risk. Use the catalogue's wording.
-6. Recommend specialty tools (if any), and offer to set them up — pick from your knowledge of the ecosystem anchored to the user's stack and the actual risks. `sumo_qa_load_specialty_tools()` is a category-fit primer, NOT a brand whitelist. Verify currency with web search if uncertain. The tool is just the means to coverage — offer to install and set it up yourself (package manager / framework CLI / config edit / MCP server — whichever path is shortest) and scaffold the first tests against the named risks. Confirm before installing dependencies. Empty list is acceptable.
+6. Recommend specialty tools (if any), and offer to set them up — pick from your knowledge of the ecosystem anchored to the user's stack and the actual risks. `sumo_qa_load_specialty_tools()` is a category-fit primer, NOT a brand whitelist. Verify currency with web search if uncertain. Offer to install and scaffold the first tests against the named risks. Confirm before installing dependencies. Empty list is acceptable.
 7. Produce a smallest useful test set: 3-7 tests, each tied to a named risk. No generic "test happy path".
 8. Output: conversational prose, sectioned (risks, tests, techniques, specialty tools, open assumptions). No JSON blob.
 
 ## Process Flow
 
-```dot
-digraph qa_preparing_for_work {
-    rankdir=TB;
-    "Receive intent + classification" [shape=doublecircle];
-    "Load standards + rules" [shape=box];
-    "Read files in scope" [shape=box];
-    "Identify named risks" [shape=box];
-    "Load techniques + tools" [shape=box];
-    "Pick technique per risk" [shape=box];
-    "Smallest useful test set" [shape=box];
-    "Synthesise prep brief" [shape=doublecircle];
-
-    "Receive intent + classification" -> "Load standards + rules";
-    "Load standards + rules" -> "Read files in scope";
-    "Read files in scope" -> "Identify named risks";
-    "Identify named risks" -> "Load techniques + tools";
-    "Load techniques + tools" -> "Pick technique per risk";
-    "Pick technique per risk" -> "Smallest useful test set";
-    "Smallest useful test set" -> "Synthesise prep brief";
-}
-```
+See the Checklist above — that's the flow.
 
 ## Red Flags
 
@@ -76,16 +60,13 @@ digraph qa_preparing_for_work {
 ### Good
 
 User: "I'm adding a refund endpoint to the payments service. What should I test?"
-- Classification: `api_contract_change` + `business_logic_change`.
-- Risks (anchored): (1) refund amount exceeds original charge (boundary risk on `amount` vs original `charge.amount`). (2) refund issued twice for the same charge (idempotency risk on `charge_id` parameter). (3) partial refund recorded but downstream ledger update fails (atomicity risk crossing payment-processor / internal-ledger boundary). (4) refund of an already-refunded charge isn't blocked (state-machine risk on `charge.status`).
-- Techniques: (1) boundary value analysis. (2) state transition testing. (3) decision table. (4) state transition testing.
-- Tools: Pact (consumer-driven contract test for the new endpoint shape) + Hypothesis (property-based test that idempotency holds across many input orderings).
+- Risks: (1) refund amount exceeds original charge. (2) refund issued twice for the same charge (idempotency on `charge_id`). (3) partial refund recorded but downstream ledger update fails. (4) refund of an already-refunded charge isn't blocked.
+- Techniques: boundary value analysis; state transition testing; decision table; state transition testing.
+- Tools: Pact (consumer-driven contract test) + Hypothesis (property-based idempotency).
 
 ### Bad
 
-Same user.
-"Test that the endpoint returns 200 on success. Test that it handles invalid amounts. Test edge cases. Test the happy path. Consider adding security testing."
-- No named risks, no anchors, no specific values, generic technique calls, no specialty fits. Senior QA bar failed.
+"Test that the endpoint returns 200 on success. Test that it handles invalid amounts. Test edge cases. Test the happy path." — No named risks, no anchors, no specific values.
 
 ## Next skill in the chain
 
