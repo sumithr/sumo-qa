@@ -5,13 +5,25 @@ description: Use when the user asks about test data — what data to test X, fin
 
 # Finding test data
 
-**Announce at start:** *"I'm using qa-finding-test-data to route this between explain / find / validate / register and surface fresh-validated evidence."*
+**Announce at start:** *"Finding test data — validated fresh."*
 
 ## Output discipline (mandatory)
 
 **Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
 
 Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit).
+
+## Output economy (mandatory)
+
+Spend output tokens on findings, not framing.
+
+- **Don't preamble the work.** The host already shows tool calls — present findings, don't narrate *"I'll first read X, then Y, then deliver Z."*
+- **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
+- **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
+- **Don't restate the user's input.** They know what they asked.
+- **Section headings only when there are genuinely multiple sections.** A 3-line scope check doesn't need a `## Scope` heading.
+- **Tables only when comparing >2 things on >2 axes.** Otherwise prose is shorter.
+- **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff at the bottom of every skill is where routing lives.
 
 ## The Iron Law
 
