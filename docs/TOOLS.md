@@ -1,6 +1,6 @@
 # MCP Tools
 
-The sumo-qa MCP exposes **21 entry points**: 10 skill tools + 7 knowledge loaders + 4 test-data tools. All are thin — each is file IO or a small deterministic operation. No inference, no host-LLM sampling. The host LLM reasons over what they return.
+The sumo-qa MCP exposes **24 entry points**: 13 skill tools + 7 knowledge loaders + 4 test-data tools. All are thin — each is file IO or a small deterministic operation. No inference, no host-LLM sampling. The host LLM reasons over what they return.
 
 ## Skill tools (10)
 

@@ -4,7 +4,7 @@ Local dev guide for sumo-qa.
 
 ## Prerequisites
 
-- Python 3.10+ (capped at <3.14 per `pyproject.toml`)
+- Python 3.10 or newer (no upper cap; see `pyproject.toml`'s `requires-python`)
 - [uv](https://docs.astral.sh/uv/) — install via `curl -LsSf https://astral.sh/uv/install.sh | sh` (or PowerShell equivalent on Windows)
 
 ## Setup
