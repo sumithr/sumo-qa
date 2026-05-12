@@ -7,23 +7,33 @@ from pydantic import Field
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.knowledge_loaders import (
     sumo_qa_load_approaches as _load_approaches,
+)
+from sumo_qa.knowledge_loaders import (
     sumo_qa_load_classifications as _load_classifications,
+)
+from sumo_qa.knowledge_loaders import (
     sumo_qa_load_principles as _load_principles,
+)
+from sumo_qa.knowledge_loaders import (
     sumo_qa_load_rules as _load_rules,
+)
+from sumo_qa.knowledge_loaders import (
     sumo_qa_load_specialty_tools as _load_specialty_tools,
+)
+from sumo_qa.knowledge_loaders import (
     sumo_qa_load_standards as _load_standards,
+)
+from sumo_qa.knowledge_loaders import (
     sumo_qa_load_techniques as _load_techniques,
 )
 from sumo_qa.skill_prompts import register_skills_as_prompts
 from sumo_qa.tools import QAShiftLeftService
 
-
 # Reusable actionable hints for isError envelopes. Hosts surface these to the
 # user when a tool fails, so they should describe a concrete next step rather
 # than restate the error.
 _HINT_LOCAL_FILES_MISSING = (
-    "If the working tree or knowledge/test_data/ is missing files, confirm the repo "
-    "is checked out."
+    "If the working tree or knowledge/test_data/ is missing files, confirm the repo is checked out."
 )
 _HINT_TEST_DATA_WRITE = (
     "If the write fails, confirm `knowledge/test_data/` is writable and the entry's "

@@ -9,6 +9,7 @@ Path resolution mirrors the existing pattern in `server.py` for
 `QA_TEST_DATA_PATH`: env var override, then bundled `_data/knowledge/`
 in installed wheels, then `knowledge/` at repo root in dev.
 """
+
 from __future__ import annotations
 
 import os

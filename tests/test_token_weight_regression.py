@@ -21,6 +21,7 @@ Token estimation here is approximate (length / 4 chars-per-token). For
 exact counts, hosts use their own tokenizers. The budget targets are
 conservative.
 """
+
 import pytest
 
 from sumo_qa.knowledge_loaders import (

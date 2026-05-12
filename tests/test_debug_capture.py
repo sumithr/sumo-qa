@@ -1,6 +1,4 @@
 import json
-import os
-from pathlib import Path
 
 from sumo_qa.debug_capture import maybe_capture
 

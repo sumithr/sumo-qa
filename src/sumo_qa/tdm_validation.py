@@ -46,7 +46,9 @@ class MockValidator:
         )
 
 
-def assess_freshness(last_validated_at: datetime | None, now: datetime | None = None) -> FreshnessMetadata:
+def assess_freshness(
+    last_validated_at: datetime | None, now: datetime | None = None
+) -> FreshnessMetadata:
     reference = now or datetime.now(timezone.utc)
     if last_validated_at is None:
         return FreshnessMetadata(
@@ -66,7 +68,9 @@ def assess_freshness(last_validated_at: datetime | None, now: datetime | None = 
     else:
         status = "stale"
         reason = f"Entry has not been validated in {age_days} day(s)."
-    return FreshnessMetadata(status=status, last_validated_at=validated_at, age_days=age_days, reason=reason)
+    return FreshnessMetadata(
+        status=status, last_validated_at=validated_at, age_days=age_days, reason=reason
+    )
 
 
 def not_applicable_freshness(reason: str) -> FreshnessMetadata:
@@ -127,7 +131,9 @@ def _lowest_confidence(*levels: TDMConfidenceLevel) -> TDMConfidenceLevel:
     return min(levels, key=lambda level: rank[level])
 
 
-def _validation_reason(entry: TestDataEntry, freshness: FreshnessMetadata, issues: list[str]) -> str:
+def _validation_reason(
+    entry: TestDataEntry, freshness: FreshnessMetadata, issues: list[str]
+) -> str:
     if issues:
         return f"Confidence: Low because heuristic validation found: {', '.join(issues)}."
     if freshness.status == "unknown":

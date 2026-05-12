@@ -2,7 +2,6 @@ from pathlib import Path
 
 from sumo_qa.tools import QAShiftLeftService
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -33,7 +32,9 @@ def test_resolve_data_path_honours_explicit_user_path(tmp_path: Path) -> None:
     assert resolved == custom
 
 
-def test_resolve_data_path_falls_back_to_bundled_when_default_missing(tmp_path: Path, monkeypatch) -> None:
+def test_resolve_data_path_falls_back_to_bundled_when_default_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
     from sumo_qa.tools import (
         DEFAULT_STANDARDS_PATH,
         _resolve_data_path,

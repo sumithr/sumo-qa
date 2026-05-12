@@ -10,7 +10,6 @@ from sumo_qa.tdm_service import TestDataAssistant as Assistant
 from sumo_qa.tdm_validation import MockValidator
 from sumo_qa.tools import QAShiftLeftService
 
-
 ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 5, 6, 12, 0, tzinfo=timezone.utc)
 
@@ -170,8 +169,10 @@ def test_find_test_data_pagination_truncates_and_signals_more(tmp_path: Path) ->
 
 
 def test_mock_validator_flags_future_validated_at() -> None:
-    from sumo_qa.tdm_models import TestDataEntry as DEntry
     from datetime import timedelta as _td
+
+    from sumo_qa.tdm_models import TestDataEntry as DEntry
+
     entry = DEntry(
         id="future-001",
         environment="integration",
@@ -192,8 +193,10 @@ def test_mock_validator_flags_future_validated_at() -> None:
 
 
 def test_mock_validator_flags_high_confidence_with_stale_freshness() -> None:
-    from sumo_qa.tdm_models import TestDataEntry as DEntry
     from datetime import timedelta as _td
+
+    from sumo_qa.tdm_models import TestDataEntry as DEntry
+
     entry = DEntry(
         id="inconsistent-001",
         environment="integration",
@@ -211,8 +214,7 @@ def test_mock_validator_flags_high_confidence_with_stale_freshness() -> None:
 
     assert result.valid is False
     assert any(
-        "high confidence" in issue.lower() and "stale" in issue.lower()
-        for issue in result.issues
+        "high confidence" in issue.lower() and "stale" in issue.lower() for issue in result.issues
     )
 
 
@@ -225,7 +227,9 @@ def test_validate_test_data_reports_freshness_and_confidence() -> None:
     assert result["validation"]["confidence"]["level"] == "medium"
 
 
-def test_register_known_good_test_data_creates_updates_and_detects_duplicate(tmp_path: Path) -> None:
+def test_register_known_good_test_data_creates_updates_and_detects_duplicate(
+    tmp_path: Path,
+) -> None:
     catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
     assistant = Assistant(catalogue, MockValidator(now=NOW))
     entry = {
@@ -326,7 +330,9 @@ def test_catalogue_caches_entries_until_invalidated(tmp_path: Path) -> None:
     )
 
     cached = catalogue.list_entries()
-    assert [entry.id for entry in cached] == ["first"], "cache should return prior result until invalidated"
+    assert [entry.id for entry in cached] == ["first"], (
+        "cache should return prior result until invalidated"
+    )
 
     catalogue._invalidate_cache()
     refreshed = catalogue.list_entries()

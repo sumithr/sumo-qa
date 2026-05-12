@@ -5,7 +5,6 @@ import yaml
 
 from sumo_qa.rules import StandardsRulesEngine
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -82,10 +81,7 @@ def test_evaluate_returns_per_classification_template_map() -> None:
     # api template should be under api, not data_mapping
     api_marker = "payload shape or validation changes silently"
     assert any(api_marker in template for template in by_classification["api_contract_change"])
-    assert all(
-        api_marker not in template
-        for template in by_classification["data_mapping_change"]
-    )
+    assert all(api_marker not in template for template in by_classification["data_mapping_change"])
 
 
 def test_unknown_suggested_test_type_raises_value_error(tmp_path: Path) -> None:
