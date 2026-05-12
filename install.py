@@ -372,6 +372,11 @@ def _setup_vscode_copilot(mcp_path: Path, workspace: Path) -> HostResult:
     vscode_dir.mkdir(exist_ok=True)
     config_path = vscode_dir / "mcp.json"
 
+    # VS Code Copilot's MCP config schema:
+    #   { "servers": { "<name>": { "type": "stdio", "command": "...", "args": [] } } }
+    # Note: this is DIFFERENT from Claude Desktop / Claude Code's schema
+    # ({ "mcpServers": { ... } } without a "type" field). VS Code ignores
+    # the mcpServers key entirely. We write the VS Code-native format.
     config: dict = {}
     if config_path.exists():
         try:
@@ -379,12 +384,21 @@ def _setup_vscode_copilot(mcp_path: Path, workspace: Path) -> HostResult:
         except json.JSONDecodeError:
             r.message = (
                 f"{config_path} exists but is invalid JSON; not modifying. "
-                f'Add manually: "sumo-qa": {{ "command": "{mcp_path}" }}'
+                f'Add manually: "sumo-qa": {{ "type": "stdio", "command": "{mcp_path}" }}'
             )
             return r
 
-    config.setdefault("mcpServers", {})
-    config["mcpServers"]["sumo-qa"] = {"command": str(mcp_path)}
+    # Strip any legacy mcpServers key from previous install.py runs — VS Code
+    # never used it, leaving it as noise is harmful (looks configured when
+    # it isn't).
+    config.pop("mcpServers", None)
+
+    config.setdefault("servers", {})
+    config["servers"]["sumo-qa"] = {
+        "type": "stdio",
+        "command": str(mcp_path),
+        "args": [],
+    }
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     r.configured = True
