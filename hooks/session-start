@@ -29,6 +29,12 @@ escape_for_json() {
 }
 
 using_sumo_qa_escaped=$(escape_for_json "$using_sumo_qa_content")
+
+# Note: the Sumo-sensei persona is OFF by default. The user can ask for it
+# mid-conversation ('turn on the sumo persona', 'enable sumo-sensei', etc.)
+# and the agent will load docs/PERSONA.md and adopt the voice for the rest
+# of the session. See docs/PERSONA.md + skills/using-sumo-qa/SKILL.md.
+
 session_context="<EXTREMELY_IMPORTANT>\nYou have sumo-qa: a senior-QA skills library + MCP server.\n\n**Below is the full content of your 'sumo-qa:using-sumo-qa' skill - your entry router for every QA-shaped task. For all other sumo-qa skills, use the 'Skill' tool:**\n\n${using_sumo_qa_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON.
