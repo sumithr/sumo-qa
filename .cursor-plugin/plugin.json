@@ -1,0 +1,25 @@
+{
+  "name": "sumo-qa",
+  "displayName": "Sumo QA",
+  "description": "Senior-QA skills library + MCP server: shift-left testing, mutation-testing follow-up, code review, test-data discovery.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Sumith Ramsookbhai"
+  },
+  "homepage": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp",
+  "repository": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp",
+  "license": "MIT",
+  "keywords": [
+    "qa",
+    "testing",
+    "tdd",
+    "mutation-testing",
+    "code-review",
+    "shift-left",
+    "istqb",
+    "senior-qa",
+    "test-data"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks-cursor.json"
+}

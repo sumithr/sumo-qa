@@ -1,0 +1,22 @@
+{
+  "name": "sumo-qa",
+  "description": "Senior-QA-shaped MCP server + skills library: shift-left testing, mutation-testing follow-up, code review, test-data discovery. Iron-Law-enforced workflows for deciding approach, prepping for work, TDD-scaffolding, reviewing diffs, strengthening tests, and repo-wide strategising.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Sumith Ramsookbhai"
+  },
+  "homepage": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp",
+  "repository": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp",
+  "license": "MIT",
+  "keywords": [
+    "qa",
+    "testing",
+    "tdd",
+    "mutation-testing",
+    "code-review",
+    "shift-left",
+    "istqb",
+    "senior-qa",
+    "test-data"
+  ]
+}
