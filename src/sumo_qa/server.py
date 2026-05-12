@@ -89,14 +89,16 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     ) -> dict:
         """Explain what test data shape and characteristics are needed for a scenario.
 
-        Returns: required product characteristics, stock/fulfilment conditions,
-        downstream dependencies, edge cases, and explicit "what NOT to use"
-        guidance. Optional `environment` (e.g. "integration") and `domain` are
-        folded into the analysis.
+        Returns: required entity characteristics, resource-state conditions,
+        scenario preconditions, downstream dependencies, edge cases, and
+        explicit "what NOT to use" guidance. Domain-neutral by design — works
+        for any domain (auth, billing, retail, infrastructure, ML, etc.).
+        Optional `environment` (e.g. "integration") and `domain` are folded
+        into the analysis.
 
         Common natural-language phrasings that map to this tool:
         "what data do I need to test X", "what test data should I look for to
-        cover X", "what records / SKUs / postcodes / accounts do I need for X",
+        cover X", "what records / accounts / fixtures do I need for X",
         "what's the minimum data setup for X", "what edge-case data should I
         test".
         """
@@ -124,7 +126,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             Field(
                 default=None,
                 description="Scenario tags to match against catalogue entries.",
-                examples=[["out_of_area", "fulfilment_pricing"]],
+                examples=[["boundary_input", "degraded_dependency"]],
             ),
         ] = None,
         known_valid_for: Annotated[
@@ -132,7 +134,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             Field(
                 default=None,
                 description="Use-case labels the entry has been validated for.",
-                examples=[["out-of-area fulfilment pricing"]],
+                examples=[["boundary input validation"]],
             ),
         ] = None,
         product_id: str = "",
@@ -153,8 +155,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
         Common natural-language phrasings that map to this tool:
         "find me test data for X", "do we have a known-good record for X",
-        "give me a SKU / product / account that does X", "is there a fixture
-        for X", "what test data is available for X".
+        "give me an account / fixture / record that does X", "is there a
+        fixture for X", "what test data is available for X".
         """
         try:
             output = qa_service.qa_find_test_data(
@@ -226,7 +228,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         Common natural-language phrasings that map to this tool:
         "save this as known-good test data", "register this fixture so the team
         can reuse it", "promote this record to known-good", "update the
-        validated timestamp on entry X", "add this SKU to the catalogue".
+        validated timestamp on entry X", "add this record to the catalogue".
         """
         try:
             output = qa_service.qa_register_known_good_test_data(entry)
@@ -274,8 +276,12 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_load_specialty_tools() -> str:
-            """Return the specialty + tool fit catalogue as plain text. The host
-            LLM picks tools that fit the actual risk."""
+            """Return the specialty + tool fit category primer as plain text.
+            This is a CATEGORY-FIT primer (when does mutation testing apply,
+            when does DAST apply, etc.), NOT a brand whitelist. The host LLM
+            recommends the best-fit tool from its training-data knowledge of
+            the ecosystem anchored to the user's stack; this file confirms the
+            category fits the risk. Brand names in the file are illustrative."""
             return _load_specialty_tools()
 
         @mcp.tool(annotations=_read_only_local)

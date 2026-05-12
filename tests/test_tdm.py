@@ -29,14 +29,16 @@ def test_explain_test_data_requirements_is_senior_qa_focused() -> None:
     deterministic skeleton still returns the universal QA bones (stable
     identifiers, edge cases, what-not-to-use) for any domain."""
     result = service().qa_explain_test_data_requirements(
-        "What data do I need to test out-of-area fulfilment pricing?",
+        "What data do I need to test the locked-account rejection flow?",
         environment="integration",
-        domain="fulfilment",
+        domain="auth",
     )
 
     assert result["tool"] == "sumo_qa_explain_test_data_requirements"
-    assert result["domain"] == "fulfilment"
-    assert result["fulfilment_conditions"], "must surface fulfilment-condition skeleton"
+    assert result["domain"] == "auth"
+    assert result["scenario_preconditions"], "must surface scenario-preconditions skeleton"
+    assert result["resource_state_conditions"], "must surface resource-state skeleton"
+    assert result["required_entity_characteristics"], "must surface entity-characteristics skeleton"
     assert result["what_not_to_use"], "must surface what-not-to-use skeleton"
     assert result["confidence"]["level"] == "medium"
     assert result["validation_source"] == "requirements-heuristic"
@@ -44,9 +46,9 @@ def test_explain_test_data_requirements_is_senior_qa_focused() -> None:
 
 def test_explain_test_data_requirements_falls_back_to_general_when_domain_omitted() -> None:
     """Without an explicit domain, the tool stays generic — no phrase-matching
-    'fulfilment' or 'pricing' to guess."""
+    to guess at the user's domain."""
     result = service().qa_explain_test_data_requirements(
-        "What data do I need to test out-of-area fulfilment pricing?",
+        "What data do I need to test boundary-value handling on the due-date input?",
         environment="integration",
     )
     assert result["domain"] == "general"
@@ -55,7 +57,7 @@ def test_explain_test_data_requirements_falls_back_to_general_when_domain_omitte
 def test_find_test_data_explains_when_no_results() -> None:
     result = service().qa_find_test_data(
         environment="integration",
-        domain="stock",
+        domain="auth",
         scenario_tags=["this_tag_does_not_exist_anywhere_in_the_catalogue"],
     )
 
@@ -73,14 +75,14 @@ def test_find_test_data_explains_when_no_results() -> None:
 def test_find_test_data_filters_and_explains_suitability() -> None:
     result = service().qa_find_test_data(
         environment="integration",
-        domain="fulfilment",
-        scenario_tags=["out_of_area"],
-        known_valid_for=["out-of-area fulfilment pricing"],
+        domain="auth",
+        scenario_tags=["account_locked"],
+        known_valid_for=["locked account rejection"],
     )
 
     assert result["tool"] == "sumo_qa_find_test_data"
     assert result["results"]
-    assert result["results"][0]["entry"]["id"] == "fulfilment-out-of-area-001"
+    assert result["results"][0]["entry"]["id"] == "auth-locked-account-001"
     assert "known valid for" in result["results"][0]["suitability_reason"]
     assert result["results"][0]["validation"]["freshness"]["status"] == "fresh"
 
@@ -90,9 +92,9 @@ def test_find_test_data_pagination_metadata_present() -> None:
     results exist beyond the limit. Even single-page responses carry the totals."""
     result = service().qa_find_test_data(
         environment="integration",
-        domain="fulfilment",
-        scenario_tags=["out_of_area"],
-        known_valid_for=["out-of-area fulfilment pricing"],
+        domain="auth",
+        scenario_tags=["account_locked"],
+        known_valid_for=["locked account rejection"],
         limit=5,
     )
 
@@ -114,13 +116,14 @@ def test_find_test_data_pagination_truncates_and_signals_more(tmp_path: Path) ->
     for index in range(7):
         assistant.register_known_good_test_data(
             {
-                "id": f"stock-pagination-{index:03d}",
+                "id": f"auth-pagination-{index:03d}",
                 "environment": "integration",
-                "domain": "stock",
-                "product_id": f"{1000 + index}",
-                "sku": f"{1000 + index}",
+                "domain": "auth",
                 "scenario_tags": ["pagination_smoke"],
-                "known_valid_for": ["pagination smoke"],
+                # Distinct known_valid_for per entry so duplicate detection
+                # (env + domain + identifier + overlapping known_valid_for)
+                # does NOT collapse them into one.
+                "known_valid_for": [f"pagination smoke index {index}"],
                 "owner": "qa",
                 "confidence": "medium",
                 "source": "qa-curated",
@@ -129,7 +132,7 @@ def test_find_test_data_pagination_truncates_and_signals_more(tmp_path: Path) ->
 
     page_one = assistant.find_test_data(
         environment="integration",
-        domain="stock",
+        domain="auth",
         scenario_tags=["pagination_smoke"],
         limit=3,
     )
@@ -141,7 +144,7 @@ def test_find_test_data_pagination_truncates_and_signals_more(tmp_path: Path) ->
 
     page_two = assistant.find_test_data(
         environment="integration",
-        domain="stock",
+        domain="auth",
         scenario_tags=["pagination_smoke"],
         limit=3,
         offset=3,
@@ -154,7 +157,7 @@ def test_find_test_data_pagination_truncates_and_signals_more(tmp_path: Path) ->
 
     page_three = assistant.find_test_data(
         environment="integration",
-        domain="stock",
+        domain="auth",
         scenario_tags=["pagination_smoke"],
         limit=3,
         offset=6,
@@ -172,10 +175,9 @@ def test_mock_validator_flags_future_validated_at() -> None:
     entry = DEntry(
         id="future-001",
         environment="integration",
-        domain="stock",
-        sku="1",
-        scenario_tags=["availability"],
-        known_valid_for=["availability check"],
+        domain="auth",
+        scenario_tags=["mfa_required"],
+        known_valid_for=["mfa enforcement testing"],
         owner="qa",
         confidence="medium",
         source="qa-curated",
@@ -195,10 +197,9 @@ def test_mock_validator_flags_high_confidence_with_stale_freshness() -> None:
     entry = DEntry(
         id="inconsistent-001",
         environment="integration",
-        domain="stock",
-        sku="1",
-        scenario_tags=["availability"],
-        known_valid_for=["availability check"],
+        domain="auth",
+        scenario_tags=["mfa_required"],
+        known_valid_for=["mfa enforcement testing"],
         owner="qa",
         confidence="high",
         source="qa-curated",
@@ -216,7 +217,7 @@ def test_mock_validator_flags_high_confidence_with_stale_freshness() -> None:
 
 
 def test_validate_test_data_reports_freshness_and_confidence() -> None:
-    result = service().qa_validate_test_data(entry_id="stock-pricing-validation-001")
+    result = service().qa_validate_test_data(entry_id="billing-pending-due-boundary-001")
 
     assert result["tool"] == "sumo_qa_validate_test_data"
     assert result["validation"]["validation_source"] == "mock-heuristic-validator"
@@ -228,18 +229,16 @@ def test_register_known_good_test_data_creates_updates_and_detects_duplicate(tmp
     catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
     assistant = Assistant(catalogue, MockValidator(now=NOW))
     entry = {
-        "id": "stock-low-stock-001",
+        "id": "auth-mfa-boundary-001",
         "environment": "integration",
-        "domain": "stock",
-        "product_id": "10001",
-        "sku": "10001",
-        "scenario_tags": ["low_stock", "stock_reservation"],
-        "known_valid_for": ["stock reservation"],
-        "constraints": ["Do not consume final unit in shared tests."],
-        "owner": "stock-platform",
+        "domain": "auth",
+        "scenario_tags": ["mfa_required", "boundary_token_age"],
+        "known_valid_for": ["mfa enforcement testing"],
+        "constraints": ["Reset MFA state after test execution."],
+        "owner": "identity-platform",
         "confidence": "medium",
         "source": "qa-curated",
-        "notes": "Low stock boundary example.",
+        "notes": "Boundary token-age example.",
     }
 
     created = assistant.register_known_good_test_data(entry)
@@ -250,21 +249,19 @@ def test_register_known_good_test_data_creates_updates_and_detects_duplicate(tmp
     assert created["entry"]["last_validated_at"]
     assert updated["action"] == "updated"
     assert duplicate["action"] == "duplicate"
-    assert duplicate["duplicate_of"] == "stock-low-stock-001"
+    assert duplicate["duplicate_of"] == "auth-mfa-boundary-001"
 
 
 def test_register_rejects_high_confidence_without_validation(tmp_path: Path) -> None:
     catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
     assistant = Assistant(catalogue, MockValidator(now=NOW))
     entry = {
-        "id": "stock-overclaimed-001",
+        "id": "auth-overclaimed-001",
         "environment": "integration",
-        "domain": "stock",
-        "product_id": "10001",
-        "sku": "10001",
-        "scenario_tags": ["low_stock"],
-        "known_valid_for": ["stock reservation"],
-        "owner": "stock-platform",
+        "domain": "auth",
+        "scenario_tags": ["mfa_required"],
+        "known_valid_for": ["mfa enforcement testing"],
+        "owner": "identity-platform",
         "confidence": "high",
         "source": "qa-curated",
     }
@@ -279,7 +276,7 @@ def test_register_rejects_high_confidence_without_validation(tmp_path: Path) -> 
 
 def test_catalogue_caches_entries_until_invalidated(tmp_path: Path) -> None:
     root = tmp_path / "knowledge" / "test_data"
-    domain_dir = root / "stock"
+    domain_dir = root / "auth"
     domain_dir.mkdir(parents=True)
     yaml_path = domain_dir / "sample.yaml"
     yaml_path.write_text(
@@ -289,10 +286,9 @@ def test_catalogue_caches_entries_until_invalidated(tmp_path: Path) -> None:
                     {
                         "id": "first",
                         "environment": "integration",
-                        "domain": "stock",
-                        "sku": "1",
-                        "scenario_tags": ["availability"],
-                        "known_valid_for": ["availability check"],
+                        "domain": "auth",
+                        "scenario_tags": ["active_account"],
+                        "known_valid_for": ["active account login"],
                         "owner": "qa",
                         "confidence": "medium",
                         "source": "test",
@@ -315,10 +311,9 @@ def test_catalogue_caches_entries_until_invalidated(tmp_path: Path) -> None:
                     {
                         "id": "second",
                         "environment": "integration",
-                        "domain": "stock",
-                        "sku": "2",
-                        "scenario_tags": ["availability"],
-                        "known_valid_for": ["availability check"],
+                        "domain": "auth",
+                        "scenario_tags": ["active_account"],
+                        "known_valid_for": ["active account login"],
                         "owner": "qa",
                         "confidence": "medium",
                         "source": "test",
@@ -345,13 +340,11 @@ def test_catalogue_register_invalidates_cache(tmp_path: Path) -> None:
     assert catalogue.list_entries() == []
 
     entry = {
-        "id": "stock-cache-invalidate-001",
+        "id": "auth-cache-invalidate-001",
         "environment": "integration",
-        "domain": "stock",
-        "product_id": "1",
-        "sku": "1",
-        "scenario_tags": ["availability"],
-        "known_valid_for": ["availability check"],
+        "domain": "auth",
+        "scenario_tags": ["active_account"],
+        "known_valid_for": ["active account login"],
         "owner": "qa",
         "confidence": "medium",
         "source": "qa-curated",
@@ -359,11 +352,11 @@ def test_catalogue_register_invalidates_cache(tmp_path: Path) -> None:
     assistant.register_known_good_test_data(entry)
 
     refreshed = catalogue.list_entries()
-    assert [entry_obj.id for entry_obj in refreshed] == ["stock-cache-invalidate-001"]
+    assert [entry_obj.id for entry_obj in refreshed] == ["auth-cache-invalidate-001"]
 
 
 def test_catalogue_reports_file_path_on_malformed_yaml(tmp_path: Path) -> None:
-    domain_dir = tmp_path / "knowledge" / "test_data" / "stock"
+    domain_dir = tmp_path / "knowledge" / "test_data" / "auth"
     domain_dir.mkdir(parents=True)
     yaml_path = domain_dir / "broken.yaml"
     yaml_path.write_text("entries: [unclosed\n", encoding="utf-8")
@@ -377,7 +370,7 @@ def test_catalogue_reports_file_path_on_malformed_yaml(tmp_path: Path) -> None:
 
 
 def test_catalogue_reports_file_path_on_invalid_entry(tmp_path: Path) -> None:
-    domain_dir = tmp_path / "knowledge" / "test_data" / "stock"
+    domain_dir = tmp_path / "knowledge" / "test_data" / "auth"
     domain_dir.mkdir(parents=True)
     yaml_path = domain_dir / "bad_entry.yaml"
     yaml_path.write_text(
@@ -405,7 +398,7 @@ def test_catalogue_reports_file_path_on_invalid_entry(tmp_path: Path) -> None:
 
 
 def test_catalogue_reports_file_path_when_entries_is_not_a_list(tmp_path: Path) -> None:
-    domain_dir = tmp_path / "knowledge" / "test_data" / "stock"
+    domain_dir = tmp_path / "knowledge" / "test_data" / "auth"
     domain_dir.mkdir(parents=True)
     yaml_path = domain_dir / "wrong_shape.yaml"
     yaml_path.write_text(
@@ -422,19 +415,18 @@ def test_catalogue_reports_file_path_when_entries_is_not_a_list(tmp_path: Path) 
 
 
 def test_catalogue_loads_yaml_entries(tmp_path: Path) -> None:
-    path = tmp_path / "knowledge" / "test_data" / "stock"
+    path = tmp_path / "knowledge" / "test_data" / "auth"
     path.mkdir(parents=True)
     (path / "sample.yaml").write_text(
         yaml.safe_dump(
             {
                 "entries": [
                     {
-                        "id": "sample-stock",
+                        "id": "sample-auth",
                         "environment": "integration",
-                        "domain": "stock",
-                        "sku": "1",
-                        "scenario_tags": ["availability"],
-                        "known_valid_for": ["availability check"],
+                        "domain": "auth",
+                        "scenario_tags": ["active_account"],
+                        "known_valid_for": ["active account login"],
                         "owner": "qa",
                         "confidence": "medium",
                         "source": "test",
@@ -450,12 +442,11 @@ def test_catalogue_loads_yaml_entries(tmp_path: Path) -> None:
 
     assert entries == [
         Entry(
-            id="sample-stock",
+            id="sample-auth",
             environment="integration",
-            domain="stock",
-            sku="1",
-            scenario_tags=["availability"],
-            known_valid_for=["availability check"],
+            domain="auth",
+            scenario_tags=["active_account"],
+            known_valid_for=["active account login"],
             owner="qa",
             confidence="medium",
             source="test",

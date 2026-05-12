@@ -85,8 +85,6 @@ def _heuristic_issues(entry: TestDataEntry) -> list[str]:
         issues.append("scenario_tags should describe when this data is useful")
     if not entry.known_valid_for:
         issues.append("known_valid_for should name validated use cases")
-    if not entry.product_id and not entry.sku:
-        issues.append("product_id or sku is required for product-level test data")
     return issues
 
 
