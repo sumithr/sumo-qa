@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Knowledge-provider tools.
 
 Each `sumo_qa_load_*` function reads a markdown catalogue from

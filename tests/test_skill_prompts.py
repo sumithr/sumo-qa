@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Tests for src/sumo_qa/skill_prompts.py.
 
 Every skills/*/SKILL.md must register as an MCP TOOL at server startup

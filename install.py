@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """sumo-qa installer.
 
 Installs the MCP server via uv, then auto-configures every supported host

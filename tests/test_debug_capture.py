@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 import json
 
 from sumo_qa.debug_capture import maybe_capture

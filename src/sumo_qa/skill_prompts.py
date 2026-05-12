@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Register every skills/*/SKILL.md as an MCP tool.
 
 Single delivery channel for skills across every supported host. MCP tools
