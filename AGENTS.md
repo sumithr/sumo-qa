@@ -13,7 +13,7 @@ sumo-qa-install
 
 What `sumo-qa-install` does:
 
-1. Installs `sumo-qa` via `uv` if not already present (prints `uv` install instructions if `uv` is missing).
+1. Locates the `sumo-qa` MCP binary. If `pip install sumo-qa` already put it on PATH (the common case), uses that path directly — no `uv` invocation. If `sumo-qa` is not on PATH yet, falls back to `uv tool install` and prints `uv` install instructions if `uv` is also missing.
 2. **Claude Code** (if `~/.claude/` exists): symlinks each `skills/<name>/` into `~/.claude/skills/<name>/`. Writes `claude_desktop_config.json` with the MCP entry pointing at the absolute binary path.
 3. **VS Code + Copilot** (if cwd is a workspace with `.git` / `.vscode` / `package.json` / etc.): writes `.vscode/mcp.json` with the **VS Code-native schema** (`servers` key, `type: stdio`).
 4. **JetBrains IDEs** (if JetBrains config dir exists): prints exact Settings UI steps. JetBrains' MCP plugin requires Settings UI registration — external XML writes don't reliably register the runtime coroutine.
