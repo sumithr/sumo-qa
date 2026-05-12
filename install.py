@@ -36,6 +36,7 @@ import os
 import platform
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -255,8 +256,23 @@ def _setup_vscode_copilot(mcp_path: Path) -> HostResult:
 # IntelliJ AI Assistant
 # ----------------------------------------------------------------------
 
+_JB_IDE_PREFIXES = (
+    "IntelliJIdea",
+    "PyCharm",
+    "GoLand",
+    "WebStorm",
+    "RubyMine",
+    "PhpStorm",
+    "CLion",
+    "Rider",
+    "DataGrip",
+    "AppCode",
+    "AndroidStudio",
+)
+
+
 def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
-    r = HostResult("IntelliJ AI Assistant")
+    r = HostResult("JetBrains IDEs")
     home = Path.home()
 
     if system == "Darwin":
@@ -270,35 +286,123 @@ def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
         r.message = "not detected (no JetBrains config dir)"
         return r
 
-    # Find the latest IntelliJIdea installation (sorted by version desc).
-    versions = sorted(
-        (p for p in jb_root.iterdir() if p.is_dir() and p.name.startswith("IntelliJIdea")),
+    # Find every JetBrains IDE installation that has an options/ dir.
+    # We write to all of them so any IDE the user opens picks up sumo-qa.
+    ide_dirs = sorted(
+        (
+            p for p in jb_root.iterdir()
+            if p.is_dir()
+            and any(p.name.startswith(prefix) for prefix in _JB_IDE_PREFIXES)
+            and (p / "options").exists()
+        ),
         key=lambda p: p.name,
         reverse=True,
     )
-    if not versions:
-        r.message = "no IntelliJ IDEA installation found"
+    if not ide_dirs:
+        r.message = "no JetBrains IDE installation found"
         return r
 
-    latest = versions[0]
     r.detected = True
-    r.message = (
-        f"detected {latest.name}. JetBrains MCP plugin requires Settings UI."
-    )
-    r.followup = (
-        "      Open IntelliJ -> Settings -> Tools -> AI Assistant ->\n"
-        "      Model Context Protocol -> Add server, with these fields:\n"
-        "\n"
-        "        Name:    sumo-qa\n"
-        f"        Command: {mcp_path}\n"
-        "        Args:    (empty)\n"
-        "\n"
-        "      Apply, then restart the AI Assistant chat panel.\n"
-        "      The absolute path above is required — IntelliJ's subprocess\n"
-        "      launcher does not inherit your shell PATH, so a bare\n"
-        "      'sumo-qa-mcp' command will fail to start."
-    )
+    written: list[str] = []
+    for ide_dir in ide_dirs:
+        xml_path = ide_dir / "options" / "llm.mcpServers.xml"
+        try:
+            _write_intellij_mcp_entry(xml_path, mcp_path)
+            written.append(ide_dir.name)
+        except (ET.ParseError, OSError) as exc:
+            # Don't fail the whole install if one IDE config is malformed
+            print(f"  ! {ide_dir.name}: {exc}")
+
+    if written:
+        r.configured = True
+        r.config_path = ide_dirs[0] / "options" / "llm.mcpServers.xml"
+        r.message = (
+            f"wrote sumo-qa entry to {len(written)} IDE config(s): "
+            f"{', '.join(written)}"
+        )
+        r.followup = (
+            "      Restart any open JetBrains IDE so the new MCP entry loads.\n"
+            "      Then in AI Assistant chat type /sumo_qa_load_classifications\n"
+            "      to verify."
+        )
+    else:
+        r.message = (
+            f"detected {len(ide_dirs)} IDE(s) but none could be updated. "
+            "Add manually in Settings -> Tools -> AI Assistant -> Model Context Protocol "
+            f"with command: {mcp_path}"
+        )
     return r
+
+
+def _write_intellij_mcp_entry(xml_path: Path, mcp_path: Path) -> None:
+    """Write or update the sumo-qa MCP entry in JetBrains' llm.mcpServers.xml.
+
+    Schema reverse-engineered from a working install:
+
+        <application>
+          <component name="McpApplicationServerCommands" modifiable="true">
+            <McpServerCommand sourceId="UserConfigurationSource">
+              <option name="allowedToolsNames" />
+              <option name="enabled" value="true" />
+              <option name="name" value="sumo-qa" />
+              <option name="programPath" value="<absolute path>" />
+              <option name="arguments" value="" />
+              <option name="workingDirectory" value="" />
+              <envs />
+            </McpServerCommand>
+          </component>
+        </application>
+    """
+    if xml_path.exists():
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+    else:
+        xml_path.parent.mkdir(parents=True, exist_ok=True)
+        root = ET.Element("application")
+        tree = ET.ElementTree(root)
+
+    component = root.find("component[@name='McpApplicationServerCommands']")
+    if component is None:
+        component = ET.SubElement(
+            root,
+            "component",
+            {"name": "McpApplicationServerCommands", "modifiable": "true"},
+        )
+
+    # Look for an existing sumo-qa entry; update it in place if present.
+    existing = None
+    for cmd in component.findall("McpServerCommand"):
+        name_opt = cmd.find("option[@name='name']")
+        if name_opt is not None and name_opt.get("value") == "sumo-qa":
+            existing = cmd
+            break
+
+    if existing is not None:
+        # Refresh programPath + ensure enabled. Leave other fields alone so
+        # any user tweaks (allowed tool restrictions, env vars) are preserved.
+        program_opt = existing.find("option[@name='programPath']")
+        if program_opt is None:
+            program_opt = ET.SubElement(existing, "option", {"name": "programPath"})
+        program_opt.set("value", str(mcp_path))
+        enabled_opt = existing.find("option[@name='enabled']")
+        if enabled_opt is None:
+            enabled_opt = ET.SubElement(existing, "option", {"name": "enabled"})
+        enabled_opt.set("value", "true")
+    else:
+        cmd = ET.SubElement(
+            component, "McpServerCommand", {"sourceId": "UserConfigurationSource"}
+        )
+        ET.SubElement(cmd, "option", {"name": "allowedToolsNames"})
+        ET.SubElement(cmd, "option", {"name": "enabled", "value": "true"})
+        ET.SubElement(cmd, "option", {"name": "name", "value": "sumo-qa"})
+        ET.SubElement(cmd, "option", {"name": "programPath", "value": str(mcp_path)})
+        ET.SubElement(cmd, "option", {"name": "arguments", "value": ""})
+        ET.SubElement(cmd, "option", {"name": "workingDirectory", "value": ""})
+        ET.SubElement(cmd, "envs")
+
+    # Pretty-print with 2-space indent matching JetBrains' own format.
+    ET.indent(tree, space="  ", level=0)
+    tree.write(xml_path, encoding="UTF-8", xml_declaration=False)
 
 
 # ----------------------------------------------------------------------
