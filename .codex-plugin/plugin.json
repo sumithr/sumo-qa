@@ -1,0 +1,43 @@
+{
+  "name": "sumo-qa",
+  "version": "0.1.0",
+  "description": "Senior-QA skills library + MCP server: shift-left testing, TDD scaffolding, mutation-testing follow-up, code review, repo-wide QA strategy, and test-data discovery.",
+  "author": {
+    "name": "Sumith Ramsookbhai",
+    "url": "https://github.com/SumithRamsookbhai"
+  },
+  "homepage": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp",
+  "repository": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp",
+  "license": "MIT",
+  "keywords": [
+    "qa",
+    "testing",
+    "tdd",
+    "mutation-testing",
+    "code-review",
+    "shift-left",
+    "istqb",
+    "senior-qa",
+    "test-data"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Sumo QA",
+    "shortDescription": "Senior-QA workflows: shift-left testing, TDD, mutation-testing follow-up, code review, test-data discovery.",
+    "longDescription": "Use Sumo QA to drive software changes through a disciplined senior-QA workflow: pick the right approach for the change shape, name risks anchored in code, scaffold red tests before production code, strengthen weak assertions against mutation survivors, review diffs with fresh verification evidence, and find or register known-good test data — all grounded in ISTQB principles, change classifications, and the team's loaded standards.",
+    "developerName": "Sumith Ramsookbhai",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Plan QA for this story before I start coding.",
+      "Review my changes for risk before I merge.",
+      "Audit our test coverage and design a QA strategy.",
+      "Find me a known-good test data record for this scenario."
+    ],
+    "websiteURL": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp"
+  }
+}

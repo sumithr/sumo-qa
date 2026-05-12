@@ -1,6 +1,46 @@
 # Install
 
-## Common case
+There are two install paths depending on which host you're using:
+
+- **Native-plugin path** — Claude Code, Cursor, Codex, OpenCode (one-line install per host).
+- **install.py path** — JetBrains AI Assistant, Junie, VS Code + Copilot (or batch-install across hosts).
+
+## Native-plugin install (Claude Code, Cursor, Codex, OpenCode)
+
+These hosts have plugin systems that read `.claude-plugin/`, `.cursor-plugin/`, `.codex-plugin/`, `.opencode/` directly from the repo — no `install.py` needed.
+
+### Claude Code
+
+```text
+/plugin marketplace add SumithRamsookbhai/qa-shift-left-mcp
+/plugin install sumo-qa@sumo-qa-dev
+```
+
+This installs the skills, registers the SessionStart hook (auto-injects the `using-sumo-qa` router on every conversation), and you're done. To also get the MCP tools (knowledge loaders + test-data tools), install the server binary:
+
+```bash
+uv tool install --from git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git sumo-qa
+```
+
+Then add it to `claude_desktop_config.json` (or let `install.py --claude-code` do it).
+
+### Cursor
+
+```text
+/add-plugin sumo-qa
+```
+
+Or add to `.cursor/plugins.json`. The plugin declares `"skills": "./skills/"` and `"hooks": "./hooks/hooks-cursor.json"` so Cursor picks up both automatically.
+
+### Codex
+
+Install from the Codex plugin marketplace — search for "Sumo QA". The plugin ships an `interface` block (display name, default prompts, etc.) so it shows up correctly in the Codex UI.
+
+### OpenCode
+
+See [`.opencode/INSTALL.md`](../.opencode/INSTALL.md) — add `"sumo-qa@git+https://github.com/SumithRamsookbhai/qa-shift-left-mcp.git"` to your `opencode.json` plugin array. Includes a Claude-Code-to-OpenCode tool-name mapping table for skill authors.
+
+## install.py path (JetBrains, VS Code + Copilot, batch installs)
 
 ```bash
 python3 install.py
