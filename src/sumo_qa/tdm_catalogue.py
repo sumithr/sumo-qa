@@ -119,7 +119,11 @@ class TestDataCatalogue:
                 and existing.product_id == entry.product_id
                 and existing.sku == entry.sku
             )
-            if same_identity and entry_tags.intersection(existing.scenario_tags) and entry_valid_for.intersection(existing.known_valid_for):
+            if (
+                same_identity
+                and entry_tags.intersection(existing.scenario_tags)
+                and entry_valid_for.intersection(existing.known_valid_for)
+            ):
                 return existing
         return None
 
@@ -169,4 +173,7 @@ def _touch_entry(entry: TestDataEntry) -> TestDataEntry:
 
 
 def _slug(value: str) -> str:
-    return "".join(character if character.isalnum() else "_" for character in value.lower()).strip("_") or "general"
+    return (
+        "".join(character if character.isalnum() else "_" for character in value.lower()).strip("_")
+        or "general"
+    )

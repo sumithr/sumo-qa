@@ -7,6 +7,7 @@ their slash menu identically. Registering as prompts would only surface
 in Claude Code, creating asymmetric behavior. See
 src/sumo_qa/skill_prompts.py module docstring for the full rationale.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -109,9 +110,7 @@ def test_skill_tool_description_matches_frontmatter() -> None:
         _, fm, _ = text.split("---", 2)
         meta = yaml.safe_load(fm) or {}
         expected_description = meta.get("description")
-        assert expected_description, (
-            f"{skill_path} frontmatter missing `description`"
-        )
+        assert expected_description, f"{skill_path} frontmatter missing `description`"
         # The implementation collapses folded YAML descriptions to a single
         # line, so compare against the same transformation.
         expected_collapsed = " ".join(expected_description.split())

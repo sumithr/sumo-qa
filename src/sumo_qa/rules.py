@@ -7,7 +7,6 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-
 SUPPORTED_TEST_TYPES = {"unit", "integration", "contract", "functional", "nonfunctional"}
 
 
@@ -52,7 +51,7 @@ class StandardsRulesEngine:
         self._rules = rules
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "StandardsRulesEngine":
+    def from_file(cls, path: str | Path) -> StandardsRulesEngine:
         rules_path = Path(path)
         if not rules_path.exists():
             return cls({})
@@ -94,11 +93,17 @@ class StandardsRulesEngine:
     def evaluate(self, classifications: list[str]) -> dict[str, Any]:
         matched = [self._rules[name] for name in classifications if name in self._rules]
         must_consider = _dedupe(item for rule in matched for item in rule.must_consider)
-        suggested_test_types = _dedupe(item for rule in matched for item in rule.suggested_test_types)
+        suggested_test_types = _dedupe(
+            item for rule in matched for item in rule.suggested_test_types
+        )
         avoid_testing = _dedupe(item for rule in matched for item in rule.avoid_testing)
         risk_templates = _dedupe(item for rule in matched for item in rule.risk_templates)
-        test_design_techniques = _dedupe(item for rule in matched for item in rule.test_design_techniques)
-        quality_characteristics = _dedupe(item for rule in matched for item in rule.quality_characteristics)
+        test_design_techniques = _dedupe(
+            item for rule in matched for item in rule.test_design_techniques
+        )
+        quality_characteristics = _dedupe(
+            item for rule in matched for item in rule.quality_characteristics
+        )
         templates_by_classification = {
             rule.classification: list(rule.risk_templates) for rule in matched
         }

@@ -4,6 +4,7 @@ These tools read markdown catalogues and return them verbatim. No inference,
 no filtering beyond optional metadata-based subset selection. The tests
 assert that known canonical entries are present in the returned text.
 """
+
 from sumo_qa.knowledge_loaders import sumo_qa_load_classifications
 
 

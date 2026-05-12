@@ -7,7 +7,6 @@ from sumo_qa.tdm_catalogue import TestDataCatalogue
 from sumo_qa.tdm_service import TestDataAssistant
 from sumo_qa.tdm_validation import TestDataValidator
 
-
 DEFAULT_STANDARDS_PATH = Path("standards/packs")
 DEFAULT_RULES_PATH = Path("standards/rules/change_rules.yaml")
 DEFAULT_TEST_DATA_PATH = Path("knowledge/test_data")
@@ -78,7 +77,7 @@ class QAShiftLeftService:
         path: str | Path = DEFAULT_STANDARDS_PATH,
         rules_path: str | Path = DEFAULT_RULES_PATH,
         test_data_path: str | Path = DEFAULT_TEST_DATA_PATH,
-    ) -> "QAShiftLeftService":
+    ) -> QAShiftLeftService:
         # standards_path / rules_path are kept in the signature for backward
         # compatibility with build_service() and existing tests, even though
         # the slimmed service no longer evaluates standards or rules.

@@ -1,6 +1,5 @@
 from sumo_qa.server import build_mcp_server
 
-
 # Phase 4 slimmed surface: 4 test-data tools + 7 knowledge loaders = 11 atomic tools.
 # Phase 5 follow-up: each SKILL.md is also registered as an MCP tool
 # (in addition to its MCP prompt) so hosts whose slash menus surface tools but
@@ -66,11 +65,7 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
 
     tool_names = set(server._tool_manager._tools.keys())
 
-    assert tool_names == (
-        _TEST_DATA_TOOL_NAMES
-        | _KNOWLEDGE_LOADER_TOOL_NAMES
-        | _SKILL_TOOL_NAMES
-    )
+    assert tool_names == (_TEST_DATA_TOOL_NAMES | _KNOWLEDGE_LOADER_TOOL_NAMES | _SKILL_TOOL_NAMES)
 
 
 def test_skills_registered_as_tools_only() -> None:
