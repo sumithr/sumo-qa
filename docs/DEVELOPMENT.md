@@ -71,5 +71,5 @@ uv tool install --from . sumo-qa --reinstall
 ```
 
 Picks up server.py changes. For skill edits, no reinstall needed — Claude Code reads
-`~/.claude/skills/sumo-qa/` via the symlink that `install.py` set up, and the MCP server
+`~/.claude/skills/sumo-qa/` via the symlink that `sumo-qa-install` set up, and the MCP server
 reads `skills/*/SKILL.md` fresh on each prompt request.

@@ -1,10 +1,13 @@
-#!/usr/bin/env python3
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """sumo-qa installer.
 
-Installs the MCP server via uv, then auto-configures every supported host
-found on this machine using the absolute path to the binary (so hosts that
-don't inherit the user shell PATH still find it).
+Shipped as the `sumo-qa-install` console script (exposed via [project.scripts]
+in pyproject.toml). After `pip install sumo-qa`, both `sumo-qa` (the MCP
+server) and `sumo-qa-install` (this) land on PATH automatically — on Windows
+pip generates `.exe` wrappers, so users don't fight `python` vs `python3` vs
+`py`.
+
+What this script does:
 
 - Claude Code: symlinks skills/ into ~/.claude/skills/sumo-qa and writes
   the MCP server entry into claude_desktop_config.json.
@@ -17,9 +20,7 @@ don't inherit the user shell PATH still find it).
 
 Idempotent. Re-run to refresh after updates. Runs on Windows, macOS, Linux.
 
-Requires Python 3.10+. If you see a SyntaxError around type annotations,
-you're running Python 2 (`python` on macOS resolves there by default).
-Use `python3 install.py` instead.
+Requires Python 3.10+ (enforced by [project.requires-python] in pyproject).
 """
 
 from __future__ import annotations
@@ -28,9 +29,8 @@ import sys
 
 if sys.version_info < (3, 10):
     sys.stderr.write(
-        "install.py requires Python 3.10+ (you have "
+        "sumo-qa-install requires Python 3.10+ (you have "
         f"{sys.version_info.major}.{sys.version_info.minor}).\n"
-        "Run: python3 install.py\n"
     )
     sys.exit(1)
 
@@ -41,8 +41,39 @@ import shutil
 import subprocess
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent
-SKILLS_SRC = REPO_ROOT / "skills"
+# Mode detection: are we running from inside an installed wheel
+# (sumo_qa/_data/skills/ bundled next to this module) or from a git
+# clone / editable install (skills/ live at the repo root)?
+#
+# Hatch's [tool.hatch.build.targets.wheel.force-include] copies skills/
+# into sumo_qa/_data/skills/ in built wheels but NOT in editable installs
+# (`pip install -e .`), so editable-mode contributors transparently get
+# the git-clone branch and pick up live edits to skills/.
+_MODULE_DIR = Path(__file__).resolve().parent
+_BUNDLED_SKILLS = _MODULE_DIR / "_data" / "skills"
+
+if _BUNDLED_SKILLS.is_dir():
+    # Installed-wheel mode. Skills come from the bundled data; the MCP
+    # binary is already on PATH (pip put us here), so uv tool install
+    # should pull from PyPI by name rather than from a local path.
+    REPO_ROOT = _MODULE_DIR  # unused in this mode; kept defined for type-checking
+    SKILLS_SRC = _BUNDLED_SKILLS
+    _UV_INSTALL_FROM: list[str] = []  # `uv tool install sumo-qa` (no --from)
+else:
+    # Git-clone / editable-install mode. installer.py lives at
+    # <repo>/src/sumo_qa/installer.py, so the repo root is two parents
+    # above the module directory: src/sumo_qa → src → <repo>.
+    REPO_ROOT = _MODULE_DIR.parent.parent
+    if not (REPO_ROOT / "pyproject.toml").is_file():
+        sys.stderr.write(
+            "sumo-qa-install: could not locate bundled skills or a repo "
+            "root. If you installed via pip, please file an issue with your "
+            "Python and pip versions; if you're running from a clone, "
+            "ensure the standard repo layout.\n"
+        )
+        sys.exit(1)
+    SKILLS_SRC = REPO_ROOT / "skills"
+    _UV_INSTALL_FROM = ["--from", str(REPO_ROOT)]
 
 
 class HostResult:
@@ -182,11 +213,11 @@ def _install_mcp_binary() -> Path | None:
         print("  ERROR: uv is not installed. Install it first:")
         print("    macOS / Linux:  curl -LsSf https://astral.sh/uv/install.sh | sh")
         print('    Windows (PS):   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"')
-        print("  Then re-run: python install.py")
+        print("  Then re-run: sumo-qa-install")
         return None
     try:
         subprocess.run(
-            ["uv", "tool", "install", "--from", str(REPO_ROOT), "sumo-qa", "--reinstall"],
+            ["uv", "tool", "install", *_UV_INSTALL_FROM, "sumo-qa", "--reinstall"],
             check=True,
         )
     except subprocess.CalledProcessError as exc:
@@ -203,7 +234,7 @@ def _install_mcp_binary() -> Path | None:
                 return candidate.resolve()
         print("  ERROR: uv install succeeded but sumo-qa is not on PATH and")
         print("  not at any conventional uv tool location. Restart your shell")
-        print("  and re-run python install.py.")
+        print("  and re-run sumo-qa-install.")
         return None
     return Path(binary).resolve()
 
@@ -528,7 +559,7 @@ def _verify_mcp_responds(mcp_path: Path) -> bool:
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "install.py", "version": "1"},
+                "clientInfo": {"name": "sumo-qa-install", "version": "1"},
             },
         }
     )
