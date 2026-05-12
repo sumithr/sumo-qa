@@ -12,7 +12,7 @@ Local dev guide for sumo-qa.
 ```bash
 git clone <repo>
 cd sumo-qa
-uv tool install --from . sumo-qa --reinstall
+uv tool install --from . sumo-qa-mcp --reinstall
 ```
 
 For development without installing to the user tool dir, use `uv run`:
@@ -67,7 +67,7 @@ Adding a new technique, classification, or specialty tool = editing one file.
 ## Reinstalling locally
 
 ```bash
-uv tool install --from . sumo-qa --reinstall
+uv tool install --from . sumo-qa-mcp --reinstall
 ```
 
 Picks up server.py changes. For skill edits, no reinstall needed — Claude Code reads

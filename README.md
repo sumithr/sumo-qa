@@ -23,8 +23,8 @@ Read [DEMO.md](DEMO.md) for the 5-minute install-and-run-this-prompt walkthrough
 ### One-line install (PyPI)
 
 ```bash
-pip install sumo-qa
-# or:  uv tool install sumo-qa
+pip install sumo-qa-mcp
+# or:  uv tool install sumo-qa-mcp
 ```
 
 After install, restart your MCP host (Claude Code / Cursor / Codex / OpenCode / JetBrains AI Assistant / VS Code + Copilot) so it picks up the new MCP server.
@@ -36,7 +36,7 @@ After install, restart your MCP host (Claude Code / Cursor / Codex / OpenCode / 
 /plugin install sumo-qa@sumo-qa-dev
 ```
 
-Then `uv tool install sumo-qa` (or `pip install sumo-qa`) so the MCP server binary is on PATH. The skills come from the plugin; the MCP tools come from the binary.
+Then `uv tool install sumo-qa-mcp` (or `pip install sumo-qa-mcp`) so the MCP server binary is on PATH. The skills come from the plugin; the MCP tools come from the binary.
 
 ### Multi-host batch install (JetBrains + VS Code + everywhere)
 
@@ -49,7 +49,7 @@ Configures every supported host detected on this machine. Per-host flags + troub
 ### From a git URL (latest main)
 
 ```bash
-uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
+uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa-mcp
 ```
 
 ## What you get
