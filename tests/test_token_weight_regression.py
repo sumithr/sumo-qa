@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Token-weight regression — the new architecture's per-flow MCP-call total
 must stay under the budget that broke IntelliJ AI Assistant.
 

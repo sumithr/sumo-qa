@@ -1,3 +1,4 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Phase 3 end-to-end verification: the new skill+tool surface works.
 
 Covers the automatable parts of Phase 3. The full senior-istqb-grade
