@@ -98,9 +98,9 @@ See the Checklist above — that's the flow.
 
 > **User:** "review my changes, is this safe to merge?"
 >
-> **AI (scope):** *"3 files changed: `api/refund.py` (+38/-4), `domain/Refund.kt` (+12/-2), `tests/test_refund_api.py` (+25/-0). API response shape moved and refund-amount calculation changed; `tests/contracts/refund_v1.json` was NOT modified. Is this consumer external (need coordination) or internal-only?"*
+> **AI (scope):** *"3 files: `api/refund.py` (+38/-4), `domain/Refund.kt` (+12/-2), `tests/test_refund_api.py` (+25/-0). Response shape + amount calc moved; `tests/contracts/refund_v1.json` untouched. Consumer external or internal-only?"*
 >
-> *(continues to risks, tests run, risk-coverage map, verdict — one section per turn)*
+> *(risks → tests → coverage map → verdict, one section per turn)*
 
 ### Bad (single-shot verdict)
 
