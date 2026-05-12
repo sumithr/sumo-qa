@@ -45,10 +45,11 @@ Then `uv tool install sumo-qa` (or `pip install sumo-qa`) so the MCP server bina
 ### Multi-host batch install (JetBrains + VS Code + everywhere)
 
 ```bash
-python3 install.py
+pip install sumo-qa
+sumo-qa-install
 ```
 
-Configures every supported host detected on this machine. Per-host flags + troubleshooting in [docs/INSTALL.md](docs/INSTALL.md).
+Configures every supported host detected on this machine. `pip` puts both `sumo-qa` (the MCP server binary) and `sumo-qa-install` (the configurator) on your PATH — on Windows, pip generates `.exe` wrappers automatically, so no `python3` invocation needed. Per-host flags + troubleshooting in [docs/INSTALL.md](docs/INSTALL.md).
 
 ### From a git URL (latest main)
 
@@ -70,13 +71,13 @@ Each host surfaces the same skills and tools differently — that's a host-API d
 
 | Host | Slash invocation | Setup |
 |---|---|---|
-| **Claude Code** | `/qa-deciding-approach` (hyphens) | Native plugin: `/plugin marketplace add sumithr/sumo-qa` then `/plugin install sumo-qa@sumo-qa-dev`. Or `install.py --claude-code`. |
+| **Claude Code** | `/qa-deciding-approach` (hyphens) | Native plugin: `/plugin marketplace add sumithr/sumo-qa` then `/plugin install sumo-qa@sumo-qa-dev`. Or `sumo-qa-install --claude-code`. |
 | **Cursor** | Natural language; Cursor picks skills by description | Native plugin: `/add-plugin sumo-qa` |
 | **Codex** | Natural language; Codex picks skills by description | Codex plugin marketplace (search "Sumo QA") |
 | **OpenCode** | `skill` tool (`use skill tool to load sumo-qa/...`) | Add `"sumo-qa@git+..."` to `opencode.json` plugin array, restart |
-| **JetBrains AI Assistant** | `/qa_deciding_approach` (underscores) | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `install.py --jetbrains` prints the fields to paste. |
-| **JetBrains Junie** | Natural language; Junie picks tools by description | Drop the JSON `install.py` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per-project) |
-| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language; Copilot picks tools by description | `install.py --vscode --workspace <repo>` writes `<repo>/.vscode/mcp.json` |
+| **JetBrains AI Assistant** | `/qa_deciding_approach` (underscores) | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `sumo-qa-install --jetbrains` prints the fields to paste. |
+| **JetBrains Junie** | Natural language; Junie picks tools by description | Drop the JSON `sumo-qa-install` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per-project) |
+| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language; Copilot picks tools by description | `sumo-qa-install --vscode --workspace <repo>` writes `<repo>/.vscode/mcp.json` |
 
 In Claude Code, MCP tools are NOT slash-invocable directly — use natural language (e.g. *"load the QA classifications"*) and the AI picks the right tool. In JetBrains AI Assistant, every tool IS slash-invocable. Both paths work; both end up calling the same skill body.
 
