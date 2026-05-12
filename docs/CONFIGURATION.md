@@ -1,6 +1,6 @@
 # Configuration
 
-All optional. Defaults work out of the box after `python install.py`.
+All optional. Defaults work out of the box after `pip install sumo-qa && sumo-qa-install`.
 
 | Env var | Default | Purpose |
 |---|---|---|
