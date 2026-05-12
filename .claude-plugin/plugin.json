@@ -3,7 +3,8 @@
   "description": "Senior-QA-shaped MCP server + skills library: shift-left testing, mutation-testing follow-up, code review, test-data discovery. Iron-Law-enforced workflows for deciding approach, prepping for work, TDD-scaffolding, reviewing diffs, strengthening tests, and repo-wide strategising.",
   "version": "0.1.0",
   "author": {
-    "name": "Sumith Ramsookbhai"
+    "name": "Sumith Ramsookbhai",
+    "email": "sumithr51@gmail.com"
   },
   "homepage": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp",
   "repository": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp",

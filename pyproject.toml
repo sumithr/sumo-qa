@@ -9,7 +9,7 @@ description = "Sumo QA — a senior-QA-shaped MCP server for shift-left testing,
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
-authors = [{ name = "Sumith Ramsookbhai" }]
+authors = [{ name = "Sumith Ramsookbhai", email = "sumithr51@gmail.com" }]
 # Cap at <3.14 because pydantic-core's Rust extension does not yet ship
 # wheels for Python 3.14, and PyO3 doesn't support 3.14 either. When pydantic-core
 # adds 3.14 wheels, this cap can be widened.

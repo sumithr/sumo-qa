@@ -4,6 +4,7 @@
   "description": "Senior-QA skills library + MCP server: shift-left testing, TDD scaffolding, mutation-testing follow-up, code review, repo-wide QA strategy, and test-data discovery.",
   "author": {
     "name": "Sumith Ramsookbhai",
+    "email": "sumithr51@gmail.com",
     "url": "https://github.com/SumithRamsookbhai"
   },
   "homepage": "https://github.com/SumithRamsookbhai/qa-shift-left-mcp",
