@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-suggesting-external-skill
-description: Use ONLY when sumo-qa-deciding-approach explicitly routes here (no native sumo-qa sub-skill fits the intent AND SUMO_QA_EXTERNAL_SKILLS=1). Discovers, installs, and invokes a skill from the qaskills.sh directory on the user's behalf, with an optional Node-install offer, a trusted-publisher gate, and an optional MCP-config offer. Never run directly from `using-sumo-qa` — always via the deciding-approach fallback.
+description: Use ONLY when sumo-qa-deciding-approach explicitly routes here (no native sumo-qa sub-skill fits the user's intent). Discovers, installs (with `[y/N]` permission), and invokes a skill from the qaskills.sh directory on the user's behalf, with an optional Node-install offer, a trusted-publisher gate, and an optional MCP-config offer. Never run directly from `using-sumo-qa` — always via the deciding-approach fallback.
 ---
 
 # Suggesting an external (qaskills.sh) skill
@@ -27,19 +27,16 @@ Spend output tokens on findings, not framing.
 
 ## The Iron Law
 
-**GATE FIRST.** If `SUMO_QA_EXTERNAL_SKILLS=1` is not set, stop immediately with: *"qaskills integration is gated off. Set `SUMO_QA_EXTERNAL_SKILLS=1` to enable the trial."* — never run any qaskills tool when the gate is off.
-
-**Never install without explicit user confirmation.** Search and inspection are silent internal work; install is gated on the user's explicit `y`. Never silently call `sudo`.
+**Never install without explicit user confirmation.** Search and inspection are silent internal work; install is gated on the user's explicit `y`. Never silently call `sudo`. Never silently edit MCP config files — print the JSON for the user to paste.
 
 ## When to Use
 
 `sumo-qa-deciding-approach` routes here when, internally:
 
 1. No native approach in the canonical catalogue fits the user's intent.
-2. The env var `SUMO_QA_EXTERNAL_SKILLS=1` is set (default off).
-3. The intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine.
+2. The intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine.
 
-If the env var is not set, this skill must not run.
+Consent for the install itself is the per-action `[y/N]` prompt in step 5 of the checklist below. No global on/off switch.
 
 ## Checklist
 
@@ -87,7 +84,6 @@ You MUST create a TodoWrite item per checklist item and complete in order. The t
 
 | Failure | Behaviour |
 |---|---|
-| Any tool returns `{"disabled": True}` | Print *"qaskills integration is gated off. Set `SUMO_QA_EXTERNAL_SKILLS=1` to enable the trial."* and stop. |
 | `sumo_qa_check_node_available` returns `available: False` AND `sumo_qa_detect_node_installer` returns `installer: null` | Print the `reason` and a manual install link (https://nodejs.org). Stop. |
 | `sumo_qa_install_node` returns `installed: False` with sudo-required `reason` | Print the reason verbatim (which includes the exact `sudo <cmd>` to run). Stop. Never elevate. |
 | Tool returns `isError` with Node-missing hint | Surface the hint verbatim; do not retry. |

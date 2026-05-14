@@ -6,7 +6,7 @@ from sumo_qa.server import build_mcp_server
 # (in addition to its MCP prompt) so hosts whose slash menus surface tools but
 # not prompts (IntelliJ AI Assistant, VS Code + Copilot) can invoke skills.
 # Chain-polish pass added 3 more skills (planning / executing / finishing).
-# Task 7: 8 qaskills/Node-install tools added (gated by SUMO_QA_EXTERNAL_SKILLS=1).
+# Task 7: 8 qaskills/Node-install tools added. Per-install user consent via [y/N] in the suggesting skill.
 # Task 8: sumo-qa-suggesting-external-skill added.
 # Total registered tools: 11 atomic + 14 skill + 8 qaskills = 33.
 _TEST_DATA_TOOL_NAMES = {

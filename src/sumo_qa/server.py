@@ -342,14 +342,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     def _register_qaskills_tools(mcp):
         """Register the 8 qaskills / Node-install MCP tools.
 
-        7 tools are gated behind SUMO_QA_EXTERNAL_SKILLS=1.
-        sumo_qa_load_external_skills_registry is always readable — it is
-        pure config with no side effects."""
-
-        def _gate_disabled() -> dict[str, Any] | None:
-            if os.environ.get("SUMO_QA_EXTERNAL_SKILLS") != "1":
-                return {"disabled": True, "reason": "feature gate off"}
-            return None
+        Consent for any qaskills install is per-action — the skill asks
+        the user `[y/N]` before invoking `sumo_qa_install_external_skill`
+        or `sumo_qa_install_node`. No runtime feature flag.
+        """
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_search_external_skills(
@@ -360,10 +356,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             The host LLM reads the text and decides which skill (if any)
             matches the user's intent. No fields are parsed out — the
             output is intentionally raw so Claude can use it directly.
-            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
             """
-            if (gated := _gate_disabled()) is not None:
-                return gated
             try:
                 return {"output": qaskills.search(query)}
             except qaskills.NodeNotFoundError as exc:
@@ -380,10 +373,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             Metadata only (version, publisher, score, license, languages,
             frameworks, web URL). The CLI does not expose the SKILL.md
             body — read it via your Read tool after install.
-            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
             """
-            if (gated := _gate_disabled()) is not None:
-                return gated
             try:
                 return {"output": qaskills.info(name)}
             except qaskills.NodeNotFoundError as exc:
@@ -398,14 +388,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         ) -> dict[str, Any]:
             """Install a qaskill via the qaskills CLI.
 
-            Scope 'global' installs to `~/.claude/skills/`. Scope 'project'
-            installs globally then moves the directory into the project's
-            `.claude/skills/`. Returns the on-disk install path so the host
-            LLM can Read the SKILL.md directly.
-            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            CALLER MUST HAVE EXPLICIT USER CONSENT before invoking this
+            tool — the suggesting skill asks the user `[y/N]` first. The
+            qaskills CLI lands the skill at `~/.claude/commands/<name>/`;
+            sumo-qa relocates it to `~/.claude/skills/<name>/` (or the
+            project's `.claude/skills/` when scope='project') so Claude
+            Code's skill loader discovers it.
             """
-            if (gated := _gate_disabled()) is not None:
-                return gated
             try:
                 result = qaskills.add(name, scope=scope)  # type: ignore[arg-type]
             except ValueError as exc:
@@ -431,10 +420,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             Returns {"installed": True, "scope": ..., "skill_md_path": ...}
             when found, or {"installed": False} when not present. Pure
             filesystem check — does not require Node.
-            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
             """
-            if (gated := _gate_disabled()) is not None:
-                return gated
             location = qaskills.is_installed_locally(name)
             if location is None:
                 return {"installed": False}
@@ -450,7 +436,6 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
             The host LLM uses these lists to decide which qaskills.sh
             publishers are auto-eligible vs. require explicit confirmation.
-            This tool is NOT gated — it's pure config with no side effects.
             """
             if not _REGISTRY_PATH.is_file():
                 return {"trusted_publishers": [], "blocked_publishers": []}
@@ -467,10 +452,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         def sumo_qa_check_node_available() -> dict[str, Any]:
             """Check whether Node (npx) is available on PATH.
 
-            Returns {"available": bool}. Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            Returns {"available": bool}.
             """
-            if (gated := _gate_disabled()) is not None:
-                return gated
             return {"available": qaskills.is_available()}
 
         @mcp.tool(annotations=_read_only_local)
@@ -480,10 +463,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             Returns {"installer": name, "command": [...], "needs_sudo": bool} when
             a supported package manager is found, or
             {"installer": None, "reason": "..."} when none is detected.
-            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
             """
-            if (gated := _gate_disabled()) is not None:
-                return gated
             installer = node_install.detect_installer()
             if installer is None:
                 return {"installer": None, "reason": "no supported package manager detected"}
@@ -497,14 +477,12 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         def sumo_qa_install_node() -> dict[str, Any]:
             """Install Node using the detected OS package manager.
 
-            Detects the installer first; if none is found, returns
-            {"installed": False, "reason": "no installer detected"}.
+            CALLER MUST HAVE EXPLICIT USER CONSENT before invoking this
+            tool — the suggesting skill asks the user `[y/N]` first.
             Uses brew on macOS, winget on Windows, apt-get/dnf on Linux.
-            Never calls sudo — returns the manual command when elevation is needed.
-            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            Never calls sudo — returns the manual command when elevation
+            is needed.
             """
-            if (gated := _gate_disabled()) is not None:
-                return gated
             installer = node_install.detect_installer()
             if installer is None:
                 return {"installed": False, "reason": "no installer detected"}

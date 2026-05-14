@@ -60,15 +60,15 @@ See the Checklist above — that's the flow.
 | verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
 | spike-first-then-tests | sumo-qa-preparing-for-work (deliverable mode) |
-| (no native fit, gate on, intent involves a non-native tool/surface) | sumo-qa-suggesting-external-skill |
+| (no native fit, intent involves a non-native tool/surface) | sumo-qa-suggesting-external-skill |
 
 For "create a test plan" / "plan QA for this story" intents, after approach is picked, route to `sumo-qa-creating-test-plan` or `sumo-qa-preparing-for-work` per user phrasing. For "how do I test this?" intents that don't fit any specific approach, route to `sumo-qa-answering-testing-question`.
 
-## Fallback to qaskills.sh (trial — gated)
+## Fallback to qaskills.sh
 
-When **no canonical approach fits** the intent AND the env var `SUMO_QA_EXTERNAL_SKILLS=1` is set, decide whether the intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine. If yes → return `next_action: {skill: "sumo-qa-suggesting-external-skill"}` with the inferred surface in the internal rationale. If no (the intent fits a native sub-skill once you look closer) → continue with the native routing.
+When **no canonical approach fits** the intent, decide whether the intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine. If yes → return `next_action: {skill: "sumo-qa-suggesting-external-skill"}` with the inferred surface in the internal rationale. If no (the intent fits a native sub-skill once you look closer) → continue with the native routing.
 
-When the env var is not set, this fallback is invisible — proceed as today. Do NOT mention the gate to the user when it's off.
+Consent is handled by `sumo-qa-suggesting-external-skill` itself, which asks the user `[y/N]` before any install. Don't pre-emptively warn the user that an external skill might be suggested — just route.
 
 ## Red Flags
 
@@ -108,5 +108,5 @@ Routes to exactly ONE of the following, based on the approach picked:
 - When the intent is a generic testing question → `sumo-qa-answering-testing-question` to cite a principle and technique.
 - When the approach is `strategy-orchestration` → `sumo-qa-strategising` to walk the repo and design a phased rollout.
 - When the work has 3+ independent tasks needing dispatch → `sumo-qa-planning-qa-rollout` to turn the work into a bite-sized, dispatchable plan.
-- When no canonical approach fits AND `SUMO_QA_EXTERNAL_SKILLS=1` AND the intent matches a `registry.json` category keyword → `sumo-qa-suggesting-external-skill`.
+- When no canonical approach fits AND the intent involves a tool / framework / surface sumo-qa doesn't natively cover → `sumo-qa-suggesting-external-skill`.
 - When the approach is `no-tests-recommended` → stop. No next-skill handoff.
