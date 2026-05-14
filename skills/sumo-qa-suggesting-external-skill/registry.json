@@ -1,13 +1,5 @@
 {
   "version": 1,
   "trusted_publishers": ["thetestingacademy"],
-  "blocked_publishers": [],
-  "category_keywords": {
-    "e2e": ["e2e", "end-to-end", "browser test", "playwright", "cypress", "selenium"],
-    "accessibility": ["a11y", "accessibility", "wcag", "axe"],
-    "performance": ["perf", "load test", "k6", "locust"],
-    "contract": ["contract", "pact"],
-    "mutation": ["mutation", "stryker", "pitest", "mutmut"],
-    "flaky": ["flaky", "quarantine"]
-  }
+  "blocked_publishers": []
 }

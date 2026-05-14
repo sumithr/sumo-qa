@@ -1,13 +1,28 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
-"""Subprocess shim around `npx @qaskills/cli`.
+"""Thin subprocess shim around `npx @qaskills/cli`.
 
-This module shells out to the qaskills.sh CLI to discover, inspect,
-and install skills. It is pure I/O — no MCP wiring lives here. The
-MCP tool surface in `server.py` adapts these functions into MCP tools.
+This module does the bare minimum the host LLM cannot do for itself:
+
+- runs the CLI and captures stdout/stderr,
+- strips ANSI/spinner noise so the LLM sees clean text,
+- handles `scope="project"` by moving the post-install directory into
+  the project's `.claude/skills/` (the underlying CLI has no project
+  flag).
+
+It does NOT parse the CLI's natural-language output into structured
+records. The qaskills CLI emits human-readable text designed for an
+LLM coding agent to read. Building Python dataclasses around that
+output would throw away nuance, break on every CLI cosmetic change,
+and put a middleman between the host LLM and the source. We return the
+cleaned text and let Claude interpret it.
+
+Structured types live where they belong: `AddResult` (filesystem path
+the host LLM can't compute), `InstalledLocation` (on-disk check), and
+the `Scope` literal.
 """
 from __future__ import annotations
 
-import json
+import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -15,18 +30,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+_DEFAULT_TIMEOUT_SECONDS = 30
+_ADD_TIMEOUT_SECONDS = 180
+_CLI = ("npx", "--yes", "@qaskills/cli")
+
+# Matches CSI escape sequences (\x1b[…) and the bare control sequences the
+# CLI's spinner library writes between newlines.
+_ANSI_PATTERN = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\[\?\d+[lh]|\[\d+[A-Za-z]")
+# Spinner glyphs the CLI uses while a request is in flight. Lines that start
+# with one of these are pure animation noise — drop them.
+_SPINNER_GLYPHS = "◒◐◓◑◇"
+
 
 def is_available() -> bool:
-    """Return True when `npx` is on PATH (proxy for Node being installed).
-
-    The qaskills CLI is invoked as `npx @qaskills/cli <subcommand>`; if
-    `npx` is missing there is no way to call it.
-    """
+    """Return True when `npx` is on PATH (proxy for Node being installed)."""
     return shutil.which("npx") is not None
-
-
-_DEFAULT_TIMEOUT_SECONDS = 30
-_CLI = ("npx", "--yes", "@qaskills/cli")
 
 
 class QaskillsError(Exception):
@@ -38,15 +56,46 @@ class NodeNotFoundError(QaskillsError):
 
 
 class QaskillsCLIError(QaskillsError):
-    """Raised when `npx @qaskills/cli` exits non-zero or emits unparseable output."""
+    """Raised when the qaskills CLI exits non-zero."""
+
+
+Scope = Literal["global", "project"]
+_VALID_SCOPES: tuple[Scope, ...] = ("global", "project")
 
 
 @dataclass(frozen=True)
-class QaskillMatch:
+class AddResult:
     name: str
-    publisher: str
-    score: int
-    description: str
+    scope: Scope
+    installed_at: Path
+    cli_output: str
+
+
+@dataclass(frozen=True)
+class InstalledLocation:
+    scope: Scope
+    path: Path  # absolute path to SKILL.md
+
+
+def _strip_cli_chrome(text: str) -> str:
+    """Strip ANSI escape codes and pure-spinner lines from CLI output.
+
+    Returns text the host LLM can read directly: real content (skill
+    entries, descriptions, install commands) is preserved verbatim, but
+    terminal control sequences and rotating spinner glyphs are removed.
+    """
+    no_ansi = _ANSI_PATTERN.sub("", text)
+    keep: list[str] = []
+    for raw in no_ansi.splitlines():
+        line = raw.rstrip()
+        if not line:
+            keep.append(line)
+            continue
+        stripped = line.lstrip()
+        if stripped and stripped[0] in _SPINNER_GLYPHS:
+            continue
+        keep.append(line)
+    return "\n".join(keep).strip("\n")
 
 
 def _run(args: Sequence[str], *, timeout: int = _DEFAULT_TIMEOUT_SECONDS) -> subprocess.CompletedProcess:
@@ -64,114 +113,109 @@ def _run(args: Sequence[str], *, timeout: int = _DEFAULT_TIMEOUT_SECONDS) -> sub
     )
 
 
-def search(query: str) -> list[QaskillMatch]:
-    """Return parsed candidate matches for the query."""
-    result = _run(("search", query, "--json"))
+def search(query: str) -> str:
+    """Run `qaskills search <query>` and return cleaned output for the LLM.
+
+    The host LLM reads this text and decides which skill (if any) matches
+    the user's intent. We do not parse fields out of it.
+    """
+    result = _run(("search", query))
     if result.returncode != 0:
         raise QaskillsCLIError(
-            f"qaskills CLI search failed (exit {result.returncode}): {result.stderr.strip()}"
+            f"qaskills CLI search failed (exit {result.returncode}): "
+            f"{result.stderr.strip()[:500] or _strip_cli_chrome(result.stdout)[:500]}"
         )
-    try:
-        raw = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise QaskillsCLIError(
-            f"qaskills CLI returned non-JSON output for search: {result.stdout[:200]!r}"
-        ) from exc
-    return [
-        QaskillMatch(
-            name=item["name"],
-            publisher=item["publisher"],
-            score=int(item.get("score", 0)),
-            description=item.get("description", ""),
-        )
-        for item in raw
-    ]
+    return _strip_cli_chrome(result.stdout)
 
 
-@dataclass(frozen=True)
-class QaskillInfo:
-    name: str
-    publisher: str
-    score: int
-    description: str
-    skill_md: str
-    mcp_servers: tuple[str, ...]
+def info(name: str) -> str:
+    """Run `qaskills info <name>` and return cleaned output for the LLM.
 
-
-def info(name: str) -> QaskillInfo:
-    """Return full skill record (publisher, score, raw SKILL.md, MCP refs)."""
-    result = _run(("info", name, "--json"))
+    Returns metadata (version, publisher, score, license, languages,
+    frameworks, web URL). The CLI does not expose the SKILL.md body —
+    the host LLM reads the installed file directly via its `Read` tool
+    after `add()`.
+    """
+    result = _run(("info", name))
     if result.returncode != 0:
         raise QaskillsCLIError(
-            f"qaskills CLI info failed for {name!r} (exit {result.returncode}): {result.stderr.strip()}"
+            f"qaskills CLI info failed for {name!r} (exit {result.returncode}): "
+            f"{result.stderr.strip()[:500] or _strip_cli_chrome(result.stdout)[:500]}"
         )
-    try:
-        raw = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise QaskillsCLIError(
-            f"qaskills CLI returned non-JSON output for info: {result.stdout[:200]!r}"
-        ) from exc
-    return QaskillInfo(
-        name=raw["name"],
-        publisher=raw["publisher"],
-        score=int(raw.get("score", 0)),
-        description=raw.get("description", ""),
-        skill_md=raw.get("skill_md", ""),
-        mcp_servers=tuple(raw.get("mcp_servers") or ()),
-    )
+    return _strip_cli_chrome(result.stdout)
 
 
-Scope = Literal["global", "project"]
-_VALID_SCOPES: tuple[Scope, ...] = ("global", "project")
-_ADD_TIMEOUT_SECONDS = 120
+def _global_skill_dir(name: str) -> Path:
+    return Path.home() / ".claude" / "skills" / name
 
 
-@dataclass(frozen=True)
-class AddResult:
-    name: str
-    scope: Scope
-    installed_at: str
+def _project_skill_dir(project_root: Path, name: str) -> Path:
+    return project_root / ".claude" / "skills" / name
 
 
-def add(name: str, scope: Scope) -> AddResult:
-    """Install a qaskill. Scope picks between global and project install."""
+def add(
+    name: str,
+    scope: Scope,
+    *,
+    project_root: Path | None = None,
+    agent: str = "claude-code",
+) -> AddResult:
+    """Install a qaskill via the qaskills CLI.
+
+    Global scope: CLI installs into `~/.claude/skills/<name>/` and we
+    leave it there.
+
+    Project scope: CLI installs globally, then we *move* the directory
+    into `<project_root>/.claude/skills/<name>/`. The CLI has no native
+    project flag; this is how we preserve sumo-qa's per-install scope
+    choice.
+    """
     if scope not in _VALID_SCOPES:
         raise ValueError(f"scope must be one of {_VALID_SCOPES!r}, got {scope!r}")
-    extra = ("--project",) if scope == "project" else ()
-    result = _run(("add", name, *extra, "--json"), timeout=_ADD_TIMEOUT_SECONDS)
+    if project_root is None:
+        project_root = Path.cwd()
+
+    result = _run(("add", name, "-a", agent), timeout=_ADD_TIMEOUT_SECONDS)
+    cli_output = _strip_cli_chrome(result.stdout)
     if result.returncode != 0:
         raise QaskillsCLIError(
-            f"qaskills CLI add failed for {name!r} (exit {result.returncode}): {result.stderr.strip()}"
+            f"qaskills CLI add failed for {name!r} (exit {result.returncode}): "
+            f"{result.stderr.strip()[:500] or cli_output[:500]}"
         )
-    try:
-        raw = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
+
+    global_path = _global_skill_dir(name)
+    if not global_path.is_dir():
         raise QaskillsCLIError(
-            f"qaskills CLI returned non-JSON output for add: {result.stdout[:200]!r}"
-        ) from exc
-    return AddResult(name=name, scope=scope, installed_at=raw["installed_at"])
+            f"qaskills CLI add for {name!r} reported success but no skill directory "
+            f"appeared at {global_path}. Inspect with `npx qaskills list`."
+        )
 
+    if scope == "global":
+        return AddResult(name=name, scope="global", installed_at=global_path, cli_output=cli_output)
 
-@dataclass(frozen=True)
-class InstalledLocation:
-    scope: Scope
-    path: Path  # absolute path to SKILL.md
+    project_path = _project_skill_dir(project_root, name)
+    if project_path.exists():
+        raise QaskillsCLIError(
+            f"project-local target {project_path} already exists; "
+            "remove it first or pick scope='global'."
+        )
+    project_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(global_path), str(project_path))
+    return AddResult(name=name, scope="project", installed_at=project_path, cli_output=cli_output)
 
 
 def is_installed_locally(name: str, *, project_root: Path | None = None) -> InstalledLocation | None:
     """Look for an installed qaskill at the well-known on-disk locations.
 
-    Project-local install wins when both exist — project context overrides
-    global. Caller passes `project_root` (defaults to cwd) so tests don't
-    depend on cwd state.
+    Project-local install wins when both exist. Caller passes
+    `project_root` (defaults to cwd) so tests don't depend on cwd state.
     """
     if project_root is None:
         project_root = Path.cwd()
-    project_path = project_root / ".claude" / "skills" / name / "SKILL.md"
+    project_path = _project_skill_dir(project_root, name) / "SKILL.md"
     if project_path.is_file():
         return InstalledLocation(scope="project", path=project_path)
-    home = Path.home()
-    global_path = home / ".claude" / "skills" / name / "SKILL.md"
+    global_path = _global_skill_dir(name) / "SKILL.md"
     if global_path.is_file():
         return InstalledLocation(scope="global", path=global_path)
     return None

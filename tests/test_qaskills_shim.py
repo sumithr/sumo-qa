@@ -1,18 +1,34 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+"""Tests for the qaskills subprocess shim.
+
+The shim is intentionally thin: it runs `npx @qaskills/cli`, strips
+ANSI/spinner chrome, and handles filesystem moves for project-scope
+installs. We don't parse the CLI's natural-language output — the host
+LLM does that. So the tests here verify subprocess plumbing,
+ANSI/chrome stripping on real fixture output, and filesystem behaviour
+for the scope=project relocation. No parser tests, no dataclasses for
+CLI fields.
+"""
 from __future__ import annotations
 
-import json
 import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from sumo_qa import qaskills
 
+_FIXTURES = Path(__file__).parent / "fixtures"
 
-def _completed_process(stdout: str, returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
+
+def _completed_process(stdout: str = "", returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
+
+# ---------------------------------------------------------------------------
+# is_available
+# ---------------------------------------------------------------------------
 
 def test_is_available_returns_true_when_npx_present() -> None:
     with patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx") as mock_which:
@@ -25,22 +41,23 @@ def test_is_available_returns_false_when_npx_missing() -> None:
         assert qaskills.is_available() is False
 
 
-def test_search_parses_json_output_into_matches() -> None:
-    fake_stdout = json.dumps(
-        [
-            {"name": "playwright-e2e", "publisher": "thetestingacademy", "score": 92, "description": "Playwright E2E"},
-            {"name": "cypress-e2e", "publisher": "someoneelse", "score": 84, "description": "Cypress E2E"},
-        ]
-    )
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process(fake_stdout)), \
-         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
-        matches = qaskills.search("e2e playwright")
+# ---------------------------------------------------------------------------
+# search / info — return cleaned text for the host LLM
+# ---------------------------------------------------------------------------
 
-    assert len(matches) == 2
-    assert matches[0].name == "playwright-e2e"
-    assert matches[0].publisher == "thetestingacademy"
-    assert matches[0].score == 92
-    assert matches[0].description == "Playwright E2E"
+def test_search_strips_ansi_and_returns_real_fixture_content() -> None:
+    fixture = (_FIXTURES / "qaskills_search_playwright.txt").read_text(encoding="utf-8")
+    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process(fixture)), \
+         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+        out = qaskills.search("playwright")
+
+    # ANSI codes and spinner glyphs gone, real content preserved.
+    assert "\x1b[" not in out
+    assert "◒" not in out and "◐" not in out
+    # The actual content the LLM needs to interpret is intact.
+    assert "Playwright E2E Testing" in out
+    assert "thetestingacademy" in out
+    assert "npx qaskills add playwright-e2e" in out
 
 
 def test_search_raises_node_not_found_when_npx_missing() -> None:
@@ -57,128 +74,112 @@ def test_search_raises_cli_error_on_nonzero_exit() -> None:
     assert "boom" in str(exc_info.value)
 
 
-def test_search_handles_non_json_stdout_gracefully() -> None:
-    # Defensive: if the CLI ever drops a non-JSON line, we surface a clean error
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process("not json")), \
+def test_info_strips_ansi_and_returns_real_fixture_content() -> None:
+    fixture = (_FIXTURES / "qaskills_info_playwright_e2e.txt").read_text(encoding="utf-8")
+    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process(fixture)), \
          patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
-        with pytest.raises(qaskills.QaskillsCLIError):
-            qaskills.search("anything")
+        out = qaskills.info("playwright-e2e")
+
+    assert "Playwright E2E Testing v1.0.0" in out
+    assert "Quality Score: 92/100" in out
+    assert "License: MIT" in out
+    assert "https://qaskills.sh/skills/playwright-e2e" in out
+    # No spinner / ANSI leaked through.
+    assert "\x1b[" not in out
 
 
-def test_info_returns_full_skill_record() -> None:
-    fake_stdout = json.dumps(
-        {
-            "name": "playwright-e2e",
-            "publisher": "thetestingacademy",
-            "score": 92,
-            "description": "Playwright E2E",
-            "skill_md": "---\nname: playwright-e2e\n---\n# Body\n",
-            "mcp_servers": ["playwright-mcp"],
-        }
-    )
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process(fake_stdout)), \
-         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
-        info = qaskills.info("playwright-e2e")
-
-    assert info.name == "playwright-e2e"
-    assert info.publisher == "thetestingacademy"
-    assert info.score == 92
-    assert info.skill_md.startswith("---")
-    assert info.mcp_servers == ("playwright-mcp",)
-
-
-def test_info_returns_no_mcp_servers_when_absent() -> None:
-    fake_stdout = json.dumps(
-        {
-            "name": "axe-accessibility",
-            "publisher": "thetestingacademy",
-            "score": 88,
-            "description": "Axe",
-            "skill_md": "no mcp here",
-        }
-    )
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process(fake_stdout)), \
-         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
-        info = qaskills.info("axe-accessibility")
-
-    assert info.mcp_servers == ()
-
-
-def test_info_returns_no_mcp_servers_when_value_is_null() -> None:
-    fake_stdout = json.dumps(
-        {
-            "name": "axe-accessibility",
-            "publisher": "thetestingacademy",
-            "score": 88,
-            "description": "Axe",
-            "skill_md": "no mcp here",
-            "mcp_servers": None,
-        }
-    )
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process(fake_stdout)), \
-         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
-        info = qaskills.info("axe-accessibility")
-
-    assert info.mcp_servers == ()
-
-
-def test_info_raises_node_not_found_when_npx_missing() -> None:
-    with patch("sumo_qa.qaskills.shutil.which", return_value=None):
-        with pytest.raises(qaskills.NodeNotFoundError):
-            qaskills.info("anything")
-
-
-def test_info_raises_cli_error_on_nonzero_exit_with_name_in_message() -> None:
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process("", returncode=2, stderr="boom")), \
+def test_info_raises_cli_error_with_name_in_message() -> None:
+    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process("", returncode=2, stderr="not found")), \
          patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
         with pytest.raises(qaskills.QaskillsCLIError) as exc_info:
-            qaskills.info("playwright-e2e")
-    assert "playwright-e2e" in str(exc_info.value)
-    assert "boom" in str(exc_info.value)
+            qaskills.info("ghost-skill")
+    assert "ghost-skill" in str(exc_info.value)
+    assert "not found" in str(exc_info.value)
 
 
-def test_info_raises_cli_error_on_non_json_stdout() -> None:
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process("not json")), \
-         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
-        with pytest.raises(qaskills.QaskillsCLIError):
-            qaskills.info("anything")
+# ---------------------------------------------------------------------------
+# add — subprocess + scope-as-move
+# ---------------------------------------------------------------------------
+
+def _make_global_skill(home: Path, name: str) -> Path:
+    skill_dir = home / ".claude" / "skills" / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(f"---\nname: {name}\n---\n# Body\n", encoding="utf-8")
+    return skill_dir
 
 
-def test_add_global_scope_invokes_cli_without_project_flag() -> None:
+def test_add_global_scope_returns_global_path(tmp_path: Path, monkeypatch) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
     captured: dict = {}
 
     def _capture(args, **kwargs):
         captured["args"] = args
-        return _completed_process(json.dumps({"installed_at": "/Users/me/.claude/skills/playwright-e2e"}))
+        _make_global_skill(fake_home, "playwright-e2e")
+        return _completed_process(stdout="installed")
 
     with patch("sumo_qa.qaskills.subprocess.run", side_effect=_capture), \
          patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
-        result = qaskills.add("playwright-e2e", scope="global")
+        result = qaskills.add("playwright-e2e", scope="global", project_root=tmp_path / "project")
 
-    assert "--project" not in captured["args"]
-    assert "playwright-e2e" in captured["args"]
+    # Real CLI shape: no --json, no --project. We pass `-a claude-code` only.
     assert "add" in captured["args"]
-    assert "--json" in captured["args"]
-    assert result.installed_at == "/Users/me/.claude/skills/playwright-e2e"
+    assert "playwright-e2e" in captured["args"]
+    assert "-a" in captured["args"]
+    assert "claude-code" in captured["args"]
+    assert "--project" not in captured["args"]
+    assert "--json" not in captured["args"]
+
     assert result.scope == "global"
+    assert result.installed_at == fake_home / ".claude" / "skills" / "playwright-e2e"
     assert result.name == "playwright-e2e"
 
 
-def test_add_project_scope_passes_project_flag() -> None:
-    captured: dict = {}
+def test_add_project_scope_relocates_directory(tmp_path: Path, monkeypatch) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
 
-    def _capture(args, **kwargs):
-        captured["args"] = args
-        return _completed_process(json.dumps({"installed_at": "./.claude/skills/playwright-e2e"}))
+    def _install_globally(args, **kwargs):
+        _make_global_skill(fake_home, "axe-accessibility")
+        return _completed_process(stdout="installed")
 
-    with patch("sumo_qa.qaskills.subprocess.run", side_effect=_capture), \
+    with patch("sumo_qa.qaskills.subprocess.run", side_effect=_install_globally), \
          patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
-        result = qaskills.add("playwright-e2e", scope="project")
+        result = qaskills.add("axe-accessibility", scope="project", project_root=project_root)
 
-    assert "--project" in captured["args"]
+    project_target = project_root / ".claude" / "skills" / "axe-accessibility"
     assert result.scope == "project"
-    assert result.installed_at == "./.claude/skills/playwright-e2e"
-    assert result.name == "playwright-e2e"
+    assert result.installed_at == project_target
+    assert (project_target / "SKILL.md").is_file()
+    # Global directory was moved, not copied.
+    assert not (fake_home / ".claude" / "skills" / "axe-accessibility").exists()
+
+
+def test_add_project_scope_refuses_to_overwrite_existing(tmp_path: Path, monkeypatch) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    project_root = tmp_path / "project"
+    (project_root / ".claude" / "skills" / "playwright-e2e").mkdir(parents=True)
+    (project_root / ".claude" / "skills" / "playwright-e2e" / "SKILL.md").write_text(
+        "local edits", encoding="utf-8"
+    )
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    def _install(args, **kwargs):
+        _make_global_skill(fake_home, "playwright-e2e")
+        return _completed_process(stdout="installed")
+
+    with patch("sumo_qa.qaskills.subprocess.run", side_effect=_install), \
+         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+        with pytest.raises(qaskills.QaskillsCLIError) as exc_info:
+            qaskills.add("playwright-e2e", scope="project", project_root=project_root)
+
+    assert "already exists" in str(exc_info.value)
 
 
 def test_add_rejects_invalid_scope() -> None:
@@ -187,9 +188,19 @@ def test_add_rejects_invalid_scope() -> None:
     assert "elsewhere" in str(exc_info.value)
 
 
-def test_add_raises_cli_error_on_failure() -> None:
+def test_add_raises_cli_error_on_failure(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process("", returncode=1, stderr="network down")), \
          patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
         with pytest.raises(qaskills.QaskillsCLIError) as exc_info:
             qaskills.add("playwright-e2e", scope="global")
     assert "network down" in str(exc_info.value)
+
+
+def test_add_raises_when_install_succeeded_but_dir_missing(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process(stdout="ok")), \
+         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+        with pytest.raises(qaskills.QaskillsCLIError) as exc_info:
+            qaskills.add("ghost", scope="global")
+    assert "no skill directory" in str(exc_info.value)

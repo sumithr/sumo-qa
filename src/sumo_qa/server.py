@@ -1,11 +1,12 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import json
 import os
 from pathlib import Path
 from typing import Annotated, Any
 
 from pydantic import Field
 
-from sumo_qa import node_install, qaskills, qaskills_trust
+from sumo_qa import node_install, qaskills
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.knowledge_loaders import (
     sumo_qa_load_approaches as _load_approaches,
@@ -354,66 +355,53 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         def sumo_qa_search_external_skills(
             query: Annotated[str, Field(description="Free-text search query, e.g. 'playwright e2e'.")],
         ) -> dict[str, Any]:
-            """Search the qaskills registry for skills matching a query.
+            """Search qaskills.sh and return the CLI's human-readable output.
 
-            Returns {"matches": [...]} with name, publisher, score, and description.
+            The host LLM reads the text and decides which skill (if any)
+            matches the user's intent. No fields are parsed out — the
+            output is intentionally raw so Claude can use it directly.
             Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
             """
             if (gated := _gate_disabled()) is not None:
                 return gated
             try:
-                matches = qaskills.search(query)
+                return {"output": qaskills.search(query)}
             except qaskills.NodeNotFoundError as exc:
                 return _error_envelope(exc, _HINT_NODE_MISSING)
             except qaskills.QaskillsError as exc:
                 return _error_envelope(exc, _HINT_QASKILLS_CLI)
-            return {
-                "matches": [
-                    {
-                        "name": m.name,
-                        "publisher": m.publisher,
-                        "score": m.score,
-                        "description": m.description,
-                    }
-                    for m in matches
-                ]
-            }
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_get_external_skill_info(
-            name: Annotated[str, Field(description="Exact skill name, e.g. 'playwright-e2e'.")],
+            name: Annotated[str, Field(description="Exact skill slug, e.g. 'playwright-e2e'.")],
         ) -> dict[str, Any]:
-            """Return the full record for a named skill from the qaskills registry.
+            """Return the CLI's `info` output for a named skill, as text.
 
-            Includes name, publisher, score, description, skill_md, and mcp_servers list.
+            Metadata only (version, publisher, score, license, languages,
+            frameworks, web URL). The CLI does not expose the SKILL.md
+            body — read it via your Read tool after install.
             Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
             """
             if (gated := _gate_disabled()) is not None:
                 return gated
             try:
-                record = qaskills.info(name)
+                return {"output": qaskills.info(name)}
             except qaskills.NodeNotFoundError as exc:
                 return _error_envelope(exc, _HINT_NODE_MISSING)
             except qaskills.QaskillsError as exc:
                 return _error_envelope(exc, _HINT_QASKILLS_CLI)
-            return {
-                "name": record.name,
-                "publisher": record.publisher,
-                "score": record.score,
-                "description": record.description,
-                "skill_md": record.skill_md,
-                "mcp_servers": list(record.mcp_servers),
-            }
 
         @mcp.tool(annotations=_writer_local)
         def sumo_qa_install_external_skill(
-            name: Annotated[str, Field(description="Exact skill name to install.")],
+            name: Annotated[str, Field(description="Exact skill slug to install.")],
             scope: Annotated[str, Field(description="Install scope: 'global' or 'project'.")],
         ) -> dict[str, Any]:
-            """Install a skill from the qaskills registry.
+            """Install a qaskill via the qaskills CLI.
 
-            Scope must be 'global' (installs to ~/.claude/skills/) or
-            'project' (installs to .claude/skills/ in the current project).
+            Scope 'global' installs to `~/.claude/skills/`. Scope 'project'
+            installs globally then moves the directory into the project's
+            `.claude/skills/`. Returns the on-disk install path so the host
+            LLM can Read the SKILL.md directly.
             Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
             """
             if (gated := _gate_disabled()) is not None:
@@ -429,18 +417,20 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             return {
                 "name": result.name,
                 "scope": result.scope,
-                "installed_at": result.installed_at,
+                "installed_at": str(result.installed_at),
+                "skill_md_path": str(result.installed_at / "SKILL.md"),
+                "cli_output": result.cli_output,
             }
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_check_external_skill_installed(
-            name: Annotated[str, Field(description="Exact skill name to check.")],
+            name: Annotated[str, Field(description="Exact skill slug to check.")],
         ) -> dict[str, Any]:
             """Check whether a qaskill is installed locally (global or project).
 
-            Returns {"installed": True, "scope": ..., "skill_md_path": ...} when
-            found, or {"installed": False} when not present. Never raises
-            NodeNotFoundError — this is a pure filesystem check.
+            Returns {"installed": True, "scope": ..., "skill_md_path": ...}
+            when found, or {"installed": False} when not present. Pure
+            filesystem check — does not require Node.
             Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
             """
             if (gated := _gate_disabled()) is not None:
@@ -456,21 +446,21 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_load_external_skills_registry() -> dict[str, Any]:
-            """Return the sumo-qa external-skills trust registry as a dict.
+            """Return the trust registry (trusted/blocked publishers) as a dict.
 
-            Includes trusted_publishers, blocked_publishers, and category_keywords.
-            This tool is NOT gated — the registry is plain config with no side effects.
+            The host LLM uses these lists to decide which qaskills.sh
+            publishers are auto-eligible vs. require explicit confirmation.
+            This tool is NOT gated — it's pure config with no side effects.
             """
+            if not _REGISTRY_PATH.is_file():
+                return {"trusted_publishers": [], "blocked_publishers": []}
             try:
-                registry = qaskills_trust.load(_REGISTRY_PATH)
-            except qaskills_trust.RegistryError as exc:
+                raw = json.loads(_REGISTRY_PATH.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
                 return _error_envelope(exc, _HINT_REGISTRY_JSON)
             return {
-                "trusted_publishers": list(registry.trusted_publishers),
-                "blocked_publishers": list(registry.blocked_publishers),
-                "category_keywords": {
-                    k: list(v) for k, v in registry.category_keywords.items()
-                },
+                "trusted_publishers": list(raw.get("trusted_publishers", ())),
+                "blocked_publishers": list(raw.get("blocked_publishers", ())),
             }
 
         @mcp.tool(annotations=_read_only_local)

@@ -60,18 +60,13 @@ See the Checklist above — that's the flow.
 | verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
 | spike-first-then-tests | sumo-qa-preparing-for-work (deliverable mode) |
-| (no native fit, gate on, category matched) | sumo-qa-suggesting-external-skill |
+| (no native fit, gate on, intent involves a non-native tool/surface) | sumo-qa-suggesting-external-skill |
 
 For "create a test plan" / "plan QA for this story" intents, after approach is picked, route to `sumo-qa-creating-test-plan` or `sumo-qa-preparing-for-work` per user phrasing. For "how do I test this?" intents that don't fit any specific approach, route to `sumo-qa-answering-testing-question`.
 
 ## Fallback to qaskills.sh (trial — gated)
 
-When **no canonical approach fits** the intent AND the env var `SUMO_QA_EXTERNAL_SKILLS=1` is set:
-
-1. Call `sumo_qa_load_external_skills_registry()`.
-2. For each entry in `category_keywords` (e2e, accessibility, performance, contract, mutation, flaky, ...), check whether any of its keywords appears (case-insensitive substring) in the user's intent.
-3. If a category matches → return `next_action: {skill: "sumo-qa-suggesting-external-skill"}` with the category in the internal rationale.
-4. If no category matches → continue with the native fallback (`no-tests-recommended` or whichever native approach is closest).
+When **no canonical approach fits** the intent AND the env var `SUMO_QA_EXTERNAL_SKILLS=1` is set, decide whether the intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine. If yes → return `next_action: {skill: "sumo-qa-suggesting-external-skill"}` with the inferred surface in the internal rationale. If no (the intent fits a native sub-skill once you look closer) → continue with the native routing.
 
 When the env var is not set, this fallback is invisible — proceed as today. Do NOT mention the gate to the user when it's off.
 

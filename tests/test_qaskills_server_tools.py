@@ -1,7 +1,6 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +8,7 @@ from unittest.mock import patch
 from sumo_qa.server import build_mcp_server
 
 ENV_GATE = "SUMO_QA_EXTERNAL_SKILLS"
+_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _completed(stdout: str = "", returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
@@ -26,32 +26,32 @@ def test_search_tool_disabled_when_gate_off(monkeypatch) -> None:
     assert out == {"disabled": True, "reason": "feature gate off"}
 
 
-def test_search_tool_returns_matches_when_gate_on(monkeypatch) -> None:
+def test_search_tool_returns_raw_cleaned_text(monkeypatch) -> None:
     monkeypatch.setenv(ENV_GATE, "1")
-    fake = json.dumps([{"name": "playwright-e2e", "publisher": "thetestingacademy", "score": 92, "description": "Playwright"}])
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed(fake)), \
+    fixture = (_FIXTURES / "qaskills_search_playwright.txt").read_text(encoding="utf-8")
+    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed(fixture)), \
          patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
         mcp = build_mcp_server()
         out = _get_tool(mcp, "sumo_qa_search_external_skills")(query="playwright")
-    assert out["matches"][0]["name"] == "playwright-e2e"
-    assert out["matches"][0]["publisher"] == "thetestingacademy"
+
+    assert "output" in out
+    assert "Playwright E2E Testing" in out["output"]
+    assert "npx qaskills add playwright-e2e" in out["output"]
+    # ANSI codes stripped before the LLM sees the text.
+    assert "\x1b[" not in out["output"]
 
 
-def test_info_tool_returns_payload_with_mcp_servers(monkeypatch) -> None:
+def test_info_tool_returns_raw_cleaned_text(monkeypatch) -> None:
     monkeypatch.setenv(ENV_GATE, "1")
-    fake = json.dumps({
-        "name": "playwright-e2e",
-        "publisher": "thetestingacademy",
-        "score": 92,
-        "description": "Playwright",
-        "skill_md": "---\nname: playwright-e2e\n---\n",
-        "mcp_servers": ["playwright-mcp"],
-    })
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed(fake)), \
+    fixture = (_FIXTURES / "qaskills_info_playwright_e2e.txt").read_text(encoding="utf-8")
+    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed(fixture)), \
          patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
         mcp = build_mcp_server()
         out = _get_tool(mcp, "sumo_qa_get_external_skill_info")(name="playwright-e2e")
-    assert out["mcp_servers"] == ["playwright-mcp"]
+
+    assert "output" in out
+    assert "Quality Score: 92/100" in out["output"]
+    assert "License: MIT" in out["output"]
 
 
 def test_install_tool_surfaces_clean_error_when_node_missing(monkeypatch) -> None:
@@ -99,7 +99,7 @@ def test_load_registry_tool_returns_payload_even_when_gate_off(monkeypatch) -> N
     mcp = build_mcp_server()
     out = _get_tool(mcp, "sumo_qa_load_external_skills_registry")()
     assert "trusted_publishers" in out
-    assert "category_keywords" in out
+    assert "blocked_publishers" in out
 
 
 def test_check_node_available_returns_true_when_npx_present(monkeypatch) -> None:
