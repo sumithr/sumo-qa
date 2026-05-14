@@ -1,11 +1,11 @@
 ---
-name: qa-executing-qa-rollout
-description: Use after qa-planning-qa-rollout to dispatch a written QA plan task-by-task. Each task runs in a fresh subagent (parallel where independent); each subagent's output goes through a two-stage review (test-correctness → test-quality) before the task is marked done. Continuous execution — no per-task check-ins. Finishes by routing to qa-finishing-qa-work.
+name: sumo-qa-executing-qa-rollout
+description: Use after sumo-qa-planning-qa-rollout to dispatch a written QA plan task-by-task. Each task runs in a fresh subagent (parallel where independent); each subagent's output goes through a two-stage review (test-correctness → test-quality) before the task is marked done. Continuous execution — no per-task check-ins. Finishes by routing to sumo-qa-finishing-qa-work.
 ---
 
 # Executing a QA rollout with subagents
 
-Take a written plan from `qa-planning-qa-rollout` (or a hand-written equivalent at `docs/qa/plans/...`) and execute it by dispatching one fresh subagent per task, then walking each subagent's output through a two-stage review.
+Take a written plan from `sumo-qa-planning-qa-rollout` (or a hand-written equivalent at `docs/qa/plans/...`) and execute it by dispatching one fresh subagent per task, then walking each subagent's output through a two-stage review.
 
 **Announce at start:** *"Dispatching the plan with subagents."*
 
@@ -40,10 +40,10 @@ Fresh subagent prevents context pollution; two-stage review separates "catches t
 ## When to Use
 
 Routes here from:
-- `qa-planning-qa-rollout` when a plan is signed off
+- `sumo-qa-planning-qa-rollout` when a plan is signed off
 - Direct user invocation: *"execute the QA plan at `docs/qa/plans/...`"*, *"run through the test rollout"*, *"dispatch the QA work"*
 
-For a single-task piece of work, skip this skill — go straight to `qa-implementing-with-tdd` or the matching individual skill.
+For a single-task piece of work, skip this skill — go straight to `sumo-qa-implementing-with-tdd` or the matching individual skill.
 
 ## Checklist
 
@@ -63,7 +63,7 @@ You MUST work through these in order. Steps 1–2 are AI-only homework. The disp
 
 4. **Final cross-task review** — when all tasks are done, dispatch a final reviewer with the entire plan + all task outputs. Do the tests collectively cover all named risks? Are there seams between tasks neither covers? Run the full suite; surface counts.
 
-5. **Hand off to `qa-finishing-qa-work`** — pass the plan, the task outputs, and the cross-task review. That skill captures evidence, produces the PR-ready summary, and closes the loop.
+5. **Hand off to `sumo-qa-finishing-qa-work`** — pass the plan, the task outputs, and the cross-task review. That skill captures evidence, produces the PR-ready summary, and closes the loop.
 
 ## Process Flow
 
@@ -88,7 +88,7 @@ Match the subagent model to the task shape via the Agent tool's `model` paramete
 | "Let me pause after task 2 and ask the user if the direction's right" | Continuous execution. The user signed off the plan; mid-plan check-ins waste attention. |
 | "Spec review came back with 2 issues; I'll fix one, push the other to task 5" | Fix both before moving on. |
 | "Production code changed in a strengthen-test-coverage task — it was a tiny refactor" | Reject the output. Production stays clean. |
-| "All tasks done; I'll just summarise and finish" | Cross-task review first, then route to `qa-finishing-qa-work`. |
+| "All tasks done; I'll just summarise and finish" | Cross-task review first, then route to `sumo-qa-finishing-qa-work`. |
 
 ## Examples
 
@@ -99,7 +99,7 @@ Match the subagent model to the task shape via the Agent tool's `model` paramete
 > **AI:** 6 tasks; 1–5 parallel, 6 sequential on task 1's fixture.
 > **Wave 1:** 5 implementers dispatched in one message → spec → quality → done. Task 4 spec-review fails round 1; passes round 2.
 > **Wave 2:** task 6 dispatches after task 1 commits; two-stage review as before.
-> **Final:** cross-task reviewer confirms 5 risks covered, suite green. Routes to `qa-finishing-qa-work`.
+> **Final:** cross-task reviewer confirms 5 risks covered, suite green. Routes to `sumo-qa-finishing-qa-work`.
 
 ### Bad (inline execution + skipped reviews)
 
@@ -109,4 +109,4 @@ Match the subagent model to the task shape via the Agent tool's `model` paramete
 
 ## Next skill in the chain
 
-After cross-task review passes → `qa-finishing-qa-work` to capture evidence, write the PR-ready summary, and close the loop.
+After cross-task review passes → `sumo-qa-finishing-qa-work` to capture evidence, write the PR-ready summary, and close the loop.

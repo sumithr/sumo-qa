@@ -14,7 +14,7 @@
 
 ## Turn 2 — sumo-qa
 
-*(internal: invokes `qa-deciding-approach`. Intent is unambiguous — mutation-testing follow-up. Classification: `strengthen-test-coverage`. Routes to `qa-strengthening-tests`.)*
+*(internal: invokes `sumo-qa-deciding-approach`. Intent is unambiguous — mutation-testing follow-up. Classification: `strengthen-test-coverage`. Routes to `sumo-qa-strengthening-tests`.)*
 
 *(internal: reads `pricing/calculator.py` (38 LOC, 11 branches) and `pricing/test_calculator.py` (14 parametrised pytest cases). Reads `target/pit-reports/<timestamp>/index.html` + the per-class XML. Iron Law loaded: production code is read-only for this skill.)*
 

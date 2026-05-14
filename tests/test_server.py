@@ -28,19 +28,19 @@ _KNOWLEDGE_LOADER_TOOL_NAMES = {
 # Names match the skill directory with `-` -> `_`.
 _SKILL_TOOL_NAMES = {
     "using_sumo_qa",
-    "qa_deciding_approach",
-    "qa_preparing_for_work",
-    "qa_creating_test_plan",
-    "qa_implementing_with_tdd",
-    "qa_reviewing_before_merge",
-    "qa_strengthening_tests",
-    "qa_finding_test_data",
-    "qa_answering_testing_question",
+    "sumo_qa_deciding_approach",
+    "sumo_qa_preparing_for_work",
+    "sumo_qa_creating_test_plan",
+    "sumo_qa_implementing_with_tdd",
+    "sumo_qa_reviewing_before_merge",
+    "sumo_qa_strengthening_tests",
+    "sumo_qa_finding_test_data",
+    "sumo_qa_answering_testing_question",
     "sumo_qa_strategising",
     # Chain-polish pass: planning + executing + finishing skills.
-    "qa_planning_qa_rollout",
-    "qa_executing_qa_rollout",
-    "qa_finishing_qa_work",
+    "sumo_qa_planning_qa_rollout",
+    "sumo_qa_executing_qa_rollout",
+    "sumo_qa_finishing_qa_work",
 }
 
 # Heavy tools that MUST NOT be registered after Phase 4. The skills now drive

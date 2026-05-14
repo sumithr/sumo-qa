@@ -1,6 +1,6 @@
 ---
-name: qa-planning-qa-rollout
-description: Use when you have a chunk of QA work (a story, a PR, a strategy phase) that needs to be turned into a written plan of bite-sized, independently-executable tasks before any test code is written. Walks scope → file structure → bite-sized tasks → confirm, one section per turn. Produces docs/qa/plans/YYYY-MM-DD-<feature>.md ready for subagent dispatch via qa-executing-qa-rollout.
+name: sumo-qa-planning-qa-rollout
+description: Use when you have a chunk of QA work (a story, a PR, a strategy phase) that needs to be turned into a written plan of bite-sized, independently-executable tasks before any test code is written. Walks scope → file structure → bite-sized tasks → confirm, one section per turn. Produces docs/qa/plans/YYYY-MM-DD-<feature>.md ready for subagent dispatch via sumo-qa-executing-qa-rollout.
 ---
 
 # Planning a QA rollout
@@ -28,7 +28,7 @@ Spend output tokens on findings, not framing.
 - **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff at the bottom of every skill is where routing lives.
 
 <HARD-GATE>
-Do NOT start scaffolding tests or dispatching subagents from this skill. This skill's only output is the written plan document. Execution happens in `qa-executing-qa-rollout` after the plan is signed off.
+Do NOT start scaffolding tests or dispatching subagents from this skill. This skill's only output is the written plan document. Execution happens in `sumo-qa-executing-qa-rollout` after the plan is signed off.
 </HARD-GATE>
 
 ## The Iron Law
@@ -37,9 +37,9 @@ Do NOT start scaffolding tests or dispatching subagents from this skill. This sk
 
 ## When to Use
 
-`qa-deciding-approach` routes here when:
+`sumo-qa-deciding-approach` routes here when:
 
-- the work spans **3+ tasks** that can be done independently (otherwise: skip planning, route straight to `qa-implementing-with-tdd` or similar)
+- the work spans **3+ tasks** that can be done independently (otherwise: skip planning, route straight to `sumo-qa-implementing-with-tdd` or similar)
 - the user said *"plan QA for this story"* / *"plan the test rollout"* / *"break this into tasks"* / *"prep this for subagent execution"*
 - `sumo-qa-strategising` has produced a strategy and the user wants to act on Phase 1
 - the work is going to be picked up by someone other than the planner (handoff)
@@ -62,11 +62,11 @@ You MUST work through these in order. Steps 1–3 are AI-only homework. Steps 4 
    - **Bite-sized:** 5–15 minutes each. Bigger means decompose. Smaller means combine.
    - **Independent:** task N must not depend on task N+1's output. If they're coupled, name the coupling explicitly.
    - **Specified:** file paths, function names, expected assertion shapes, the named risk being covered.
-   - **Discipline-labelled:** each task carries the approach tag from `qa-deciding-approach` so the executor knows which workflow to follow.
+   - **Discipline-labelled:** each task carries the approach tag from `sumo-qa-deciding-approach` so the executor knows which workflow to follow.
 
 6. **Walk the plan section-by-section, confirm** — present file-structure → first 3 tasks → next 3 → residual. Each section gets a confirmation gate. Ask: *"do these tasks match how you'd shape them?"* Don't dump the whole plan at once.
 
-7. **Hand off** — when the plan is signed off, say: *"plan is at `docs/qa/plans/YYYY-MM-DD-<feature>.md`. Ready to dispatch subagents? `qa-executing-qa-rollout` reads this plan and runs each task in a fresh subagent with two-stage review."* Do NOT start executing.
+7. **Hand off** — when the plan is signed off, say: *"plan is at `docs/qa/plans/YYYY-MM-DD-<feature>.md`. Ready to dispatch subagents? `sumo-qa-executing-qa-rollout` reads this plan and runs each task in a fresh subagent with two-stage review."* Do NOT start executing.
 
 ## Plan Document Template
 
@@ -75,7 +75,7 @@ Every plan ships with this header:
 ```markdown
 # [Feature] QA Plan
 
-> **For agentic execution:** Use `qa-executing-qa-rollout` to dispatch this plan task-by-task with two-stage review. Tasks use checkbox (`- [ ]`) syntax for tracking. Independent tasks (marked `[parallel]`) can be dispatched concurrently.
+> **For agentic execution:** Use `sumo-qa-executing-qa-rollout` to dispatch this plan task-by-task with two-stage review. Tasks use checkbox (`- [ ]`) syntax for tracking. Independent tasks (marked `[parallel]`) can be dispatched concurrently.
 
 **Goal:** [One sentence — what the QA work delivers]
 
@@ -145,7 +145,7 @@ See the Checklist above — that's the flow.
 >
 > **AI (step 6):** walks file-structure → first 3 tasks → next 3, confirming each section.
 >
-> **AI (step 7, after sign-off):** *"Plan is at `docs/qa/plans/2026-05-12-billing-refund-coverage.md`. Want me to dispatch via `qa-executing-qa-rollout`?"*
+> **AI (step 7, after sign-off):** *"Plan is at `docs/qa/plans/2026-05-12-billing-refund-coverage.md`. Want me to dispatch via `sumo-qa-executing-qa-rollout`?"*
 
 ### Bad (plan and execute in one go)
 
@@ -157,4 +157,4 @@ See the Checklist above — that's the flow.
 
 ## Next skill in the chain
 
-When the plan is signed off → `qa-executing-qa-rollout` to dispatch subagents per task with two-stage review. If the user wants to execute manually, point them at the plan file and stop.
+When the plan is signed off → `sumo-qa-executing-qa-rollout` to dispatch subagents per task with two-stage review. If the user wants to execute manually, point them at the plan file and stop.

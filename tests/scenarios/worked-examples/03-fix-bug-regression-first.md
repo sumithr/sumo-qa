@@ -14,7 +14,7 @@
 
 ## Turn 2 — sumo-qa
 
-*(internal: invokes `qa-deciding-approach`. Intent: bug fix on existing code. Classification: `business_logic_change` + `bug_fix`. Approach: `regression-first`. Routes to `qa-implementing-with-tdd`.)*
+*(internal: invokes `sumo-qa-deciding-approach`. Intent: bug fix on existing code. Classification: `business_logic_change` + `bug_fix`. Approach: `regression-first`. Routes to `sumo-qa-implementing-with-tdd`.)*
 
 *(internal: walks the repo with the host's file tools — reads `pricing/discount_calculator.py`, locates `pricing/test_discount_calculator.py`, scans two sibling test files to fix the framework and fixture style. Does NOT ask the user "what test framework do you use?")*
 
@@ -184,7 +184,7 @@ The two siblings on rows 2–3 are worth flagging: they exercise the precedence 
 
 Red → green → targeted regression, all evidence on screen. The bug has a named regression test that will fail again if it returns.
 
-**Next step:** I'd recommend handing off to `qa-reviewing-before-merge` before this lands — there's an open question about whether any downstream consumer (the loyalty service, the invoicing report) assumes VIP-and-promo can co-occur on a line item, and the review skill is the right place to read the diff in full and run the wider suite. Want me to route there?
+**Next step:** I'd recommend handing off to `sumo-qa-reviewing-before-merge` before this lands — there's an open question about whether any downstream consumer (the loyalty service, the invoicing report) assumes VIP-and-promo can co-occur on a line item, and the review skill is the right place to read the diff in full and run the wider suite. Want me to route there?
 
 ---
 
@@ -197,6 +197,6 @@ Red → green → targeted regression, all evidence on screen. The bug has a nam
 - **Red output shown verbatim.** Not *"the test fails as expected"* — the actual `AssertionError: ... Decimal('80.00') == Decimal('90.00')` at `pricing/test_discount_calculator.py:47`. Real evidence, not a vibe.
 - **Green confirmed for the right reason.** *"The assertion didn't move; the production behaviour did."* That's the discipline — the test wasn't weakened to pass.
 - **Targeted regression catches what local re-runs miss.** Two sibling tests (non-VIP-with-promo, expired-promo-falls-back-to-VIP) confirm the precedence rule didn't over-apply. The AI calls those out by name.
-- **Refuses to claim safe-to-merge.** That verdict belongs to `qa-reviewing-before-merge`, and the handoff is offered cleanly. This skill's job ends at "regression test in place, green, surrounding suite still green."
+- **Refuses to claim safe-to-merge.** That verdict belongs to `sumo-qa-reviewing-before-merge`, and the handoff is offered cleanly. This skill's job ends at "regression test in place, green, surrounding suite still green."
 
 This is what *"senior QA"* looks like in practice: the test exists *because* it caught the bug; the fix exists *because* the test demanded it; and the next time the regression tries to return, the suite will see it before a customer does.

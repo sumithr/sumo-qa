@@ -9,17 +9,17 @@ Each returns the full body of a `skills/<name>/SKILL.md` file. The host LLM trea
 | Tool | Returns SKILL.md for |
 |---|---|
 | `using_sumo_qa` | Entry router — Iron Law: NO QA WORK WITHOUT FIRST DECIDING THE APPROACH |
-| `qa_deciding_approach` | Pick the canonical approach for the work |
-| `qa_preparing_for_work` | Lightweight QA prep brief |
-| `qa_creating_test_plan` | Formal phased test plan with entry / exit criteria |
-| `qa_implementing_with_tdd` | Red → green → review walk |
-| `qa_reviewing_before_merge` | Review local diff, run tests, surface verdict |
-| `qa_strengthening_tests` | Mutation testing follow-up |
-| `qa_finding_test_data` | Test-data discovery / validation / registration |
-| `qa_answering_testing_question` | Generic "how do I test this?" |
+| `sumo_qa_deciding_approach` | Pick the canonical approach for the work |
+| `sumo_qa_preparing_for_work` | Lightweight QA prep brief |
+| `sumo_qa_creating_test_plan` | Formal phased test plan with entry / exit criteria |
+| `sumo_qa_implementing_with_tdd` | Red → green → review walk |
+| `sumo_qa_reviewing_before_merge` | Review local diff, run tests, surface verdict |
+| `sumo_qa_strengthening_tests` | Mutation testing follow-up |
+| `sumo_qa_finding_test_data` | Test-data discovery / validation / registration |
+| `sumo_qa_answering_testing_question` | Generic "how do I test this?" |
 | `sumo_qa_strategising` | Repo-wide QA strategy / audit |
 
-In JetBrains AI Assistant these are slash commands (`/qa_deciding_approach`). In Claude Code the equivalent slash commands come from the native skill files (`/qa-deciding-approach`, hyphens) — the MCP tools are still callable but only via natural language ("decide the QA approach for this refactor"). VS Code Copilot and Junie pick them by description in Agent / agentic mode.
+In JetBrains AI Assistant these are slash commands (`/sumo_qa_deciding_approach`). In Claude Code the equivalent slash commands come from the native skill files (`/sumo-qa-deciding-approach`, hyphens) — the MCP tools are still callable but only via natural language ("decide the QA approach for this refactor"). VS Code Copilot and Junie pick them by description in Agent / agentic mode.
 
 See [SKILLS.md](SKILLS.md) for the Iron Law per skill.
 

@@ -1,6 +1,6 @@
 ---
-name: qa-preparing-for-work
-description: Use when the user asks to plan QA for a story, ticket, or piece of work before coding starts. Identifies named risks anchored in the change shape, then proposes a smallest useful test set tied to those risks. Lighter-weight than qa-creating-test-plan; no formal entry/exit criteria.
+name: sumo-qa-preparing-for-work
+description: Use when the user asks to plan QA for a story, ticket, or piece of work before coding starts. Identifies named risks anchored in the change shape, then proposes a smallest useful test set tied to those risks. Lighter-weight than sumo-qa-creating-test-plan; no formal entry/exit criteria.
 ---
 
 # Preparing for QA work
@@ -37,13 +37,13 @@ User intents that trigger this skill:
 - "what could break with this change?"
 - "QA prep for ticket ABC-123"
 
-Distinct from `qa-creating-test-plan` (formal entry/exit criteria, phases, deliverables) and from `qa-deciding-approach` (which only picks the approach). This skill produces a risk-shaped prep brief: named risks + smallest useful test set + named techniques + specialty fits if relevant.
+Distinct from `sumo-qa-creating-test-plan` (formal entry/exit criteria, phases, deliverables) and from `sumo-qa-deciding-approach` (which only picks the approach). This skill produces a risk-shaped prep brief: named risks + smallest useful test set + named techniques + specialty fits if relevant.
 
 ## Checklist
 You MUST create a TodoWrite item per checklist item and complete in order:
 
 1. Read the user's intent and target paths.
-2. Call `sumo_qa_load_standards(classification=...)` and `sumo_qa_load_rules(classification=...)` using the classification the previous `qa-deciding-approach` step settled on.
+2. Call `sumo_qa_load_standards(classification=...)` and `sumo_qa_load_rules(classification=...)` using the classification the previous `sumo-qa-deciding-approach` step settled on.
 3. Read the actual files in scope using the host's file tools. Do NOT ask the user for file content the host can read directly.
 4. Identify 3-7 named risks. Each risk MUST be specific (not "input validation breaks" but "currency conversion at the GBP→USD boundary rounds incorrectly when the rate is supplied with >6 decimal places"). Anchor each in a file path or domain term from the user's words.
 5. Call `sumo_qa_load_techniques()`. Pick one technique per named risk. Use the catalogue's wording.
@@ -82,6 +82,6 @@ User: "I'm adding a refund endpoint to the payments service. What should I test?
 
 ## Next skill in the chain
 
-When the prep brief is signed off → `qa-implementing-with-tdd` to walk red → green for the agreed risks (the most common path).
+When the prep brief is signed off → `sumo-qa-implementing-with-tdd` to walk red → green for the agreed risks (the most common path).
 
-When the work has 3+ independent tasks the user wants to dispatch across subagents → `qa-planning-qa-rollout` to turn the brief into a bite-sized, dispatchable plan first.
+When the work has 3+ independent tasks the user wants to dispatch across subagents → `sumo-qa-planning-qa-rollout` to turn the brief into a bite-sized, dispatchable plan first.

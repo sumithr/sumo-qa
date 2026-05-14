@@ -14,7 +14,7 @@
 
 ## Turn 2 — sumo-qa
 
-*(internal: invokes `qa-deciding-approach`. Intent is question-shaped — not a plan, not a review, not a diff. Routes to `qa-answering-testing-question`.)*
+*(internal: invokes `sumo-qa-deciding-approach`. Intent is question-shaped — not a plan, not a review, not a diff. Routes to `sumo-qa-answering-testing-question`.)*
 
 *(internal: calls `sumo_qa_load_principles()` + `sumo_qa_load_techniques()`. Reads both catalogues.)*
 

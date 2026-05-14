@@ -14,7 +14,7 @@
 
 ## Turn 2 — sumo-qa
 
-*(internal: invokes `qa-deciding-approach`. Intent reads as a formal, sign-offable artefact — heavier than `qa-preparing-for-work`. Routes to `qa-creating-test-plan`. Loads `sumo_qa_load_classifications`, `sumo_qa_load_standards`, `sumo_qa_load_techniques`, `sumo_qa_load_specialty_tools`.)*
+*(internal: invokes `sumo-qa-deciding-approach`. Intent reads as a formal, sign-offable artefact — heavier than `sumo-qa-preparing-for-work`. Routes to `sumo-qa-creating-test-plan`. Loads `sumo_qa_load_classifications`, `sumo_qa_load_standards`, `sumo_qa_load_techniques`, `sumo_qa_load_specialty_tools`.)*
 
 *(internal: walks the repo for the scope. Finds `search/relevance/Ranker.kt`, `search/relevance/features/*.kt`, `search/eval/GoldenQuerySet.kt`, the `shadow-traffic` harness under `infra/shadow/`, existing `RankerTest.kt` and `GoldenQuerySetTest.kt`. Reads CI config — there's a `search-relevance` pipeline that runs NDCG@10 on every PR.)*
 
