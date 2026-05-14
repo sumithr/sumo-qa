@@ -11,6 +11,9 @@
 
 A senior-QA MCP server + skills library that delivers ISTQB-grade testing discipline to AI coding agents across **Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot**. The discipline lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical knowledge catalogues; a SessionStart hook auto-injects the `using-sumo-qa` router so the agent reliably runs the workflow without you having to remember to invoke it.
 
+> [!IMPORTANT]
+> **sumo-qa is an advisor, not an oracle.** Like all AI tools, it can be wrong — do not rely on its output 100%. Use your own judgment and your team's standards as the final word. sumo-qa loads you with discipline, named risks, and design techniques faster than you'd assemble them by hand; the engineer at the keyboard still makes the call.
+
 > ### 🚀 New here? **[5-minute demo →](DEMO.md)**
 > Install with one line, run one prompt on your real repo, see the senior-QA workflow happen on actual code. No staged data, no scripted output.
 
@@ -24,34 +27,36 @@ Read [DEMO.md](DEMO.md) for the 5-minute install-and-run-this-prompt walkthrough
 
 ## Install
 
-### One-line install (PyPI)
+**One line — install and wire it into your host of choice:**
 
 ```bash
-pip install sumo-qa
-# or:  uv tool install sumo-qa
+pip install sumo-qa && sumo-qa-install --claude-code
 ```
 
-After install, restart your MCP host (Claude Code / Cursor / Codex / OpenCode / JetBrains AI Assistant / VS Code + Copilot) so it picks up the new MCP server.
+Swap `--claude-code` for `--vscode --workspace <path-to-repo>` (VS Code + Copilot), `--jetbrains` (JetBrains AI Assistant), or drop the flag entirely to configure every host detected on this machine. Works identically on Windows / macOS / Linux — `pip` generates `.exe` wrappers on Windows, so no `python3` invocation to deal with. Restart your host (or open a fresh chat) once it's done.
 
-### Claude Code plugin
+Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md).
+
+### Updating
+
+```bash
+pip install --upgrade sumo-qa && sumo-qa-install
+```
+
+Then restart the host. The SessionStart hook re-injects new content; bundled skills + knowledge refresh from the upgraded package.
+
+### Alternative: Claude Code plugin marketplace
+
+If you'd rather install through Claude Code's plugin system:
 
 ```text
 /plugin marketplace add sumithr/sumo-qa
 /plugin install sumo-qa@sumo-qa-dev
 ```
 
-Then `uv tool install sumo-qa` (or `pip install sumo-qa`) so the MCP server binary is on PATH. The skills come from the plugin; the MCP tools come from the binary.
+Then `pip install sumo-qa` so the MCP server binary is on PATH. The skills come from the plugin; the MCP tools come from the binary.
 
-### Multi-host batch install (JetBrains + VS Code + everywhere)
-
-```bash
-pip install sumo-qa
-sumo-qa-install
-```
-
-Configures every supported host detected on this machine. `pip` puts both `sumo-qa` (the MCP server binary) and `sumo-qa-install` (the configurator) on your PATH — on Windows, pip generates `.exe` wrappers automatically, so no `python3` invocation needed. Per-host flags + troubleshooting in [docs/INSTALL.md](docs/INSTALL.md).
-
-### From a git URL (latest main)
+### Alternative: latest main from git
 
 ```bash
 uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
