@@ -1,13 +1,22 @@
 # Install
 
-There are two install paths depending on which host you're using:
+## One line, any host
 
-- **Native-plugin path** — Claude Code, Cursor, Codex, OpenCode (one-line install per host).
-- **`sumo-qa-install` path** — JetBrains AI Assistant, Junie, VS Code + Copilot (or batch-install across hosts). Requires `pip install sumo-qa` first; that puts both `sumo-qa` (the MCP server binary) and `sumo-qa-install` (the configurator) on your PATH. On Windows, pip generates `.exe` wrappers automatically — no `python` vs `python3` vs `py` to deal with.
+```bash
+pip install sumo-qa && sumo-qa-install --claude-code
+```
+
+Swap `--claude-code` for `--vscode --workspace <path-to-repo>` (VS Code + Copilot), `--jetbrains` (JetBrains AI Assistant), or drop the flag entirely to configure every host detected on this machine. Works identically on Windows / macOS / Linux — `pip` generates `.exe` wrappers on Windows, so no `python3` invocation involved.
+
+`pip install sumo-qa` puts both binaries on PATH: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator that wires it into your host). The chained `sumo-qa-install` step then symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` / `.vscode/mcp.json`, or prints JetBrains UI steps — depending on the flag.
+
+Restart your host (or open a fresh chat) once it's done.
+
+For Cursor, Codex, and OpenCode — those use their own plugin marketplaces, see the per-host sections below.
 
 ## Native-plugin install (Claude Code, Cursor, Codex, OpenCode)
 
-These hosts have plugin systems that read `.claude-plugin/`, `.cursor-plugin/`, `.codex-plugin/`, `.opencode/` directly from the repo — no `sumo-qa-install` needed.
+These hosts also have plugin systems that read `.claude-plugin/`, `.cursor-plugin/`, `.codex-plugin/`, `.opencode/` directly from the repo as an alternative to the `sumo-qa-install` flow above.
 
 ### Claude Code
 
@@ -39,15 +48,6 @@ Install from the Codex plugin marketplace — search for "Sumo QA". The plugin s
 ### OpenCode
 
 See [`.opencode/INSTALL.md`](../.opencode/INSTALL.md) — add `"sumo-qa@git+https://github.com/sumithr/sumo-qa.git"` to your `opencode.json` plugin array. Includes a Claude-Code-to-OpenCode tool-name mapping table for skill authors.
-
-## `sumo-qa-install` path (JetBrains, VS Code + Copilot, batch installs)
-
-```bash
-pip install sumo-qa
-sumo-qa-install
-```
-
-Configures every supported host detected on this machine. Runs on Windows, macOS, and Linux — no `python` invocation; `pip` generates the right wrapper (`sumo-qa-install.exe` on Windows).
 
 ## Per-host flags
 

@@ -2,76 +2,49 @@
 
 Open any real repo. Run one of the prompts below. Watch the senior-QA workflow happen on actual code. No staged data, no scripted output — sumo-qa walks your repo and produces senior-grade QA on whatever it finds.
 
+> [!IMPORTANT]
+> **sumo-qa is an advisor, not an oracle.** Like all AI tools, it can be wrong — do not rely on its output 100%. Use your own judgment and your team's standards as the final word.
+
 ## Prerequisites
 
 - **Python 3.10 or newer** (3.10, 3.11, 3.12, 3.13, or 3.14). Check with `python --version` (or `py --version` on Windows).
 - **An MCP-capable host:** Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant or Junie, or VS Code + GitHub Copilot (Agent mode, with Claude Sonnet 4.5 or GPT-5 full).
-- **`uv` or `pip`** to install the package. `uv` is faster; install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS/Linux or the PowerShell equivalent on Windows.
 
-## Step 1 — Install the package (one line)
+## Step 1 — Install and wire it up (one line)
 
-This is the same step for *every* host. It puts **two** commands on your `PATH`: `sumo-qa` (the MCP server binary your host calls into) and `sumo-qa-install` (the configurator that wires it into Claude Code / VS Code / JetBrains / etc).
-
-```bash
-pip install sumo-qa
-# or:
-uv tool install sumo-qa
-```
-
-On Windows, `pip` generates `sumo-qa.exe` and `sumo-qa-install.exe` automatically — no `python3` invocation needed.
-
-## Step 2 — Connect your host
-
-Pick the line that matches your editor / agent. Each host needs a one-time pointer at the `sumo-qa` binary (with the absolute path).
-
-### Claude Code
+Pick the flag for your host and run a single command:
 
 ```bash
-sumo-qa-install --claude-code
+# Claude Code
+pip install sumo-qa && sumo-qa-install --claude-code
+
+# VS Code + GitHub Copilot
+pip install sumo-qa && sumo-qa-install --vscode --workspace <path-to-your-repo>
+
+# JetBrains AI Assistant
+pip install sumo-qa && sumo-qa-install --jetbrains
+
+# Every host detected on this machine
+pip install sumo-qa && sumo-qa-install
 ```
 
-Symlinks the 13 skills into `~/.claude/skills/` so they show up in the `/qa-*` slash menu, and writes the MCP server entry to `claude_desktop_config.json` so the 7 knowledge-loader + 4 test-data tools are callable. Restart Claude Code afterwards.
+`pip install sumo-qa` puts both binaries on PATH (`sumo-qa` the MCP server + `sumo-qa-install` the configurator). `sumo-qa-install` then does the host wiring: symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json` or prints JetBrains UI steps, depending on the flag. Works identically on Windows, macOS, and Linux — pip generates `.exe` wrappers on Windows so no `python3` invocation is involved.
 
-### VS Code + GitHub Copilot
+Restart your host (or open a fresh chat) once it's done.
 
-```bash
-sumo-qa-install --vscode --workspace <path-to-your-repo>
-```
-
-Writes `<repo>/.vscode/mcp.json`. Then in VS Code: **Cmd+Shift+P → Developer: Reload Window**, switch Copilot Chat to **Agent mode**, pick a capable model (Claude Sonnet 4.5 or GPT-5 full).
-
-### JetBrains AI Assistant
-
-```bash
-sumo-qa-install --jetbrains
-```
-
-Prints the exact Settings UI fields to fill in (JetBrains' MCP plugin needs in-IDE registration on IDEA 2026.1; can't be scripted from outside).
-
-### Cursor, Codex, OpenCode
-
-Per-host plugin install paths in [`docs/INSTALL.md`](docs/INSTALL.md). On Cursor: `/add-plugin sumo-qa`. On OpenCode: add a line to your `opencode.json`. The same `sumo-qa` binary you installed in Step 1 is what they call into.
-
-### Want it on every host at once?
-
-```bash
-sumo-qa-install
-```
-
-With no flags, `sumo-qa-install` configures every host detected on this machine.
+**Cursor, Codex, OpenCode** use their own plugin systems — see [`docs/INSTALL.md`](docs/INSTALL.md) for the one-line per host.
 
 ### Updating later
 
 ```bash
-pip install --upgrade sumo-qa     # refreshes server + bundled skills
-sumo-qa-install                   # refreshes host configs + symlinks
+pip install --upgrade sumo-qa && sumo-qa-install
 ```
 
-Then open a fresh chat in your host — the SessionStart hook re-injects the new content.
+Then open a fresh chat — the SessionStart hook re-injects the new content; bundled skills + knowledge refresh from the upgraded package.
 
 ---
 
-## Step 3 — Run one of these prompts on your repo
+## Step 2 — Run one of these prompts on your repo
 
 Open your repo in the host you configured. Pick the prompt that matches the QA situation you actually have. Each is a one-liner.
 
