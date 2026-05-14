@@ -32,7 +32,7 @@ pip install sumo-qa && sumo-qa-install
 
 Restart your host (or open a fresh chat) once it's done.
 
-**Cursor, Codex, OpenCode** use their own plugin systems — see [`docs/INSTALL.md`](docs/INSTALL.md) for the one-line per host.
+**Cursor, Codex, OpenCode**: the repo ships plugin manifests at `.cursor-plugin/plugin.json` and `.codex-plugin/plugin.json` for those host plugin systems. We haven't documented those install paths end-to-end yet — for now, follow that host's own plugin/MCP-server setup docs and point at either the plugin manifest or the absolute path to the `sumo-qa` binary printed by `sumo-qa-install --help`.
 
 ### Updating later
 
@@ -40,7 +40,7 @@ Restart your host (or open a fresh chat) once it's done.
 pip install --upgrade sumo-qa && sumo-qa-install
 ```
 
-Then open a fresh chat — the SessionStart hook re-injects the new content; bundled skills + knowledge refresh from the upgraded package.
+Then open a fresh chat. The host re-reads `~/.claude/skills/` (Claude Code) and the MCP tool list on the next session, picking up the upgraded skills and knowledge. If you installed sumo-qa as a Claude Code or Cursor plugin instead, the bundled SessionStart hook re-fires automatically.
 
 ---
 
