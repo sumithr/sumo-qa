@@ -6,22 +6,21 @@
 #   # pip path:
 #   python -m pip install -e ".[dev]"
 #   pre-commit install --install-hooks
-#   pre-commit install --hook-type pre-push
 #
 #   # or uv path (if you already use uv):
 #   uv sync --all-extras
 #   uv run pre-commit install --install-hooks
-#   uv run pre-commit install --hook-type pre-push
 #
-# After that:
-#   git commit  → lint + format + hygiene hooks run on staged files (fast)
-#   git push    → pytest runs against the whole suite (slower, but only on push)
+# After that, every `git commit` runs ruff (with auto-fix) + formatting
+# + basic file hygiene against the staged files. ~1 second.
 #
 # To run all hooks on demand:   pre-commit run --all-files
-# To run pre-push hooks:        pre-commit run --all-files --hook-stage pre-push
 # To bypass a single commit:    git commit --no-verify   (rarely needed; CI will catch)
 #
-# These hooks mirror the CI gates exactly, so the local-vs-CI loop is closed.
+# Test runs deliberately stay in CI (`.github/workflows/test.yml`),
+# not as a local pre-push hook — that would couple every push to which
+# `python` happens to be first on PATH (system vs pyenv vs venv) and
+# fail confusingly in mixed environments.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Pin matches `ruff>=0.5,<1` from pyproject.toml's dev extras. Update both
@@ -45,17 +44,3 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
-
-  - repo: local
-    hooks:
-      - id: pytest
-        name: pytest
-        # Runs the full suite on `git push` (not on every commit — too slow
-        # to gate single-file changes). Mirrors the CI tests workflow.
-        # `python -m pytest` works whether dev deps were installed via
-        # pip (`pip install -e .[dev]`) or via uv (`uv sync`); both put
-        # pytest on the active interpreter's path.
-        entry: python -m pytest -q
-        language: system
-        pass_filenames: false
-        stages: [pre-push]

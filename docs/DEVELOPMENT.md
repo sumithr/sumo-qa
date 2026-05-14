@@ -17,7 +17,6 @@ python -m venv .venv                                # any venv tool works; uv us
 source .venv/bin/activate                           # Windows: .venv\Scripts\activate
 python -m pip install -e ".[dev]"                   # installs the package + pytest, ruff, pre-commit
 pre-commit install --install-hooks                  # ruff + hygiene hooks on every commit
-pre-commit install --hook-type pre-push             # full pytest suite on every push
 ```
 
 If you already use [uv](https://docs.astral.sh/uv/), the equivalent setup is:
@@ -25,7 +24,6 @@ If you already use [uv](https://docs.astral.sh/uv/), the equivalent setup is:
 ```bash
 uv sync --all-extras
 uv run pre-commit install --install-hooks
-uv run pre-commit install --hook-type pre-push
 ```
 
 To put `sumo-qa` on your PATH for ad-hoc use (optional):
@@ -37,28 +35,20 @@ uv tool install --from . sumo-qa  # installs into uv's tool dir
 
 ## Local verification — automatic via git hooks
 
-The repo uses [pre-commit](https://pre-commit.com/) to enforce the same checks CI runs.
-Once installed (above), you get them for free on every `git commit` / `git push`:
+The repo uses [pre-commit](https://pre-commit.com/) to enforce the same lint/format checks CI runs.
+Once installed (above), every `git commit` runs `ruff check --fix`, `ruff format`, and basic file-hygiene hooks (trailing whitespace, EOL, YAML / TOML / JSON validity, merge-conflict markers, large-file guard) against the staged files automatically. Takes ~1 second and auto-fixes 95% of CI lint failures before the commit lands.
 
-| Trigger | What runs | Why |
-|---|---|---|
-| `git commit` | `ruff check --fix`, `ruff format`, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | Fast (~1s). Catches and auto-fixes 95% of CI lint failures before the commit lands. |
-| `git push` | full `pytest -q` suite | Slower (~2s on this repo). Stops broken commits reaching the remote. |
-
-You don't need to remember to run `ruff check`, `ruff format --check`, or `pytest` manually — the hooks do it for you.
-
-**On-demand runs** (without committing/pushing):
+**On-demand run** (without committing):
 
 ```bash
-pre-commit run --all-files                          # ruff + hygiene across whole repo
-pre-commit run --all-files --hook-stage pre-push    # pytest across whole repo
+pre-commit run --all-files
 ```
 
-**Skipping hooks** (rare): `git commit --no-verify` or `git push --no-verify`. CI will still catch
-anything you skipped, so use this only for genuine emergencies.
+**Skipping hooks** (rare): `git commit --no-verify`. CI will still catch anything you skipped, so use this only for genuine emergencies.
 
-Hooks are pinned in `.pre-commit-config.yaml`. They mirror `.github/workflows/lint.yml` and
-`.github/workflows/test.yml` exactly, so passing locally guarantees CI passes.
+Hooks are pinned in `.pre-commit-config.yaml` and mirror `.github/workflows/lint.yml` exactly, so passing the hooks locally guarantees the lint CI job passes.
+
+**Tests:** the full pytest suite runs in CI on every push (Ubuntu + macOS × Python 3.10–3.14). It deliberately does *not* run as a local pre-push hook — that would couple every push to whichever `python` happens to be first on your PATH (system vs. pyenv vs. venv) and break in mixed environments. Run tests yourself with `pytest` (or `uv run pytest`) when you want a fast local sanity check.
 
 ## Test suite
 
