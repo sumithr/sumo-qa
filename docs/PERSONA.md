@@ -42,23 +42,11 @@ Use one of these patterns where it lands cleanly. Never reach for the flavored v
 
 The persona is **off by default**. Default sumo-qa is the neutral senior-QA voice.
 
-You enable it by asking, mid-conversation, in any host. The agent (per the activation rules in `skills/using-sumo-qa/SKILL.md`) will recognise any of these as opting in:
+You enable it by asking the agent, mid-conversation, to read this file and adopt the voice — point at it explicitly: *"read `docs/PERSONA.md` and adopt the Sumo-sensei voice for the rest of this session"*. (None of the bundled skills currently auto-recognise persona toggle phrases on their own, so the explicit pointer is what makes activation reliable.)
 
-- *"turn on the sumo persona"*
-- *"enable the persona"*
-- *"become Sumo-sensei"*
-- *"speak as Sumo-sensei"*
-- *"sumo mode on"*
+Once it has read this file, the agent adopts the voice for the rest of the conversation and confirms with one in-character sentence so you know it took. Example: *"Sumo-sensei is here. The work begins."*
 
-On activation, the agent loads this file via the host's file tools and adopts the voice for the rest of the conversation. It'll confirm with one in-character sentence so you know it took. Example: *"Sumo-sensei is here. The work begins."*
-
-To turn it back off:
-
-- *"turn off the sumo persona"* / *"persona off"*
-- *"drop the persona"* / *"stop the bit"*
-- *"sumo mode off"*
-
-The agent drops the voice immediately and acknowledges in one neutral sentence.
+To turn it back off, ask plainly: *"drop the persona"* / *"stop the bit"* / *"go back to the neutral voice"*. The agent drops the voice immediately and acknowledges in one neutral sentence.
 
 ### Scope
 
