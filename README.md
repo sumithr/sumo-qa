@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300)](https://pypi.org/project/sumo-qa/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
-A senior-QA MCP server + skills library that delivers ISTQB-grade testing discipline to AI coding agents across **Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot**. The discipline lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical knowledge catalogues; a SessionStart hook auto-injects the `using-sumo-qa` router so the agent reliably runs the workflow without you having to remember to invoke it.
+A senior-QA MCP server + skills library that delivers ISTQB-grade testing discipline to AI coding agents across **Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot**. The discipline lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical knowledge catalogues. Skills auto-trigger from their YAML descriptions on QA-shaped natural language — the workflow kicks in without you having to remember to invoke it.
 
 > [!IMPORTANT]
 > **sumo-qa is an advisor, not an oracle.** Like all AI tools, it can be wrong — do not rely on its output 100%. Use your own judgment and your team's standards as the final word. sumo-qa loads you with discipline, named risks, and design techniques faster than you'd assemble them by hand; the engineer at the keyboard still makes the call.
@@ -21,7 +21,7 @@ A senior-QA MCP server + skills library that delivers ISTQB-grade testing discip
 
 Most AI coding assistants approach QA the way a junior engineer would: *"add unit tests, consider edge cases, maybe test performance too."* That's a checklist, not testing. sumo-qa makes the AI work like a senior QA — risks named against specific lines, design techniques (boundary-value, decision-table, property-based, mutation) picked from a loaded ISTQB-grounded catalogue, test suites run fresh in *this* turn before any "safe to merge" claim.
 
-The discipline is enforced by [13 skill files](skills/) the host LLM follows literally — each one with an Iron Law (TDD's red phase before any production code; mutation-strengthening keeps production code locked; no plan ships without measurable entry AND exit criteria) and a HARD-GATE callout the LLM can't talk itself past. A SessionStart hook auto-injects the entry router on every conversation, so the workflow kicks in without you having to remember to invoke it.
+The discipline is enforced by 14 [skill files](skills/) the host LLM follows literally (1 entry router + 13 sub-skills) — each one with an Iron Law (TDD's red phase before any production code; mutation-strengthening keeps production code locked; no plan ships without measurable entry AND exit criteria) and a HARD-GATE callout the LLM can't talk itself past. Skills auto-trigger from their YAML `description:` field on QA-shaped requests in natural language; when sumo-qa is loaded as a Claude Code / Cursor plugin, the bundled SessionStart hook additionally pre-injects the entry router into the conversation's system context as a stronger guarantee.
 
 Read [DEMO.md](DEMO.md) for the 5-minute install-and-run-this-prompt walkthrough.
 
@@ -49,8 +49,8 @@ Then restart the host. The SessionStart hook re-injects new content; bundled ski
 
 | Layer | What it is |
 |---|---|
-| **13 skills** (`skills/*/SKILL.md`) | Iron-Law-enforced procedures the host LLM follows. Cover deciding approach, preparing for work, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising — **plus planning + subagent execution + finishing chain** (planning → dispatch parallel subagents → capture evidence + PR-ready summary). |
-| **24 MCP entry points** | 13 skill tools + 7 knowledge loaders + 4 test-data tools. Thin file IO; no inference. |
+| **14 skills** (`skills/*/SKILL.md`) | 1 entry router (`using-sumo-qa`) + 13 sub-skills, each Iron-Law-enforced. Cover deciding approach, preparing for work, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising, **planning + subagent execution + finishing chain**, and a fallback that suggests + installs an external [qaskills.sh](https://qaskills.sh/) skill when no native fit exists. |
+| **33 MCP entry points** | 14 skill tools (one per `SKILL.md`) + 7 knowledge loaders + 4 test-data tools + 8 qaskills/Node-install tools. Thin file IO or subprocess shims; no inference. |
 | **5 knowledge catalogues** (`knowledge/*.md`) | 4 authoritative catalogues (classifications, approaches, principles, techniques) — the LLM picks from these, not from training-data recall. Plus 1 category-fit primer (specialty_tools) where the LLM picks tool brands from its training knowledge and the file confirms the category fits. Editable as plain markdown. |
 
 ## Host support
@@ -68,10 +68,10 @@ The hosts below have been verified end-to-end with `sumo-qa-install`:
 
 **Slash-invocation in Claude Code.** After `sumo-qa-install --claude-code`, type `/` and start typing `sumo-qa-`:
 
-- The 13 skills appear as native Claude Code skills with hyphens (`/sumo-qa-deciding-approach`, `/sumo-qa-creating-test-plan`, …) — `sumo-qa-install` symlinks them into `~/.claude/skills/`.
-- The skills are also registered through MCP, and the MCP knowledge loaders + test-data tools show with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`, …). You may see both the hyphen and underscore forms of each skill — they call the same SKILL.md and behave identically.
+- The 14 skills appear as native Claude Code skills with hyphens (`/sumo-qa-deciding-approach`, `/sumo-qa-creating-test-plan`, …) — `sumo-qa-install` symlinks each `skills/<name>/` into `~/.claude/skills/`.
+- The skills are also registered through MCP. Whether the MCP entries (knowledge loaders, test-data tools, qaskills tools, and the underscore-form skill tools `/sumo_qa_*`) appear in the slash menu depends on Claude Code version — they may or may not surface there. Natural language always works regardless.
 
-**Natural language always works.** *"review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths produce the same result.
+**Natural language always works.** *"review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths reach the same SKILL.md content.
 
 In **JetBrains AI Assistant** every entry point is slash-invocable with underscores (`/sumo_qa_deciding_approach`, `/sumo_qa_load_classifications`). In **VS Code + Copilot** and **Junie**, neither host routes via slash menu — use natural language; both pick tools by description.
 

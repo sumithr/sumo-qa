@@ -68,7 +68,7 @@ The full suite covers:
 
 - `test_knowledge_loaders.py` — 7 catalogue loaders return canonical entries
 - `test_skill_conformance.py` — every `skills/*/SKILL.md` has the required structure
-- `test_skill_prompts.py` — every skill registers as an MCP prompt
+- `test_skill_prompts.py` — every skill registers as an MCP tool (function name is historical; tools, not prompts)
 - `test_phase3_e2e_skill_path.py` — end-to-end smoke through the new surface
 - `test_token_weight_regression.py` — per-call and per-flow token budgets (the IntelliJ-SSE regression test)
 - `test_server.py` — tool registration
@@ -107,6 +107,7 @@ pip install -e .                              # if you're using a plain venv
 uv tool install --from . sumo-qa --reinstall  # if you're using uv's tool dir
 ```
 
-Picks up server.py changes. For skill edits, no reinstall needed — Claude Code reads
-`~/.claude/skills/sumo-qa/` via the symlink that `sumo-qa-install` set up, and the MCP server
-reads `skills/*/SKILL.md` fresh on each prompt request.
+Picks up server.py changes. For skill edits, no reinstall needed — Claude Code reads each
+`~/.claude/skills/<name>/` directory via the per-skill symlinks `sumo-qa-install` set up
+(no wrapper directory; Claude Code doesn't recurse), and the MCP server reads
+`skills/*/SKILL.md` fresh on each tool invocation.

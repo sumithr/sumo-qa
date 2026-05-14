@@ -293,7 +293,8 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
     #
     #    Also clean up: previous install.py versions used the wrapper and
     #    earlier versions left stale copies at the top level. This pass
-    #    removes both so the user ends with exactly 10 fresh symlinks.
+    #    removes both so the user ends with one fresh symlink per skill
+    #    directory found under SKILLS_SRC.
     skills_dir = claude_home / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
     symlink_msg = _install_claude_code_skills_per_dir(skills_dir, system)
