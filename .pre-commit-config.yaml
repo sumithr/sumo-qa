@@ -87,5 +87,6 @@ repos:
           - "pydantic>=2.8,<3"
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
+          - "pytest-cov>=6,<7"
         pass_filenames: false
         stages: [pre-push]
