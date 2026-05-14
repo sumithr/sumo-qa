@@ -61,12 +61,19 @@ The hosts below have been verified end-to-end with `sumo-qa-install`:
 
 | Host | Slash invocation | Setup |
 |---|---|---|
-| **Claude Code** | `/qa-deciding-approach` (hyphens) | `sumo-qa-install --claude-code` |
+| **Claude Code** | `/sumo-qa-deciding-approach` (hyphens) | `sumo-qa-install --claude-code` |
 | **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language; Copilot picks tools by description | `sumo-qa-install --vscode --workspace <repo>` writes `<repo>/.vscode/mcp.json` |
-| **JetBrains AI Assistant** | `/qa_deciding_approach` (underscores) | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `sumo-qa-install --jetbrains` prints the fields to paste. |
+| **JetBrains AI Assistant** | `/sumo_qa_deciding_approach` (underscores) | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `sumo-qa-install --jetbrains` prints the fields to paste. |
 | **JetBrains Junie** | Natural language; Junie picks tools by description | Drop the JSON `sumo-qa-install` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per-project) |
 
-In Claude Code, MCP tools are NOT slash-invocable directly — use natural language (e.g. *"load the QA classifications"*) and the AI picks the right tool. In JetBrains AI Assistant, every tool IS slash-invocable. Both paths work; both end up calling the same skill body.
+**Slash-invocation in Claude Code.** After `sumo-qa-install --claude-code`, type `/` and start typing `sumo-qa-`:
+
+- The 13 skills appear as native Claude Code skills with hyphens (`/sumo-qa-deciding-approach`, `/sumo-qa-creating-test-plan`, …) — `sumo-qa-install` symlinks them into `~/.claude/skills/`.
+- The skills are also registered through MCP, and the MCP knowledge loaders + test-data tools show with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`, …). You may see both the hyphen and underscore forms of each skill — they call the same SKILL.md and behave identically.
+
+**Natural language always works.** *"review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths produce the same result.
+
+In **JetBrains AI Assistant** every entry point is slash-invocable with underscores (`/sumo_qa_deciding_approach`, `/sumo_qa_load_classifications`). In **VS Code + Copilot** and **Junie**, neither host routes via slash menu — use natural language; both pick tools by description.
 
 **Other MCP-capable hosts** (Cursor, Codex, OpenCode, etc.): the `sumo-qa` binary you get from `pip install sumo-qa` exposes a standard stdio MCP server, so it should work with any host that speaks MCP — follow that host's own MCP-server setup docs and point it at the absolute path printed by `sumo-qa-install --help`. We haven't verified those end-to-end ourselves, so we don't ship instructions for them.
 

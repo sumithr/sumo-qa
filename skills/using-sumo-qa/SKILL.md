@@ -26,7 +26,7 @@ Spend output tokens on findings, not framing.
 ## The Iron Law
 NO QA WORK WITHOUT FIRST DECIDING THE APPROACH.
 
-You may not produce test ideas, scaffolds, plans, reviews, or strategies without first invoking `qa-deciding-approach`.
+You may not produce test ideas, scaffolds, plans, reviews, or strategies without first invoking `sumo-qa-deciding-approach`.
 
 ## When to Use
 
@@ -41,7 +41,7 @@ This skill is the entry router for every QA-shaped request. Any of these intents
 - "audit our test coverage"
 - "design our QA strategy"
 
-It does not produce QA output itself. Its job is to enforce the Iron Law, set up global discipline that every sub-skill inherits, then route to `qa-deciding-approach`.
+It does not produce QA output itself. Its job is to enforce the Iron Law, set up global discipline that every sub-skill inherits, then route to `sumo-qa-deciding-approach`.
 
 ## Global discipline (inherited by every sub-skill)
 
@@ -109,8 +109,8 @@ You MUST create a TodoWrite item per checklist item and complete in order:
 
 1. Read the user's intent verbatim.
 2. Load and re-read this Iron Law to anchor the response.
-3. Invoke the `qa-deciding-approach` skill immediately. Do NOT answer the user before the approach is decided.
-4. After `qa-deciding-approach` returns, follow its `next_action` (route to the named sub-skill or stop).
+3. Invoke the `sumo-qa-deciding-approach` skill immediately. Do NOT answer the user before the approach is decided.
+4. After `sumo-qa-deciding-approach` returns, follow its `next_action` (route to the named sub-skill or stop).
 5. Apply the global discipline (knowledge authority, internal-only citations, specialty+tool fit) for every sub-skill that runs.
 
 ## Process Flow
@@ -130,11 +130,11 @@ See the Checklist above — that's the flow.
 ## Examples
 
 ### Good
-User: "review my changes". Skill response (internal): load Iron Law, invoke `qa-deciding-approach`, get `verify-existing` or `regression-first`, route to `qa-reviewing-before-merge`. User sees the routed skill's output, not the routing trace.
+User: "review my changes". Skill response (internal): load Iron Law, invoke `sumo-qa-deciding-approach`, get `verify-existing` or `regression-first`, route to `sumo-qa-reviewing-before-merge`. User sees the routed skill's output, not the routing trace.
 
 ### Bad
 User: "review my changes". Skill response: "Sure! Looking at your diff, the main concerns are …" — skipping the approach decision, going straight to review. Iron Law violated. The reviewer might be the wrong shape for the change (e.g. a docs-only change doesn't need a code review skill).
 
 ## Next skill in the chain
 
-Always → `qa-deciding-approach`. That is the router's only job — set the global discipline, then hand the intent over so the approach can be picked before any QA output is produced.
+Always → `sumo-qa-deciding-approach`. That is the router's only job — set the global discipline, then hand the intent over so the approach can be picked before any QA output is produced.

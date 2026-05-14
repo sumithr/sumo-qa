@@ -1,5 +1,5 @@
 ---
-name: qa-deciding-approach
+name: sumo-qa-deciding-approach
 description: Use as the FIRST step on any QA intent. Loads classifications, approaches, rules, and standards via the sumo_qa_load_* tools, then reasons over the user's intent to pick the canonical approach. Routes to the matching sub-skill.
 ---
 
@@ -53,15 +53,15 @@ See the Checklist above — that's the flow.
 | Approach | Next skill |
 |---|---|
 | strategy-orchestration | sumo-qa-strategising |
-| tdd-scaffold | qa-implementing-with-tdd |
-| regression-first | qa-implementing-with-tdd |
-| coverage-first-then-refactor | qa-implementing-with-tdd |
-| strengthen-test-coverage | qa-strengthening-tests |
-| verify-existing | qa-reviewing-before-merge |
+| tdd-scaffold | sumo-qa-implementing-with-tdd |
+| regression-first | sumo-qa-implementing-with-tdd |
+| coverage-first-then-refactor | sumo-qa-implementing-with-tdd |
+| strengthen-test-coverage | sumo-qa-strengthening-tests |
+| verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
-| spike-first-then-tests | qa-preparing-for-work (deliverable mode) |
+| spike-first-then-tests | sumo-qa-preparing-for-work (deliverable mode) |
 
-For "create a test plan" / "plan QA for this story" intents, after approach is picked, route to `qa-creating-test-plan` or `qa-preparing-for-work` per user phrasing. For "how do I test this?" intents that don't fit any specific approach, route to `qa-answering-testing-question`.
+For "create a test plan" / "plan QA for this story" intents, after approach is picked, route to `sumo-qa-creating-test-plan` or `sumo-qa-preparing-for-work` per user phrasing. For "how do I test this?" intents that don't fit any specific approach, route to `sumo-qa-answering-testing-question`.
 
 ## Red Flags
 
@@ -82,7 +82,7 @@ User: "create a test plan for refactoring the pricing pipeline".
 - Load classifications + approaches.
 - Internally: refactor of pricing logic — behaviour-preserving, so characterization tests pin behaviour before any code moves.
 - Cite ISTQB Principle 4 (defects cluster — refactor risks introducing bugs at extraction boundaries).
-- Route to `qa-creating-test-plan`.
+- Route to `sumo-qa-creating-test-plan`.
 
 ### Bad
 
@@ -92,13 +92,13 @@ User: "create a test plan for refactoring the pricing pipeline". Pick `tdd-scaff
 
 Routes to exactly ONE of the following, based on the approach picked:
 
-- When the intent is *"plan QA for this story"* → `qa-preparing-for-work` to name the risks and propose the smallest useful test set before any code is written.
-- When the approach is `tdd-scaffold`, `regression-first`, or `coverage-first-then-refactor` → `qa-implementing-with-tdd` to walk red → hand-off → green with confirmation gates.
-- When the approach is `strengthen-test-coverage` → `qa-strengthening-tests` to kill mutation survivors one at a time (production code stays unchanged).
-- When the approach is `verify-existing` or the intent is review-shaped → `qa-reviewing-before-merge` to read the diff, name risks, run the suite, deliver the verdict.
-- When the user asks for a formal test plan with entry/exit criteria → `qa-creating-test-plan`.
-- When the intent is test-data-shaped → `qa-finding-test-data` to route between explain / find / validate / register.
-- When the intent is a generic testing question → `qa-answering-testing-question` to cite a principle and technique.
+- When the intent is *"plan QA for this story"* → `sumo-qa-preparing-for-work` to name the risks and propose the smallest useful test set before any code is written.
+- When the approach is `tdd-scaffold`, `regression-first`, or `coverage-first-then-refactor` → `sumo-qa-implementing-with-tdd` to walk red → hand-off → green with confirmation gates.
+- When the approach is `strengthen-test-coverage` → `sumo-qa-strengthening-tests` to kill mutation survivors one at a time (production code stays unchanged).
+- When the approach is `verify-existing` or the intent is review-shaped → `sumo-qa-reviewing-before-merge` to read the diff, name risks, run the suite, deliver the verdict.
+- When the user asks for a formal test plan with entry/exit criteria → `sumo-qa-creating-test-plan`.
+- When the intent is test-data-shaped → `sumo-qa-finding-test-data` to route between explain / find / validate / register.
+- When the intent is a generic testing question → `sumo-qa-answering-testing-question` to cite a principle and technique.
 - When the approach is `strategy-orchestration` → `sumo-qa-strategising` to walk the repo and design a phased rollout.
-- When the work has 3+ independent tasks needing dispatch → `qa-planning-qa-rollout` to turn the work into a bite-sized, dispatchable plan.
+- When the work has 3+ independent tasks needing dispatch → `sumo-qa-planning-qa-rollout` to turn the work into a bite-sized, dispatchable plan.
 - When the approach is `no-tests-recommended` → stop. No next-skill handoff.

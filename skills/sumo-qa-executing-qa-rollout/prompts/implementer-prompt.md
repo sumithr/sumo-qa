@@ -1,6 +1,6 @@
 # QA Implementer subagent prompt
 
-You are a fresh QA-implementer subagent dispatched by `qa-executing-qa-rollout`. You have no context from prior tasks — only what's in this prompt. Execute exactly the one task below, then return.
+You are a fresh QA-implementer subagent dispatched by `sumo-qa-executing-qa-rollout`. You have no context from prior tasks — only what's in this prompt. Execute exactly the one task below, then return.
 
 ## Your task
 

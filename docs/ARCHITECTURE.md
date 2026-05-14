@@ -46,8 +46,8 @@ Different hosts surface MCP entries through different UIs and (in some cases) di
 
 | Host | Setup | Slash convention | Schema |
 |---|---|---|---|
-| **Claude Code** | `sumo-qa-install --claude-code` symlinks each `skills/<name>/` to `~/.claude/skills/<name>/` (per-skill, NOT a wrapper — Claude Code doesn't recurse). Writes `claude_desktop_config.json`. | `/qa-deciding-approach` (hyphens, from native skill files). MCP tools are NOT slash-invocable in Claude Code; call via natural language. | `{ "mcpServers": { ... } }` |
-| **JetBrains AI Assistant** | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `sumo-qa-install --jetbrains` prints the exact fields. External XML writes don't reliably register the runtime coroutine in IDEA 2026.1 — must go through the UI. | `/qa_deciding_approach` (underscores, from MCP tools). Every MCP entry is slash-invocable. | XML at `~/Library/Application Support/JetBrains/<ide>/options/llm.mcpServers.xml` (managed by UI) |
+| **Claude Code** | `sumo-qa-install --claude-code` symlinks each `skills/<name>/` to `~/.claude/skills/<name>/` (per-skill, NOT a wrapper — Claude Code doesn't recurse). Writes `claude_desktop_config.json`. | Skills appear in `/` with hyphens (`/sumo-qa-deciding-approach`, from the native skill loader). MCP tools (knowledge loaders, test-data) appear with underscores (`/sumo_qa_load_classifications`). Skills appear in both forms because they're registered as MCP tools too; calling either form reaches the same SKILL.md. Natural language works universally. | `{ "mcpServers": { ... } }` |
+| **JetBrains AI Assistant** | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `sumo-qa-install --jetbrains` prints the exact fields. External XML writes don't reliably register the runtime coroutine in IDEA 2026.1 — must go through the UI. | `/sumo_qa_deciding_approach` (underscores, from MCP tools). Every MCP entry is slash-invocable. | XML at `~/Library/Application Support/JetBrains/<ide>/options/llm.mcpServers.xml` (managed by UI) |
 | **JetBrains Junie** | JSON file at `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per-project) | Natural language; Junie picks tools by description | `{ "mcpServers": { ... } }` (same as Claude Desktop) |
 | **VS Code + Copilot** | `sumo-qa-install --vscode --workspace /path/to/repo` writes `<repo>/.vscode/mcp.json`. Use Agent mode + Claude Sonnet 4.5 or GPT-5 full. | Natural language; Copilot picks tools by description | `{ "servers": { "<name>": { "type": "stdio", "command": "...", "args": [] } } }` — **different from Claude Desktop's schema** |
 
@@ -66,7 +66,7 @@ This means catalogue files are the LLM's source of truth, not its training-data 
 
 ## Token-weight discipline
 
-A typical end-to-end flow (e.g. `qa-creating-test-plan`):
+A typical end-to-end flow (e.g. `sumo-qa-creating-test-plan`):
 
 | Layer | Typical token cost |
 |---|---|
@@ -86,14 +86,14 @@ User: "create a test plan for refactoring the pricing pipeline"
 Host LLM auto-loads `using-sumo-qa` (Iron Law: decide approach first)
     │
     ▼
-Routes to `qa-deciding-approach`:
+Routes to `sumo-qa-deciding-approach`:
     - calls sumo_qa_load_classifications, _approaches, _rules, _standards
     - reasons: classification = business_logic_change + refactor modifier
     - approach = coverage-first-then-refactor (skill flowchart, LLM applies)
     - no user question — intent + cited words covered it
     │
     ▼
-Routes to `qa-creating-test-plan` (Iron Law: NO PLAN WITHOUT EXPLICIT ENTRY/EXIT CRITERIA):
+Routes to `sumo-qa-creating-test-plan` (Iron Law: NO PLAN WITHOUT EXPLICIT ENTRY/EXIT CRITERIA):
     - reads actual files via host file tools
     - identifies 3-7 named risks anchored in evidence
     - calls sumo_qa_load_techniques, picks one per risk

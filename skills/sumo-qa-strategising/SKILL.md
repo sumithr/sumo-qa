@@ -37,7 +37,7 @@ Do NOT emit a strategy in one message. Walk the sections one at a time: inventor
 
 ## When to Use
 
-`qa-deciding-approach` routes here on `strategy-orchestration`. User intents:
+`sumo-qa-deciding-approach` routes here on `strategy-orchestration`. User intents:
 
 - "design our QA strategy"
 - "audit our test coverage"
@@ -116,4 +116,4 @@ See the Checklist above — that's the flow.
 
 ## Next skill in the chain
 
-When the strategy is signed off → `qa-planning-qa-rollout` to turn Phase 1 into bite-sized, dispatchable tasks, then `qa-executing-qa-rollout` to run them with two-stage review per task.
+When the strategy is signed off → `sumo-qa-planning-qa-rollout` to turn Phase 1 into bite-sized, dispatchable tasks, then `sumo-qa-executing-qa-rollout` to run them with two-stage review per task.

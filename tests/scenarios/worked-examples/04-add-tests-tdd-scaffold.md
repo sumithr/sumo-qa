@@ -14,7 +14,7 @@
 
 ## Turn 2 — sumo-qa
 
-*(internal: invokes `qa-deciding-approach`. Intent shape: new behaviour being added, user asked for TDD. Classification: `business_logic_change` + `new_capability`. Approach: `tdd-scaffold`. Routes to `qa-implementing-with-tdd`.)*
+*(internal: invokes `sumo-qa-deciding-approach`. Intent shape: new behaviour being added, user asked for TDD. Classification: `business_logic_change` + `new_capability`. Approach: `tdd-scaffold`. Routes to `sumo-qa-implementing-with-tdd`.)*
 
 *(internal: walks the auth service via the host's file tools — does NOT ask "what framework?" or "where do tests live?". Reads `services/auth/app.py`, `services/auth/middleware/`, `services/auth/tests/test_login.py` to detect framework + fixture style.)*
 

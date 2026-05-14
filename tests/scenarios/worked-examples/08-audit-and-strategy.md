@@ -14,7 +14,7 @@
 
 ## Turn 2 — sumo-qa
 
-*(internal: invokes `qa-deciding-approach`. Intent shape: repo-wide / policy-shaped — `strategy-orchestration`. Routes to `sumo-qa-strategising`.)*
+*(internal: invokes `sumo-qa-deciding-approach`. Intent shape: repo-wide / policy-shaped — `strategy-orchestration`. Routes to `sumo-qa-strategising`.)*
 
 *(internal: Iron Law — walk the repo first. Uses host's file tools to inventory `services/`, `shared/`, each `tests/` directory, root CI config, any coverage reports. Does NOT ask the user "what services do you have?".)*
 

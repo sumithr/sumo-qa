@@ -1,6 +1,6 @@
 ---
-name: qa-implementing-with-tdd
-description: Use after qa-deciding-approach picks tdd-scaffold, regression-first, or coverage-first-then-refactor. Walks plan → name-the-risk-and-test-idea → confirm → red → hand off → green → review, one section per turn with confirmation gates. Don't write the test until the test idea has been agreed.
+name: sumo-qa-implementing-with-tdd
+description: Use after sumo-qa-deciding-approach picks tdd-scaffold, regression-first, or coverage-first-then-refactor. Walks plan → name-the-risk-and-test-idea → confirm → red → hand off → green → review, one section per turn with confirmation gates. Don't write the test until the test idea has been agreed.
 ---
 
 # Implementing with TDD
@@ -37,19 +37,19 @@ Do NOT write the failing test in the same turn you propose the test idea. Walk t
 
 ## When to Use
 
-`qa-deciding-approach` routes here when the approach is one of:
+`sumo-qa-deciding-approach` routes here when the approach is one of:
 
 - `tdd-scaffold` (greenfield-ish behaviour being added)
 - `regression-first` (bug fix on existing code; reproduce as failing test first)
 - `coverage-first-then-refactor` (behaviour-preserving refactor; characterization tests pin behaviour BEFORE the refactor)
 
-For `strengthen-test-coverage` (mutation follow-up), route to `qa-strengthening-tests` instead — that has different discipline (production code stays locked).
+For `strengthen-test-coverage` (mutation follow-up), route to `sumo-qa-strengthening-tests` instead — that has different discipline (production code stays locked).
 
 ## Checklist
 
 You MUST work through these in order. Steps 1–3 are AI-only homework (no user questions). The user's confirmation gates steps 4 onward.
 
-1. **Re-state the approach and the named risk** *(no user question)* — restate which TDD-shaped approach we're in and the named risk this cycle targets. If no risk was named, route to `qa-preparing-for-work` first.
+1. **Re-state the approach and the named risk** *(no user question)* — restate which TDD-shaped approach we're in and the named risk this cycle targets. If no risk was named, route to `sumo-qa-preparing-for-work` first.
 
 2. **Walk the repo for the target** *(no user question)* — use the host's file tools. Find (a) the production file the change touches, (b) the matching test file (or where one belongs), (c) the existing test style (framework, fixtures, assertion library), (d) for regression-first: the failing path that reproduces the bug. Don't ask the user "what test framework?" — read a sibling test file.
 
@@ -67,7 +67,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 9. **Run targeted regression** — run the changed file's test module + closest siblings. Surface pass/fail counts. Confirm no green-to-red elsewhere.
 
-10. **Route to review** — offer to hand off to `qa-reviewing-before-merge`. Don't claim "safe to merge" from this skill.
+10. **Route to review** — offer to hand off to `sumo-qa-reviewing-before-merge`. Don't claim "safe to merge" from this skill.
 
 ## Process Flow
 
@@ -84,7 +84,7 @@ See the Checklist above — that's the flow.
 | "Regression check is overkill for a small change" | Targeted regression is cheap and catches nasty surprises. Run it. |
 | "I'll write the test idea AND write the test in the same message" | Walk through. Test idea → confirm → write → run. The confirmation gate is what catches misaligned assertions. |
 | "Assertion: `assert add(2,3) == 2+3`" | Tautology. The broken code passes this too. Pick an outcome the bug changes. |
-| "Mutation testing fits here" | Wrong skill. Mutation follow-up is `qa-strengthening-tests`. |
+| "Mutation testing fits here" | Wrong skill. Mutation follow-up is `sumo-qa-strengthening-tests`. |
 | "User asked for the test, not prod code — I'll write both anyway" | Confirm. The TDD discipline only works if the user owns the green-making step (or asks explicitly). |
 
 ## Examples
@@ -111,6 +111,6 @@ See the Checklist above — that's the flow.
 
 ## Next skill in the chain
 
-When green is confirmed and the targeted regression passes → `qa-reviewing-before-merge` to deliver the safe-to-merge verdict against fresh evidence.
+When green is confirmed and the targeted regression passes → `sumo-qa-reviewing-before-merge` to deliver the safe-to-merge verdict against fresh evidence.
 
-If this task is part of a multi-task rollout dispatched by `qa-executing-qa-rollout` → `qa-finishing-qa-work` instead, to capture the evidence and produce the PR-ready summary.
+If this task is part of a multi-task rollout dispatched by `sumo-qa-executing-qa-rollout` → `sumo-qa-finishing-qa-work` instead, to capture the evidence and produce the PR-ready summary.

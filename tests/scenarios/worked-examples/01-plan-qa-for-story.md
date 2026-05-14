@@ -14,7 +14,7 @@
 
 ## Turn 2 — sumo-qa
 
-*(internal: invokes `qa-deciding-approach`. Reads the intent — pre-coding QA prep for a new flow that touches the API contract and the refund business logic. Classification: `api_contract_change` + `business_logic_change`. Approach: `risk-first-prep`. Routes to `qa-preparing-for-work`.)*
+*(internal: invokes `sumo-qa-deciding-approach`. Reads the intent — pre-coding QA prep for a new flow that touches the API contract and the refund business logic. Classification: `api_contract_change` + `business_logic_change`. Approach: `risk-first-prep`. Routes to `sumo-qa-preparing-for-work`.)*
 
 *(internal: loads `sumo_qa_load_standards(classification="api_contract_change,business_logic_change")` + `sumo_qa_load_rules(...)` — the billing team's `change_rules.yaml#refund-flow` rule requires idempotency guarantees on any money-moving endpoint, and the API-contract rule pins new error shapes to a consumer-side contract test.)*
 

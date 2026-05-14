@@ -108,9 +108,9 @@ subagents to execute it in parallel.
 
 **What happens:** sumo-qa runs the full agent-execution chain:
 
-1. **`qa-planning-qa-rollout`** — turns the work into a written plan at `docs/qa/plans/YYYY-MM-DD-<feature>.md` with 6–12 bite-sized tasks, each tagged with its approach and the named risk it covers.
-2. **`qa-executing-qa-rollout`** — dispatches **one fresh subagent per task** in parallel waves; each output goes through **two-stage review** (spec-correctness then test-quality) before the task is marked done.
-3. **`qa-finishing-qa-work`** — runs the full suite one last time, builds the risk-to-test coverage map, surfaces any uncovered risks honestly, writes a PR-ready summary to `docs/qa/runs/...`.
+1. **`sumo-qa-planning-qa-rollout`** — turns the work into a written plan at `docs/qa/plans/YYYY-MM-DD-<feature>.md` with 6–12 bite-sized tasks, each tagged with its approach and the named risk it covers.
+2. **`sumo-qa-executing-qa-rollout`** — dispatches **one fresh subagent per task** in parallel waves; each output goes through **two-stage review** (spec-correctness then test-quality) before the task is marked done.
+3. **`sumo-qa-finishing-qa-work`** — runs the full suite one last time, builds the risk-to-test coverage map, surfaces any uncovered risks honestly, writes a PR-ready summary to `docs/qa/runs/...`.
 
 **Why it matters:** watching parallel subagents write tests against different risks at once, each getting reviewed twice (once for *"did it catch the right risk?"*, once for *"is the test well-shaped?"*) before counting as done. That's how senior QA scales — and it's the gap most AI assistants don't even attempt.
 

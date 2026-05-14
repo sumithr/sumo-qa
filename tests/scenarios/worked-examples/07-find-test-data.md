@@ -14,7 +14,7 @@
 
 ## Turn 2 — sumo-qa
 
-*(internal: invokes `qa-finding-test-data`. Intent is "find me a record" — routes to the `find` path. Question = "refund-eligible invoice for partial-refund flow"; environment = staging; domain = billing. No clarifying question needed — the user has given enough to dispatch.)*
+*(internal: invokes `sumo-qa-finding-test-data`. Intent is "find me a record" — routes to the `find` path. Question = "refund-eligible invoice for partial-refund flow"; environment = staging; domain = billing. No clarifying question needed — the user has given enough to dispatch.)*
 
 *(internal: calls `sumo_qa_find_test_data(question="refund-eligible invoice for partial-refund flow", environment="staging", domain="billing", criteria={"scenario_tags": ["invoice_paid", "refund_eligible"]})`. Two catalogue hits. Pipes each into `sumo_qa_validate_test_data` against staging in this turn — not from cache.)*
 

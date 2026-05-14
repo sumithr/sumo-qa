@@ -1,5 +1,5 @@
 ---
-name: qa-reviewing-before-merge
+name: sumo-qa-reviewing-before-merge
 description: Use when the user asks "review my changes" / "is this safe to merge" / "what could break". Reads the diff and the changed files first, surfaces what was found + named risks, runs tests, then delivers the verdict — section by section with confirmation gates, not as one dump. Refuses to claim safe-to-merge without fresh verification evidence.
 ---
 
@@ -45,7 +45,7 @@ User intents that trigger this skill:
 - "code review please"
 - "anything I missed in this diff"
 
-`qa-deciding-approach` routes here for `verify-existing` approach (config-only / trivial). For larger reviews, this skill still runs but with broader scope.
+`sumo-qa-deciding-approach` routes here for `verify-existing` approach (config-only / trivial). For larger reviews, this skill still runs but with broader scope.
 
 ## Checklist
 
@@ -112,4 +112,4 @@ See the Checklist above — that's the flow.
 
 ## Next skill in the chain
 
-When the verdict is delivered (SAFE / NOT SAFE / NEEDS WORK) with fresh evidence + risk-coverage map → `qa-finishing-qa-work` to capture the evidence and produce the PR-ready summary the user can paste into a description or release note.
+When the verdict is delivered (SAFE / NOT SAFE / NEEDS WORK) with fresh evidence + risk-coverage map → `sumo-qa-finishing-qa-work` to capture the evidence and produce the PR-ready summary the user can paste into a description or release note.

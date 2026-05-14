@@ -71,7 +71,7 @@ def test_thin_catalogues_stay_under_per_call_budget():
 def test_filtered_standards_and_rules_stay_under_per_call_budget():
     """In real flows, skills call standards/rules WITH a classification
     filter. The filtered output must stay under PER_CALL_BUDGET. The
-    classification used here matches what the qa-creating-test-plan
+    classification used here matches what the sumo-qa-creating-test-plan
     skill would use for a typical business-logic change."""
     classification = "business_logic_change"
     for name, fn in [
