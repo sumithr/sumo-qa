@@ -1,0 +1,85 @@
+# Pre-commit hooks for sumo-qa.
+#
+# Setup (one-time per clone) — works with whatever you used to install
+# the dev dependencies:
+#
+#   # pip path:
+#   python -m pip install -e ".[dev]"
+#   pre-commit install --install-hooks
+#   pre-commit install --hook-type pre-push
+#
+#   # or uv path (if you already use uv):
+#   uv sync --all-extras
+#   uv run pre-commit install --install-hooks
+#   uv run pre-commit install --hook-type pre-push
+#
+# After that:
+#   git commit  → ruff + format + hygiene on staged files (~1s)
+#   git push    → full pytest suite (~2s after the first run; the first
+#                 push will be slower because pre-commit installs the
+#                 project deps into its own isolated venv).
+#
+# To run all hooks on demand:    pre-commit run --all-files
+# To run pre-push hooks:         pre-commit run --all-files --hook-stage pre-push
+# To bypass a single commit:     git commit --no-verify   (rare; CI catches anyway)
+#
+# The pytest hook uses `language: python` with `additional_dependencies:
+# [".[dev]"]` so pre-commit manages its OWN venv for the hook. That
+# avoids the PATH-coupling failure mode (pyenv / multiple Pythons /
+# system-vs-venv ambiguity) — the hook runs against the same dep set
+# we declare in pyproject.toml regardless of what `python` happens to
+# be on the user's PATH.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Pin matches `ruff>=0.5,<1` from pyproject.toml's dev extras. Update both
+    # together when bumping ruff.
+    rev: v0.13.0
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        # Worked-example transcripts are markdown, no JSON in there.
+        exclude: ^tests/scenarios/worked-examples/
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest (pre-push)
+        # Runs on `git push`, not on every commit (too slow for single-file
+        # iteration).
+        #
+        # `language: python` makes pre-commit create and own the venv for
+        # this hook — decoupling it from whatever `python` happens to be
+        # first on the user's PATH (pyenv, multiple Pythons, system vs
+        # venv ambiguity).
+        #
+        # `additional_dependencies` lists the runtime deps explicitly
+        # because pre-commit's hook venvs can only install from PyPI;
+        # the `.[dev]` editable-install trick doesn't work here. Keep
+        # this list in sync with the `dependencies` block in
+        # pyproject.toml when bumping versions.
+        #
+        # pytest picks up `pythonpath = ["src"]` from pyproject.toml's
+        # `[tool.pytest.ini_options]`, so `import sumo_qa.*` resolves
+        # without the project itself needing to be pip-installed.
+        entry: pytest -q
+        language: python
+        additional_dependencies:
+          - "mcp>=1.12,<2"
+          - "pydantic>=2.8,<3"
+          - "PyYAML>=6,<7"
+          - "pytest>=8.4,<10"
+        pass_filenames: false
+        stages: [pre-push]
