@@ -157,8 +157,11 @@ def test_add_global_scope_invokes_cli_without_project_flag() -> None:
 
     assert "--project" not in captured["args"]
     assert "playwright-e2e" in captured["args"]
-    assert result.installed_at.endswith("playwright-e2e")
+    assert "add" in captured["args"]
+    assert "--json" in captured["args"]
+    assert result.installed_at == "/Users/me/.claude/skills/playwright-e2e"
     assert result.scope == "global"
+    assert result.name == "playwright-e2e"
 
 
 def test_add_project_scope_passes_project_flag() -> None:
@@ -174,11 +177,14 @@ def test_add_project_scope_passes_project_flag() -> None:
 
     assert "--project" in captured["args"]
     assert result.scope == "project"
+    assert result.installed_at == "./.claude/skills/playwright-e2e"
+    assert result.name == "playwright-e2e"
 
 
 def test_add_rejects_invalid_scope() -> None:
-    with pytest.raises(ValueError):
-        qaskills.add("playwright-e2e", scope="elsewhere")
+    with pytest.raises(ValueError) as exc_info:
+        qaskills.add("playwright-e2e", scope="elsewhere")  # type: ignore[arg-type]
+    assert "elsewhere" in str(exc_info.value)
 
 
 def test_add_raises_cli_error_on_failure() -> None:
