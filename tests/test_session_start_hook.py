@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,10 @@ HOOK_SCRIPT = ROOT / "hooks" / "session-start"
 USING_SKILL = ROOT / "skills" / "using-sumo-qa" / "SKILL.md"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Bash hook test not applicable on Windows (the hook is for macOS/Linux plugin runtimes; the `bash` on Windows runners is the WSL stub, not Git Bash)",
+)
 def test_session_start_emits_valid_json_with_skill_content() -> None:
     """Default (no host env vars) → SDK-standard `additionalContext` envelope.
 
@@ -56,7 +60,10 @@ def test_session_start_emits_valid_json_with_skill_content() -> None:
     assert "<EXTREMELY_IMPORTANT>" in context
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Bash hook test not applicable on Windows (the hook is for macOS/Linux plugin runtimes; the `bash` on Windows runners is the WSL stub, not Git Bash)",
+)
 def test_session_start_uses_claude_code_envelope_when_plugin_root_set() -> None:
     """Claude Code sets `CLAUDE_PLUGIN_ROOT` → nested `hookSpecificOutput`."""
     env = {k: v for k, v in os.environ.items() if k not in {"CURSOR_PLUGIN_ROOT", "COPILOT_CLI"}}
@@ -79,7 +86,10 @@ def test_session_start_uses_claude_code_envelope_when_plugin_root_set() -> None:
     )
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Bash hook test not applicable on Windows (the hook is for macOS/Linux plugin runtimes; the `bash` on Windows runners is the WSL stub, not Git Bash)",
+)
 def test_session_start_uses_cursor_envelope_when_cursor_root_set() -> None:
     """Cursor sets `CURSOR_PLUGIN_ROOT` → snake_case `additional_context`."""
     env = {k: v for k, v in os.environ.items() if k not in {"COPILOT_CLI"}}

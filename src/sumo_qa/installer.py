@@ -416,7 +416,8 @@ def _install_claude_code_skills_per_dir(skills_dir: Path, system: str) -> str:
             target.is_dir()
             and repo_skill.is_file()
             and target_skill.is_file()
-            and repo_skill.read_text(encoding="utf-8") == target_skill.read_text(encoding="utf-8")
+            and repo_skill.read_text(encoding="utf-8").replace("\r\n", "\n")
+            == target_skill.read_text(encoding="utf-8").replace("\r\n", "\n")
         ):
             shutil.rmtree(target)
             cleaned.append(name)
