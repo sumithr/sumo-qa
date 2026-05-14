@@ -56,3 +56,15 @@ def test_is_installed_locally_prefers_project_over_global(tmp_path: Path, monkey
 def test_is_installed_locally_returns_none_when_missing(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     assert qaskills.is_installed_locally("not-installed", project_root=tmp_path / "project") is None
+
+
+def test_is_installed_locally_defaults_to_cwd(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "elsewhere"))
+    monkeypatch.chdir(tmp_path)
+    _make_skill_dir(tmp_path / ".claude", "my-skill")
+
+    location = qaskills.is_installed_locally("my-skill")  # no project_root
+
+    assert location is not None
+    assert location.scope == "project"
+    assert location.path == tmp_path / ".claude" / "skills" / "my-skill" / "SKILL.md"

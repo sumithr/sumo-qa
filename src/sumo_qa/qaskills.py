@@ -8,7 +8,6 @@ MCP tool surface in `server.py` adapts these functions into MCP tools.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -171,7 +170,7 @@ def is_installed_locally(name: str, *, project_root: Path | None = None) -> Inst
     project_path = project_root / ".claude" / "skills" / name / "SKILL.md"
     if project_path.is_file():
         return InstalledLocation(scope="project", path=project_path)
-    home = Path(os.environ.get("HOME", str(Path.home())))
+    home = Path.home()
     global_path = home / ".claude" / "skills" / name / "SKILL.md"
     if global_path.is_file():
         return InstalledLocation(scope="global", path=global_path)
