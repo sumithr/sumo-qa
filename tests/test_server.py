@@ -6,7 +6,8 @@ from sumo_qa.server import build_mcp_server
 # (in addition to its MCP prompt) so hosts whose slash menus surface tools but
 # not prompts (IntelliJ AI Assistant, VS Code + Copilot) can invoke skills.
 # Chain-polish pass added 3 more skills (planning / executing / finishing).
-# Total registered tools: 11 atomic + 13 skill = 24.
+# Task 7: 8 qaskills/Node-install tools added (gated by SUMO_QA_EXTERNAL_SKILLS=1).
+# Total registered tools: 11 atomic + 13 skill + 8 qaskills = 32.
 _TEST_DATA_TOOL_NAMES = {
     "sumo_qa_explain_test_data_requirements",
     "sumo_qa_find_test_data",
@@ -43,6 +44,17 @@ _SKILL_TOOL_NAMES = {
     "sumo_qa_finishing_qa_work",
 }
 
+_QASKILLS_TOOL_NAMES = {
+    "sumo_qa_search_external_skills",
+    "sumo_qa_get_external_skill_info",
+    "sumo_qa_install_external_skill",
+    "sumo_qa_check_external_skill_installed",
+    "sumo_qa_load_external_skills_registry",
+    "sumo_qa_check_node_available",
+    "sumo_qa_detect_node_installer",
+    "sumo_qa_install_node",
+}
+
 # Heavy tools that MUST NOT be registered after Phase 4. The skills now drive
 # this work via SKILL.md prompts + the knowledge_loader tools.
 _HEAVY_TOOL_NAMES_DELETED = {
@@ -66,7 +78,9 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
 
     tool_names = set(server._tool_manager._tools.keys())
 
-    assert tool_names == (_TEST_DATA_TOOL_NAMES | _KNOWLEDGE_LOADER_TOOL_NAMES | _SKILL_TOOL_NAMES)
+    assert tool_names == (
+        _TEST_DATA_TOOL_NAMES | _KNOWLEDGE_LOADER_TOOL_NAMES | _SKILL_TOOL_NAMES | _QASKILLS_TOOL_NAMES
+    )
 
 
 def test_skills_registered_as_tools_only() -> None:

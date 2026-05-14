@@ -5,6 +5,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
+from sumo_qa import node_install, qaskills, qaskills_trust
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.knowledge_loaders import (
     sumo_qa_load_approaches as _load_approaches,
@@ -39,6 +40,27 @@ _HINT_LOCAL_FILES_MISSING = (
 _HINT_TEST_DATA_WRITE = (
     "If the write fails, confirm `knowledge/test_data/` is writable and the entry's "
     "`domain` field matches an existing folder."
+)
+_HINT_NODE_MISSING = (
+    "Install Node ≥ 18 to use this feature. "
+    "Download from https://nodejs.org or run `brew install node` on macOS."
+)
+_HINT_QASKILLS_CLI = (
+    "Run `npx @qaskills/cli search` manually to debug."
+)
+_HINT_INVALID_SCOPE = (
+    "Pass scope='global' or scope='project'."
+)
+_HINT_REGISTRY_JSON = (
+    "Check the registry.json file for valid JSON syntax and fix any errors."
+)
+
+# Path to the external skills trust registry shipped with sumo-qa.
+_REGISTRY_PATH = (
+    Path(__file__).parent.parent.parent
+    / "skills"
+    / "sumo-qa-suggesting-external-skill"
+    / "registry.json"
 )
 
 
@@ -316,7 +338,196 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             classification filter is metadata-based; no keyword inference."""
             return _load_rules(classification=classification)
 
+    def _register_qaskills_tools(mcp):
+        """Register the 8 qaskills / Node-install MCP tools.
+
+        7 tools are gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+        sumo_qa_load_external_skills_registry is always readable — it is
+        pure config with no side effects."""
+
+        def _gate_disabled() -> dict[str, Any] | None:
+            if os.environ.get("SUMO_QA_EXTERNAL_SKILLS") != "1":
+                return {"disabled": True, "reason": "feature gate off"}
+            return None
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_search_external_skills(
+            query: Annotated[str, Field(description="Free-text search query, e.g. 'playwright e2e'.")],
+        ) -> dict[str, Any]:
+            """Search the qaskills registry for skills matching a query.
+
+            Returns {"matches": [...]} with name, publisher, score, and description.
+            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            """
+            if (gated := _gate_disabled()) is not None:
+                return gated
+            try:
+                matches = qaskills.search(query)
+            except qaskills.NodeNotFoundError as exc:
+                return _error_envelope(exc, _HINT_NODE_MISSING)
+            except qaskills.QaskillsError as exc:
+                return _error_envelope(exc, _HINT_QASKILLS_CLI)
+            return {
+                "matches": [
+                    {
+                        "name": m.name,
+                        "publisher": m.publisher,
+                        "score": m.score,
+                        "description": m.description,
+                    }
+                    for m in matches
+                ]
+            }
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_get_external_skill_info(
+            name: Annotated[str, Field(description="Exact skill name, e.g. 'playwright-e2e'.")],
+        ) -> dict[str, Any]:
+            """Return the full record for a named skill from the qaskills registry.
+
+            Includes name, publisher, score, description, skill_md, and mcp_servers list.
+            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            """
+            if (gated := _gate_disabled()) is not None:
+                return gated
+            try:
+                record = qaskills.info(name)
+            except qaskills.NodeNotFoundError as exc:
+                return _error_envelope(exc, _HINT_NODE_MISSING)
+            except qaskills.QaskillsError as exc:
+                return _error_envelope(exc, _HINT_QASKILLS_CLI)
+            return {
+                "name": record.name,
+                "publisher": record.publisher,
+                "score": record.score,
+                "description": record.description,
+                "skill_md": record.skill_md,
+                "mcp_servers": list(record.mcp_servers),
+            }
+
+        @mcp.tool(annotations=_writer_local)
+        def sumo_qa_install_external_skill(
+            name: Annotated[str, Field(description="Exact skill name to install.")],
+            scope: Annotated[str, Field(description="Install scope: 'global' or 'project'.")],
+        ) -> dict[str, Any]:
+            """Install a skill from the qaskills registry.
+
+            Scope must be 'global' (installs to ~/.claude/skills/) or
+            'project' (installs to .claude/skills/ in the current project).
+            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            """
+            if (gated := _gate_disabled()) is not None:
+                return gated
+            try:
+                result = qaskills.add(name, scope=scope)  # type: ignore[arg-type]
+            except ValueError as exc:
+                return _error_envelope(exc, _HINT_INVALID_SCOPE)
+            except qaskills.NodeNotFoundError as exc:
+                return _error_envelope(exc, _HINT_NODE_MISSING)
+            except qaskills.QaskillsError as exc:
+                return _error_envelope(exc, _HINT_QASKILLS_CLI)
+            return {
+                "name": result.name,
+                "scope": result.scope,
+                "installed_at": result.installed_at,
+            }
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_check_external_skill_installed(
+            name: Annotated[str, Field(description="Exact skill name to check.")],
+        ) -> dict[str, Any]:
+            """Check whether a qaskill is installed locally (global or project).
+
+            Returns {"installed": True, "scope": ..., "skill_md_path": ...} when
+            found, or {"installed": False} when not present. Never raises
+            NodeNotFoundError — this is a pure filesystem check.
+            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            """
+            if (gated := _gate_disabled()) is not None:
+                return gated
+            location = qaskills.is_installed_locally(name)
+            if location is None:
+                return {"installed": False}
+            return {
+                "installed": True,
+                "scope": location.scope,
+                "skill_md_path": str(location.path),
+            }
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_load_external_skills_registry() -> dict[str, Any]:
+            """Return the sumo-qa external-skills trust registry as a dict.
+
+            Includes trusted_publishers, blocked_publishers, and category_keywords.
+            This tool is NOT gated — the registry is plain config with no side effects.
+            """
+            try:
+                registry = qaskills_trust.load(_REGISTRY_PATH)
+            except qaskills_trust.RegistryError as exc:
+                return _error_envelope(exc, _HINT_REGISTRY_JSON)
+            return {
+                "trusted_publishers": list(registry.trusted_publishers),
+                "blocked_publishers": list(registry.blocked_publishers),
+                "category_keywords": {
+                    k: list(v) for k, v in registry.category_keywords.items()
+                },
+            }
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_check_node_available() -> dict[str, Any]:
+            """Check whether Node (npx) is available on PATH.
+
+            Returns {"available": bool}. Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            """
+            if (gated := _gate_disabled()) is not None:
+                return gated
+            return {"available": qaskills.is_available()}
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_detect_node_installer() -> dict[str, Any]:
+            """Detect the best Node package manager on the current OS.
+
+            Returns {"installer": name, "command": [...], "needs_sudo": bool} when
+            a supported package manager is found, or
+            {"installer": None, "reason": "..."} when none is detected.
+            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            """
+            if (gated := _gate_disabled()) is not None:
+                return gated
+            installer = node_install.detect_installer()
+            if installer is None:
+                return {"installer": None, "reason": "no supported package manager detected"}
+            return {
+                "installer": installer.name,
+                "command": list(installer.command),
+                "needs_sudo": installer.needs_sudo,
+            }
+
+        @mcp.tool(annotations=_writer_local)
+        def sumo_qa_install_node() -> dict[str, Any]:
+            """Install Node using the detected OS package manager.
+
+            Detects the installer first; if none is found, returns
+            {"installed": False, "reason": "no installer detected"}.
+            Uses brew on macOS, winget on Windows, apt-get/dnf on Linux.
+            Never calls sudo — returns the manual command when elevation is needed.
+            Gated behind SUMO_QA_EXTERNAL_SKILLS=1.
+            """
+            if (gated := _gate_disabled()) is not None:
+                return gated
+            installer = node_install.detect_installer()
+            if installer is None:
+                return {"installed": False, "reason": "no installer detected"}
+            result = node_install.install(installer)
+            return {
+                "installed": result.installed,
+                "reason": result.reason,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+
     _register_knowledge_loaders(mcp)
+    _register_qaskills_tools(mcp)
     register_skills_as_prompts(mcp)
     return mcp
 
