@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 
 def is_available() -> bool:
@@ -117,3 +118,34 @@ def info(name: str) -> QaskillInfo:
         skill_md=raw.get("skill_md", ""),
         mcp_servers=tuple(raw.get("mcp_servers") or ()),
     )
+
+
+Scope = Literal["global", "project"]
+_VALID_SCOPES: tuple[Scope, ...] = ("global", "project")
+_ADD_TIMEOUT_SECONDS = 120
+
+
+@dataclass(frozen=True)
+class AddResult:
+    name: str
+    scope: Scope
+    installed_at: str
+
+
+def add(name: str, scope: Scope) -> AddResult:
+    """Install a qaskill. Scope picks between global and project install."""
+    if scope not in _VALID_SCOPES:
+        raise ValueError(f"scope must be one of {_VALID_SCOPES!r}, got {scope!r}")
+    extra = ("--project",) if scope == "project" else ()
+    result = _run(("add", name, *extra, "--json"), timeout=_ADD_TIMEOUT_SECONDS)
+    if result.returncode != 0:
+        raise QaskillsCLIError(
+            f"qaskills CLI add failed for {name!r} (exit {result.returncode}): {result.stderr.strip()}"
+        )
+    try:
+        raw = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise QaskillsCLIError(
+            f"qaskills CLI returned non-JSON output for add: {result.stdout[:200]!r}"
+        ) from exc
+    return AddResult(name=name, scope=scope, installed_at=raw["installed_at"])

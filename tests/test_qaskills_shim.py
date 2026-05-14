@@ -142,3 +142,48 @@ def test_info_raises_cli_error_on_non_json_stdout() -> None:
          patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
         with pytest.raises(qaskills.QaskillsCLIError):
             qaskills.info("anything")
+
+
+def test_add_global_scope_invokes_cli_without_project_flag() -> None:
+    captured: dict = {}
+
+    def _capture(args, **kwargs):
+        captured["args"] = args
+        return _completed_process(json.dumps({"installed_at": "/Users/me/.claude/skills/playwright-e2e"}))
+
+    with patch("sumo_qa.qaskills.subprocess.run", side_effect=_capture), \
+         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+        result = qaskills.add("playwright-e2e", scope="global")
+
+    assert "--project" not in captured["args"]
+    assert "playwright-e2e" in captured["args"]
+    assert result.installed_at.endswith("playwright-e2e")
+    assert result.scope == "global"
+
+
+def test_add_project_scope_passes_project_flag() -> None:
+    captured: dict = {}
+
+    def _capture(args, **kwargs):
+        captured["args"] = args
+        return _completed_process(json.dumps({"installed_at": "./.claude/skills/playwright-e2e"}))
+
+    with patch("sumo_qa.qaskills.subprocess.run", side_effect=_capture), \
+         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+        result = qaskills.add("playwright-e2e", scope="project")
+
+    assert "--project" in captured["args"]
+    assert result.scope == "project"
+
+
+def test_add_rejects_invalid_scope() -> None:
+    with pytest.raises(ValueError):
+        qaskills.add("playwright-e2e", scope="elsewhere")
+
+
+def test_add_raises_cli_error_on_failure() -> None:
+    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process("", returncode=1, stderr="network down")), \
+         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+        with pytest.raises(qaskills.QaskillsCLIError) as exc_info:
+            qaskills.add("playwright-e2e", scope="global")
+    assert "network down" in str(exc_info.value)
