@@ -20,6 +20,7 @@ Structured types live where they belong: `AddResult` (filesystem path
 the host LLM can't compute), `InstalledLocation` (on-disk check), and
 the `Scope` literal.
 """
+
 from __future__ import annotations
 
 import re
@@ -98,7 +99,9 @@ def _strip_cli_chrome(text: str) -> str:
     return "\n".join(keep).strip("\n")
 
 
-def _run(args: Sequence[str], *, timeout: int = _DEFAULT_TIMEOUT_SECONDS) -> subprocess.CompletedProcess:
+def _run(
+    args: Sequence[str], *, timeout: int = _DEFAULT_TIMEOUT_SECONDS
+) -> subprocess.CompletedProcess:
     if not is_available():
         raise NodeNotFoundError(
             "qaskills integration requires Node ≥ 18 (`npx` not found on PATH). "
@@ -206,15 +209,16 @@ def add(
 
     if target.exists():
         raise QaskillsCLIError(
-            f"install target {target} already exists; "
-            "remove it first or pick a different scope."
+            f"install target {target} already exists; remove it first or pick a different scope."
         )
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(cli_path), str(target))
     return AddResult(name=name, scope=scope, installed_at=target, cli_output=cli_output)
 
 
-def is_installed_locally(name: str, *, project_root: Path | None = None) -> InstalledLocation | None:
+def is_installed_locally(
+    name: str, *, project_root: Path | None = None
+) -> InstalledLocation | None:
     """Look for an installed qaskill at the well-known on-disk locations.
 
     Project-local install wins when both exist. Caller passes

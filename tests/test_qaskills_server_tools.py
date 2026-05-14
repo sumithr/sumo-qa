@@ -6,6 +6,7 @@ There is no global feature flag — these tools are always callable. The
 tests verify subprocess plumbing, error envelopes, and that the install
 tools land their effects in the right places.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -17,7 +18,9 @@ from sumo_qa.server import build_mcp_server
 _FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _completed(stdout: str = "", returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
+def _completed(
+    stdout: str = "", returncode: int = 0, stderr: str = ""
+) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
@@ -27,8 +30,10 @@ def _get_tool(mcp, name: str):
 
 def test_search_tool_returns_raw_cleaned_text() -> None:
     fixture = (_FIXTURES / "qaskills_search_playwright.txt").read_text(encoding="utf-8")
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed(fixture)), \
-         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+    with (
+        patch("sumo_qa.qaskills.subprocess.run", return_value=_completed(fixture)),
+        patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"),
+    ):
         mcp = build_mcp_server()
         out = _get_tool(mcp, "sumo_qa_search_external_skills")(query="playwright")
 
@@ -41,8 +46,10 @@ def test_search_tool_returns_raw_cleaned_text() -> None:
 
 def test_info_tool_returns_raw_cleaned_text() -> None:
     fixture = (_FIXTURES / "qaskills_info_playwright_e2e.txt").read_text(encoding="utf-8")
-    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed(fixture)), \
-         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+    with (
+        patch("sumo_qa.qaskills.subprocess.run", return_value=_completed(fixture)),
+        patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"),
+    ):
         mcp = build_mcp_server()
         out = _get_tool(mcp, "sumo_qa_get_external_skill_info")(name="playwright-e2e")
 
@@ -54,7 +61,9 @@ def test_info_tool_returns_raw_cleaned_text() -> None:
 def test_install_tool_surfaces_clean_error_when_node_missing() -> None:
     with patch("sumo_qa.qaskills.shutil.which", return_value=None):
         mcp = build_mcp_server()
-        out = _get_tool(mcp, "sumo_qa_install_external_skill")(name="playwright-e2e", scope="global")
+        out = _get_tool(mcp, "sumo_qa_install_external_skill")(
+            name="playwright-e2e", scope="global"
+        )
     assert out["isError"] is True
     assert "Node" in out["error"]["actionable_hint"]
 
@@ -108,8 +117,13 @@ def test_check_node_available_returns_false_when_npx_missing() -> None:
 
 
 def test_detect_node_installer_returns_brew_on_darwin() -> None:
-    with patch("sumo_qa.node_install.sys.platform", "darwin"), \
-         patch("sumo_qa.node_install.shutil.which", side_effect=lambda cmd: "/opt/homebrew/bin/brew" if cmd == "brew" else None):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "darwin"),
+        patch(
+            "sumo_qa.node_install.shutil.which",
+            side_effect=lambda cmd: "/opt/homebrew/bin/brew" if cmd == "brew" else None,
+        ),
+    ):
         mcp = build_mcp_server()
         out = _get_tool(mcp, "sumo_qa_detect_node_installer")()
     assert out["installer"] == "brew"
@@ -118,8 +132,10 @@ def test_detect_node_installer_returns_brew_on_darwin() -> None:
 
 
 def test_detect_node_installer_returns_none_when_nothing_detected() -> None:
-    with patch("sumo_qa.node_install.sys.platform", "haiku"), \
-         patch("sumo_qa.node_install.shutil.which", return_value=None):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "haiku"),
+        patch("sumo_qa.node_install.shutil.which", return_value=None),
+    ):
         mcp = build_mcp_server()
         out = _get_tool(mcp, "sumo_qa_detect_node_installer")()
     assert out["installer"] is None
@@ -127,17 +143,24 @@ def test_detect_node_installer_returns_none_when_nothing_detected() -> None:
 
 
 def test_install_node_runs_detected_installer() -> None:
-    with patch("sumo_qa.node_install.sys.platform", "darwin"), \
-         patch("sumo_qa.node_install.shutil.which", side_effect=lambda cmd: "/opt/homebrew/bin/brew" if cmd == "brew" else None), \
-         patch("sumo_qa.node_install.subprocess.run", return_value=_completed(stdout="installed")):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "darwin"),
+        patch(
+            "sumo_qa.node_install.shutil.which",
+            side_effect=lambda cmd: "/opt/homebrew/bin/brew" if cmd == "brew" else None,
+        ),
+        patch("sumo_qa.node_install.subprocess.run", return_value=_completed(stdout="installed")),
+    ):
         mcp = build_mcp_server()
         out = _get_tool(mcp, "sumo_qa_install_node")()
     assert out["installed"] is True
 
 
 def test_install_node_returns_no_installer_when_none_detected() -> None:
-    with patch("sumo_qa.node_install.sys.platform", "haiku"), \
-         patch("sumo_qa.node_install.shutil.which", return_value=None):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "haiku"),
+        patch("sumo_qa.node_install.shutil.which", return_value=None),
+    ):
         mcp = build_mcp_server()
         out = _get_tool(mcp, "sumo_qa_install_node")()
     assert out["installed"] is False

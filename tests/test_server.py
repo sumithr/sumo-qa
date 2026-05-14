@@ -82,7 +82,10 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
     tool_names = set(server._tool_manager._tools.keys())
 
     assert tool_names == (
-        _TEST_DATA_TOOL_NAMES | _KNOWLEDGE_LOADER_TOOL_NAMES | _SKILL_TOOL_NAMES | _QASKILLS_TOOL_NAMES
+        _TEST_DATA_TOOL_NAMES
+        | _KNOWLEDGE_LOADER_TOOL_NAMES
+        | _SKILL_TOOL_NAMES
+        | _QASKILLS_TOOL_NAMES
     )
 
 

@@ -7,13 +7,20 @@ from unittest.mock import patch
 from sumo_qa import node_install
 
 
-def _completed_process(stdout: str = "", returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
+def _completed_process(
+    stdout: str = "", returncode: int = 0, stderr: str = ""
+) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 def test_detect_installer_returns_brew_on_darwin_with_brew() -> None:
-    with patch("sumo_qa.node_install.sys.platform", "darwin"), \
-         patch("sumo_qa.node_install.shutil.which", side_effect=lambda cmd: "/opt/homebrew/bin/brew" if cmd == "brew" else None):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "darwin"),
+        patch(
+            "sumo_qa.node_install.shutil.which",
+            side_effect=lambda cmd: "/opt/homebrew/bin/brew" if cmd == "brew" else None,
+        ),
+    ):
         installer = node_install.detect_installer()
 
     assert installer is not None
@@ -23,8 +30,13 @@ def test_detect_installer_returns_brew_on_darwin_with_brew() -> None:
 
 
 def test_detect_installer_returns_winget_on_windows_with_winget() -> None:
-    with patch("sumo_qa.node_install.sys.platform", "win32"), \
-         patch("sumo_qa.node_install.shutil.which", side_effect=lambda cmd: "C:\\winget.exe" if cmd == "winget" else None):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "win32"),
+        patch(
+            "sumo_qa.node_install.shutil.which",
+            side_effect=lambda cmd: "C:\\winget.exe" if cmd == "winget" else None,
+        ),
+    ):
         installer = node_install.detect_installer()
 
     assert installer is not None
@@ -34,8 +46,13 @@ def test_detect_installer_returns_winget_on_windows_with_winget() -> None:
 
 
 def test_detect_installer_returns_apt_on_linux_with_apt_get() -> None:
-    with patch("sumo_qa.node_install.sys.platform", "linux"), \
-         patch("sumo_qa.node_install.shutil.which", side_effect=lambda cmd: "/usr/bin/apt-get" if cmd == "apt-get" else None):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "linux"),
+        patch(
+            "sumo_qa.node_install.shutil.which",
+            side_effect=lambda cmd: "/usr/bin/apt-get" if cmd == "apt-get" else None,
+        ),
+    ):
         installer = node_install.detect_installer()
 
     assert installer is not None
@@ -50,8 +67,10 @@ def test_detect_installer_returns_dnf_on_linux_with_dnf() -> None:
             return "/usr/bin/dnf"
         return None
 
-    with patch("sumo_qa.node_install.sys.platform", "linux"), \
-         patch("sumo_qa.node_install.shutil.which", side_effect=_which):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "linux"),
+        patch("sumo_qa.node_install.shutil.which", side_effect=_which),
+    ):
         installer = node_install.detect_installer()
 
     assert installer is not None
@@ -62,8 +81,10 @@ def test_detect_installer_returns_dnf_on_linux_with_dnf() -> None:
 
 def test_detect_installer_prefers_apt_over_dnf_on_linux() -> None:
     # Both present: apt-get wins (Debian/Ubuntu dominant)
-    with patch("sumo_qa.node_install.sys.platform", "linux"), \
-         patch("sumo_qa.node_install.shutil.which", side_effect=lambda cmd: f"/usr/bin/{cmd}"):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "linux"),
+        patch("sumo_qa.node_install.shutil.which", side_effect=lambda cmd: f"/usr/bin/{cmd}"),
+    ):
         installer = node_install.detect_installer()
 
     assert installer is not None
@@ -71,14 +92,18 @@ def test_detect_installer_prefers_apt_over_dnf_on_linux() -> None:
 
 
 def test_detect_installer_returns_none_when_no_package_manager() -> None:
-    with patch("sumo_qa.node_install.sys.platform", "linux"), \
-         patch("sumo_qa.node_install.shutil.which", return_value=None):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "linux"),
+        patch("sumo_qa.node_install.shutil.which", return_value=None),
+    ):
         assert node_install.detect_installer() is None
 
 
 def test_detect_installer_returns_none_on_unsupported_platform() -> None:
-    with patch("sumo_qa.node_install.sys.platform", "haiku"), \
-         patch("sumo_qa.node_install.shutil.which", return_value="/usr/bin/something"):
+    with (
+        patch("sumo_qa.node_install.sys.platform", "haiku"),
+        patch("sumo_qa.node_install.shutil.which", return_value="/usr/bin/something"),
+    ):
         assert node_install.detect_installer() is None
 
 
@@ -117,7 +142,10 @@ def test_install_surfaces_stderr_on_failure() -> None:
     installer = node_install.NodeInstaller(
         name="brew", command=("brew", "install", "node"), needs_sudo=False
     )
-    with patch("sumo_qa.node_install.subprocess.run", return_value=_completed_process(returncode=1, stderr="brew: not authenticated")):
+    with patch(
+        "sumo_qa.node_install.subprocess.run",
+        return_value=_completed_process(returncode=1, stderr="brew: not authenticated"),
+    ):
         result = node_install.install(installer)
 
     assert result.installed is False

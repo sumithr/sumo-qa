@@ -12,6 +12,7 @@ Sudo policy: this module never calls `sudo`. If the detected installer
 requires elevation (Linux `apt-get` / `dnf`), `install()` refuses and
 returns a result with the exact command the user can run manually.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -51,7 +52,9 @@ def detect_installer() -> NodeInstaller | None:
         return None
     if platform == "win32":
         if shutil.which("winget"):
-            return NodeInstaller(name="winget", command=("winget", "install", "OpenJS.NodeJS"), needs_sudo=False)
+            return NodeInstaller(
+                name="winget", command=("winget", "install", "OpenJS.NodeJS"), needs_sudo=False
+            )
         return None
     if platform.startswith("linux"):
         if shutil.which("apt-get"):

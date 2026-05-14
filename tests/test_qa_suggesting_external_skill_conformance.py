@@ -12,10 +12,7 @@ with assertions about the external-skill-suggestion contract:
 from pathlib import Path
 
 SKILL_PATH = (
-    Path(__file__).parent.parent
-    / "skills"
-    / "sumo-qa-suggesting-external-skill"
-    / "SKILL.md"
+    Path(__file__).parent.parent / "skills" / "sumo-qa-suggesting-external-skill" / "SKILL.md"
 )
 
 

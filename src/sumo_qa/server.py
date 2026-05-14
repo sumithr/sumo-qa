@@ -46,15 +46,9 @@ _HINT_NODE_MISSING = (
     "Install Node ≥ 18 to use this feature. "
     "Download from https://nodejs.org or run `brew install node` on macOS."
 )
-_HINT_QASKILLS_CLI = (
-    "Run `npx @qaskills/cli search` manually to debug."
-)
-_HINT_INVALID_SCOPE = (
-    "Pass scope='global' or scope='project'."
-)
-_HINT_REGISTRY_JSON = (
-    "Check the registry.json file for valid JSON syntax and fix any errors."
-)
+_HINT_QASKILLS_CLI = "Run `npx @qaskills/cli search` manually to debug."
+_HINT_INVALID_SCOPE = "Pass scope='global' or scope='project'."
+_HINT_REGISTRY_JSON = "Check the registry.json file for valid JSON syntax and fix any errors."
 
 # Path to the external skills trust registry shipped with sumo-qa.
 _REGISTRY_PATH = (
@@ -349,7 +343,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_search_external_skills(
-            query: Annotated[str, Field(description="Free-text search query, e.g. 'playwright e2e'.")],
+            query: Annotated[
+                str, Field(description="Free-text search query, e.g. 'playwright e2e'.")
+            ],
         ) -> dict[str, Any]:
             """Search qaskills.sh and return the CLI's human-readable output.
 
