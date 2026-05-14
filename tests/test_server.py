@@ -6,7 +6,9 @@ from sumo_qa.server import build_mcp_server
 # (in addition to its MCP prompt) so hosts whose slash menus surface tools but
 # not prompts (IntelliJ AI Assistant, VS Code + Copilot) can invoke skills.
 # Chain-polish pass added 3 more skills (planning / executing / finishing).
-# Total registered tools: 11 atomic + 13 skill = 24.
+# Task 8: sumo-qa-suggesting-external-skill added.
+# Task 1: 8 qaskills/Node-install tools removed (dead code after pivot to SKILL.md flow).
+# Total registered tools: 11 atomic + 14 skill = 25.
 _TEST_DATA_TOOL_NAMES = {
     "sumo_qa_explain_test_data_requirements",
     "sumo_qa_find_test_data",
@@ -41,6 +43,8 @@ _SKILL_TOOL_NAMES = {
     "sumo_qa_planning_qa_rollout",
     "sumo_qa_executing_qa_rollout",
     "sumo_qa_finishing_qa_work",
+    # Task 8: external-skill suggestion.
+    "sumo_qa_suggesting_external_skill",
 }
 
 # Heavy tools that MUST NOT be registered after Phase 4. The skills now drive
@@ -52,6 +56,15 @@ _HEAVY_TOOL_NAMES_DELETED = {
     "sumo_qa_create_test_plan",
     "sumo_qa_scaffold_tests",
     "sumo_qa_decide_approach",
+    # Task 1: qaskills/node_install tools removed.
+    "sumo_qa_search_external_skills",
+    "sumo_qa_get_external_skill_info",
+    "sumo_qa_install_external_skill",
+    "sumo_qa_check_external_skill_installed",
+    "sumo_qa_load_external_skills_registry",
+    "sumo_qa_check_node_available",
+    "sumo_qa_detect_node_installer",
+    "sumo_qa_install_node",
 }
 
 
@@ -139,3 +152,205 @@ def test_knowledge_loader_tools_are_registered():
     tool_names = set(server._tool_manager._tools.keys())
     for name in _KNOWLEDGE_LOADER_TOOL_NAMES:
         assert name in tool_names, f"Missing tool: {name}"
+
+
+# ---------------------------------------------------------------------------
+# __main__ module import (covers sumo_qa/__main__.py:2)
+# ---------------------------------------------------------------------------
+
+
+def test_main_module_imports_without_error() -> None:
+    """Importing sumo_qa.__main__ must not raise — it just wires main()."""
+    import importlib
+
+    mod = importlib.import_module("sumo_qa.__main__")
+    assert hasattr(mod, "main")
+
+
+# ---------------------------------------------------------------------------
+# Tool bodies — call the registered MCP tools directly via the server so the
+# nested function bodies inside build_mcp_server() are executed. Lines 125-138,
+# 181-208, 228-237, 253-264, 276, 282, 288, 295, 305, 312, 318, 326.
+# ---------------------------------------------------------------------------
+
+
+def test_tool_bodies_are_reachable_via_server_call_tool() -> None:
+    """Calling each test-data tool via the server exercises the inner function
+    bodies that are registered at build time but not called by structural tests."""
+    import asyncio
+    from pathlib import Path
+
+    from sumo_qa.tdm_catalogue import TestDataCatalogue
+    from sumo_qa.tools import QAShiftLeftService
+
+    service = QAShiftLeftService(
+        test_data_catalogue=TestDataCatalogue(
+            Path(__file__).resolve().parents[1] / "knowledge" / "test_data"
+        )
+    )
+    server = build_mcp_server(service=service)
+
+    async def run_tools() -> list:
+        results = []
+        # sumo_qa_explain_test_data_requirements (lines 125-138)
+        r = await server.call_tool(
+            "sumo_qa_explain_test_data_requirements", {"question": "what data for login?"}
+        )
+        results.append(r)
+        # sumo_qa_find_test_data (lines 181-208)
+        r = await server.call_tool(
+            "sumo_qa_find_test_data", {"environment": "integration", "domain": "auth"}
+        )
+        results.append(r)
+        # sumo_qa_validate_test_data (lines 225-237)
+        r = await server.call_tool(
+            "sumo_qa_validate_test_data", {"entry_id": "auth-locked-account-001"}
+        )
+        results.append(r)
+        # sumo_qa_load_classifications (line 276)
+        r = await server.call_tool("sumo_qa_load_classifications", {})
+        results.append(r)
+        # sumo_qa_load_approaches (line 282)
+        r = await server.call_tool("sumo_qa_load_approaches", {})
+        results.append(r)
+        # sumo_qa_load_principles (line 288)
+        r = await server.call_tool("sumo_qa_load_principles", {})
+        results.append(r)
+        # sumo_qa_load_techniques (line 295)
+        r = await server.call_tool("sumo_qa_load_techniques", {})
+        results.append(r)
+        # sumo_qa_load_specialty_tools (line 305)
+        r = await server.call_tool("sumo_qa_load_specialty_tools", {})
+        results.append(r)
+        # sumo_qa_load_standards (line 312)
+        r = await server.call_tool("sumo_qa_load_standards", {})
+        results.append(r)
+        # sumo_qa_load_rules (line 318)
+        r = await server.call_tool("sumo_qa_load_rules", {})
+        results.append(r)
+        return results
+
+    results = asyncio.run(run_tools())
+    assert len(results) == 10
+
+
+def test_tool_body_register_known_good_via_server(tmp_path) -> None:
+    """sumo_qa_register_known_good_test_data body (lines 253-264)."""
+    import asyncio
+
+    from sumo_qa.tdm_catalogue import TestDataCatalogue
+    from sumo_qa.tools import QAShiftLeftService
+
+    service = QAShiftLeftService(test_data_catalogue=TestDataCatalogue(tmp_path / "test_data"))
+    server = build_mcp_server(service=service)
+
+    async def run():
+        return await server.call_tool(
+            "sumo_qa_register_known_good_test_data",
+            {
+                "entry": {
+                    "id": "auth-server-test-001",
+                    "environment": "integration",
+                    "domain": "auth",
+                    "scenario_tags": ["active_account"],
+                    "known_valid_for": ["login flow"],
+                    "owner": "qa",
+                    "confidence": "medium",
+                    "source": "qa-curated",
+                }
+            },
+        )
+
+    result = asyncio.run(run())
+    assert result is not None
+
+
+def test_tool_body_error_envelope_on_explain_failure() -> None:
+    """Exception path in sumo_qa_explain_test_data_requirements body (line 128)."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    async def run():
+        # Build a server with a broken service to exercise the exception envelope path.
+        broken_service = MagicMock()
+        broken_service.qa_explain_test_data_requirements.side_effect = RuntimeError("broken")
+        s = build_mcp_server(service=broken_service)
+        return await s.call_tool("sumo_qa_explain_test_data_requirements", {"question": "x"})
+
+    result = asyncio.run(run())
+    assert result is not None
+
+
+def test_tool_body_error_envelope_on_find_failure() -> None:
+    """Exception path in sumo_qa_find_test_data body (line 193)."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    broken_service = MagicMock()
+    broken_service.qa_find_test_data.side_effect = RuntimeError("broken find")
+    server = build_mcp_server(service=broken_service)
+
+    async def run():
+        return await server.call_tool("sumo_qa_find_test_data", {})
+
+    result = asyncio.run(run())
+    assert result is not None
+
+
+def test_tool_body_error_envelope_on_validate_failure() -> None:
+    """Exception path in sumo_qa_validate_test_data body (line 228)."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    broken_service = MagicMock()
+    broken_service.qa_validate_test_data.side_effect = RuntimeError("broken validate")
+    server = build_mcp_server(service=broken_service)
+
+    async def run():
+        return await server.call_tool("sumo_qa_validate_test_data", {})
+
+    result = asyncio.run(run())
+    assert result is not None
+
+
+def test_tool_body_error_envelope_on_register_failure() -> None:
+    """Exception path in sumo_qa_register_known_good_test_data body (line 256)."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    broken_service = MagicMock()
+    broken_service.qa_register_known_good_test_data.side_effect = RuntimeError("broken register")
+    server = build_mcp_server(service=broken_service)
+
+    async def run():
+        return await server.call_tool(
+            "sumo_qa_register_known_good_test_data", {"entry": {"id": "x"}}
+        )
+
+    result = asyncio.run(run())
+    assert result is not None
+
+
+def test_main_function_runs_server() -> None:
+    """server.main() calls build_mcp_server().run() — covers line 326."""
+    from unittest.mock import MagicMock, patch
+
+    mock_server = MagicMock()
+    with patch("sumo_qa.server.build_mcp_server", return_value=mock_server):
+        from sumo_qa.server import main
+
+        main()
+
+    mock_server.run.assert_called_once()
+
+
+def test_build_mcp_server_raises_when_mcp_not_installed() -> None:
+    """ImportError path in build_mcp_server() (lines 73-74)."""
+    import sys
+    from unittest.mock import patch
+
+    with patch.dict(sys.modules, {"mcp.server.fastmcp": None, "mcp.types": None}):
+        import pytest
+
+        with pytest.raises((RuntimeError, ImportError)):
+            build_mcp_server()

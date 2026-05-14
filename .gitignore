@@ -12,6 +12,9 @@ build/
 .DS_Store
 .env
 
+# IDE config (per-developer, not shipped)
+.idea/
+
 # Per-machine MCP config written by sumo-qa-install
 .vscode/mcp.json
 

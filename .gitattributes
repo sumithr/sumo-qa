@@ -1,0 +1,8 @@
+# Shell scripts must keep LF line endings cross-platform. Without this,
+# Git on Windows checks them out with CRLF and bash chokes on the `\r`
+# characters (silent syntax errors / non-zero exits with empty stderr).
+hooks/session-start text eol=lf
+*.sh text eol=lf
+
+# Python sources stay LF too for consistency with Black/ruff defaults.
+*.py text eol=lf
