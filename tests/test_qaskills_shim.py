@@ -1,9 +1,17 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
+import json
+import subprocess
 from unittest.mock import patch
 
+import pytest
+
 from sumo_qa import qaskills
+
+
+def _completed_process(stdout: str, returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 def test_is_available_returns_true_when_npx_present() -> None:
@@ -15,17 +23,6 @@ def test_is_available_returns_true_when_npx_present() -> None:
 def test_is_available_returns_false_when_npx_missing() -> None:
     with patch("sumo_qa.qaskills.shutil.which", return_value=None):
         assert qaskills.is_available() is False
-
-
-import json
-import subprocess
-from unittest.mock import MagicMock
-
-import pytest
-
-
-def _completed_process(stdout: str, returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 def test_search_parses_json_output_into_matches() -> None:

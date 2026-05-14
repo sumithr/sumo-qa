@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 
 def is_available() -> bool:
