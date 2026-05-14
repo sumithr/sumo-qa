@@ -14,6 +14,7 @@ All filesystem operations use tmp_path / monkeypatch.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -202,10 +203,14 @@ def test_install_skills_cleans_stale_copy_matching_repo_skill(tmp_path: Path) ->
     if not skill_md.is_file():
         pytest.skip(f"No SKILL.md in {skill}")
 
-    # Create a stale copy of that skill in skills_dir.
+    # Create a stale copy of that skill in skills_dir. Use shutil.copy
+    # for byte-exact duplication — write_text(read_text()) goes through
+    # Python's text-mode newline translation twice, which can change
+    # CRLF/LF on Windows even after the production-code normalisation
+    # in installer.py, leaving the contents-match check unable to fire.
     stale = skills_dir / skill.name
     stale.mkdir()
-    (stale / "SKILL.md").write_text(skill_md.read_text(), encoding="utf-8")
+    shutil.copy(skill_md, stale / "SKILL.md")
 
     installer._install_claude_code_skills_per_dir(skills_dir, "Darwin")
 
