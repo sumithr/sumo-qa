@@ -50,6 +50,9 @@ dev = [
   "pytest-cov>=6,<8",
   "ruff>=0.5,<1",
   "pre-commit>=3.7,<5",
+  # Windows ships no system tz database; Hypothesis `st.timezones()` strategy
+  # needs `tzdata` to enumerate IANA zones via stdlib `zoneinfo`.
+  "tzdata; platform_system == 'Windows'",
 ]
 vertex = [
   "google-cloud-aiplatform>=1.71.0",
