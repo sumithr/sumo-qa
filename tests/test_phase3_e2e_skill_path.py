@@ -25,14 +25,14 @@ from sumo_qa.server import build_mcp_server
 
 EXPECTED_SKILL_PROMPTS = {
     "using_sumo_qa",
-    "qa_deciding_approach",
-    "qa_preparing_for_work",
-    "qa_creating_test_plan",
-    "qa_implementing_with_tdd",
-    "qa_reviewing_before_merge",
-    "qa_strengthening_tests",
-    "qa_finding_test_data",
-    "qa_answering_testing_question",
+    "sumo_qa_deciding_approach",
+    "sumo_qa_preparing_for_work",
+    "sumo_qa_creating_test_plan",
+    "sumo_qa_implementing_with_tdd",
+    "sumo_qa_reviewing_before_merge",
+    "sumo_qa_strengthening_tests",
+    "sumo_qa_finding_test_data",
+    "sumo_qa_answering_testing_question",
     "sumo_qa_strategising",
 }
 

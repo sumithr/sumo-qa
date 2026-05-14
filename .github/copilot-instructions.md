@@ -8,14 +8,14 @@ Available skills (each registered as an MCP prompt with the same name,
 hyphens replaced by underscores):
 
 - `using_sumo_qa` — entry router; load this first for any QA intent
-- `qa_deciding_approach` — pick the QA approach for the work
-- `qa_preparing_for_work` — plan QA before coding starts
-- `qa_creating_test_plan` — produce entry/exit criteria, phases, deliverables
-- `qa_implementing_with_tdd` — red-green-refactor cycle
-- `qa_reviewing_before_merge` — review local diff
-- `qa_strengthening_tests` — mutation-testing follow-up
-- `qa_finding_test_data` — known-good test data discovery and validation
-- `qa_answering_testing_question` — generic "how do I test this?"
+- `sumo_qa_deciding_approach` — pick the QA approach for the work
+- `sumo_qa_preparing_for_work` — plan QA before coding starts
+- `sumo_qa_creating_test_plan` — produce entry/exit criteria, phases, deliverables
+- `sumo_qa_implementing_with_tdd` — red-green-refactor cycle
+- `sumo_qa_reviewing_before_merge` — review local diff
+- `sumo_qa_strengthening_tests` — mutation-testing follow-up
+- `sumo_qa_finding_test_data` — known-good test data discovery and validation
+- `sumo_qa_answering_testing_question` — generic "how do I test this?"
 - `sumo_qa_strategising` — repo-wide QA strategy
 
 The skills carry the senior-QA discipline (Iron Laws, checklists, Red Flags).

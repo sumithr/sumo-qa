@@ -1,6 +1,6 @@
 ---
-name: qa-creating-test-plan
-description: Use when the user asks for a formal test plan, entry/exit criteria, or a phased QA approach for a piece of work. Walk the user through scope → risks → entry criteria → phases → exit criteria → residual risks one section at a time, getting confirmation before each step. Heavier than qa-preparing-for-work; use when the work is tracked or formally reviewed.
+name: sumo-qa-creating-test-plan
+description: Use when the user asks for a formal test plan, entry/exit criteria, or a phased QA approach for a piece of work. Walk the user through scope → risks → entry criteria → phases → exit criteria → residual risks one section at a time, getting confirmation before each step. Heavier than sumo-qa-preparing-for-work; use when the work is tracked or formally reviewed.
 ---
 
 # Creating a Test Plan
@@ -44,7 +44,7 @@ User intents that trigger this skill:
 - "give me entry/exit criteria for X"
 - "I'm starting a major feature — plan QA properly"
 
-Distinct from `qa-preparing-for-work` (lighter prep brief, no formal entry/exit gates) — use this when the work is tracked, formally reviewed, or large enough to warrant phased execution.
+Distinct from `sumo-qa-preparing-for-work` (lighter prep brief, no formal entry/exit gates) — use this when the work is tracked, formally reviewed, or large enough to warrant phased execution.
 
 ## Checklist
 
@@ -109,6 +109,6 @@ See the Checklist above — that's the flow.
 
 ## Next skill in the chain
 
-When the plan is signed off → `qa-planning-qa-rollout` to break the phases into bite-sized, dispatchable tasks ready for subagent execution.
+When the plan is signed off → `sumo-qa-planning-qa-rollout` to break the phases into bite-sized, dispatchable tasks ready for subagent execution.
 
-If the user wants to act on a single phase directly rather than dispatch it → route to the matching execution skill instead (`qa-implementing-with-tdd` for new behaviour / regressions, `qa-strengthening-tests` for mutation follow-up, `qa-reviewing-before-merge` for review-shaped phases).
+If the user wants to act on a single phase directly rather than dispatch it → route to the matching execution skill instead (`sumo-qa-implementing-with-tdd` for new behaviour / regressions, `sumo-qa-strengthening-tests` for mutation follow-up, `sumo-qa-reviewing-before-merge` for review-shaped phases).

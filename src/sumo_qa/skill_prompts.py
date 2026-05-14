@@ -4,7 +4,7 @@
 Single delivery channel for skills across every supported host. MCP tools
 are surfaced in the slash menu by Claude Code, IntelliJ AI Assistant, and
 VS Code + Copilot — so registering each SKILL.md as a tool means
-`/qa_deciding_approach`, `/qa_creating_test_plan`, etc. appear identically
+`/sumo_qa_deciding_approach`, `/sumo_qa_creating_test_plan`, etc. appear identically
 in every host. Calling the tool returns the SKILL.md body, which the host
 LLM follows.
 

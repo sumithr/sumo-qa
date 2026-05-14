@@ -1,6 +1,6 @@
 ---
-name: qa-finishing-qa-work
-description: Use at the end of a QA rollout (after qa-executing-qa-rollout, or after a manual multi-step QA task) to capture evidence, produce a PR-ready summary, and close the loop. Runs the suite one last time, captures coverage / risk-to-test map / open follow-ups, writes a markdown summary to docs/qa/runs/YYYY-MM-DD-<feature>.md, and offers to draft the PR description.
+name: sumo-qa-finishing-qa-work
+description: Use at the end of a QA rollout (after sumo-qa-executing-qa-rollout, or after a manual multi-step QA task) to capture evidence, produce a PR-ready summary, and close the loop. Runs the suite one last time, captures coverage / risk-to-test map / open follow-ups, writes a markdown summary to docs/qa/runs/YYYY-MM-DD-<feature>.md, and offers to draft the PR description.
 ---
 
 # Finishing QA work
@@ -36,7 +36,7 @@ Do NOT mark the work finished or claim "QA done" without a fresh test run in thi
 ## When to Use
 
 Routes here from:
-- `qa-executing-qa-rollout` after cross-task review passes
+- `sumo-qa-executing-qa-rollout` after cross-task review passes
 - Direct invocation: *"wrap this up"*, *"give me the PR summary"*, *"finish the QA work"*, *"what evidence do I have"*
 
 Don't use for a single-test piece of work — there's nothing to wrap up.

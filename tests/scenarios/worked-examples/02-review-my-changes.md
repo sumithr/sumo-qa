@@ -14,7 +14,7 @@
 
 ## Turn 2 — sumo-qa
 
-*(internal: invokes `qa-deciding-approach`. Reads recent intent + scope. Classification: `api_contract_change` + `business_logic_change`. Approach: `verify-existing`. Routes to `qa-reviewing-before-merge`.)*
+*(internal: invokes `sumo-qa-deciding-approach`. Reads recent intent + scope. Classification: `api_contract_change` + `business_logic_change`. Approach: `verify-existing`. Routes to `sumo-qa-reviewing-before-merge`.)*
 
 *(internal: walks the diff and changed files using the host's git + file tools — does NOT ask the user "what files did you change?".)*
 

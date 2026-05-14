@@ -1,6 +1,6 @@
 ---
-name: qa-strengthening-tests
-description: Use after qa-deciding-approach picks strengthen-test-coverage. Mutation-testing follow-up, raise-coverage tasks, killing weak assertions. Walks survivor → tautology check → technique → strengthening test, one mutant at a time with confirmation gates. Production code STAYS UNCHANGED.
+name: sumo-qa-strengthening-tests
+description: Use after sumo-qa-deciding-approach picks strengthen-test-coverage. Mutation-testing follow-up, raise-coverage tasks, killing weak assertions. Walks survivor → tautology check → technique → strengthening test, one mutant at a time with confirmation gates. Production code STAYS UNCHANGED.
 ---
 
 # Strengthening tests
@@ -28,7 +28,7 @@ Spend output tokens on findings, not framing.
 - **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff at the bottom of every skill is where routing lives.
 
 <HARD-GATE>
-Do NOT touch production code in this skill. Ever. If a mutant survives because the production code is wrong, that is a separate `regression-first` task — STOP this flow and route to `qa-implementing-with-tdd`. The Iron Law has no exceptions for "while I'm in here".
+Do NOT touch production code in this skill. Ever. If a mutant survives because the production code is wrong, that is a separate `regression-first` task — STOP this flow and route to `sumo-qa-implementing-with-tdd`. The Iron Law has no exceptions for "while I'm in here".
 </HARD-GATE>
 
 ## The Iron Law
@@ -37,7 +37,7 @@ Do NOT touch production code in this skill. Ever. If a mutant survives because t
 
 ## When to Use
 
-`qa-deciding-approach` routes here for `strengthen-test-coverage`. User intents:
+`sumo-qa-deciding-approach` routes here for `strengthen-test-coverage`. User intents:
 
 - "raise coverage on module X"
 - "Pitest shows N surviving mutants — kill them"
@@ -78,7 +78,7 @@ See the Checklist above — that's the flow.
 
 | Thought | Reality |
 |---|---|
-| "I'll tweak the prod code to make the mutant easier to kill" | Iron Law violated. Production code stays still. Route to `qa-implementing-with-tdd` if behaviour needs to change. |
+| "I'll tweak the prod code to make the mutant easier to kill" | Iron Law violated. Production code stays still. Route to `sumo-qa-implementing-with-tdd` if behaviour needs to change. |
 | "Write a test that asserts the exact code: `assert x == y + 1 if condition else y`" | Tautology. Re-stating the production logic. Suppress the mutant in tool config instead. |
 | "All surviving mutants need a test" | No. Equivalent mutants are noise; suppressing them is correct. Only real mutants get tests. |
 | "Coverage went from 85% to 92% — done" | Line coverage isn't assertion strength. The right measure is "did the mutation survivor count drop?" |
@@ -107,10 +107,10 @@ See the Checklist above — that's the flow.
 >
 > **AI:** *"I'll refactor `apply_discounts` to extract the threshold check so the test can target it directly."*
 >
-> Iron Law violated. Production code moved. STOP and route to `qa-implementing-with-tdd` for `regression-first`.
+> Iron Law violated. Production code moved. STOP and route to `sumo-qa-implementing-with-tdd` for `regression-first`.
 
 ## Next skill in the chain
 
-When all survivors are processed (killed or suppressed with rationale) and the existing suite is still green → `qa-reviewing-before-merge` to deliver the verdict against fresh evidence, if this is a standalone task.
+When all survivors are processed (killed or suppressed with rationale) and the existing suite is still green → `sumo-qa-reviewing-before-merge` to deliver the verdict against fresh evidence, if this is a standalone task.
 
-If this task is part of a multi-task rollout dispatched by `qa-executing-qa-rollout` → `qa-finishing-qa-work` instead, to capture the strengthening evidence and produce the PR-ready summary.
+If this task is part of a multi-task rollout dispatched by `sumo-qa-executing-qa-rollout` → `sumo-qa-finishing-qa-work` instead, to capture the strengthening evidence and produce the PR-ready summary.

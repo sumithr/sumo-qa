@@ -6,16 +6,16 @@ Each example covers a distinct QA scenario and follows the same shape: a one-lin
 
 | # | Scenario | Skill activated | Key discipline beat |
 |---|---|---|---|
-| [01](01-plan-qa-for-story.md) | Plan QA for a new story before coding | `qa-preparing-for-work` | Walks the repo before asking; risks anchored to file:line. |
-| [02](02-review-my-changes.md) | Review uncommitted changes before merging | `qa-reviewing-before-merge` | HARD GATE on fresh test evidence; risk-to-test coverage map; refuses to declare safe-to-merge with an uncovered risk. |
-| [03](03-fix-bug-regression-first.md) | Fix a production bug regression-first | `qa-implementing-with-tdd` (regression-first) | Won't write test + production code in the same turn; surfaces the red output as proof. |
-| [04](04-add-tests-tdd-scaffold.md) | Add tests for a new feature (TDD-scaffold) | `qa-implementing-with-tdd` (tdd-scaffold) | One red→green cycle at a time; refuses to scaffold all 5 tests up front. |
-| [05](05-strengthen-tests-mutation.md) | Strengthen tests against mutation survivors | `qa-strengthening-tests` | Production code stays unchanged; walks one mutant at a time with tautology checks. |
-| [06](06-generic-testing-question.md) | "How do I test this?" — generic question | `qa-answering-testing-question` | Cites an ISTQB principle by number, names a technique, picks a tool by fit. 4 sentences, not a 20-line essay. |
-| [07](07-find-test-data.md) | Find a known-good test data record | `qa-finding-test-data` | Fresh-validates in this turn; surfaces stale entries explicitly; confirmation gate before catalogue writes. |
+| [01](01-plan-qa-for-story.md) | Plan QA for a new story before coding | `sumo-qa-preparing-for-work` | Walks the repo before asking; risks anchored to file:line. |
+| [02](02-review-my-changes.md) | Review uncommitted changes before merging | `sumo-qa-reviewing-before-merge` | HARD GATE on fresh test evidence; risk-to-test coverage map; refuses to declare safe-to-merge with an uncovered risk. |
+| [03](03-fix-bug-regression-first.md) | Fix a production bug regression-first | `sumo-qa-implementing-with-tdd` (regression-first) | Won't write test + production code in the same turn; surfaces the red output as proof. |
+| [04](04-add-tests-tdd-scaffold.md) | Add tests for a new feature (TDD-scaffold) | `sumo-qa-implementing-with-tdd` (tdd-scaffold) | One red→green cycle at a time; refuses to scaffold all 5 tests up front. |
+| [05](05-strengthen-tests-mutation.md) | Strengthen tests against mutation survivors | `sumo-qa-strengthening-tests` | Production code stays unchanged; walks one mutant at a time with tautology checks. |
+| [06](06-generic-testing-question.md) | "How do I test this?" — generic question | `sumo-qa-answering-testing-question` | Cites an ISTQB principle by number, names a technique, picks a tool by fit. 4 sentences, not a 20-line essay. |
+| [07](07-find-test-data.md) | Find a known-good test data record | `sumo-qa-finding-test-data` | Fresh-validates in this turn; surfaces stale entries explicitly; confirmation gate before catalogue writes. |
 | [08](08-audit-and-strategy.md) | Audit coverage + design QA strategy | `sumo-qa-strategising` | Walks the repo with file tools; phased rollout with named gates, not a calendar; honest residual-risk list. |
-| [09](09-formal-test-plan.md) | Formal test plan with entry/exit criteria | `qa-creating-test-plan` | HARD GATE — no plan without measurable entry AND exit criteria. |
-| [10](10-no-tests-needed.md) | Trivial change — typo in a doc | `qa-deciding-approach` (terminates) | Restraint — picks `no-tests-recommended` and stops. Doesn't manufacture work. |
+| [09](09-formal-test-plan.md) | Formal test plan with entry/exit criteria | `sumo-qa-creating-test-plan` | HARD GATE — no plan without measurable entry AND exit criteria. |
+| [10](10-no-tests-needed.md) | Trivial change — typo in a doc | `sumo-qa-deciding-approach` (terminates) | Restraint — picks `no-tests-recommended` and stops. Doesn't manufacture work. |
 
 ## Notable examples
 

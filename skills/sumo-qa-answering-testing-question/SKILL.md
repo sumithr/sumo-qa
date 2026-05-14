@@ -1,5 +1,5 @@
 ---
-name: qa-answering-testing-question
+name: sumo-qa-answering-testing-question
 description: Use when the user asks a generic testing question — "how do I test this?", "what should I check for X?" — that doesn't fit a more specific QA skill. Cites a principle or technique from the loaded catalogue rather than producing generic advice.
 ---
 
@@ -30,7 +30,7 @@ Every answer ties to a named ISTQB principle and a named test design technique f
 
 ## When to Use
 
-`qa-deciding-approach` routes here when the user's intent is question-shaped but doesn't fit a more specific skill:
+`sumo-qa-deciding-approach` routes here when the user's intent is question-shaped but doesn't fit a more specific skill:
 
 - "how do I test this service?"
 - "what should I check for X feature?"
@@ -63,7 +63,7 @@ See the Checklist above — that's the flow.
 | "Mention security as a consideration" | Name the actual surface AND the right tool for it (HTTP DAST scanner / SAST tool / token-validation harness — pick from your knowledge by fit). Bare "consider security" is not senior-QA. |
 | "I'll cite a principle by paraphrasing — saves loading the catalogue" | Principles are catalogue-authoritative. Use the catalogue's wording. (Tool brand picks are different — those come from your knowledge of the ecosystem.) |
 | "I'll restrict tool recommendations to the names in `specialty_tools.md`" | The primer is a category check, not a brand whitelist. Recommend the best fit from your knowledge; the listed names are illustrative. |
-| "User asked a planning question — I'll answer inline" | Route to `qa-preparing-for-work` or `qa-creating-test-plan`. Don't reinvent. |
+| "User asked a planning question — I'll answer inline" | Route to `sumo-qa-preparing-for-work` or `sumo-qa-creating-test-plan`. Don't reinvent. |
 | "Answer should be 20+ sentences for completeness" | 3-7 sentences. Senior QA answers concisely. |
 
 ## Examples
