@@ -92,6 +92,9 @@ class StandardsRulesEngine:
         return cls(rules)
 
     def evaluate(self, classifications: list[str]) -> dict[str, Any]:
+        # Normalise so callers passing the same set in different orders or with
+        # duplicates always get identical output (set-equivalent semantics).
+        classifications = sorted(set(classifications))
         matched = [self._rules[name] for name in classifications if name in self._rules]
         must_consider = _dedupe(item for rule in matched for item in rule.must_consider)
         suggested_test_types = _dedupe(

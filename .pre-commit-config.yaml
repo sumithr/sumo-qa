@@ -83,6 +83,7 @@ repos:
         entry: pytest -q
         language: python
         additional_dependencies:
+          - "hypothesis>=6,<7"
           - "mcp>=1.12,<2"
           - "pydantic>=2.8,<3"
           - "PyYAML>=6,<7"
