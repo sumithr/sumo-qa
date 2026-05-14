@@ -58,14 +58,28 @@ repos:
       - id: pytest
         name: pytest (pre-push)
         # Runs on `git push`, not on every commit (too slow for single-file
-        # iteration). `language: python` tells pre-commit to manage its own
-        # venv for this hook — `.[dev]` installs sumo-qa plus pytest, mcp,
-        # pydantic, PyYAML in that isolated venv. This decouples the hook
-        # from the user's PATH (pyenv, multiple Pythons, etc. all become
-        # irrelevant), at the cost of a slower FIRST push while the venv
-        # is being built. Subsequent pushes reuse the cached venv.
+        # iteration).
+        #
+        # `language: python` makes pre-commit create and own the venv for
+        # this hook — decoupling it from whatever `python` happens to be
+        # first on the user's PATH (pyenv, multiple Pythons, system vs
+        # venv ambiguity).
+        #
+        # `additional_dependencies` lists the runtime deps explicitly
+        # because pre-commit's hook venvs can only install from PyPI;
+        # the `.[dev]` editable-install trick doesn't work here. Keep
+        # this list in sync with the `dependencies` block in
+        # pyproject.toml when bumping versions.
+        #
+        # pytest picks up `pythonpath = ["src"]` from pyproject.toml's
+        # `[tool.pytest.ini_options]`, so `import sumo_qa.*` resolves
+        # without the project itself needing to be pip-installed.
         entry: pytest -q
         language: python
-        additional_dependencies: [".[dev]"]
+        additional_dependencies:
+          - "mcp>=1.12,<2"
+          - "pydantic>=2.8,<3"
+          - "PyYAML>=6,<7"
+          - "pytest>=8.4,<10"
         pass_filenames: false
         stages: [pre-push]
