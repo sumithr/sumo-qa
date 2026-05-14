@@ -86,6 +86,24 @@ Ten polished worked examples showing what sumo-qa actually looks like in convers
 - **[tests/scenarios/worked-examples/](tests/scenarios/worked-examples/)** — see [02 — review-my-changes](tests/scenarios/worked-examples/02-review-my-changes.md) for a representative end-to-end transcript.
 - **[tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md)** — the underlying scenario specs (user prompt → expected interaction shape → anti-patterns the skill prevents).
 
+## Experimental: qaskills.sh integration
+
+`SUMO_QA_EXTERNAL_SKILLS=1` enables a trial integration with [qaskills.sh](https://qaskills.sh/). When set:
+
+- If your QA intent has no native sumo-qa fit (e.g. *"set up Playwright E2E tests"*), sumo-qa offers to install a matching skill from qaskills.sh via `npx @qaskills/cli`.
+- Trust is gated by [`skills/sumo-qa-suggesting-external-skill/registry.json`](skills/sumo-qa-suggesting-external-skill/registry.json) — only publishers on `trusted_publishers` are surfaced without an extra confirmation step. Anything else requires explicit user `y` after publisher/score are shown.
+- If Node isn't installed, sumo-qa offers to install it via your OS's native package manager (`brew` on macOS, `winget` on Windows, `apt-get` / `dnf` on Linux). Sudo is never auto-elevated — when sudo is required, sumo-qa prints the command for you to run yourself.
+- Every install prompts for permission and for scope (global `~/.claude/skills/` or project-local `<repo>/.claude/skills/`).
+- If the installed SKILL.md references an MCP server, sumo-qa offers (but never silently edits) the matching MCP config.
+
+The integration is **off by default**. To enable for a single shell session:
+
+```bash
+export SUMO_QA_EXTERNAL_SKILLS=1
+```
+
+Requires Node ≥ 18 (`npx`) on PATH, or one of the package managers above so sumo-qa can offer to install Node.
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for attribution requirements that apply to forks and redistributors.
