@@ -45,23 +45,6 @@ pip install --upgrade sumo-qa && sumo-qa-install
 
 Then restart the host. The SessionStart hook re-injects new content; bundled skills + knowledge refresh from the upgraded package.
 
-### Alternative: Claude Code plugin marketplace
-
-If you'd rather install through Claude Code's plugin system:
-
-```text
-/plugin marketplace add sumithr/sumo-qa
-/plugin install sumo-qa@sumo-qa-dev
-```
-
-Then `pip install sumo-qa` so the MCP server binary is on PATH. The skills come from the plugin; the MCP tools come from the binary.
-
-### Alternative: latest main from git
-
-```bash
-uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
-```
-
 ## What you get
 
 | Layer | What it is |
@@ -74,17 +57,18 @@ uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
 
 Each host surfaces the same skills and tools differently — that's a host-API difference, not a sumo-qa choice. All routes call the same MCP server and read the same SKILL.md content.
 
+The hosts below have been verified end-to-end with `sumo-qa-install`:
+
 | Host | Slash invocation | Setup |
 |---|---|---|
-| **Claude Code** | `/qa-deciding-approach` (hyphens) | Native plugin: `/plugin marketplace add sumithr/sumo-qa` then `/plugin install sumo-qa@sumo-qa-dev`. Or `sumo-qa-install --claude-code`. |
-| **Cursor** | Natural language; Cursor picks skills by description | Native plugin: `/add-plugin sumo-qa` |
-| **Codex** | Natural language; Codex picks skills by description | Codex plugin marketplace (search "Sumo QA") |
-| **OpenCode** | `skill` tool (`use skill tool to load sumo-qa/...`) | Add `"sumo-qa@git+..."` to `opencode.json` plugin array, restart |
+| **Claude Code** | `/qa-deciding-approach` (hyphens) | `sumo-qa-install --claude-code` |
+| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language; Copilot picks tools by description | `sumo-qa-install --vscode --workspace <repo>` writes `<repo>/.vscode/mcp.json` |
 | **JetBrains AI Assistant** | `/qa_deciding_approach` (underscores) | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `sumo-qa-install --jetbrains` prints the fields to paste. |
 | **JetBrains Junie** | Natural language; Junie picks tools by description | Drop the JSON `sumo-qa-install` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per-project) |
-| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language; Copilot picks tools by description | `sumo-qa-install --vscode --workspace <repo>` writes `<repo>/.vscode/mcp.json` |
 
 In Claude Code, MCP tools are NOT slash-invocable directly — use natural language (e.g. *"load the QA classifications"*) and the AI picks the right tool. In JetBrains AI Assistant, every tool IS slash-invocable. Both paths work; both end up calling the same skill body.
+
+**Other MCP-capable hosts** (Cursor, Codex, OpenCode, etc.): the `sumo-qa` binary you get from `pip install sumo-qa` exposes a standard stdio MCP server, so it should work with any host that speaks MCP — follow that host's own MCP-server setup docs and point it at the absolute path printed by `sumo-qa-install --help`. We haven't verified those end-to-end ourselves, so we don't ship instructions for them.
 
 **Quick test in any host:** ask in chat *"load the QA classifications"*. Should return 10 names: api_contract_change, business_logic_change, security_change, performance_change, frontend_change, infrastructure_change, test_change, docs_change, config_change, data_migration. If yes, you're wired correctly.
 
