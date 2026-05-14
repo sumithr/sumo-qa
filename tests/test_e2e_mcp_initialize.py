@@ -53,13 +53,22 @@ _TOOLS_LIST_REQUEST = {
 
 
 def _spawn_mcp() -> subprocess.Popen:
+    # Prepend src/ to PYTHONPATH so the spawned interpreter can `import sumo_qa`
+    # even when sumo-qa isn't pip-installed in the active venv. Without this,
+    # `pytest --cov` under `uv run` works (the project is editable-installed),
+    # but the pre-commit-hooks isolated venv (which only installs the deps
+    # listed in additional_dependencies, not the project itself) fails with
+    # `No module named sumo_qa`.
+    src_path = str(REPO_ROOT / "src")
+    existing = os.environ.get("PYTHONPATH", "")
+    pythonpath = f"{src_path}{os.pathsep}{existing}" if existing else src_path
     return subprocess.Popen(
         [sys.executable, "-m", "sumo_qa"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=str(REPO_ROOT),
-        env={**os.environ},
+        env={**os.environ, "PYTHONPATH": pythonpath},
         text=True,
     )
 
