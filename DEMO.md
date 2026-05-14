@@ -7,7 +7,7 @@ Open any real repo. Run one of the prompts below. Watch the senior-QA workflow h
 
 ## Prerequisites
 
-- **Python 3.10 or newer** (3.10, 3.11, 3.12, 3.13, or 3.14). Check with `python --version` (or `py --version` on Windows).
+- **Python 3.10 or newer.** Check with `python --version` (or `py --version` on Windows).
 - **An MCP-capable host:** Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant or Junie, or VS Code + GitHub Copilot (Agent mode, with Claude Sonnet 4.5 or GPT-5 full).
 
 ## Step 1 — Install and wire it up (one line)
