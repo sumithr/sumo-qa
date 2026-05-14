@@ -7,7 +7,8 @@ from sumo_qa.server import build_mcp_server
 # not prompts (IntelliJ AI Assistant, VS Code + Copilot) can invoke skills.
 # Chain-polish pass added 3 more skills (planning / executing / finishing).
 # Task 7: 8 qaskills/Node-install tools added (gated by SUMO_QA_EXTERNAL_SKILLS=1).
-# Total registered tools: 11 atomic + 13 skill + 8 qaskills = 32.
+# Task 8: sumo-qa-suggesting-external-skill added.
+# Total registered tools: 11 atomic + 14 skill + 8 qaskills = 33.
 _TEST_DATA_TOOL_NAMES = {
     "sumo_qa_explain_test_data_requirements",
     "sumo_qa_find_test_data",
@@ -42,6 +43,8 @@ _SKILL_TOOL_NAMES = {
     "sumo_qa_planning_qa_rollout",
     "sumo_qa_executing_qa_rollout",
     "sumo_qa_finishing_qa_work",
+    # Task 8: external-skill suggestion.
+    "sumo_qa_suggesting_external_skill",
 }
 
 _QASKILLS_TOOL_NAMES = {
