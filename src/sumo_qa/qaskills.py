@@ -115,5 +115,5 @@ def info(name: str) -> QaskillInfo:
         score=int(raw.get("score", 0)),
         description=raw.get("description", ""),
         skill_md=raw.get("skill_md", ""),
-        mcp_servers=tuple(raw.get("mcp_servers", ())),
+        mcp_servers=tuple(raw.get("mcp_servers") or ()),
     )
