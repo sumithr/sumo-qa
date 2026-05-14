@@ -8,10 +8,12 @@ MCP tool surface in `server.py` adapts these functions into MCP tools.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 
@@ -149,3 +151,28 @@ def add(name: str, scope: Scope) -> AddResult:
             f"qaskills CLI returned non-JSON output for add: {result.stdout[:200]!r}"
         ) from exc
     return AddResult(name=name, scope=scope, installed_at=raw["installed_at"])
+
+
+@dataclass(frozen=True)
+class InstalledLocation:
+    scope: Scope
+    path: Path  # absolute path to SKILL.md
+
+
+def is_installed_locally(name: str, *, project_root: Path | None = None) -> InstalledLocation | None:
+    """Look for an installed qaskill at the well-known on-disk locations.
+
+    Project-local install wins when both exist — project context overrides
+    global. Caller passes `project_root` (defaults to cwd) so tests don't
+    depend on cwd state.
+    """
+    if project_root is None:
+        project_root = Path.cwd()
+    project_path = project_root / ".claude" / "skills" / name / "SKILL.md"
+    if project_path.is_file():
+        return InstalledLocation(scope="project", path=project_path)
+    home = Path(os.environ.get("HOME", str(Path.home())))
+    global_path = home / ".claude" / "skills" / name / "SKILL.md"
+    if global_path.is_file():
+        return InstalledLocation(scope="global", path=global_path)
+    return None
