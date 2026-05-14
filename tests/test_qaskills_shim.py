@@ -63,3 +63,42 @@ def test_search_handles_non_json_stdout_gracefully() -> None:
          patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
         with pytest.raises(qaskills.QaskillsCLIError):
             qaskills.search("anything")
+
+
+def test_info_returns_full_skill_record() -> None:
+    fake_stdout = json.dumps(
+        {
+            "name": "playwright-e2e",
+            "publisher": "thetestingacademy",
+            "score": 92,
+            "description": "Playwright E2E",
+            "skill_md": "---\nname: playwright-e2e\n---\n# Body\n",
+            "mcp_servers": ["playwright-mcp"],
+        }
+    )
+    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process(fake_stdout)), \
+         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+        info = qaskills.info("playwright-e2e")
+
+    assert info.name == "playwright-e2e"
+    assert info.publisher == "thetestingacademy"
+    assert info.score == 92
+    assert info.skill_md.startswith("---")
+    assert info.mcp_servers == ("playwright-mcp",)
+
+
+def test_info_returns_no_mcp_servers_when_absent() -> None:
+    fake_stdout = json.dumps(
+        {
+            "name": "axe-accessibility",
+            "publisher": "thetestingacademy",
+            "score": 88,
+            "description": "Axe",
+            "skill_md": "no mcp here",
+        }
+    )
+    with patch("sumo_qa.qaskills.subprocess.run", return_value=_completed_process(fake_stdout)), \
+         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+        info = qaskills.info("axe-accessibility")
+
+    assert info.mcp_servers == ()

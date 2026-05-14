@@ -84,3 +84,36 @@ def search(query: str) -> list[QaskillMatch]:
         )
         for item in raw
     ]
+
+
+@dataclass(frozen=True)
+class QaskillInfo:
+    name: str
+    publisher: str
+    score: int
+    description: str
+    skill_md: str
+    mcp_servers: tuple[str, ...]
+
+
+def info(name: str) -> QaskillInfo:
+    """Return full skill record (publisher, score, raw SKILL.md, MCP refs)."""
+    result = _run(("info", name, "--json"))
+    if result.returncode != 0:
+        raise QaskillsCLIError(
+            f"qaskills CLI info failed for {name!r} (exit {result.returncode}): {result.stderr.strip()}"
+        )
+    try:
+        raw = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise QaskillsCLIError(
+            f"qaskills CLI returned non-JSON output for info: {result.stdout[:200]!r}"
+        ) from exc
+    return QaskillInfo(
+        name=raw["name"],
+        publisher=raw["publisher"],
+        score=int(raw.get("score", 0)),
+        description=raw.get("description", ""),
+        skill_md=raw.get("skill_md", ""),
+        mcp_servers=tuple(raw.get("mcp_servers", ())),
+    )
