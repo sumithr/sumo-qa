@@ -12,7 +12,10 @@ Local dev guide for sumo-qa.
 ```bash
 git clone <repo>
 cd sumo-qa
-uv tool install --from . sumo-qa --reinstall
+uv sync --all-extras                                # installs pytest, ruff, pre-commit, etc.
+uv run pre-commit install --install-hooks           # ruff + hygiene hooks on every commit
+uv run pre-commit install --hook-type pre-push      # full pytest suite on every push
+uv tool install --from . sumo-qa --reinstall        # optional: puts `sumo-qa` on PATH
 ```
 
 For development without installing to the user tool dir, use `uv run`:
@@ -21,6 +24,32 @@ For development without installing to the user tool dir, use `uv run`:
 uv run pytest
 uv run sumo-qa --help
 ```
+
+## Local verification — automatic via git hooks
+
+The repo uses [pre-commit](https://pre-commit.com/) to enforce the same checks CI runs.
+Once installed (above), you get them for free on every `git commit` / `git push`:
+
+| Trigger | What runs | Why |
+|---|---|---|
+| `git commit` | `ruff check --fix`, `ruff format`, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | Fast (~1s). Catches and auto-fixes 95% of CI lint failures before the commit lands. |
+| `git push` | full `pytest -q` suite | Slower (~2s on this repo). Stops broken commits reaching the remote. |
+
+You don't need to remember to run `uv run ruff check`, `uv run ruff format --check`, or
+`uv run pytest` manually — the hooks do it for you.
+
+**On-demand runs** (without committing/pushing):
+
+```bash
+uv run pre-commit run --all-files                       # ruff + hygiene across whole repo
+uv run pre-commit run --all-files --hook-stage pre-push # pytest across whole repo
+```
+
+**Skipping hooks** (rare): `git commit --no-verify` or `git push --no-verify`. CI will still catch
+anything you skipped, so use this only for genuine emergencies.
+
+Hooks are pinned in `.pre-commit-config.yaml`. They mirror `.github/workflows/lint.yml` and
+`.github/workflows/test.yml` exactly, so passing locally guarantees CI passes.
 
 ## Test suite
 

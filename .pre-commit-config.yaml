@@ -1,0 +1,50 @@
+# Pre-commit hooks for sumo-qa.
+#
+# Setup (one-time per clone):
+#   uv sync --all-extras
+#   uv run pre-commit install --install-hooks
+#   uv run pre-commit install --hook-type pre-push
+#
+# After that:
+#   git commit  → lint + format + hygiene hooks run on staged files (fast)
+#   git push    → pytest runs against the whole suite (slower, but only on push)
+#
+# To run all hooks on demand:   uv run pre-commit run --all-files
+# To run pre-push hooks:        uv run pre-commit run --all-files --hook-stage pre-push
+# To bypass a single commit:    git commit --no-verify   (rarely needed; CI will catch)
+#
+# These hooks mirror the CI gates exactly, so the local-vs-CI loop is closed.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Pin matches `ruff>=0.5,<1` from pyproject.toml's dev extras. Update both
+    # together when bumping ruff.
+    rev: v0.13.0
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        # Worked-example transcripts are markdown, no JSON in there.
+        exclude: ^tests/scenarios/worked-examples/
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        # Runs the full suite on `git push` (not on every commit — too slow
+        # to gate single-file changes). Mirrors the CI tests workflow.
+        entry: uv run pytest -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
