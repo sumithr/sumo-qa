@@ -43,9 +43,8 @@ The full suite covers:
 
 ## Branch workflow
 
-Feature work goes on a feature branch off `main`. Plans and specs land under
-`docs/superpowers/`. Iteration notes go under `docs/superpowers/iteration-runs/`.
-Don't push without explicit review approval.
+Feature work goes on a feature branch off `main`. Don't push without explicit
+review approval.
 
 ## Editing skills
 
