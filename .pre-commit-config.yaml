@@ -1,6 +1,14 @@
 # Pre-commit hooks for sumo-qa.
 #
-# Setup (one-time per clone):
+# Setup (one-time per clone) — works with whatever you used to install
+# the dev dependencies:
+#
+#   # pip path:
+#   python -m pip install -e ".[dev]"
+#   pre-commit install --install-hooks
+#   pre-commit install --hook-type pre-push
+#
+#   # or uv path (if you already use uv):
 #   uv sync --all-extras
 #   uv run pre-commit install --install-hooks
 #   uv run pre-commit install --hook-type pre-push
@@ -9,8 +17,8 @@
 #   git commit  → lint + format + hygiene hooks run on staged files (fast)
 #   git push    → pytest runs against the whole suite (slower, but only on push)
 #
-# To run all hooks on demand:   uv run pre-commit run --all-files
-# To run pre-push hooks:        uv run pre-commit run --all-files --hook-stage pre-push
+# To run all hooks on demand:   pre-commit run --all-files
+# To run pre-push hooks:        pre-commit run --all-files --hook-stage pre-push
 # To bypass a single commit:    git commit --no-verify   (rarely needed; CI will catch)
 #
 # These hooks mirror the CI gates exactly, so the local-vs-CI loop is closed.
@@ -44,7 +52,10 @@ repos:
         name: pytest
         # Runs the full suite on `git push` (not on every commit — too slow
         # to gate single-file changes). Mirrors the CI tests workflow.
-        entry: uv run pytest -q
+        # `python -m pytest` works whether dev deps were installed via
+        # pip (`pip install -e .[dev]`) or via uv (`uv sync`); both put
+        # pytest on the active interpreter's path.
+        entry: python -m pytest -q
         language: system
         pass_filenames: false
         stages: [pre-push]

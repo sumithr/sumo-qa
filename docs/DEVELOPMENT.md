@@ -5,24 +5,34 @@ Local dev guide for sumo-qa.
 ## Prerequisites
 
 - Python 3.10 or newer (no upper cap; see `pyproject.toml`'s `requires-python`)
-- [uv](https://docs.astral.sh/uv/) — install via `curl -LsSf https://astral.sh/uv/install.sh | sh` (or PowerShell equivalent on Windows)
+
+That's it. Pick whichever installer you already use — `pip`, `uv`, `pipx`, conda. Examples below use `pip` because it ships with every Python install; `uv` users can swap in equivalent commands.
 
 ## Setup
 
 ```bash
 git clone <repo>
 cd sumo-qa
-uv sync --all-extras                                # installs pytest, ruff, pre-commit, etc.
-uv run pre-commit install --install-hooks           # ruff + hygiene hooks on every commit
-uv run pre-commit install --hook-type pre-push      # full pytest suite on every push
-uv tool install --from . sumo-qa --reinstall        # optional: puts `sumo-qa` on PATH
+python -m venv .venv                                # any venv tool works; uv users: `uv venv`
+source .venv/bin/activate                           # Windows: .venv\Scripts\activate
+python -m pip install -e ".[dev]"                   # installs the package + pytest, ruff, pre-commit
+pre-commit install --install-hooks                  # ruff + hygiene hooks on every commit
+pre-commit install --hook-type pre-push             # full pytest suite on every push
 ```
 
-For development without installing to the user tool dir, use `uv run`:
+If you already use [uv](https://docs.astral.sh/uv/), the equivalent setup is:
 
 ```bash
-uv run pytest
-uv run sumo-qa --help
+uv sync --all-extras
+uv run pre-commit install --install-hooks
+uv run pre-commit install --hook-type pre-push
+```
+
+To put `sumo-qa` on your PATH for ad-hoc use (optional):
+
+```bash
+pip install -e .                  # editable install in the active venv, or
+uv tool install --from . sumo-qa  # installs into uv's tool dir
 ```
 
 ## Local verification — automatic via git hooks
@@ -35,14 +45,13 @@ Once installed (above), you get them for free on every `git commit` / `git push`
 | `git commit` | `ruff check --fix`, `ruff format`, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | Fast (~1s). Catches and auto-fixes 95% of CI lint failures before the commit lands. |
 | `git push` | full `pytest -q` suite | Slower (~2s on this repo). Stops broken commits reaching the remote. |
 
-You don't need to remember to run `uv run ruff check`, `uv run ruff format --check`, or
-`uv run pytest` manually — the hooks do it for you.
+You don't need to remember to run `ruff check`, `ruff format --check`, or `pytest` manually — the hooks do it for you.
 
 **On-demand runs** (without committing/pushing):
 
 ```bash
-uv run pre-commit run --all-files                       # ruff + hygiene across whole repo
-uv run pre-commit run --all-files --hook-stage pre-push # pytest across whole repo
+pre-commit run --all-files                          # ruff + hygiene across whole repo
+pre-commit run --all-files --hook-stage pre-push    # pytest across whole repo
 ```
 
 **Skipping hooks** (rare): `git commit --no-verify` or `git push --no-verify`. CI will still catch
@@ -54,7 +63,7 @@ Hooks are pinned in `.pre-commit-config.yaml`. They mirror `.github/workflows/li
 ## Test suite
 
 ```bash
-uv run pytest
+pytest        # or `uv run pytest`
 ```
 
 The full suite covers:
@@ -95,7 +104,9 @@ Adding a new technique, classification, or specialty tool = editing one file.
 ## Reinstalling locally
 
 ```bash
-uv tool install --from . sumo-qa --reinstall
+pip install -e .                              # if you're using a plain venv
+# or
+uv tool install --from . sumo-qa --reinstall  # if you're using uv's tool dir
 ```
 
 Picks up server.py changes. For skill edits, no reinstall needed — Claude Code reads
