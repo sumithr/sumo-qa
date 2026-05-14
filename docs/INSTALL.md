@@ -12,42 +12,11 @@ Swap `--claude-code` for `--vscode --workspace <path-to-repo>` (VS Code + Copilo
 
 Restart your host (or open a fresh chat) once it's done.
 
-For Cursor, Codex, and OpenCode — those use their own plugin marketplaces, see the per-host sections below.
+## Other MCP-capable hosts
 
-## Native-plugin install (Claude Code, Cursor, Codex, OpenCode)
+For hosts beyond Claude Code, VS Code + Copilot, and JetBrains (which `sumo-qa-install` handles directly), the `sumo-qa` binary you get from `pip install sumo-qa` exposes a standard stdio MCP server. To wire it into any other MCP-capable host, follow that host's own MCP-server setup documentation and point it at the absolute path of `sumo-qa` on your machine (run `which sumo-qa` or `where sumo-qa` on Windows to find it).
 
-These hosts also have plugin systems that read `.claude-plugin/`, `.cursor-plugin/`, `.codex-plugin/`, `.opencode/` directly from the repo as an alternative to the `sumo-qa-install` flow above.
-
-### Claude Code
-
-```text
-/plugin marketplace add sumithr/sumo-qa
-/plugin install sumo-qa@sumo-qa-dev
-```
-
-This installs the skills, registers the SessionStart hook (auto-injects the `using-sumo-qa` router on every conversation), and you're done. To also get the MCP tools (knowledge loaders + test-data tools), install the server binary:
-
-```bash
-uv tool install --from git+https://github.com/sumithr/sumo-qa.git sumo-qa
-```
-
-Then add it to `claude_desktop_config.json` (or let `sumo-qa-install --claude-code` do it).
-
-### Cursor
-
-```text
-/add-plugin sumo-qa
-```
-
-Or add to `.cursor/plugins.json`. The plugin declares `"skills": "./skills/"` and `"hooks": "./hooks/hooks-cursor.json"` so Cursor picks up both automatically.
-
-### Codex
-
-Install from the Codex plugin marketplace — search for "Sumo QA". The plugin ships an `interface` block (display name, default prompts, etc.) so it shows up correctly in the Codex UI.
-
-### OpenCode
-
-See [`.opencode/INSTALL.md`](../.opencode/INSTALL.md) — add `"sumo-qa@git+https://github.com/sumithr/sumo-qa.git"` to your `opencode.json` plugin array. Includes a Claude-Code-to-OpenCode tool-name mapping table for skill authors.
+We haven't verified those host-specific paths end-to-end ourselves, so we don't ship per-host instructions — but the underlying server is a vanilla MCP stdio server and should work wherever MCP works.
 
 ## Per-host flags
 
@@ -76,7 +45,7 @@ What each step refreshes:
 | What changed in the new version | What picks it up |
 |---|---|
 | `sumo-qa` binary, MCP tools, bundled standards/knowledge/skills in site-packages | `pip install --upgrade` |
-| Symlinks in `~/.claude/skills/`, `.cursor/plugins.json`, `claude_desktop_config.json`, `.vscode/mcp.json` | re-running `sumo-qa-install` |
+| Symlinks in `~/.claude/skills/`, `claude_desktop_config.json`, `.vscode/mcp.json` | re-running `sumo-qa-install` |
 | Skill content the agent reads each turn | next chat session (the SessionStart hook re-fires) |
 
 You only strictly need to re-run `sumo-qa-install` when **new** skills are added or a host's MCP config schema changes; routine content updates flow through the existing symlinks automatically.
