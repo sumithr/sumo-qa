@@ -36,21 +36,15 @@ def _resolve_data_path(user_path: str | Path, default: Path, *bundled_parts: str
 
 def _bundled_data_path(*parts: str) -> Path | None:
     """Return the on-disk path for a bundled data resource, or None."""
-    try:
-        import importlib.resources as resources
-    except ImportError:  # pragma: no cover - Python <3.9
-        return None
+    import importlib.resources as resources
+
     try:
         anchor = resources.files("sumo_qa") / "_data"
     except (ModuleNotFoundError, FileNotFoundError):
         return None
     for part in parts:
         anchor = anchor / part
-    try:
-        as_path = Path(str(anchor))
-    except Exception:  # pragma: no cover - defensive
-        return None
-    return as_path
+    return Path(str(anchor))
 
 
 class QAShiftLeftService:

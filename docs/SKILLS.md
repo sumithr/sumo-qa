@@ -1,21 +1,20 @@
 # Skills
 
-The sumo-qa MCP ships 14 skills under [`skills/`](../skills/) — 1 entry router
-(`using-sumo-qa`) plus 13 sub-skills. Each is a single `SKILL.md` file the host
-LLM follows literally: YAML frontmatter, an Iron Law, a checklist, a graphviz
-process flow, a Red Flags table, examples.
+The sumo-qa MCP ships 14 skills under [`skills/`](../skills/). Each is a single
+`SKILL.md` file the host LLM follows literally: YAML frontmatter, an Iron Law, a
+checklist, a graphviz process flow, a Red Flags table, examples.
 
 Each skill is also exposed as an MCP tool with the same name (e.g. `sumo_qa_deciding_approach`). The tool returns the SKILL.md body verbatim, so hosts that don't have a native skill loader (JetBrains AI Assistant, Junie, VS Code Copilot) get the same content.
 
 Slash-menu conventions differ per host:
 
-- **Claude Code**: `/sumo-qa-deciding-approach` (hyphens) — comes from `~/.claude/skills/<name>/SKILL.md` symlinks. Whether the underscore-form MCP tool entries also surface in the slash menu depends on Claude Code version; natural language always works.
+- **Claude Code**: `/sumo-qa-deciding-approach` (hyphens) — comes from `~/.claude/skills/<name>/SKILL.md` symlinks. MCP tools (atomic + skill-wrapped) are NOT slash-invocable in Claude Code; call them via natural language.
 - **JetBrains AI Assistant**: `/sumo_qa_deciding_approach` (underscores) — comes from the MCP tool. Every MCP entry is slash-invocable.
 - **JetBrains Junie / VS Code Copilot**: Natural language; the AI picks the tool by description in Agent mode.
 
 All paths invoke the same SKILL.md body.
 
-## The 14 skills (1 router + 13 sub-skills)
+## The 14 skills
 
 | Skill | When to use | Iron Law |
 |---|---|---|
@@ -32,7 +31,6 @@ All paths invoke the same SKILL.md body.
 | [sumo-qa-planning-qa-rollout](../skills/sumo-qa-planning-qa-rollout/SKILL.md) | Turn a QA chunk (story, PR, strategy phase) into a written plan with bite-sized, parallel-dispatchable tasks | NO EXECUTION FROM THE PLANNER. THE PLAN IS THE DELIVERABLE. |
 | [sumo-qa-executing-qa-rollout](../skills/sumo-qa-executing-qa-rollout/SKILL.md) | Dispatch a signed-off plan task-by-task to fresh subagents with two-stage review | ONE FRESH SUBAGENT PER TASK. TWO-STAGE REVIEW. CONTINUOUS EXECUTION. |
 | [sumo-qa-finishing-qa-work](../skills/sumo-qa-finishing-qa-work/SKILL.md) | Close the loop on a multi-task QA rollout — fresh suite run + risk-to-test map + PR-ready summary | NO FINISH WITHOUT FRESH EVIDENCE + WRITTEN SUMMARY. |
-| [sumo-qa-suggesting-external-skill](../skills/sumo-qa-suggesting-external-skill/SKILL.md) | Fallback when no native sub-skill fits — search [qaskills.sh](https://qaskills.sh/), gate on trust + `[y/N]`, install, then hand off | NEVER INSTALL WITHOUT EXPLICIT USER CONFIRMATION. NEVER ELEVATE SUDO. |
 
 ## Global discipline (declared in using-sumo-qa, inherited by all sub-skills)
 

@@ -1,11 +1,11 @@
 ---
 name: sumo-qa-suggesting-external-skill
-description: Use ONLY when sumo-qa-deciding-approach explicitly routes here (no native sumo-qa sub-skill fits the user's intent). Discovers, installs (with `[y/N]` permission), and invokes a skill from the qaskills.sh directory on the user's behalf, with an optional Node-install offer, a trusted-publisher gate, and an optional MCP-config offer. Never run directly from `using-sumo-qa` — always via the deciding-approach fallback.
+description: Use ONLY when sumo-qa-deciding-approach explicitly routes here (no native sumo-qa sub-skill fits the user's intent). Offers (with [y/N] confirmation) to install Vercel Labs' find-skills meta-skill, which then drives end-to-end discovery and install from skills.sh. Never run directly from `using-sumo-qa` — always via the deciding-approach fallback.
 ---
 
-# Suggesting an external (qaskills.sh) skill
+# Suggesting an external (skills.sh) skill
 
-**Announce at start:** *"Checking qaskills.sh for a matching skill — no native sumo-qa fit found."*
+**Announce at start:** *"Checking skills.sh for a matching skill — no native sumo-qa fit found."*
 
 ## Output discipline (mandatory)
 
@@ -36,70 +36,50 @@ Spend output tokens on findings, not framing.
 1. No native approach in the canonical catalogue fits the user's intent.
 2. The intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine.
 
-Consent for the install itself is the per-action `[y/N]` prompt in step 5 of the checklist below. No global on/off switch.
+Consent for any install is always the per-action `[y/N]` prompt in the checklist below. No global on/off switch.
 
 ## Checklist
 
-You MUST create a TodoWrite item per checklist item and complete in order. The tools return **raw text from the qaskills CLI** — you read it directly, you don't ask Python to pre-digest it.
+You MUST work through these steps in order. All CLI invocations use the host LLM's native `Bash` tool — no companion Python shims, no new MCP tools.
 
-1. **Local check first.** Reframe the intent as a probable qaskill slug (e.g. *"set up Playwright E2E"* → `playwright-e2e`) and call `sumo_qa_check_external_skill_installed(name)`. If installed → use your `Read` tool on the returned `skill_md_path` and invoke that skill. Stop.
+1. **Check find-skills locally first.** Use your `Read` tool to check whether `~/.claude/skills/find-skills/SKILL.md` exists. If it exists → invoke `find-skills` via the Skill tool, passing the user's original intent. find-skills handles discovery + install from [skills.sh](https://www.skills.sh/) end-to-end. Stop — sumo-qa's discipline still wraps the response.
 
-2. **Node availability.** Call `sumo_qa_check_node_available()`. If `available` is False:
-   - Call `sumo_qa_detect_node_installer()`. If `installer` is `null`, surface the `reason` and stop — the user has to install Node themselves.
-   - Otherwise ask: *"Node isn't installed. Want me to install it via `<command>`? [y/N]"* (the command is in `detect_installer.command`). On `y` call `sumo_qa_install_node()`. If `installed: True`, continue. If `installed: False` and a sudo-required `reason` is present, print it verbatim and stop — never elevate.
+2. **Node availability.** Run `which npx` via Bash. If the output is empty, print one paragraph explaining the user needs Node.js installed (https://nodejs.org) and stop. Never silently elevate via sudo.
 
-3. **Search.** Call `sumo_qa_search_external_skills(query)` with the user's intent. The `output` field is the qaskills CLI's human-readable text. Read it. Each entry looks like:
+3. **Permission gate (one question).** Ask:
+
+   *"find-skills isn't installed locally. Want me to install it via `npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -a claude-code -y`? [y/N]"*
+
+   On `n` → stop. On `y` → continue.
+
+4. **Install find-skills.** Run this command verbatim via Bash:
+
    ```
-   ●  <Title> by <publisher> ★ <score>
-   │    <description>
-   │    Tags: <tags>  Installs: <n>
-   │    Install: npx qaskills add <slug>
+   npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -a claude-code -y
    ```
-   Pick the 1–3 candidates most relevant to the user's intent — title, description, and tags carry the signal. The `<slug>` on the `Install:` line is what you pass to subsequent tools.
 
-4. **Trust gate.** Call `sumo_qa_load_external_skills_registry()` to get `trusted_publishers` and `blocked_publishers`. For each candidate:
-   - publisher in `blocked_publishers` → drop it silently.
-   - publisher in `trusted_publishers` → "trusted" (auto-eligible).
-   - otherwise → "untrusted" (offerable, with explicit warning).
+   On non-zero exit → surface stderr and stop. Do not retry automatically.
 
-5. **Permission gate.** One question: *"Want me to install `<slug>` by `<publisher>` (score `<score>`)? [y / N / show me more]"*. If the candidate is untrusted, prefix the prompt with *"Publisher not in sumo-qa's trusted allowlist — proceed with caution."*. If user picks "show me more", call `sumo_qa_get_external_skill_info(name=<slug>)` and surface the full `output` text (which includes version, license, frameworks, languages, web URL). Re-ask.
-
-6. **Scope question.** One question: *"Install global (`~/.claude/skills/`, available across every project) or project-local (`<repo>/.claude/skills/`, only this repo)?"*
-
-7. **Install.** Call `sumo_qa_install_external_skill(name=<slug>, scope=<global|project>)`. On error, surface the `actionable_hint` and stop.
-
-8. **MCP refs scan.** Use your `Read` tool on the `skill_md_path` returned by step 7. Read the installed SKILL.md. If it references any MCP server (look for patterns like `playwright-mcp`, `mcp-server-<name>`, `mcpServers:` blocks, or text describing an MCP integration), surface a one-line offer: *"This skill works with `<mcp-name>`. Want the JSON block to add it to your MCP config? [y/N]"*. If accepted, print the JSON for the user to paste — never silently edit any config file.
-
-9. **Hand off.** Invoke the freshly-installed qaskill via the Skill tool. Sumo-qa's Iron Law discipline still wraps the response.
-
-## Trust decisions
-
-| Decision | Behaviour |
-|---|---|
-| trusted | Offer as primary candidate. Still requires the user's `y`. |
-| untrusted | Offer with explicit "publisher not in sumo-qa's allowlist" warning; "show me more" option must be available. |
-| blocked | Do not offer. Move to next match. |
+5. **Hand off.** Invoke the freshly-installed `find-skills` via the Skill tool, passing the user's original intent. find-skills drives discovery + install from skills.sh; sumo-qa's discipline still wraps the response.
 
 ## Error handling
 
 | Failure | Behaviour |
 |---|---|
-| `sumo_qa_check_node_available` returns `available: False` AND `sumo_qa_detect_node_installer` returns `installer: null` | Print the `reason` and a manual install link (https://nodejs.org). Stop. |
-| `sumo_qa_install_node` returns `installed: False` with sudo-required `reason` | Print the reason verbatim (which includes the exact `sudo <cmd>` to run). Stop. Never elevate. |
-| Tool returns `isError` with Node-missing hint | Surface the hint verbatim; do not retry. |
-| Search returns no entries you can use | *"No qaskill match for this intent — falling back to sumo-qa's native scaffolding."* Route to `sumo-qa-implementing-with-tdd`. |
-| Install fails | Surface `actionable_hint`; stop. Do not auto-retry. |
+| `which npx` returns empty | Print one paragraph pointing at https://nodejs.org. Stop. Never auto-install Node via sudo. |
+| find-skills install exits non-zero | Surface stderr verbatim. Stop. Do not auto-retry. |
+| find-skills finds no match for intent | *"No skills.sh match for this intent — falling back to sumo-qa's native scaffolding."* Route to `sumo-qa-implementing-with-tdd`. |
 
 ## Red Flags
 
 | Thought | Reality |
 |---|---|
-| "The publisher looks familiar, I'll skip the trust step" | Trust step is non-negotiable. The allowlist exists because qaskills.sh is third-party content. |
-| "I'll just install it and tell the user after" | No. Permission gate before install. Always. |
-| "The qaskill writes tests, so I'll skip sumo-qa-implementing-with-tdd" | The native sub-skill carries sumo-qa's discipline. Hand off to it; the qaskill is reference patterns. |
-| "I'll edit `~/.claude.json` to add the MCP server" | No silent config edits. Print the JSON for the user to paste. |
+| "I'll add a companion MCP tool to wrap npx" | No. Sumo-qa is one MCP server; CLI invocations live in this SKILL, not in Python shims. Adding a new MCP entry point here is the architectural failure mode this design exists to prevent. |
+| "I'll just install find-skills and tell the user after" | No. Permission gate before every install. Always. |
+| "find-skills writes tests, so I'll skip sumo-qa-implementing-with-tdd" | The native sub-skill carries sumo-qa's discipline. Hand off to it; the external skill is reference patterns. |
 | "Node isn't there — I'll just call sudo apt install nodejs directly" | Never elevate from a tool call. If sudo is required, print the command and stop. |
-| "The search output is hard to parse, let me ask a tool to give me structured fields" | The tools return raw text on purpose. You're the parser. Read the lines, pick the slug from the `Install:` line. |
+| "I'll build a Python wrapper around the skills CLI output" | No. Return raw text from CLI tools; let the LLM parse natural-language output. No Python parsers as middleware. |
+| "I'll silently edit `~/.claude.json` to add the MCP server" | No silent config edits. Print the JSON for the user to paste. |
 
 ## Process Flow
 
@@ -107,6 +87,6 @@ See the Checklist above — that's the flow.
 
 ## Next skill in the chain
 
-- Successful install + hand-off → invoke the just-installed qaskill, wrapped by `sumo-qa-implementing-with-tdd` discipline.
-- No match → `sumo-qa-implementing-with-tdd` for native scaffolding.
-- Gated off → stop.
+- find-skills installed and invoked → find-skills drives the rest; sumo-qa discipline wraps the final response.
+- No match found by find-skills → `sumo-qa-implementing-with-tdd` for native scaffolding.
+- User declined install or Node unavailable → stop.

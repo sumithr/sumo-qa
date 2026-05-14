@@ -1,0 +1,149 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+"""End-to-end tests: spawn the real MCP server and drive it over JSON-RPC.
+
+We use ``sys.executable -m sumo_qa`` (Option B) rather than looking up
+the ``sumo-qa`` console-script binary on PATH.  This is more portable: it works
+in any venv-based CI environment and during local ``uv run pytest`` without
+requiring a separate ``pip install`` step to register the entry-point.
+
+Note: ``python -m sumo_qa.server`` does NOT work because ``server.py`` has no
+``if __name__ == "__main__"`` guard — the module defines ``main()`` but never
+calls it when run directly. The top-level package (``-m sumo_qa``) routes
+through ``__main__.py`` which calls ``main()`` correctly.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from sumo_qa import server as sumo_server
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_INITIALIZE_REQUEST = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {"name": "test", "version": "0"},
+    },
+}
+
+_INITIALIZED_NOTIFICATION = {
+    "jsonrpc": "2.0",
+    "method": "notifications/initialized",
+}
+
+_TOOLS_LIST_REQUEST = {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list",
+    "params": {},
+}
+
+
+def _spawn_mcp() -> subprocess.Popen:
+    return subprocess.Popen(
+        [sys.executable, "-m", "sumo_qa"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(REPO_ROOT),
+        env={**os.environ},
+        text=True,
+    )
+
+
+def _send(proc: subprocess.Popen, request: dict) -> None:
+    """Write a JSON-RPC message to the server's stdin (fire-and-forget)."""
+    proc.stdin.write(json.dumps(request) + "\n")
+    proc.stdin.flush()
+
+
+def _recv(proc: subprocess.Popen) -> dict:
+    """Read one JSON-RPC line from the server's stdout."""
+    line = proc.stdout.readline()
+    return json.loads(line)
+
+
+def _expected_tool_count() -> int:
+    """Derive the expected tool count directly from the live server registry.
+
+    This avoids hardcoding a magic constant so the test stays correct when
+    tools are added or removed in future.
+    """
+    mcp = sumo_server.build_mcp_server()
+    return len(mcp._tool_manager._tools)
+
+
+# ---------------------------------------------------------------------------
+# Fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mcp_proc():
+    """Spawn the MCP server and guarantee it is terminated after the test."""
+    proc = _spawn_mcp()
+    try:
+        yield proc
+    finally:
+        try:
+            proc.stdin.close()
+        except Exception:  # noqa: BLE001
+            pass
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_initialize_returns_server_name(mcp_proc):
+    """The server responds to JSON-RPC ``initialize`` with serverInfo.name == 'sumo-qa'."""
+    _send(mcp_proc, _INITIALIZE_REQUEST)
+    response = _recv(mcp_proc)
+
+    assert response.get("jsonrpc") == "2.0"
+    assert response.get("id") == 1
+    result = response.get("result", {})
+    server_info = result.get("serverInfo", {})
+    assert server_info.get("name") == "sumo-qa", (
+        f"Expected serverInfo.name == 'sumo-qa', got: {server_info!r}"
+    )
+
+
+def test_mcp_tools_list_count_matches_registry(mcp_proc):
+    """The ``tools/list`` response returns exactly the same number of tools
+    as are registered via ``build_mcp_server()``."""
+    # Complete the handshake before sending tools/list.
+    _send(mcp_proc, _INITIALIZE_REQUEST)
+    _recv(mcp_proc)  # consume the initialize result
+
+    _send(mcp_proc, _INITIALIZED_NOTIFICATION)
+    # notifications/initialized has no response; go straight to tools/list.
+
+    _send(mcp_proc, _TOOLS_LIST_REQUEST)
+    response = _recv(mcp_proc)
+
+    assert response.get("jsonrpc") == "2.0"
+    assert response.get("id") == 2
+    tools = response.get("result", {}).get("tools", [])
+    expected = _expected_tool_count()
+    assert len(tools) == expected, f"Expected {expected} tools from tools/list, got {len(tools)}"

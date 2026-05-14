@@ -37,7 +37,7 @@ sumo-qa-install --vscode --skip-mcp-install   # skip uv reinstall (faster re-run
 ```bash
 pip install --upgrade sumo-qa     # refresh server + bundled skills/knowledge
 sumo-qa-install                   # refresh symlinks + host configs (Claude Code, VS Code, …)
-# Restart Claude Code / open a fresh chat to pick up the new tool list.
+# Restart Claude Code / open a fresh chat — the SessionStart hook re-injects new content.
 ```
 
 What each step refreshes:
@@ -46,7 +46,7 @@ What each step refreshes:
 |---|---|
 | `sumo-qa` binary, MCP tools, bundled standards/knowledge/skills in site-packages | `pip install --upgrade` |
 | Symlinks in `~/.claude/skills/`, `claude_desktop_config.json`, `.vscode/mcp.json` | re-running `sumo-qa-install` |
-| Skill content the agent reads each turn | next chat session — Claude Code re-reads `~/.claude/skills/`, MCP hosts re-fetch the tool list. (If installed as a Claude Code / Cursor plugin, the bundled SessionStart hook also re-fires.) |
+| Skill content the agent reads each turn | next chat session (the SessionStart hook re-fires) |
 
 You only strictly need to re-run `sumo-qa-install` when **new** skills are added or a host's MCP config schema changes; routine content updates flow through the existing symlinks automatically.
 
@@ -54,15 +54,16 @@ You only strictly need to re-run `sumo-qa-install` when **new** skills are added
 
 ### Claude Code
 
-`sumo-qa-install --claude-code` does two things:
+`sumo-qa-install --claude-code` does three things:
 
 1. Symlinks each `skills/<name>/` directory (either from the bundled `sumo_qa/_data/skills/` after `pip install`, or from the repo `skills/` in dev mode) into `~/.claude/skills/<name>/` so Claude Code's native skill loader picks them up as top-level skills. Earlier versions used a wrapper symlink (`~/.claude/skills/sumo-qa/`) — that was wrong because Claude Code doesn't recurse. Each skill is now its own top-level entry.
-2. Writes the MCP server entry into `claude_desktop_config.json` (at `~/.config/claude/` on macOS/Linux, `%APPDATA%\Claude\` on Windows) with the absolute binary path. (Note: this is the historical Claude Desktop config path; Claude Code itself can be configured separately via `claude mcp add` if the file isn't being read on your version. We have not separately verified which Claude Code versions read this path automatically.)
+2. Registers the MCP server with Claude Code via `claude mcp add sumo-qa <abs-binary-path> -s user`. This is what makes the MCP tools (`sumo_qa_load_classifications`, `sumo_qa_find_test_data`, etc.) actually surface inside Claude Code sessions — without this step, only the skill files are visible in the slash menu, not the underscored MCP tools. Idempotent (any existing `sumo-qa` entry is removed first). Skipped silently if the `claude` CLI isn't on PATH.
+3. Writes the MCP server entry into `claude_desktop_config.json` (at `~/.config/claude/` on macOS/Linux, `%APPDATA%\Claude\` on Windows). This file is for Claude Desktop, not Claude Code (which uses the `claude mcp` registry from step 2). Kept so a parallel Claude Desktop install picks up sumo-qa for free.
 
 After install: restart Claude Code. Type `/` and start typing `sumo-qa-`:
 
 - **14 skills appear with hyphens** (`/sumo-qa-deciding-approach`, `/sumo-qa-creating-test-plan`, …) — Claude Code's native skill loader picks these up from `~/.claude/skills/<skill>/`.
-- The skills are also registered through MCP. Whether the underscored MCP-tool form (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`, `/sumo_qa_*`) additionally surfaces in the slash menu depends on Claude Code version. Either way, calling the hyphen form, the underscore form, or asking by description all reach the same SKILL.md content.
+- **MCP tools appear with underscores** (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`, …) — registered through the MCP server. Because the 14 skills are *also* registered through MCP, you'll typically see both hyphen and underscore variants for each skill in the slash menu. They call the same SKILL.md content and behave identically.
 
 Natural language always works too — ask *"review my changes"* or *"load the QA classifications"* and Claude Code routes by tool description. Use whichever style you prefer.
 
@@ -120,7 +121,7 @@ After install:
 1. **Cmd+Shift+P → Developer: Reload Window** (VS Code caches the MCP server list at startup)
 2. In Copilot Chat: switch to **Agent mode** (not Ask, not Edit)
 3. Switch model to **Claude Sonnet 4.5** or **GPT-5 full** (mini models can't reliably call MCP tools)
-4. Click the **tools / hammer icon** — `sumo-qa` should be listed with all 33 tools underneath (14 skill tools + 7 knowledge loaders + 4 test-data tools + 8 qaskills/Node-install tools)
+4. Click the **tools / hammer icon** — `sumo-qa` should be listed with the 25 tools underneath
 
 Invocation: natural language only — Copilot's slash menu doesn't route to MCP tools. Ask *"load the QA classifications"* and Copilot will call the right tool by description.
 

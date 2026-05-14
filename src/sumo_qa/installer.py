@@ -12,8 +12,10 @@ What this script does:
 - Locates the `sumo-qa` MCP binary. If pip already put it on PATH (the
   common case), uses that path directly — does NOT invoke uv. Falls back
   to `uv tool install` only when the binary is not yet on PATH.
-- Claude Code: symlinks skills/ into ~/.claude/skills/sumo-qa and writes
-  the MCP server entry into claude_desktop_config.json.
+- Claude Code: symlinks skills/ into ~/.claude/skills/, registers the MCP
+  server via `claude mcp add -s user`, and writes claude_desktop_config.json
+  (the latter is a no-op for Claude Code itself but harmless if Claude Desktop
+  is also installed).
 - VS Code + Copilot: writes .vscode/mcp.json in the current workspace.
 - IntelliJ AI Assistant: detects the latest installation and prints the
   exact Settings-UI fields to fill in (with the absolute binary path).
@@ -30,7 +32,10 @@ from __future__ import annotations
 
 import sys
 
-if sys.version_info < (3, 10):
+if sys.version_info < (
+    3,
+    10,
+):  # pragma: no cover -- defensive exit for Python <3.10 (CI runs 3.10+)
     sys.stderr.write(
         "sumo-qa-install requires Python 3.10+ (you have "
         f"{sys.version_info.major}.{sys.version_info.minor}).\n"
@@ -55,19 +60,23 @@ from pathlib import Path
 _MODULE_DIR = Path(__file__).resolve().parent
 _BUNDLED_SKILLS = _MODULE_DIR / "_data" / "skills"
 
-if _BUNDLED_SKILLS.is_dir():
-    # Installed-wheel mode. Skills come from the bundled data; the MCP
-    # binary is already on PATH (pip put us here), so uv tool install
-    # should pull from PyPI by name rather than from a local path.
-    REPO_ROOT = _MODULE_DIR  # unused in this mode; kept defined for type-checking
-    SKILLS_SRC = _BUNDLED_SKILLS
-    _UV_INSTALL_FROM: list[str] = []  # `uv tool install sumo-qa` (no --from)
-else:
-    # Git-clone / editable-install mode. installer.py lives at
-    # <repo>/src/sumo_qa/installer.py, so the repo root is two parents
-    # above the module directory: src/sumo_qa → src → <repo>.
-    REPO_ROOT = _MODULE_DIR.parent.parent
-    if not (REPO_ROOT / "pyproject.toml").is_file():
+
+def _detect_install_mode(
+    module_dir: Path = _MODULE_DIR,
+    bundled_skills: Path = _BUNDLED_SKILLS,
+) -> tuple[Path, Path, list[str]]:
+    """Return (REPO_ROOT, SKILLS_SRC, UV_INSTALL_FROM) for the active install layout.
+
+    Two arms:
+    - Wheel mode: bundled skills exist next to this module → use them directly,
+      and let `uv tool install` resolve sumo-qa by name from PyPI.
+    - Editable / git-clone mode: skills live at the repo root two levels above
+      the module dir; `uv tool install` gets `--from <repo>`.
+    """
+    if bundled_skills.is_dir():
+        return module_dir, bundled_skills, []
+    repo_root = module_dir.parent.parent
+    if not (repo_root / "pyproject.toml").is_file():
         sys.stderr.write(
             "sumo-qa-install: could not locate bundled skills or a repo "
             "root. If you installed via pip, please file an issue with your "
@@ -75,8 +84,10 @@ else:
             "ensure the standard repo layout.\n"
         )
         sys.exit(1)
-    SKILLS_SRC = REPO_ROOT / "skills"
-    _UV_INSTALL_FROM = ["--from", str(REPO_ROOT)]
+    return repo_root, repo_root / "skills", ["--from", str(repo_root)]
+
+
+REPO_ROOT, SKILLS_SRC, _UV_INSTALL_FROM = _detect_install_mode()
 
 
 class HostResult:
@@ -115,7 +126,10 @@ def main() -> int:
     parser.add_argument(
         "--claude-code",
         action="store_true",
-        help="Configure Claude Code only (symlink skills + write claude_desktop_config.json).",
+        help=(
+            "Configure Claude Code only (symlink skills + register MCP server "
+            "via `claude mcp add` + write claude_desktop_config.json)."
+        ),
     )
     parser.add_argument(
         "--vscode",
@@ -267,7 +281,7 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
     r = HostResult("Claude Code")
     home = Path.home()
 
-    if system == "Windows":
+    if system == "Windows":  # pragma: no cover -- platform-conditional Windows branch
         config_dir = Path(os.environ.get("APPDATA", "")) / "Claude"
     elif system == "Darwin":
         config_dir = home / ".config" / "claude"
@@ -317,10 +331,49 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
     config["mcpServers"]["sumo-qa"] = {"command": str(mcp_path)}
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
+    # 3. Register with Claude Code's own MCP registry via `claude mcp add`.
+    #    Claude Code (the CLI) does NOT read claude_desktop_config.json — it
+    #    keeps its own MCP server list managed via the `claude mcp` subcommand.
+    #    Without this step the MCP tools (sumo_qa_load_*, etc.) never surface
+    #    in a Claude Code session even though the skill files are symlinked.
+    mcp_msg = _register_claude_code_mcp(mcp_path)
+
     r.configured = True
     r.config_path = config_path
-    r.message = f"{symlink_msg}; wrote {config_path}"
+    r.message = f"{symlink_msg}; wrote {config_path}; {mcp_msg}"
     return r
+
+
+def _register_claude_code_mcp(mcp_path: Path) -> str:
+    """Idempotently register sumo-qa as a user-scoped MCP server in Claude Code.
+
+    Removes any existing `sumo-qa` entry first (covers the case where a previous
+    install registered the wrong command name), then re-adds with the correct
+    absolute binary path. Returns a one-line summary for the install output.
+
+    No-ops gracefully when the `claude` CLI isn't on PATH — users running
+    sumo-qa-install on a machine without Claude Code installed only get the
+    skill symlinks, not an error.
+    """
+    claude = shutil.which("claude")
+    if claude is None:
+        return "claude CLI not on PATH — skipped MCP-registry registration"
+    # Remove first; ignore failure (entry may not exist). Idempotent re-add.
+    subprocess.run(
+        [claude, "mcp", "remove", "sumo-qa", "-s", "user"],
+        capture_output=True,
+        check=False,
+    )
+    try:
+        subprocess.run(
+            [claude, "mcp", "add", "sumo-qa", str(mcp_path), "-s", "user"],
+            capture_output=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode("utf-8", errors="replace").strip() if exc.stderr else ""
+        return f"claude mcp add failed ({exc.returncode}): {stderr or 'no stderr'}"
+    return f"registered with claude mcp at {mcp_path}"
 
 
 def _install_claude_code_skills_per_dir(skills_dir: Path, system: str) -> str:
@@ -605,5 +658,5 @@ def _verify_mcp_responds(mcp_path: Path) -> bool:
     return False
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover -- main guard
     sys.exit(main())

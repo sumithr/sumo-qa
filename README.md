@@ -49,8 +49,8 @@ Then restart the host. The SessionStart hook re-injects new content; bundled ski
 
 | Layer | What it is |
 |---|---|
-| **14 skills** (`skills/*/SKILL.md`) | 1 entry router (`using-sumo-qa`) + 13 sub-skills, each Iron-Law-enforced. Cover deciding approach, preparing for work, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising, **planning + subagent execution + finishing chain**, and a fallback that suggests + installs an external [qaskills.sh](https://qaskills.sh/) skill when no native fit exists. |
-| **33 MCP entry points** | 14 skill tools (one per `SKILL.md`) + 7 knowledge loaders + 4 test-data tools + 8 qaskills/Node-install tools. Thin file IO or subprocess shims; no inference. |
+| **14 skills** (`skills/*/SKILL.md`) | Iron-Law-enforced procedures the host LLM follows. Cover deciding approach, preparing for work, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising — **plus planning + subagent execution + finishing chain** (planning → dispatch parallel subagents → capture evidence + PR-ready summary). |
+| **25 MCP entry points** | 14 skill tools + 7 knowledge loaders + 4 test-data tools. Thin file IO; no inference. |
 | **5 knowledge catalogues** (`knowledge/*.md`) | 4 authoritative catalogues (classifications, approaches, principles, techniques) — the LLM picks from these, not from training-data recall. Plus 1 category-fit primer (specialty_tools) where the LLM picks tool brands from its training knowledge and the file confirms the category fits. Editable as plain markdown. |
 
 ## Host support
@@ -68,10 +68,10 @@ The hosts below have been verified end-to-end with `sumo-qa-install`:
 
 **Slash-invocation in Claude Code.** After `sumo-qa-install --claude-code`, type `/` and start typing `sumo-qa-`:
 
-- The 14 skills appear as native Claude Code skills with hyphens (`/sumo-qa-deciding-approach`, `/sumo-qa-creating-test-plan`, …) — `sumo-qa-install` symlinks each `skills/<name>/` into `~/.claude/skills/`.
-- The skills are also registered through MCP. Whether the MCP entries (knowledge loaders, test-data tools, qaskills tools, and the underscore-form skill tools `/sumo_qa_*`) appear in the slash menu depends on Claude Code version — they may or may not surface there. Natural language always works regardless.
+- The 14 skills appear as native Claude Code skills with hyphens (`/sumo-qa-deciding-approach`, `/sumo-qa-creating-test-plan`, …) — `sumo-qa-install` symlinks them into `~/.claude/skills/`.
+- The skills are also registered through MCP, and the MCP knowledge loaders + test-data tools show with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`, …). You may see both the hyphen and underscore forms of each skill — they call the same SKILL.md and behave identically.
 
-**Natural language always works.** *"review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths reach the same SKILL.md content.
+**Natural language always works.** *"review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths produce the same result.
 
 In **JetBrains AI Assistant** every entry point is slash-invocable with underscores (`/sumo_qa_deciding_approach`, `/sumo_qa_load_classifications`). In **VS Code + Copilot** and **Junie**, neither host routes via slash menu — use natural language; both pick tools by description.
 
@@ -86,15 +86,13 @@ Ten polished worked examples showing what sumo-qa actually looks like in convers
 - **[tests/scenarios/worked-examples/](tests/scenarios/worked-examples/)** — see [02 — review-my-changes](tests/scenarios/worked-examples/02-review-my-changes.md) for a representative end-to-end transcript.
 - **[tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md)** — the underlying scenario specs (user prompt → expected interaction shape → anti-patterns the skill prevents).
 
-## qaskills.sh integration
+## External-skill discovery
 
-If your QA intent has no native sumo-qa fit (e.g. *"set up Playwright E2E tests"*, *"add an accessibility audit"*, *"run k6 load tests"*), sumo-qa offers to install a matching skill from [qaskills.sh](https://qaskills.sh/) via `npx @qaskills/cli` — asks `[y/N]` first, never installs silently.
+If your QA intent has no native sumo-qa fit (e.g. *"set up Playwright E2E tests"*, *"add an accessibility audit"*, *"run k6 load tests"*), sumo-qa offers (with `[y/N]`) to install Vercel Labs' [`find-skills`](https://github.com/vercel-labs/skills) meta-skill, which then drives end-to-end discovery and install from [skills.sh](https://www.skills.sh/).
 
-- Trust is gated by [`skills/sumo-qa-suggesting-external-skill/registry.json`](skills/sumo-qa-suggesting-external-skill/registry.json) — only publishers on `trusted_publishers` are surfaced without an extra confirmation step. Anything else requires explicit `y` after publisher/score are shown.
-- If Node isn't installed, sumo-qa asks `[y/N]` and installs it via your OS's native package manager (`brew` on macOS, `winget` on Windows, `apt-get` / `dnf` on Linux). Sudo is never auto-elevated — when sudo is required, sumo-qa prints the command for you to run yourself.
-- Every install prompts for scope: global (`~/.claude/skills/`, available to every project) or project-local (`<repo>/.claude/skills/`, only this repo).
-- The qaskills CLI installs into `~/.claude/commands/`; sumo-qa relocates the skill into `~/.claude/skills/` so Claude Code's loader discovers it automatically — no restart required.
-- If the installed SKILL.md references an MCP server, sumo-qa offers (but never silently edits) the matching MCP config.
+- No companion MCP shim — sumo-qa stays one MCP server. All CLI invocations happen through the host LLM's native `Bash` tool inside the SKILL itself.
+- Node.js (and therefore `npx`) is required. If it isn't installed, sumo-qa prints the install URL (https://nodejs.org) and stops — it never auto-elevates via sudo.
+- find-skills handles scope (global vs project-local), registry search, and install end-to-end; sumo-qa's discipline wraps the final response.
 
 ## License
 
@@ -104,10 +102,11 @@ Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) 
 
 - [AGENTS.md](AGENTS.md) — AI-agent bootstrap and per-host setup
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — three layers, host delivery, knowledge authority
-- [docs/SKILLS.md](docs/SKILLS.md) — the 13 skills with their Iron Laws
-- [docs/TOOLS.md](docs/TOOLS.md) — the 24 MCP entry points
+- [docs/SKILLS.md](docs/SKILLS.md) — the 14 skills with their Iron Laws
+- [docs/TOOLS.md](docs/TOOLS.md) — the 25 MCP entry points
 - [docs/INSTALL.md](docs/INSTALL.md) — per-host install detail, schema differences, troubleshooting
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
+- [docs/COVERAGE.md](docs/COVERAGE.md) — coverage floor + pragma policy
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
 - [docs/PERSONA.md](docs/PERSONA.md) — optional in-character voice (Sumo-sensei). Off by default; ask the agent to enable mid-conversation.

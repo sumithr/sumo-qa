@@ -3,10 +3,10 @@
 
 These supplement the suite-wide parametrised checks in test_skill_conformance.py
 with assertions about the external-skill-suggestion contract:
-- trust gating
-- install gate
+- find-skills / skills.sh discovery flow
+- install gate (explicit [y/N] confirmation)
 - no-sudo guarantee
-- no auto-install
+- no companion MCP shims
 """
 
 from pathlib import Path
@@ -35,11 +35,6 @@ def test_skill_has_when_to_use_section() -> None:
     assert "## When to Use" in text
 
 
-def test_skill_gates_on_trusted_publishers() -> None:
-    text = SKILL_PATH.read_text(encoding="utf-8")
-    assert "trusted_publishers" in text
-
-
 def test_skill_requires_explicit_confirmation_before_install() -> None:
     text = SKILL_PATH.read_text(encoding="utf-8")
     # Must require explicit user confirmation before installing
@@ -57,3 +52,38 @@ def test_skill_iron_law_mentions_install_gate() -> None:
     text = SKILL_PATH.read_text(encoding="utf-8")
     iron_law_section = text.split("## The Iron Law", 1)[1].split("##", 1)[0]
     assert "install" in iron_law_section.lower()
+
+
+def test_skill_targets_skills_sh_registry() -> None:
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    assert "skills.sh" in text
+
+
+def test_skill_documents_find_skills_install_command_verbatim() -> None:
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    assert "github.com/vercel-labs/skills" in text
+    assert "--skill find-skills" in text
+
+
+def test_skill_gates_find_skills_install_on_user_confirmation() -> None:
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    # Must have a [y/N] gate (allow variations like [y / N])
+    import re
+
+    has_yn_gate = bool(re.search(r"\[y\s*/?\s*N\]", text, re.IGNORECASE))
+    assert has_yn_gate, "SKILL.md must contain a [y/N] (or [y / N]) confirmation gate"
+    # Must instruct to stop on 'n'
+    assert "stop" in text.lower()
+
+
+def test_skill_explicitly_rejects_companion_python_shims() -> None:
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    # Red Flags section must address the companion-MCP-shim anti-pattern
+    # Look for "MCP" alongside "shim" or "wrap" or "Python" or "companion"
+    lower = text.lower()
+    has_mcp = "mcp" in lower
+    has_anti_shim = any(kw in lower for kw in ("shim", "wrap", "python", "companion"))
+    assert has_mcp and has_anti_shim, (
+        "SKILL.md Red Flags must address the companion-MCP-shim / wrapper anti-pattern "
+        "(look for 'MCP' + one of 'shim', 'wrap', 'Python', 'companion')"
+    )

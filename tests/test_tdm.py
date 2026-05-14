@@ -421,6 +421,413 @@ def test_catalogue_reports_file_path_when_entries_is_not_a_list(tmp_path: Path) 
     assert str(yaml_path) in str(excinfo.value)
 
 
+def test_catalogue_get_returns_none_when_id_not_found(tmp_path: Path) -> None:
+    """TestDataCatalogue.get() returns None when no entry matches (line 50)."""
+    catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
+    result = catalogue.get("nonexistent-id")
+    assert result is None
+
+
+def test_catalogue_raises_on_non_dict_entry(tmp_path: Path) -> None:
+    """TestDataCatalogue.list_entries() raises ValueError when an entry is not a dict (line 32)."""
+    domain_dir = tmp_path / "knowledge" / "test_data" / "auth"
+    domain_dir.mkdir(parents=True)
+    (domain_dir / "bad.yaml").write_text(
+        yaml.safe_dump({"entries": ["not_a_dict"]}), encoding="utf-8"
+    )
+    catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
+    with pytest.raises(ValueError, match="expected mapping"):
+        catalogue.list_entries()
+
+
+def test_catalogue_register_updates_existing_entry_by_id(tmp_path: Path) -> None:
+    """TestDataCatalogue.register() updates an existing entry when the id matches (lines 70-72)."""
+    catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
+    base_entry = {
+        "id": "auth-update-001",
+        "environment": "integration",
+        "domain": "auth",
+        "scenario_tags": ["active_account"],
+        "known_valid_for": ["login flow"],
+        "owner": "qa",
+        "confidence": "medium",
+        "source": "qa-curated",
+    }
+    # Create first.
+    action1, _, _, _ = catalogue.register(Entry(**base_entry))
+    assert action1 == "created"
+    # Update with same id.
+    action2, updated, _, _ = catalogue.register(Entry(**{**base_entry, "notes": "updated note"}))
+    assert action2 == "updated"
+    assert updated.id == "auth-update-001"
+
+
+def test_catalogue_register_returns_duplicate_when_different_id_but_same_identity(
+    tmp_path: Path,
+) -> None:
+    """TestDataCatalogue.register() returns 'duplicate' when entry has different id but
+    overlapping identity (lines 66)."""
+    catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
+    base = {
+        "id": "auth-dup-original",
+        "environment": "integration",
+        "domain": "auth",
+        "scenario_tags": ["account_locked"],
+        "known_valid_for": ["locked account rejection"],
+        "owner": "qa",
+        "confidence": "medium",
+        "source": "qa-curated",
+    }
+    catalogue.register(Entry(**base))
+    # Register a new entry with the same identity but a different id.
+    action, existing, _, existing_id = catalogue.register(
+        Entry(**{**base, "id": "auth-dup-different-id"})
+    )
+    assert action == "duplicate"
+    assert existing_id == "auth-dup-original"
+
+
+def test_catalogue_find_duplicate_returns_none_when_no_match(tmp_path: Path) -> None:
+    """TestDataCatalogue._find_duplicate() returns None when no overlapping entry
+    exists in the catalogue (line 78)."""
+    catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
+    entry = Entry(
+        id="auth-no-dup",
+        environment="integration",
+        domain="auth",
+        scenario_tags=["unique_tag_xyz"],
+        known_valid_for=["unique use case xyz"],
+        owner="qa",
+        confidence="medium",
+        source="qa-curated",
+    )
+    result = catalogue._find_duplicate(entry)
+    assert result is None
+
+
+def test_catalogue_load_file_handles_empty_yaml(tmp_path: Path) -> None:
+    """_load_file() returns empty entries dict when the YAML file contains null (line 152)."""
+    from sumo_qa.tdm_catalogue import _load_file
+
+    empty_yaml = tmp_path / "empty.yaml"
+    empty_yaml.write_text("", encoding="utf-8")  # empty file → yaml.safe_load returns None
+    result = _load_file(empty_yaml)
+    assert result == {"entries": []}
+
+
+def test_catalogue_load_file_raises_on_non_dict_top_level(tmp_path: Path) -> None:
+    """_load_file() raises ValueError when the top-level YAML is not a mapping (line 154)."""
+    from sumo_qa.tdm_catalogue import _load_file
+
+    list_yaml = tmp_path / "list.yaml"
+    list_yaml.write_text(yaml.safe_dump(["item1", "item2"]), encoding="utf-8")
+    with pytest.raises(ValueError, match="must be a mapping"):
+        _load_file(list_yaml)
+
+
+# ---------------------------------------------------------------------------
+# tdm_service.py branch coverage
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_entry_returns_entry_from_dict(tmp_path: Path) -> None:
+    """_resolve_entry() returns a TestDataEntry when `entry` dict is given (line 274)."""
+    from sumo_qa.tdm_catalogue import TestDataCatalogue
+    from sumo_qa.tdm_service import _resolve_entry
+
+    catalogue = TestDataCatalogue(tmp_path / "test_data")
+    result = _resolve_entry(
+        catalogue,
+        entry_id=None,
+        entry={
+            "id": "test-001",
+            "environment": "integration",
+            "domain": "auth",
+            "scenario_tags": ["active"],
+            "known_valid_for": ["login"],
+            "owner": "qa",
+            "confidence": "medium",
+            "source": "test",
+        },
+    )
+    assert result.id == "test-001"
+
+
+def test_resolve_entry_raises_when_both_none(tmp_path: Path) -> None:
+    """_resolve_entry() raises ValueError when both entry and entry_id are None (line 280)."""
+    from sumo_qa.tdm_catalogue import TestDataCatalogue
+    from sumo_qa.tdm_service import _resolve_entry
+
+    catalogue = TestDataCatalogue(tmp_path / "test_data")
+    with pytest.raises(ValueError, match="entry_id or entry is required"):
+        _resolve_entry(catalogue, entry_id=None, entry=None)
+
+
+def test_empty_result_hints_with_all_filters(tmp_path: Path) -> None:
+    """_empty_result_hints() mentions known_valid_for, product_id, and sku (lines 300, 302, 304)."""
+    from sumo_qa.tdm_service import _empty_result_hints
+
+    hints = _empty_result_hints(
+        environment="integration",
+        domain="auth",
+        scenario_tags=["tag1"],
+        known_valid_for=["use1"],
+        product_id="prod-001",
+        sku="sku-001",
+    )
+    hint = hints[0]
+    assert "known_valid_for" in hint
+    assert "product_id" in hint
+    assert "sku" in hint
+
+
+def test_empty_result_hints_with_no_filters(tmp_path: Path) -> None:
+    """_empty_result_hints() uses the 'catalogue is empty' message when no filters set (line 312)."""
+    from sumo_qa.tdm_service import _empty_result_hints
+
+    hints = _empty_result_hints(
+        environment=None,
+        domain=None,
+        scenario_tags=None,
+        known_valid_for=None,
+        product_id=None,
+        sku=None,
+    )
+    assert "catalogue is empty" in hints[0]
+
+
+def test_find_missing_information_all_fields_missing() -> None:
+    """_find_missing_information() reports environment, domain, and search params (lines 329, 331, 333)."""
+    from sumo_qa.tdm_service import _find_missing_information
+
+    missing = _find_missing_information(
+        environment=None,
+        domain=None,
+        scenario_tags=None,
+        known_valid_for=None,
+        product_id=None,
+        sku=None,
+    )
+    assert "environment" in missing
+    assert "domain" in missing
+    assert any("scenario_tags" in m for m in missing)
+
+
+def test_aggregate_confidence_returns_medium_when_medium_present() -> None:
+    """_aggregate_confidence() returns 'medium' when no high level present (line 350)."""
+    from sumo_qa.tdm_service import _aggregate_confidence
+
+    result = _aggregate_confidence(["medium", "low"])
+    assert result == "medium"
+
+
+def test_validate_test_data_raises_when_entry_id_not_found(tmp_path: Path) -> None:
+    """validate_test_data() raises ValueError when entry_id doesn't exist in catalogue (line 279)."""
+    catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
+    assistant = Assistant(catalogue, MockValidator(now=NOW))
+    with pytest.raises(ValueError, match="not found"):
+        assistant.validate_test_data(entry_id="nonexistent-id-xyz")
+
+
+def test_find_test_data_no_filters_returns_missing_info() -> None:
+    """find_test_data() with no env/domain reports them in missing_information (lines 329, 331)."""
+    result = service().qa_find_test_data()
+    missing = result.get("missing_information", [])
+    assert "environment" in missing
+    assert "domain" in missing
+
+
+def test_find_test_data_empty_with_product_id_and_sku(tmp_path: Path) -> None:
+    """find_test_data() with product_id and sku filters exercices those hint branches (302, 304)."""
+    catalogue = Catalogue(tmp_path / "knowledge" / "test_data")
+    assistant = Assistant(catalogue, MockValidator(now=NOW))
+    result = assistant.find_test_data(
+        environment="integration",
+        domain="auth",
+        product_id="prod-001",
+        sku="sku-001",
+    )
+    assert result["results"] == []
+
+
+# ---------------------------------------------------------------------------
+# tdm_validation.py branch coverage
+# ---------------------------------------------------------------------------
+
+
+def _minimal_entry(**overrides):
+    """Build a minimal TestDataEntry for validation tests."""
+    from sumo_qa.tdm_models import TestDataEntry
+
+    defaults = {
+        "id": "val-test-001",
+        "environment": "integration",
+        "domain": "auth",
+        "scenario_tags": ["active"],
+        "known_valid_for": ["login"],
+        "owner": "qa",
+        "confidence": "medium",
+        "source": "test",
+    }
+    return TestDataEntry(**{**defaults, **overrides})
+
+
+def test_heuristic_issues_flags_missing_environment() -> None:
+    """_heuristic_issues() appends 'environment is required' when empty (line 84)."""
+    from sumo_qa.tdm_validation import _heuristic_issues
+
+    entry = _minimal_entry(environment="")
+    issues = _heuristic_issues(entry)
+    assert any("environment" in i for i in issues)
+
+
+def test_heuristic_issues_flags_missing_domain() -> None:
+    """_heuristic_issues() appends 'domain is required' when empty (line 86)."""
+    from sumo_qa.tdm_validation import _heuristic_issues
+
+    entry = _minimal_entry(domain="")
+    issues = _heuristic_issues(entry)
+    assert any("domain" in i for i in issues)
+
+
+def test_heuristic_issues_flags_missing_owner() -> None:
+    """_heuristic_issues() appends 'owner is required' when empty (line 88)."""
+    from sumo_qa.tdm_validation import _heuristic_issues
+
+    entry = _minimal_entry(owner="")
+    issues = _heuristic_issues(entry)
+    assert any("owner" in i for i in issues)
+
+
+def test_heuristic_issues_flags_missing_scenario_tags() -> None:
+    """_heuristic_issues() appends scenario_tags hint when list is empty (line 90)."""
+    from sumo_qa.tdm_validation import _heuristic_issues
+
+    entry = _minimal_entry(scenario_tags=[])
+    issues = _heuristic_issues(entry)
+    assert any("scenario_tags" in i for i in issues)
+
+
+def test_heuristic_issues_flags_missing_known_valid_for() -> None:
+    """_heuristic_issues() appends known_valid_for hint when list is empty (line 92)."""
+    from sumo_qa.tdm_validation import _heuristic_issues
+
+    entry = _minimal_entry(known_valid_for=[])
+    issues = _heuristic_issues(entry)
+    assert any("known_valid_for" in i for i in issues)
+
+
+def test_validation_reason_for_stale_freshness() -> None:
+    """_validation_reason() returns the stale-specific message (line 146)."""
+    from datetime import timedelta
+
+    from sumo_qa.tdm_validation import _validation_reason, assess_freshness
+
+    stale_date = NOW - timedelta(days=60)
+    entry = _minimal_entry(last_validated_at=stale_date)
+    freshness = assess_freshness(stale_date, NOW)
+    reason = _validation_reason(entry, freshness, [])
+    assert "Confidence: Low" in reason
+    assert "day(s)" in reason
+
+
+def test_ensure_aware_adds_utc_to_naive_datetime() -> None:
+    """_ensure_aware() attaches UTC timezone to a naive datetime (line 151)."""
+    from datetime import datetime
+
+    from sumo_qa.tdm_validation import _ensure_aware
+
+    naive = datetime(2026, 1, 1, 12, 0, 0)  # no tzinfo
+    aware = _ensure_aware(naive)
+    assert aware.tzinfo is not None
+
+
+# ---------------------------------------------------------------------------
+# tdm_catalogue.find() filter branch coverage (lines 66, 70, 72, 78)
+# ---------------------------------------------------------------------------
+
+
+def _make_catalogue_with_entries(tmp_path: Path, *entries) -> Catalogue:
+    """Create a catalogue pre-populated with entries for filter tests."""
+    cat = Catalogue(tmp_path / "knowledge" / "test_data")
+    for e in entries:
+        cat.register(e)
+    cat._invalidate_cache()
+    return cat
+
+
+def test_catalogue_find_filters_by_environment(tmp_path: Path) -> None:
+    """find() skips entries whose environment doesn't match (line 66: continue)."""
+    entry = Entry(
+        id="env-filter-001",
+        environment="staging",
+        domain="auth",
+        scenario_tags=["active"],
+        known_valid_for=["login"],
+        owner="qa",
+        confidence="medium",
+        source="test",
+    )
+    cat = _make_catalogue_with_entries(tmp_path, entry)
+    # Filter by 'integration' — 'staging' entry must be excluded.
+    results = cat.find(environment="integration")
+    assert all(e.environment.lower() == "integration" for e in results)
+    assert not any(e.id == "env-filter-001" for e in results)
+
+
+def test_catalogue_find_filters_by_product_id(tmp_path: Path) -> None:
+    """find() skips entries whose product_id doesn't match (line 70: continue)."""
+    entry = Entry(
+        id="prod-filter-001",
+        environment="integration",
+        domain="auth",
+        scenario_tags=["active"],
+        known_valid_for=["login"],
+        owner="qa",
+        confidence="medium",
+        source="test",
+        product_id="PRODUCT-A",
+    )
+    cat = _make_catalogue_with_entries(tmp_path, entry)
+    results = cat.find(product_id="PRODUCT-B")
+    assert not any(e.id == "prod-filter-001" for e in results)
+
+
+def test_catalogue_find_filters_by_sku(tmp_path: Path) -> None:
+    """find() skips entries whose sku doesn't match (line 72: continue)."""
+    entry = Entry(
+        id="sku-filter-001",
+        environment="integration",
+        domain="auth",
+        scenario_tags=["active"],
+        known_valid_for=["login"],
+        owner="qa",
+        confidence="medium",
+        source="test",
+        sku="SKU-XYZ",
+    )
+    cat = _make_catalogue_with_entries(tmp_path, entry)
+    results = cat.find(sku="SKU-ABC")
+    assert not any(e.id == "sku-filter-001" for e in results)
+
+
+def test_catalogue_find_filters_by_known_valid_for_no_intersection(tmp_path: Path) -> None:
+    """find() skips entries with no known_valid_for intersection (line 78: continue)."""
+    entry = Entry(
+        id="valid-filter-001",
+        environment="integration",
+        domain="auth",
+        scenario_tags=["active"],
+        known_valid_for=["login"],
+        owner="qa",
+        confidence="medium",
+        source="test",
+    )
+    cat = _make_catalogue_with_entries(tmp_path, entry)
+    results = cat.find(known_valid_for=["completely_different_use_case"])
+    assert not any(e.id == "valid-filter-001" for e in results)
+
+
 def test_catalogue_loads_yaml_entries(tmp_path: Path) -> None:
     path = tmp_path / "knowledge" / "test_data" / "auth"
     path.mkdir(parents=True)
