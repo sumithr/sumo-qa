@@ -40,6 +40,14 @@
 
 **Lint:** `uv run ruff check . && uv run ruff format --check .` — All checks passed; 36 files already formatted.
 
+**CI matrix (latest):** All **15 jobs** (Ubuntu + macOS + Windows × Python 3.10–3.14) ran pytest successfully on the rebased + post-Phase-1-fixup branch. Plus `Analyze (python)` (default-setup CodeQL) green, `ruff check + format` green. The R-WIN coverage now empirically holds — 3 Windows-only bugs were surfaced by adding `windows-latest` to the matrix and fixed in commits `d8c1522`, `eb54d3d`, `d2fb7a8`:
+
+1. `installer.py:419` was calling `.read_text()` without `encoding="utf-8"` (Windows defaults to cp1252; UTF-8 byte 0x9d unrecognised).
+2. `hooks/session-start` is a Bash script; Git's default `core.autocrlf=true` on Windows checked it out with CRLF line endings, which bash on Windows can't parse. Added `.gitattributes` forcing LF for `hooks/session-start`, `*.sh`, `*.py`.
+3. `test_session_start_hook.py` invoked `bash` on Windows, which resolves to the WSL stub at `C:\Windows\System32\bash.exe` (returns "WindowsSubsystem... to install" with exit 1). Skipped on Windows — the hook is for macOS/Linux plugin runtimes.
+
+Also `installer.py:419` was refined further to normalise newlines in the SKILL-content match (`replace("\r\n", "\n")`), and the test that exercises that path was switched from `write_text(read_text())` to `shutil.copy()` for byte-exact duplication.
+
 **Coverage delta on most-affected file:** `installer.py` lifted from **14% → 100%** (262 statements, 237 previously missed, 0 missed now). 6 of those 237 are now covered by `# pragma: no cover` with inline justifications; the remaining 231 are covered by real tests.
 
 ## Risk-to-test coverage map
@@ -55,7 +63,7 @@
 | **R-INSTALLER (Claude Code)** — `_setup_claude_code` + `_register_claude_code_mcp` | `tests/test_installer_claude_code_mcp.py` — 4 original + 12 added by T12 | ✅ green |
 | **R-WIN** — README claimed Windows support; CI didn't prove it | `.github/workflows/test.yml:16` — `os: [ubuntu-latest, macos-latest, windows-latest]` | ✅ matrix expanded; first Windows run pending push |
 | **R-COVDRIFT** — no coverage floor | `pyproject.toml:81` (`addopts`) + `.github/workflows/test.yml:34` both carry `--cov=src/sumo_qa --cov-fail-under=100` | ✅ green |
-| **R-SEC** — no SAST or supply-chain alerting | `.github/workflows/codeql.yml` — Python language, push (main + feat/**) + PR (main) + weekly cron, `security-extended,security-and-quality` query suite | ✅ workflow present; first run pending push |
+| **R-SEC** — no SAST or supply-chain alerting | GitHub's **default-setup CodeQL** (Python, push + PR) | ✅ green ("Analyze (python)" CI check). *(Note: the original Phase 1 plan added a custom `.github/workflows/codeql.yml`, but the repo's default-setup CodeQL was already active and rejected the advanced configuration's SARIF upload. The custom workflow was removed in commit `d2fb7a8` after the conflict surfaced. Coverage equivalent — Python SAST on push + PR via the default setup.)* |
 | **R-RECIPEDRIFT** — strategy walk inventory not standardised | `knowledge/repo_walk.md` (3 H2 sections + fenced code blocks); `tests/test_repo_walk_recipe.py` (4 structural tests); `skills/sumo-qa-strategising/SKILL.md:55` references the recipe | ✅ green |
 | **R-MCPSTART** — no test that the binary speaks MCP | `tests/test_e2e_mcp_initialize.py::test_initialize_returns_serverinfo`, `::test_tools_list_returns_registered_count` (count derived dynamically from `build_mcp_server()._tool_manager._tools`) | ✅ green |
 | **R-PRAGMASPAM** — coverage gate could invite pragma drift | `docs/COVERAGE.md` (Floor + Allowed pragmas + Disallowed + How to add + Running locally + Lowering the floor); 6 pragmas added by T12, all carry inline justification | ✅ green (with 2 follow-ups, see below) |
