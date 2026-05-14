@@ -40,6 +40,7 @@ _HINT_TEST_DATA_WRITE = (
     "If the write fails, confirm `knowledge/test_data/` is writable and the entry's "
     "`domain` field matches an existing folder."
 )
+_HINT_INVALID_SCOPE = "Pass scope='global' or scope='project'."
 
 
 def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:

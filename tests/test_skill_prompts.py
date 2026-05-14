@@ -91,6 +91,130 @@ def test_skill_tool_body_matches_skill_md_content() -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Branch coverage for skill_prompts.py
+# ---------------------------------------------------------------------------
+
+
+def test_parse_frontmatter_returns_empty_when_no_frontmatter() -> None:
+    """_parse_frontmatter() returns {} when the text has no --- block (line 61)."""
+    from sumo_qa.skill_prompts import _parse_frontmatter
+
+    result = _parse_frontmatter("# Skill\n\nJust markdown, no frontmatter.\n")
+    assert result == {}
+
+
+def test_parse_frontmatter_returns_empty_on_yaml_error() -> None:
+    """_parse_frontmatter() returns {} when the YAML inside --- is malformed (lines 64-65)."""
+    from sumo_qa.skill_prompts import _parse_frontmatter
+
+    # Valid frontmatter delimiters but invalid YAML content.
+    text = "---\nkey: [unclosed\n---\n# Body"
+    result = _parse_frontmatter(text)
+    assert result == {}
+
+
+def test_register_skills_as_prompts_noop_when_skills_dir_missing(tmp_path) -> None:
+    """register_skills_as_prompts() returns immediately when the skills dir
+    doesn't exist — the inner loop is never entered (line 82)."""
+    from unittest.mock import MagicMock, patch
+
+    from sumo_qa.skill_prompts import register_skills_as_prompts
+
+    mcp = MagicMock()
+    nonexistent = tmp_path / "no_such_dir"
+    with patch("sumo_qa.skill_prompts._skills_dir", return_value=nonexistent):
+        register_skills_as_prompts(mcp)
+
+    mcp.tool.assert_not_called()
+
+
+def test_register_skills_skips_non_directory_entries(tmp_path) -> None:
+    """register_skills_as_prompts() skips files inside the skills dir (line 85)."""
+    from unittest.mock import MagicMock, patch
+
+    from sumo_qa.skill_prompts import register_skills_as_prompts
+
+    # Create a file (not a directory) inside the fake skills dir.
+    (tmp_path / "not_a_skill.txt").write_text("hello", encoding="utf-8")
+
+    mcp = MagicMock()
+    with patch("sumo_qa.skill_prompts._skills_dir", return_value=tmp_path):
+        register_skills_as_prompts(mcp)
+
+    mcp.tool.assert_not_called()
+
+
+def test_register_skills_skips_directories_without_skill_md(tmp_path) -> None:
+    """register_skills_as_prompts() skips skill dirs that have no SKILL.md (line 88)."""
+    from unittest.mock import MagicMock, patch
+
+    from sumo_qa.skill_prompts import register_skills_as_prompts
+
+    # A directory with no SKILL.md.
+    (tmp_path / "my-skill").mkdir()
+
+    mcp = MagicMock()
+    with patch("sumo_qa.skill_prompts._skills_dir", return_value=tmp_path):
+        register_skills_as_prompts(mcp)
+
+    mcp.tool.assert_not_called()
+
+
+def test_register_skills_uses_description_from_frontmatter(tmp_path) -> None:
+    """register_skills_as_prompts() reads description from frontmatter (line 92-96)
+    and collapses multi-line folded YAML descriptions."""
+    from unittest.mock import MagicMock, patch
+
+    from sumo_qa.skill_prompts import register_skills_as_prompts
+
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\ndescription: A multi-line\n  description here\n---\n# Body",
+        encoding="utf-8",
+    )
+
+    mcp = MagicMock()
+    mcp.tool.return_value = lambda fn: fn  # decorator passthrough
+    with patch("sumo_qa.skill_prompts._skills_dir", return_value=tmp_path):
+        register_skills_as_prompts(mcp)
+
+    # tool() should have been called once for the one skill directory.
+    assert mcp.tool.called
+
+
+def test_register_skills_falls_back_to_skill_name_when_no_description(tmp_path) -> None:
+    """When frontmatter has no description, the name is used as fallback (line 92)."""
+    from unittest.mock import MagicMock, patch
+
+    from sumo_qa.skill_prompts import register_skills_as_prompts
+
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nid: x\n---\n# Body", encoding="utf-8")
+
+    mcp = MagicMock()
+    mcp.tool.return_value = lambda fn: fn
+    with patch("sumo_qa.skill_prompts._skills_dir", return_value=tmp_path):
+        register_skills_as_prompts(mcp)
+
+    assert mcp.tool.called
+
+
+def test_skills_dir_returns_bundled_when_exists() -> None:
+    """_skills_dir() returns the bundled path when it exists (line 52)."""
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from sumo_qa.skill_prompts import _BUNDLED_SKILLS, _skills_dir
+
+    with patch.object(Path, "is_dir", return_value=True):
+        result = _skills_dir()
+
+    assert result == _BUNDLED_SKILLS
+
+
 def test_skill_tool_description_matches_frontmatter() -> None:
     """Each skill tool's MCP description should come from the SKILL.md
     frontmatter `description`, so hosts that show tool menus surface the

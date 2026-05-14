@@ -183,6 +183,19 @@ def test_pack_with_optional_description_and_domain_loads(tmp_path: Path) -> None
     assert "test-pack@0.0.1" in engine.evaluate("custom-workflow").pack_versions
 
 
+def test_from_directory_raises_when_dir_does_not_exist(tmp_path: Path) -> None:
+    """StandardsEngine.from_directory() raises FileNotFoundError on a missing path (line 69)."""
+    with pytest.raises(FileNotFoundError, match="Standards directory not found"):
+        StandardsEngine.from_directory(tmp_path / "does_not_exist")
+
+
+def test_from_directory_raises_when_no_yaml_packs_found(tmp_path: Path) -> None:
+    """StandardsEngine.from_directory() raises ValueError when the dir has no *.yaml (line 73)."""
+    # tmp_path exists but contains no YAML files.
+    with pytest.raises(ValueError, match="No standards YAML packs found"):
+        StandardsEngine.from_directory(tmp_path)
+
+
 def test_unknown_workflow_in_applies_to_is_allowed(tmp_path: Path) -> None:
     pack = {
         "id": "test-pack",

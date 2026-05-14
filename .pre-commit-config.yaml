@@ -23,12 +23,12 @@
 # To run pre-push hooks:         pre-commit run --all-files --hook-stage pre-push
 # To bypass a single commit:     git commit --no-verify   (rare; CI catches anyway)
 #
-# The pytest hook uses `language: python` with `additional_dependencies:
-# [".[dev]"]` so pre-commit manages its OWN venv for the hook. That
-# avoids the PATH-coupling failure mode (pyenv / multiple Pythons /
-# system-vs-venv ambiguity) — the hook runs against the same dep set
-# we declare in pyproject.toml regardless of what `python` happens to
-# be on the user's PATH.
+# The pytest hook uses `language: python` with explicit
+# `additional_dependencies` (pre-commit's hook venvs can only install
+# from PyPI, so the `.[dev]` shortcut doesn't work — versions are
+# duplicated from `pyproject.toml.dependencies` and kept in sync by
+# hand). This decouples the hook from whatever `python` happens to be
+# on the user's PATH (pyenv / multiple Pythons / system vs venv).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Pin matches `ruff>=0.5,<1` from pyproject.toml's dev extras. Update both
@@ -43,7 +43,13 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
+        # tests/fixtures/ holds byte-for-byte captures of external CLI
+        # output (qaskills.sh CLI). Stripping trailing whitespace there
+        # would diverge our fixtures from reality and silently mask
+        # parser bugs.
+        exclude: ^tests/fixtures/
       - id: end-of-file-fixer
+        exclude: ^tests/fixtures/
       - id: check-yaml
       - id: check-toml
       - id: check-json
@@ -81,5 +87,6 @@ repos:
           - "pydantic>=2.8,<3"
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
+          - "pytest-cov>=6,<7"
         pass_filenames: false
         stages: [pre-push]
