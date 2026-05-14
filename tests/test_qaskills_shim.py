@@ -101,8 +101,9 @@ def test_info_raises_cli_error_with_name_in_message() -> None:
 # add — subprocess + scope-as-move
 # ---------------------------------------------------------------------------
 
-def _make_global_skill(home: Path, name: str) -> Path:
-    skill_dir = home / ".claude" / "skills" / name
+def _make_cli_install(home: Path, name: str) -> Path:
+    """Mimic the qaskills CLI: drop the skill at ~/.claude/commands/<name>/."""
+    skill_dir = home / ".claude" / "commands" / name
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(f"---\nname: {name}\n---\n# Body\n", encoding="utf-8")
     return skill_dir
@@ -117,7 +118,7 @@ def test_add_global_scope_returns_global_path(tmp_path: Path, monkeypatch) -> No
 
     def _capture(args, **kwargs):
         captured["args"] = args
-        _make_global_skill(fake_home, "playwright-e2e")
+        _make_cli_install(fake_home,"playwright-e2e")
         return _completed_process(stdout="installed")
 
     with patch("sumo_qa.qaskills.subprocess.run", side_effect=_capture), \
@@ -133,7 +134,11 @@ def test_add_global_scope_returns_global_path(tmp_path: Path, monkeypatch) -> No
     assert "--json" not in captured["args"]
 
     assert result.scope == "global"
+    # CLI installs to commands/; shim relocates to skills/ for Claude Code.
     assert result.installed_at == fake_home / ".claude" / "skills" / "playwright-e2e"
+    assert (result.installed_at / "SKILL.md").is_file()
+    # commands/ should be empty (the dir was moved, not copied).
+    assert not (fake_home / ".claude" / "commands" / "playwright-e2e").exists()
     assert result.name == "playwright-e2e"
 
 
@@ -145,7 +150,7 @@ def test_add_project_scope_relocates_directory(tmp_path: Path, monkeypatch) -> N
     monkeypatch.setenv("HOME", str(fake_home))
 
     def _install_globally(args, **kwargs):
-        _make_global_skill(fake_home, "axe-accessibility")
+        _make_cli_install(fake_home,"axe-accessibility")
         return _completed_process(stdout="installed")
 
     with patch("sumo_qa.qaskills.subprocess.run", side_effect=_install_globally), \
@@ -156,8 +161,8 @@ def test_add_project_scope_relocates_directory(tmp_path: Path, monkeypatch) -> N
     assert result.scope == "project"
     assert result.installed_at == project_target
     assert (project_target / "SKILL.md").is_file()
-    # Global directory was moved, not copied.
-    assert not (fake_home / ".claude" / "skills" / "axe-accessibility").exists()
+    # CLI install dir (commands/) was moved into project; nothing left behind.
+    assert not (fake_home / ".claude" / "commands" / "axe-accessibility").exists()
 
 
 def test_add_project_scope_refuses_to_overwrite_existing(tmp_path: Path, monkeypatch) -> None:
@@ -171,7 +176,7 @@ def test_add_project_scope_refuses_to_overwrite_existing(tmp_path: Path, monkeyp
     monkeypatch.setenv("HOME", str(fake_home))
 
     def _install(args, **kwargs):
-        _make_global_skill(fake_home, "playwright-e2e")
+        _make_cli_install(fake_home,"playwright-e2e")
         return _completed_process(stdout="installed")
 
     with patch("sumo_qa.qaskills.subprocess.run", side_effect=_install), \
@@ -204,3 +209,23 @@ def test_add_raises_when_install_succeeded_but_dir_missing(tmp_path: Path, monke
         with pytest.raises(qaskills.QaskillsCLIError) as exc_info:
             qaskills.add("ghost", scope="global")
     assert "no skill directory" in str(exc_info.value)
+
+
+def test_add_refuses_when_target_already_exists(tmp_path: Path, monkeypatch) -> None:
+    # Pre-existing skill at the relocation target — refuse to overwrite.
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    (fake_home / ".claude" / "skills" / "playwright-e2e").mkdir(parents=True)
+    (fake_home / ".claude" / "skills" / "playwright-e2e" / "SKILL.md").write_text("local", encoding="utf-8")
+
+    def _install(args, **kwargs):
+        _make_cli_install(fake_home, "playwright-e2e")
+        return _completed_process(stdout="installed")
+
+    with patch("sumo_qa.qaskills.subprocess.run", side_effect=_install), \
+         patch("sumo_qa.qaskills.shutil.which", return_value="/usr/local/bin/npx"):
+        with pytest.raises(qaskills.QaskillsCLIError) as exc_info:
+            qaskills.add("playwright-e2e", scope="global")
+
+    assert "already exists" in str(exc_info.value)

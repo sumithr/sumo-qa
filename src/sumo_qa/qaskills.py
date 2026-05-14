@@ -145,7 +145,18 @@ def info(name: str) -> str:
     return _strip_cli_chrome(result.stdout)
 
 
+def _cli_install_dir(name: str) -> Path:
+    """Where the qaskills CLI actually drops the skill for Claude Code.
+
+    The CLI uses `~/.claude/commands/<name>/` (historic slash-commands
+    convention). Claude Code's skill-discovery system reads from
+    `~/.claude/skills/<name>/`, so we relocate post-install.
+    """
+    return Path.home() / ".claude" / "commands" / name
+
+
 def _global_skill_dir(name: str) -> Path:
+    """Where Claude Code looks for installed skills."""
     return Path.home() / ".claude" / "skills" / name
 
 
@@ -160,15 +171,13 @@ def add(
     project_root: Path | None = None,
     agent: str = "claude-code",
 ) -> AddResult:
-    """Install a qaskill via the qaskills CLI.
+    """Install a qaskill via the qaskills CLI and relocate it for Claude Code.
 
-    Global scope: CLI installs into `~/.claude/skills/<name>/` and we
-    leave it there.
-
-    Project scope: CLI installs globally, then we *move* the directory
-    into `<project_root>/.claude/skills/<name>/`. The CLI has no native
-    project flag; this is how we preserve sumo-qa's per-install scope
-    choice.
+    The qaskills CLI puts the skill in `~/.claude/commands/<name>/`.
+    Claude Code's skill loader scans `~/.claude/skills/<name>/`. We
+    relocate the directory after the CLI runs so the skill is actually
+    usable. For `scope="project"` we move it into the project's
+    `.claude/skills/` instead.
     """
     if scope not in _VALID_SCOPES:
         raise ValueError(f"scope must be one of {_VALID_SCOPES!r}, got {scope!r}")
@@ -183,25 +192,26 @@ def add(
             f"{result.stderr.strip()[:500] or cli_output[:500]}"
         )
 
-    global_path = _global_skill_dir(name)
-    if not global_path.is_dir():
+    cli_path = _cli_install_dir(name)
+    if not cli_path.is_dir():
         raise QaskillsCLIError(
             f"qaskills CLI add for {name!r} reported success but no skill directory "
-            f"appeared at {global_path}. Inspect with `npx qaskills list`."
+            f"appeared at {cli_path}. Inspect with `npx qaskills list`."
         )
 
     if scope == "global":
-        return AddResult(name=name, scope="global", installed_at=global_path, cli_output=cli_output)
+        target = _global_skill_dir(name)
+    else:
+        target = _project_skill_dir(project_root, name)
 
-    project_path = _project_skill_dir(project_root, name)
-    if project_path.exists():
+    if target.exists():
         raise QaskillsCLIError(
-            f"project-local target {project_path} already exists; "
-            "remove it first or pick scope='global'."
+            f"install target {target} already exists; "
+            "remove it first or pick a different scope."
         )
-    project_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(global_path), str(project_path))
-    return AddResult(name=name, scope="project", installed_at=project_path, cli_output=cli_output)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(cli_path), str(target))
+    return AddResult(name=name, scope=scope, installed_at=target, cli_output=cli_output)
 
 
 def is_installed_locally(name: str, *, project_root: Path | None = None) -> InstalledLocation | None:
