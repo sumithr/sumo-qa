@@ -60,8 +60,20 @@ See the Checklist above — that's the flow.
 | verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
 | spike-first-then-tests | sumo-qa-preparing-for-work (deliverable mode) |
+| (no native fit, gate on, category matched) | sumo-qa-suggesting-external-skill |
 
 For "create a test plan" / "plan QA for this story" intents, after approach is picked, route to `sumo-qa-creating-test-plan` or `sumo-qa-preparing-for-work` per user phrasing. For "how do I test this?" intents that don't fit any specific approach, route to `sumo-qa-answering-testing-question`.
+
+## Fallback to qaskills.sh (trial — gated)
+
+When **no canonical approach fits** the intent AND the env var `SUMO_QA_EXTERNAL_SKILLS=1` is set:
+
+1. Call `sumo_qa_load_external_skills_registry()`.
+2. For each entry in `category_keywords` (e2e, accessibility, performance, contract, mutation, flaky, ...), check whether any of its keywords appears (case-insensitive substring) in the user's intent.
+3. If a category matches → return `next_action: {skill: "sumo-qa-suggesting-external-skill"}` with the category in the internal rationale.
+4. If no category matches → continue with the native fallback (`no-tests-recommended` or whichever native approach is closest).
+
+When the env var is not set, this fallback is invisible — proceed as today. Do NOT mention the gate to the user when it's off.
 
 ## Red Flags
 
@@ -101,4 +113,5 @@ Routes to exactly ONE of the following, based on the approach picked:
 - When the intent is a generic testing question → `sumo-qa-answering-testing-question` to cite a principle and technique.
 - When the approach is `strategy-orchestration` → `sumo-qa-strategising` to walk the repo and design a phased rollout.
 - When the work has 3+ independent tasks needing dispatch → `sumo-qa-planning-qa-rollout` to turn the work into a bite-sized, dispatchable plan.
+- When no canonical approach fits AND `SUMO_QA_EXTERNAL_SKILLS=1` AND the intent matches a `registry.json` category keyword → `sumo-qa-suggesting-external-skill`.
 - When the approach is `no-tests-recommended` → stop. No next-skill handoff.
