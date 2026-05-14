@@ -52,4 +52,4 @@ Manage the local known-good test data catalogue under `knowledge/test_data/`. Fi
 
 The discipline (when to ask the user, when to call which tool, what to assert, how to cite a principle) lives in the [skill files](../skills/). The host LLM follows the skill literally. The MCP tools just provide the source of truth.
 
-This is the architectural difference from the pre-restructure version, which had 10 heavy MCP tools each producing 1500-token structured JSON output via host-LLM sampling. That model broke on hosts with smaller token caps or less robust SSE handling. See [`docs/superpowers/specs/2026-05-08-superpowers-restructure-design.md`](superpowers/specs/2026-05-08-superpowers-restructure-design.md) for the full rationale.
+This is the architectural difference from the pre-restructure version, which had 10 heavy MCP tools each producing 1500-token structured JSON output via host-LLM sampling. That model broke on hosts with smaller token caps or less robust SSE handling — the thin-tool design above replaced it.
