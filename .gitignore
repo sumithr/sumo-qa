@@ -25,6 +25,9 @@ mutants/
 # Internal planning, design specs, and iteration runs — kept locally for
 # context but not shipped in the public repo.
 docs/superpowers/
+docs/qa/
+docs/qa-strategy.md
+docs/COVERAGE.md
 
 # Team-local test data fixtures. The repo ships domain-neutral samples
 # (auth/, billing/) — keep your team's actual catalogue entries local
