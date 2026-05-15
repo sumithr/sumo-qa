@@ -22,6 +22,14 @@ mutants/
 # Per-machine MCP config written by sumo-qa-install
 .vscode/mcp.json
 
+# Per-machine plugin manifests for direct-clone install paths (Claude Code
+# marketplace, Cursor, Codex). Not shipped to pip users; not part of the
+# documented install surface. Kept locally for the maintainer who loads
+# sumo-qa as a Claude Code plugin from this checkout.
+.claude-plugin/
+.codex-plugin/
+.cursor-plugin/
+
 # Internal planning, design specs, and iteration runs — kept locally for
 # context but not shipped in the public repo.
 docs/superpowers/

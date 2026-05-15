@@ -114,20 +114,6 @@ def test_using_sumo_qa_skill_file_exists() -> None:
     assert USING_SKILL.exists(), f"Hook depends on {USING_SKILL} existing"
 
 
-def test_plugin_manifests_are_valid_json() -> None:
-    """All 4 host plugin manifests must be parseable JSON with a `name`."""
-    manifests = [
-        ROOT / ".claude-plugin" / "plugin.json",
-        ROOT / ".claude-plugin" / "marketplace.json",
-        ROOT / ".cursor-plugin" / "plugin.json",
-        ROOT / ".codex-plugin" / "plugin.json",
-    ]
-    for manifest_path in manifests:
-        assert manifest_path.exists(), f"missing manifest: {manifest_path}"
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        assert "name" in data, f"manifest missing `name`: {manifest_path}"
-
-
 def test_hook_registrations_reference_existing_script() -> None:
     """`hooks/hooks.json` and `hooks/hooks-cursor.json` both register the
     SessionStart hook — verify the run-hook.cmd wrapper they point at exists

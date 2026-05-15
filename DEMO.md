@@ -32,7 +32,7 @@ pip install sumo-qa && sumo-qa-install
 
 Restart your host (or open a fresh chat) once it's done.
 
-**Cursor, Codex, OpenCode**: the repo ships plugin manifests at `.cursor-plugin/plugin.json` and `.codex-plugin/plugin.json` for those host plugin systems. We haven't documented those install paths end-to-end yet — for now, follow that host's own plugin/MCP-server setup docs and point at either the plugin manifest or the absolute path to the `sumo-qa` binary printed by `sumo-qa-install --help`.
+**Cursor, Codex, OpenCode**: the `sumo-qa` binary you get from `pip install sumo-qa` exposes a standard stdio MCP server. Follow your host's own MCP-server setup docs and point it at the absolute path printed by `sumo-qa-install --help`.
 
 ### Updating later
 
