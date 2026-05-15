@@ -1,14 +1,15 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from sumo_qa.server import build_mcp_server
 
-# Phase 4 slimmed surface: 4 test-data tools + 7 knowledge loaders = 11 atomic tools.
+# Phase 4 slimmed surface: 4 test-data tools + 6 knowledge loaders = 10 atomic tools.
 # Phase 5 follow-up: each SKILL.md is also registered as an MCP tool
 # (in addition to its MCP prompt) so hosts whose slash menus surface tools but
 # not prompts (IntelliJ AI Assistant, VS Code + Copilot) can invoke skills.
 # Chain-polish pass added 3 more skills (planning / executing / finishing).
 # Task 8: sumo-qa-suggesting-external-skill added.
 # Task 1: 8 qaskills/Node-install tools removed (dead code after pivot to SKILL.md flow).
-# Total registered tools: 11 atomic + 14 skill = 25.
+# Task 72: sumo_qa_load_specialty_tools removed (catalogue → discovery rule).
+# Total registered tools: 10 atomic + 14 skill = 24.
 _TEST_DATA_TOOL_NAMES = {
     "sumo_qa_explain_test_data_requirements",
     "sumo_qa_find_test_data",
@@ -21,7 +22,6 @@ _KNOWLEDGE_LOADER_TOOL_NAMES = {
     "sumo_qa_load_approaches",
     "sumo_qa_load_principles",
     "sumo_qa_load_techniques",
-    "sumo_qa_load_specialty_tools",
     "sumo_qa_load_standards",
     "sumo_qa_load_rules",
 }
@@ -147,7 +147,7 @@ def test_tool_descriptions_avoid_directive_language() -> None:
 
 
 def test_knowledge_loader_tools_are_registered():
-    """The 7 sumo_qa_load_* tools must appear in the server's tool list."""
+    """The 6 sumo_qa_load_* tools must appear in the server's tool list."""
     server = build_mcp_server()
     tool_names = set(server._tool_manager._tools.keys())
     for name in _KNOWLEDGE_LOADER_TOOL_NAMES:
@@ -169,8 +169,7 @@ def test_main_module_imports_without_error() -> None:
 
 # ---------------------------------------------------------------------------
 # Tool bodies — call the registered MCP tools directly via the server so the
-# nested function bodies inside build_mcp_server() are executed. Lines 125-138,
-# 181-208, 228-237, 253-264, 276, 282, 288, 295, 305, 312, 318, 326.
+# nested function bodies inside build_mcp_server() are executed.
 # ---------------------------------------------------------------------------
 
 
@@ -219,9 +218,6 @@ def test_tool_bodies_are_reachable_via_server_call_tool() -> None:
         # sumo_qa_load_techniques (line 295)
         r = await server.call_tool("sumo_qa_load_techniques", {})
         results.append(r)
-        # sumo_qa_load_specialty_tools (line 305)
-        r = await server.call_tool("sumo_qa_load_specialty_tools", {})
-        results.append(r)
         # sumo_qa_load_standards (line 312)
         r = await server.call_tool("sumo_qa_load_standards", {})
         results.append(r)
@@ -231,7 +227,7 @@ def test_tool_bodies_are_reachable_via_server_call_tool() -> None:
         return results
 
     results = asyncio.run(run_tools())
-    assert len(results) == 10
+    assert len(results) == 9
 
 
 def test_tool_body_register_known_good_via_server(tmp_path) -> None:

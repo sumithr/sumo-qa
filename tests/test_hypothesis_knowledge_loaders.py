@@ -21,7 +21,6 @@ NO_ARG_LOADERS = [
     kl.sumo_qa_load_approaches,
     kl.sumo_qa_load_principles,
     kl.sumo_qa_load_techniques,
-    kl.sumo_qa_load_specialty_tools,
 ]
 
 

@@ -27,7 +27,7 @@
 > - `shared/` — Python library: `shared/money.py`, `shared/clock.py`, `shared/idempotency.py`. 6 unit tests total. Imported by all 4 services (`grep -r "from shared"` confirms).
 > - Root: `Makefile` runs `make test` → fans out to per-service `pytest`. CI is GitHub Actions (`.github/workflows/ci.yml`). No coverage report artefact in the workflow.
 
-*(internal: loads `sumo_qa_load_principles()`, `sumo_qa_load_classifications()`, `sumo_qa_load_specialty_tools()`.)*
+*(internal: loads `sumo_qa_load_principles()` and `sumo_qa_load_classifications()`. Specialty-tool picks come from the discovery discipline — observe the surface, web-search current options for the user's stack, cite — not a catalogue load.)*
 
 I've walked the monorepo. Here's the inventory before I dig into per-area risks — one thing to confirm before I go deeper.
 

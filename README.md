@@ -50,8 +50,8 @@ Then restart the host. The SessionStart hook re-injects new content; bundled ski
 | Layer | What it is |
 |---|---|
 | **14 skills** (`skills/*/SKILL.md`) | Iron-Law-enforced procedures the host LLM follows. Cover deciding approach, preparing for work, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising — **plus planning + subagent execution + finishing chain** (planning → dispatch parallel subagents → capture evidence + PR-ready summary). |
-| **25 MCP entry points** | 14 skill tools + 7 knowledge loaders + 4 test-data tools. Thin file IO; no inference. |
-| **5 knowledge catalogues** (`knowledge/*.md`) | 4 authoritative catalogues (classifications, approaches, principles, techniques) — the LLM picks from these, not from training-data recall. Plus 1 category-fit primer (specialty_tools) where the LLM picks tool brands from its training knowledge and the file confirms the category fits. Editable as plain markdown. |
+| **24 MCP entry points** | 14 skill tools + 6 knowledge loaders + 4 test-data tools. Thin file IO; no inference. |
+| **4 knowledge catalogues** (`knowledge/*.md`) | Classifications, approaches, principles, techniques — the LLM picks from these, not from training-data recall. Editable as plain markdown. Specialty-tool picks are intentionally NOT catalogued: the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
 
 ## Host support
 
@@ -103,7 +103,7 @@ Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) 
 - [AGENTS.md](AGENTS.md) — AI-agent bootstrap and per-host setup
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — three layers, host delivery, knowledge authority
 - [docs/SKILLS.md](docs/SKILLS.md) — the 14 skills with their Iron Laws
-- [docs/TOOLS.md](docs/TOOLS.md) — the 25 MCP entry points
+- [docs/TOOLS.md](docs/TOOLS.md) — the 24 MCP entry points
 - [docs/INSTALL.md](docs/INSTALL.md) — per-host install detail, schema differences, troubleshooting
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
