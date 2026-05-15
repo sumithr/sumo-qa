@@ -15,6 +15,10 @@ build/
 # IDE config (per-developer, not shipped)
 .idea/
 
+# mutmut working directory: mutated source copies + stats cache + results SQLite.
+# Per-machine; regenerated on each `mutmut run`. Do not commit.
+mutants/
+
 # Per-machine MCP config written by sumo-qa-install
 .vscode/mcp.json
 
