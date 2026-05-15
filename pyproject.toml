@@ -46,6 +46,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "hypothesis>=6,<7",
+  "mutmut>=3,<4",
   "pytest>=8.4,<10",
   "pytest-cov>=6,<8",
   "ruff>=0.5,<1",
@@ -83,3 +84,39 @@ packages = ["src/sumo_qa"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q --cov=src/sumo_qa --cov-fail-under=100"
+
+[tool.mutmut]
+# Target only the four parser/decision modules per the Phase 3 strategy.
+# Other modules (installer, server, tdm_*) aren't included in this baseline.
+paths_to_mutate = [
+  "src/sumo_qa/knowledge_loaders.py",
+  "src/sumo_qa/rules.py",
+  "src/sumo_qa/standards.py",
+  "src/sumo_qa/tdm_validation.py",
+]
+# --no-cov: bypasses --cov-fail-under=100 addopts (fails every mutated run)
+# -x: stop at first failure for speed
+# --ignore: exclude E2E tests that spawn subprocesses; they can't run under
+#   mutmut's CWD because REPO_ROOT resolves to mutants/ and the subprocess
+#   PYTHONPATH then points at the incomplete mutants/src/ package.
+# Note: mutmut 3.x does not support a `runner` key — use pytest_add_cli_args.
+pytest_add_cli_args = ["--no-cov", "-x", "--ignore=tests/test_e2e_mcp_initialize.py"]
+tests_dir = ["tests/"]
+# mutmut only copies paths_to_mutate modules into mutants/src/sumo_qa/, leaving the
+# rest of the package absent. also_copy ensures the full src/ tree is mirrored into
+# mutants/src/ (dirs_exist_ok=True) so the mutated files overwrite the originals
+# while every other module (debug_capture, server, installer, …) stays importable.
+# Resource directories (standards/, knowledge/, skills/, hooks/, .claude-plugin/,
+# .codex-plugin/, .cursor-plugin/) are also copied because tests resolve them via
+# `Path(__file__).resolve().parents[1]` which points to mutants/ when pytest runs
+# from that CWD, so all data dirs must exist under mutants/ too.
+also_copy = [
+  "src/",
+  "standards/",
+  "knowledge/",
+  "skills/",
+  "hooks/",
+  ".claude-plugin/",
+  ".codex-plugin/",
+  ".cursor-plugin/",
+]

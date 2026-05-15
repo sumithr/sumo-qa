@@ -1,0 +1,131 @@
+name: mutation
+
+# Nightly mutation-testing guard.
+#
+# Uses Option A (compare-vs-baseline, fail-on-drop):
+#   Fails the workflow if any module's killed count drops below the committed
+#   baseline in mutmut-baseline.json.  The 100% kill-rate target is a manual
+#   review check after the first nightly run; the floor is the committed
+#   baseline.  Upgrade the floor once the first Linux CI run confirms the
+#   strengthening tests push all modules to 100%.
+
+on:
+  schedule:
+    - cron: '0 5 * * *'  # 05:00 UTC nightly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30  # mutmut on this codebase ran in ~60s locally; generous CI budget.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Run mutmut
+        id: mutate
+        # Don't fail the step on non-zero exit; mutmut exits non-zero when
+        # survivors exist.  We do our own comparison in the next step.
+        continue-on-error: true
+        run: |
+          set +e
+          uv run mutmut run 2>&1 | tee mutmut.log
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+      - name: Compare against baseline
+        run: |
+          uv run python <<'EOF'
+          import json
+          import sys
+          from collections import defaultdict
+          from pathlib import Path
+
+          # Load committed baseline.
+          baseline = json.loads(Path("mutmut-baseline.json").read_text())
+          baseline_per_module = baseline["per_module"]
+
+          # Parse `mutmut results` output to build current per-module counts.
+          import subprocess
+          results = subprocess.run(
+              ["uv", "run", "mutmut", "results"],
+              capture_output=True,
+              text=True,
+              check=False,
+          ).stdout
+          # Lines look like:  "    sumo_qa.<module>.x_<func>__mutmut_<n>: <status>"
+          current = defaultdict(lambda: {"total": 0, "killed": 0, "survived": 0})
+          for line in results.splitlines():
+              line = line.strip()
+              if not line.startswith("sumo_qa."):
+                  continue
+              # mutant ID looks like sumo_qa.<module>.<rest>: <status>
+              ident, _, status = line.partition(":")
+              status = status.strip()
+              parts = ident.split(".")
+              if len(parts) < 3:
+                  continue
+              module = parts[1]
+              if module not in baseline_per_module:
+                  continue
+              current[module]["total"] += 1
+              if status == "killed":
+                  current[module]["killed"] += 1
+              elif status == "survived":
+                  current[module]["survived"] += 1
+
+          # Compare per-module.
+          failed = []
+          summary_lines = ["Module | Baseline killed | Current killed | Verdict"]
+          summary_lines.append("---|---|---|---")
+          for module, base in baseline_per_module.items():
+              curr = current.get(module, {"killed": 0, "survived": 0, "total": 0})
+              base_killed = base["killed"]
+              curr_killed = curr["killed"]
+              if curr_killed < base_killed:
+                  verdict = "DROPPED"
+                  failed.append(
+                      f"{module}: killed dropped from {base_killed} -> {curr_killed}"
+                  )
+              else:
+                  verdict = "OK"
+              summary_lines.append(
+                  f"{module} | {base_killed} | {curr_killed} | {verdict}"
+              )
+
+          summary = "\n".join(summary_lines)
+          print(summary)
+          # Surface to GitHub Actions step summary.
+          import os
+          gh_summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if gh_summary_path:
+              Path(gh_summary_path).write_text(summary)
+
+          if failed:
+              print("\nFAIL: mutation kill counts dropped below baseline:")
+              for f in failed:
+                  print(f"  - {f}")
+              sys.exit(1)
+          print("\nAll module kill counts >= baseline.")
+          EOF
+
+      - name: Upload mutmut log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutmut-log
+          path: mutmut.log
+          if-no-files-found: warn
+          retention-days: 14

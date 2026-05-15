@@ -128,3 +128,22 @@ def test_unknown_field_under_classification_raises_value_error(tmp_path: Path) -
 
     assert "made_up_change" in str(excinfo.value)
     assert str(rules_path) in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# Mutation-strengthening tests (Phase 3) — see docs/qa/runs/2026-05-14-phase3-*
+# ---------------------------------------------------------------------------
+
+
+def test_dedupe_removes_duplicates_preserving_first_seen_order() -> None:
+    """Direct unit test of `_dedupe()` to kill mutmut survivor
+    `sumo_qa.rules.x__dedupe__mutmut_4` (`seen.add(item)` → `seen.add(None)`).
+
+    With the mutation, `seen` only ever contains None, so every input item passes
+    the `item not in seen` check and `_dedupe` returns the input unchanged. This
+    test asserts a concrete deduped output that the broken mutation would not
+    produce.
+    """
+    from sumo_qa.rules import _dedupe
+
+    assert _dedupe(["a", "a", "b", "a", "c"]) == ["a", "b", "c"]

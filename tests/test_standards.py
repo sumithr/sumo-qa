@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 from sumo_qa.standards import StandardsEngine
+from sumo_qa.tools import DEFAULT_STANDARDS_PATH
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -219,3 +220,45 @@ def test_unknown_workflow_in_applies_to_is_allowed(tmp_path: Path) -> None:
     evaluation = engine.evaluate("custom-workflow")
 
     assert any(check["id"] == "custom.workflow" for check in evaluation.checks)
+
+
+# ---------------------------------------------------------------------------
+# Mutation-strengthening tests (Phase 3) — see docs/qa/runs/2026-05-14-phase3-*
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key", ["id", "title", "severity", "qa_focus", "pass_criteria"])
+def test_evaluation_check_dict_has_canonical_keys(key: str) -> None:
+    """Kill mutmut survivors `xǁStandardsEngineǁevaluate__mutmut_7..14` (8 mutants).
+
+    Each mutant changes a dict-key string in the per-check output dict
+    (`"title"` → `"XXtitleXX"` or `"TITLE"`, etc.). The keys are part of the
+    public StandardsEvaluation contract — downstream consumers index into
+    `evaluation.checks[i]["title"]`. This parametrised test asserts each
+    canonical key is present; any spelling mutation breaks the assertion.
+    """
+    engine = StandardsEngine.from_directory(DEFAULT_STANDARDS_PATH)
+    evaluation = engine.evaluate("review")
+    assert evaluation.checks, "review workflow should have ≥ 1 applicable check"
+    assert key in evaluation.checks[0], (
+        f"Missing canonical key {key!r}; got {list(evaluation.checks[0])}"
+    )
+
+
+def test_evaluation_prompts_contain_check_title_and_focus() -> None:
+    """Kill mutmut survivors `xǁStandardsEngineǁevaluate__mutmut_16` and `_20`.
+
+    M16: `prompts.append(f"{check.title}: {check.qa_focus}")` → `prompts.append(None)`.
+    M20: `prompts=prompts` in the returned StandardsEvaluation → `prompts=None`.
+
+    Both leave evaluation.prompts non-functional from the caller's view. This
+    test asserts the field exists, is non-empty, and the formatted strings
+    contain the expected `:` separator — kills both mutations.
+    """
+    engine = StandardsEngine.from_directory(DEFAULT_STANDARDS_PATH)
+    evaluation = engine.evaluate("review")
+    assert evaluation.prompts is not None
+    assert evaluation.prompts, "review workflow should produce ≥ 1 prompt"
+    assert ":" in evaluation.prompts[0], (
+        f"Expected `title: qa_focus` format; got {evaluation.prompts[0]!r}"
+    )
