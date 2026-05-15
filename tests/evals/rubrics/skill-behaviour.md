@@ -21,6 +21,8 @@ You are not assessing whether the QA work itself is correct. You are assessing w
 
 ## Candidate response
 
+The candidate may be a single first-turn response **or** a multi-turn transcript (`## Turn N` headings interspersed with `## Simulated user reply N` blocks showing how the user confirmed each section). For multi-turn transcripts, evaluate the **full conversation** — discipline beats may fire in any turn. Section-by-section walks specifically REQUIRE multiple turns to satisfy the skill's "no single-shot dump" anti-pattern.
+
 ```
 {{candidate_response}}
 ```
@@ -43,9 +45,15 @@ For **each** Anti-pattern, return ABSENT/PRESENT with a quoted span if PRESENT:
 
 Add these to the `items` array — one per Expected-shape item and one per Anti-pattern. Use `check` strings like `"shape_1: <one-line summary>"` or `"anti_1: <one-line summary>"`. Set `pass: true` for shape PASS / anti-pattern ABSENT; `pass: false` for shape FAIL / anti-pattern PRESENT.
 
-**Verdict:**
-- `PASS` if ALL Expected-shape items PASS and ALL Anti-patterns are ABSENT.
-- `FAIL` otherwise. Identify the `worst_item` — the single most damning failure (an Iron-Law-class shape FAIL outranks a discipline-class FAIL outranks an anti-pattern PRESENT).
+**Verdict (calibrated):**
+
+- `PASS` if BOTH:
+  - **All Iron-Law-class beats PASS** — these are non-negotiable. An Iron-Law-class beat is one the skill explicitly marks with `## The Iron Law`, a `<HARD-GATE>` block, or anti-pattern language like *"NEVER"*, *"MUST"*, *"refuses to"*. Examples: *"runs the test suite in this turn"* (reviewing-before-merge HARD-GATE), *"explicit entry AND exit criteria"* (creating-test-plan Iron Law), *"production code stays unchanged"* (strengthening-tests Iron Law), *"writes failing test, runs it, surfaces red"* (implementing-with-tdd regression-first Iron Law), *"transparent handoff, no routing announcement"* (using-sumo-qa global discipline).
+  - **All anti-patterns ABSENT.**
+  - AND **at least 75% of remaining discipline beats PASS** (round up; e.g. 6 discipline beats → at least 5 must PASS).
+- `FAIL` otherwise. Identify the `worst_item` — the single most damning failure (an Iron-Law beat FAIL outranks an anti-pattern PRESENT outranks a discipline-class FAIL).
+
+The 75% threshold reflects real senior-QA delivery: 7/9 beats firing is excellent and worth PASSing; missing one minor format beat in a multi-section response shouldn't kill the whole verdict. Iron-Law beats and anti-patterns remain non-negotiable — those define the floor.
 
 **Adversarial framing reminder:**
 
