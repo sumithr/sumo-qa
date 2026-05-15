@@ -304,6 +304,11 @@ def test_rules_path_returns_first_candidate_when_none_exist(monkeypatch, tmp_pat
     with patch.object(Path, "is_file", return_value=False):
         result = kl._rules_path()
 
-    # Should return the first candidate (even though it doesn't exist).
+    # Should return the FIRST candidate (which has 'standards' in its parts);
+    # asserting 'standards' guards against `return candidates[0]` → `candidates[1]`,
+    # since candidates[1] is `<repo>/rules/change_rules.yaml` (no 'standards').
     assert isinstance(result, Path)
     assert "change_rules.yaml" in result.name
+    assert "standards" in result.parts, (
+        f"Fallback must return candidates[0] (with 'standards' in path); got {result.parts}"
+    )

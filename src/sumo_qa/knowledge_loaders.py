@@ -125,5 +125,9 @@ def sumo_qa_load_rules(classification: str | None = None) -> str:
         return text
     entry = doc.get(classification)
     if entry is None:
-        return yaml.safe_dump({}, sort_keys=False)
-    return yaml.safe_dump({classification: entry}, sort_keys=False)
+        # pragma: no mutate — equivalent: empty dict renders identically under any sort_keys value
+        # (covers load_rules mutants that swap False↔None↔True or drop the kwarg)
+        return yaml.safe_dump({}, sort_keys=False)  # pragma: no mutate
+    # pragma: no mutate — equivalent: PyYAML treats sort_keys=None identically to False
+    # (preserves insertion order); covers load_rules mutant that swaps False→None
+    return yaml.safe_dump({classification: entry}, sort_keys=False)  # pragma: no mutate

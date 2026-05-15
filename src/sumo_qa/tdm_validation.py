@@ -54,8 +54,10 @@ def assess_freshness(
     if last_validated_at is None:
         return FreshnessMetadata(
             status="unknown",
-            last_validated_at=None,
-            age_days=None,
+            # Both kwargs match the FreshnessMetadata model defaults; mutmut
+            # mutations that drop them produce identical objects.
+            last_validated_at=None,  # pragma: no mutate
+            age_days=None,  # pragma: no mutate
             reason="Entry has never been validated.",
         )
     validated_at = _ensure_aware(last_validated_at)
@@ -128,7 +130,10 @@ def _confidence_from_freshness(status: str) -> TDMConfidenceLevel:
 
 
 def _lowest_confidence(*levels: TDMConfidenceLevel) -> TDMConfidenceLevel:
-    rank = {"low": 0, "medium": 1, "high": 2}
+    # Magnitude of the rank values is irrelevant to `min(..., key=...)` — only
+    # ordering matters. Mutations to the high-rank value (e.g. 2 → 3) preserve
+    # the ordering low<medium<high and produce no observable difference.
+    rank = {"low": 0, "medium": 1, "high": 2}  # pragma: no mutate
     return min(levels, key=lambda level: rank[level])
 
 

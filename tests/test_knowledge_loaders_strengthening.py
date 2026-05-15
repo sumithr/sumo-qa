@@ -167,6 +167,32 @@ def test_rules_path_first_candidate_uses_standards_subdir_literal(tmp_path, monk
     )
 
 
+def test_rules_path_second_candidate_returned_when_only_it_exists(monkeypatch) -> None:
+    """When only the SECOND candidate (`<repo>/rules/change_rules.yaml`) exists,
+    `_rules_path()` returns that exact path. Kills the candidate[1]
+    string-component mutations (`"rules"` → `"XXrulesXX"` / `"RULES"`,
+    `"change_rules.yaml"` → wrapped/uppercased).
+
+    The mutated literal differs from the canonical second-candidate path, so
+    the monkeypatched `is_file` returns False for the mutated path and the
+    function falls through to `candidates[0]` instead — observable difference.
+    """
+    monkeypatch.delenv("QA_RULES_PATH", raising=False)
+    canonical_second = Path(kl.__file__).parent.parent.parent / "rules" / "change_rules.yaml"
+    canonical_first = (
+        Path(kl.__file__).parent.parent.parent / "standards" / "rules" / "change_rules.yaml"
+    )
+
+    def is_file_only_second(self):
+        return self == canonical_second
+
+    monkeypatch.setattr(Path, "is_file", is_file_only_second)
+    result = kl._rules_path()
+    assert result == canonical_second, f"Expected second candidate {canonical_second}; got {result}"
+    # Sanity: it's NOT the first candidate.
+    assert result != canonical_first
+
+
 # ---------------------------------------------------------------------------
 # Class E — `sumo_qa_load_standards` inner mutations (15 mutants)
 # Covers: glob patterns, encoding, YAML continue/break, dict.get keys, filter logic
@@ -310,6 +336,10 @@ def test_load_standards_no_classification_returns_all_packs(tmp_path, monkeypatc
 def test_load_standards_join_separator_is_triple_dash(tmp_path, monkeypatch) -> None:
     """Multiple packs are joined with `\n\n---\n\n`. Kills mutations to the
     separator literal.
+
+    Additionally asserts no `XX` literal anywhere — the `"XX\n\n---\n\nXX".join(...)`
+    mutation passes the substring-in check but injects bracketing literals; an
+    explicit `"XX" not in result` kills it.
     """
     packs_dir = tmp_path / "packs"
     packs_dir.mkdir()
@@ -318,6 +348,39 @@ def test_load_standards_join_separator_is_triple_dash(tmp_path, monkeypatch) -> 
     monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
     result = kl.sumo_qa_load_standards()
     assert "\n\n---\n\n" in result, f"Expected '---' separator; got {result[:300]!r}"
+    assert "XX" not in result, (
+        f"`XX...XX`-bracketed join separator mutation leaked into output; got {result[:300]!r}"
+    )
+
+
+def test_load_standards_classification_filter_continues_past_nonmatching_packs(
+    tmp_path, monkeypatch
+) -> None:
+    """When a pack's classification metadata does NOT include the filter, the
+    loop must `continue` (not `break`) so later packs are still considered.
+    Kills the `if classification not in applies: break` mutation.
+
+    Ordered so the non-matching pack is alphabetically FIRST — only a `continue`
+    semantic lets the second (matching) pack reach the append.
+    """
+    packs_dir = tmp_path / "packs"
+    packs_dir.mkdir()
+    (packs_dir / "a_nonmatching.yaml").write_text(
+        yaml.safe_dump({"applies_to_classifications": ["docs_change"], "name": "a_nonmatching"}),
+        encoding="utf-8",
+    )
+    (packs_dir / "b_matching.yaml").write_text(
+        yaml.safe_dump({"applies_to_classifications": ["security_change"], "name": "b_matching"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+    result = kl.sumo_qa_load_standards(classification="security_change")
+    assert "b_matching" in result, (
+        f"`continue` should skip a_nonmatching and still reach b_matching; got {result[:300]!r}"
+    )
+    assert "a_nonmatching" not in result, (
+        f"a_nonmatching does not match the filter; got {result[:300]!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
