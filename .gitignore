@@ -43,3 +43,9 @@ docs/COVERAGE.md
 # privately.
 knowledge/test_data/fulfilment/
 knowledge/test_data/stock/
+
+# Per-run LLM-eval artifacts (candidate.md + verdict.json under a UTC-timestamp
+# subdir). Promote interesting ones to tests/scenarios/worked-examples/ if
+# they're worth keeping; otherwise local-only.
+tests/evals/runs/*
+!tests/evals/runs/.gitkeep

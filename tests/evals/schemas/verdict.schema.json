@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sumithr/sumo-qa/blob/main/tests/evals/schemas/verdict.schema.json",
+  "title": "Sumo-qa eval verdict",
+  "description": "Schema for adversarial-judge verdicts produced by `codex exec` against a sumo-qa eval scenario.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "items", "overall_evidence", "worst_item"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["PASS", "FAIL"],
+      "description": "Top-line pass/fail across all rubric items."
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "pass", "evidence"],
+        "properties": {
+          "check": {
+            "type": "string",
+            "description": "Short identifier for the rubric item, e.g. `shape_1: walks repo before asking` or `anti_2: surfaces classification label`."
+          },
+          "pass": {
+            "type": "boolean",
+            "description": "True if the check passed (expected-shape item satisfied, or anti-pattern absent). False otherwise."
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Quoted span from the candidate response that justifies the call. 'not observed' if absent."
+          }
+        }
+      }
+    },
+    "overall_evidence": {
+      "type": "string",
+      "description": "One-paragraph summary justifying the top-line verdict, naming the most load-bearing PASS items and the most damning FAIL items."
+    },
+    "worst_item": {
+      "type": "string",
+      "description": "The `check` string of the single most damning failure (Iron-Law > discipline > anti-pattern). Empty string if verdict is PASS."
+    }
+  }
+}
