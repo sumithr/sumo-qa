@@ -44,6 +44,7 @@ jobs:
           ISSUE_DATE="$(date -u +%Y-%m-%d)"
           gh issue create \
             --title "TDM URL freshness check failed (${ISSUE_DATE})" \
+            --label tdm-freshness \
             --body "The scheduled TDM URL freshness check found one or more known-good
           test-data entries pointing at URLs that returned non-2xx responses.
 

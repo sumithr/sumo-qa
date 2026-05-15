@@ -145,6 +145,16 @@ def main() -> int:
         help="Print JetBrains setup instructions only.",
     )
     parser.add_argument(
+        "--claude-desktop",
+        action="store_true",
+        help=(
+            "Configure Claude Desktop only (the macOS Claude.app + Windows/Linux "
+            "equivalents — including the Cowork code-capable mode). Writes "
+            "claude_desktop_config.json to the OS-correct path; merges with any "
+            "existing mcpServers entries."
+        ),
+    )
+    parser.add_argument(
         "--workspace",
         type=Path,
         default=None,
@@ -162,10 +172,11 @@ def main() -> int:
     args = parser.parse_args()
 
     # If no host flag is set, default to all.
-    explicit_hosts = bool(args.claude_code or args.vscode or args.jetbrains)
+    explicit_hosts = bool(args.claude_code or args.vscode or args.jetbrains or args.claude_desktop)
     do_claude = args.claude_code or not explicit_hosts
     do_vscode = args.vscode or not explicit_hosts
     do_jetbrains = args.jetbrains or not explicit_hosts
+    do_claude_desktop = args.claude_desktop or not explicit_hosts
 
     system = platform.system()
     print(f"sumo-qa installer  (OS: {system})")
@@ -175,6 +186,7 @@ def main() -> int:
             ("Claude Code", do_claude),
             ("VS Code", do_vscode),
             ("JetBrains", do_jetbrains),
+            ("Claude Desktop", do_claude_desktop),
         ]
         if do
     )
@@ -202,6 +214,8 @@ def main() -> int:
         results.append(_setup_vscode_copilot(mcp_path, workspace))
     if do_jetbrains:
         results.append(_setup_intellij(mcp_path, system))
+    if do_claude_desktop:
+        results.append(_setup_claude_desktop(mcp_path, system))
 
     print("Host setup:")
     for r in results:
@@ -614,6 +628,78 @@ def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
         "      registers it via the supported path and persists across\n"
         "      restarts."
     )
+    return r
+
+
+# ----------------------------------------------------------------------
+# Claude Desktop (the macOS Claude.app + Windows/Linux equivalents,
+# including the Cowork code-capable mode)
+# ----------------------------------------------------------------------
+
+
+def _claude_desktop_config_path(home: Path, system: str) -> Path:
+    """Return the OS-correct path to claude_desktop_config.json.
+
+    Critically NOT the same as the path used by `_setup_claude_code`. The real
+    Claude Desktop app reads from these locations:
+      - macOS:   ~/Library/Application Support/Claude/claude_desktop_config.json
+      - Windows: %APPDATA%/Claude/claude_desktop_config.json
+      - Linux:   ~/.config/Claude/claude_desktop_config.json   (uppercase Claude)
+    """
+    if system == "Darwin":
+        return home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    if system == "Windows":  # pragma: no cover -- platform-conditional Windows branch
+        appdata = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming")))
+        return appdata / "Claude" / "claude_desktop_config.json"
+    return home / ".config" / "Claude" / "claude_desktop_config.json"
+
+
+def _setup_claude_desktop(mcp_path: Path, system: str) -> HostResult:
+    """Wire sumo-qa into the Claude Desktop app's MCP config.
+
+    Reads the existing claude_desktop_config.json (if any), merges the sumo-qa
+    entry into mcpServers (preserving every other server entry), writes back.
+    Idempotent on re-run.
+    """
+    r = HostResult("Claude Desktop")
+    home = Path.home()
+
+    # Special-case Windows: APPDATA may not be set. Use it if present, else
+    # fall back to the same path-resolution helper which provides a default.
+    config_path = _claude_desktop_config_path(home, system)
+    config_dir = config_path.parent
+
+    if not config_dir.is_dir():
+        r.message = "Claude Desktop not detected on this machine"
+        return r
+
+    r.detected = True
+
+    config: dict = {}
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            r.message = (
+                f"{config_path} exists but is invalid JSON; not modifying. "
+                f"Add manually:\n"
+                f'    "sumo-qa": {{ "command": "{mcp_path}" }}'
+            )
+            return r
+
+    existing_servers = config.get("mcpServers") or {}
+    other_servers_count = sum(1 for k in existing_servers if k != "sumo-qa")
+
+    config.setdefault("mcpServers", {})
+    config["mcpServers"]["sumo-qa"] = {"command": str(mcp_path)}
+    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+
+    r.configured = True
+    r.config_path = config_path
+    if other_servers_count > 0:
+        r.message = f"wrote {config_path}; merged with {other_servers_count} existing server(s)"
+    else:
+        r.message = f"wrote {config_path}"
     return r
 
 

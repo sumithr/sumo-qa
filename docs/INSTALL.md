@@ -24,6 +24,7 @@ When you only want to configure one host (or you're scripting per-host install):
 
 ```bash
 sumo-qa-install --claude-code             # Claude Code only
+sumo-qa-install --claude-desktop          # Claude Desktop app only
 sumo-qa-install --vscode                  # VS Code: writes <cwd>/.vscode/mcp.json
 sumo-qa-install --vscode --workspace /path/to/repo
 sumo-qa-install --jetbrains               # prints Settings UI steps
@@ -66,6 +67,28 @@ After install: restart Claude Code. Type `/` and start typing `sumo-qa-`:
 - **MCP tools appear with underscores** (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`, …) — registered through the MCP server. Because the 14 skills are *also* registered through MCP, you'll typically see both hyphen and underscore variants for each skill in the slash menu. They call the same SKILL.md content and behave identically.
 
 Natural language always works too — ask *"review my changes"* or *"load the QA classifications"* and Claude Code routes by tool description. Use whichever style you prefer.
+
+### Claude Desktop (macOS app, incl. Cowork)
+
+`sumo-qa-install --claude-desktop` writes the sumo-qa MCP entry into the config file that the **Claude Desktop app** reads — the macOS `Claude.app` (and its Windows/Linux equivalents). This is the same app that powers Cowork mode, which has full code capabilities and runs agent tasks in the background.
+
+The config path is **different** from the one Claude Code uses:
+
+| OS | Path |
+|---|---|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` (uppercase `Claude`) |
+
+The installer:
+
+1. Checks whether the parent directory exists. If not, Claude Desktop is assumed not to be installed and the step is skipped (not an error).
+2. If the config file exists, reads it and merges the `sumo-qa` key into `mcpServers` — existing entries (e.g. `obsidian`, `github`) are preserved unchanged. If the existing JSON is invalid, it is not touched and an error is printed instead.
+3. If the config file does not exist but the parent directory does, creates it with just the `sumo-qa` entry.
+
+After install: **quit and reopen Claude Desktop** (or restart the relevant Cowork session). The `sumo-qa` MCP tools will appear in the tools panel.
+
+Note: `sumo-qa-install --claude-code` also writes a `claude_desktop_config.json`, but to `~/.config/claude/` (lowercase) — a path Claude Desktop does **not** read. That write is kept for backward compatibility. The `--claude-desktop` flag is the authoritative path for Claude Desktop users.
 
 ### JetBrains AI Assistant + Junie
 

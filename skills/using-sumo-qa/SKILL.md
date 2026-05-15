@@ -96,6 +96,33 @@ Reason internally with citations (which words in intent, which file paths, which
 
 When a classification or approach is genuinely useful for the user to know, translate to natural English: not *"Classification: business_logic_change"* but *"this is a behaviour change in the pricing logic"*. The taxonomy is your scaffolding; the meaning belongs in the message.
 
+### Confirmation discipline
+
+The skills' confirmation gates exist to prevent driving past wrong assumptions —
+but applying them literally to every minor specifics-call wastes the user's
+attention. Use this hierarchy:
+
+1. **Surface + proceed** is the default. State what you're doing, briefly cite
+   the call, and act. The user will redirect if they disagree.
+2. **Inline confirm** for moderate forks. Phrase as one declarative line ending
+   in a question: *"Going with X (Y is the alternative); shout if not."* Then
+   act unless they object.
+3. **Structured AskUserQuestion ONLY for genuine 50/50 forks** that
+   meaningfully change downstream work. Reserve for: irreversible commits,
+   scope changes that double the work, choices the user has explicit context to
+   make better than you. NOT for "which of these 4 phrasings sounds right" or
+   "should this filename use X or Y convention".
+
+Rule of thumb: if you'd predict the user's answer with >80% confidence, don't
+ask. Surface and proceed. The cost of a wrong default is one redirect; the
+cost of asking is the user's attention budget across N turns.
+
+Skill checklists that say *"walk section-by-section with confirmation gates"*
+should be read as: walk per-section when each section genuinely needs the
+user's per-section judgment. Collapse adjacent obvious sections into a single
+update. The Iron Law is "don't dump the whole strategy in one turn"; the goal
+is structured collaboration, not maximum question count.
+
 ### Specialty + tool fit
 
 sumo-qa decides WHAT testing is needed and where. The tool fills the gap. When a risk genuinely needs a specialty tool, pick the **best fit from your training-data knowledge of the ecosystem**, anchored to the user's actual stack. The `specialty_tools.md` primer is a category check (does mutation testing actually apply here? does DAST apply to this surface?), not a brand whitelist — don't restrict yourself to the names in it.
