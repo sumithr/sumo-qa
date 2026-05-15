@@ -220,6 +220,117 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 ---
 
+## 11. Router invocation — first-turn QA intent
+
+**User prompt:** *"Help me QA this thing — I added a new pricing function `apply_seasonal_discount` in `pricing/seasonal.py`."*
+
+**Skill activated:** `using-sumo-qa` (the router; should immediately route to `sumo-qa-deciding-approach` since the intent is QA-shaped).
+
+**Expected interaction shape:**
+1. The host LLM treats `using-sumo-qa` as the entry router for any QA-shaped intent — not as a content-bearing skill.
+2. Loads the global discipline (knowledge authority hierarchy, output discipline, internal scaffolding stays internal, specialty-tool-fit discovery).
+3. Hands off to `sumo-qa-deciding-approach` — does NOT attempt to plan, review, or scaffold inline.
+4. The handoff happens *transparently* — the user sees the deciding-approach output, not a "switching to sumo-qa-deciding-approach" announcement.
+5. The classification + approach decision is internal scaffolding; the user-facing first response is shaped by whichever sub-skill the routing lands on (here: `sumo-qa-preparing-for-work` for a new pricing function with no review-shaped or strategy-shaped framing).
+
+**Anti-patterns:**
+- Generates a plan, review, or scaffold inline without routing through `sumo-qa-deciding-approach` first.
+- Surfaces *"Routing to sumo-qa-deciding-approach"* as if it were a chat message.
+- Skips loading the global discipline (then violates output economy or surfaces internal taxonomy labels).
+- Treats `using-sumo-qa` as a heavy entry point that demands its own scenario-shaped output — it's a router, not a deliverable.
+
+---
+
+## 12. Bite-sized, dispatchable plan from a chunk of QA work
+
+**User prompt:** *"Take the Phase 1 work from our QA strategy (mutation baselines on `pricing/calculator.py` + `shared/money.py`, property-tests on rounding, Hypothesis fixtures) and turn it into a plan I can dispatch across subagents tomorrow."*
+
+**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-planning-qa-rollout`.
+
+**Expected interaction shape:**
+1. Reads the strategy doc (or the cited Phase 1 scope) and the relevant production paths to anchor each task in evidence.
+2. Walks scope → file structure → bite-sized tasks → confirm, **one section per turn** with confirmation gates (per the skill's checklist).
+3. **Bite-sized = independently executable in a fresh subagent.** Each task names the prod file, the test file, the test technique, the expected red→green or strengthening pattern, and any test data fixture it owns.
+4. Tagging: each task carries an Approach tag (`tdd-scaffold` / `regression-first` / `coverage-first-then-refactor` / `strengthen-test-coverage`) so `sumo-qa-executing-qa-rollout` knows which sub-skill the subagent should invoke.
+5. **Iron Law:** NO EXECUTION FROM THE PLANNER. The plan is the deliverable. Production code stays untouched in this skill.
+6. Final deliverable: a markdown file at `docs/qa/plans/YYYY-MM-DD-<feature>.md` (or wherever the user's repo configures plan storage), with each task in a structured block ready for subagent dispatch.
+
+**Anti-patterns:**
+- Begins implementing tests inline ("Iron Law violated — start the executor instead").
+- Tasks shaped at "implement Phase 1" level (too big for a fresh subagent).
+- Tasks named without anchoring file path, technique, or risk reference.
+- Single-shot dump of all tasks without confirmation gates.
+- Approach tag missing (downstream executor doesn't know which sub-skill to fire).
+
+---
+
+## 13. Dispatch a written plan task-by-task
+
+**User prompt:** *"Run the plan at `docs/qa/plans/2026-05-15-phase4.2-mutation-strengthening.md`."*
+
+**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-executing-qa-rollout`.
+
+**Expected interaction shape:**
+1. Reads the plan markdown; extracts each task block.
+2. **One fresh subagent per task**, dispatched in parallel where the plan marks tasks as independent (no shared-state edits).
+3. Each subagent invokes the sub-skill named by the task's Approach tag.
+4. After each subagent returns, runs a **two-stage review**: (a) test-correctness review (does the test actually exercise the named risk?), (b) test-quality review (boundary coverage, exact-equality vs substring, no tautology).
+5. **Continuous execution** — no per-task confirmation gates with the user once the plan is signed off (the planning skill already gathered confirmation).
+6. Surfaces evidence per task in a single status line (task name → subagent verdict → review-stage verdict). Verbose only on failure.
+7. On completion, routes to `sumo-qa-finishing-qa-work` to capture evidence and produce the PR-ready summary.
+
+**Anti-patterns:**
+- Pauses after every task to check in (the plan was already signed off; the executor's job is to drive).
+- Skips the two-stage review and accepts subagent output verbatim.
+- Edits the plan mid-execution ("found a better task structure") — if the plan needs changes, route back to `sumo-qa-planning-qa-rollout`.
+- Single-shot review of all tasks at the end (per-task review catches drift early).
+
+---
+
+## 14. Capture evidence + produce a PR-ready summary at the end of a rollout
+
+**User prompt:** *"All Phase 4.2 mutation tasks ran green. Wrap it up — I need something I can paste into the PR."*
+
+**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-finishing-qa-work`.
+
+**Expected interaction shape:**
+1. **Iron Law:** NO FINISH WITHOUT FRESH EVIDENCE + WRITTEN SUMMARY. Runs the suite *in this turn* (does NOT cite "CI was green earlier"); captures pass/fail counts + duration + coverage %.
+2. Captures the risk-to-test map: for each named risk in the plan, names the covering test (file + name) or flags it as uncovered.
+3. Lists open follow-ups honestly — items deferred to a future PR, equivalent mutants suppressed with rationale, residual risks accepted.
+4. Writes the summary to `docs/qa/runs/YYYY-MM-DD-<feature>.md`. Includes: evidence block, risk-to-test map, mutation/coverage figures, files touched, notable findings, known gaps + open follow-ups.
+5. Offers to draft the PR description with the same evidence packaged for GitHub.
+
+**Anti-patterns:**
+- Declares "wrap-up complete" without running the suite in this turn.
+- "All risks covered" without enumerating which test covers which risk.
+- "Residual risks: none" (every multi-task rollout leaves residuals — naming none means you didn't think about it).
+- Writes the summary to a path the user didn't agree to.
+- Skips offering to draft the PR description.
+
+---
+
+## 15. No native sumo-qa fit — discover an external skill
+
+**User prompt:** *"I want to add Playwright E2E tests for our checkout flow. None of your skills look right for that — what do I do?"*
+
+**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-suggesting-external-skill`.
+
+**Expected interaction shape:**
+1. Recognises that Playwright setup is *outside* the native sumo-qa skill set (the catalogue is concept-level discipline; the tool-bring-up is implementation-level work).
+2. Offers — with `[y/N]` confirmation — to install Vercel Labs' [`find-skills`](https://github.com/vercel-labs/skills) meta-skill, which then drives end-to-end discovery and install from [skills.sh](https://www.skills.sh/).
+3. **Never auto-installs** anything. The `[y/N]` is real; default is "no".
+4. Names the external resource explicitly (find-skills + skills.sh), with citation.
+5. If Node.js / npx is missing, prints the install URL and stops — does NOT auto-elevate via sudo.
+6. After the user picks an external skill (or declines), the response loop ends — sumo-qa doesn't try to re-route to one of its native skills as a substitute.
+
+**Anti-patterns:**
+- Hallucinates a specialty tool brand ("just use Playwright Cloud Runner") — the discovery rule from `using-sumo-qa` requires citation.
+- Auto-runs `npx find-skills` without the `[y/N]` gate.
+- Routes to `sumo-qa-implementing-with-tdd` and tries to scaffold Playwright tests inline (wrong shape — the user asked for skill discovery, not in-place TDD).
+- Tries `sudo` to install Node.js without consent.
+
+---
+
 ## How to validate these scenarios
 
 Two complementary paths:
