@@ -19,9 +19,6 @@ from sumo_qa.knowledge_loaders import (
     sumo_qa_load_rules as _load_rules,
 )
 from sumo_qa.knowledge_loaders import (
-    sumo_qa_load_specialty_tools as _load_specialty_tools,
-)
-from sumo_qa.knowledge_loaders import (
     sumo_qa_load_standards as _load_standards,
 )
 from sumo_qa.knowledge_loaders import (
@@ -293,16 +290,6 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             experience-based, static, property-based, mutation) as plain text.
             The host LLM picks one technique per named risk."""
             return _load_techniques()
-
-        @mcp.tool(annotations=_read_only_local)
-        def sumo_qa_load_specialty_tools() -> str:
-            """Return the specialty + tool fit category primer as plain text.
-            This is a CATEGORY-FIT primer (when does mutation testing apply,
-            when does DAST apply, etc.), NOT a brand whitelist. The host LLM
-            recommends the best-fit tool from its training-data knowledge of
-            the ecosystem anchored to the user's stack; this file confirms the
-            category fits the risk. Brand names in the file are illustrative."""
-            return _load_specialty_tools()
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_load_standards(classification: str | None = None) -> str:

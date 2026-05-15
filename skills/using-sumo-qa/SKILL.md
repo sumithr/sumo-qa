@@ -55,12 +55,21 @@ The right authority depends on what kind of knowledge you're invoking. Stable co
 2. **Training data** — fallback only when the catalogue is silent. Flag when used: *"This isn't in the loaded catalogue, but…"*
 3. **"I don't know"** — acceptable. Don't invent techniques or principles.
 
-**Tool brand picks** — Pitest vs Stryker vs mutmut, Playwright vs Cypress, k6 vs Locust, what MCP server exists for which tool:
+**Specialty tool picks — discovery, not catalogue.** Sumo-qa intentionally does
+NOT carry a tool catalogue. Tools and the categories they fit into evolve faster
+than any pre-loaded list can keep up with, and a stale list both anchors the LLM
+toward yesterday's brands and creates a false floor where novel surfaces never
+trigger discovery. Instead:
 
-1. **Training data anchored to the user's stack** is primary. Recommend the best fit for THIS change, not from a list.
-2. **`sumo_qa_load_specialty_tools()`** is a **category-fit primer** — when does mutation testing apply, when does DAST apply, when does property-based fit. Use it to confirm the CATEGORY fits the risk, not as a brand whitelist.
-3. **Web search** — verify currency when a tool may have changed names, deprecated, or been replaced since the training cutoff. Citation required.
-4. **"I don't know"** — acceptable. Don't invent tool names.
+1. **Observe the risk surface** in front of you — files, framework constructs,
+   what would actually fail if untested.
+2. **Reason from first principles** about what shape of testing would catch
+   failure here. Don't pattern-match against a remembered list of categories or
+   brands.
+3. **Web-search current options** for that shape in the user's stack. Citation
+   required when naming a tool.
+4. **"I don't know" is acceptable.** Don't invent tool names or force-fit a
+   surface into the closest familiar category when nothing genuinely matches.
 
 ### Setting up the recommended tool
 
@@ -125,11 +134,21 @@ is structured collaboration, not maximum question count.
 
 ### Specialty + tool fit
 
-sumo-qa decides WHAT testing is needed and where. The tool fills the gap. When a risk genuinely needs a specialty tool, pick the **best fit from your training-data knowledge of the ecosystem**, anchored to the user's actual stack. The `specialty_tools.md` primer is a category check (does mutation testing actually apply here? does DAST apply to this surface?), not a brand whitelist — don't restrict yourself to the names in it.
+sumo-qa decides WHAT testing is needed and where. The tool fills the gap. When the
+risk surface genuinely needs specialty tooling beyond plain unit + integration
+tests, follow the discovery discipline above: observe the surface, reason from
+first principles about what shape of testing fits, web-search current options for
+the user's stack, recommend with citation. There is no internal catalogue to
+consult — that's deliberate, and the reasoning is in the discovery section above.
 
-Pick by fit, not by familiarity. Empty selection is acceptable when nothing genuinely fits — most changes are well-served by plain unit + a small integration test.
+Pick by fit, not by familiarity. Empty selection is acceptable when nothing
+genuinely fits — most changes are well-served by plain unit + a small integration
+test.
 
-Once a tool is chosen, **set it up** (see "Setting up the recommended tool" above): install via the project's package manager, init the framework, scaffold the config, write the first tests against the named risks. Confirm with the user before installing dependencies; default to doing the actual work once confirmed.
+Once a tool is chosen, **set it up** (see "Setting up the recommended tool"
+above): install via the project's package manager, init the framework, scaffold
+the config, write the first tests against the named risks. Confirm with the user
+before installing dependencies; default to doing the actual work once confirmed.
 
 ## Checklist
 You MUST create a TodoWrite item per checklist item and complete in order:
@@ -152,7 +171,7 @@ See the Checklist above — that's the flow.
 | "This question is too simple to need the approach skill" | Simple intents still need shape (no-tests-recommended is a valid approach). Skip the decision and you skip the safety net. |
 | "I'll cite the principles myself from training data" | Loaded catalogue is authoritative. Use `sumo_qa_load_principles()`. |
 | "Let me echo the citation reasoning in the answer for transparency" | Citations belong to internal scratch, not user output. They burn tokens. |
-| "Specialty tools are only for non-functional surfaces" | Wrong. Mutation tools, property-based libraries, contract frameworks all fit functional surfaces too. Pick the best fit for the user's stack from your training-data knowledge; use `specialty_tools.md` to confirm the category applies. |
+| "I'll restrict myself to tool categories I already know" | Wrong. Specialty tooling exists for functional surfaces too, and new categories emerge constantly. Reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 
 ## Examples
 

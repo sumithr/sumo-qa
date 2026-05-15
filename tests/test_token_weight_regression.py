@@ -4,10 +4,9 @@ must stay under the budget that broke IntelliJ AI Assistant.
 
 Three assertions:
 
-1. The 5 always-thin knowledge catalogues (classifications, approaches,
-   principles, techniques, specialty_tools) must each stay under
-   PER_CALL_BUDGET. They are loaded unfiltered in flows, so they have
-   to be small.
+1. The 4 always-thin knowledge catalogues (classifications, approaches,
+   principles, techniques) must each stay under PER_CALL_BUDGET. They
+   are loaded unfiltered in flows, so they have to be small.
 
 2. Filtered standards / rules calls (the path skills actually use in
    flows) must stay under PER_CALL_BUDGET. Unfiltered standards/rules
@@ -30,7 +29,6 @@ from sumo_qa.knowledge_loaders import (
     sumo_qa_load_classifications,
     sumo_qa_load_principles,
     sumo_qa_load_rules,
-    sumo_qa_load_specialty_tools,
     sumo_qa_load_standards,
     sumo_qa_load_techniques,
 )
@@ -51,14 +49,13 @@ PER_FLOW_BUDGET = 2600
 
 
 def test_thin_catalogues_stay_under_per_call_budget():
-    """The 5 always-thin catalogues must each stay under PER_CALL_BUDGET
+    """The 4 always-thin catalogues must each stay under PER_CALL_BUDGET
     so they cannot break IntelliJ's SSE the way the old heavy tools did."""
     for name, fn in [
         ("classifications", sumo_qa_load_classifications),
         ("approaches", sumo_qa_load_approaches),
         ("principles", sumo_qa_load_principles),
         ("techniques", sumo_qa_load_techniques),
-        ("specialty_tools", sumo_qa_load_specialty_tools),
     ]:
         text = fn()
         tokens = _approx_tokens(text)
@@ -109,8 +106,8 @@ def test_unfiltered_standards_and_rules_are_acknowledged_heavy():
 
 def test_create_test_plan_flow_stays_under_token_budget():
     """A full create-test-plan flow via the new path uses these calls in
-    sequence: classifications, approaches, techniques, specialty_tools,
-    standards (filtered), rules (filtered).
+    sequence: classifications, approaches, techniques, standards (filtered),
+    rules (filtered).
 
     Total MCP-returned tokens across the flow must stay under PER_FLOW_BUDGET.
     """
@@ -120,7 +117,6 @@ def test_create_test_plan_flow_stays_under_token_budget():
             sumo_qa_load_classifications(),
             sumo_qa_load_approaches(),
             sumo_qa_load_techniques(),
-            sumo_qa_load_specialty_tools(),
             sumo_qa_load_standards(classification="business_logic_change"),
             sumo_qa_load_rules(classification="business_logic_change"),
         ]

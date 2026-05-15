@@ -60,7 +60,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 1. **Walk the repo** *(no user question)* — use the host's file tools. Inventory: services / top-level modules / test directories / CI config / coverage reports. Note languages, frameworks, seams (HTTP routes, message handlers, scheduled jobs, UI, DB migrations). Use the recipe in `knowledge/repo_walk.md` for the exact commands and data shape to gather, so successive strategy runs produce consistent inventory data on the same repo state.
 
-2. **Load the catalogues** *(no user question)* — call `sumo_qa_load_principles()`, `sumo_qa_load_classifications()`, `sumo_qa_load_specialty_tools()`. Internal only; don't dump them raw.
+2. **Load the catalogues** *(no user question)* — call `sumo_qa_load_principles()` and `sumo_qa_load_classifications()`. Internal only; don't dump them raw.
 
 3. **Per-area provisional analysis** *(no user question)* — for each major area: classify it, estimate the existing coverage shape (unit-heavy / integration-heavy / e2e-heavy / no tests), provisionally name 2–3 risks anchored to file paths or framework constructs.
 
@@ -68,7 +68,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 5. **Present per-area inventory + provisional risks, confirm** — compact table or list, one row per area: classification(s), current coverage shape, top 2–3 named risks each citing a path or framework construct. NOT generic. Ask: *"do these inventories + risk calls match the team's lived experience?"*
 
-6. **Identify specialty surfaces + tool fit, confirm** — for each confirmed area, name the specialty surface(s) and recommend the best-fit tool anchored to the user's stack. `sumo_qa_load_specialty_tools()` is a category-fit primer, not a brand whitelist. Verify with web search if unsure a tool still exists. For Phase 1 picks, offer to install and set up the tool yourself and seed first tests against the highest-risk area. Empty list is acceptable per area.
+6. **Identify specialty surfaces + tool fit, confirm** — for each confirmed area, observe the risk surface and reason from first principles about what shape of testing would catch failure there. Don't pattern-match against a remembered list of tool categories. Web-search current options in the user's stack — citation required when naming a tool. "I don't know" is acceptable. For Phase 1 picks, offer to install and set up the tool yourself and seed first tests against the highest-risk area. Empty list is acceptable per area.
 
 7. **Propose prioritisation, confirm** — rank areas by `risk × current-coverage-gap`. High risk + low coverage = Phase 1. Low risk + good coverage = leave alone. Cite ISTQB Principle 2 (exhaustive testing is impossible — prioritise).
 
@@ -92,7 +92,7 @@ See the Checklist above — that's the flow.
 | "I'll ask the user to list their services / modules / test dirs" | Read them. The repo answers. Ask only what code can't show (team size, regulatory pressure, etc). |
 | "Recommend more unit tests everywhere" | Generic. The target pyramid is risk-shaped, not uniform. |
 | "Use Cypress / Playwright / Pact everywhere" | Pick by fit, not familiarity. Match the tool to the actual specialty surface. |
-| "I'll restrict tool recommendations to the names in `specialty_tools.md`" | The primer is a category check, not a brand whitelist. Recommend best-fit; verify with web search if uncertain. |
+| "I'll restrict myself to tool categories I already know" | Wrong. Specialty tooling exists for functional surfaces too, and new categories emerge constantly. Reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 | "Phase 1: add tests everywhere" | Phases are risk-shaped. Phase 1 hits highest risk × biggest gap. |
 | "Performance testing for the whole repo" | Only where performance is a quality characteristic at risk. Generic perf tests are theatre. |
 | "Strategy is just 'aim for 80% coverage'" | Coverage % isn't a strategy. Risk-prioritised coverage IS a strategy. |

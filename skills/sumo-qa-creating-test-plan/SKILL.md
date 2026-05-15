@@ -54,7 +54,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 2. **Walk the repo for the scope** *(no user question)* — use the host's file tools. Find where the production code lives, existing tests, related callers, classification signal. Don't ask the user where things are.
 
-3. **Load the catalogues** *(no user question)* — call `sumo_qa_load_standards`, `sumo_qa_load_rules`, `sumo_qa_load_techniques`, `sumo_qa_load_specialty_tools`. Internal only.
+3. **Load the catalogues** *(no user question)* — call `sumo_qa_load_standards`, `sumo_qa_load_rules`, `sumo_qa_load_techniques`. Internal only.
 
 4. **Confirm scope, only for the AMBIGUOUS parts** — present a short paragraph of what you FOUND (file paths, callers, existing tests). Then ask ONE focused question for whatever the code DIDN'T make clear. If exploration left nothing ambiguous, skip the question and move to step 5.
 
@@ -62,7 +62,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 6. **Pick technique per risk** — name one technique per risk from the techniques catalogue. Present as a table: risk → technique. Ask: *"do these technique choices fit?"*
 
-7. **Recommend specialty tools (if any), and offer to set them up** — pick the best-fit tool from your knowledge of the ecosystem anchored to the user's stack. The primer is a category check, NOT a brand whitelist. Verify currency with web search if unsure. Offer to install and scaffold the first tests against the named risks. Confirm before installing dependencies. Empty list is acceptable.
+7. **Recommend specialty tools (if any), and offer to set them up** — follow the discovery discipline from `using-sumo-qa`: observe the risk surface, reason from first principles about what shape of testing fits, web-search current options for the user's stack, recommend with citation. Sumo-qa intentionally does NOT carry a tool catalogue. "I don't know" is acceptable. Offer to install and scaffold the first tests against the named risks. Confirm before installing dependencies. Empty list is acceptable.
 
 8. **Entry criteria — what must be true to START testing** — 3–5 observable preconditions (API spec frozen, test data loaded, feature flag default off, etc.).
 

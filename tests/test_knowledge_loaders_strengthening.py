@@ -25,8 +25,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 # ---------------------------------------------------------------------------
-# Class A — Loader filename literals (5 mutants)
-# Kills: x_sumo_qa_load_{classifications,approaches,principles,techniques,specialty_tools}__mutmut_3
+# Class A — Loader filename literals (4 mutants)
+# Kills: x_sumo_qa_load_{classifications,approaches,principles,techniques}__mutmut_3
 # ---------------------------------------------------------------------------
 
 
@@ -37,7 +37,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
         (kl.sumo_qa_load_approaches, "approaches.md"),
         (kl.sumo_qa_load_principles, "principles.md"),
         (kl.sumo_qa_load_techniques, "techniques.md"),
-        (kl.sumo_qa_load_specialty_tools, "specialty_tools.md"),
     ],
 )
 def test_loader_calls_read_with_canonical_lowercase_filename(

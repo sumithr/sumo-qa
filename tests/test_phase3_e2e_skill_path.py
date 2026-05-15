@@ -18,7 +18,6 @@ from sumo_qa.knowledge_loaders import (
     sumo_qa_load_approaches,
     sumo_qa_load_classifications,
     sumo_qa_load_principles,
-    sumo_qa_load_specialty_tools,
     sumo_qa_load_techniques,
 )
 from sumo_qa.server import build_mcp_server
@@ -78,7 +77,7 @@ def test_each_skill_tool_body_carries_iron_law_and_checklist():
 
 
 def test_knowledge_loaders_return_canonical_entries():
-    """The 5 always-thin catalogues must return their canonical entries.
+    """The 4 always-thin catalogues must return their canonical entries.
     Confirms Phase 1's loaders still work after Phase 2's content rewrite."""
     classifications = sumo_qa_load_classifications()
     for entry in [
@@ -106,13 +105,9 @@ def test_knowledge_loaders_return_canonical_entries():
     for entry in ["boundary value analysis", "mutation testing", "property-based testing"]:
         assert entry in techniques
 
-    specialty = sumo_qa_load_specialty_tools()
-    for entry in ["OWASP ZAP", "Pact", "Pitest", "Hypothesis", "k6"]:
-        assert entry in specialty
-
 
 def test_typical_flow_stays_under_token_budget():
-    """A typical create-test-plan / prep-for-work flow loads ~5 catalogues.
+    """A typical create-test-plan / prep-for-work flow loads ~3 catalogues.
     Total returned tokens must stay under PER_FLOW_BUDGET. Reuses the
     token-weight test's chars/4 estimator."""
     PER_FLOW_BUDGET = 2500
@@ -126,17 +121,16 @@ def test_typical_flow_stays_under_token_budget():
             sumo_qa_load_classifications(),
             sumo_qa_load_approaches(),
             sumo_qa_load_techniques(),
-            sumo_qa_load_specialty_tools(),
         ]
     )
     assert flow_total <= PER_FLOW_BUDGET, (
-        f"Typical 4-call flow returned {flow_total} tokens "
+        f"Typical 3-call flow returned {flow_total} tokens "
         f"(>{PER_FLOW_BUDGET}); the new path is too heavy"
     )
 
 
 def test_heavy_tools_are_deleted_and_skill_path_is_canonical():
-    """Phase 4 postcondition: the 6 heavy reasoning tools are gone. The 7
+    """Phase 4 postcondition: the 6 heavy reasoning tools are gone. The 6
     knowledge loader tools remain so skill prompts can drive the host LLM.
     The 4 test-data tools remain because they back deterministic catalogue
     operations (find / validate / register / explain)."""
@@ -157,7 +151,6 @@ def test_heavy_tools_are_deleted_and_skill_path_is_canonical():
         "sumo_qa_load_approaches",
         "sumo_qa_load_principles",
         "sumo_qa_load_techniques",
-        "sumo_qa_load_specialty_tools",
         "sumo_qa_load_standards",
         "sumo_qa_load_rules",
     }

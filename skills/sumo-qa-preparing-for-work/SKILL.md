@@ -47,7 +47,7 @@ You MUST create a TodoWrite item per checklist item and complete in order:
 3. Read the actual files in scope using the host's file tools. Do NOT ask the user for file content the host can read directly.
 4. Identify 3-7 named risks. Each risk MUST be specific (not "input validation breaks" but "currency conversion at the GBP→USD boundary rounds incorrectly when the rate is supplied with >6 decimal places"). Anchor each in a file path or domain term from the user's words.
 5. Call `sumo_qa_load_techniques()`. Pick one technique per named risk. Use the catalogue's wording.
-6. Recommend specialty tools (if any), and offer to set them up — pick from your knowledge of the ecosystem anchored to the user's stack and the actual risks. `sumo_qa_load_specialty_tools()` is a category-fit primer, NOT a brand whitelist. Verify currency with web search if uncertain. Offer to install and scaffold the first tests against the named risks. Confirm before installing dependencies. Empty list is acceptable.
+6. Recommend specialty tools (if any), and offer to set them up — follow the discovery discipline from `using-sumo-qa`: observe the risk surface, reason from first principles about what shape of testing fits, web-search current options for the user's stack, recommend with citation. Sumo-qa intentionally does NOT carry a tool catalogue. "I don't know" is acceptable. Offer to install and scaffold the first tests against the named risks. Confirm before installing dependencies. Empty list is acceptable.
 7. Produce a smallest useful test set: 3-7 tests, each tied to a named risk. No generic "test happy path".
 8. Output: conversational prose, sectioned (risks, tests, techniques, specialty tools, open assumptions). No JSON blob.
 
@@ -65,7 +65,7 @@ See the Checklist above — that's the flow.
 | "I don't need to read the files — I can infer from the intent" | You can infer the SHAPE; you can't infer the actual data flow, domain terms, or edge cases without reading. |
 | "The user didn't ask for techniques — I'll skip those" | Every named risk gets a named technique. The technique is what makes the test actionable. |
 | "Mutation testing for a UI tweak" | Wrong tool fit. Pick by risk surface, not by familiarity. |
-| "I'll restrict tool recommendations to the names in `specialty_tools.md`" | The primer is a category check, not a brand whitelist. Recommend the best fit from your knowledge of the ecosystem; the names in the file are illustrative. |
+| "I'll restrict myself to tool categories I already know" | Wrong. Specialty tooling exists for functional surfaces too, and new categories emerge constantly. Reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 
 ## Examples
 

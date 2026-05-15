@@ -26,7 +26,7 @@ Spend output tokens on findings, not framing.
 ## The Iron Law
 NO ANSWER WITHOUT A CITED PRINCIPLE OR TECHNIQUE.
 
-Every answer ties to a named ISTQB principle and a named test design technique from the loaded catalogue; specialty tools come from your ecosystem knowledge, with `specialty_tools.md` confirming the category fits.
+Every answer ties to a named ISTQB principle and a named test design technique from the loaded catalogue. When a specialty surface is implied, follow the discovery discipline from `using-sumo-qa` — reason from the surface, web-search current options, cite when naming a tool. Sumo-qa intentionally does NOT carry a tool catalogue.
 
 ## When to Use
 
@@ -47,7 +47,7 @@ You MUST create a TodoWrite item per checklist item and complete in order:
 3. Call `sumo_qa_load_principles()` and `sumo_qa_load_techniques()`. Read both catalogues.
 4. Identify the QA shape the question implies: what's the actual concern (correctness / regression / coverage / risk surface)?
 5. Pick at least one principle that shapes the answer (cite by number or name). Pick at least one technique that fits the concern.
-6. If the question implies a specialty surface (security, performance, contract, a11y, UI, etc.), recommend the best-fit tool from your knowledge of the ecosystem anchored to the user's stack. `sumo_qa_load_specialty_tools()` is a category-fit primer, NOT a brand whitelist. Verify currency with web search if uncertain. Offer to install and scaffold the first tests; confirm before installing dependencies.
+6. If the question implies a specialty surface, follow the discovery discipline from `using-sumo-qa` — observe the surface, reason from first principles about what shape of testing fits, web-search current options for the user's stack, recommend with citation. Sumo-qa intentionally does NOT carry a tool catalogue. "I don't know" is acceptable. Offer to install and scaffold the first tests; confirm before installing dependencies.
 7. Synthesise the answer: 3-7 sentences, naming the principle/technique/tool. Conversational, not a JSON blob.
 8. If the question is actually a prep/plan/review/strategy in disguise, escalate: stop, route to the matching skill.
 
@@ -62,7 +62,7 @@ See the Checklist above — that's the flow.
 | "Just say 'add unit tests and integration tests'" | Generic. Pick a technique from the catalogue (boundary value, decision table, etc.). |
 | "Mention security as a consideration" | Name the actual surface AND the right tool for it (HTTP DAST scanner / SAST tool / token-validation harness — pick from your knowledge by fit). Bare "consider security" is not senior-QA. |
 | "I'll cite a principle by paraphrasing — saves loading the catalogue" | Principles are catalogue-authoritative. Use the catalogue's wording. (Tool brand picks are different — those come from your knowledge of the ecosystem.) |
-| "I'll restrict tool recommendations to the names in `specialty_tools.md`" | The primer is a category check, not a brand whitelist. Recommend the best fit from your knowledge; the listed names are illustrative. |
+| "I'll restrict myself to tool categories I already know" | Wrong. Specialty tooling exists for functional surfaces too, and new categories emerge constantly. Reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 | "User asked a planning question — I'll answer inline" | Route to `sumo-qa-preparing-for-work` or `sumo-qa-creating-test-plan`. Don't reinvent. |
 | "Answer should be 20+ sentences for completeness" | 3-7 sentences. Senior QA answers concisely. |
 

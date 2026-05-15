@@ -21,7 +21,7 @@ the skill.
 
 ## 2. MCP tools (Python) — atomic knowledge providers
 
-25 tools, all thin: each is file IO. Fourteen skill tools (one per SKILL.md), seven knowledge loaders (`sumo_qa_load_*`)
+24 tools, all thin: each is file IO. Fourteen skill tools (one per SKILL.md), six knowledge loaders (`sumo_qa_load_*`)
 return markdown catalogues as text. Four test-data tools read/write the local
 known-good catalogue under `knowledge/test_data/`. External-skill discovery is SKILL-driven — no MCP entry points; CLI invocations happen through the host LLM's native Bash tool inside `sumo-qa-suggesting-external-skill`.
 
@@ -35,8 +35,9 @@ Plain markdown under `knowledge/`:
 - `approaches.md` — 8 canonical QA approaches
 - `principles.md` — ISTQB Foundation, Advanced, ISO/IEC 25010
 - `techniques.md` — black-box / white-box / experience / static / property-based / mutation
-- `specialty_tools.md` — category-fit primer (when each specialty surface applies); tool brand picks are training-primary, not whitelisted
 - `test_data/` — known-good test data entries
+
+Specialty-tool picks are intentionally NOT catalogued. The discipline (declared in `using-sumo-qa`) is to observe the risk surface, web-search current options for the user's stack, and cite when naming a tool. A static catalogue would anchor toward yesterday's brands and create a false floor where novel surfaces never trigger discovery.
 
 Plus team-loaded `standards/packs/*.yml` and `standards/rules/change_rules.yaml`.
 
@@ -71,7 +72,7 @@ A typical end-to-end flow (e.g. `sumo-qa-creating-test-plan`):
 | Layer | Typical token cost |
 |---|---|
 | Skill body (loaded once via MCP prompt or symlink) | ~1500 tokens |
-| Catalogue loads (`load_classifications`, `load_approaches`, `load_techniques`, `load_specialty_tools`) | ~2300 tokens total |
+| Catalogue loads (`load_classifications`, `load_approaches`, `load_techniques`) | ~2300 tokens total |
 | Total MCP-call surface | ~2300 tokens |
 | Old heavy-path single call | ~3000+ tokens of structured JSON (the IntelliJ SSE failure mode) |
 
@@ -97,7 +98,7 @@ Routes to `sumo-qa-creating-test-plan` (Iron Law: NO PLAN WITHOUT EXPLICIT ENTRY
     - reads actual files via host file tools
     - identifies 3-7 named risks anchored in evidence
     - calls sumo_qa_load_techniques, picks one per risk
-    - consults sumo_qa_load_specialty_tools as a category-fit primer, then recommends the best-fit tool from its training-data knowledge (e.g. Pitest for mutation coverage on a JVM repo); offers to install + configure + seed the first tests via the shortest setup path (package manager, framework CLI, config edit, or MCP server — whichever is fastest for that tool)
+    - if a specialty surface is implied, follows the discovery discipline from `using-sumo-qa`: observe the surface, reason from first principles about what shape of testing fits, web-search current options for the user's stack, cite when naming a tool; offers to install + configure + seed the first tests via the shortest setup path (package manager, framework CLI, config edit, or MCP server — whichever is fastest for that tool)
     - synthesises plan inline (conversational, sectioned)
 ```
 
