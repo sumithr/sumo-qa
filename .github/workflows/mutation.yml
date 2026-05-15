@@ -100,7 +100,8 @@ jobs:
               killed = sum(1 for ec in exit_codes.values() if ec in KILLED_EXIT_CODES)
               total = len(exit_codes)
               survived = sum(1 for ec in exit_codes.values() if ec == 0)
-              current[module] = {"killed": killed, "survived": survived, "total": total, "missing": False}
+              survivor_names = sorted(k for k, ec in exit_codes.items() if ec == 0)
+              current[module] = {"killed": killed, "survived": survived, "total": total, "missing": False, "survivor_names": survivor_names}
 
           # Compare per-module.
           failed = []
@@ -135,15 +136,25 @@ jobs:
               print("\nFAIL: mutation gate failed:")
               for f in failed:
                   print(f"  - {f}")
+              # List the actual surviving mutants per module so we can triage.
+              print("\nSurviving mutant names (per module):")
+              for module, curr in current.items():
+                  names = curr.get("survivor_names", [])
+                  if names:
+                      print(f"\n  [{module}] {len(names)} survivors:")
+                      for n in names:
+                          print(f"    - {n}")
               sys.exit(1)
           print("\nAll modules: kill counts >= baseline and 0 survivors. Strict gate passed.")
           EOF
 
-      - name: Upload mutmut log on failure
+      - name: Upload mutmut log + meta files on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: mutmut-log
-          path: mutmut.log
+          name: mutmut-debug
+          path: |
+            mutmut.log
+            mutants/src/sumo_qa/*.py.meta
           if-no-files-found: warn
           retention-days: 14

@@ -51,7 +51,7 @@ Fixed in the same PR as the discovery (`src/sumo_qa/rules.py`: `+3 lines`, `clas
 - Configured `mutmut>=3,<4` against the 4 parser/decision modules with custom `[tool.mutmut]` (paths_to_mutate, pytest_add_cli_args bypassing the coverage gate, also_copy mirroring the full src/ tree).
 - Diagnosed and worked around 3 distinct root causes for mutmut + pytest config interaction (missing package modules in `mutants/src/`, missing data dirs, subprocess-spawning E2E test conflict with mutmut's CWD manipulation).
 - Captured baseline: 438 mutants total, 327 killed (74.7%), 111 survivors.
-- Per-class triage of 111 survivors → **68 strengthening tests** across 13 mutation classes via spy/monkeypatch patterns + parametrised boundary tests + exact-text assertions on observable output. Result: **405 killed, 0 survived, 33 mutmut-skipped on Linux CI = 100% kill rate on testable mutants**.
+- Per-class triage of 111 survivors → **68 strengthening tests** across 13 mutation classes via spy/monkeypatch patterns + parametrised boundary tests + exact-text assertions on observable output. Result on Linux CI: **405 killed (74.7% → 92.5%, +17.8pp)**. *Phase 4 follow-up note: 33 mutants still survive — 11 in `knowledge_loaders.py`, 22 in `tdm_validation.py` (rules + standards both at 100%). My initial Phase 3 verification misread mutmut's `🙁` emoji as "skipped" when it actually means "alive/survived". Honest correction in Phase 4.1.*
 - Added `.github/workflows/mutation.yml` (nightly + workflow_dispatch) with score-floor gate.
 - Added `.github/workflows/tdm-freshness.yml` + `scripts/check_tdm_freshness.py` for weekly TDM URL freshness checks.
 
@@ -77,7 +77,7 @@ Fixed in the same PR as the discovery (`src/sumo_qa/rules.py`: `+3 lines`, `clas
 | Coverage gate enforced in CI | No | Yes (`--cov-fail-under=100`) | new |
 | Coverage gate enforced pre-push | No | Yes (pre-commit hook) | new |
 | Mutation testing infrastructure | None | mutmut nightly + strict 100% gate | new |
-| Mutation kill rate (4 parser modules, Linux CI) | n/a (no mutation testing) | **100% (405/405 testable, 33 mutmut-skipped)** | new |
+| Mutation kill rate (4 parser modules, Linux CI) | n/a (no mutation testing) | **92.5% (405/438)** *(see correction below)* | new |
 | Property-based tests | 0 | 30 Hypothesis tests across 4 modules | new |
 | CI matrix (OS × Python) | 2×5 = 10 jobs | **3×5 = 15 jobs** | +50% |
 | CI workflows | 2 (lint, test) | **5** (lint, test, release, mutation, tdm-freshness) | +3 |
@@ -104,6 +104,7 @@ These are real failure modes the dog-fooding exercise surfaced. Each one led to 
 4. **Phase 3's CI mutation gate parser shipped broken** (PR #27 guessed at the `mutmut export-cicd-stats` JSON schema without reading mutmut source). Phase 4 T1 fixed it; the workflow was red for ~12 hours between Phase 3 merge and the parser fix.
 5. **Phase 4 strategising over-questioned with structured `AskUserQuestion` blocks** for granular calls the user lacked context for. User feedback: *"i normally just being agreeing yes to most things it asks"*. Fixed by baking the **Confirmation discipline** into `using-sumo-qa`'s Global discipline (T5) — a sumo-qa product improvement, not a per-user preference rule.
 6. **Sumo-qa-install didn't support Claude Desktop / Cowork at all.** User discovered when trying to use sumo-qa from Claude Cowork. The installer was writing `claude_desktop_config.json` to the wrong path (`~/.config/claude/` instead of `~/Library/Application Support/Claude/` on macOS), so the file existed but Claude Desktop never read it. Fixed in Phase 4 T6 by adding a real `_setup_claude_desktop` host with OS-correct paths + merge-not-clobber logic.
+7. **Phase 3's "100% kill rate" claim was overstated.** I read mutmut's progress-bar `🙁 33` as "33 mutmut-skipped" when the emoji actually denotes "alive/survived". The first post-Phase-4 nightly mutation run (with the new strict gate) caught the discrepancy: actual kill rate is **92.5%**, not 100%. 33 real survivors remain (11 in `knowledge_loaders.py`, 22 in `tdm_validation.py`). Phase 4.1 will inspect them via Linux CI artifacts and either strengthen or document as residual.
 
 ## What's NOT addressed (residual risks accepted)
 
