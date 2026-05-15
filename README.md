@@ -106,7 +106,6 @@ Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) 
 - [docs/TOOLS.md](docs/TOOLS.md) — the 25 MCP entry points
 - [docs/INSTALL.md](docs/INSTALL.md) — per-host install detail, schema differences, troubleshooting
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
-- [docs/COVERAGE.md](docs/COVERAGE.md) — coverage floor + pragma policy
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
 - [docs/PERSONA.md](docs/PERSONA.md) — optional in-character voice (Sumo-sensei). Off by default; ask the agent to enable mid-conversation.
