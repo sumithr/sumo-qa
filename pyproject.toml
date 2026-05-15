@@ -106,17 +106,14 @@ tests_dir = ["tests/"]
 # rest of the package absent. also_copy ensures the full src/ tree is mirrored into
 # mutants/src/ (dirs_exist_ok=True) so the mutated files overwrite the originals
 # while every other module (debug_capture, server, installer, …) stays importable.
-# Resource directories (standards/, knowledge/, skills/, hooks/, .claude-plugin/,
-# .codex-plugin/, .cursor-plugin/) are also copied because tests resolve them via
-# `Path(__file__).resolve().parents[1]` which points to mutants/ when pytest runs
-# from that CWD, so all data dirs must exist under mutants/ too.
+# Resource directories (standards/, knowledge/, skills/, hooks/) are also copied
+# because tests resolve them via `Path(__file__).resolve().parents[1]` which points
+# to mutants/ when pytest runs from that CWD, so all data dirs must exist under
+# mutants/ too.
 also_copy = [
   "src/",
   "standards/",
   "knowledge/",
   "skills/",
   "hooks/",
-  ".claude-plugin/",
-  ".codex-plugin/",
-  ".cursor-plugin/",
 ]
