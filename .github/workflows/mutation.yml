@@ -45,6 +45,12 @@ jobs:
           uv run mutmut run 2>&1 | tee mutmut.log
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
+      - name: Export per-module CI/CD stats
+        # `mutmut export-cicd-stats` emits structured JSON intended for CI
+        # consumers — works in non-TTY environments where `mutmut results`
+        # gives a TTY-only progress UI with no per-mutant lines.
+        run: uv run mutmut export-cicd-stats > mutmut-current.json
+
       - name: Compare against baseline
         run: |
           uv run python <<'EOF'
@@ -53,38 +59,51 @@ jobs:
           from collections import defaultdict
           from pathlib import Path
 
-          # Load committed baseline.
+          # Load committed baseline (per-module killed counts captured at Phase 3).
           baseline = json.loads(Path("mutmut-baseline.json").read_text())
           baseline_per_module = baseline["per_module"]
 
-          # Parse `mutmut results` output to build current per-module counts.
-          import subprocess
-          results = subprocess.run(
-              ["uv", "run", "mutmut", "results"],
-              capture_output=True,
-              text=True,
-              check=False,
-          ).stdout
-          # Lines look like:  "    sumo_qa.<module>.x_<func>__mutmut_<n>: <status>"
-          current = defaultdict(lambda: {"total": 0, "killed": 0, "survived": 0})
-          for line in results.splitlines():
-              line = line.strip()
-              if not line.startswith("sumo_qa."):
-                  continue
-              # mutant ID looks like sumo_qa.<module>.<rest>: <status>
-              ident, _, status = line.partition(":")
-              status = status.strip()
-              parts = ident.split(".")
-              if len(parts) < 3:
-                  continue
-              module = parts[1]
-              if module not in baseline_per_module:
-                  continue
-              current[module]["total"] += 1
-              if status == "killed":
-                  current[module]["killed"] += 1
-              elif status == "survived":
-                  current[module]["survived"] += 1
+          # Load current mutmut export. Format may evolve across mutmut versions;
+          # walk the structure defensively and bucket per top-level module.
+          current_raw = json.loads(Path("mutmut-current.json").read_text())
+
+          def _bucket_per_module(payload) -> dict:
+              """Return {module_short_name: {killed, survived, total}}.
+
+              `mutmut export-cicd-stats` schema (mutmut 3.x):
+                {
+                  "tested": [{"name": "sumo_qa.<module>.<func>__mutmut_<n>", ...}, ...],
+                  "untested": [...],
+                  ...
+                }
+              Each entry has a `result` field with values like "killed", "alive",
+              "skipped", "timeout", etc. We only care about killed vs alive
+              (survived) for the gate.
+              """
+              buckets = defaultdict(lambda: {"total": 0, "killed": 0, "survived": 0})
+              # Defensive: payload structure may differ; iterate every top-level list.
+              for key, items in payload.items():
+                  if not isinstance(items, list):
+                      continue
+                  for item in items:
+                      if not isinstance(item, dict):
+                          continue
+                      name = item.get("name") or item.get("mutant_name") or ""
+                      result = (item.get("result") or item.get("status") or "").lower()
+                      parts = name.split(".")
+                      if len(parts) < 3 or parts[0] != "sumo_qa":
+                          continue
+                      module = parts[1]
+                      if module not in baseline_per_module:
+                          continue
+                      buckets[module]["total"] += 1
+                      if result in ("killed", "passed", "ok"):
+                          buckets[module]["killed"] += 1
+                      elif result in ("survived", "alive"):
+                          buckets[module]["survived"] += 1
+              return buckets
+
+          current = _bucket_per_module(current_raw)
 
           # Compare per-module.
           failed = []
