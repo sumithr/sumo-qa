@@ -53,4 +53,19 @@ Add these to the `items` array — one per Expected-shape item and one per Anti-
 - If a discipline beat is "the agent cites at least one ISTQB principle by name" and the candidate cites *"a principle"* without naming it, FAIL it — the spec requires the named citation.
 - If the response is heavy on prose but light on the structural beats the skill demands, FAIL the relevant items — surfacing-as-conversation-without-following-the-checklist is the failure mode this review is designed to catch.
 
+**Environmental adaptation rule (load-bearing — read carefully):**
+
+Some scenarios reference files, repositories, or artifacts (e.g. *"`services/billing/refund.py`"*, *"the customer-platform monorepo"*, *"the Pitest report"*, *"docs/qa/plans/X.md"*) that may not exist in the agent's actual working directory. The discipline beats then read like *"reads the referenced files"* or *"walks the repo"*.
+
+A discipline beat that requires reading specific files is satisfied — call it PASS — when the candidate's `## Tool calls` section shows the agent **used file tools** (Bash `ls`/`git status`/`find`/`grep`, `Read`, etc.) to look for the referenced files AND the response acknowledges the absence honestly AND the substitute action is principled (one of: audits what IS available, asks the user a focused clarification, refuses to fabricate). The discipline beat is *"the agent uses host file tools to determine context"* — not *"the file with this exact path exists and the agent read it"*. Hallucinating-as-if-the-file-existed is the failure mode this review prevents; honest adaptation to missing context is the discipline beat firing correctly.
+
+Conversely: if the candidate's `## Tool calls` shows NO file-tool invocation AND the response just narrates what the agent *would* do, the beat FAILS — the agent skipped the discipline of actually grounding in the environment.
+
+This rule does **NOT** apply to:
+- Iron-Law-class beats (e.g. *"runs the test suite in this turn"*, *"explicit entry AND exit criteria"*, *"surfaces red output verbatim"*, *"production code stays unchanged"*) — these are non-negotiable regardless of environment.
+- Beats about content (e.g. *"cites ISTQB Principle 4 by number"*, *"names at least one technique from the catalogue"*) — content beats are independent of environment.
+- Anti-patterns — anti-patterns are anti-patterns whether the environment matches or not.
+
+When in doubt: ask whether the discipline being tested is *"used file tools to determine context"* (environment-sensitive — apply the adaptation rule) or *"hit this specific behavioural beat"* (environment-independent — apply strict reading).
+
 Return **only** a JSON object matching the provided schema. No prose outside the JSON. No markdown fences around the JSON.
