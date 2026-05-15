@@ -33,6 +33,8 @@ For each of the four checks below, return a PASS/FAIL with a **quoted span** fro
 **Checks:**
 
 1. **SELECTION** — Did the agent invoke the expected tool `{{expected_tool}}`? Quote the tool call (or the agent's explicit statement that it would call it). Inferring from the response content alone is weak evidence — call it out if you have to.
+   - **Write-side tools that mutate the local catalogue** (`sumo_qa_register_known_good_test_data`) follow a confirm-before-call discipline per the matched skill. For these tools, SELECTION = PASS when the agent **constructs the full args dict and explicitly stages the call pending user confirmation** (e.g. *"ready to call `register_known_good_test_data` with the entry below — confirm and I'll write?"*). The actual invocation happens in turn 2 after user yes; turn 1 = construct + stage = correct senior-QA behaviour.
+   - For all other (read-side) tools, SELECTION = PASS only when the actual call is visible in the trajectory.
 2. **ARG SHAPE** — If args were passed, do they match `{{expected_arg_shape}}`? *"no args"* in the spec means an empty args object; quote either the args used or the agent's explicit statement of args.
 3. **ANTI-PICK** — Did the agent invoke any of the anti-picks listed above? Even *one* anti-pick = FAIL on this check. Quote the anti-pick call if present.
 4. **RESULT USE** — Did the agent's user-facing response use the tool's output the way the spec describes ("Expected use of result")? Or did it paraphrase from training data / hallucinate content not in the catalogue?
