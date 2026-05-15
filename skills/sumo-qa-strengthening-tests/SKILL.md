@@ -60,7 +60,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 5. **Walk one mutant at a time — confirm tautology vs real** — for each survivor, present line + mutation + your call + rationale, then ask: *"Agree, or is this equivalent given how it's constructed upstream?"* Wait for confirmation. Equivalent → step 6; real → step 7.
 
-6. **Suppress equivalent mutants in tool config** — show the exact config edit (e.g. `pitest.xml` exclusion or `# pragma: no mutate`). Cite the mutant ID and a one-line rationale. Move on.
+6. **Suppress equivalent mutants — config-side if the tool supports it, otherwise source annotation** — preferred: a tool config exclusion (e.g. `pitest.xml` `<excludedMutations>`, Stryker `mutate` exclusions). When the tool has no per-mutant config mechanism (mutmut 3.x, for example — only line-level `# pragma: no mutate` is supported), an inline source annotation is acceptable: it's tooling metadata, not a behaviour change, and the Iron Law's intent (don't reshape production behaviour to make testing easier) is preserved. Each annotation MUST be paired with a one-line rationale comment naming the mutant ID and why the mutation is observably equivalent. Anything else fails review.
 
 7. **Pick a technique + draft the strengthening test, confirm before writing** — call `sumo_qa_load_techniques()` if not loaded. Pick ONE from the catalogue per real mutant (boundary-value for `>` / `>=`; decision-table for branch-condition; property-based for invariants). Present the test name + the assertion idea, wait for confirmation, then write. Match the existing test style.
 
@@ -79,13 +79,14 @@ See the Checklist above — that's the flow.
 | Thought | Reality |
 |---|---|
 | "I'll tweak the prod code to make the mutant easier to kill" | Iron Law violated. Production code stays still. Route to `sumo-qa-implementing-with-tdd` if behaviour needs to change. |
-| "Write a test that asserts the exact code: `assert x == y + 1 if condition else y`" | Tautology. Re-stating the production logic. Suppress the mutant in tool config instead. |
+| "Write a test that asserts the exact code: `assert x == y + 1 if condition else y`" | Tautology. Re-stating the production logic. Suppress the mutant in tool config (or with a `# pragma: no mutate` source annotation when the tool has no config-side mechanism) instead. |
 | "All surviving mutants need a test" | No. Equivalent mutants are noise; suppressing them is correct. Only real mutants get tests. |
 | "Coverage went from 85% to 92% — done" | Line coverage isn't assertion strength. The right measure is "did the mutation survivor count drop?" |
 | "I'll add property-based testing for everything" | Pick from the catalogue based on the actual mutant. Property-based fits invariants, not all mutants. |
 | "I'll process all 8 survivors in one message to save turns" | Blind single-shot dump. Per-CLASS batching is acceptable when mutants share the same mechanism (e.g. 4 boundary-shift mutants on the same function → one decision, one test class); walk class-by-class, not mutant-by-mutant in that case. But one message with ALL survivors of different mechanisms = Iron Law violated — the user's correction on M3 may change how you classify M4. |
 | "I'll ask the user which test framework / fixture style" | Read the test file. The repo answers that. |
-| "Equivalent mutants: suppress all of them silently" | Each suppression needs a one-line rationale in the config. Otherwise the next reviewer can't tell whether you suppressed a real one. |
+| "Equivalent mutants: suppress all of them silently" | Each suppression needs a one-line rationale in the config (or as a comment next to the source annotation). Otherwise the next reviewer can't tell whether you suppressed a real one. |
+| "I'll add `# pragma: no mutate` because writing tests is harder" | Wrong direction. Source annotations are for genuinely equivalent mutants only — those where no observable behaviour distinguishes mutant from original. If you can articulate a test that would kill it, it's not equivalent. |
 
 ## Examples
 

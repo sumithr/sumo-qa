@@ -75,6 +75,62 @@ def test_validator_lowest_confidence_uses_all_three_inputs() -> None:
     )
 
 
+def test_validator_entry_confidence_drives_result_when_uniquely_lowest() -> None:
+    """Kills the mutation that drops `entry.confidence` from the
+    `_lowest_confidence(...)` call. Forces a state where entry.confidence is
+    the UNIQUE binding minimum so dropping it changes the observable level.
+
+    Setup: confidence="low", validated 2 days ago (freshness_level="high"), no
+    missing fields (issues=[], so the issues-arg is "high"). Production:
+    min(low, high, high) = "low". Mutant w/o entry.confidence:
+    min(high, high) = "high".
+    """
+    entry = _entry(confidence="low", last_validated_at=NOW - timedelta(days=2))
+    result = tv.MockValidator(now=NOW).validate(entry)
+    assert result.confidence.level == "low", (
+        f"Entry.confidence='low' should bind the result level to 'low'; "
+        f"got {result.confidence.level}"
+    )
+
+
+def test_validator_freshness_level_drives_result_when_uniquely_lowest() -> None:
+    """Kills the mutation that drops `freshness_level` from the
+    `_lowest_confidence(...)` call. Forces a state where freshness_level is
+    the UNIQUE binding minimum.
+
+    Setup: confidence="high", aging (validated 20 days ago) →
+    freshness_level="medium", no plausibility issues (high+aging is fine), no
+    missing fields. Production: min(high, medium, high) = "medium". Mutant
+    w/o freshness_level: min(high, high) = "high".
+    """
+    entry = _entry(confidence="high", last_validated_at=NOW - timedelta(days=20))
+    result = tv.MockValidator(now=NOW).validate(entry)
+    assert result.confidence.level == "medium", (
+        f"Aging freshness should drag the result level to 'medium'; got {result.confidence.level}"
+    )
+
+
+def test_validator_issues_arg_drives_result_when_uniquely_lowest() -> None:
+    """Kills the mutation that drops the `"low" if issues else "high"` arg
+    from the `_lowest_confidence(...)` call. Forces a state where the
+    issues-arg is the UNIQUE binding minimum.
+
+    Setup: confidence="high", fresh (validated 2 days ago, freshness_level="high"),
+    but missing owner → _heuristic_issues = ["owner is required"], so the
+    issues-arg is "low". Production: min(high, high, low) = "low". Mutant
+    w/o the issues-arg: min(high, high) = "high".
+    """
+    entry = _entry(
+        confidence="high",
+        last_validated_at=NOW - timedelta(days=2),
+        owner="",
+    )
+    result = tv.MockValidator(now=NOW).validate(entry)
+    assert result.confidence.level == "low", (
+        f"Heuristic issue should drag the result level to 'low'; got {result.confidence.level}"
+    )
+
+
 def test_validator_valid_field_uses_not_in_for_excluded_statuses() -> None:
     """Kills:
       - mutmut_34 (`not in` → `in` invert)
@@ -211,6 +267,26 @@ def test_assess_freshness_reason_format_includes_age_days() -> None:
     )
 
 
+@pytest.mark.parametrize("days_ago", [3, 15, 60])
+def test_assess_freshness_preserves_last_validated_at_on_non_unknown_branch(
+    days_ago: int,
+) -> None:
+    """Kills the final-return mutations that drop or null `last_validated_at`
+    on the fresh/aging/stale branch.
+
+    Mutations: `last_validated_at=validated_at` → `=None`, or removing the
+    kwarg entirely (defaults to None on the FreshnessMetadata model). Both
+    leak as `result.last_validated_at is None` when the input was a real
+    datetime — observable.
+    """
+    input_validated_at = NOW - timedelta(days=days_ago)
+    result = tv.assess_freshness(input_validated_at, now=NOW)
+    assert result.last_validated_at == input_validated_at, (
+        f"Expected last_validated_at preserved as {input_validated_at}; "
+        f"got {result.last_validated_at}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Class C — _validation_reason (12 mutants)
 # ---------------------------------------------------------------------------
@@ -275,34 +351,69 @@ def test_validation_reason_stale_status_returns_low_confidence() -> None:
 
 
 def test_plausibility_issues_flags_future_validated_at() -> None:
-    """Kills mutations on the `validated_at > now` check + the message text.
-    Boundary mutation `>=` would still flag (since NOW + delta is strictly >
-    NOW), but the issue text is asserted exactly.
+    """Kills mutations on the `validated_at > now` check + the future-date
+    message text.
+
+    Exact-element membership over the full message kills the `XX...XX`-wrap
+    and UPPERCASE mutations on the second segment of the f-string that survive
+    a substring check.
     """
-    entry = _entry(last_validated_at=NOW + timedelta(hours=1))
+    future = NOW + timedelta(hours=1)
+    entry = _entry(last_validated_at=future)
     freshness = FreshnessMetadata(status="unknown", reason="x")
     issues = tv._plausibility_issues(entry, freshness, NOW)
-    assert any("future" in i for i in issues), f"Expected future-date issue; got {issues}"
+    expected = (
+        f"last_validated_at is in the future ({future.isoformat()}); "
+        "the timestamp is likely wrong or the clock skewed"
+    )
+    assert expected in issues, f"Expected exact future-date message; got {issues}"
+
+
+def test_plausibility_issues_does_not_flag_when_validated_at_equals_now() -> None:
+    """Boundary kill for `validated_at > now` → `validated_at >= now`.
+
+    Production: equality → no flag. Mutant `>=`: equality → flag. Strictly
+    greater (NOW + 1h) is shared by both operators, so the existing future-flag
+    test does not exercise this boundary.
+    """
+    entry = _entry(last_validated_at=NOW)  # exactly equal
+    freshness = FreshnessMetadata(status="fresh", reason="x")
+    issues = tv._plausibility_issues(entry, freshness, NOW)
+    assert not any("future" in i for i in issues), (
+        f"validated_at == now must NOT trigger the future-date flag; got {issues}"
+    )
 
 
 def test_plausibility_issues_flags_high_confidence_with_stale_freshness() -> None:
-    """Kills the confidence-vs-stale check + message text mutations."""
+    """Kills the confidence-vs-stale check + message text mutations.
+
+    Exact-element membership over the full two-segment message kills the
+    `XX...XX`-wrap and UPPERCASE mutations on each segment.
+    """
     entry = _entry(confidence="high")
     freshness = FreshnessMetadata(status="stale", reason="x")
     issues = tv._plausibility_issues(entry, freshness, NOW)
-    assert any("stale" in i and "high confidence" in i for i in issues), (
-        f"Expected high-confidence-stale issue; got {issues}"
+    expected = (
+        "entry claims high confidence but freshness is stale; "
+        "either re-validate or downgrade the recorded confidence"
     )
+    assert expected in issues, f"Expected exact high-confidence-stale message; got {issues}"
 
 
 def test_plausibility_issues_flags_high_confidence_with_unknown_freshness() -> None:
-    """Kills the confidence-vs-unknown check + message text mutations."""
+    """Kills the confidence-vs-unknown check + message text mutations.
+
+    Exact-element membership over the full two-segment message kills the
+    `XX...XX`-wrap and UPPERCASE mutations on each segment.
+    """
     entry = _entry(confidence="high", last_validated_at=None)
     freshness = FreshnessMetadata(status="unknown", reason="x")
     issues = tv._plausibility_issues(entry, freshness, NOW)
-    assert any("never been validated" in i and "high confidence" in i for i in issues), (
-        f"Expected high-confidence-unknown issue; got {issues}"
+    expected = (
+        "entry claims high confidence but has never been validated; "
+        "validate first or downgrade the recorded confidence"
     )
+    assert expected in issues, f"Expected exact high-confidence-unknown message; got {issues}"
 
 
 def test_plausibility_issues_no_issues_for_low_confidence_stale() -> None:
@@ -342,7 +453,7 @@ def test_plausibility_issues_no_future_flag_when_last_validated_at_is_none() -> 
 
 
 @pytest.mark.parametrize(
-    "field, expected_issue_substring",
+    "field, expected_exact_message",
     [
         ("environment", "environment is required"),
         ("domain", "domain is required"),
@@ -350,29 +461,42 @@ def test_plausibility_issues_no_future_flag_when_last_validated_at_is_none() -> 
     ],
 )
 def test_heuristic_issues_flags_missing_required_field(
-    field: str, expected_issue_substring: str
+    field: str, expected_exact_message: str
 ) -> None:
-    """Kills `not entry.X` → `entry.X` invert mutations + message text."""
+    """Kills `not entry.X` → `entry.X` invert mutations + message text mutations.
+
+    Exact-element membership (`message in issues`) — not substring — kills the
+    `XX...XX`-wrap and UPPERCASE message-text mutations that survive a substring
+    check.
+    """
     entry = _entry(**{field: ""})
     issues = tv._heuristic_issues(entry)
-    assert any(expected_issue_substring in i for i in issues), (
-        f"Expected {expected_issue_substring!r} in issues; got {issues}"
+    assert expected_exact_message in issues, (
+        f"Expected exact message {expected_exact_message!r} in issues list; got {issues}"
     )
 
 
 def test_heuristic_issues_flags_empty_scenario_tags() -> None:
-    """Kills `not entry.scenario_tags` → invert + message text mutations."""
+    """Kills `not entry.scenario_tags` → invert + message text mutations.
+
+    Exact-element membership kills `XX...XX`-wrapped variants of the message.
+    """
     entry = _entry(scenario_tags=[])
     issues = tv._heuristic_issues(entry)
-    assert any("scenario_tags" in i for i in issues), f"Expected scenario_tags issue; got {issues}"
+    assert "scenario_tags should describe when this data is useful" in issues, (
+        f"Expected exact scenario_tags message in issues; got {issues}"
+    )
 
 
 def test_heuristic_issues_flags_empty_known_valid_for() -> None:
-    """Kills `not entry.known_valid_for` → invert + message text mutations."""
+    """Kills `not entry.known_valid_for` → invert + message text mutations.
+
+    Exact-element membership kills `XX...XX`-wrapped variants of the message.
+    """
     entry = _entry(known_valid_for=[])
     issues = tv._heuristic_issues(entry)
-    assert any("known_valid_for" in i for i in issues), (
-        f"Expected known_valid_for issue; got {issues}"
+    assert "known_valid_for should name validated use cases" in issues, (
+        f"Expected exact known_valid_for message in issues; got {issues}"
     )
 
 
