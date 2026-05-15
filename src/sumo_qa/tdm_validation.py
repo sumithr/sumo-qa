@@ -52,12 +52,16 @@ def assess_freshness(
 ) -> FreshnessMetadata:
     reference = now or datetime.now(timezone.utc)
     if last_validated_at is None:
-        return FreshnessMetadata(
+        # mutmut's `operator_arg_removal` mutates the Call node, so the pragma
+        # must be on the line where the Call starts (not on the kwarg line).
+        # Drops of `last_validated_at=None` and `age_days=None` are equivalent
+        # because the FreshnessMetadata model defaults both fields to None.
+        # Drops of `status` and `reason` would raise pydantic ValidationError
+        # (no defaults) — auto-killed by every test that calls this branch.
+        return FreshnessMetadata(  # pragma: no mutate
             status="unknown",
-            # Both kwargs match the FreshnessMetadata model defaults; mutmut
-            # mutations that drop them produce identical objects.
-            last_validated_at=None,  # pragma: no mutate
-            age_days=None,  # pragma: no mutate
+            last_validated_at=None,
+            age_days=None,
             reason="Entry has never been validated.",
         )
     validated_at = _ensure_aware(last_validated_at)
