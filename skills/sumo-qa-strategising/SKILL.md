@@ -50,6 +50,12 @@ NOT for single-change asks. If the user says "review my changes" or "create a te
 
 ## Checklist
 
+**Note on confirmation rhythm:** the per-step gates are upper bounds, not
+mandatory turn-counts. Per the Confirmation discipline (see `using-sumo-qa`),
+collapse adjacent obvious sections into a single update when the user has
+clearly endorsed the trajectory; reserve a structured question for steps
+where the choice meaningfully changes the rest of the strategy.
+
 You MUST work through these in order. Steps 1–3 are AI-only homework (no user questions). The user's confirmation gates steps 4 onward.
 
 1. **Walk the repo** *(no user question)* — use the host's file tools. Inventory: services / top-level modules / test directories / CI config / coverage reports. Note languages, frameworks, seams (HTTP routes, message handlers, scheduled jobs, UI, DB migrations). Use the recipe in `knowledge/repo_walk.md` for the exact commands and data shape to gather, so successive strategy runs produce consistent inventory data on the same repo state.

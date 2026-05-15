@@ -1,13 +1,16 @@
 name: mutation
 
-# Nightly mutation-testing guard.
+# Nightly mutation-testing guard — strict 100% kill-rate gate.
 #
-# Uses Option A (compare-vs-baseline, fail-on-drop):
-#   Fails the workflow if any module's killed count drops below the committed
-#   baseline in mutmut-baseline.json.  The 100% kill-rate target is a manual
-#   review check after the first nightly run; the floor is the committed
-#   baseline.  Upgrade the floor once the first Linux CI run confirms the
-#   strengthening tests push all modules to 100%.
+# Two independent failure conditions (both must pass):
+#   1. Regression catch: fails if any module's killed count drops below the
+#      committed baseline in mutmut-baseline.json.
+#   2. Strict-100% gate: fails if any module has surviving (non-killed,
+#      non-skipped) mutants, i.e. survived > 0.
+#
+# "Skipped" mutants (mutmut's own exclusions for unreachable code, etc.) do NOT
+# count against the gate — they are tooling-level non-tests, not weak assertions.
+# Survivals of exit_code == 0 are the only values that trigger a SURVIVED verdict.
 
 on:
   schedule:
@@ -45,99 +48,95 @@ jobs:
           uv run mutmut run 2>&1 | tee mutmut.log
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
-      - name: Export per-module CI/CD stats
-        # `mutmut export-cicd-stats` emits structured JSON intended for CI
-        # consumers — works in non-TTY environments where `mutmut results`
-        # gives a TTY-only progress UI with no per-mutant lines.
-        run: uv run mutmut export-cicd-stats > mutmut-current.json
-
       - name: Compare against baseline
+        # Reads per-module data directly from mutmut's .meta files —
+        # each mutants/src/sumo_qa/<module>.py.meta contains a JSON object with
+        # the key "exit_code_by_key": {mutant_name: exit_code, ...}.  Exit code
+        # semantics (from mutmut source, __main__.py status_by_exit_code):
+        #   1, 3, -24        -> killed
+        #   0                -> survived
+        #   5, 33            -> no tests
+        #   34               -> skipped
+        #   35               -> suspicious
+        #   36, 24, 152, 255 -> timeout
+        #   37               -> caught by type check
+        #   -11, -9          -> segfault
+        #   all others       -> suspicious
+        #
+        # NOTE: `mutmut export-cicd-stats` was intentionally NOT used here.
+        # Despite the name, that command (mutmut 3.x) writes an aggregate-only
+        # JSON to mutants/mutmut-cicd-stats.json (not stdout) and contains no
+        # per-module breakdown.  Reading .meta files is the authoritative
+        # per-module source and matches how mutmut's own browse/results commands
+        # work internally.
         run: |
           uv run python <<'EOF'
           import json
+          import os
           import sys
           from collections import defaultdict
           from pathlib import Path
+
+          # Killed exit codes — copied from mutmut/__main__.py status_by_exit_code.
+          KILLED_EXIT_CODES = {1, 3, -24}
 
           # Load committed baseline (per-module killed counts captured at Phase 3).
           baseline = json.loads(Path("mutmut-baseline.json").read_text())
           baseline_per_module = baseline["per_module"]
 
-          # Load current mutmut export. Format may evolve across mutmut versions;
-          # walk the structure defensively and bucket per top-level module.
-          current_raw = json.loads(Path("mutmut-current.json").read_text())
+          # Read per-module data from mutmut's .meta files.
+          # Each .meta file path is mutants/src/sumo_qa/<module>.py.meta and
+          # contains {"exit_code_by_key": {mutant_name: exit_code, ...}, ...}.
+          current: dict[str, dict] = {}
+          meta_root = Path("mutants/src/sumo_qa")
 
-          def _bucket_per_module(payload) -> dict:
-              """Return {module_short_name: {killed, survived, total}}.
-
-              `mutmut export-cicd-stats` schema (mutmut 3.x):
-                {
-                  "tested": [{"name": "sumo_qa.<module>.<func>__mutmut_<n>", ...}, ...],
-                  "untested": [...],
-                  ...
-                }
-              Each entry has a `result` field with values like "killed", "alive",
-              "skipped", "timeout", etc. We only care about killed vs alive
-              (survived) for the gate.
-              """
-              buckets = defaultdict(lambda: {"total": 0, "killed": 0, "survived": 0})
-              # Defensive: payload structure may differ; iterate every top-level list.
-              for key, items in payload.items():
-                  if not isinstance(items, list):
-                      continue
-                  for item in items:
-                      if not isinstance(item, dict):
-                          continue
-                      name = item.get("name") or item.get("mutant_name") or ""
-                      result = (item.get("result") or item.get("status") or "").lower()
-                      parts = name.split(".")
-                      if len(parts) < 3 or parts[0] != "sumo_qa":
-                          continue
-                      module = parts[1]
-                      if module not in baseline_per_module:
-                          continue
-                      buckets[module]["total"] += 1
-                      if result in ("killed", "passed", "ok"):
-                          buckets[module]["killed"] += 1
-                      elif result in ("survived", "alive"):
-                          buckets[module]["survived"] += 1
-              return buckets
-
-          current = _bucket_per_module(current_raw)
+          for module in baseline_per_module:
+              meta_path = meta_root / f"{module}.py.meta"
+              if not meta_path.exists():
+                  current[module] = {"killed": 0, "survived": 0, "total": 0, "missing": True}
+                  continue
+              meta = json.loads(meta_path.read_text())
+              exit_codes = meta.get("exit_code_by_key", {})
+              killed = sum(1 for ec in exit_codes.values() if ec in KILLED_EXIT_CODES)
+              total = len(exit_codes)
+              survived = sum(1 for ec in exit_codes.values() if ec == 0)
+              current[module] = {"killed": killed, "survived": survived, "total": total, "missing": False}
 
           # Compare per-module.
           failed = []
-          summary_lines = ["Module | Baseline killed | Current killed | Verdict"]
-          summary_lines.append("---|---|---|---")
+          summary_lines = ["| Module | Baseline killed | Current killed | Survivors | Verdict |"]
+          summary_lines.append("| --- | --- | --- | --- | --- |")
           for module, base in baseline_per_module.items():
-              curr = current.get(module, {"killed": 0, "survived": 0, "total": 0})
+              curr = current.get(module, {"killed": 0, "survived": 0, "total": 0, "missing": True})
               base_killed = base["killed"]
               curr_killed = curr["killed"]
-              if curr_killed < base_killed:
+              survived = curr["survived"]
+              if curr.get("missing"):
+                  verdict = "MISSING"
+                  failed.append(f"{module}: .meta file not found — did mutmut run complete?")
+              elif curr_killed < base_killed:
                   verdict = "DROPPED"
-                  failed.append(
-                      f"{module}: killed dropped from {base_killed} -> {curr_killed}"
-                  )
+                  failed.append(f"{module}: killed dropped from {base_killed} -> {curr_killed}")
+              elif survived > 0:
+                  verdict = "SURVIVED"
+                  failed.append(f"{module}: {survived} mutant(s) survived — 100% kill rate required")
               else:
                   verdict = "OK"
-              summary_lines.append(
-                  f"{module} | {base_killed} | {curr_killed} | {verdict}"
-              )
+              summary_lines.append(f"| {module} | {base_killed} | {curr_killed} | {survived} | {verdict} |")
 
           summary = "\n".join(summary_lines)
           print(summary)
           # Surface to GitHub Actions step summary.
-          import os
           gh_summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
           if gh_summary_path:
-              Path(gh_summary_path).write_text(summary)
+              Path(gh_summary_path).write_text(f"## Mutation gate\n\n{summary}\n")
 
           if failed:
-              print("\nFAIL: mutation kill counts dropped below baseline:")
+              print("\nFAIL: mutation gate failed:")
               for f in failed:
                   print(f"  - {f}")
               sys.exit(1)
-          print("\nAll module kill counts >= baseline.")
+          print("\nAll modules: kill counts >= baseline and 0 survivors. Strict gate passed.")
           EOF
 
       - name: Upload mutmut log on failure

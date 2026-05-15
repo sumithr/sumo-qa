@@ -48,6 +48,15 @@ For a single 30-minute QA task, planning is overhead — go straight to the matc
 
 ## Checklist
 
+**Note on confirmation rhythm:** the per-step gates are upper bounds, not
+mandatory turn-counts. Per the Confirmation discipline (see `using-sumo-qa`),
+collapse adjacent obvious sections into a single update when the user has
+clearly endorsed the trajectory; reserve a structured question for steps
+where the choice meaningfully changes the rest of the plan. In particular,
+step 6 ("Walk the plan section-by-section, confirm") should be read as: batch
+adjacent task groups when the user has already validated the approach — the
+goal is to catch mis-shaped tasks early, not to ask permission for each one.
+
 You MUST work through these in order. Steps 1–3 are AI-only homework. Steps 4 onward are gated by user confirmation.
 
 1. **Walk the repo for context** *(no user question)* — use the host's file tools. Find: the actual files the work touches, the test framework + fixture conventions, CI config, any sibling tests demonstrating local patterns. Don't ask the user what's in the repo.

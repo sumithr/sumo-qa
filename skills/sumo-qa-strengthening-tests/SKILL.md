@@ -83,7 +83,7 @@ See the Checklist above — that's the flow.
 | "All surviving mutants need a test" | No. Equivalent mutants are noise; suppressing them is correct. Only real mutants get tests. |
 | "Coverage went from 85% to 92% — done" | Line coverage isn't assertion strength. The right measure is "did the mutation survivor count drop?" |
 | "I'll add property-based testing for everything" | Pick from the catalogue based on the actual mutant. Property-based fits invariants, not all mutants. |
-| "I'll process all 8 survivors in one message to save turns" | Single-shot dump. Walk one mutant at a time — the user's correction on M3 may change how you classify M4. |
+| "I'll process all 8 survivors in one message to save turns" | Blind single-shot dump. Per-CLASS batching is acceptable when mutants share the same mechanism (e.g. 4 boundary-shift mutants on the same function → one decision, one test class); walk class-by-class, not mutant-by-mutant in that case. But one message with ALL survivors of different mechanisms = Iron Law violated — the user's correction on M3 may change how you classify M4. |
 | "I'll ask the user which test framework / fixture style" | Read the test file. The repo answers that. |
 | "Equivalent mutants: suppress all of them silently" | Each suppression needs a one-line rationale in the config. Otherwise the next reviewer can't tell whether you suppressed a real one. |
 
