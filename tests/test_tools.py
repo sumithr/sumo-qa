@@ -7,7 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def service() -> QAShiftLeftService:
-    return QAShiftLeftService.from_standards_path(ROOT / "standards" / "packs")
+    return QAShiftLeftService.from_standards_path(
+        ROOT / "standards" / "packs",
+        test_data_path=ROOT / "tests" / "fixtures" / "test_data",
+    )
 
 
 def test_service_factory_returns_test_data_capable_service() -> None:

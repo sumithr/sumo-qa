@@ -71,10 +71,16 @@ sumo-qa-install = "sumo_qa.installer:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/sumo_qa"]
 
-# Bundle the standards packs, change rules, and known-good test data into the
-# wheel so users who install via pipx/uv/pip get a working server with no env
-# vars or paths to configure. The package's resolver falls back to these
+# Bundle the standards packs, change rules, knowledge catalogues, and host
+# skills into the wheel so pipx/uv/pip users get a working server with no
+# env vars or paths to configure. The package's resolver falls back to these
 # bundled resources when the user hasn't pointed env vars elsewhere.
+#
+# Test data is deliberately NOT bundled. The repo's own auth/billing sample
+# YAMLs live under tests/fixtures/test_data/ and exist only for the package's
+# test suite — shipping them would pollute end-user `sumo_qa_find_test_data`
+# results with our internal fixtures. Fresh installs start with an empty
+# catalogue; teams populate `knowledge/test_data/` (or QA_TEST_DATA_PATH).
 [tool.hatch.build.targets.wheel.force-include]
 "standards" = "sumo_qa/_data/standards"
 "knowledge" = "sumo_qa/_data/knowledge"
