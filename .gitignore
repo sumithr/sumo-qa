@@ -64,3 +64,7 @@ tests/evals/results/
 .promptfoo/
 tests/evals/promptfoo/output*.json
 tests/evals/promptfoo/*.cache.json
+
+# Node dependencies for the promptfoo eval harness. package.json +
+# package-lock.json are tracked (pins the version); installed modules are not.
+node_modules/

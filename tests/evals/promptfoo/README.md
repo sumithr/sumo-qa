@@ -45,6 +45,15 @@ it belongs on a separate scheduled runner with explicit billing approval.
 
 ### One-time setup
 
+**Node 20.20+ or 22.22+** is required (`promptfoo` ships ESM). If you use nvm:
+`nvm use 24` (or any supported version).
+
+Install promptfoo as a local dev dependency (pinned in `package.json`):
+
+```bash
+npm install
+```
+
 Store your OpenAI API key in a non-tracked file (the harness reads
 `OPENAI_API_KEY` from env; do not put the literal key in any repo file):
 
@@ -56,17 +65,35 @@ EOF
 chmod 600 ~/.config/promptfoo-keys.env
 ```
 
-Node 20.20+ or 22.22+ is required (`promptfoo` ships ESM). If you use nvm:
-`nvm use 24` (or any supported version).
-
-### Synthesise more test cases from a seed
-
-Each skill YAML carries ONE seed test under `tests:`. Promptfoo generates
-variations on demand:
+### Common commands (via npm scripts)
 
 ```bash
 source ~/.config/promptfoo-keys.env
-npx --yes promptfoo@latest generate dataset \
+npm run eval              # run TDD skill eval (uses --no-cache)
+npm run eval:generate     # synthesise more tests from the seed (--write merges into the YAML)
+npm run eval:view         # open the local results UI
+npm run eval:all          # run all skill-*.yaml configs sequentially
+```
+
+### Direct binary invocation (for flags not in the scripts)
+
+The local binary is at `./node_modules/.bin/promptfoo` after `npm install`.
+
+```bash
+source ~/.config/promptfoo-keys.env
+
+# Multi-sample variance check (each test runs 5 times):
+./node_modules/.bin/promptfoo eval \
+    -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml \
+    --no-cache \
+    --repeat 5 \
+    --output /tmp/result.json
+
+# Sequential / legible logs:
+./node_modules/.bin/promptfoo eval -c <config> -j 1
+
+# Generate dataset with custom instructions:
+./node_modules/.bin/promptfoo generate dataset \
     -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml \
     --instructions "Synthesise realistic developer chat messages that should route to this skill. Vary language, framework, bug shape." \
     --numPersonas 2 \
@@ -74,21 +101,9 @@ npx --yes promptfoo@latest generate dataset \
     --write
 ```
 
-`--write` merges the generated tests back into the source YAML. Without
-`--write` they go to a separate output file.
-
-### Run the eval
-
-```bash
-source ~/.config/promptfoo-keys.env
-npx --yes promptfoo@latest eval \
-    -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml \
-    --no-cache
-```
-
 Useful flags:
 
-- `--repeat 5` — multi-sample variance check (each test runs 5 times)
+- `--repeat 5` — multi-sample variance check
 - `--no-cache` — bypass the local SQLite cache (use while iterating)
 - `--output /tmp/result.json` — structured output for the variance aggregator
 - `-j 1` — sequential, for legible logs
@@ -96,7 +111,7 @@ Useful flags:
 ### View the results
 
 ```bash
-npx --yes promptfoo@latest view
+npm run eval:view
 ```
 
 Spins up a local web UI showing per-test pass/fail, judge reasoning,
