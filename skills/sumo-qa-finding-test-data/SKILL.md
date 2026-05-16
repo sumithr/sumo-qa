@@ -56,7 +56,7 @@ You MUST create a TodoWrite item per checklist item and complete in order. Steps
 4. **For find:** call the tool with the gathered criteria. If matches: pipe each into validate (step 5a). If no matches: say so explicitly — do NOT invent and do NOT silently broaden the criteria.
 5. **For validate:**
    - **5a (from find or direct):** call `sumo_qa_validate_test_data` against the source system in this turn. A cached or memorised result is not fresh. Report state with timestamp + the validation evidence.
-   - **5b (register):** confirm with the user before writing to the catalogue. Show the entry, the validation evidence, and ask: *"Register this as known-good?"* Only write on explicit yes.
+   - **5b (register):** confirm with the user before writing to the catalogue. Show the entry, the validation evidence, and ask: *"Register this as known-good?"* Only write on explicit yes. **Arg shape:** call `sumo_qa_register_known_good_test_data(entry={...})` with `entry` as a literal dict (id, environment, domain, scenario_tags, known_valid_for, constraints, owner, last_validated_at, confidence, source, notes). Not a YAML string. The tool docstring has a complete example.
 6. **If an entry fails validation:** mark it stale, surface the failure to the user, do NOT silently substitute another entry. The user decides whether to find an alternative or register a new one.
 
 ## Process Flow
