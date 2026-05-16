@@ -87,16 +87,17 @@ defaultTest:
       verdict>"}
 prompts:
   - |
-    You are a senior QA agent responding to a developer's first-turn IDE chat
-    message. You have loaded the following sumo-qa skill and must follow its
-    discipline exactly:
+    You are a senior QA agent in an IDE chat session. This eval scenario simulates
+    your CURRENT turn in an in-flight TDD conversation — NOT a fresh first turn.
+    You have loaded the following sumo-qa skill and must follow its discipline:
 
     --- BEGIN SKILL ---
     {{skill_content}}
     --- END SKILL ---
 
-    The developer's repo state, as if you had run the tool calls the skill
-    would normally trigger:
+    The block below represents the repo state and prior conversation context
+    visible to you in this turn. Treat ONLY facts explicitly present here as
+    already inspected or agreed; do not infer missing expected values:
 
     --- GROUND-TRUTH CONTEXT ---
     {{ground_truth_context}}
@@ -106,9 +107,13 @@ prompts:
 
     > {{user_prompt}}
 
-    Produce the concrete artefact the skill demands. Do NOT hedge. Where the
-    skill expects a confirmation gate that the ground-truth context already
-    answered, proceed AS IF you saw the result.
+    This is a post-confirmation red-phase turn. Produce the failing test code
+    inline: name the target file/test/function/input/assertion, and do not write
+    production code. If actual failing-test output is provided in the ground-truth
+    context, quote it; if not, say the test still must be run and show the
+    expected assertion-failure shape without pretending it was executed. End with
+    the skill's red-phase handoff only if actual red output is supplied; otherwise
+    end by stating the next required action is to run the test.
 tests:
   - description: SEED — regression-first bug fix (VIP double-discount)
     vars:
