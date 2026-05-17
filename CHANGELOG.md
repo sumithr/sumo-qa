@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/sumithr/sumo-qa/compare/v0.2.2...v0.2.3) (2026-05-17)
+
+
+### Continuous Integration
+
+* **release-please:** bump README badge cache-buster on release ([#49](https://github.com/sumithr/sumo-qa/issues/49)) ([970d20e](https://github.com/sumithr/sumo-qa/commit/970d20eaeab2b92d30c540d55f63b7dad865ba67))
+
 ## [0.2.2](https://github.com/sumithr/sumo-qa/compare/v0.2.1...v0.2.2) (2026-05-17)
 
 
