@@ -61,6 +61,48 @@ repos:
 
   - repo: local
     hooks:
+      # Vulnerability scanning — local mirror of GitHub's Dependabot
+      # alerts. Dependabot already scans the repo against the same
+      # advisory databases (npm + PyPI) and opens alerts/PRs when CVEs
+      # land; these hooks just surface the same findings BEFORE the push
+      # so you don't bounce off the Dependabot queue post-merge.
+      #
+      # Each hook fires only when the relevant lockfile changes — ordinary
+      # commits don't pay the network cost of an advisory lookup.
+      #
+      # If Dependabot's severity threshold or ignore list changes (Settings
+      # → Code security → Dependabot), update the corresponding flag here
+      # so local and remote stay in sync.
+      - id: npm-audit
+        name: npm audit (high+critical)
+        # --audit-level=high matches Dependabot's default for npm; bump
+        # if you change Dependabot's severity floor. npm audit reads
+        # package-lock.json directly — no `npm ci` needed.
+        entry: npm audit --audit-level=high
+        language: system
+        files: ^package-lock\.json$
+        pass_filenames: false
+        require_serial: true
+        # Pre-commit only — `git push` already runs the slow pytest hook;
+        # re-running an advisory lookup at push time is pure latency, and
+        # `uv run` invoked under pre-push can touch uv.lock and trip
+        # pre-commit's "files were modified" check.
+        stages: [pre-commit]
+
+      - id: pip-audit
+        name: pip-audit (PyPI advisory DB)
+        # Uses the project's uv-managed env so the audit sees the same
+        # resolved tree Dependabot does. `uv run --with pip-audit` lazily
+        # installs pip-audit into a uv-cached env — no permanent dev-dep
+        # cost. pip-audit has no severity filter, so this fails on any
+        # advisory; suppress false positives via `--ignore-vuln <GHSA-…>`.
+        entry: uv run --with pip-audit pip-audit --strict
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-commit]
+
       - id: pytest
         name: pytest (pre-push)
         # Runs on `git push`, not on every commit (too slow for single-file
