@@ -1,0 +1,18 @@
+{
+  "name": "sumo-qa-eval-tooling",
+  "private": true,
+  "description": "Node dev tooling for the sumo-qa promptfoo eval harness. Not published; the Python package is in pyproject.toml.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20.20.0 <21 || >=22.22.0"
+  },
+  "scripts": {
+    "eval": "promptfoo eval -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml --no-cache",
+    "eval:all": "for f in tests/evals/promptfoo/skill-*.yaml; do promptfoo eval -c \"$f\" --no-cache; done",
+    "eval:generate": "promptfoo generate dataset -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml --write",
+    "eval:view": "promptfoo view"
+  },
+  "devDependencies": {
+    "promptfoo": "0.121.11"
+  }
+}

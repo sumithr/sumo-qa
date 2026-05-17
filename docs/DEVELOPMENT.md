@@ -4,9 +4,12 @@ Local dev guide for sumo-qa.
 
 ## Prerequisites
 
-- Python 3.10 or newer (no upper cap; see `pyproject.toml`'s `requires-python`)
+- **Python 3.10 or newer** (no upper cap; see `pyproject.toml`'s `requires-python`)
+- **Node.js 20.20+ or 22.22+** — only needed if you run the LLM eval harness (`tests/evals/promptfoo/`). Promptfoo is a Node CLI; we pin it as a local devDependency in `package.json`. Skip this if you don't touch evals.
 
-That's it. Pick whichever installer you already use — `pip`, `uv`, `pipx`, conda. Examples below use `pip` because it ships with every Python install; `uv` users can swap in equivalent commands.
+Python tooling: pick whichever installer you already use — `pip`, `uv`, `pipx`, conda. Examples below use `pip` because it ships with every Python install; `uv` users can swap in equivalent commands.
+
+Node tooling: `nvm` (or any Node version manager) handles the version requirement cleanly. `nvm use 24` works.
 
 ## Setup
 
@@ -27,6 +30,16 @@ uv sync --all-extras
 uv run pre-commit install --install-hooks
 uv run pre-commit install --hook-type pre-push
 ```
+
+### Eval harness (Node-only — skip if you don't touch evals)
+
+```bash
+nvm use 24             # or any Node 20.20+ / 22.22+ install
+npm install            # installs promptfoo from package.json
+npm run eval           # runs the TDD skill eval (needs OPENAI_API_KEY)
+```
+
+See [`tests/evals/promptfoo/README.md`](../tests/evals/promptfoo/README.md) for full eval usage + cost notes.
 
 To put `sumo-qa` on your PATH for ad-hoc use (optional):
 

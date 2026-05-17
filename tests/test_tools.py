@@ -7,7 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def service() -> QAShiftLeftService:
-    return QAShiftLeftService.from_standards_path(ROOT / "standards" / "packs")
+    return QAShiftLeftService.from_standards_path(
+        ROOT / "standards" / "packs",
+        test_data_path=ROOT / "tests" / "fixtures" / "test_data",
+    )
 
 
 def test_service_factory_returns_test_data_capable_service() -> None:
@@ -91,6 +94,28 @@ def test_bundled_data_path_returns_none_on_module_not_found() -> None:
 
     # Either None (module not found) or a Path (editable install — sumo_qa IS importable).
     assert result is None or isinstance(result, Path)
+
+
+def test_resolve_data_path_returns_default_when_default_exists(tmp_path: Path, monkeypatch) -> None:
+    """_resolve_data_path() returns the cwd-relative default when it exists (line 30).
+
+    This branch was previously covered only incidentally — by the team-local
+    knowledge/test_data/{fulfilment,stock} directories being present in the
+    maintainer's checkout. CI's fresh checkout doesn't have those, dropping
+    coverage to 99.91%. This test exercises the branch deterministically.
+    """
+    from sumo_qa.tools import DEFAULT_STANDARDS_PATH, _resolve_data_path
+
+    # Create the default-shaped relative path inside tmp_path so it exists.
+    default_dir = tmp_path / DEFAULT_STANDARDS_PATH
+    default_dir.mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+
+    resolved = _resolve_data_path(
+        DEFAULT_STANDARDS_PATH, DEFAULT_STANDARDS_PATH, "standards", "packs"
+    )
+
+    assert resolved == DEFAULT_STANDARDS_PATH
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,17 @@
 name: lint
 
+# Same de-dupe pattern as tests.yml — push only on main, pull_request for
+# everything else, plus concurrency cancel for rapid iteration. See
+# .github/workflows/test.yml for the full rationale.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ruff:

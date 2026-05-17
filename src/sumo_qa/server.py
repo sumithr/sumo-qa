@@ -242,6 +242,22 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         Detects duplicates by environment + domain + product/SKU + scenario
         overlap. Writes to `knowledge/test_data/<domain>/known_good.yaml`.
 
+        Arg shape — pass `entry` as a literal dict, NOT a YAML string. Example:
+
+            sumo_qa_register_known_good_test_data(entry={
+                "id": "billing-overdue-invoice-001",
+                "environment": "staging",
+                "domain": "billing",
+                "scenario_tags": ["overdue_invoice", "dunning_eligible"],
+                "known_valid_for": ["dunning workflow testing"],
+                "constraints": ["Reset overdue flag after test."],
+                "owner": "billing-platform",
+                "last_validated_at": "2026-05-16T09:00:00Z",
+                "confidence": "high",
+                "source": "qa-curated",
+                "notes": "Overdue invoice usable for dunning-flow testing.",
+            })
+
         Common natural-language phrasings that map to this tool:
         "save this as known-good test data", "register this fixture so the team
         can reuse it", "promote this record to known-good", "update the

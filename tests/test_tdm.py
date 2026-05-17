@@ -17,7 +17,7 @@ NOW = datetime(2026, 5, 6, 12, 0, tzinfo=timezone.utc)
 
 def service() -> QAShiftLeftService:
     assistant = Assistant(
-        Catalogue(ROOT / "knowledge" / "test_data"),
+        Catalogue(ROOT / "tests" / "fixtures" / "test_data"),
         MockValidator(now=NOW),
     )
     return QAShiftLeftService(test_data_assistant=assistant)

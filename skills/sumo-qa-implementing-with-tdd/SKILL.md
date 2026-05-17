@@ -35,6 +35,8 @@ Do NOT write the failing test in the same turn you propose the test idea. Walk t
 
 **RED PHASE FIRST. NO PRODUCTION CODE BEFORE A FAILING TEST.** A test that has never failed has never tested anything — the red phase is the proof.
 
+**Stub allowance — narrow.** A production-side stub is permitted in the red phase ONLY when the test cannot otherwise be collected or imported (e.g. the function under test does not exist yet, so the test file fails at import). The stub must be the smallest signature-only shape that lets the test reach its assertion: `def apply_discounts(order): raise NotImplementedError` or `def apply_discounts(order): pass` returning a default. **Any behaviour in the stub — a partial implementation, a heuristic return, a branch that happens to satisfy the assertion — is an Iron Law violation,** because the red phase is no longer proving the test catches the bug, it's proving the stub matches the assertion. If you find yourself writing `if`/`else` or computing a value in the stub, stop — that work belongs in the green phase, handed back to the user.
+
 ## When to Use
 
 `sumo-qa-deciding-approach` routes here when the approach is one of:
@@ -84,6 +86,7 @@ See the Checklist above — that's the flow.
 | "Regression check is overkill for a small change" | Targeted regression is cheap and catches nasty surprises. Run it. |
 | "I'll write the test idea AND write the test in the same message" | Walk through. Test idea → confirm → write → run. The confirmation gate is what catches misaligned assertions. |
 | "Assertion: `assert add(2,3) == 2+3`" | Tautology. The broken code passes this too. Pick an outcome the bug changes. |
+| "I'll stub the production function with a quick `return total * 0.9` so the test fails meaningfully" | Iron Law violated via the stub. Stubs in red phase are signature-only (`pass` / `raise NotImplementedError`). The 0.9 belongs in the green phase the user writes. |
 | "Mutation testing fits here" | Wrong skill. Mutation follow-up is `sumo-qa-strengthening-tests`. |
 | "User asked for the test, not prod code — I'll write both anyway" | Confirm. The TDD discipline only works if the user owns the green-making step (or asks explicitly). |
 

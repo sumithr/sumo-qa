@@ -184,7 +184,7 @@ def test_tool_bodies_are_reachable_via_server_call_tool() -> None:
 
     service = QAShiftLeftService(
         test_data_catalogue=TestDataCatalogue(
-            Path(__file__).resolve().parents[1] / "knowledge" / "test_data"
+            Path(__file__).resolve().parent / "fixtures" / "test_data"
         )
     )
     server = build_mcp_server(service=service)

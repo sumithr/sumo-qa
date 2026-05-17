@@ -51,9 +51,13 @@ The right authority depends on what kind of knowledge you're invoking. Stable co
 
 **Stable concepts** — test design techniques (boundary value, decision table, property-based, mutation), ISTQB principles, change classifications, QA approaches:
 
-1. **Loaded knowledge files** (`sumo_qa_load_techniques`, `_principles`, `_classifications`, `_approaches`). Authoritative.
-2. **Training data** — fallback only when the catalogue is silent. Flag when used: *"This isn't in the loaded catalogue, but…"*
-3. **"I don't know"** — acceptable. Don't invent techniques or principles.
+**The loaded catalogue is the ONLY authority you may silently cite.** Every named principle, technique, classification, or approach in your user-facing answer must appear in the result of a `sumo_qa_load_*` tool call you actually made this turn. If you reach for material outside the loaded result — *"per ISTQB Advanced Test Manager guidance"*, *"the standard X / Y / Z taxonomy says"*, a remembered technique name not in `load_techniques` — you MUST either (a) explicitly label it as drift: *"this isn't in the loaded catalogue, but…"*, or (b) drop it. **Silent supplementation from training data is the failure mode this rule exists to prevent** — it produces answers that look authoritative but cite phantom sources the user can't verify, and it makes the catalogue look more complete than it is. If a catalogue is silent on a concept you think matters, say so out loud; don't paper over the gap.
+
+Resolution order:
+
+1. **Loaded knowledge files** (`sumo_qa_load_techniques`, `_principles`, `_classifications`, `_approaches`). Authoritative; cite verbatim.
+2. **Training data** — fallback only when the catalogue is silent AND you label the drift explicitly.
+3. **"I don't know"** — acceptable. Don't invent techniques, principles, or external authorities.
 
 **Specialty tool picks — discovery, not catalogue.** Sumo-qa intentionally does
 NOT carry a tool catalogue. Tools and the categories they fit into evolve faster
