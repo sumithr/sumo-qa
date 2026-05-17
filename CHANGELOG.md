@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/sumithr/sumo-qa/compare/v0.2.0...v0.2.1) (2026-05-17)
+
+
+### Bug Fixes
+
+* **deps:** patch 6 Dependabot protobufjs CVEs via scoped override ([#45](https://github.com/sumithr/sumo-qa/issues/45)) ([c2f126e](https://github.com/sumithr/sumo-qa/commit/c2f126ece2742b754ec1415258cd080211dc3053))
+
 ## [0.2.0](https://github.com/sumithr/sumo-qa/compare/v0.1.5...v0.2.0) (2026-05-17)
 
 
