@@ -4,6 +4,8 @@ How sumo-qa's scenario specs ([`SCENARIOS.md`](SCENARIOS.md) + [`TOOL-SELECTION.
 
 This is a **design doc**, not a runnable harness. It specifies the rubric, the scoring, and the cadence so any of the established LLM-eval frameworks (promptfoo, Inspect, Anthropic Workbench, etc.) can be wired up by a future PR without re-litigating the contract. The framework choice is deliberately deferred — it's exactly the kind of "specialty tooling" that the discovery discipline in `using-sumo-qa` covers (observe the surface, web-search current options for the user's stack, recommend with citation).
 
+> **Runnable implementation:** these evals now live in `tests/evals/promptfoo/` (added 2026-05-17). See `tests/evals/promptfoo/README.md` for run instructions; this doc remains as framework-agnostic design.
+
 ## Scope
 
 | Scenario class | Source | Count |
