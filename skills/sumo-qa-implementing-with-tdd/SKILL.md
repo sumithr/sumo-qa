@@ -55,7 +55,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 2. **Walk the repo for the target** *(no user question)* — use the host's file tools. Find (a) the production file the change touches, (b) the matching test file (or where one belongs), (c) the existing test style (framework, fixtures, assertion library), (d) for regression-first: the failing path that reproduces the bug. Don't ask the user "what test framework?" — read a sibling test file.
 
-3. **Pick the smallest failing test idea** *(no user question)* — name the function under test, the input that triggers the risk, and the assertion that distinguishes broken from fixed. Tautology check: if the assertion re-states the production code, pick an observable outcome instead.
+3. **Pick the smallest failing test idea** *(no user question)* — name (a) the target test file path, (b) the function under test, (c) the input that triggers the risk, (d) the assertion that distinguishes broken from fixed, and (e) the test-design technique applied from the loaded `sumo_qa_load_techniques()` catalogue, justified by this risk's shape. Technique name MUST be the verbatim catalogue heading (lowercase, with any suffix the catalogue uses — e.g. "decision tables", "state transition testing", "boundary value analysis", "equivalence partitioning", "exploratory testing", "pairwise testing"). Do not paraphrase, title-case, or shorten the catalogue heading. Tautology check (assertion): if the assertion re-states the production code, pick an observable outcome instead. Setup-discriminator check (mocks/fixtures): if the test setup makes the broken and fixed implementations produce the same outcome, redesign the setup so they produce different outcomes — e.g. a mock that rejects on first call but resolves on second when testing rejection-cache invalidation.
 
 4. **Confirm the test idea, only for the AMBIGUOUS parts** — present a short paragraph naming target, fixture style, and proposed assertion, then ask ONE focused question for what code couldn't answer (e.g. *"is 90.0 the correct expected value, or does VIP stack with promo?"*). If unambiguous, skip the question.
 
@@ -63,7 +63,10 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim.
 
-7. **Hand off to the user** — *"red phase confirmed. Implement to make it green; I'll re-run when you're ready. If you'd like me to also write the production code, say so."* Wait.
+7. **Hand off to the user** — end with EXACTLY one of two phrasings, no closing pleasantries, no confirmation questions, no "shall I":
+   - if you've shown the actual red assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
+   - if no real red output yet: "I'll run this and surface the assertion failure next."
+   Wait.
 
 8. **Re-run after green-making change** — confirm it passes for the right reason (not because the assertion was weakened). If it fails, surface the new failure — don't try a second production change without the user.
 
@@ -96,13 +99,37 @@ See the Checklist above — that's the flow.
 
 > **User:** *"Fix the VIP-double-discount bug regression-first."*
 >
-> **AI (homework):** finds `pricing/discount_calculator.py:apply_discounts()` and `pricing/test_discount_calculator.py` (pytest + `Order` fixtures); proposes calling `apply_discounts(order_with_vip_and_promo)` asserting `order.total == 90.0`.
+> **AI (homework):** finds `pricing/discount_calculator.py:apply_discounts()` and target test file `pricing/test_discount_calculator.py` (pytest + `Order` fixtures); applies decision tables for the VIP/promo rule combination; proposes calling `apply_discounts(order_with_vip_and_promo)` asserting `order.total == 90.0`.
 >
 > **AI (confirm):** *"Smallest failing test will assert `order.total == 90.0`. **Is 90.0 right — does VIP stack with promo or override it?**"*
 >
 > **User:** *"VIP overrides promo entirely."*
 >
 > **AI:** writes the test, runs it, captures `AssertionError: assert 80.0 == 90.0` at `test_discount_calculator.py:47`, surfaces verbatim, hands off for the green-making change.
+
+### Good (stateful mock for rejection-cache)
+
+> **User:** *"Fix the async memoizer rejection-caching bug regression-first. If the wrapped function rejects, that failure must not poison the cache; a later call for the same key should retry."*
+>
+> **AI (homework):** finds `src/cache/memoizeAsync.js:memoizeAsync()` and target test file `test/cache/memoizeAsync.test.js` (jest); applies `state transition testing` for the cache-state transitions (no-entry → rejected → retried-then-resolved); recognises that a mock returning the same outcome on every call (always-reject or always-resolve) makes the test indistinguishable between broken and fixed.
+>
+> **AI (proposed test idea):** *"Target file `test/cache/memoizeAsync.test.js`; function `memoizeAsync`; input is a `jest.fn` that rejects ONCE then resolves on retry; assertion is that `memoized(key)` rejects on first call and resolves to the success value on second call (with `fn` called twice). Technique: state transition testing. Setup-discriminator check: mock must reject-once-then-resolve, NOT always-reject — broken impl caches the rejection (second await rejects); fixed impl retries (second await resolves)."*
+>
+> **AI (writes test):**
+> ```js
+> test('does not cache rejected promises; retries on next call', async () => {
+>   const fn = jest.fn()
+>     .mockRejectedValueOnce(new Error('Failed'))
+>     .mockResolvedValue('value:a');
+>   const memoized = memoizeAsync(fn);
+>
+>   await expect(memoized('a')).rejects.toThrow('Failed');
+>   await expect(memoized('a')).resolves.toBe('value:a');
+>   expect(fn).toHaveBeenCalledTimes(2);
+> });
+> ```
+>
+> Why this passes the discriminator check: a broken `memoizeAsync` caches the rejected promise, so the SECOND `await memoized('a')` would re-reject (test fails). A fixed `memoizeAsync` re-invokes `fn`, gets the resolved value, and the second `await` returns `'value:a'` (test passes after fix, fails before fix). The mock's stateful behaviour (first-call reject, subsequent-call resolve) is what makes broken and fixed produce different outcomes.
 
 ### Bad (write test and prod fix together)
 

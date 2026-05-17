@@ -134,6 +134,7 @@ See the Checklist above — that's the flow.
 | "Task: 'add tests for the refund flow'" | Generic. Decompose to file + function + expected assertion + risk covered. |
 | "I'll list 12 tasks for thoroughness" | Probably 6 with overlap. Combine until each task is genuinely distinct. |
 | "I'll mark everything as sequential to be safe" | Default to parallel. Each task should be independent enough to hand to a fresh subagent. Sequential is the exception with a stated reason. |
+| "Parallel file-ownership overlap" | Parallel file-ownership overlap — two [parallel] tasks that both modify the same file; resolve by marking one [sequential after Task N] or merging the tasks. |
 | "Each task is 'about an hour'" | Decompose. 5–15 minutes each. An hour = 4–8 tasks. |
 | "I'll dump the whole plan in one message and ask 'looks good?'" | Single-shot. Walk section-by-section so the user catches mis-shaped tasks early. |
 | "The plan doesn't need approach tags — the executor will figure out the right workflow per task" | The executor is a fresh subagent. It has no context. Tag every task. |

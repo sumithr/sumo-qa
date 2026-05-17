@@ -1,0 +1,20 @@
+# Generator seed for codex-reviewed regeneration.
+# Codex-reviewed generator prompt:
+# Produce varied QA-routing scenarios for the using-sumo-qa router. Generate
+# developer user_prompt cases only, with different intents mapping to different
+# valid sub-skills from skill-using-sumo-qa.yaml. Use exact real sub-skill names
+# only when describing expected routing in your own reasoning, but do not add
+# expected_skill, skill_content, catalogues, assertions, or ground_truth_context
+# to generated tests. Write the cleaned user_prompt-only TestCase array to
+# tests/evals/promptfoo/skill-using-sumo-qa.generated-tests.yaml via
+# extract_tests.py.
+description: >-
+  Generator-only seed for skill-using-sumo-qa (not for running evals).
+prompts:
+  - '{{user_prompt}}'
+providers:
+  - id: echo
+tests:
+  - vars:
+      user_prompt: >-
+        Can you review my changes before I push?

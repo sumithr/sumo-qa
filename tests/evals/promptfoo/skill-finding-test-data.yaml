@@ -1,0 +1,162 @@
+description: >
+  Skill-isolation eval for sumo-qa-finding-test-data. ONE seed test defines
+  the shape; promptfoo's `generate dataset` synthesises variations.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-finding-test-data/SKILL.md
+    valid_routes: |-
+      sumo_qa_explain_test_data_requirements
+      sumo_qa_find_test_data
+      sumo_qa_validate_test_data
+      sumo_qa_register_known_good_test_data
+    expected_shape: >-
+      Tool-aware test-data response. Names `sumo_qa_find_test_data` as the
+      right route for the requested known-good order, with criteria anchored to
+      staging, checkout orders, VIP tier, applied promo, order state, and
+      deterministic totals. Describes the required data shape in natural
+      English, then states any found record must be validated this turn with
+      `sumo_qa_validate_test_data` before it is trusted. Does not invent an
+      order ID, register data, or silently broaden the request.
+    anti_patterns:
+      - Invents a plausible order ID or fixture that is not in supplied catalogue output.
+      - Uses only `sumo_qa_explain_test_data_requirements` when the user asked for a known-good record.
+      - Skips fresh validation before trusting a found record.
+      - Calls `sumo_qa_register_known_good_test_data` without explicit user confirmation.
+      - Asks for criteria already present in the prompt or ground-truth context.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The complete valid test-data route list is:
+
+
+      {{valid_routes}}
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         It must name the correct sumo_qa find route, describe the data shape
+         and argument criteria, require same-turn validation before trust, and
+         avoid inventing or registering data.
+
+      B. GROUNDING - the route must be one of the valid routes above, and the
+         criteria must visibly use the supplied context: staging, checkout
+         orders, VIP tier, applied promo, unrefunded active order state, and
+         deterministic totals. Missing these anchors -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    The available test-data routes are:
+
+    {{valid_routes}}
+
+    Repository and data context for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is the test-data routing turn. Produce EXACTLY this response format, line by line:
+
+    Line 1 (route announcement): `Finding test data — validated fresh.`
+
+    Line 2 (find call):
+    **Tool:** `sumo_qa_find_test_data`
+    A fenced JSON block representing the `sumo_qa_find_test_data` call with the criteria object (environment, domain, criteria with named fields like customer_tier, promo_code_applied, order_status, line_item_totals_stable).
+
+    Line 3 (data shape): One short paragraph describing the required record shape in plain English (NOT a JSON spec).
+
+    Line 4 (validation gate, MANDATORY):
+    **Tool:** `sumo_qa_validate_test_data`
+    A second fenced JSON block representing the `sumo_qa_validate_test_data` call that MUST be invoked IN THE SAME TURN against the record returned by find. Format: `{"order_id": "<from find result>", "environment": "staging"}` — even though the actual ID isn't known yet, indicate the validate call's shape.
+    Any found record must be validated via sumo_qa_validate_test_data before being trusted.
+
+    NO confirmation question. NO closing pleasantry. The find-then-validate pair is non-negotiable: a found record without a same-turn validate call is unusable.
+tests:
+  - description: SEED - known-good VIP promo order
+    vars:
+      user_prompt: >-
+        I need a known-good order with VIP tier plus an applied promo for the
+        checkout-total regression test.
+      ground_truth_context: |
+        ## Data request context
+        Environment: staging
+        Domain: checkout orders
+        Entry path: checkout total regression on `CartSummary`
+
+        Required data shape:
+        - Customer tier is VIP.
+        - Order has exactly one active, applied promo code.
+        - Order is not cancelled, refunded, or already captured.
+        - Order has stable line-item totals so expected subtotal, discount,
+          shipping, tax, and final total can be asserted.
+        - The same order can be re-read during the test without mutating state.
+
+        No catalogue search result or validated record is supplied in this
+        prompt. A candidate must not claim a concrete order was found unless it
+        routes through find and validation.

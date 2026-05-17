@@ -62,7 +62,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 6. **Suppress equivalent mutants — config-side if the tool supports it, otherwise source annotation** — preferred: a tool config exclusion (e.g. `pitest.xml` `<excludedMutations>`, Stryker `mutate` exclusions). When the tool has no per-mutant config mechanism (mutmut 3.x, for example — only line-level `# pragma: no mutate` is supported), an inline source annotation is acceptable: it's tooling metadata, not a behaviour change, and the Iron Law's intent (don't reshape production behaviour to make testing easier) is preserved. Each annotation MUST be paired with a one-line rationale comment naming the mutant ID and why the mutation is observably equivalent. Anything else fails review.
 
-7. **Pick a technique + draft the strengthening test, confirm before writing** — call `sumo_qa_load_techniques()` if not loaded. Pick ONE from the catalogue per real mutant (boundary-value for `>` / `>=`; decision-table for branch-condition; property-based for invariants). Present the test name + the assertion idea, wait for confirmation, then write. Match the existing test style.
+7. **Pick a technique + draft the strengthening test, confirm before writing** — call `sumo_qa_load_techniques()` if not loaded. Pick ONE from the catalogue per real mutant, naming the technique using the VERBATIM catalogue heading (e.g. `boundary value analysis`, NOT `boundary` / `boundary mutant`) (boundary-value for `>` / `>=`; decision-table for branch-condition; property-based for invariants). Present the test name + the assertion idea, wait for confirmation, then write. Match the existing test style.
 
 8. **After all survivors are processed, run the existing suite** — confirm it's still green. Your changes are additive; a pre-existing red means you touched a shared fixture. Surface the count.
 
@@ -75,6 +75,8 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 See the Checklist above — that's the flow.
 
 ## Red Flags — STOP and rework
+
+Production code stays unchanged throughout this skill, and the final report must close as the record with no closing confirmation question.
 
 | Thought | Reality |
 |---|---|
@@ -89,6 +91,10 @@ See the Checklist above — that's the flow.
 | "I'll add `# pragma: no mutate` because writing tests is harder" | Wrong direction. Source annotations are for genuinely equivalent mutants only — those where no observable behaviour distinguishes mutant from original. If you can articulate a test that would kill it, it's not equivalent. |
 
 ## Examples
+
+### Good (boundary mutant killed by assertion polarity)
+
+Survivor: `subtotal > 10000` mutated to `subtotal >= 10000`. Applying **boundary value analysis**: pick input that exposes the boundary — `subtotal = 10000`. Original evaluates `10000 > 10000` → FALSE. Mutant evaluates `10000 >= 10000` → TRUE. Strengthening test must assert FALSE at this input (`expect(qualifies(...)).toBe(false)`), because then the original passes and the mutant fails. Asserting TRUE would have the inverse effect — pass on mutant, fail on original — meaning the mutant survives.
 
 ### Good (explore first, walk one mutant at a time)
 

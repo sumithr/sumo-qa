@@ -1,0 +1,159 @@
+description: >
+  Skill-isolation eval for sumo-qa-creating-test-plan. ONE seed test defines
+  the shape; promptfoo's `generate dataset` synthesises variations.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-creating-test-plan/SKILL.md
+    expected_shape: >-
+      Final-turn collaborative test plan. Assembles the already-confirmed scope
+      using the supplied repo paths and exclusions, then carries the confirmed
+      named risks into the plan. Includes observable entry criteria before
+      testing starts, named phases with concrete deliverables, observable exit
+      criteria for shipping, and explicit residual risks accepted at exit.
+      Delivers the consolidated plan inline without restarting earlier
+      confirmation gates.
+    anti_patterns:
+      - Dumps a generic one-shot plan as if prior section gates never happened.
+      - Missing either entry criteria or exit criteria.
+      - Generic risks not anchored to supplied files, behaviours, or confirmed risk names.
+      - Asking broad scope or risk questions instead of delivering the confirmed final plan.
+      - Surfacing literal taxonomy labels such as business_logic_change or frontend_change.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         It must deliver the final consolidated plan, cover scope, risks,
+         entry criteria, phases, exit criteria, and residual risks, and avoid
+         restarting earlier confirmation gates.
+
+      B. GROUNDING - the plan must visibly use the supplied prior-turn recap:
+         concrete file paths, scope exclusions, named risks, confirmed entry
+         conditions, phase expectations, and known residual risks. Generic plan
+         prose without those anchors -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Prior confirmed scope, risks, criteria, and phase notes for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill to this scenario. This is the final plan assembly
+    turn after the section-by-section walk; do not restart scope, risk, or
+    criteria gates. Deliver the consolidated plan inline and keep it concise.
+tests:
+  - description: SEED - final VIP promo checkout test plan
+    vars:
+      user_prompt: >-
+        Great, surface the final test plan inline now.
+      ground_truth_context: |
+        ## Prior-turn recap
+        Prior turns in this session have already completed the scope, risk,
+        technique, entry-criteria, phase, exit-criteria, and residual-risk
+        gates. This is the FINAL TURN: assemble the confirmed plan.
+
+        ## Confirmed scope
+        The plan covers the VIP + promo-code pricing interaction in checkout:
+        - `src/pricing/OrderPricingService.ts`
+        - `src/checkout/CartSummary.tsx`
+        - `tests/pricing/order-pricing.spec.ts`
+        - `tests/checkout/cart-summary.spec.tsx`
+
+        Excluded from this plan: payment capture, tax-jurisdiction changes,
+        and promo-admin tooling.
+
+        ## Confirmed named risks
+        - Discount stacking drift: VIP discount and promo discount may double-apply.
+        - UI/server total mismatch: CartSummary could show a total that differs from the pricing service.
+        - Invalid promo recovery: an invalid-promo banner might block a later valid promo.
+        - Shipping threshold boundary: promo changes could incorrectly flip free-shipping at 5000 cents.
+        - Feature-flag fallback: disabled flag must preserve the current total path.
+
+        ## Confirmed entry criteria
+        - Promo matrix frozen for VIP and non-VIP customers.
+        - Feature flag available in staging with default off.
+        - Seed data available for VIP customer, non-VIP customer, valid promo, and invalid promo.
+        - Pricing service contract agreed between checkout and pricing owners.
+
+        ## Confirmed phase notes
+        - Analysis: trace pricing callers and current CartSummary total rendering.
+        - Design: map each named risk to test cases before writing code.
+        - Execution: add pricing service tests, CartSummary component tests, and one checkout smoke path.
+        - Completion: run focused checkout/pricing suite and record known gaps.
+
+        ## Confirmed exit criteria and residual risks
+        Exit needs each named risk covered by at least one passing focused test,
+        the feature flag default-off path still green, and no Sev-1 or Sev-2
+        defects open against checkout totals.
+
+        Accepted residual risks: tax jurisdiction interactions remain covered
+        by the existing tax suite, promo-admin authoring is out of scope, and
+        real payment capture is covered by downstream payment smoke tests.

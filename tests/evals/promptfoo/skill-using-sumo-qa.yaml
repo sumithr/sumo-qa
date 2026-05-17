@@ -1,0 +1,131 @@
+description: >
+  Skill-isolation eval for using-sumo-qa. Valid sub-skills are embedded inline
+  in the rubric; generated user_prompt scenarios live in
+  skill-using-sumo-qa.generated-tests.yaml, produced by the .gen.yaml +
+  extract_tests.py pipeline so the generator can never override the loaded
+  skill.
+  See tests/evals/promptfoo/README.md for the regen workflow.
+
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/using-sumo-qa/SKILL.md
+    valid_sub_skills: |-
+      sumo-qa-deciding-approach
+      sumo-qa-preparing-for-work
+      sumo-qa-creating-test-plan
+      sumo-qa-implementing-with-tdd
+      sumo-qa-reviewing-before-merge
+      sumo-qa-strengthening-tests
+      sumo-qa-answering-testing-question
+      sumo-qa-finding-test-data
+      sumo-qa-strategising
+      sumo-qa-planning-qa-rollout
+      sumo-qa-executing-qa-rollout
+      sumo-qa-finishing-qa-work
+      sumo-qa-suggesting-external-skill
+    expected_shape: >-
+      Router handoff only. Recognises the QA intent as change review before
+      merge. Routes to the exact first-hop sub-skill name
+      sumo-qa-deciding-approach. Explicitly states it is handing off or invoking
+      that first-hop router. Does not route directly to a downstream sub-skill,
+      execute the review inline, name risks, inspect imagined files, or give a
+      merge verdict.
+    anti_patterns:
+      - Routes to a sub-skill not in the valid list.
+      - Routes directly to a downstream sub-skill, skipping sumo-qa-deciding-approach.
+      - Executes the review inline instead of routing.
+      - Names a sub-skill vaguely or without exact kebab-case name.
+      - Routes to a plausible-sounding but non-existent sub-skill.
+
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: |
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+      --- RUBRIC ---
+      {{rubric}}
+      --- END RUBRIC ---
+
+      --- CANDIDATE RESPONSE ---
+      {{output}}
+      --- END CANDIDATE RESPONSE ---
+
+      The complete valid sub-skill list is:
+
+      {{valid_sub_skills}}
+
+      Evaluate THREE axes:
+      A. SHAPE - router handoff only, recognises the review-before-merge intent,
+         names sumo-qa-deciding-approach exactly as the first hop, and does not
+         perform the downstream review inline or route directly to a downstream
+         sub-skill.
+      B. GROUNDING - the named sub-skill must appear in the exact valid
+         sub-skill list above. B GROUNDING: any named sub-skill outside that
+         list is GROUNDING FAIL.
+      C. ANTI-PATTERNS - for each anti-pattern listed, mark ABSENT or PRESENT.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. The developer is asking
+    for QA-shaped work and this skill is the router. You have loaded the
+    following sumo-qa skill and must follow its discipline:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    The valid sub-skills available for routing are:
+
+    {{valid_sub_skills}}
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Route to the exact first-hop sub-skill required by the loaded router skill.
+    State that handoff explicitly. Do NOT execute downstream QA work inline.
+
+tests:
+  # Seed scenario (inline).
+  - description: "SEED - review changes before push"
+    vars:
+      user_prompt: >-
+        Can you review my changes before I push?
+  # Generated scenarios - bare TestCase array, produced by extract_tests.py
+  # from .gen.yaml after `promptfoo generate dataset --write`.
+  - file://skill-using-sumo-qa.generated-tests.yaml

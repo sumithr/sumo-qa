@@ -1,0 +1,182 @@
+description: >
+  Skill-isolation eval for sumo-qa-planning-qa-rollout. ONE seed test defines
+  the final-turn plan handoff shape after the section-by-section walk.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-planning-qa-rollout/SKILL.md
+    expected_shape: >-
+      Final-turn dispatchable QA rollout task list. References the plan
+      artefact path `docs/qa/plans/2026-05-17-payment-retry-logic-refactor.md`.
+      Produces bite-sized tasks in deterministic order, with each task naming
+      entry criteria, exit criteria, owned files, approach tag, and risk
+      covered. Task ownership is non-overlapping unless a dependency is
+      explicitly named. Does not start execution or dispatch subagents.
+    anti_patterns:
+      - Monolithic task such as "add payment retry tests" instead of bite-sized tasks.
+      - Overlapping file ownership without an explicit dependency or ownership boundary.
+      - Missing entry criteria or exit criteria for any task.
+      - Non-deterministic ordering such as "do these in any order" with no stable task order.
+      - Starts executing, editing tests, or dispatching subagents from the planning skill.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response produce a final consolidated list of
+         bite-sized QA rollout tasks? Each task must include entry criteria,
+         exit criteria, owned files, approach tag, risk covered, and a stable
+         deterministic order. The response must remain planning-only.
+
+      B. GROUNDING - tasks must visibly use the supplied prior-turn context and
+         reference the plan artefact path under
+         `docs/qa/plans/YYYY-MM-DD-<feature>.md`, specifically
+         `docs/qa/plans/2026-05-17-payment-retry-logic-refactor.md`.
+         File-anchored task ownership and file-specific exit gates are not
+         generic; they are required grounding.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Prior confirmed rollout scope, file structure, and task-shaping decisions
+    for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is the FINAL TURN of the planning walk. Prior turns in
+    ground_truth_context have already confirmed scope and file structure.
+    Produce EXACTLY this response shape:
+
+    Line 1: `Plan path: docs/qa/plans/2026-05-17-payment-retry-logic-refactor.md`
+
+    Then list tasks in deterministic order. For every task include:
+    `Task N: <name> [parallel|sequential]`
+    `Approach: <approach tag>`
+    `Risk covered: <named risk from context>`
+    `Owned files: <non-overlapping file list>`
+    `Entry criteria: <observable starting condition>`
+    `Exit criteria: <observable completion condition>`
+    Exit criteria MUST name specific test functions and the file they live in, not generic "tests for X are added and passing". Format: `Exit criteria: tests/payments/idempotency.test.ts contains test("preserves idempotency key across retries") and test("does not regenerate key on transient failure"), both passing.` Generic phrases like "tests for idempotency are added and passing" FAIL — the test name + file must be concrete.
+
+    Last line: `Planning complete; execution stays out of this turn.`
+
+    Hard rule for parallel tasks: each [parallel] task MUST own a distinct
+    file set with no overlap with any other [parallel] task. If two tasks need
+    to touch the same file, mark one task as [sequential after Task N] or merge
+    them. Self-check the owned-files list before finalising — no [parallel]
+    ownership overlaps.
+
+    Do NOT write test code. Do NOT dispatch subagents. No confirmation
+    question. No closing pleasantry.
+tests:
+  - description: SEED - final payment retry rollout task list
+    vars:
+      user_prompt: >-
+        Scope and file structure are right. Give me the consolidated task list.
+      ground_truth_context: |
+        ## Prior turns recap
+        The scope and file-structure gates were completed in earlier turns.
+        This is the FINAL TURN for the payment retry logic refactor plan.
+
+        ## Feature
+        payment retry logic refactor
+
+        ## Plan artefact path
+        `docs/qa/plans/2026-05-17-payment-retry-logic-refactor.md`
+
+        ## Confirmed scope
+        The plan covers behaviour-preserving refactor coverage for retry
+        classification, backoff scheduling, idempotency key preservation, and
+        terminal failure handling.
+
+        ## Confirmed file structure
+        - `src/payments/retry.ts` - production retry orchestration, read-only
+          during coverage tasks.
+        - `src/payments/backoff.ts` - backoff helper, read-only during coverage
+          tasks.
+        - `tests/payments/retry.test.ts` - owns retry classification and
+          terminal failure tests.
+        - `tests/payments/backoff.test.ts` - owns deterministic backoff tests.
+        - `tests/payments/idempotency.test.ts` - owns idempotency key
+          preservation tests.
+
+        ## Confirmed named risks
+        - Retryable vs terminal drift: transient gateway errors must retry,
+          validation failures must not.
+        - Backoff schedule drift: refactor must preserve first, second, and
+          max-delay boundaries.
+        - Idempotency regression: each retry must preserve the original
+          idempotency key.
+        - Terminal failure reporting: final failure must expose the last
+          gateway response without double-charging.
+
+        ## Confirmed task-shaping decisions
+        Use `coverage-first-then-refactor` for characterization tasks. Keep
+        tasks 5-15 minutes each. Default to `[parallel]`; use `[sequential]`
+        only where a task depends on an earlier fixture or helper extraction.
+        Do not assign the same test file to two independent tasks.

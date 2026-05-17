@@ -23,8 +23,17 @@ Spend output tokens on findings, not framing.
 - **Tables only when comparing >2 things on >2 axes.** Otherwise prose is shorter.
 - **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff at the bottom of every skill is where routing lives.
 
+<HARD-GATE>
+Principle citations MUST quote the loaded principles catalogue's exact heading wording. NEVER extend a principle name with technique-level descriptors. Examples of FORBIDDEN fake principles:
+- "defects cluster at boundaries" — extends real "Defects cluster" with boundary-value-technique wording
+- "exhaustive testing is impossible without risk-based prioritisation" — extends "Exhaustive testing is impossible" with technique-level addition
+- "early testing reduces cost" — interpretive paraphrase of "Test early"
+
+Principle wording is FIXED. If a thought needs technique-level wording, cite the technique by name AS WELL AS the principle by name — never combine the two into a hybrid principle.
+</HARD-GATE>
+
 ## The Iron Law
-NO ANSWER WITHOUT A CITED PRINCIPLE OR TECHNIQUE.
+NO ANSWER WITHOUT A CITED PRINCIPLE AND TECHNIQUE. Citations must use the exact loaded catalogue names/wording from `sumo_qa_load_principles()` and `sumo_qa_load_techniques()`. Do not paraphrase, rename, or combine principle wording with technique wording — e.g. do not turn `Defects cluster` plus boundary-value text into a fake principle like 'defects cluster at boundaries'.
 
 Every answer ties to a named ISTQB principle and a named test design technique from the loaded catalogue. When a specialty surface is implied, follow the discovery discipline from `using-sumo-qa` — reason from the surface, web-search current options, cite when naming a tool. Sumo-qa intentionally does NOT carry a tool catalogue.
 
@@ -65,6 +74,7 @@ See the Checklist above — that's the flow.
 | "I'll restrict myself to tool categories I already know" | Wrong. Specialty tooling exists for functional surfaces too, and new categories emerge constantly. Reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 | "User asked a planning question — I'll answer inline" | Route to `sumo-qa-preparing-for-work` or `sumo-qa-creating-test-plan`. Don't reinvent. |
 | "Answer should be 20+ sentences for completeness" | 3-7 sentences. Senior QA answers concisely. |
+| "I'll mash 'Defects cluster' with boundary wording to make my point smoother" | FORBIDDEN. Cite the real principle ("Defects cluster") AND the technique ("boundary value analysis") separately. The hybrid "defects cluster at boundaries" is a fake principle that doesn't exist in the catalogue. |
 
 ## Examples
 
