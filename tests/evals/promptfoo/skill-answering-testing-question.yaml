@@ -1,0 +1,138 @@
+description: >
+  Skill-isolation eval for sumo-qa-answering-testing-question. Full catalogues
+  loaded via file:// in defaultTest.vars (invariant authority); generated
+  user_prompt scenarios live in skill-answering-testing-question.generated-tests.yaml,
+  produced by the .gen.yaml + extract_tests.py pipeline so the generator can
+  never override skill_content or catalogues.
+  See tests/evals/promptfoo/README.md for the regen workflow.
+
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.2
+
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-answering-testing-question/SKILL.md
+    loaded_principles: file://../../../knowledge/principles.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+    expected_shape: >-
+      Concise inline answer (3-7 sentences). Cites at least one principle AND
+      at least one named technique from the loaded catalogues. Anchors to the
+      specific risk surface the developer described, not generic prose. If
+      genuinely ambiguous, asks ONE focused clarifying question - never more.
+      Does not route to a heavier sub-skill; this skill answers inline.
+    anti_patterns:
+      - 20+ sentence essay or multi-section dump.
+      - >-
+        Training-data drift - cites a principle, technique, or "best practice"
+        not present in the loaded principles + techniques catalogues.
+      - No catalogue citation at all; pure prose with no anchor to a named principle or technique.
+      - Routes to a heavier sub-skill instead of answering inline.
+      - >-
+        Hedging or generic non-actionable advice - "consider edge cases", "think about performance" - without naming a concrete technique.
+    technique_tag: decision tables
+
+  options:
+    # Disable automatic array-var expansion so anti_patterns is passed to the
+    # rubric template as a list (for the Nunjucks {% for %} loop) rather than
+    # exploding the test into one-per-element.
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        response_format:
+          type: json_object
+    rubricPrompt: |
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+      --- RUBRIC ---
+      {{rubric}}
+      --- END RUBRIC ---
+
+      --- CANDIDATE RESPONSE ---
+      {{output}}
+      --- END CANDIDATE RESPONSE ---
+
+      The candidate has loaded the FULL principles + techniques catalogues -
+      contents below for your verification:
+
+      --- LOADED PRINCIPLES (full catalogue) ---
+      {{loaded_principles}}
+      --- END LOADED PRINCIPLES ---
+
+      --- LOADED TECHNIQUES (full catalogue) ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
+
+      Evaluate THREE axes:
+      A. SHAPE - concise inline, cites a principle + technique, anchored to risk.
+      B. GROUNDING - every principle and technique cited by the candidate must
+         appear in the loaded catalogues above. Citing material NOT in either
+         catalogue = GROUNDING FAIL (training-data drift).
+      C. ANTI-PATTERNS - for each anti-pattern listed, mark ABSENT or PRESENT.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+
+  # Inherited by every test (seed + generated).
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. The developer is asking
+    a generic testing question that should be answered inline. You have loaded
+    the following sumo-qa skill and must follow its discipline:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have ALSO loaded the FULL principles and techniques catalogues:
+
+    --- LOADED PRINCIPLES ---
+    {{loaded_principles}}
+    --- END LOADED PRINCIPLES ---
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Answer inline in 3-7 sentences. Cite at least one named principle AND one
+    named technique from the loaded catalogues above. Anchor the recommendation
+    to the specific risk surface the developer described. Do NOT route to a
+    sub-skill - this skill answers directly. If the question is genuinely
+    ambiguous, ask ONE focused clarifying question at the end (never more).
+
+tests:
+  # Seed scenario (inline).
+  - description: "SEED - how to test a feed-reorder service"
+    vars:
+      user_prompt: >-
+        How should I test a service that re-orders user feeds based on
+        engagement signals?
+  # Generated scenarios - bare TestCase array, produced by extract_tests.py
+  # from .gen.yaml after `promptfoo generate dataset --write`.
+  - file://skill-answering-testing-question.generated-tests.yaml
