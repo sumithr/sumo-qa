@@ -74,7 +74,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 8. **Design target pyramid shape, confirm** — propose the rough mix per area: unit / component / integration / contract / e2e / performance / security / a11y. Scaled to actual risk surface, not uniform.
 
-9. **Propose phased rollout, confirm** — propose 2–4 phases, each with area scope, deliverables, "minimum viable" QA setup, gates at the end of each phase. NOT a calendar — a sequence with named gates.
+9. **Propose phased rollout, confirm** — propose 2–4 phases, each with area scope, deliverables, "minimum viable" QA setup, gates at the end of each phase. Each phase MUST carry observable entry criteria (e.g. "coverage gate above 70% on touched files", "mutation-survivor count below 5") AND exit criteria (e.g. "all P1 risks have green covering tests", "CI mutation report at 100% killed"). Phases without measurable gates are calendar entries, not strategy. NOT a calendar — a sequence with named gates.
 
 10. **Residual risks accepted, confirm** — name 2–4 risks NOT being addressed and why (out of scope, accepted cost, mitigated elsewhere, deferred). Ask: *"is this honest?"*
 

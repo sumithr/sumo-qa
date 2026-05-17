@@ -1,0 +1,179 @@
+description: >
+  Skill-isolation eval for sumo-qa-reviewing-before-merge. ONE seed test
+  defines the shape; promptfoo's `generate dataset` synthesises variations.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    expected_shape: >-
+      Final-turn evidence-led merge review verdict. Cites the named risks from
+      prior turns (by short name or label, e.g. "Auth Bypass") and ties each to
+      specific test names from the fresh test evidence that cover it. The
+      prior-turn named risks include auth bypass, inactive-admin access, and
+      regression of owner/admin allow paths. Quotes fresh test evidence by
+      naming exact passing test names and pass/skip counts from the supplied
+      output. Delivers SAFE TO MERGE or NOT SAFE TO MERGE gated on both green
+      tests and coverage for every named risk. Ends without a confirmation
+      question.
+    anti_patterns:
+      - Declares safe-to-merge without referencing fresh test output.
+      - Vague unanchored risks ("performance might matter").
+      - Asking another confirmation question instead of delivering the final verdict.
+      - Citing test output without anchoring to specific test names or counts.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         It must cite the named risks from prior turns (by short name or label,
+         e.g. "Auth Bypass") and tie each to specific test names from the fresh
+         test evidence that cover it, quote fresh test evidence, gate SAFE TO
+         MERGE or NOT SAFE TO MERGE on both green tests and covered risks, and
+         end without a confirmation question.
+
+      B. GROUNDING — does the response use the supplied ground-truth context? The response must visibly reference the prior named risks AND the fresh test output. The diff itself was the subject of prior turns; the candidate need not re-quote it here. Test evidence must quote exact test names or pass/skip counts from the supplied output.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, prior review gates, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill to this scenario. Use the supplied diff, prior named
+    risks, and fresh verification output as the evidence for this turn. This is
+    the final verdict turn: no confirmation gate, deliver the verdict. Keep the
+    response concise and evidence-led.
+tests:
+  - description: SEED - auth helper fix with fresh passing tests
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns in this session (NOT shown above): you have read the diff,
+        named the risks, the user has confirmed them, and you have run the test
+        suite. This is the FINAL TURN of the review — produce the safe-to-merge
+        verdict citing the named risks + the fresh test evidence. No more
+        confirmation gates.
+
+        Scope gate: completed. Developer confirmed the change is intended to
+        block unauthenticated invoice access while preserving owner and account
+        admin access.
+
+        Risk gate: completed. Developer confirmed the relevant risks are auth
+        bypass, inactive-admin access, and regression of owner/admin allow paths.
+
+        ## git diff
+        ```diff
+        diff --git a/app/auth/permissions.py b/app/auth/permissions.py
+        @@ app/auth/permissions.py:10-18 @@
+         10 def can_view_invoice(user, invoice):
+         11     if invoice.is_public:
+         12         return True
+        -14     return user.id == invoice.owner_id or is_account_admin(user, invoice.account_id)
+        +14     return user.is_authenticated and (
+        +15         user.id == invoice.owner_id
+        +16         or is_account_admin(user, invoice.account_id)
+        +17     )
+
+        diff --git a/app/auth/helpers.py b/app/auth/helpers.py
+        @@ app/auth/helpers.py:21-28 @@
+         21 def is_account_admin(user, account_id):
+         22     roles = getattr(user, "roles", [])
+        -24     return any(role.account_id == account_id and role.name == "admin" for role in roles)
+        +24     return user.is_active and any(
+        +25         role.account_id == account_id and role.name == "admin"
+        +26         for role in roles
+        +27     )
+
+        diff --git a/tests/auth/test_permissions.py b/tests/auth/test_permissions.py
+        @@ tests/auth/test_permissions.py:31-53 @@
+         31 def test_allows_owner_to_view_invoice():
+         32     assert can_view_invoice(owner_user(), invoice(owner_id=42))
+         35 def test_allows_account_admin_to_view_invoice():
+         36     assert can_view_invoice(active_admin(), invoice(account_id="acct_9"))
+        +40 def test_rejects_unauthenticated_user_with_matching_account():
+        +41     user = anonymous_user(id=42)
+        +42     assert not can_view_invoice(user, invoice(owner_id=42))
+        +45 def test_rejects_inactive_account_admin():
+        +46     assert not can_view_invoice(inactive_admin(), invoice(account_id="acct_9"))
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/auth/test_permissions.py tests/auth/test_helpers.py -q
+        tests/auth/test_permissions.py::test_allows_owner_to_view_invoice PASSED
+        tests/auth/test_permissions.py::test_allows_account_admin_to_view_invoice PASSED
+        tests/auth/test_permissions.py::test_rejects_unauthenticated_user_with_matching_account PASSED
+        tests/auth/test_permissions.py::test_rejects_inactive_account_admin PASSED
+        tests/auth/test_helpers.py::test_is_account_admin_requires_active_user PASSED
+        42 passed, 2 skipped in 3.12s
+        ```

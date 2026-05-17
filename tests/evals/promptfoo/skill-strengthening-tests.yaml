@@ -1,0 +1,204 @@
+description: >
+  Skill-isolation eval for sumo-qa-strengthening-tests. ONE seed test defines
+  the shape; promptfoo's `generate dataset` synthesises variations.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-strengthening-tests/SKILL.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+    expected_shape: >-
+      Mutant-specific strengthening proposal. Tautology check result and named
+      technique were established in prior turns (per ground-truth context); the
+      final turn includes one short line referencing the supplied mutant
+      surface (file/line or expression) before the test code, delivers the
+      strengthening test artefact, and explicitly states production stays
+      unchanged. The candidate may briefly reference boundary value analysis or
+      tautology check: no equivalence but is not required to re-derive them.
+      Names the target test file path immediately before the test code block.
+      The named technique uses the verbatim catalogue heading (e.g. 'boundary value analysis').
+    anti_patterns:
+      - Modifies or proposes modifying production code.
+      - Does not name the mutant's tautology or equivalence surface.
+      - Uses a weak assertion or non-boundary input that the original mutant could still survive.
+      - Suppresses the mutant as equivalent without a rationale tied to observability.
+      - Fails to name the testing technique applied.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate has loaded the techniques catalogue below for your
+      verification:
+
+
+      --- LOADED TECHNIQUES ---
+
+      {{loaded_techniques}}
+
+      --- END LOADED TECHNIQUES ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         Tautology check result and named technique were established in prior
+         turns (per ground-truth context); the final turn includes one short
+         line referencing the supplied mutant surface (file/line or expression)
+         before the test code, delivers the strengthening test artefact, and
+         explicitly states production stays unchanged. The candidate may briefly
+         reference boundary value analysis or tautology check: no equivalence
+         but is not required to re-derive them.
+
+      B. GROUNDING - the response must visibly use the supplied mutant and
+         code context: `> 10000` changed to `>= 10000`, missing exact-10000
+         coverage, Vitest style, and the existing test file. The named
+         technique must appear in the loaded techniques catalogue. Missing
+         these anchors -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the test design techniques catalogue:
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    Mutation survivor and code context for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is the final-turn strengthening proposal. Produce EXACTLY this response format, line by line:
+
+    Line 1 (mutant surface anchor): `<mutant id>: \`<original expression>\` → \`<mutated expression>\` — <one-word descriptor>.`
+      Example: `M7: \`subtotalCents > 10000\` → \`>= 10000\` — boundary mutant.`
+
+    Line 2 (applied technique, VERBATIM catalogue heading from knowledge/techniques.md):
+      `Applying <technique name>:` then one sentence rationale tying technique to the mutant shape.
+      Example: `Applying boundary value analysis: the boundary at 10000 is the discriminating value between original (>) and mutant (>=).`
+
+    Line 3 (target test file path):
+      `Target test file: \`<path>\``
+
+    Then: the failing test code block (fenced, complete function definition).
+
+    Last line: `Production code stays unchanged.`
+
+    NO confirmation question. NO closing pleasantry. NO additional sections. The technique MUST be the verbatim catalogue heading — `boundary value analysis`, `equivalence partitioning`, `state transition testing`, `decision tables` — NOT shortened forms.
+tests:
+  - description: SEED - VIP promo threshold boundary survivor
+    vars:
+      user_prompt: >-
+        This surviving mutant is M7; propose the strengthening test.
+      ground_truth_context: |
+        ## Prior turns recap
+        Prior turns (NOT shown above): you have identified M7, run the
+        tautology check (no equivalence; the boundary is real), and named
+        boundary value analysis. This is the FINAL TURN - produce the
+        strengthening test directly, explicitly state production code is
+        unchanged, and close without a confirmation question.
+
+        ## Production code (read-only)
+        `src/pricing/discount_calculator.ts`
+
+        ```ts
+        export function qualifiesForVipPromo(order: Order): boolean {
+          return order.customerTier === "VIP"
+            && order.subtotalCents > 10000
+            && order.promoCode !== null;
+        }
+        ```
+
+        ## Existing test style
+        `tests/pricing/discount_calculator.test.ts`
+
+        ```ts
+        import { describe, expect, it } from "vitest";
+
+        it("applies VIP promo above the threshold", () => {
+          expect(qualifiesForVipPromo(order({
+            customerTier: "VIP",
+            subtotalCents: 10001,
+            promoCode: "VIP20",
+          }))).toBe(true);
+        });
+
+        it("does not apply VIP promo for non-VIP customers", () => {
+          expect(qualifiesForVipPromo(order({
+            customerTier: "STANDARD",
+            subtotalCents: 15000,
+            promoCode: "VIP20",
+          }))).toBe(false);
+        });
+        ```
+
+        ## Mutation report excerpt
+        M7 survived in `src/pricing/discount_calculator.ts`.
+        Mutation: conditional boundary changed from `order.subtotalCents > 10000`
+        to `order.subtotalCents >= 10000`.
+
+        Existing tests hit 10001 and non-VIP, but no test exercises exactly
+        10000 cents for a VIP customer with a promo code.

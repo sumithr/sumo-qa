@@ -1,0 +1,157 @@
+description: >
+  Skill-isolation eval for sumo-qa-executing-qa-rollout. ONE seed test defines
+  the orchestration shape: subagent dispatch brief plus the two review gates
+  required before a task can be marked done.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-executing-qa-rollout/SKILL.md
+    expected_shape: >-
+      Rollout executor orchestration response. Produces a concrete implementer
+      subagent dispatch brief for the planned billing retry task, then
+      describes the required two-stage review loop in order: first the
+      spec-correctness/test-correctness review that checks risk coverage,
+      running tests, red phase where relevant, and production-code discipline;
+      then the test-quality review that checks observability, determinism, and
+      tautology risk. States the task is not marked done until both gates pass.
+      Does not execute inline.
+    anti_patterns:
+      - Dispatches or accepts subagent output without describing both review gates.
+      - Merges or marks the task done after only the spec/test-correctness review.
+      - Merges or marks the task done without the test-quality review.
+      - Runs sequentially only when the supplied plan marks the task parallel-safe.
+      - Edits tests inline instead of orchestrating fresh subagent execution.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response include both a concrete implementer
+         subagent dispatch brief and the two review gates before done-marking?
+         The gates must be ordered: spec-correctness/test-correctness first,
+         test-quality second. It must not execute inline.
+
+      B. GROUNDING - the review gates must match the loaded skill's defined
+         stages: spec-correctness review, then test-quality review, then
+         done-marking only after both pass. The dispatch brief must use the
+         supplied billing retry task, file path, approach, risk, and
+         parallel-safe marker.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Signed-off plan task and rollout context for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This eval cannot invoke real subagents. Produce the orchestration artefact
+    the skill requires: a concrete fresh-implementer dispatch brief for the
+    task, then the two review gates that must pass before marking it done.
+    Use EXACTLY this response shape:
+
+    `Dispatch brief:` one paragraph with task, approach, files, risk, and done
+    criteria for the fresh implementer subagent.
+
+    `Review gate 1 - spec-correctness/test-correctness:` one paragraph naming
+    what the reviewer checks.
+
+    `Review gate 2 - test-quality:` one paragraph naming what the reviewer
+    checks.
+
+    `Done gate:` one sentence stating the task remains open until both reviews
+    pass.
+
+    The dispatch brief MUST quote the planned task's parallel/sequential marker
+    verbatim (e.g. [parallel]). Review gate 1 (test-correctness) MUST include:
+    "verifies no production-code modifications were made — test-only task per
+    the Iron Law". Both are non-negotiable parts of the dispatch surface.
+
+    No inline test edits. No confirmation question. No closing pleasantry.
+tests:
+  - description: SEED - billing retry task dispatch and review gates
+    vars:
+      user_prompt: >-
+        Task: Write regression tests for billing retry logic — files: src/billing/retry.ts
+      ground_truth_context: |
+        ## Signed-off plan excerpt
+        Plan path: `docs/qa/plans/2026-05-17-billing-retry.md`
+        Wave 1: parallel-safe tasks.
+
+        Task: Write regression tests for billing retry logic
+        Marker: `[parallel]`
+        Approach: `regression-first`
+        Files:
+        - Read: `src/billing/retry.ts`
+        - Touch: `tests/billing/retry.test.ts`
+        Risk covered: transient gateway failures should retry without
+        double-charging, while terminal billing failures should stop cleanly.
+        Done when: the regression tests exist, run, and demonstrate the retry
+        classification bug before production changes are accepted.
+
+        This task is independent of the other Wave 1 tasks and should not be
+        serialized unless a real dependency appears.

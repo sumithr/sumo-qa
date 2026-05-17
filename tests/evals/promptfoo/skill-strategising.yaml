@@ -1,0 +1,198 @@
+description: >
+  Skill-isolation eval for sumo-qa-strategising. ONE seed test defines the
+  shape; promptfoo's `generate dataset` synthesises variations.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-strategising/SKILL.md
+    expected_shape: >-
+      Final-turn repo-anchored phased rollout. Prior-turn sections are context,
+      not output. Delivers named phases with measurable per-phase entry and
+      exit criteria tied to specific inventory risks or coverage gaps, plus a
+      residual risks list. Uses repo paths and service names from the prior
+      walk, not generic consulting advice.
+    anti_patterns:
+      - Generic strategy such as "add more unit tests" or "aim for 80% coverage".
+      - No repo paths, service names, test directories, or CI anchors.
+      - Missing named phases or missing entry and exit criteria per phase.
+      - Calendar-only rollout with no risk-shaped gates.
+      - Surfacing literal taxonomy labels such as api_contract_change or performance_change.
+      - Residual risks omitted or claimed as none.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         It must deliver ONLY the phased rollout and residual risks list.
+         Prior-turn inventory, per-area risks, specialty fit, target pyramid,
+         and prioritisation rationale are context, not required output. Each
+         phase MUST list "Entry criteria:" and "Exit criteria:" on separate
+         labelled lines with measurable conditions tied to specific named risks
+         or coverage gaps from the inventory. Vague descriptions, implied
+         criteria, or generic exits such as "all P1 risks have green tests"
+         FAIL.
+         A coverage threshold tied to a SPECIFIC file path (e.g. '70% on
+         services/billing/pricing.py') IS a measurable risk-shaped gate, not
+         generic. Only 'all P1 risks have green tests' or unanchored coverage
+         like 'overall 80%' are generic. Mutation kill rate gates with named
+         source files are also acceptable.
+
+      B. GROUNDING - the strategy must visibly use the supplied prior-turn
+         recap: service names, paths, test directories, CI config, coverage
+         gaps, risk names, and confirmed tool-fit notes. Generic advice without
+         those anchors -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+         'Generic coverage targeting' = UNANCHORED targets ('80% repo-wide',
+         'all P1 risks have green tests'). Specific-file or specific-risk-name
+         targets are NOT generic.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Prior confirmed repo inventory, per-area risks, and rollout choices:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is the FINAL turn of the strategy walk. Prior turns (in ground_truth_context) have confirmed the inventory, risks, specialty fit, pyramid, and prioritisation rationale. Your job in this turn: deliver the phased rollout (with measurable entry/exit per phase, coverage-anchored), and the residual risks list. Exit criteria MUST name SPECIFIC inventory risks by name, not 'all P1 risks'. Format: 'refund idempotency has green test in services/billing/tests/test_refunds.py; rounding defects have green test in services/billing/tests/test_pricing.py; mutation kill >= 85% on services/billing/pricing.py'. Generic phrases like 'all P1 risks have green tests' or '80% coverage' FAIL. You may briefly re-reference prior-turn items inline but the deliverable is the rollout.
+
+    STRICT entry/exit format — EVERY entry criterion AND EVERY exit criterion in EVERY phase MUST include BOTH of these on the same line:
+
+      (1) a concrete file path or CI config anchor (e.g. `.github/workflows/contracts-verify.yml`, `packages/contracts/openapi.yaml`, `apps/admin-web/tests/test_bulk_approve.spec.ts`, `services/billing/pricing.py`); AND
+      (2) a measurable count, threshold, or named test (e.g. "0 contract failures in 3 consecutive nightly runs", "mutation kill >= 85%", "test('rejects 5xx with retry') passing").
+
+    FORBIDDEN phrasings that fail the rule:
+      - "X is up to date"
+      - "X is updated and ready"
+      - "existing tests are passing" (not specific)
+      - "all P1 risks have green tests" (no path, no count)
+      - "tests for X are added and passing" (no file path, no test names)
+
+    If a phase has no concrete measurable gate, MERGE it into another phase or DROP it. Each phase must be defensible against "what specifically tells me this gate has passed?"
+tests:
+  - description: SEED - final customer-platform QA strategy
+    vars:
+      user_prompt: >-
+        Looks right. Give me the final strategy inline.
+      ground_truth_context: |
+        ## Prior turns recap
+        The following items were confirmed in earlier turns and are context,
+        not required output for this final turn.
+
+        Confirmed inventory:
+        - `services/auth`: FastAPI service with `services/auth/tests/unit`
+          and `services/auth/tests/integration`; CI runs these from
+          `.github/workflows/ci.yml`.
+        - `services/billing`: Python pricing/refund service with sparse tests
+          under `services/billing/tests`; no mutation or coverage report found.
+        - `apps/admin-web`: React admin UI with Jest tests in
+          `apps/admin-web/src/**/*.test.tsx`; no Playwright smoke suite found.
+        - `packages/contracts`: OpenAPI schemas used by auth, billing, and
+          admin-web; no provider/consumer contract check in CI.
+
+        Confirmed per-area risks:
+        - Billing refund idempotency can drift on retry paths in
+          `services/billing/refunds.py`.
+        - Billing rounding defects can hide in `services/billing/pricing.py`.
+        - Auth token-expiry and role-regression defects affect
+          `services/auth/routes.py` and `services/auth/policies.py`.
+        - Admin bulk-approve flows can regress authorization and accessibility
+          in `apps/admin-web/src/features/bulk-approve`.
+        - Contract drift can break callers when `packages/contracts/openapi.yaml`
+          changes without provider and consumer verification.
+
+        Confirmed specialty fit:
+        - Billing pure functions fit mutation testing.
+        - Auth role/expiry paths fit focused integration tests.
+        - OpenAPI drift fits provider/consumer contract checks.
+        - Admin bulk-approve flow fits Playwright plus axe smoke coverage.
+
+        Confirmed target pyramid:
+        - Billing: unit-heavy plus mutation follow-up around pricing/refunds.
+        - Auth: unit and integration split around policies plus route checks.
+        - Contracts: provider/consumer verification in CI.
+        - Admin-web: component tests plus one or two high-value browser smoke
+          paths for bulk approval.
+
+        Confirmed prioritisation rationale:
+        Highest priority is billing because risk is high and current coverage
+        is sparse. Auth is next because existing tests exist but role/expiry
+        boundaries are business-critical. Contract checks protect cross-service
+        drift. Admin-web gets a small smoke/a11y setup for the highest-risk
+        bulk-approve flows, not broad browser coverage.
+
+        Confirmed phase candidates:
+        Phase candidates already agreed:
+        - Phase 1: billing hardening.
+        - Phase 2: auth boundary and route coverage.
+        - Phase 3: contract verification in CI.
+        - Phase 4: admin-web smoke and accessibility coverage.
+
+        Accepted residual risks: performance testing is deferred because no
+        p95 budget is defined, broad visual regression is out of scope, and
+        non-owned services consuming the OpenAPI package need separate owner
+        sign-off.

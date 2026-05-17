@@ -1,0 +1,154 @@
+description: >
+  Skill-isolation eval for sumo-qa-deciding-approach. ONE seed test defines
+  the internal router shape: catalogue-grounded classification, catalogue-
+  grounded approach, and exact downstream skill route.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-deciding-approach/SKILL.md
+    classifications: file://../../../knowledge/classifications.md
+    approaches: file://../../../knowledge/approaches.md
+    principles: file://../../../knowledge/principles.md
+    expected_shape: >-
+      Internal router decision. Names the verbatim catalogue classification
+      `business_logic_change`, names the verbatim catalogue approach
+      `regression-first`, gives a short rationale tied to the billing bug and
+      new regression tests, and routes to the exact next skill
+      `sumo-qa-implementing-with-tdd`. This is internal routing data, so
+      verbatim catalogue names are required and must not be treated as a
+      user-facing taxonomy leak in this eval.
+    anti_patterns:
+      - Invents a classification not present in knowledge/classifications.md.
+      - Invents an approach not present in knowledge/approaches.md.
+      - Routes to any skill other than `sumo-qa-implementing-with-tdd`.
+      - Omits the exact verbatim classification or approach name.
+      - Performs downstream TDD or test-writing work instead of returning the route.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The complete catalogues loaded for this router decision are:
+
+
+      --- LOADED CLASSIFICATIONS ---
+
+      {{classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      --- LOADED APPROACHES ---
+
+      {{approaches}}
+
+      --- END LOADED APPROACHES ---
+
+
+      --- LOADED PRINCIPLES ---
+
+      {{principles}}
+
+      --- END LOADED PRINCIPLES ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response include classification, approach, and
+         next-skill routing? For this seed, the classification must be
+         `business_logic_change`, the approach must be `regression-first`, and
+         the next skill must be `sumo-qa-implementing-with-tdd`.
+
+      B. GROUNDING - classification and approach names must match catalogue
+         entries verbatim. Verbatim catalogue wording is required for this
+         internal router eval; do not penalize it as user-facing taxonomy.
+         Invented or paraphrased names are GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa router skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical catalogues the router must use:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    --- LOADED APPROACHES ---
+    {{approaches}}
+    --- END LOADED APPROACHES ---
+
+    --- LOADED PRINCIPLES ---
+    {{principles}}
+    --- END LOADED PRINCIPLES ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is an isolation eval of the router's INTERNAL return value, not a
+    user-facing response. Return only the routing decision consumed by the next
+    skill: classification, approach, rationale, and next_action.skill. Use
+    verbatim catalogue names. Do NOT write tests or execute downstream QA work.
+    No confirmation question. No closing pleasantry.
+tests:
+  - description: SEED - billing bug routes regression-first
+    vars:
+      user_prompt: >-
+        I need to fix a billing bug and add some new tests for it

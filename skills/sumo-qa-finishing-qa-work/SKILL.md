@@ -13,6 +13,8 @@ Close the loop on a QA rollout. The execution is done; now the user needs eviden
 
 **Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
 
+**Closing-line integrity:** the closing recap must agree with the body. If the body lists N known gaps, the closing recap must say "N known gaps", not "0 known gaps". No closing confirmation question — the summary IS the record; the user can ask follow-ups in their own time.
+
 ## Output economy (mandatory)
 
 Spend output tokens on findings, not framing.
@@ -53,7 +55,7 @@ You MUST work through these in order. Steps 1–4 are AI-only homework. Step 5 i
 
 4. **Open follow-ups** *(no user question)* — anything the plan flagged for later, anything the cross-task review surfaced, any stale `xfail` markers that should now pass / be removed. List them; don't hide them.
 
-5. **Write the run summary** — to `docs/qa/runs/YYYY-MM-DD-<feature-slug>.md`. Use the template in **Summary Document Template** below. Then surface it to the user verbatim with: *"Run summary at `docs/qa/runs/...`. Suite green; N tests added; M risks covered; K known gaps. Anything to add before this is the record?"*
+5. **Write the run summary** — to `docs/qa/runs/YYYY-MM-DD-<feature-slug>.md`. Use the template in **Summary Document Template** below. Then surface it to the user verbatim with: *"Run summary at `docs/qa/runs/...`. Suite green; N tests added; M risks covered; K known gaps."*
 
 6. **Offer to draft the PR description** — only if the user signals they want it. Don't push it. The PR description is a re-shape of the summary into the team's PR template (read `.github/PULL_REQUEST_TEMPLATE.md` if present, otherwise use a sensible default). Confirm before writing.
 
@@ -121,7 +123,7 @@ See the Checklist above — that's the flow.
 
 > **AI (internal):** runs `uv run pytest` → 47 passed, 1 xfailed, 0 failed (2.34s); captures coverage deltas; walks 5 risks (R1–R4 covered, R5 uncovered); writes `docs/qa/runs/2026-05-12-billing-refund-coverage.md`.
 >
-> **AI (user-facing):** *"Run summary at `docs/qa/runs/2026-05-12-billing-refund-coverage.md`. Suite green: 47 passed, 0 failed. 4 of 5 risks covered; R5 (float-rounding edge) raised as BILL-489 — known gap. Stale xfail at `test_idempotency.py:42` should be deleted. Anything to add?"*
+> **AI (user-facing):** *"Run summary at `docs/qa/runs/2026-05-12-billing-refund-coverage.md`. Suite green: 47 passed, 0 failed. 4 of 5 risks covered; R5 (float-rounding edge) raised as BILL-489 — 1 known gap. Stale xfail at `test_idempotency.py:42` should be deleted."*
 
 ### Bad (claim "done" without fresh evidence)
 

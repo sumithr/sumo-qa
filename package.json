@@ -8,7 +8,7 @@
   },
   "scripts": {
     "eval": "promptfoo eval -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml --no-cache",
-    "eval:all": "for f in tests/evals/promptfoo/skill-*.yaml; do promptfoo eval -c \"$f\" --no-cache; done",
+    "eval:all": "for f in tests/evals/promptfoo/skill-*.yaml; do case \"$f\" in *.gen.yaml) continue;; esac; promptfoo eval -c \"$f\" --no-cache; done",
     "eval:generate": "promptfoo generate dataset -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml --write",
     "eval:view": "promptfoo view"
   },

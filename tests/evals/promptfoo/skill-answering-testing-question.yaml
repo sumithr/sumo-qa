@@ -10,7 +10,8 @@ providers:
   - id: openai:chat:gpt-4o-mini
     label: candidate-gpt-4o-mini
     config:
-      temperature: 0.2
+      temperature: 0.0
+      seed: 42
 
 defaultTest:
   vars:
@@ -43,6 +44,7 @@ defaultTest:
       id: openai:chat:gpt-5.5
       config:
         temperature: 0.0
+        seed: 42
         response_format:
           type: json_object
     rubricPrompt: |
@@ -115,6 +117,8 @@ prompts:
     --- LOADED TECHNIQUES ---
     {{loaded_techniques}}
     --- END LOADED TECHNIQUES ---
+
+    CRITICAL RULE — Principle citations: when you cite a principle, you MUST quote the loaded principles catalogue's exact wording (e.g. "Defects cluster" — the loaded catalogue's exact heading). Do NOT extend or paraphrase the principle name (e.g. "defects cluster at boundaries" is a FAKE principle that combines the real principle "Defects cluster" with technique-level wording from "boundary value analysis"). If a principle wording isn't in the loaded principles catalogue, you cannot cite it — pick a different principle or restructure the answer.
 
     The developer just said:
 

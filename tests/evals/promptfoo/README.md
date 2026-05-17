@@ -134,9 +134,9 @@ OpenAI pricing as of 2026-05:
 
 - Candidate (`gpt-4o-mini`): ~$0.001 per scenario
 - Judge (`gpt-5.5`): ~$0.005 per scenario
-- Full per-skill eval (1 seed + ~4 generated × 5 samples): ~$0.03 per run
+- Full sweep of 14 skills: ~$0.10 per run with `seed: 42` determinism
 
-Running a single skill: pennies. Running all 13 skills with `--repeat 5`:
+Running a single skill: pennies. Running all 14 skills with `--repeat 5`:
 ~$0.30 — still negligible, but worth tracking if you iterate frequently.
 
 If cost becomes a concern, swap the judge to `gpt-4o-mini` in
@@ -144,6 +144,8 @@ If cost becomes a concern, swap the judge to `gpt-4o-mini` in
 adversarial).
 
 ## Architecture
+
+All 14 skill YAMLs use `seed: 42` + `temperature: 0.0` for both candidate and judge providers, so runs are reproducible across machines. `disableVarExpansion: true` is set in defaultTest.options to prevent array vars (anti_patterns) from being expanded into per-element tests.
 
 Two patterns are used depending on the skill's shape:
 
@@ -219,15 +221,12 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 
 | File | Purpose |
 |---|---|
-| `skill-implementing-with-tdd.yaml` | Pattern A worked example (TDD skill) |
-| `skill-answering-testing-question.yaml` | Pattern B main config (catalogue-grounded skill) |
+| `skill-<name>.yaml` (×14) | One config per skill, all covered |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
 | `aggregate.py` | Variance aggregator for multi-sample runs |
 | `README.md` | This file |
-
-Remaining 12 skills follow the same pattern in subsequent PRs.
 
 ## What's intentionally NOT here
 

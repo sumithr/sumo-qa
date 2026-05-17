@@ -1,0 +1,133 @@
+description: >
+  Skill-isolation eval for sumo-qa-suggesting-external-skill. ONE seed test
+  defines the permission-gated find-skills offer when no native sumo-qa skill
+  fits a non-native QA surface.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-suggesting-external-skill/SKILL.md
+    expected_shape: >-
+      Permission-gated external-skill offer only. States that no native
+      sumo-qa fit was found, names Vercel Labs' `find-skills` meta-skill, and
+      asks the exact install confirmation with `[y/N]` before any install:
+      `npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -a claude-code -y`.
+      Does not invent a specific external testing skill, does not recommend a
+      tool inline, and does not claim installation has started.
+    anti_patterns:
+      - Invents an external skill name other than the `find-skills` meta-skill.
+      - Skips the `[y/N]` confirmation gate.
+      - Tries to install, claims it installed, or proceeds as if user consent was given.
+      - Recommends a specific testing tool or framework inline instead of gating find-skills.
+      - Routes back to a native sumo-qa sub-skill despite the supplied no-native-fit context.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response offer a `[y/N]` confirmation to install
+         Vercel Labs' `find-skills` meta-skill and name that meta-skill? It
+         must be an offer, not an install report.
+
+      B. GROUNDING - the response must use the supplied no-native-fit context
+         and the loaded skill's permission-gate wording. `find-skills` is the
+         only allowed external skill name. Restating the user's requested
+         surface is acceptable; recommending a separate tool, framework, or
+         concrete testing setup inline is GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    External-skill routing context for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This eval cannot run Read or Bash. Produce only the permission gate the
+    loaded skill requires when `find-skills` is absent locally and `npx` is
+    available. Name only Vercel Labs' `find-skills` meta-skill. Do not
+    recommend a specific testing tool inline. Do not install anything. No
+    closing pleasantry.
+
+    Begin the response with ONE sentence stating that no native sumo-qa
+    sub-skill fits this intent (echoing the deciding-approach routing context),
+    e.g. "No native sumo-qa sub-skill fits this Playwright E2E setup intent."
+    THEN the [y/N] install offer.
+tests:
+  - description: SEED - offer find-skills for Playwright E2E surface
+    vars:
+      user_prompt: >-
+        set up Playwright E2E tests
+      ground_truth_context: |
+        ## Prior router decision
+        `sumo-qa-deciding-approach` has determined no native sumo-qa sub-skill
+        fits this QA surface and routed here.
+
+        ## Local checks supplied to this eval
+        - `~/.claude/skills/find-skills/SKILL.md` is not present.
+        - `which npx` returned `/usr/local/bin/npx`.
+
+        The candidate must not install anything without an explicit user `y`.

@@ -1,0 +1,200 @@
+description: >
+  Skill-isolation eval for sumo-qa-finishing-qa-work. ONE seed test defines
+  the shape; promptfoo's `generate dataset` synthesises variations.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-finishing-qa-work/SKILL.md
+    expected_shape: >-
+      Final-turn QA rollout summary. References the written run-summary path
+      under `docs/qa/runs/YYYY-MM-DD-<feature>.md`, quotes the fresh suite
+      output from this turn with command, pass/fail/skip counts, and duration,
+      maps every named risk to covering test evidence or a named known gap, and
+      lists open follow-ups by name. Known gaps and open follow-ups are
+      different categories: if the rollout evidence contains only follow-ups
+      and no uncovered risks, "0 known gaps" is correct. Does not claim
+      completion from stale CI or hide uncovered risk.
+    anti_patterns:
+      - Claims QA is finished without citing the fresh suite output.
+      - Missing risk-to-test coverage map.
+      - Says there are no follow-ups despite named follow-ups in the supplied context.
+      - Omits or invents the `docs/qa/runs/YYYY-MM-DD-<feature>.md` summary path.
+      - Fabricates coverage numbers when no coverage output is supplied.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         It must name the run-summary path, quote the fresh suite command and
+         counts, provide a risk-to-test map, name open follow-ups, and avoid
+         presenting stale or fabricated evidence. Known gaps and open
+         follow-ups are different categories. If the rollout evidence contains
+         only follow-ups (no uncovered risks), "0 known gaps" is correct.
+
+      B. GROUNDING - the summary must visibly use the supplied final rollout
+         evidence: exact suite output, plan path, run-summary path, risk names,
+         covering tests, known gap, follow-up ticket, and files touched.
+         Generic PR-summary prose -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Final rollout evidence for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is the PR-ready QA summary turn. Produce EXACTLY this complete summary, all sections present, in this order:
+
+    ```markdown
+    # [<feature name>] QA Run Summary
+
+    **Date:** <YYYY-MM-DD>
+    **Plan:** `<plan path from ground_truth_context>`
+    **Run summary written this turn:** `<run-summary path from ground_truth_context>`
+    **Approach mix:** <from ground_truth_context>
+
+    ## Evidence
+
+    **Suite run** *(fresh, this turn):*
+    - <quote the exact command from ground_truth_context>
+    - <quote the exact total / passed / failed / skipped / duration>
+
+    ## Risk-to-test coverage map
+
+    | Risk | Covering test(s) | Status |
+    |---|---|---|
+    | <risk name from ground_truth> | `<test path::test name from ground_truth>` | ✅ green |
+    | ... | ... | ... |
+
+    ## Known gaps
+
+    - <each known gap from ground_truth, by name, with the tracker ID>
+      (or "None" if ground_truth_context has zero known gaps)
+
+    ## Open follow-ups
+
+    - <each follow-up from ground_truth, by name>
+
+    ## Files touched
+
+    - <each file from ground_truth>
+    ```
+
+    ALL SECTIONS MUST BE PRESENT. Empty sections use "None" not omission. NO closing line that contradicts the body counts. NO closing confirmation question. NO closing pleasantry. The run-summary path appears as a top-of-document reference, not buried in prose.
+tests:
+  - description: SEED - VIP promo checkout rollout summary
+    vars:
+      user_prompt: >-
+        Rollout is done; give me the PR-ready QA summary.
+      ground_truth_context: |
+        ## Prior rollout recap
+        Plan: `docs/qa/plans/vip-promo-checkout.md`
+        Run summary path written this turn:
+        `docs/qa/runs/2026-05-17-vip-promo-checkout.md`
+
+        ## Fresh suite run captured this turn
+        ```text
+        $ npm test -- --runInBand checkout pricing
+        tests/pricing/order-pricing.spec.ts
+          applies VIP and promo without double discount PASSED
+          preserves default total when promo flag is disabled PASSED
+          keeps free shipping threshold stable after promo PASSED
+        tests/checkout/cart-summary.spec.tsx
+          renders server total after promo apply PASSED
+          recovers from invalid promo then applies valid promo PASSED
+        128 total, 126 passed, 0 failed, 2 skipped in 12.8s
+        ```
+
+        No coverage command is configured for this repo, so no coverage delta
+        was captured.
+
+        ## Risk-to-test evidence
+        - Discount stacking drift:
+          `tests/pricing/order-pricing.spec.ts::applies VIP and promo without double discount`
+        - UI/server total mismatch:
+          `tests/checkout/cart-summary.spec.tsx::renders server total after promo apply`
+        - Invalid promo recovery:
+          `tests/checkout/cart-summary.spec.tsx::recovers from invalid promo then applies valid promo`
+        - Feature-flag fallback:
+          `tests/pricing/order-pricing.spec.ts::preserves default total when promo flag is disabled`
+        - Shipping threshold boundary:
+          `tests/pricing/order-pricing.spec.ts::keeps free shipping threshold stable after promo`
+
+        ## Known coverage gaps
+        - Tax-jurisdiction matrix for VIP + promo combinations is not yet covered (tracked as CHECKOUT-214; planned for next iteration).
+
+        ## Open follow-ups
+        - Remove stale xfail on legacy promo retry once the flag ships to 100%.
+        - Monitor checkout-total mismatch alert for the first staged canary.
+
+        ## Files touched
+        - `src/pricing/OrderPricingService.ts`
+        - `src/checkout/CartSummary.tsx`
+        - `tests/pricing/order-pricing.spec.ts`
+        - `tests/checkout/cart-summary.spec.tsx`

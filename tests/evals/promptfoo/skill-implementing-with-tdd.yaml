@@ -5,17 +5,29 @@ providers:
   - id: openai:chat:gpt-4o-mini
     label: candidate-gpt-4o-mini
     config:
-      temperature: 0.2
+      temperature: 0.0
+      seed: 42
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-implementing-with-tdd/SKILL.md
+    loaded_techniques: file://../../../knowledge/techniques.md
     expected_shape: >-
-      Concrete TDD red-phase artefact. Names the failing test (function name +
-      concrete input + assertion that distinguishes broken from fixed). Writes
-      the failing test code inline (not "would write"). Refuses to write the
-      production fix in the same turn — hands off cleanly to the user for the
-      green phase. Where the skill expects a confirmation gate and the supplied
-      context resolves the ambiguity, proceeds rather than asking.
+      Concrete TDD red-phase artefact. Names (a) the target test file path, (b)
+      the function under test, (c) concrete input, (d) the assertion that
+      distinguishes broken from fixed, (e) one test-design technique from the
+      loaded techniques catalogue applied to this risk. Writes the failing test
+      code inline (not "would write"). Refuses to write the production fix in
+      the same turn. Ends with EXACTLY ONE of the SKILL's two pinned handoff
+      phrasings — both are valid per skills/sumo-qa-implementing-with-tdd/SKILL.md
+      step 7: phrasing (a) "red phase confirmed. Implement to make it green;
+      I'll re-run when ready. If you'd like me to write the production code,
+      say so." (used ONLY when actual red assertion output is shown in
+      ground_truth_context), OR phrasing (b) "I'll run this and surface the
+      assertion failure next." (used when no real red output is supplied —
+      which is the case for every scenario in this eval, since no Bash tool
+      is available). NO confirmation question, NO closing pleasantry, NO
+      "shall I". Either phrasing PASSES the handoff check; only deviation
+      from both is a failure.
     anti_patterns:
       - >-
         Writes the production fix in the same turn (Iron Law: red phase is
@@ -32,12 +44,25 @@ defaultTest:
       - >-
         Hedging language — 'would write...', 'likely named...', 'probably
         check...' — instead of producing the concrete test code.
-    technique_tag: boundary value analysis
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL — apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+    - type: javascript
+      value: 'output.match(/boundary value analysis|equivalence partitioning|decision table|state transition|pairwise|exploratory/i) !== null'
+      threshold: 1
   options:
+    disableVarExpansion: true
     provider:
       id: openai:chat:gpt-5.5
       config:
-        temperature: 0
+        temperature: 0.0
+        seed: 42
         response_format:
           type: json_object
     rubricPrompt: >
@@ -65,11 +90,13 @@ defaultTest:
 
       A. SHAPE — does the response demonstrate the expected shape concretely?
          (Concrete = produces the artefact: test code, assertion, file path,
-         specific function name. Hedging = SHAPE FAIL.)
+         specific function name. Ends with exactly one of the two pinned
+         handoff phrasings; either is valid. Hedging = SHAPE FAIL.)
 
       B. GROUNDING — does the response use the provided ground-truth context?
          The response must visibly reference it. Narrating without using the
          supplied context → GROUNDING FAIL.
+         B GROUNDING: the named test-design technique must appear verbatim in {{loaded_techniques}}.
 
       C. ANTI-PATTERNS — for each anti-pattern listed in the rubric, mark
          ABSENT or PRESENT. PRESENT = the response actually exhibits it.
@@ -87,17 +114,22 @@ defaultTest:
       verdict>"}
 prompts:
   - |
-    You are a senior QA agent in an IDE chat session. This eval scenario simulates
-    your CURRENT turn in an in-flight TDD conversation — NOT a fresh first turn.
-    You have loaded the following sumo-qa skill and must follow its discipline:
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
 
     --- BEGIN SKILL ---
     {{skill_content}}
     --- END SKILL ---
 
-    The block below represents the repo state and prior conversation context
-    visible to you in this turn. Treat ONLY facts explicitly present here as
-    already inspected or agreed; do not infer missing expected values:
+    You have also loaded the test-design technique catalogue (the source of
+    truth for valid technique names; verbatim wording is mandatory per the
+    skill's step 3):
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    Repository state and prior conversation context for this turn:
 
     --- GROUND-TRUTH CONTEXT ---
     {{ground_truth_context}}
@@ -107,13 +139,21 @@ prompts:
 
     > {{user_prompt}}
 
-    This is a post-confirmation red-phase turn. Produce the failing test code
-    inline: name the target file/test/function/input/assertion, and do not write
-    production code. If actual failing-test output is provided in the ground-truth
-    context, quote it; if not, say the test still must be run and show the
-    expected assertion-failure shape without pretending it was executed. End with
-    the skill's red-phase handoff only if actual red output is supplied; otherwise
-    end by stating the next required action is to run the test.
+    This is a post-confirmation red-phase turn. Execute step 3 of the skill's
+    checklist (which names ALL FIVE required artefacts: target test file path,
+    function under test, concrete input, distinguishing assertion, named
+    test-design technique with verbatim catalogue wording), then write the
+    COMPLETE failing test FUNCTION inline as a fenced code block (e.g.
+    ```python
+    def test_xxx():
+        ...
+        assert ...
+    ```
+    — not just the assertion line, the full test function with setup,
+    invocation, and assertion). Skip writing production code. End with
+    EXACTLY one of the skill's two pinned handoff phrasings (no question, no
+    pleasantry) — phrasing (a) only when real red output is in the
+    ground-truth context, otherwise phrasing (b).
 tests:
   - description: SEED — regression-first bug fix (VIP double-discount)
     vars:
@@ -151,32 +191,7 @@ tests:
 
         # No test for VIP + promo combination — this is the coverage gap.
         ```
-    assert:
-      - type: llm-rubric
-        value: |
-          **Expected QA shape:** {{expected_shape}}
-
-          **Technique:** {{technique_tag}}
-
-          **Anti-patterns (any PRESENT = FAIL — apply the decision table):**
-          {% for ap in anti_patterns %}
-          - {{ ap }}
-          {% endfor %}
   - vars:
-      skill_content: >-
-        sumo-qa-implementing-with-tdd
-
-        Use when the developer asks to fix a bug regression-first or implement a
-        feature with TDD. Work only from the repository context provided.
-        Discipline: identify the smallest failing/covering test first, then make
-        the smallest production change that satisfies it. If context is missing,
-        ask one targeted question; if the context already includes the needed
-        files/results, proceed as if you inspected them. Do not claim to have
-        run tools unless results are provided. Produce exactly one concrete
-        artefact: a unified diff patch that adds/updates tests proving the
-        requested behaviour and changes production code minimally. After the
-        diff, add one short Run: line with the relevant test command. No
-        hedging, no broad refactors, no unrelated formatting.
       ground_truth_context: >
         ## pyproject.toml
 
@@ -257,20 +272,6 @@ tests:
         based on the post-discount merchandise total. Logic is in
         `ecommerce/shipping.py`.
   - vars:
-      skill_content: >-
-        sumo-qa-implementing-with-tdd
-
-        Use when the developer asks to fix a bug regression-first or implement a
-        feature with TDD. Work only from the repository context provided.
-        Discipline: identify the smallest failing/covering test first, then make
-        the smallest production change that satisfies it. If context is missing,
-        ask one targeted question; if the context already includes the needed
-        files/results, proceed as if you inspected them. Do not claim to have
-        run tools unless results are provided. Produce exactly one concrete
-        artefact: a unified diff patch that adds/updates tests proving the
-        requested behaviour and changes production code minimally. After the
-        diff, add one short Run: line with the relevant test command. No
-        hedging, no broad refactors, no unrelated formatting.
       ground_truth_context: >
         ## package.json
 
@@ -346,20 +347,6 @@ tests:
         later call for the same key should retry. File is
         `src/cache/memoizeAsync.js`.
   - vars:
-      skill_content: >-
-        sumo-qa-implementing-with-tdd
-
-        Use when the developer asks to fix a bug regression-first or implement a
-        feature with TDD. Work only from the repository context provided.
-        Discipline: identify the smallest failing/covering test first, then make
-        the smallest production change that satisfies it. If context is missing,
-        ask one targeted question; if the context already includes the needed
-        files/results, proceed as if you inspected them. Do not claim to have
-        run tools unless results are provided. Produce exactly one concrete
-        artefact: a unified diff patch that adds/updates tests proving the
-        requested behaviour and changes production code minimally. After the
-        diff, add one short Run: line with the relevant test command. No
-        hedging, no broad refactors, no unrelated formatting.
       ground_truth_context: "## go.mod\n```go\nmodule github.com/acme/payments\n\ngo 1.22\n```\n\n## client/client.go (production — missing feature)\n```go\npackage client\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"net/http\"\n\t\"time\"\n)\n\ntype Client struct {\n\tBaseURL    string\n\tHTTPClient *http.Client\n\tMaxRetries int\n\tSleeper    func(time.Duration)\n}\n\ntype Invoice struct {\n\tID     string `json:\"id\"`\n\tAmount int    `json:\"amount\"`\n}\n\nfunc (c *Client) httpClient() *http.Client {\n\tif c.HTTPClient != nil {\n\t\treturn c.HTTPClient\n\t}\n\treturn http.DefaultClient\n}\n\nfunc (c *Client) sleep(d time.Duration) {\n\tif c.Sleeper != nil {\n\t\tc.Sleeper(d)\n\t\treturn\n\t}\n\ttime.Sleep(d)\n}\n\nfunc (c *Client) GetInvoice(ctx context.Context, id string) (*Invoice, error) {\n\turl := fmt.Sprintf(\"%s/invoices/%s\", c.BaseURL, id)\n\n\tfor attempt := 0; attempt <= c.MaxRetries; attempt++ {\n\t\treq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\n\t\tresp, err := c.httpClient().Do(req)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\n\t\tif resp.StatusCode >= 500 && attempt < c.MaxRetries {\n\t\t\tio.Copy(io.Discard, resp.Body)\n\t\t\tresp.Body.Close()\n\t\t\tc.sleep(100 * time.Millisecond)\n\t\t\tcontinue\n\t\t}\n\n\t\tdefer resp.Body.Close()\n\t\tif resp.StatusCode != http.StatusOK {\n\t\t\treturn nil, fmt.Errorf(\"get invoice: status %d\", resp.StatusCode)\n\t\t}\n\n\t\tvar invoice Invoice\n\t\tif err := json.NewDecoder(resp.Body).Decode(&invoice); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\treturn &invoice, nil\n\t}\n\n\treturn nil, fmt.Errorf(\"get invoice: retries exhausted\")\n}\n```\n\n## client/client_test.go (existing tests)\n```go\npackage client\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestGetInvoiceRetriesServerError(t *testing.T) {\n\tcalls := 0\n\tserver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tcalls++\n\t\tif calls == 1 {\n\t\t\thttp.Error(w, \"boom\", http.StatusBadGateway)\n\t\t\treturn\n\t\t}\n\t\tw.Header().Set(\"Content-Type\", \"application/json\")\n\t\tw.WriteHeader(http.StatusOK)\n\t\tw.Write([]byte(`{\"id\":\"inv_123\",\"amount\":4200}`))\n\t}))\n\tdefer server.Close()\n\n\tvar slept []time.Duration\n\tc := &Client{BaseURL: server.URL, MaxRetries: 1, Sleeper: func(d time.Duration) { slept = append(slept, d) }}\n\n\tinvoice, err := c.GetInvoice(context.Background(), \"inv_123\")\n\tif err != nil {\n\t\tt.Fatalf(\"GetInvoice returned error: %v\", err)\n\t}\n\tif invoice.ID != \"inv_123\" || invoice.Amount != 4200 {\n\t\tt.Fatalf(\"unexpected invoice: %#v\", invoice)\n\t}\n\tif calls != 2 {\n\t\tt.Fatalf(\"expected 2 calls, got %d\", calls)\n\t}\n\tif len(slept) != 1 || slept[0] != 100*time.Millisecond {\n\t\tt.Fatalf(\"unexpected sleeps: %#v\", slept)\n\t}\n}\n\nfunc TestGetInvoiceDoesNotRetryBadRequest(t *testing.T) {\n\tcalls := 0\n\tserver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tcalls++\n\t\thttp.Error(w, \"bad\", http.StatusBadRequest)\n\t}))\n\tdefer server.Close()\n\n\tc := &Client{BaseURL: server.URL, MaxRetries: 3, Sleeper: func(time.Duration) { t.Fatal(\"should not sleep\") }}\n\n\t_, err := c.GetInvoice(context.Background(), \"inv_bad\")\n\tif err == nil {\n\t\tt.Fatal(\"expected error\")\n\t}\n\tif calls != 1 {\n\t\tt.Fatalf(\"expected 1 call, got %d\", calls)\n\t}\n}\n\n// No coverage for HTTP 429 Retry-After handling.\n```\n"
       user_prompt: >-
         TDD support for rate-limit responses in the Go payments client: when
@@ -367,20 +354,6 @@ tests:
         sleep that long and retry before failing. Existing client is in
         `client/client.go`.
   - vars:
-      skill_content: >-
-        sumo-qa-implementing-with-tdd
-
-        Use when the developer asks to fix a bug regression-first or implement a
-        feature with TDD. Work only from the repository context provided.
-        Discipline: identify the smallest failing/covering test first, then make
-        the smallest production change that satisfies it. If context is missing,
-        ask one targeted question; if the context already includes the needed
-        files/results, proceed as if you inspected them. Do not claim to have
-        run tools unless results are provided. Produce exactly one concrete
-        artefact: a unified diff patch that adds/updates tests proving the
-        requested behaviour and changes production code minimally. After the
-        diff, add one short Run: line with the relevant test command. No
-        hedging, no broad refactors, no unrelated formatting.
       ground_truth_context: |
         ## build.gradle.kts
         ```kotlin

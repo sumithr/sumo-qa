@@ -31,6 +31,8 @@ Spend output tokens on findings, not framing.
 
 A catalogued entry not re-validated against the source system in this turn is no better than an invented one — validation is the proof, not ceremony.
 
+**find_test_data MUST be immediately followed by validate_test_data against the returned record IN THE SAME TURN before the record is considered usable.**
+
 ## When to Use
 
 User intents that trigger this skill:
@@ -70,6 +72,7 @@ See the Checklist above — that's the flow.
 | "I'll just make up a SKU that probably works" | Iron Law violated. Catalogue entries only. |
 | "Validation is expensive — assume it's still good" | Stale is a defect. Always validate against the source system in this turn, especially for shared catalogues. |
 | "User said 'find me one' — I'll skip validation" | Validate. The whole point of the catalogue is freshness. |
+| "I'll just use the find result without validating" | Snapshots go stale within minutes in shared staging. Validate every find before quoting the record as test data. |
 | "Register this as known-good without testing it first" | Don't. Register only after the user has confirmed the entry was used successfully — and confirm again before writing to the catalogue. |
 | "If no entry matches, I'll fabricate one" | Surface the gap. The user might need to register a new entry — let them decide. |
 | "Found entry failed validation — let me silently grab the next one" | No. Surface the failure to the user with the entry that went stale; let them pick the alternative. Silent substitution hides drift in the catalogue. |
