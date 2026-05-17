@@ -1,10 +1,25 @@
 name: tests
 
+# Avoid double-runs on every push to a PR branch:
+#   - `push: branches: [main]` — only main pushes trigger the push event
+#     (covers merges + direct main commits).
+#   - `pull_request: branches: [main]` — PR opens/updates trigger here
+#     (covers all feature-branch development).
+# Push to a feature branch with an open PR → only pull_request fires, once.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
     branches: [main]
+
+# Cancel in-progress runs when a new push lands on the same ref.
+# Saves CI minutes during rapid iteration; the latest commit always gets the
+# definitive run. Uses `github.ref` (GitHub-computed, not attacker-supplied)
+# so per-PR concurrency buckets stay distinct without exposing branch-name
+# injection risk in the grouping key.
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
