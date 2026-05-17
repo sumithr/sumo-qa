@@ -5,8 +5,8 @@
 # sumo-qa MCP
 
 [![tests](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml/badge.svg)](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml)
-[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300)](https://pypi.org/project/sumo-qa/)
-[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300)](https://pypi.org/project/sumo-qa/)
+[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.2.2)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
+[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.2.2)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
 A senior-QA MCP server + skills library that delivers ISTQB-grade testing discipline to AI coding agents across **Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot**. The discipline lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical knowledge catalogues. Skills auto-trigger from their YAML descriptions on QA-shaped natural language — the workflow kicks in without you having to remember to invoke it.
