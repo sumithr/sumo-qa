@@ -83,6 +83,11 @@ repos:
         files: ^package-lock\.json$
         pass_filenames: false
         require_serial: true
+        # Pre-commit only — `git push` already runs the slow pytest hook;
+        # re-running an advisory lookup at push time is pure latency, and
+        # `uv run` invoked under pre-push can touch uv.lock and trip
+        # pre-commit's "files were modified" check.
+        stages: [pre-commit]
 
       - id: pip-audit
         name: pip-audit (PyPI advisory DB)
@@ -96,6 +101,7 @@ repos:
         files: ^(pyproject\.toml|uv\.lock)$
         pass_filenames: false
         require_serial: true
+        stages: [pre-commit]
 
       - id: pytest
         name: pytest (pre-push)
