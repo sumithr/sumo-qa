@@ -58,12 +58,15 @@ tests/evals/runs/*
 # tool functionality. Belongs alongside docs/qa/ (also ignored).
 tests/evals/results/
 
-# Promptfoo runtime artifacts: local SQLite cache, output JSON, share data.
-# Tracked: the YAML config(s) under tests/evals/promptfoo/. Local-only: the
-# cache + per-run output files (regenerated on every `promptfoo eval`).
+# Promptfoo runtime artifacts: local SQLite cache, output JSON, share data,
+# and post-processor outputs (regenerated on every `promptfoo eval` /
+# `extract_tests.py` run). Tracked: the source YAML configs under
+# tests/evals/promptfoo/ (skill-*.yaml + skill-*.gen.yaml). Local-only
+# anything generated FROM them.
 .promptfoo/
 tests/evals/promptfoo/output*.json
 tests/evals/promptfoo/*.cache.json
+tests/evals/promptfoo/*.generated-tests.yaml
 
 # Node dependencies for the promptfoo eval harness. package.json +
 # package-lock.json are tracked (pins the version); installed modules are not.
