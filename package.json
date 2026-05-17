@@ -14,5 +14,10 @@
   },
   "devDependencies": {
     "promptfoo": "0.121.11"
+  },
+  "overrides": {
+    "@opentelemetry/otlp-transformer": {
+      "protobufjs": "^8.0.2"
+    }
   }
 }
