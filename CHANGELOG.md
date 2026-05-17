@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/sumithr/sumo-qa/compare/v0.2.1...v0.2.2) (2026-05-17)
+
+
+### Miscellaneous Chores
+
+* **security:** add npm-audit + pip-audit pre-commit hooks ([#47](https://github.com/sumithr/sumo-qa/issues/47)) ([e254ef0](https://github.com/sumithr/sumo-qa/commit/e254ef07dcce9a2ca308805fea489afd5eea9889))
+
 ## [0.2.1](https://github.com/sumithr/sumo-qa/compare/v0.2.0...v0.2.1) (2026-05-17)
 
 
