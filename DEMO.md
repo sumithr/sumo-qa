@@ -108,6 +108,47 @@ Plan QA for the <feature> across <module1>, <module2>, <module3> — then dispat
 subagents to execute it in parallel.
 ```
 
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
+  'fontSize':'14px',
+  'primaryTextColor':'#1B1B1B',
+  'lineColor':'#1B1B1B'
+}}}%%
+flowchart TD
+    U(["User prompt"])
+    Plan["<b>planning-qa-rollout</b><br/><i>writes plan · 6–12 bite-sized tasks</i>"]
+
+    subgraph Exec ["executing-qa-rollout &nbsp;·&nbsp; parallel waves"]
+        direction LR
+        T1[("Task 1")] --> A1{{"subagent"}} --> R1a["spec-correctness"] --> R1b["test-quality"] --> D1(["done"])
+        T2[("Task 2")] --> A2{{"subagent"}} --> R2a["spec-correctness"] --> R2b["test-quality"] --> D2(["done"])
+        TN[("Task N")] --> AN{{"subagent"}} --> RNa["spec-correctness"] --> RNb["test-quality"] --> DN(["done"])
+    end
+
+    Finish["<b>finishing-qa-work</b><br/><i>full suite · risk-to-test map</i>"]
+    Out(["PR-ready summary<br/><i>docs/qa/runs/…</i>"])
+
+    U ==> Plan ==> Exec
+    Exec ==> Finish ==> Out
+
+    classDef io fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2px,color:#1B1B1B
+    classDef step fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
+    classDef task fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
+    classDef agent fill:#7A1F1F,stroke:#1B1B1B,stroke-width:1.5px,color:#FAF7F2
+    classDef review fill:#FAF7F2,stroke:#3F4A2E,stroke-width:1.5px,color:#3F4A2E
+    classDef done fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
+    classDef group fill:none,stroke:#8A7B5C,stroke-width:1px,color:#5C4D00,stroke-dasharray: 4 4
+
+    class U io
+    class Plan,Finish step
+    class T1,T2,TN task
+    class A1,A2,AN agent
+    class R1a,R1b,R2a,R2b,RNa,RNb review
+    class D1,D2,DN,Out done
+    class Exec group
+```
+
 Three skills run in sequence:
 
 1. **`sumo-qa-planning-qa-rollout`** writes `docs/qa/plans/YYYY-MM-DD-<feature>.md` with 6–12 bite-sized tasks, each tagged with its approach and the named risk it covers.

@@ -2,6 +2,48 @@
 
 Three layers, clean separation:
 
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
+  'fontSize':'15px',
+  'primaryTextColor':'#1B1B1B',
+  'lineColor':'#1B1B1B'
+}}}%%
+flowchart LR
+    LLM{{"Host LLM"}}
+
+    subgraph Inputs ["sumo-qa content"]
+        direction TB
+        Knowledge[("Knowledge")]
+        Standards[("Standards")]
+    end
+
+    Skills["<b>Skills</b>"]
+    Output(["Output"])
+
+    Knowledge -- cited by --> Skills
+    Standards -- cited by --> Skills
+    LLM == follows ==> Skills
+    Skills == produces ==> Output
+
+    classDef host fill:#7A1F1F,stroke:#1B1B1B,stroke-width:2px,color:#FAF7F2
+    classDef skills fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
+    classDef data fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
+    classDef out fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
+    classDef group fill:none,stroke:#8A7B5C,stroke-width:1px,color:#5C4D00,stroke-dasharray: 4 4
+
+    class LLM host
+    class Skills skills
+    class Knowledge,Standards data
+    class Output out
+    class Inputs group
+
+    linkStyle 0,1 stroke:#8A7B5C,stroke-width:1.2px,stroke-dasharray:5 4
+    linkStyle 2,3 stroke:#1B1B1B,stroke-width:2.5px
+```
+
+<sub>MCP tools (Python) are the transport between the Host LLM and the markdown content — omitted here for clarity. See [TOOLS.md](TOOLS.md).</sub>
+
 ## 1. Skills (markdown) — the orchestration layer
 
 Each skill is a single `skills/<name>/SKILL.md` with:
@@ -80,26 +122,32 @@ The new path is enforced by `tests/test_token_weight_regression.py` and `tests/t
 
 ## How a typical request flows
 
-```
-User: "create a test plan for refactoring the pricing pipeline"
-    │
-    ▼
-Host LLM auto-loads `using-sumo-qa` (Iron Law: decide approach first)
-    │
-    ▼
-Routes to `sumo-qa-deciding-approach`:
-    - calls sumo_qa_load_classifications, _approaches, _rules, _standards
-    - reasons: classification = business_logic_change + refactor modifier
-    - approach = coverage-first-then-refactor (skill flowchart, LLM applies)
-    - no user question — intent + cited words covered it
-    │
-    ▼
-Routes to `sumo-qa-creating-test-plan` (Iron Law: NO PLAN WITHOUT EXPLICIT ENTRY/EXIT CRITERIA):
-    - reads actual files via host file tools
-    - identifies 3-7 named risks anchored in evidence
-    - calls sumo_qa_load_techniques, picks one per risk
-    - if a specialty surface is implied, follows the discovery discipline from `using-sumo-qa`: observe the surface, reason from first principles about what shape of testing fits, web-search current options for the user's stack, cite when naming a tool; offers to install + configure + seed the first tests via the shortest setup path (package manager, framework CLI, config edit, or MCP server — whichever is fastest for that tool)
-    - synthesises plan inline (conversational, sectioned)
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
+  'fontSize':'15px',
+  'primaryTextColor':'#1B1B1B',
+  'lineColor':'#1B1B1B'
+}}}%%
+flowchart TD
+    U(["User prompt"])
+    R{{"<b>using-sumo-qa</b><br/><i>router</i>"}}
+    D["<b>deciding-approach</b>"]
+    P["<b>creating-test-plan</b>"]
+    O(["Test plan<br/><i>entry &amp; exit criteria</i>"])
+
+    U ==> R ==> D ==> P ==> O
+
+    classDef io fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2px,color:#1B1B1B
+    classDef router fill:#7A1F1F,stroke:#1B1B1B,stroke-width:2px,color:#FAF7F2
+    classDef step fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
+    classDef done fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
+    class U io
+    class R router
+    class D,P step
+    class O done
+
+    linkStyle 0,1,2,3 stroke:#1B1B1B,stroke-width:2.5px
 ```
 
 No single MCP call returns a heavy JSON blob. The LLM does the synthesis, guided by the skill's checklist, anchored to catalogue text.

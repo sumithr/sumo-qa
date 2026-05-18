@@ -62,6 +62,46 @@ Restart the host. The SessionStart hook re-injects the latest content; skills an
 
 ## What's included
 
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
+  'fontSize':'15px',
+  'primaryTextColor':'#1B1B1B',
+  'lineColor':'#1B1B1B'
+}}}%%
+flowchart LR
+    LLM{{"Host LLM"}}
+
+    subgraph Inputs ["sumo-qa content"]
+        direction TB
+        Knowledge[("Knowledge")]
+        Standards[("Standards")]
+    end
+
+    Skills["<b>Skills</b>"]
+    Output(["Output"])
+
+    Knowledge -- cited by --> Skills
+    Standards -- cited by --> Skills
+    LLM == follows ==> Skills
+    Skills == produces ==> Output
+
+    classDef host fill:#7A1F1F,stroke:#1B1B1B,stroke-width:2px,color:#FAF7F2
+    classDef skills fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
+    classDef data fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
+    classDef out fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
+    classDef group fill:none,stroke:#8A7B5C,stroke-width:1px,color:#5C4D00,stroke-dasharray: 4 4
+
+    class LLM host
+    class Skills skills
+    class Knowledge,Standards data
+    class Output out
+    class Inputs group
+
+    linkStyle 0,1 stroke:#8A7B5C,stroke-width:1.2px,stroke-dasharray:5 4
+    linkStyle 2,3 stroke:#1B1B1B,stroke-width:2.5px
+```
+
 | Layer | What |
 |---|---|
 | **14 skills** ([`skills/`](skills/)) | Iron-Law procedures: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, finding test data, answering testing questions, repo strategy — plus the planning → parallel subagent execution → finishing chain. |
@@ -97,6 +137,39 @@ Ten transcripts showing the workflow on real code — diff reviews refusing to c
 ## When sumo-qa doesn't fit
 
 If your QA intent has no native fit (Playwright E2E, accessibility audits, k6 load testing, type checking), sumo-qa searches for an external skill through its MCP server, offers a `[y/N]` install gate, installs through the Skills CLI, then loads the installed `SKILL.md` back into the conversation.
+
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
+  'fontSize':'13px',
+  'primaryTextColor':'#1B1B1B',
+  'lineColor':'#1B1B1B'
+}}}%%
+flowchart LR
+    Intent(["QA intent<br/><i>no native fit</i>"])
+    Search["<b>search</b><br/><i>sumo_qa_search_external_skills</i>"]
+    Gate{"<b>[y/N]</b>"}
+    Install["<b>install</b><br/><i>sumo_qa_install_external_skill</i>"]
+    Locate["<b>locate &amp; load</b><br/><i>check_installed · execute</i>"]
+    Out(["external SKILL.md<br/>in the conversation"])
+    Stop(["stop"])
+
+    Intent ==> Search ==> Gate
+    Gate -->|y| Install ==> Locate ==> Out
+    Gate -->|N| Stop
+
+    classDef io fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2px,color:#1B1B1B
+    classDef step fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
+    classDef gate fill:#7A1F1F,stroke:#1B1B1B,stroke-width:2px,color:#FAF7F2
+    classDef stop fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
+    classDef done fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
+
+    class Intent io
+    class Search,Install,Locate step
+    class Gate gate
+    class Stop stop
+    class Out done
+```
 
 - The host does not run `npx` directly; `sumo_qa_search_external_skills`, `sumo_qa_check_external_skill_installed`, `sumo_qa_install_external_skill`, and `sumo_qa_execute_external_skill` own the lifecycle.
 - Search returns the Skills CLI's text output verbatim (ANSI stripped); the host LLM reads it as the user would. No structured parser to drift out of date.
