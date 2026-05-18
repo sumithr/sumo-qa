@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/sumithr/sumo-qa/compare/v0.2.3...v0.3.0) (2026-05-18)
+
+
+### Features
+
+* **qa-eval:** A/B value-measurement harness + Tier 1 skill improvements ([#51](https://github.com/sumithr/sumo-qa/issues/51)) ([da8056b](https://github.com/sumithr/sumo-qa/commit/da8056bcb91383de080846d5a34e1fddef0609f3))
+
 ## [0.2.3](https://github.com/sumithr/sumo-qa/compare/v0.2.2...v0.2.3) (2026-05-17)
 
 
