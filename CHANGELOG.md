@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/sumithr/sumo-qa/compare/v0.3.4...v0.3.5) (2026-05-18)
+
+
+### Miscellaneous Chores
+
+* gitignore uv.lock and remove dead release-please config ([#61](https://github.com/sumithr/sumo-qa/issues/61)) ([a23ad38](https://github.com/sumithr/sumo-qa/commit/a23ad3899dee0df953be8fa17d6b28a64498c4a2))
+
 ## [0.3.4](https://github.com/sumithr/sumo-qa/compare/v0.3.3...v0.3.4) (2026-05-18)
 
 
