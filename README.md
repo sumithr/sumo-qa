@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.4.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
-An MCP server and skills library that gives AI coding agents a senior-QA workflow. Works with Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot.
+An MCP server that brings senior-QA discipline to AI coding assistants — test planning, TDD, mutation testing, code review.
 
 > [!IMPORTANT]
 > sumo-qa is an advisor, not an oracle. Like any AI tool it can be wrong. Your judgment and your team's standards are the final word.
