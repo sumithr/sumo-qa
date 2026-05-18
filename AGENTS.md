@@ -2,6 +2,10 @@
 
 If you're an AI agent setting up sumo-qa for the user, follow this exactly. One command for the common case; per-host flags if you only need to wire one host.
 
+## GitHub issue creation
+
+When creating GitHub issues, use the closest template in `.github/ISSUE_TEMPLATE/` and include every required field in the issue body. For implementation tasks raised by an AI agent, use `.github/ISSUE_TEMPLATE/ai-task.yml` unless a more specific template fits better.
+
 ## Default: configure every detected host
 
 ```bash

@@ -22,3 +22,8 @@ The skills carry the senior-QA discipline (Iron Laws, checklists, Red Flags).
 Knowledge catalogues are accessed via the `sumo_qa_load_*` tools — use them
 for principles, techniques, classifications, approaches, and specialty tool
 fits before relying on training-data knowledge.
+
+When creating GitHub issues, use the closest template in `.github/ISSUE_TEMPLATE/`
+and include every required field in the issue body. For implementation tasks
+raised by an AI agent, use `.github/ISSUE_TEMPLATE/ai-task.yml` unless a more
+specific template fits better.
