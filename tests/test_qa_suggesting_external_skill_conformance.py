@@ -3,10 +3,9 @@
 
 These supplement the suite-wide parametrised checks in test_skill_conformance.py
 with assertions about the external-skill-suggestion contract:
-- find-skills / skills.sh discovery flow
+- sumo-qa MCP-owned external skill lifecycle
 - install gate (explicit [y/N] confirmation)
-- no-sudo guarantee
-- no companion MCP shims
+- no direct host-shell npx bypass
 """
 
 from pathlib import Path
@@ -54,18 +53,20 @@ def test_skill_iron_law_mentions_install_gate() -> None:
     assert "install" in iron_law_section.lower()
 
 
-def test_skill_targets_skills_sh_registry() -> None:
+def test_skill_references_external_skill_mcp_tools() -> None:
     text = SKILL_PATH.read_text(encoding="utf-8")
-    assert "skills.sh" in text
+    assert "sumo_qa_search_external_skills" in text
+    assert "sumo_qa_install_external_skill" in text
+    assert "sumo_qa_execute_external_skill" in text
 
 
-def test_skill_documents_find_skills_install_command_verbatim() -> None:
+def test_skill_does_not_document_host_shell_install_command() -> None:
     text = SKILL_PATH.read_text(encoding="utf-8")
-    assert "github.com/vercel-labs/skills" in text
-    assert "--skill find-skills" in text
+    assert "npx --yes skills add" not in text
+    assert "--skill find-skills" not in text
 
 
-def test_skill_gates_find_skills_install_on_user_confirmation() -> None:
+def test_skill_gates_external_skill_install_on_user_confirmation() -> None:
     text = SKILL_PATH.read_text(encoding="utf-8")
     # Must have a [y/N] gate (allow variations like [y / N])
     import re
@@ -74,16 +75,12 @@ def test_skill_gates_find_skills_install_on_user_confirmation() -> None:
     assert has_yn_gate, "SKILL.md must contain a [y/N] (or [y / N]) confirmation gate"
     # Must instruct to stop on 'n'
     assert "stop" in text.lower()
+    assert "confirmed=true" in text
 
 
-def test_skill_explicitly_rejects_companion_python_shims() -> None:
+def test_skill_explicitly_rejects_direct_host_shell_npx() -> None:
     text = SKILL_PATH.read_text(encoding="utf-8")
-    # Red Flags section must address the companion-MCP-shim anti-pattern
-    # Look for "MCP" alongside "shim" or "wrap" or "Python" or "companion"
     lower = text.lower()
-    has_mcp = "mcp" in lower
-    has_anti_shim = any(kw in lower for kw in ("shim", "wrap", "python", "companion"))
-    assert has_mcp and has_anti_shim, (
-        "SKILL.md Red Flags must address the companion-MCP-shim / wrapper anti-pattern "
-        "(look for 'MCP' + one of 'shim', 'wrap', 'Python', 'companion')"
-    )
+    assert "host shell" in lower
+    assert "npx skills" in lower
+    assert "mcp server owns" in lower

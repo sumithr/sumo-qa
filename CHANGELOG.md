@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/sumithr/sumo-qa/compare/v0.3.2...v0.3.3) (2026-05-18)
+
+
+### Bug Fixes
+
+* route external skill lifecycle through MCP with fluid CLI flow ([#57](https://github.com/sumithr/sumo-qa/issues/57)) ([b9ed4ca](https://github.com/sumithr/sumo-qa/commit/b9ed4ca8769606a86b84135f8b612e3e80063489))
+
 ## [0.3.2](https://github.com/sumithr/sumo-qa/compare/v0.3.1...v0.3.2) (2026-05-18)
 
 

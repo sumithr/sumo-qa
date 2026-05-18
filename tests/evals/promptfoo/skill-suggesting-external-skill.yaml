@@ -1,7 +1,7 @@
 description: >
   Skill-isolation eval for sumo-qa-suggesting-external-skill. ONE seed test
-  defines the permission-gated find-skills offer when no native sumo-qa skill
-  fits a non-native QA surface.
+  defines the permission-gated external-skill install offer when no native
+  sumo-qa skill fits a non-native QA surface.
 providers:
   - id: openai:chat:gpt-4o-mini
     label: candidate-gpt-4o-mini
@@ -13,16 +13,16 @@ defaultTest:
     skill_content: file://../../../skills/sumo-qa-suggesting-external-skill/SKILL.md
     expected_shape: >-
       Permission-gated external-skill offer only. States that no native
-      sumo-qa fit was found, names Vercel Labs' `find-skills` meta-skill, and
-      asks the exact install confirmation with `[y/N]` before any install:
-      `npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -a claude-code -y`.
-      Does not invent a specific external testing skill, does not recommend a
-      tool inline, and does not claim installation has started.
+      sumo-qa fit was found, uses the supplied MCP search result, and asks
+      for `[y/N]` confirmation before installing `playwright-e2e` from
+      `vercel-labs/skills` for `codex` in `project` scope. Does not run
+      `npx`, does not invent a different external skill, and does not claim
+      installation has started.
     anti_patterns:
-      - Invents an external skill name other than the `find-skills` meta-skill.
+      - Invents an external skill name other than the supplied MCP search result.
       - Skips the `[y/N]` confirmation gate.
       - Tries to install, claims it installed, or proceeds as if user consent was given.
-      - Recommends a specific testing tool or framework inline instead of gating find-skills.
+      - Runs or recommends direct host-shell `npx skills` instead of using the sumo-qa MCP install tool.
       - Routes back to a native sumo-qa sub-skill despite the supplied no-native-fit context.
   assert:
     - type: llm-rubric
@@ -65,14 +65,14 @@ defaultTest:
 
 
       A. SHAPE - does the response offer a `[y/N]` confirmation to install
-         Vercel Labs' `find-skills` meta-skill and name that meta-skill? It
-         must be an offer, not an install report.
+         the supplied external skill candidate through the sumo-qa MCP install
+         tool? It must be an offer, not an install report.
 
       B. GROUNDING - the response must use the supplied no-native-fit context
-         and the loaded skill's permission-gate wording. `find-skills` is the
-         only allowed external skill name. Restating the user's requested
+         and the loaded skill's permission-gate wording. `playwright-e2e` is
+         the only allowed external skill name. Restating the user's requested
          surface is acceptable; recommending a separate tool, framework, or
-         concrete testing setup inline is GROUNDING FAIL.
+         direct CLI command is GROUNDING FAIL.
 
       C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
          ABSENT or PRESENT. PRESENT = the response actually exhibits it.
@@ -106,18 +106,18 @@ prompts:
 
     > {{user_prompt}}
 
-    This eval cannot run Read or Bash. Produce only the permission gate the
-    loaded skill requires when `find-skills` is absent locally and `npx` is
-    available. Name only Vercel Labs' `find-skills` meta-skill. Do not
-    recommend a specific testing tool inline. Do not install anything. No
-    closing pleasantry.
+    This eval cannot run MCP tools. The local install check was null and
+    `sumo_qa_search_external_skills` returned the supplied candidate. Produce
+    only the permission gate the loaded skill requires. Name only the supplied
+    external skill. Do not recommend a direct CLI command. Do not install
+    anything. No closing pleasantry.
 
     Begin the response with ONE sentence stating that no native sumo-qa
     sub-skill fits this intent (echoing the deciding-approach routing context),
     e.g. "No native sumo-qa sub-skill fits this Playwright E2E setup intent."
     THEN the [y/N] install offer.
 tests:
-  - description: SEED - offer find-skills for Playwright E2E surface
+  - description: SEED - offer MCP-owned external install for Playwright E2E surface
     vars:
       user_prompt: >-
         set up Playwright E2E tests
@@ -126,8 +126,19 @@ tests:
         `sumo-qa-deciding-approach` has determined no native sumo-qa sub-skill
         fits this QA surface and routed here.
 
-        ## Local checks supplied to this eval
-        - `~/.claude/skills/find-skills/SKILL.md` is not present.
-        - `which npx` returned `/usr/local/bin/npx`.
+        ## MCP tool results supplied to this eval
+        - `sumo_qa_check_external_skill_installed(skill="playwright-e2e")` returned null.
+        - `sumo_qa_search_external_skills(query="playwright e2e")` returned:
+          ```
+          {
+            "query": "playwright e2e",
+            "raw_output": "vercel-labs/skills@playwright-e2e  1.2K installs\nother-owner/repo@something-unrelated  3 installs\n",
+            "hint": "Read raw_output as the user would in a terminal — one candidate per line, typically in the form <owner>/<repo>@<skill>."
+          }
+          ```
+
+        The intended install target inferred from `raw_output` is the
+        `playwright-e2e` skill from `vercel-labs/skills`, for the `codex`
+        agent in `project` scope.
 
         The candidate must not install anything without an explicit user `y`.

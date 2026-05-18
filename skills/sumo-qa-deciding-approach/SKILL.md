@@ -80,11 +80,11 @@ Anti-patterns:
 
 For "create a test plan" / "plan QA for this story" intents, after approach is picked, route to `sumo-qa-creating-test-plan` or `sumo-qa-preparing-for-work` per user phrasing. For "how do I test this?" intents that don't fit any specific approach, route to `sumo-qa-answering-testing-question`.
 
-## Fallback to find-skills / skills.sh
+## Fallback to external skills
 
 When **no canonical approach fits** the intent, decide whether the intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine. If yes → return `classification: "n/a"`, `approach: "n/a"`, and `next_action: {skill: "sumo-qa-suggesting-external-skill"}` with the inferred surface in the internal rationale. If no (the intent fits a native sub-skill once you look closer) → continue with the native routing.
 
-`sumo-qa-suggesting-external-skill` will offer (with `[y/N]`) to install Vercel Labs' `find-skills` meta-skill, which then drives end-to-end discovery and install from [skills.sh](https://www.skills.sh/). No companion MCP shim is involved — all CLI invocations happen through the host LLM's native `Bash` tool. Don't pre-emptively warn the user — just route.
+`sumo-qa-suggesting-external-skill` will drive external-skill search, install, and execution handoff through sumo-qa MCP tools, with `[y/N]` confirmation before install. Don't pre-emptively warn the user — just route.
 
 ## Red Flags
 

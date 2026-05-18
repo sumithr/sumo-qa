@@ -6,6 +6,21 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from sumo_qa.debug_capture import maybe_capture
+from sumo_qa.external_skills import (
+    check_external_skill_installed as _check_external_skill_installed,
+)
+from sumo_qa.external_skills import (
+    execute_external_skill as _execute_external_skill,
+)
+from sumo_qa.external_skills import (
+    hint_for_exception as _hint_for_external_skill_exception,
+)
+from sumo_qa.external_skills import (
+    install_external_skill as _install_external_skill,
+)
+from sumo_qa.external_skills import (
+    search_external_skills as _search_external_skills,
+)
 from sumo_qa.knowledge_loaders import (
     sumo_qa_load_approaches as _load_approaches,
 )
@@ -96,6 +111,24 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         destructiveHint=False,
         idempotentHint=False,
         openWorldHint=False,
+    )
+    _read_only_external = ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+    _read_only_external_local = ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+    _writer_external = ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
     )
 
     @mcp.tool(annotations=_read_only_local)
@@ -323,6 +356,101 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             return _load_rules(classification=classification)
 
     _register_knowledge_loaders(mcp)
+
+    @mcp.tool(annotations=_read_only_external)
+    def sumo_qa_search_external_skills(query: str) -> dict:
+        """Search the Skills CLI registry for external agent skills.
+
+        Returns the ANSI-stripped CLI output verbatim plus a one-line hint on
+        how to read it. No structured parsing — the host LLM interprets the
+        raw text so format drift in the Skills CLI doesn't break the flow.
+        """
+        try:
+            output = _search_external_skills(query)
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
+        return maybe_capture(
+            tool="sumo_qa_search_external_skills",
+            args={"query": query},
+            output=output,
+        )
+
+    @mcp.tool(annotations=_read_only_external_local)
+    def sumo_qa_check_external_skill_installed(
+        skill: str,
+        scope: str = "auto",
+    ) -> dict | None:
+        """Locate an installed external SKILL.md file for Codex, Claude, or agents paths.
+
+        Returns the first matching path for project or global skill locations,
+        or null when the skill is absent.
+        """
+        try:
+            output = _check_external_skill_installed(skill, scope=scope)
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
+        return maybe_capture(
+            tool="sumo_qa_check_external_skill_installed",
+            args={"skill": skill, "scope": scope},
+            output=output,
+        )
+
+    @mcp.tool(annotations=_writer_external)
+    def sumo_qa_install_external_skill(
+        skill: str,
+        source: str = "https://github.com/vercel-labs/skills",
+        scope: str = "project",
+        agent: str = "codex",
+        confirmed: bool = False,
+    ) -> dict:
+        """Install an external agent skill through the Skills CLI.
+
+        The confirmed flag records that the host received explicit user
+        approval before invoking the install operation.
+        """
+        try:
+            output = _install_external_skill(
+                skill=skill,
+                source=source,
+                scope=scope,
+                agent=agent,
+                confirmed=confirmed,
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
+        return maybe_capture(
+            tool="sumo_qa_install_external_skill",
+            args={
+                "skill": skill,
+                "source": source,
+                "scope": scope,
+                "agent": agent,
+                "confirmed": confirmed,
+            },
+            output=output,
+        )
+
+    @mcp.tool(annotations=_read_only_external_local)
+    def sumo_qa_execute_external_skill(
+        skill: str,
+        intent: str = "",
+        scope: str = "auto",
+    ) -> dict:
+        """Load an installed external SKILL.md and return the execution handoff.
+
+        The payload contains the skill body plus the original intent so the
+        host can follow the external workflow in the current conversation.
+        """
+        try:
+            output = _execute_external_skill(skill=skill, intent=intent, scope=scope)
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
+        return maybe_capture(
+            tool="sumo_qa_execute_external_skill",
+            args={"skill": skill, "intent": intent, "scope": scope},
+            output=output,
+        )
+
     register_skills_as_prompts(mcp)
     return mcp
 
