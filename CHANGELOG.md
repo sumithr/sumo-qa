@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/sumithr/sumo-qa/compare/v0.5.1...v0.5.2) (2026-05-18)
+
+
+### Documentation
+
+* add GitHub issue templates ([2b9339d](https://github.com/sumithr/sumo-qa/commit/2b9339d5d6c48e1ea558e0b5ddb4040182f71085))
+
 ## [0.5.1](https://github.com/sumithr/sumo-qa/compare/v0.5.0...v0.5.1) (2026-05-18)
 
 
