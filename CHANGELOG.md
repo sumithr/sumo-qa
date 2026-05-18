@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/sumithr/sumo-qa/compare/v0.5.0...v0.5.1) (2026-05-18)
+
+
+### Documentation
+
+* add Mermaid diagrams across user-facing docs ([#73](https://github.com/sumithr/sumo-qa/issues/73)) ([151fe63](https://github.com/sumithr/sumo-qa/commit/151fe63004e20085c2f707ee1b31b3ad6bd18bdb))
+
 ## [0.5.0](https://github.com/sumithr/sumo-qa/compare/v0.4.3...v0.5.0) (2026-05-18)
 
 
