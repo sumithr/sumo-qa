@@ -10,12 +10,7 @@
       "prerelease": false,
       "include-component-in-tag": false,
       "extra-files": [
-        "README.md",
-        {
-          "type": "toml",
-          "path": "uv.lock",
-          "jsonpath": "$.package[?(@.name == 'sumo-qa')].version"
-        }
+        "README.md"
       ],
       "changelog-sections": [
         {
