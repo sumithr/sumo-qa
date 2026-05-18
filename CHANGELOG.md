@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/sumithr/sumo-qa/compare/v0.3.3...v0.3.4) (2026-05-18)
+
+
+### Miscellaneous Chores
+
+* have release-please sync uv.lock on version bump ([#58](https://github.com/sumithr/sumo-qa/issues/58)) ([c4d2ada](https://github.com/sumithr/sumo-qa/commit/c4d2adac42636da2ecf9dc469a0b6cd577338da5))
+
 ## [0.3.3](https://github.com/sumithr/sumo-qa/compare/v0.3.2...v0.3.3) (2026-05-18)
 
 
