@@ -246,12 +246,11 @@ def test_execute_external_skill_requires_installed_skill(tmp_path: Path) -> None
 
 
 def test_installed_skill_as_dict_round_trip() -> None:
-    installed = ext.InstalledSkill(
-        name="x", path=Path("/tmp/SKILL.md"), agent="codex", scope="project"
-    )
+    path = Path("/tmp/SKILL.md")
+    installed = ext.InstalledSkill(name="x", path=path, agent="codex", scope="project")
     assert installed.as_dict() == {
         "name": "x",
-        "path": "/tmp/SKILL.md",
+        "path": str(path),
         "agent": "codex",
         "scope": "project",
     }
@@ -361,8 +360,15 @@ def test_search_external_skills_real_cli_smoke() -> None:
     raw_output is non-empty text, ANSI stripped. Does NOT assert on the CLI's
     specific output format (the whole point of dropping the parser is so format
     drift in the upstream CLI does not break this flow).
+
+    Converts CLI environment problems (Node missing, npm/npx install slow or
+    broken in CI, network unreachable) into skips, not failures — the test is
+    only meaningful when the CLI is actually available.
     """
-    result = ext.search_external_skills("mypy")
+    try:
+        result = ext.search_external_skills("mypy", timeout=60)
+    except (ext.NodeNotFoundError, ext.ExternalSkillCLIError) as exc:
+        pytest.skip(f"Skills CLI unavailable in this environment: {exc}")
     assert set(result) >= {"query", "command", "raw_output", "stderr", "hint"}
     assert isinstance(result["raw_output"], str) and result["raw_output"]
     assert "\x1b" not in result["raw_output"]

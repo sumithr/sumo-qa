@@ -190,6 +190,8 @@ def _run_skills_cli(args: list[str], timeout: int) -> tuple[list[str], str, str]
             capture_output=True,
             check=False,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
