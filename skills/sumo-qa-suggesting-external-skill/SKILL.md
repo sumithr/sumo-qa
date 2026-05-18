@@ -1,11 +1,11 @@
 ---
 name: sumo-qa-suggesting-external-skill
-description: Use ONLY when sumo-qa-deciding-approach explicitly routes here (no native sumo-qa sub-skill fits the user's intent). Offers (with [y/N] confirmation) to install Vercel Labs' find-skills meta-skill, which then drives end-to-end discovery and install from skills.sh. Never run directly from `using-sumo-qa` — always via the deciding-approach fallback.
+description: Use ONLY when sumo-qa-deciding-approach explicitly routes here (no native sumo-qa sub-skill fits the user's intent). Finds, installs, and executes external skills through sumo-qa MCP tools, with [y/N] confirmation before install. Never run directly from `using-sumo-qa` — always via the deciding-approach fallback.
 ---
 
-# Suggesting an external (skills.sh) skill
+# Suggesting an external skill
 
-**Announce at start:** *"Checking skills.sh for a matching skill — no native sumo-qa fit found."*
+**Announce at start:** *"Checking external skills through sumo-qa — no native sumo-qa fit found."*
 
 ## Output discipline (mandatory)
 
@@ -27,59 +27,55 @@ Spend output tokens on findings, not framing.
 
 ## The Iron Law
 
-**Never install without explicit user confirmation.** Search and inspection are silent internal work; install is gated on the user's explicit `y`. Never silently call `sudo`. Never silently edit MCP config files — print the JSON for the user to paste.
+**The sumo-qa MCP server owns external-skill lifecycle.** Search, install, local lookup, and execution handoff go through `sumo_qa_search_external_skills`, `sumo_qa_install_external_skill`, `sumo_qa_check_external_skill_installed`, and `sumo_qa_execute_external_skill`. Install is still gated on the user's explicit `y`. Never run `sudo` from this flow.
 
 ## When to Use
 
 `sumo-qa-deciding-approach` routes here when, internally:
 
 1. No native approach in the canonical catalogue fits the user's intent.
-2. The intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine.
+2. The intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, type checking, flaky-test quarantine.
 
 Consent for any install is always the per-action `[y/N]` prompt in the checklist below. No global on/off switch.
 
 ## Checklist
 
-You MUST work through these steps in order. All CLI invocations use the host LLM's native `Bash` tool — no companion Python shims, no new MCP tools.
+You MUST work through these steps in order. External lifecycle operations are MCP tool calls, not host-shell `npx` calls.
 
-1. **Check find-skills locally first.** Use your `Read` tool to check whether `~/.claude/skills/find-skills/SKILL.md` exists. If it exists → invoke `find-skills` via the Skill tool, passing the user's original intent. find-skills handles discovery + install from [skills.sh](https://www.skills.sh/) end-to-end. Stop — sumo-qa's discipline still wraps the response.
+1. **Check local install first.** Call `sumo_qa_check_external_skill_installed` if the router or user named a likely skill. If found, call `sumo_qa_execute_external_skill` with the user's original intent and follow the returned `skill_body`. Stop.
 
-2. **Node availability.** Run `which npx` via Bash. If the output is empty, print one paragraph explaining the user needs Node.js installed (https://nodejs.org) and stop. Never silently elevate via sudo.
+2. **Search externally.** Call `sumo_qa_search_external_skills` with a concise query built from the QA surface and stack, e.g. `python type checking mypy`, `playwright e2e`, `pact contract testing`. Read the returned `raw_output` as the user would in a terminal — one candidate per line, typically in the form `<owner>/<repo>@<skill>`. The MCP intentionally does not parse this text; the Skills CLI output shape may evolve.
 
-3. **Permission gate (one question).** Ask:
+3. **No match fallback.** If search returns no credible match, say so and route to `sumo-qa-implementing-with-tdd` or `sumo-qa-strengthening-tests` only if native scaffolding still makes sense. Do not invent a skill.
 
-   *"find-skills isn't installed locally. Want me to install it via `npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -a claude-code -y`? [y/N]"*
+4. **Permission gate (one question).** Present the best candidate with source, skill name, install scope, and agent. Ask:
+
+   *"Install `<skill>` from `<source>` for `<agent>` in `<scope>` scope, then execute it for this testing gap? [y/N]"*
 
    On `n` → stop. On `y` → continue.
 
-4. **Install find-skills.** Run this command verbatim via Bash:
+5. **Install through MCP.** Call `sumo_qa_install_external_skill` with `confirmed=true`. On an `isError` envelope, surface the error message and actionable hint. Stop.
 
-   ```
-   npx --yes skills add https://github.com/vercel-labs/skills --skill find-skills -a claude-code -y
-   ```
-
-   On non-zero exit → surface stderr and stop. Do not retry automatically.
-
-5. **Hand off.** Invoke the freshly-installed `find-skills` via the Skill tool, passing the user's original intent. find-skills drives discovery + install from skills.sh; sumo-qa's discipline still wraps the response.
+6. **Execute through MCP.** Call `sumo_qa_execute_external_skill` with the installed skill name and original intent. Follow the returned `skill_body` to set up the tool and create the first automated tests. Sumo-qa's confirmation discipline still applies to dependency installs and file writes requested by that external skill.
 
 ## Error handling
 
 | Failure | Behaviour |
 |---|---|
-| `which npx` returns empty | Print one paragraph pointing at https://nodejs.org. Stop. Never auto-install Node via sudo. |
-| find-skills install exits non-zero | Surface stderr verbatim. Stop. Do not auto-retry. |
-| find-skills finds no match for intent | *"No skills.sh match for this intent — falling back to sumo-qa's native scaffolding."* Route to `sumo-qa-implementing-with-tdd`. |
+| `sumo_qa_search_external_skills` returns `isError` | Surface the error and actionable hint. Stop. |
+| Search returns no credible match | *"No external skill match for this intent."* Route native only if a native path still fits. |
+| `sumo_qa_install_external_skill` returns `isError` | Surface the error and actionable hint. Stop. |
+| `sumo_qa_execute_external_skill` returns `isError` | Surface the error and actionable hint. Stop. |
 
 ## Red Flags
 
 | Thought | Reality |
 |---|---|
-| "I'll add a companion MCP tool to wrap npx" | No. Sumo-qa is one MCP server; CLI invocations live in this SKILL, not in Python shims. Adding a new MCP entry point here is the architectural failure mode this design exists to prevent. |
-| "I'll just install find-skills and tell the user after" | No. Permission gate before every install. Always. |
-| "find-skills writes tests, so I'll skip sumo-qa-implementing-with-tdd" | The native sub-skill carries sumo-qa's discipline. Hand off to it; the external skill is reference patterns. |
-| "Node isn't there — I'll just call sudo apt install nodejs directly" | Never elevate from a tool call. If sudo is required, print the command and stop. |
-| "I'll build a Python wrapper around the skills CLI output" | No. Return raw text from CLI tools; let the LLM parse natural-language output. No Python parsers as middleware. |
-| "I'll silently edit `~/.claude.json` to add the MCP server" | No silent config edits. Print the JSON for the user to paste. |
+| "I'll run `npx skills ...` directly from the host shell" | No. The sumo-qa MCP server owns search, install, and execution handoff. |
+| "I'll install the skill and tell the user after" | No. Permission gate before every install. Always. |
+| "Search failed, but I remember a skill name" | No. Use current MCP search results or say no match. |
+| "The external skill returned instructions, so sumo-qa discipline no longer applies" | Sumo-qa still owns confirmation gates, test evidence, and risk-to-test mapping. |
+| "I'll silently edit host MCP config files" | No silent config edits. Surface the needed JSON or command and stop. |
 
 ## Process Flow
 
@@ -87,6 +83,6 @@ See the Checklist above — that's the flow.
 
 ## Next skill in the chain
 
-- find-skills installed and invoked → find-skills drives the rest; sumo-qa discipline wraps the final response.
-- No match found by find-skills → `sumo-qa-implementing-with-tdd` for native scaffolding.
-- User declined install or Node unavailable → stop.
+- External skill executed through MCP → follow returned `skill_body`, then use the relevant native sumo-qa skill for test evidence and review.
+- No external match → native fallback only when a native path still fits.
+- User declined install or MCP search/install failed → stop.

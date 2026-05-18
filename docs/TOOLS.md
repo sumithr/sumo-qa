@@ -1,6 +1,6 @@
 # MCP Tools
 
-The sumo-qa MCP exposes **24 entry points**: 14 skill tools + 6 knowledge loaders + 4 test-data tools. All are thin — each is file IO or a small deterministic operation. No inference, no host-LLM sampling. The host LLM reasons over what they return.
+The sumo-qa MCP exposes **28 entry points**: 14 skill tools + 6 knowledge loaders + 4 test-data tools + 4 external-skill lifecycle tools. All are thin — each is file IO, small deterministic logic, or a Skills CLI subprocess. No inference, no host-LLM sampling. The host LLM reasons over what they return.
 
 ## Skill tools (14)
 
@@ -21,7 +21,7 @@ Each returns the full body of a `skills/<name>/SKILL.md` file. The host LLM trea
 | `sumo_qa_planning_qa_rollout` | Turn a chunk of QA work into a bite-sized dispatchable plan |
 | `sumo_qa_executing_qa_rollout` | Dispatch a written QA plan task-by-task via subagents |
 | `sumo_qa_finishing_qa_work` | Capture evidence, produce PR-ready summary, close the loop |
-| `sumo_qa_suggesting_external_skill` | Offer find-skills / skills.sh discovery when no native fit exists |
+| `sumo_qa_suggesting_external_skill` | Drive external-skill search / install / execution when no native fit exists |
 
 In JetBrains AI Assistant these are slash commands (`/sumo_qa_deciding_approach`). In Claude Code the equivalent slash commands come from the native skill files (`/sumo-qa-deciding-approach`, hyphens) — the MCP tools are still callable but only via natural language ("decide the QA approach for this refactor"). VS Code Copilot and Junie pick them by description in Agent / agentic mode.
 
@@ -53,9 +53,18 @@ Manage the local known-good test data catalogue under `knowledge/test_data/`. Fi
 | `sumo_qa_validate_test_data(path)` | Checks a known-good entry against its source system |
 | `sumo_qa_register_known_good_test_data(...)` | Writes a new known-good entry |
 
-## External-skill discovery (no MCP entry points)
+## External-skill lifecycle
 
-When no native sumo-qa fit is found, `sumo-qa-suggesting-external-skill` offers (with `[y/N]`) to install Vercel Labs' [`find-skills`](https://github.com/vercel-labs/skills) meta-skill, which then drives end-to-end discovery and install from [skills.sh](https://www.skills.sh/). This flow uses the host LLM's native `Bash` tool — there are no companion Python shims and no additional MCP entry points. Sumo-qa stays one MCP server. See [`skills/sumo-qa-suggesting-external-skill/SKILL.md`](../skills/sumo-qa-suggesting-external-skill/SKILL.md) for the canonical procedure.
+When no native sumo-qa fit is found, `sumo-qa-suggesting-external-skill` searches, installs, and executes external skills through sumo-qa MCP tools:
+
+| Tool | Purpose |
+|---|---|
+| `sumo_qa_search_external_skills` | Run `skills find <query>` and return ANSI-stripped CLI output verbatim — no structured parsing, so Skills CLI format drift doesn't break the flow |
+| `sumo_qa_check_external_skill_installed` | Locate an installed `SKILL.md` in project or global agent skill paths |
+| `sumo_qa_install_external_skill` | Install a named skill through `npx skills add` after explicit user confirmation |
+| `sumo_qa_execute_external_skill` | Load the installed `SKILL.md` and return the execution handoff payload |
+
+Install still requires a user `[y/N]` gate in the skill. The host does not shell out to `npx` directly for this flow.
 
 ## Why the surface is so small
 
