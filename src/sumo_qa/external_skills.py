@@ -35,7 +35,7 @@ class InstalledSkill:
     def as_dict(self) -> dict[str, str]:
         return {
             "name": self.name,
-            "path": str(self.path),
+            "path": self.path.as_posix(),
             "agent": self.agent,
             "scope": self.scope,
         }
@@ -143,7 +143,7 @@ def execute_external_skill(
     body = path.read_text(encoding="utf-8")
     return {
         "skill": installed["name"],
-        "path": str(path),
+        "path": path.as_posix(),
         "agent": installed["agent"],
         "scope": installed["scope"],
         "intent": intent,

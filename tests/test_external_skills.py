@@ -203,11 +203,13 @@ def test_check_external_skill_installed_finds_project_and_global_paths(tmp_path:
 
     assert project == {
         "name": "mypy-type-checking",
-        "path": str(project_skill),
+        "path": project_skill.as_posix(),
         "agent": "codex",
         "scope": "project",
     }
-    assert global_result["path"] == str(global_skill)
+    assert global_result["path"] == global_skill.as_posix()
+    assert "\\" not in project["path"]
+    assert "\\" not in global_result["path"]
     assert ext.check_external_skill_installed("missing", cwd=tmp_path, home=home) is None
 
 
@@ -238,6 +240,8 @@ def test_execute_external_skill_returns_handoff_payload(tmp_path: Path) -> None:
     assert result["skill_body"].endswith("# Body")
     assert result["intent"] == "add type checking"
     assert "Follow the loaded SKILL.md" in result["execution_prompt"]
+    assert result["path"] == skill_path.as_posix()
+    assert "\\" not in result["path"]
 
 
 def test_execute_external_skill_requires_installed_skill(tmp_path: Path) -> None:
@@ -245,15 +249,31 @@ def test_execute_external_skill_requires_installed_skill(tmp_path: Path) -> None
         ext.execute_external_skill("missing", cwd=tmp_path, home=tmp_path / "home")
 
 
-def test_installed_skill_as_dict_round_trip() -> None:
-    path = Path("/tmp/SKILL.md")
-    installed = ext.InstalledSkill(name="x", path=path, agent="codex", scope="project")
+def test_installed_skill_as_dict_emits_posix_path() -> None:
+    """`as_dict` normalises the path to POSIX so MCP output is stable across
+    platforms (Windows native paths use backslashes; consumers reading the
+    `path` field shouldn't need to handle two representations)."""
+    installed = ext.InstalledSkill(
+        name="x", path=Path("/tmp/SKILL.md"), agent="codex", scope="project"
+    )
     assert installed.as_dict() == {
         "name": "x",
-        "path": str(path),
+        "path": "/tmp/SKILL.md",
         "agent": "codex",
         "scope": "project",
     }
+
+
+def test_installed_skill_as_dict_preserves_drive_letter_on_windows_like_paths() -> None:
+    """POSIX-style serialisation keeps the Windows drive letter intact —
+    `as_posix()` returns `C:/...` not `C:\\...`."""
+    pure = ext.InstalledSkill(
+        name="x",
+        path=Path("nested/dir/SKILL.md"),
+        agent="codex",
+        scope="project",
+    )
+    assert pure.as_dict()["path"] == "nested/dir/SKILL.md"
 
 
 def test_strip_ansi_removes_color_and_cursor_sequences() -> None:
