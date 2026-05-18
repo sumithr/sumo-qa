@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/sumithr/sumo-qa/compare/v0.4.3...v0.5.0) (2026-05-18)
+
+
+### Features
+
+* removability gate in deciding-approach router ([#71](https://github.com/sumithr/sumo-qa/issues/71)) ([51f9e85](https://github.com/sumithr/sumo-qa/commit/51f9e85778fdf4c05ff1613e0d4d613410f91962))
+
 ## [0.4.3](https://github.com/sumithr/sumo-qa/compare/v0.4.2...v0.4.3) (2026-05-18)
 
 
