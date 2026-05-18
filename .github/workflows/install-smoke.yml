@@ -1,0 +1,85 @@
+name: install-smoke
+
+# End-to-end execution test for the canonical install path documented in
+# README.md and DEMO.md:
+#
+#   pip install sumo-qa && sumo-qa-install --claude-code
+#
+# Works on macOS, Linux, AND Windows because pip generates `.exe` wrappers
+# on Windows. This is the only install path users are pointed at; without
+# this smoke, Windows-specific regressions in pyproject.toml entry points
+# or the installer module (APPDATA handling, .cmd shims, symlink-vs-copy
+# fallback in installer.py) would slip through to release.
+#
+# Trigger pattern matches the rest of .github/workflows/*.yml: push on
+# main, pull_request for everything else, concurrency cancel for rapid
+# iteration.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: install-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-pip:
+    name: pip install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Pin a single Python version — this is a smoke test of the
+          # install vector, not a compatibility matrix. The pytest
+          # workflow (test.yml) covers 3.10–3.14.
+          python-version: "3.12"
+
+      - name: pip install from source
+        # Installs the wheel built from THIS PR's source, not the PyPI
+        # release. `pip install .` (not `-e .`) mirrors what a real
+        # `pip install sumo-qa` user gets — a built wheel, not an
+        # editable install.
+        run: pip install .
+
+      - name: Verify entry points are on PATH
+        # `shell: bash` makes this step work uniformly on Windows
+        # (git-bash, preinstalled on windows-latest), macOS, and Linux
+        # — so `command -v` resolves the same way everywhere. Verifies
+        # BOTH entry points declared in pyproject.toml ([project.scripts])
+        # so a Windows .exe wrapper regression on either is caught.
+        shell: bash
+        run: |
+          command -v sumo-qa
+          sumo-qa --help >/dev/null
+          command -v sumo-qa-install
+          sumo-qa-install --help >/dev/null
+
+      - name: Run sumo-qa-install --claude-code
+        # Second half of the canonical README install — the host-wiring
+        # path that contains the Windows-specific branches in
+        # installer.py (APPDATA handling, .cmd shims, symlink-vs-copy
+        # fallback in _install_claude_code_skills_per_dir). Without
+        # it, a Windows regression in _setup_claude_code() ships
+        # unnoticed.
+        #
+        # Run the literal README command — no extra flags. After the
+        # preceding `pip install .` step, `sumo-qa` is on PATH, so
+        # _install_mcp_binary()'s fast path (installer.py:245-249)
+        # returns the existing binary without invoking uv. The uv-tool
+        # fallback (installer.py:255-269) is only reached when
+        # `sumo-qa` is NOT on PATH, which is out of scope for this
+        # smoke test. `_register_claude_code_mcp` no-ops gracefully
+        # when the `claude` CLI isn't on PATH (which it isn't on a
+        # fresh runner), so the skill-symlink + config-write paths
+        # are what get exercised here.
+        shell: bash
+        run: sumo-qa-install --claude-code
