@@ -26,6 +26,7 @@ class _RawPack(BaseModel):
     id: str
     version: str
     name: str
+    applies_to_classifications: list[str] = Field(default_factory=list)
     description: str | None = None
     domain: str | None = None
     checks: list[_RawCheck] = Field(min_length=1)

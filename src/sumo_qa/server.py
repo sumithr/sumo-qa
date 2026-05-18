@@ -310,14 +310,16 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_load_standards(classification: str | None = None) -> str:
             """Return the team's loaded standards packs as plain text. Optional
-            classification filter is metadata-based (packs whose frontmatter
-            declares the classification); no keyword inference."""
+            classification filter is metadata-based and accepts comma-separated
+            values (packs whose frontmatter declares any requested
+            classification); no keyword inference."""
             return _load_standards(classification=classification)
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_load_rules(classification: str | None = None) -> str:
             """Return the team's loaded change rules as plain text. Optional
-            classification filter is metadata-based; no keyword inference."""
+            classification filter accepts single or comma-separated values and
+            returns matching rule entries; no keyword inference."""
             return _load_rules(classification=classification)
 
     _register_knowledge_loaders(mcp)
