@@ -42,7 +42,7 @@ Other hosts: swap `--claude-code` for `--vscode --workspace <path-to-repo>`, `--
 
 Restart your host or open a fresh chat afterwards.
 
-Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md).
+Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md). Want to run from a local clone with your team's own standards / knowledge packs editable in place? [docs/INSTALL.md#install-from-a-local-clone](docs/INSTALL.md#install-from-a-local-clone).
 
 ### Verify it's wired
 
@@ -114,6 +114,7 @@ If your QA intent has no native fit (Playwright E2E, accessibility audits, k6 lo
 - [docs/SKILLS.md](docs/SKILLS.md) — every skill with its Iron Law
 - [docs/TOOLS.md](docs/TOOLS.md) — every MCP entry point
 - [docs/INSTALL.md](docs/INSTALL.md) — per-host install detail and troubleshooting
+- [docs/CONTENT-FORMATS.md](docs/CONTENT-FORMATS.md) — schemas + worked examples for adding team standards, knowledge, change rules, and test data (incl. swapping ISTQB out)
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
