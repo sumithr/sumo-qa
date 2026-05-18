@@ -179,6 +179,62 @@ entries:
 
 You can replace ISTQB content end-to-end. The schema layer is body-of-knowledge-agnostic — `knowledge/*.md` and `standards/packs/*.yml` are read verbatim, and `change_rules.yaml` only enforces the closed `suggested_test_types` enum, not technique or principle names.
 
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
+  'fontSize':'13px',
+  'primaryTextColor':'#1B1B1B',
+  'lineColor':'#1B1B1B'
+}}}%%
+flowchart LR
+    subgraph Files ["editable content"]
+        direction TB
+        Packs[("standards/packs/*.yml")]
+        Princ[("knowledge/principles.md")]
+        Tech[("knowledge/techniques.md")]
+        Rules[("standards/rules/change_rules.yaml")]
+    end
+
+    subgraph Loaders ["MCP loaders"]
+        direction TB
+        LS["load_standards"]
+        LP["load_principles"]
+        LT["load_techniques"]
+        LR["load_rules"]
+    end
+
+    Skill["<b>skill checklist</b><br/><i>quotes the loaded heading verbatim</i>"]
+    Out(["analysis output<br/><i>risks · techniques · principles</i>"])
+    InlineRef[("inline references<br/>in SKILL.md prose")]
+
+    Packs --> LS
+    Princ --> LP
+    Tech --> LT
+    Rules --> LR
+
+    LS --> Skill
+    LP --> Skill
+    LT --> Skill
+    LR --> Skill
+
+    InlineRef -. illustrative<br/>edit too .-> Skill
+    Skill ==> Out
+
+    classDef file fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
+    classDef loader fill:#FAF7F2,stroke:#1B1B1B,stroke-width:1.5px,color:#1B1B1B
+    classDef step fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
+    classDef done fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
+    classDef illus fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1px,color:#5C4D00,stroke-dasharray: 4 4
+    classDef group fill:none,stroke:#8A7B5C,stroke-width:1px,color:#5C4D00,stroke-dasharray: 4 4
+
+    class Packs,Princ,Tech,Rules file
+    class LS,LP,LT,LR loader
+    class Skill step
+    class Out done
+    class InlineRef illus
+    class Files,Loaders group
+```
+
 **What actually replaces cleanly:**
 
 | Content | How |

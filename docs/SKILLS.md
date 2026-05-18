@@ -16,6 +16,57 @@ All paths invoke the same SKILL.md body.
 
 ## The 14 skills
 
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
+  'fontSize':'13px',
+  'primaryTextColor':'#1B1B1B',
+  'lineColor':'#1B1B1B'
+}}}%%
+flowchart LR
+    Root{{"<b>using-sumo-qa</b><br/><i>entry router</i>"}} ==> Decide["<b>deciding-approach</b>"]
+
+    subgraph PerChange ["per-change"]
+        direction TB
+        Prep["preparing-for-work"]
+        Plan["creating-test-plan"]
+        TDD["implementing-with-tdd"]
+        Review["reviewing-before-merge"]
+        Strength["strengthening-tests"]
+    end
+
+    subgraph CrossCut ["cross-cutting"]
+        direction TB
+        Data["finding-test-data"]
+        Answer["answering-testing-question"]
+        Strat["strategising"]
+    end
+
+    subgraph Rollout ["rollout chain"]
+        direction TB
+        Pln2["planning-qa-rollout"] --> Exec["executing-qa-rollout"] --> Fin["finishing-qa-work"]
+    end
+
+    NoFit["<b>suggesting-external-skill</b><br/><i>no native fit</i>"]
+
+    Decide --> PerChange
+    Decide --> CrossCut
+    Decide --> Rollout
+    Decide --> NoFit
+
+    classDef router fill:#7A1F1F,stroke:#1B1B1B,stroke-width:2px,color:#FAF7F2
+    classDef step fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
+    classDef leaf fill:#FAF7F2,stroke:#1B1B1B,stroke-width:1.5px,color:#1B1B1B
+    classDef fallback fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
+    classDef group fill:none,stroke:#8A7B5C,stroke-width:1px,color:#5C4D00,stroke-dasharray: 4 4
+
+    class Root router
+    class Decide step
+    class Prep,Plan,TDD,Review,Strength,Data,Answer,Strat,Pln2,Exec,Fin leaf
+    class NoFit fallback
+    class PerChange,CrossCut,Rollout group
+```
+
 | Skill | When to use | Iron Law |
 |---|---|---|
 | [using-sumo-qa](../skills/using-sumo-qa/SKILL.md) | Entry router on every QA intent | NO QA WORK WITHOUT FIRST DECIDING THE APPROACH. |
@@ -31,6 +82,7 @@ All paths invoke the same SKILL.md body.
 | [sumo-qa-planning-qa-rollout](../skills/sumo-qa-planning-qa-rollout/SKILL.md) | Turn a QA chunk (story, PR, strategy phase) into a written plan with bite-sized, parallel-dispatchable tasks | NO EXECUTION FROM THE PLANNER. THE PLAN IS THE DELIVERABLE. |
 | [sumo-qa-executing-qa-rollout](../skills/sumo-qa-executing-qa-rollout/SKILL.md) | Dispatch a signed-off plan task-by-task to fresh subagents with two-stage review | ONE FRESH SUBAGENT PER TASK. TWO-STAGE REVIEW. CONTINUOUS EXECUTION. |
 | [sumo-qa-finishing-qa-work](../skills/sumo-qa-finishing-qa-work/SKILL.md) | Close the loop on a multi-task QA rollout — fresh suite run + risk-to-test map + PR-ready summary | NO FINISH WITHOUT FRESH EVIDENCE + WRITTEN SUMMARY. |
+| [sumo-qa-suggesting-external-skill](../skills/sumo-qa-suggesting-external-skill/SKILL.md) | Fallback when no native sumo-qa sub-skill fits the user's intent — finds, installs, executes external skills through sumo-qa MCP tools | THE SUMO-QA MCP SERVER OWNS EXTERNAL-SKILL LIFECYCLE. |
 
 ## Global discipline (declared in using-sumo-qa, inherited by all sub-skills)
 

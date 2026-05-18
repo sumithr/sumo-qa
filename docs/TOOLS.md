@@ -57,6 +57,39 @@ Manage the local known-good test data catalogue under `knowledge/test_data/`. Fi
 
 When no native sumo-qa fit is found, `sumo-qa-suggesting-external-skill` searches, installs, and executes external skills through sumo-qa MCP tools:
 
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
+  'fontSize':'13px',
+  'primaryTextColor':'#1B1B1B',
+  'lineColor':'#1B1B1B'
+}}}%%
+flowchart LR
+    Intent(["QA intent<br/><i>no native fit</i>"])
+    Search["<b>search</b><br/><i>sumo_qa_search_external_skills</i>"]
+    Gate{"<b>[y/N]</b>"}
+    Install["<b>install</b><br/><i>sumo_qa_install_external_skill</i>"]
+    Locate["<b>locate &amp; load</b><br/><i>check_installed · execute</i>"]
+    Out(["external SKILL.md<br/>in the conversation"])
+    Stop(["stop"])
+
+    Intent ==> Search ==> Gate
+    Gate -->|y| Install ==> Locate ==> Out
+    Gate -->|N| Stop
+
+    classDef io fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2px,color:#1B1B1B
+    classDef step fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
+    classDef gate fill:#7A1F1F,stroke:#1B1B1B,stroke-width:2px,color:#FAF7F2
+    classDef stop fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
+    classDef done fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
+
+    class Intent io
+    class Search,Install,Locate step
+    class Gate gate
+    class Stop stop
+    class Out done
+```
+
 | Tool | Purpose |
 |---|---|
 | `sumo_qa_search_external_skills` | Run `skills find <query>` and return ANSI-stripped CLI output verbatim — no structured parsing, so Skills CLI format drift doesn't break the flow |
