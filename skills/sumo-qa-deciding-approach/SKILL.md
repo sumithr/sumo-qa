@@ -26,7 +26,7 @@ Spend output tokens on findings, not framing.
 - **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff at the bottom of every skill is where routing lives.
 
 ## The Iron Law
-SHAPE FIRST. Decide single-change vs repo-wide vs no-tests-recommended *before* picking a per-change approach — wrong shape means wrong-shaped tests.
+SHAPE FIRST, then REACHABILITY. Decide single-change vs repo-wide vs `no-tests-recommended` *before* picking a per-change approach — wrong shape means wrong-shaped tests. When the shape is single-change, check reachability/load-bearing *before* picking a test-writing approach — orphan code routes to `recommend-removal`, not test scaffolding.
 
 ## When to Use
 
@@ -40,9 +40,10 @@ You MUST create a TodoWrite item per checklist item and complete in order:
 3. Call `sumo_qa_load_principles()` if a principle citation is needed in the output.
 4. Reason about classification: which catalogue entry applies? Cite the words / paths internally.
 5. Reason about shape: single change vs repo-wide / strategy ask vs config tweak vs docs-only? Strategy-shaped asks ("audit", "strategy", "pyramid", "rollout") route to `strategy-orchestration` — do NOT force per-change output.
-6. Pick the approach. The catalogue is authoritative; use `n/a` for approach only when no catalogue approach fits and capture the non-canonical surface in `rationale`.
-7. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question. Otherwise, do not ask.
-8. Return INTERNALLY using the Routing-payload shape below — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; the sub-skill produces what the user sees.
+6. Run the removability gate BEFORE picking a test-writing approach. If the user has named target paths and the code is orphaned — zero internal callers, zero CI/workflow references, zero README/docs references, and no entry-point declaration (`pyproject [project.scripts]`, `package.json scripts`, etc.) points at it — set the approach to `recommend-removal` regardless of the file's natural classification. Surface the reachability evidence in the rationale. If reachability is genuinely ambiguous (external cron, hand-invoked tooling, public CLI installed by users), ask ONE clarifying question instead of guessing. Do NOT collapse this into `no-tests-recommended` — that approach is for behaviour-less change shapes (docs, typos); `recommend-removal` is for dead production-shaped code that should be deleted.
+7. Pick the approach. The catalogue is authoritative; use `n/a` for approach only when no catalogue approach fits and capture the non-canonical surface in `rationale`.
+8. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question. Otherwise, do not ask.
+9. Return INTERNALLY using the Routing-payload shape below — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; the sub-skill produces what the user sees.
 
 ## Process Flow
 
@@ -54,8 +55,8 @@ Return exactly these fields internally:
 
 `{classification, approach, rationale, next_action: {skill}}`
 
-- `next_action.skill` is NEVER `n/a`: use a real sumo-qa skill name when routing, or `none` only for the STOP case where `approach` is `no-tests-recommended`.
-- `classification` is `n/a` only for `strategy-orchestration` intents or non-canonical intents routed to `sumo-qa-suggesting-external-skill`.
+- `next_action.skill` is NEVER `n/a`: use a real sumo-qa skill name when routing, or `none` only for the STOP cases where `approach` is `no-tests-recommended` or `recommend-removal`.
+- `classification` is `n/a` only for `strategy-orchestration` intents, `recommend-removal` intents (the action is universal, not change-shaped), or non-canonical intents routed to `sumo-qa-suggesting-external-skill`.
 - For every catalogue classification, use the verbatim entry: `test_change`, `docs_change`, `config_change`, `data_migration`, and all other real classifications are never `n/a`.
 - `approach` is `n/a` only when no canonical approach fits and routing goes to `sumo-qa-suggesting-external-skill`. Strategy intents use `approach: "strategy-orchestration"`, not `n/a`.
 - Capture non-canonical surface detail in `rationale`, not in `classification` or `approach`. Do not use `null` or invented values.
@@ -75,6 +76,7 @@ Anti-patterns:
 | strengthen-test-coverage | sumo-qa-strengthening-tests |
 | verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
+| recommend-removal | (stop — propose deletion, no sub-skill) |
 | spike-first-then-tests | sumo-qa-preparing-for-work (deliverable mode) |
 | n/a (no canonical approach fits; intent involves a non-native tool/surface) | sumo-qa-suggesting-external-skill |
 
@@ -96,6 +98,8 @@ When **no canonical approach fits** the intent, decide whether the intent involv
 | "Description says docs-only change but I'll add tests anyway" | `no-tests-recommended` is honest senior-QA. Adding tests where none are needed wastes signal. |
 | "Mutation testing follow-up needs new prod code" | No — that's `strengthen-test-coverage`. Production code stays unchanged. |
 | "I'll ask the user 3 clarifying questions to be sure" | Ask ONE if needed. More than one means the skill is hoarding context; the LLM should infer. |
+| "User named a file and asked for tests — let's scaffold" | Check reachability FIRST. Orphan code (zero callers + zero CI refs + zero docs refs + no entry-point declaration) routes to `recommend-removal`. Scaffolding tests on dead code is wasted signal — the PR #68 install.sh failure mode. |
+| "Orphan code is just no-tests-recommended" | No. `no-tests-recommended` is for docs/typos / behaviour-less change. `recommend-removal` is for dead production-shaped code where the right move is deletion. They are NOT interchangeable. |
 
 ## Examples
 
@@ -117,9 +121,17 @@ User: "add end-to-end browser tests with Playwright for checkout".
 - Internally return `{classification: "n/a", approach: "n/a", rationale: "Playwright E2E is a non-canonical external QA surface.", next_action: {skill: "sumo-qa-suggesting-external-skill"}}`.
 - Route to `sumo-qa-suggesting-external-skill`.
 
+User: "Help me write tests for ./install.sh — but nothing in the repo references it, no CI uses it, no docs mention it, no entry point points at it."
+- Load classifications + approaches.
+- Reachability gate fires: zero callers, zero CI refs, zero docs refs, no entry-point declaration → the script is orphaned.
+- Internally return `{classification: "n/a", approach: "recommend-removal", rationale: "install.sh is orphaned — zero internal callers, no CI/docs/entry-point references. Recommend deletion rather than scaffolding tests on dead code.", next_action: {skill: "none"}}`.
+- STOP. Surface the deletion recommendation (file + reachability evidence + supplanting alternative if known) in the user-facing reply; no sub-skill handoff.
+
 ### Bad
 
 User: "create a test plan for refactoring the pricing pipeline". Pick `tdd-scaffold` because "test plan" sounds like adding tests. Wrong — refactor needs characterization tests first. SHAPE FIRST was violated by ignoring "refactoring" in the intent.
+
+User: "Help me write tests for ./install.sh — but nothing in the repo references it, no CI uses it, no docs mention it." Pick `tdd-scaffold` because the developer said "write tests". Wrong — the removability gate should fire BEFORE the approach pick. Orphan code → `recommend-removal`, not test-writing. This is the PR #68 failure mode.
 
 ## Next skill in the chain
 
@@ -135,4 +147,5 @@ Routes to exactly ONE of the following, based on the approach picked:
 - When the approach is `strategy-orchestration` → `sumo-qa-strategising` to walk the repo and design a phased rollout.
 - When the work has 3+ independent tasks needing dispatch → `sumo-qa-planning-qa-rollout` to turn the work into a bite-sized, dispatchable plan.
 - When no canonical approach fits AND the intent involves a tool / framework / surface sumo-qa doesn't natively cover → `sumo-qa-suggesting-external-skill` with `classification` and `approach` set to `n/a`.
+- When the approach is `recommend-removal` → stop. No next-skill handoff. Surface the deletion recommendation (file + reachability evidence + supplanting alternative if known) in the user-facing reply.
 - When the approach is `no-tests-recommended` → stop. No next-skill handoff.

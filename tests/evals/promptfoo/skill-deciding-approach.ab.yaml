@@ -30,7 +30,13 @@ defaultTest:
         string match, including `n/a` when that is the expected value.
 
         **Next-skill check:**
-        The candidate's next_skill must equal `{{expected_next_skill}}`.
+        The candidate's next-skill value must equal `{{expected_next_skill}}`.
+        The canonical payload field per the router's contract is
+        `next_action.skill` (sometimes called `next_skill` for brevity in
+        this rubric — they refer to the SAME field). A response that emits
+        `next_action: {skill: "X"}` and a response that emits
+        `next_skill: "X"` are equivalent for grading; do NOT fail SHAPE
+        because the candidate used the canonical `next_action.skill` form.
         If `{{expected_next_skill}}` is the literal string `none`, the candidate
         must STOP with no skill handoff; treat a STOP response as passing this
         check and any skill handoff as failing this check.
@@ -101,8 +107,13 @@ defaultTest:
       A. SHAPE - does the response include classification, approach, and
          next-skill routing? For this seed, the classification must be
          {{expected_classification}}, the approach must be
-         {{expected_approach}}, and the next skill must be
-         {{expected_next_skill}}. n/a is a valid expected value meaning "this
+         {{expected_approach}}, and the next-skill value must be
+         {{expected_next_skill}}. The canonical payload field for the
+         next-skill value is `next_action.skill`; the rubric sometimes
+         abbreviates this as `next_skill` — both refer to the SAME field
+         and BOTH forms PASS SHAPE if the value matches. Do NOT FAIL SHAPE
+         because the candidate emitted `next_action.skill` instead of a
+         flat `next_skill` key. n/a is a valid expected value meaning "this
          routing slot doesn't apply" and the candidate must emit literal n/a to
          match.
 
@@ -240,3 +251,14 @@ tests:
       expected_classification: n/a
       expected_approach: n/a
       expected_next_skill: sumo-qa-suggesting-external-skill
+  - description: SEED - orphan script routes recommend-removal STOP
+    vars:
+      user_prompt: >-
+        Help me write tests for ./install.sh — but heads-up, I just grepped
+        and nothing in the repo references it: no CI workflow uses it, the
+        README doesn't mention it, no other script invokes it, and the
+        pyproject entry points don't point at it. Still want me to scaffold
+        tests, or is there a better move?
+      expected_classification: n/a
+      expected_approach: recommend-removal
+      expected_next_skill: none

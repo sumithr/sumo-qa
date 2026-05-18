@@ -1,8 +1,8 @@
 # Canonical QA approaches
 
-Eight canonical approaches the host LLM picks from when deciding the shape
+Nine canonical approaches the host LLM picks from when deciding the shape
 of QA work. The LLM may invent a new approach if the situation genuinely
-needs one, but it must explain why none of these eight fit.
+needs one, but it must explain why none of these nine fit.
 
 ## strategy-orchestration
 Repo-wide / policy-shaped ask: "design a test strategy", "audit our coverage",
@@ -44,3 +44,9 @@ senior-QA answer when the change has no behavioural surface.
 ## spike-first-then-tests
 Exploratory prototype. Defer test discipline until the design settles. The
 deliverable is a captured-conditions-and-fit record, not scaffolded tests.
+
+## recommend-removal
+Orphan code: zero callers, no CI/docs/test refs, no entry-point
+declaration. Propose deletion, not tests. Cite reachability in the
+rationale. If ambiguous (external cron, public CLI), ask one question
+first. STOP.
