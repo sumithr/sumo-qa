@@ -154,6 +154,40 @@ def test_knowledge_loader_tools_are_registered():
         assert name in tool_names, f"Missing tool: {name}"
 
 
+def _tool_text(result) -> str:
+    if isinstance(result, str):
+        return result
+    if isinstance(result, list):
+        return "\n".join(getattr(item, "text", str(item)) for item in result)
+    return getattr(result, "text", str(result))
+
+
+def test_filtered_knowledge_loader_args_are_forwarded_via_server_call_tool() -> None:
+    """The MCP-facing wrappers must pass classification filters through."""
+    import asyncio
+
+    server = build_mcp_server()
+
+    async def run() -> tuple[str, str]:
+        standards = await server.call_tool(
+            "sumo_qa_load_standards",
+            {"classification": "api_contract_change, business_logic_change"},
+        )
+        rules = await server.call_tool(
+            "sumo_qa_load_rules", {"classification": "frontend_change config_change"}
+        )
+        return _tool_text(standards), _tool_text(rules)
+
+    standards_text, rules_text = asyncio.run(run())
+
+    assert "QA Shift-Left Core Standards" in standards_text
+    assert "ISTQB-Aligned Senior QA Standards" not in standards_text
+    assert "frontend_change:" in rules_text
+    assert "config_change:" in rules_text
+    assert "ui_only_change:" not in rules_text
+    assert "configuration_change:" not in rules_text
+
+
 # ---------------------------------------------------------------------------
 # __main__ module import (covers sumo_qa/__main__.py:2)
 # ---------------------------------------------------------------------------

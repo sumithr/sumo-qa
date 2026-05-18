@@ -14,12 +14,52 @@ in installed wheels, then `knowledge/` at repo root in dev.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 _REPO_ROOT_KNOWLEDGE = Path(__file__).parent.parent.parent / "knowledge"
 _BUNDLED_KNOWLEDGE = Path(__file__).parent / "_data" / "knowledge"
+_RULE_CLASSIFICATION_ALIASES = {
+    "frontend_change": ("ui_only_change",),
+    "config_change": ("configuration_change",),
+    "data_migration": ("data_mapping_change",),
+    "performance_change": ("caching_change",),
+    "infrastructure_change": ("configuration_change",),
+}
+
+
+def _classification_filter_terms(classification: str | None) -> set[str] | None:
+    """Normalize an optional classification filter.
+
+    Hosts sometimes pass multi-classification intent as a comma-separated string
+    because MCP exposes the argument as a scalar. Treat comma, semicolon, and
+    whitespace separated values as a set while preserving `None` as no filter.
+    """
+    if classification is None:
+        return None
+    return {
+        part.strip("`'\"")
+        for part in re.split(r"[\s,;]+", str(classification))
+        if part.strip("`'\"")
+    }
+
+
+def _metadata_terms(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        return _classification_filter_terms(value) or set()
+    if isinstance(value, (list, tuple, set)):
+        return {
+            part.strip("`'\"")
+            for item in value
+            for part in re.split(r"[\s,;]+", str(item))
+            if part.strip("`'\"")
+        }
+    return {str(value)}
 
 
 def _knowledge_dir() -> Path:
@@ -73,20 +113,24 @@ def _standards_dir() -> Path:
 
 def sumo_qa_load_standards(classification: str | None = None) -> str:
     """Return the team's loaded standards as text. Optional metadata filter
-    by classification — packs whose frontmatter declares this classification.
+    by classification — packs whose frontmatter declares any requested
+    classification. Multiple classifications may be comma/space separated.
     No keyword inference; the filter is pure file-metadata selection."""
     root = _standards_dir()
     packs: list[str] = []
     pack_paths = sorted(list(root.glob("*.yaml")) + list(root.glob("*.yml")))
+    requested = _classification_filter_terms(classification)
     for path in pack_paths:
         text = path.read_text(encoding="utf-8")
-        if classification is not None:
+        if requested is not None:
             try:
                 doc = yaml.safe_load(text) or {}
             except yaml.YAMLError:
                 continue
-            applies = doc.get("applies_to_classifications") or doc.get("classifications") or []
-            if classification not in applies:
+            applies = _metadata_terms(
+                doc.get("applies_to_classifications") or doc.get("classifications")
+            )
+            if not applies or requested.isdisjoint(applies):
                 continue
         packs.append(f"# {path.name}\n\n{text}")
     return "\n\n---\n\n".join(packs)
@@ -112,10 +156,12 @@ def _rules_path() -> Path:
 def sumo_qa_load_rules(classification: str | None = None) -> str:
     """Return the team's loaded change rules as text. Optional metadata filter
     by classification — the rules file is a dict keyed by classification, so
-    filtering returns just that classification's entry."""
+    filtering returns matching entries. Multiple classifications may be
+    comma/space separated."""
     path = _rules_path()
     text = path.read_text(encoding="utf-8")
-    if classification is None:
+    requested = _classification_filter_terms(classification)
+    if requested is None:
         return text
     try:
         doc = yaml.safe_load(text) or {}
@@ -123,11 +169,18 @@ def sumo_qa_load_rules(classification: str | None = None) -> str:
         return text
     if not isinstance(doc, dict):
         return text
-    entry = doc.get(classification)
-    if entry is None:
+    entries = {name: entry for name, entry in doc.items() if str(name) in requested}
+    for term in sorted(requested):
+        if term in entries:
+            continue
+        for alias in _RULE_CLASSIFICATION_ALIASES.get(term, ()):
+            if alias in doc:
+                entries[term] = doc[alias]
+                break
+    if not entries:
         # pragma: no mutate — equivalent: empty dict renders identically under any sort_keys value
         # (covers load_rules mutants that swap False↔None↔True or drop the kwarg)
         return yaml.safe_dump({}, sort_keys=False)  # pragma: no mutate
     # pragma: no mutate — equivalent: PyYAML treats sort_keys=None identically to False
     # (preserves insertion order); covers load_rules mutant that swaps False→None
-    return yaml.safe_dump({classification: entry}, sort_keys=False)  # pragma: no mutate
+    return yaml.safe_dump(entries, sort_keys=False)  # pragma: no mutate

@@ -6,6 +6,8 @@ no filtering beyond optional metadata-based subset selection. The tests
 assert that known canonical entries are present in the returned text.
 """
 
+import pytest
+
 from sumo_qa.knowledge_loaders import sumo_qa_load_classifications
 
 
@@ -98,6 +100,53 @@ def test_load_standards_filter_returns_only_matching_packs():
     assert isinstance(filtered, str)
 
 
+def test_load_standards_filter_returns_core_pack_for_canonical_classification():
+    text = sumo_qa_load_standards(classification="business_logic_change")
+
+    assert "QA Shift-Left Core Standards" in text
+    assert "ISTQB-Aligned Senior QA Standards" not in text
+
+
+def test_load_standards_filter_accepts_multiple_classifications(tmp_path, monkeypatch):
+    import yaml as _yaml
+
+    packs_dir = tmp_path / "packs"
+    packs_dir.mkdir()
+    (packs_dir / "api.yaml").write_text(
+        _yaml.safe_dump(
+            {"applies_to_classifications": ["api_contract_change"], "name": "api_pack"}
+        ),
+        encoding="utf-8",
+    )
+    (packs_dir / "business.yaml").write_text(
+        _yaml.safe_dump(
+            {"applies_to_classifications": ["business_logic_change"], "name": "business_pack"}
+        ),
+        encoding="utf-8",
+    )
+    (packs_dir / "security.yaml").write_text(
+        _yaml.safe_dump({"applies_to_classifications": ["security_change"], "name": "sec_pack"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+
+    result = sumo_qa_load_standards(classification="api_contract_change, business_logic_change")
+
+    assert "api_pack" in result
+    assert "business_pack" in result
+    assert "sec_pack" not in result
+
+
+def test_metadata_terms_accepts_scalar_string_and_other_values():
+    from sumo_qa.knowledge_loaders import _metadata_terms
+
+    assert _metadata_terms("api_contract_change, security_change") == {
+        "api_contract_change",
+        "security_change",
+    }
+    assert _metadata_terms(123) == {"123"}
+
+
 from sumo_qa.knowledge_loaders import sumo_qa_load_rules
 
 
@@ -111,6 +160,50 @@ def test_load_rules_filter_by_classification_is_smaller():
     full = sumo_qa_load_rules()
     filtered = sumo_qa_load_rules(classification="security_change")
     assert len(filtered) <= len(full)
+
+
+def test_load_rules_filter_accepts_multiple_classifications(tmp_path, monkeypatch):
+    import yaml as _yaml
+
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        _yaml.safe_dump(
+            {
+                "api_contract_change": {"must_consider": ["contract"]},
+                "business_logic_change": {"must_consider": ["decision"]},
+                "security_change": {"must_consider": ["auth"]},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_RULES_PATH", str(rules_file))
+
+    result = sumo_qa_load_rules(classification="api_contract_change business_logic_change")
+
+    assert "api_contract_change" in result
+    assert "business_logic_change" in result
+    assert "security_change" not in result
+
+
+@pytest.mark.parametrize(
+    ("classification", "legacy_key", "expected_text"),
+    [
+        ("frontend_change", "ui_only_change", "display correctness"),
+        ("config_change", "configuration_change", "environment override behavior"),
+        ("data_migration", "data_mapping_change", "source-to-target parity"),
+        ("performance_change", "caching_change", "stale data"),
+        ("infrastructure_change", "configuration_change", "deployment rollback"),
+    ],
+)
+def test_load_rules_filter_maps_canonical_classification_to_legacy_rule_key(
+    classification, legacy_key, expected_text
+):
+    result = sumo_qa_load_rules(classification=classification)
+
+    assert f"{classification}:" in result
+    assert f"{legacy_key}:" not in result
+    assert expected_text in result
 
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,17 @@ id: qa-shift-left-core
 version: "1.0.0"
 name: QA Shift-Left Core Standards
 domain: qa
+applies_to_classifications:
+  - api_contract_change
+  - business_logic_change
+  - security_change
+  - performance_change
+  - frontend_change
+  - infrastructure_change
+  - test_change
+  - docs_change
+  - config_change
+  - data_migration
 description: Baseline standards for moving QA thinking into discovery, implementation, and local review.
 checks:
   - id: work.testability

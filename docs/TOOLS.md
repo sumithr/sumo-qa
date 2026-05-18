@@ -29,7 +29,7 @@ See [SKILLS.md](SKILLS.md) for the Iron Law per skill.
 
 ## Knowledge loaders (6)
 
-Each returns a markdown catalogue as plain text. The host LLM reasons over the returned content. The classification-filter tools (`load_standards`, `load_rules`) filter by metadata declared in the file's frontmatter — no keyword matching.
+Each returns a markdown catalogue as plain text. The host LLM reasons over the returned content. The classification-filter tools (`load_standards`, `load_rules`) accept a single classification or comma-separated classifications. Standards filtering is metadata-based from pack frontmatter; rules filtering returns matching entries. No keyword matching.
 
 | Tool | Returns |
 |---|---|
@@ -37,8 +37,8 @@ Each returns a markdown catalogue as plain text. The host LLM reasons over the r
 | `sumo_qa_load_approaches()` | The 8 canonical QA approaches (tdd-scaffold, regression-first, …, spike-first-then-tests) |
 | `sumo_qa_load_principles()` | ISTQB Foundation principles, Advanced certifications, ISO/IEC 25010 quality characteristics |
 | `sumo_qa_load_techniques()` | Test design techniques (black-box, white-box, experience-based, static, property-based, mutation) |
-| `sumo_qa_load_standards(classification?)` | Team's loaded standards packs; optional metadata-based filter by classification |
-| `sumo_qa_load_rules(classification?)` | Team's loaded change rules; optional metadata-based filter |
+| `sumo_qa_load_standards(classification?)` | Team's loaded standards packs; optional metadata-based filter by one or more classifications |
+| `sumo_qa_load_rules(classification?)` | Team's loaded change rules; optional filter by one or more classifications |
 
 Specialty-tool picks are intentionally NOT catalogued — the discipline (in `using-sumo-qa`) is to observe the risk surface, web-search current options for the user's stack, and cite when naming a tool. A static catalogue would anchor toward yesterday's brands and create a false floor where novel surfaces never trigger discovery.
 
