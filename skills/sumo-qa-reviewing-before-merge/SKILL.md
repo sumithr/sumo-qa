@@ -72,6 +72,13 @@ You MUST work through these in order. Steps 1–4 are AI-only homework (no user 
 
 9. **Map risk coverage** — for each named risk: cite the test that covers it (file + test name) or flag it as uncovered. A risk with no covering test is a SAFE-blocker.
 
+### Verdict-format discipline
+
+When delivering the verdict, include evidence in this order: quote the verification command verbatim (for example, `Run: pytest tests/auth/permissions_test.py`); cite result counts exactly as `18 passed, 0 skipped, 0 failed`; for each named risk, name the covering test by function name or file path, never generic "tests cover this"; cite exact touched file paths from the diff (for example, `auth/permissions.py`, `docs/README.md`); only then emit `SAFE TO MERGE` or `NOT SAFE TO MERGE` (or existing `NEEDS WORK` when step 10 applies).
+
+The verdict line is the LAST line of the response. Before emitting the verdict, the candidate MUST have already listed each named risk by exact name, one per line (for example, `Risk 1: Auth Session Bypass`); for each risk, named the specific covering test(s) by function name or file path; quoted the verification command verbatim; and cited the test counts verbatim (`X passed, Y skipped, Z failed`). Any verdict emitted before all four are present is a discipline violation.
+Do NOT emit SAFE TO MERGE before all named risks have been listed and each tied to a covering test.
+
 10. **Deliver the verdict + residual concerns** — SAFE TO MERGE | NOT SAFE | NEEDS WORK with concrete evidence (test counts, risk coverage map, rule citations). SAFE only if: (a) suite green right now, (b) every named risk has ≥1 passing covering test, (c) no loaded rule violated. Always list residual concerns even on SAFE.
 
 ## Process Flow

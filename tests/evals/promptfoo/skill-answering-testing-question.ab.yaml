@@ -1,0 +1,304 @@
+disableVarExpansion: true
+description: 'A/B/C value-measurement for sumo-qa-answering-testing-question'
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-answering-testing-question/SKILL.md
+    loaded_principles: file://../../../knowledge/principles.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+
+  options:
+    # Disable automatic array-var expansion so allowlists are passed to the
+    # rubric template as lists rather than exploding the test into one-per-item.
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: |
+      You are an adversarial reviewer grading catalogue-grounded usefulness.
+
+      --- RUBRIC ---
+      {{rubric}}
+      --- END RUBRIC ---
+
+      --- CANDIDATE RESPONSE ---
+      {{output}}
+      --- END CANDIDATE RESPONSE ---
+
+      The candidate has loaded the FULL principles + techniques catalogues:
+
+      --- LOADED PRINCIPLES ---
+      {{loaded_principles}}
+      --- END LOADED PRINCIPLES ---
+
+      --- LOADED TECHNIQUES ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
+
+      Apply only the checks stated in the rubric. For catalogue-grounded answers:
+      GROUNDING passes only if the candidate cites at least one allowed principle
+      and one allowed technique with verbatim catalogue wording, and every cited
+      principle/technique exists in the loaded catalogues. RELEVANCE passes only if
+      the answer addresses the stated scenario instead of listing generic QA advice.
+      Do not require specific phrasing, numeric examples, or edge cases beyond the
+      rubric.
+
+      For redirect rubrics, pass only if the candidate redirects to the named
+      skill/workflow instead of answering directly.
+
+      Return ONLY JSON, no markdown:
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grounding/relevance or redirect verdict>"}
+
+prompts:
+  - label: 'A0 — no skill, no catalogues'
+    raw: |
+      You are a senior QA agent in an IDE chat session.
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Answer inline in 3-7 sentences. Anchor the recommendation to the specific
+      risk surface the developer described. Do NOT route to a sub-skill - this
+      prompt answers directly unless the question is actually a prep, plan,
+      review, or strategy request in disguise. If genuinely ambiguous, ask ONE
+      focused clarifying question at the end (never more).
+  - label: 'A1 — catalogues only, no skill'
+    raw: |
+      You are a senior QA agent in an IDE chat session. The developer is asking
+      a generic testing question that should be answered inline. You have
+      loaded the FULL principles and techniques catalogues:
+
+      --- LOADED PRINCIPLES ---
+      {{loaded_principles}}
+      --- END LOADED PRINCIPLES ---
+
+      --- LOADED TECHNIQUES ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
+
+      CRITICAL RULE — Principle citations: when you cite a principle, you MUST quote the loaded principles catalogue's exact wording (e.g. "Defects cluster" — the loaded catalogue's exact heading). Do NOT extend or paraphrase the principle name (e.g. "defects cluster at boundaries" is a FAKE principle that combines the real principle "Defects cluster" with technique-level wording from "boundary value analysis"). If a principle wording isn't in the loaded principles catalogue, you cannot cite it — pick a different principle or restructure the answer.
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Answer inline in 3-7 sentences. Cite at least one named principle AND one
+      named technique from the loaded catalogues above. Anchor the
+      recommendation to the specific risk surface the developer described. Do
+      NOT route to a sub-skill - this prompt answers directly unless the
+      question is actually a prep, plan, review, or strategy request in
+      disguise. If genuinely ambiguous, ask ONE focused clarifying question at
+      the end (never more).
+  - label: 'B — full skill (current)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. The developer is asking
+      a generic testing question that should be answered inline. You have loaded
+      the following sumo-qa skill and must follow its discipline:
+
+      --- BEGIN SKILL ---
+      {{skill_content}}
+      --- END SKILL ---
+
+      You have ALSO loaded the FULL principles and techniques catalogues:
+
+      --- LOADED PRINCIPLES ---
+      {{loaded_principles}}
+      --- END LOADED PRINCIPLES ---
+
+      --- LOADED TECHNIQUES ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
+
+      CRITICAL RULE — Principle citations: when you cite a principle, you MUST quote the loaded principles catalogue's exact wording (e.g. "Defects cluster" — the loaded catalogue's exact heading). Do NOT extend or paraphrase the principle name (e.g. "defects cluster at boundaries" is a FAKE principle that combines the real principle "Defects cluster" with technique-level wording from "boundary value analysis"). If a principle wording isn't in the loaded principles catalogue, you cannot cite it — pick a different principle or restructure the answer.
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Answer inline in 3-7 sentences. Cite at least one named principle AND one
+      named technique from the loaded catalogues above. Anchor the recommendation
+      to the specific risk surface the developer described. Do NOT route to a
+      sub-skill - this skill answers directly. If the question is genuinely
+      ambiguous, ask ONE focused clarifying question at the end (never more).
+
+tests:
+  - description: SEED - rank-feed invariant pure function
+    vars:
+      user_prompt: >-
+        How should I test rank_feed(items, signals) -> List[Item]? It scores by
+        upvotes + recency + relevance and the only invariant I care about is
+        that no item ranks above another with strictly greater scores on every
+        axis. No state - pure function. signals is a dict[str, float].
+      expected_principle_allowlist:
+        - Exhaustive testing is impossible; use risk and prioritisation.
+        - Testing is context-dependent
+        - Absence-of-errors fallacy
+        - Defects cluster
+      expected_technique_allowlist:
+        - property-based testing
+        - equivalence partitioning
+        - boundary value analysis
+        - pairwise / orthogonal arrays
+      expected_grounding_check: >-
+        Addresses the pure-function ranking invariant: generated or selected
+        item/signal combinations should not let an item rank above another item
+        that is strictly greater on upvotes, recency, and relevance. It may
+        mention deterministic examples, but the useful answer stays focused on
+        invariant-oriented ranking checks rather than generic unit-test advice.
+    assert:
+      - type: llm-rubric
+        value: |
+          **GROUNDING**
+          Candidate must cite at least one principle from this allowlist:
+          {% for principle in expected_principle_allowlist %}
+          - {{ principle }}
+          {% endfor %}
+          Candidate must cite at least one technique from this allowlist:
+          {% for technique in expected_technique_allowlist %}
+          - {{ technique }}
+          {% endfor %}
+          Cited principle and technique names must use verbatim catalogue wording. Invented or non-catalogue principle/technique names fail grounding.
+
+          **RELEVANCE**
+          {{ expected_grounding_check }}
+
+          **NO OVER-PRESCRIPTION**
+          Do not require specific phrasing, numeric examples, or edge cases beyond what the allowlists and relevance check permit.
+  - description: SEED - healthcare app ISTQB principles
+    vars:
+      user_prompt: >-
+        What ISTQB principles should I keep in mind when testing a healthcare app?
+      expected_principle_allowlist:
+        - Testing is context-dependent
+        - Exhaustive testing is impossible; use risk and prioritisation.
+        - Early testing saves time and money — shift left.
+        - Testing shows the presence of defects, not their absence.
+      expected_technique_allowlist:
+        - MC-DC (modified condition / decision coverage)
+        - decision tables
+        - review (walkthrough / technical review / inspection)
+        - static analysis
+      expected_grounding_check: >-
+        Addresses healthcare as safety-critical and often regulated, where test
+        choices should prioritize patient-safety risk, auditability, and
+        high-impact clinical or workflow decisions. The answer should select
+        relevant principles rather than reciting the whole ISTQB list generically.
+    assert:
+      - type: llm-rubric
+        value: |
+          **GROUNDING**
+          Candidate must cite at least one principle from this allowlist:
+          {% for principle in expected_principle_allowlist %}
+          - {{ principle }}
+          {% endfor %}
+          Candidate must cite at least one technique from this allowlist:
+          {% for technique in expected_technique_allowlist %}
+          - {{ technique }}
+          {% endfor %}
+          Cited principle and technique names must use verbatim catalogue wording. Invented or non-catalogue principle/technique names fail grounding.
+
+          **RELEVANCE**
+          {{ expected_grounding_check }}
+
+          **NO OVER-PRESCRIPTION**
+          Do not require specific phrasing, numeric examples, or edge cases beyond what the allowlists and relevance check permit.
+  - description: SEED - boundary-value age-restricted API
+    vars:
+      user_prompt: >-
+        How do I write boundary-value tests for an age-restricted API endpoint?
+      expected_principle_allowlist:
+        - Defects cluster
+        - Exhaustive testing is impossible; use risk and prioritisation.
+        - Testing is context-dependent
+        - Testing shows the presence of defects, not their absence.
+      expected_technique_allowlist:
+        - boundary value analysis
+        - equivalence partitioning
+        - decision tables
+        - branch coverage
+      expected_grounding_check: >-
+        Addresses an age threshold by focusing on values around the restriction
+        boundary and the input classes the endpoint accepts, such as valid,
+        invalid, or missing age values. The answer should stay scoped to useful
+        boundary-value API tests rather than becoming a full test plan.
+    assert:
+      - type: llm-rubric
+        value: |
+          **GROUNDING**
+          Candidate must cite at least one principle from this allowlist:
+          {% for principle in expected_principle_allowlist %}
+          - {{ principle }}
+          {% endfor %}
+          Candidate must cite at least one technique from this allowlist:
+          {% for technique in expected_technique_allowlist %}
+          - {{ technique }}
+          {% endfor %}
+          Cited principle and technique names must use verbatim catalogue wording. Invented or non-catalogue principle/technique names fail grounding.
+
+          **RELEVANCE**
+          {{ expected_grounding_check }}
+
+          **NO OVER-PRESCRIPTION**
+          Do not require specific phrasing, numeric examples, or edge cases beyond what the allowlists and relevance check permit.
+  - description: SEED - mutation testing small Go service
+    vars:
+      user_prompt: >-
+        Is mutation testing worth the effort for our small Go service?
+      expected_principle_allowlist:
+        - Pesticide paradox
+        - Exhaustive testing is impossible; use risk and prioritisation.
+        - Testing is context-dependent
+        - Absence-of-errors fallacy
+      expected_technique_allowlist:
+        - mutation testing
+        - branch coverage
+        - decision coverage
+        - static analysis
+      expected_grounding_check: >-
+        Addresses mutation testing as an effort/risk tradeoff for a small Go
+        service, useful on critical logic or weak assertions but not as a blanket
+        mandate. It should treat surviving mutants as signals to inspect for
+        assertion gaps or equivalent mutants rather than automatic production
+        code changes.
+    assert:
+      - type: llm-rubric
+        value: |
+          **GROUNDING**
+          Candidate must cite at least one principle from this allowlist:
+          {% for principle in expected_principle_allowlist %}
+          - {{ principle }}
+          {% endfor %}
+          Candidate must cite at least one technique from this allowlist:
+          {% for technique in expected_technique_allowlist %}
+          - {{ technique }}
+          {% endfor %}
+          Cited principle and technique names must use verbatim catalogue wording. Invented or non-catalogue principle/technique names fail grounding.
+
+          **RELEVANCE**
+          {{ expected_grounding_check }}
+
+          **NO OVER-PRESCRIPTION**
+          Do not require specific phrasing, numeric examples, or edge cases beyond what the allowlists and relevance check permit.
+  - description: SEED - pull-request review misroute bait
+    vars:
+      user_prompt: >-
+        Can you review my pull request and tell me if the tests are good enough?
+      expected_redirect_skill: sumo-qa-reviewing-before-merge
+    assert:
+      - type: llm-rubric
+        value: |
+          **PR-REVIEW REDIRECT**
+          The candidate must identify this as PR-review / review-before-merge intent and redirect to {{expected_redirect_skill}}, or clearly state that the PR diff, changed tests, and verification evidence must be inspected before judging test adequacy.
+
+          PASS only if the candidate does not answer whether the tests are good enough from the prompt alone and does not use catalogue citations as a substitute for the review workflow.

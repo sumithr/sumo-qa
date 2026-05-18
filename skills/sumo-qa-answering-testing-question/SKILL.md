@@ -7,6 +7,20 @@ description: Use when the user asks a generic testing question — "how do I tes
 
 **Announce at start:** *"Answering with a cited principle and technique."*
 
+## Before answering — check fit (Redirect discipline)
+
+This is the FIRST step the candidate takes before answering with catalogue principles.
+
+- "Are my PR tests good enough?" / "Is this safe to merge?" / "Review my changes" → redirect to `sumo-qa-reviewing-before-merge`. Say: "This is a PR-review-adequacy question. Loading sumo-qa-reviewing-before-merge — it inspects the diff, surfaces named risks, runs the suite, and delivers a gated verdict. That is the right tool here, not catalogue citation."
+- "How should I plan QA for [story/ticket]?" → redirect to `sumo-qa-preparing-for-work` (lightweight) or `sumo-qa-creating-test-plan` (formal).
+- "Write me a failing test for [bug]" → redirect to `sumo-qa-implementing-with-tdd`.
+- "Mutation testing flagged survivors" / "kill these mutants" → redirect to `sumo-qa-strengthening-tests`.
+- "Where is the test data for X?" / "validate this record" → redirect to `sumo-qa-finding-test-data`.
+
+ONLY answer directly when the question is genuinely generic (e.g. "what is the ISTQB principle for X?", "how do boundary tests work?") and does not fit any of those domains.
+
+**Anti-pattern:** Do NOT answer a PR-review, plan-QA, write-a-test, mutation-survivor, or test-data question with catalogue principles. Redirect to the matching sumo-qa skill instead.
+
 ## Output discipline (mandatory)
 
 **Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.

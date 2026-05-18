@@ -61,6 +61,8 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 5. **Walk one mutant at a time — confirm tautology vs real** — for each survivor, present line + mutation + your call + rationale, then ask: *"Agree, or is this equivalent given how it's constructed upstream?"* Wait for confirmation. Equivalent → step 6; real → step 7.
 
 6. **Suppress equivalent mutants — config-side if the tool supports it, otherwise source annotation** — preferred: a tool config exclusion (e.g. `pitest.xml` `<excludedMutations>`, Stryker `mutate` exclusions). When the tool has no per-mutant config mechanism (mutmut 3.x, for example — only line-level `# pragma: no mutate` is supported), an inline source annotation is acceptable: it's tooling metadata, not a behaviour change, and the Iron Law's intent (don't reshape production behaviour to make testing easier) is preserved. Each annotation MUST be paired with a one-line rationale comment naming the mutant ID and why the mutation is observably equivalent. Anything else fails review.
+Include a one-line rationale comment on the suppression entry explaining why the mutant is equivalent.
+  - M21  # x * 1 == x for all numeric inputs
 
 7. **Pick a technique + draft the strengthening test, confirm before writing** — call `sumo_qa_load_techniques()` if not loaded. Pick ONE from the catalogue per real mutant, naming the technique using the VERBATIM catalogue heading (e.g. `boundary value analysis`, NOT `boundary` / `boundary mutant`) (boundary-value for `>` / `>=`; decision-table for branch-condition; property-based for invariants). Present the test name + the assertion idea, wait for confirmation, then write. Match the existing test style.
 

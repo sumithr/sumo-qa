@@ -1,0 +1,363 @@
+disableVarExpansion: true
+description: 'A/B/C value-measurement for sumo-qa-reviewing-before-merge'
+# Hypothesis: B wins on the risky seed because it forces explicit risk-naming
+# plus test evidence before verdict; A1 may match B on the trivial seed.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    classifications: file://../../../knowledge/classifications.md
+    approaches: file://../../../knowledge/approaches.md
+    principles: file://../../../knowledge/principles.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         It must cite the named risks from prior turns (by short name or label,
+         e.g. "Auth Bypass") and tie each to specific test names from the fresh
+         test evidence that cover it, quote fresh test evidence, gate SAFE TO
+         MERGE or NOT SAFE TO MERGE on both green tests and covered risks, and
+         end without a confirmation question.
+
+      B. GROUNDING — does the response use the supplied ground-truth context? The response must visibly reference the prior named risks AND the fresh test output. The diff itself was the subject of prior turns; the candidate need not re-quote it here. Test evidence must quote exact test names or pass/skip counts from the supplied output.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - label: 'A0 - no skill, no catalogues'
+    raw: |
+      You are a senior QA reviewer in an IDE chat session.
+
+      Repository diff, prior review gates, and fresh verification evidence for
+      this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Deliver the merge-review response for this final verdict turn. Use the
+      supplied diff, prior named risks, and fresh verification output as the
+      evidence for this turn. Keep the response concise and evidence-led.
+  - label: 'A1 - catalogues only, no skill'
+    raw: |
+      You are a senior QA reviewer in an IDE chat session. You have loaded the
+      canonical catalogues:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      --- LOADED APPROACHES ---
+      {{approaches}}
+      --- END LOADED APPROACHES ---
+
+      --- LOADED PRINCIPLES ---
+      {{principles}}
+      --- END LOADED PRINCIPLES ---
+
+      Repository diff, prior review gates, and fresh verification evidence for
+      this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Deliver the merge-review response for this final verdict turn. Use the
+      supplied diff, prior named risks, and fresh verification output as the
+      evidence for this turn. Keep the response concise and evidence-led.
+  - label: 'B - full skill (current)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content}}
+      --- END SKILL ---
+
+      You have also loaded the canonical catalogues:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      --- LOADED APPROACHES ---
+      {{approaches}}
+      --- END LOADED APPROACHES ---
+
+      --- LOADED PRINCIPLES ---
+      {{principles}}
+      --- END LOADED PRINCIPLES ---
+
+      Repository diff, prior review gates, and fresh verification evidence for
+      this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill to this scenario. Use the supplied diff, prior named
+      risks, and fresh verification output as the evidence for this turn. This is
+      the final verdict turn: no confirmation gate, deliver the verdict. Keep the
+      response concise and evidence-led.
+tests:
+  - description: SEED - auth helper fix with fresh passing tests
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns in this session (NOT shown above): you have read the diff,
+        named the risks, the user has confirmed them, and you have run the test
+        suite. This is the FINAL TURN of the review — produce the safe-to-merge
+        verdict citing the named risks + the fresh test evidence. No more
+        confirmation gates.
+
+        Scope gate: completed. Developer confirmed the change is intended to
+        block unauthenticated invoice access while preserving owner and account
+        admin access.
+
+        Risk gate: completed. Developer confirmed the relevant risks are auth
+        bypass, inactive-admin access, and regression of owner/admin allow paths.
+
+        ## git diff
+        ```diff
+        diff --git a/app/auth/permissions.py b/app/auth/permissions.py
+        @@ app/auth/permissions.py:10-18 @@
+         10 def can_view_invoice(user, invoice):
+         11     if invoice.is_public:
+         12         return True
+        -14     return user.id == invoice.owner_id or is_account_admin(user, invoice.account_id)
+        +14     return user.is_authenticated and (
+        +15         user.id == invoice.owner_id
+        +16         or is_account_admin(user, invoice.account_id)
+        +17     )
+
+        diff --git a/app/auth/helpers.py b/app/auth/helpers.py
+        @@ app/auth/helpers.py:21-28 @@
+         21 def is_account_admin(user, account_id):
+         22     roles = getattr(user, "roles", [])
+        -24     return any(role.account_id == account_id and role.name == "admin" for role in roles)
+        +24     return user.is_active and any(
+        +25         role.account_id == account_id and role.name == "admin"
+        +26         for role in roles
+        +27     )
+
+        diff --git a/tests/auth/test_permissions.py b/tests/auth/test_permissions.py
+        @@ tests/auth/test_permissions.py:31-53 @@
+         31 def test_allows_owner_to_view_invoice():
+         32     assert can_view_invoice(owner_user(), invoice(owner_id=42))
+         35 def test_allows_account_admin_to_view_invoice():
+         36     assert can_view_invoice(active_admin(), invoice(account_id="acct_9"))
+        +40 def test_rejects_unauthenticated_user_with_matching_account():
+        +41     user = anonymous_user(id=42)
+        +42     assert not can_view_invoice(user, invoice(owner_id=42))
+        +45 def test_rejects_inactive_account_admin():
+        +46     assert not can_view_invoice(inactive_admin(), invoice(account_id="acct_9"))
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/auth/test_permissions.py tests/auth/test_helpers.py -q
+        tests/auth/test_permissions.py::test_allows_owner_to_view_invoice PASSED
+        tests/auth/test_permissions.py::test_allows_account_admin_to_view_invoice PASSED
+        tests/auth/test_permissions.py::test_rejects_unauthenticated_user_with_matching_account PASSED
+        tests/auth/test_permissions.py::test_rejects_inactive_account_admin PASSED
+        tests/auth/test_helpers.py::test_is_account_admin_requires_active_user PASSED
+        42 passed, 2 skipped in 3.12s
+        ```
+      expected_shape: >-
+        Final-turn evidence-led merge review verdict. Cites the named risks from
+        prior turns (by short name or label, e.g. "Auth Bypass") and ties each to
+        specific test names from the fresh test evidence that cover it. The
+        prior-turn named risks include auth bypass, inactive-admin access, and
+        regression of owner/admin allow paths. Quotes fresh test evidence by
+        naming exact passing test names and pass/skip counts from the supplied
+        output. Delivers SAFE TO MERGE or NOT SAFE TO MERGE gated on both green
+        tests and coverage for every named risk. Ends without a confirmation
+        question.
+      anti_patterns:
+        - claims safe-to-merge without test evidence
+        - Declares safe-to-merge without referencing fresh test output.
+        - Vague unanchored risks ("performance might matter").
+        - Asking another confirmation question instead of delivering the final verdict.
+        - Citing test output without anchoring to specific test names or counts.
+  - description: SEED - auth billing risk needs named risks before verdict
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns in this session (NOT shown above): you have read the diff,
+        named the risks, the user has confirmed them, and you have run the test
+        suite. This is the FINAL TURN of the review — produce the merge verdict
+        citing named auth/billing risks + the fresh test evidence. No more
+        confirmation gates.
+
+        Scope gate: completed. Developer confirmed the change intentionally
+        allows account-scoped session tokens to view billing invoices and moves
+        invoice paid-state updates into the checkout path.
+
+        Risk gate: completed. Developer confirmed the relevant risks are Auth
+        Session Bypass, Billing Paid-State Drift, and Duplicate Charge on Retry.
+
+        ## git diff
+        ```diff
+        diff --git a/app/auth/session.py b/app/auth/session.py
+        @@ app/auth/session.py:32-42 @@
+         32 def can_access_billing(session, account_id):
+        -33     return session.user_id and session.account_id == account_id
+        +33     return session.account_id == account_id and not session.is_expired
+
+        diff --git a/app/billing/checkout.py b/app/billing/checkout.py
+        @@ app/billing/checkout.py:48-66 @@
+         48 def complete_checkout(invoice, gateway):
+        -49     receipt = gateway.charge(invoice.customer_id, invoice.total_cents)
+        -50     invoice.mark_paid(receipt.id)
+        +49     invoice.mark_paid("pending")
+        +50     receipt = gateway.charge(invoice.customer_id, invoice.total_cents)
+        +51     invoice.gateway_receipt_id = receipt.id
+         52     return invoice
+
+        diff --git a/tests/billing/test_checkout.py b/tests/billing/test_checkout.py
+        @@ tests/billing/test_checkout.py:20-37 @@
+        +20 def test_records_gateway_receipt():
+        +21     invoice = complete_checkout(open_invoice(), gateway_success("rcpt_9"))
+        +22     assert invoice.gateway_receipt_id == "rcpt_9"
+        +
+        +25 def test_does_not_mark_failed_charge_paid():
+        +26     with pytest.raises(GatewayError):
+        +27         complete_checkout(open_invoice(), gateway_failure())
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/billing/test_checkout.py -q
+        tests/billing/test_checkout.py::test_records_gateway_receipt PASSED
+        tests/billing/test_checkout.py::test_does_not_mark_failed_charge_paid PASSED
+        18 passed, 0 skipped in 2.44s
+        ```
+      expected_shape: >-
+        Final-turn evidence-led merge review verdict that explicitly names Auth
+        Session Bypass, Billing Paid-State Drift, and Duplicate Charge on Retry
+        before any SAFE TO MERGE or NOT SAFE TO MERGE verdict. Ties any covered
+        risk to exact passing test names and pass/skip counts from the fresh
+        output. Delivers NOT SAFE TO MERGE or NEEDS WORK because the supplied
+        fresh tests do not cover the auth path and do not prove retry safety,
+        even though the billing checkout tests are green. Ends without a
+        confirmation question.
+      anti_patterns:
+        - claims safe-to-merge without surfacing auth/billing risk
+        - claims safe-to-merge without test evidence
+        - Delivers SAFE TO MERGE before explicitly naming Auth Session Bypass, Billing Paid-State Drift, and Duplicate Charge on Retry.
+        - Treats green billing-only tests as evidence for the changed auth path.
+        - Asking another confirmation question instead of delivering the final verdict.
+  - description: SEED - docs typo fix stays lightweight
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns in this session (NOT shown above): you have read the diff,
+        named the risks, the user has confirmed them, and you have run the test
+        suite. This is the FINAL TURN of the review — produce the merge verdict
+        using the docs-only scope and fresh verification evidence. No more
+        confirmation gates.
+
+        Scope gate: completed. Developer confirmed this is a typo-only docs
+        change in the setup instructions, with no runtime behavior change.
+
+        Risk gate: completed. Developer confirmed the only relevant risk is
+        README Setup Wording Drift.
+
+        ## git diff
+        ```diff
+        diff --git a/docs/README.md b/docs/README.md
+        @@ docs/README.md:14-18 @@
+        -Run the install commmand before restarting the host.
+        +Run the install command before restarting the host.
+        ```
+
+        ## Fresh test run
+        ```text
+        $ markdownlint docs/README.md && pytest -q
+        docs/README.md: OK
+        128 passed, 0 skipped in 11.04s
+        ```
+      expected_shape: >-
+        Concise final-turn docs-only merge review verdict. Names README Setup
+        Wording Drift as the only prior named risk, cites the typo-only
+        docs/README.md diff, and quotes fresh verification by naming
+        markdownlint docs/README.md plus the 128 passed, 0 skipped test count.
+        Delivers SAFE TO MERGE without inventing runtime risk and without
+        applying the full gated review walk to this trivial change. Ends without
+        a confirmation question.
+      anti_patterns:
+        - applies full gated review walk to a trivial change
+        - Invents auth, billing, API, performance, or runtime risks for a typo-only docs change.
+        - Asking another confirmation question instead of delivering the final verdict.
+        - Citing test output without anchoring to specific commands or counts.

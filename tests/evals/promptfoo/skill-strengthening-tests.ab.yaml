@@ -1,0 +1,470 @@
+disableVarExpansion: true
+description: 'A/B/C value-measurement for sumo-qa-strengthening-tests'
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-strengthening-tests/SKILL.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate has loaded the techniques catalogue below for your
+      verification:
+
+
+      --- LOADED TECHNIQUES ---
+
+      {{loaded_techniques}}
+
+      --- END LOADED TECHNIQUES ---
+
+
+      The per-test mutant context supplied to the candidate was:
+
+
+      --- SURVIVING MUTANT DESCRIPTION ---
+
+      {{surviving_mutant_description}}
+
+      --- END SURVIVING MUTANT DESCRIPTION ---
+
+
+      --- CURRENT TEST CODE ---
+
+      {{current_test_code}}
+
+      --- END CURRENT TEST CODE ---
+
+
+      --- SURROUNDING PRODUCTION CODE ---
+
+      {{surrounding_production_code}}
+
+      --- END SURROUNDING PRODUCTION CODE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         Real mutants should produce a strengthening test artefact anchored to
+         the discriminating input. Equivalent mutants should be suppressed in
+         the supplied tool config with a rationale, and should not produce test
+         code.
+
+      B. GROUNDING - the response must visibly use the supplied mutant
+         description, current test code, and surrounding production code. For a
+         real boundary mutant, the proposed test must pin the exact boundary
+         value that distinguishes the original from the mutant. For an
+         equivalent mutant, the response must explain why no observable test can
+         distinguish the original from the mutant and must use the supplied
+         config-side suppression surface. Named techniques for real mutants
+         must appear in the loaded techniques catalogue.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - label: 'A0 - no skill, no catalogues'
+    raw: |
+      You are a senior QA agent in an IDE chat session.
+
+      Mutation survivor and code context for this turn:
+
+      --- SURVIVING MUTANT DESCRIPTION ---
+      {{surviving_mutant_description}}
+      --- END SURVIVING MUTANT DESCRIPTION ---
+
+      --- CURRENT TEST CODE ---
+      {{current_test_code}}
+      --- END CURRENT TEST CODE ---
+
+      --- SURROUNDING PRODUCTION CODE ---
+      {{surrounding_production_code}}
+      --- END SURROUNDING PRODUCTION CODE ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is the final-turn strengthening proposal. Decide whether the
+      survivor is a real assertion gap or an equivalent mutant.
+
+      For a real mutant, produce this response format:
+
+      Line 1 (mutant surface anchor): `<mutant id>: \`<original expression>\` -> \`<mutated expression>\` - <one-word descriptor>.`
+      Line 2 (applied technique): `Applying <technique name>:` then one sentence rationale tying technique to the mutant shape.
+      Line 3 (target test file path): `Target test file: \`<path>\``
+      Then: the failing test code block (fenced, complete function definition).
+      Last line: `Production code stays unchanged.`
+
+      For an equivalent mutant, produce this response format:
+
+      Line 1 (mutant surface anchor): `<mutant id>: \`<original expression>\` -> \`<mutated expression>\` - equivalent mutant.`
+      Line 2: `No strengthening test:` then one sentence explaining why the original and mutant are observably equivalent.
+      Line 3: `Suppress in tool config: \`<path>\``
+      Then: the config-side suppression snippet (fenced).
+      Last line: `Production code stays unchanged.`
+
+      NO confirmation question. NO closing pleasantry. NO additional sections.
+      Equivalent mutants MUST be suppressed in tool config, not killed by a
+      tautological test.
+  - label: 'A1 - catalogues only, no skill'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded the
+      test design techniques catalogue:
+
+      --- LOADED TECHNIQUES ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
+
+      Mutation survivor and code context for this turn:
+
+      --- SURVIVING MUTANT DESCRIPTION ---
+      {{surviving_mutant_description}}
+      --- END SURVIVING MUTANT DESCRIPTION ---
+
+      --- CURRENT TEST CODE ---
+      {{current_test_code}}
+      --- END CURRENT TEST CODE ---
+
+      --- SURROUNDING PRODUCTION CODE ---
+      {{surrounding_production_code}}
+      --- END SURROUNDING PRODUCTION CODE ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is the final-turn strengthening proposal. Decide whether the
+      survivor is a real assertion gap or an equivalent mutant.
+
+      For a real mutant, produce this response format:
+
+      Line 1 (mutant surface anchor): `<mutant id>: \`<original expression>\` -> \`<mutated expression>\` - <one-word descriptor>.`
+      Line 2 (applied technique, VERBATIM catalogue heading from knowledge/techniques.md):
+        `Applying <technique name>:` then one sentence rationale tying technique to the mutant shape.
+      Line 3 (target test file path): `Target test file: \`<path>\``
+      Then: the failing test code block (fenced, complete function definition).
+      Last line: `Production code stays unchanged.`
+
+      For an equivalent mutant, produce this response format:
+
+      Line 1 (mutant surface anchor): `<mutant id>: \`<original expression>\` -> \`<mutated expression>\` - equivalent mutant.`
+      Line 2: `No strengthening test:` then one sentence explaining why the original and mutant are observably equivalent.
+      Line 3: `Suppress in tool config: \`<path>\``
+      Then: the config-side suppression snippet (fenced).
+      Last line: `Production code stays unchanged.`
+
+      NO confirmation question. NO closing pleasantry. NO additional sections.
+      The technique for real mutants MUST be the verbatim catalogue heading -
+      `boundary value analysis`, `equivalence partitioning`, `state transition
+      testing`, `decision tables` - NOT shortened forms. Equivalent mutants
+      MUST be suppressed in tool config, not killed by a tautological test.
+  - label: 'B - full skill (current)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content}}
+      --- END SKILL ---
+
+      You have also loaded the test design techniques catalogue:
+
+      --- LOADED TECHNIQUES ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
+
+      Mutation survivor and code context for this turn:
+
+      --- SURVIVING MUTANT DESCRIPTION ---
+      {{surviving_mutant_description}}
+      --- END SURVIVING MUTANT DESCRIPTION ---
+
+      --- CURRENT TEST CODE ---
+      {{current_test_code}}
+      --- END CURRENT TEST CODE ---
+
+      --- SURROUNDING PRODUCTION CODE ---
+      {{surrounding_production_code}}
+      --- END SURROUNDING PRODUCTION CODE ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is the final-turn strengthening proposal. Decide whether the
+      survivor is a real assertion gap or an equivalent mutant.
+
+      For a real mutant, produce this response format:
+
+      Line 1 (mutant surface anchor): `<mutant id>: \`<original expression>\` -> \`<mutated expression>\` - <one-word descriptor>.`
+      Line 2 (applied technique, VERBATIM catalogue heading from knowledge/techniques.md):
+        `Applying <technique name>:` then one sentence rationale tying technique to the mutant shape.
+      Line 3 (target test file path): `Target test file: \`<path>\``
+      Then: the failing test code block (fenced, complete function definition).
+      Last line: `Production code stays unchanged.`
+
+      For an equivalent mutant, produce this response format:
+
+      Line 1 (mutant surface anchor): `<mutant id>: \`<original expression>\` -> \`<mutated expression>\` - equivalent mutant.`
+      Line 2: `No strengthening test:` then one sentence explaining why the original and mutant are observably equivalent.
+      Line 3: `Suppress in tool config: \`<path>\``
+      Then: the config-side suppression snippet (fenced).
+      Last line: `Production code stays unchanged.`
+
+      NO confirmation question. NO closing pleasantry. NO additional sections.
+      The technique for real mutants MUST be the verbatim catalogue heading -
+      `boundary value analysis`, `equivalence partitioning`, `state transition
+      testing`, `decision tables` - NOT shortened forms. Equivalent mutants
+      MUST be suppressed in tool config, not killed by a tautological test.
+tests:
+  - description: SEED - VIP promo threshold boundary survivor
+    vars:
+      user_prompt: >-
+        This surviving mutant is M7; propose the strengthening test.
+      expected_shape: >-
+        Mutant-specific strengthening proposal. Tautology check result and
+        named technique were established in prior turns (per ground-truth
+        context); the final turn includes one short line referencing the
+        supplied mutant surface (file/line or expression) before the test code,
+        delivers the strengthening test artefact, and explicitly states
+        production stays unchanged. The candidate may briefly reference
+        boundary value analysis or tautology check: no equivalence but is not
+        required to re-derive them. Names the target test file path immediately
+        before the test code block. The named technique uses the verbatim
+        catalogue heading (e.g. 'boundary value analysis').
+      anti_patterns:
+        - Modifies production code.
+        - Writes a tautological test for an equivalent mutant.
+        - Does not name the mutant's tautology or equivalence surface.
+        - Uses a weak assertion or non-boundary input that the original mutant could still survive.
+        - Suppresses the mutant as equivalent without a rationale tied to observability.
+        - Fails to name the testing technique applied.
+      surviving_mutant_description: |
+        ## Prior turns recap
+        Prior turns (NOT shown above): you have identified M7, run the
+        tautology check (no equivalence; the boundary is real), and named
+        boundary value analysis. This is the FINAL TURN - produce the
+        strengthening test directly, explicitly state production code is
+        unchanged, and close without a confirmation question.
+
+        ## Mutation report excerpt
+        M7 survived in `src/pricing/discount_calculator.ts`.
+        Mutation: conditional boundary changed from `order.subtotalCents > 10000`
+        to `order.subtotalCents >= 10000`.
+
+        Existing tests hit 10001 and non-VIP, but no test exercises exactly
+        10000 cents for a VIP customer with a promo code.
+      current_test_code: |
+        ## Existing test style
+        `tests/pricing/discount_calculator.test.ts`
+
+        ```ts
+        import { describe, expect, it } from "vitest";
+
+        it("applies VIP promo above the threshold", () => {
+          expect(qualifiesForVipPromo(order({
+            customerTier: "VIP",
+            subtotalCents: 10001,
+            promoCode: "VIP20",
+          }))).toBe(true);
+        });
+
+        it("does not apply VIP promo for non-VIP customers", () => {
+          expect(qualifiesForVipPromo(order({
+            customerTier: "STANDARD",
+            subtotalCents: 15000,
+            promoCode: "VIP20",
+          }))).toBe(false);
+        });
+        ```
+      surrounding_production_code: |
+        ## Production code (read-only)
+        `src/pricing/discount_calculator.ts`
+
+        ```ts
+        export function qualifiesForVipPromo(order: Order): boolean {
+          return order.customerTier === "VIP"
+            && order.subtotalCents > 10000
+            && order.promoCode !== null;
+        }
+        ```
+  - description: SEED - youth discount upper-boundary survivor
+    vars:
+      user_prompt: >-
+        This surviving mutant is M12; propose the strengthening test.
+      expected_shape: >-
+        Mutant-specific strengthening proposal for a real boundary mutant.
+        The response identifies M12 as `customer.age < 13` mutated to
+        `customer.age <= 13`, applies the verbatim catalogue heading boundary
+        value analysis, names `tests/discounts/youth_discount.test.ts`, and
+        writes a Vitest-style test that pins the exact boundary value 13 for an
+        active customer and expects `false`. It explicitly states production
+        code stays unchanged.
+      anti_patterns:
+        - Modifies production code.
+        - Writes a tautological test for an equivalent mutant.
+        - Uses age 12, 14, or a non-boundary value instead of the exact boundary value 13.
+        - Asserts the mutated behaviour by expecting a 13-year-old active customer to qualify.
+        - Suppresses the real boundary mutant as equivalent.
+        - Fails to name boundary value analysis as the applied technique.
+      surviving_mutant_description: |
+        ## Prior turns recap
+        Prior turns (NOT shown above): you have identified M12, run the
+        tautology check (no equivalence; the boundary is real), and named
+        boundary value analysis. This is the FINAL TURN - produce the
+        strengthening test directly, explicitly state production code is
+        unchanged, and close without a confirmation question.
+
+        ## Mutation report excerpt
+        M12 survived in `src/discounts/youth_discount.ts`.
+        Mutation: conditional boundary changed from `customer.age < 13`
+        to `customer.age <= 13`.
+
+        Existing tests hit age 12 and inactive customers, but no test exercises
+        exactly age 13 for an active customer.
+      current_test_code: |
+        ## Existing test style
+        `tests/discounts/youth_discount.test.ts`
+
+        ```ts
+        import { describe, expect, it } from "vitest";
+
+        it("applies the youth discount for active customers under 13", () => {
+          expect(qualifiesForYouthDiscount(customer({
+            age: 12,
+            accountStatus: "ACTIVE",
+          }))).toBe(true);
+        });
+
+        it("does not apply the youth discount for inactive customers", () => {
+          expect(qualifiesForYouthDiscount(customer({
+            age: 10,
+            accountStatus: "INACTIVE",
+          }))).toBe(false);
+        });
+        ```
+      surrounding_production_code: |
+        ## Production code (read-only)
+        `src/discounts/youth_discount.ts`
+
+        ```ts
+        export function qualifiesForYouthDiscount(customer: Customer): boolean {
+          return customer.age < 13
+            && customer.accountStatus === "ACTIVE";
+        }
+        ```
+  - description: SEED - identity multiplication equivalent mutant
+    vars:
+      user_prompt: >-
+        This surviving mutant is M21; propose the strengthening action.
+      expected_shape: >-
+        Equivalent-mutant suppression proposal, not a strengthening test. The
+        response identifies M21 as `x * 1` mutated to `x`, states that the two
+        forms are observably equivalent for the supported numeric input domain,
+        names `mutation-testing.yml` as the tool-config suppression surface,
+        includes a config-side suppression entry with a one-line rationale, and
+        explicitly states production code stays unchanged. It must not write or
+        propose test code.
+      anti_patterns:
+        - Modifies production code.
+        - Writes a tautological test for an equivalent mutant.
+        - Writes any strengthening test instead of suppressing M21 in tool config.
+        - Uses a source-code mutation annotation when config-side suppression is supplied.
+        - Suppresses without a rationale tied to observability.
+        - Claims `x * 1` and `x` are distinguishable for the supported input domain.
+      surviving_mutant_description: |
+        ## Prior turns recap
+        Prior turns (NOT shown above): you have identified M21 and run the
+        tautology check. The original expression and the mutant are observably
+        equivalent for this function's supported input domain. This is the
+        FINAL TURN - suppress the equivalent mutant in tool config, explicitly
+        state production code is unchanged, and close without a confirmation
+        question.
+
+        ## Mutation report excerpt
+        M21 survived in `src/math/identity_multiplier.ts`.
+        Mutation: arithmetic identity changed from `x * 1` to `x`.
+
+        The repository's mutation tool supports config-side suppressions in
+        `mutation-testing.yml` under `ignoredMutants`. Use that config surface;
+        do not add source annotations and do not write a tautological test.
+
+        Current tool config:
+
+        ```yaml
+        mutate:
+          - src/math/**/*.ts
+        ignoredMutants: []
+        ```
+      current_test_code: |
+        ## Existing test style
+        `tests/math/identity_multiplier.test.ts`
+
+        ```ts
+        import { describe, expect, it } from "vitest";
+
+        it("returns the same numeric value", () => {
+          expect(identityMultiplier(42)).toBe(42);
+        });
+        ```
+      surrounding_production_code: |
+        ## Production code (read-only)
+        `src/math/identity_multiplier.ts`
+
+        ```ts
+        export function identityMultiplier(x: number): number {
+          return x * 1;
+        }
+        ```

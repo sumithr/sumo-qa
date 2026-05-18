@@ -65,3 +65,4 @@ tests/evals/promptfoo/*.generated-tests.yaml
 # Node dependencies for the promptfoo eval harness. package.json +
 # package-lock.json are tracked (pins the version); installed modules are not.
 node_modules/
+/skills-lock.json
