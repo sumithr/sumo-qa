@@ -12,6 +12,14 @@ build/
 .DS_Store
 .env
 
+# uv lock file — not committed because sumo-qa is a library published to
+# PyPI: consumers install via `pip install sumo-qa` and resolve against
+# `pyproject.toml` constraints, never reading this lock. The lock is only
+# useful for local dev-environment reproducibility, and committing it
+# created drift every time `uv run` ran against a newer release tag than
+# the lock recorded. Each contributor regenerates locally via `uv sync`.
+uv.lock
+
 # IDE config (per-developer, not shipped)
 .idea/
 
