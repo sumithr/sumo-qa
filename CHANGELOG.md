@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/sumithr/sumo-qa/compare/v0.3.0...v0.3.1) (2026-05-18)
+
+
+### Documentation
+
+* rewrite README and DEMO for clarity ([#53](https://github.com/sumithr/sumo-qa/issues/53)) ([f5fa1a5](https://github.com/sumithr/sumo-qa/commit/f5fa1a536818114472af57cf753961a949422d1b))
+
 ## [0.3.0](https://github.com/sumithr/sumo-qa/compare/v0.2.3...v0.3.0) (2026-05-18)
 
 
