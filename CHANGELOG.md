@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/sumithr/sumo-qa/compare/v0.3.5...v0.4.0) (2026-05-18)
+
+
+### Features
+
+* sumo-qa-validate + install-from-clone docs ([#63](https://github.com/sumithr/sumo-qa/issues/63)) ([8b7fcf5](https://github.com/sumithr/sumo-qa/commit/8b7fcf544db279cc6f7ad708e7a16ce87793afe6))
+
 ## [0.3.5](https://github.com/sumithr/sumo-qa/compare/v0.3.4...v0.3.5) (2026-05-18)
 
 
