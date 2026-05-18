@@ -34,3 +34,15 @@ jobs:
 
       - name: ruff format --check
         run: uv run ruff format --check .
+
+  shellcheck:
+    name: shellcheck
+    # CI mirror of the shellcheck-py pre-commit hook so a contributor who
+    # skipped `pre-commit install` still gets the same enforcement.
+    # ubuntu-latest ships shellcheck preinstalled — no extra install step.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: shellcheck hooks/session-start
