@@ -6,6 +6,8 @@ no filtering beyond optional metadata-based subset selection. The tests
 assert that known canonical entries are present in the returned text.
 """
 
+import pytest
+
 from sumo_qa.knowledge_loaders import sumo_qa_load_classifications
 
 
@@ -116,6 +118,12 @@ def test_load_standards_filter_accepts_multiple_classifications(tmp_path, monkey
         ),
         encoding="utf-8",
     )
+    (packs_dir / "business.yaml").write_text(
+        _yaml.safe_dump(
+            {"applies_to_classifications": ["business_logic_change"], "name": "business_pack"}
+        ),
+        encoding="utf-8",
+    )
     (packs_dir / "security.yaml").write_text(
         _yaml.safe_dump({"applies_to_classifications": ["security_change"], "name": "sec_pack"}),
         encoding="utf-8",
@@ -125,6 +133,7 @@ def test_load_standards_filter_accepts_multiple_classifications(tmp_path, monkey
     result = sumo_qa_load_standards(classification="api_contract_change, business_logic_change")
 
     assert "api_pack" in result
+    assert "business_pack" in result
     assert "sec_pack" not in result
 
 
@@ -177,12 +186,24 @@ def test_load_rules_filter_accepts_multiple_classifications(tmp_path, monkeypatc
     assert "security_change" not in result
 
 
-def test_load_rules_filter_maps_canonical_classification_to_legacy_rule_key():
-    result = sumo_qa_load_rules(classification="frontend_change")
+@pytest.mark.parametrize(
+    ("classification", "legacy_key", "expected_text"),
+    [
+        ("frontend_change", "ui_only_change", "display correctness"),
+        ("config_change", "configuration_change", "environment override behavior"),
+        ("data_migration", "data_mapping_change", "source-to-target parity"),
+        ("performance_change", "caching_change", "stale data"),
+        ("infrastructure_change", "configuration_change", "deployment rollback"),
+    ],
+)
+def test_load_rules_filter_maps_canonical_classification_to_legacy_rule_key(
+    classification, legacy_key, expected_text
+):
+    result = sumo_qa_load_rules(classification=classification)
 
-    assert "frontend_change" in result
-    assert "ui_only_change" not in result
-    assert "display correctness" in result
+    assert f"{classification}:" in result
+    assert f"{legacy_key}:" not in result
+    assert expected_text in result
 
 
 # ---------------------------------------------------------------------------
