@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/sumithr/sumo-qa/compare/v0.3.1...v0.3.2) (2026-05-18)
+
+
+### Bug Fixes
+
+* load rules for canonical classifications ([#55](https://github.com/sumithr/sumo-qa/issues/55)) ([a7e5035](https://github.com/sumithr/sumo-qa/commit/a7e503539ba2c9c45c8e7a82d2547ccb86ee36a8))
+
 ## [0.3.1](https://github.com/sumithr/sumo-qa/compare/v0.3.0...v0.3.1) (2026-05-18)
 
 
