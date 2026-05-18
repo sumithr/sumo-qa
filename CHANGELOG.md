@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/sumithr/sumo-qa/compare/v0.4.1...v0.4.2) (2026-05-18)
+
+
+### Miscellaneous Chores
+
+* add install-smoke + shellcheck; remove orphan install.sh ([#68](https://github.com/sumithr/sumo-qa/issues/68)) ([76852f2](https://github.com/sumithr/sumo-qa/commit/76852f2024f07d46a5b463422b281e13d6eb23f5))
+
 ## [0.4.1](https://github.com/sumithr/sumo-qa/compare/v0.4.0...v0.4.1) (2026-05-18)
 
 
