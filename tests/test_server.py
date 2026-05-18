@@ -7,9 +7,9 @@ from sumo_qa.server import build_mcp_server
 # not prompts (IntelliJ AI Assistant, VS Code + Copilot) can invoke skills.
 # Chain-polish pass added 3 more skills (planning / executing / finishing).
 # Task 8: sumo-qa-suggesting-external-skill added.
-# Task 1: 8 qaskills/Node-install tools removed (dead code after pivot to SKILL.md flow).
+# External-skill lifecycle restored as thin MCP tools; Node installer helpers remain deleted.
 # Task 72: sumo_qa_load_specialty_tools removed (catalogue → discovery rule).
-# Total registered tools: 10 atomic + 14 skill = 24.
+# Total registered tools: 14 atomic + 14 skill = 28.
 _TEST_DATA_TOOL_NAMES = {
     "sumo_qa_explain_test_data_requirements",
     "sumo_qa_find_test_data",
@@ -24,6 +24,13 @@ _KNOWLEDGE_LOADER_TOOL_NAMES = {
     "sumo_qa_load_techniques",
     "sumo_qa_load_standards",
     "sumo_qa_load_rules",
+}
+
+_EXTERNAL_SKILL_TOOL_NAMES = {
+    "sumo_qa_search_external_skills",
+    "sumo_qa_check_external_skill_installed",
+    "sumo_qa_install_external_skill",
+    "sumo_qa_execute_external_skill",
 }
 
 # Skills registered as MCP tools (parallel to their MCP-prompt registration).
@@ -56,11 +63,7 @@ _HEAVY_TOOL_NAMES_DELETED = {
     "sumo_qa_create_test_plan",
     "sumo_qa_scaffold_tests",
     "sumo_qa_decide_approach",
-    # Task 1: qaskills/node_install tools removed.
-    "sumo_qa_search_external_skills",
     "sumo_qa_get_external_skill_info",
-    "sumo_qa_install_external_skill",
-    "sumo_qa_check_external_skill_installed",
     "sumo_qa_load_external_skills_registry",
     "sumo_qa_check_node_available",
     "sumo_qa_detect_node_installer",
@@ -79,7 +82,12 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
 
     tool_names = set(server._tool_manager._tools.keys())
 
-    assert tool_names == (_TEST_DATA_TOOL_NAMES | _KNOWLEDGE_LOADER_TOOL_NAMES | _SKILL_TOOL_NAMES)
+    assert tool_names == (
+        _TEST_DATA_TOOL_NAMES
+        | _KNOWLEDGE_LOADER_TOOL_NAMES
+        | _EXTERNAL_SKILL_TOOL_NAMES
+        | _SKILL_TOOL_NAMES
+    )
 
 
 def test_skills_registered_as_tools_only() -> None:

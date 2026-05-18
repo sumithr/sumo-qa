@@ -317,15 +317,15 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **Expected interaction shape:**
 1. Recognises that Playwright setup is *outside* the native sumo-qa skill set (the catalogue is concept-level discipline; the tool-bring-up is implementation-level work).
-2. Offers — with `[y/N]` confirmation — to install Vercel Labs' [`find-skills`](https://github.com/vercel-labs/skills) meta-skill, which then drives end-to-end discovery and install from [skills.sh](https://www.skills.sh/).
-3. **Never auto-installs** anything. The `[y/N]` is real; default is "no".
-4. Names the external resource explicitly (find-skills + skills.sh), with citation.
-5. If Node.js / npx is missing, prints the install URL and stops — does NOT auto-elevate via sudo.
-6. After the user picks an external skill (or declines), the response loop ends — sumo-qa doesn't try to re-route to one of its native skills as a substitute.
+2. Calls `sumo_qa_search_external_skills` to find current external skill candidates instead of using a remembered tool list.
+3. Offers — with `[y/N]` confirmation — to install the chosen external skill through `sumo_qa_install_external_skill`.
+4. **Never auto-installs** anything. The `[y/N]` is real; default is "no".
+5. After install, calls `sumo_qa_execute_external_skill` and follows the returned `SKILL.md` body.
+6. If Node.js / npx is missing, surfaces the MCP tool's actionable hint and stops — does NOT auto-elevate via sudo.
 
 **Anti-patterns:**
 - Hallucinates a specialty tool brand ("just use Playwright Cloud Runner") — the discovery rule from `using-sumo-qa` requires citation.
-- Auto-runs `npx find-skills` without the `[y/N]` gate.
+- Runs `npx skills ...` directly from the host shell instead of the sumo-qa MCP tools.
 - Routes to `sumo-qa-implementing-with-tdd` and tries to scaffold Playwright tests inline (wrong shape — the user asked for skill discovery, not in-place TDD).
 - Tries `sudo` to install Node.js without consent.
 

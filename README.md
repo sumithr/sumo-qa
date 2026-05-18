@@ -65,7 +65,7 @@ Restart the host. The SessionStart hook re-injects the latest content; skills an
 | Layer | What |
 |---|---|
 | **14 skills** ([`skills/`](skills/)) | Iron-Law procedures: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, finding test data, answering testing questions, repo strategy — plus the planning → parallel subagent execution → finishing chain. |
-| **24 MCP entry points** | 14 skill tools, 6 knowledge loaders, 4 test-data tools. Thin file IO, no inference. |
+| **28 MCP entry points** | 14 skill tools, 6 knowledge loaders, 4 test-data tools, 4 external-skill lifecycle tools. Thin operations, no inference. |
 | **4 knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques. The agent picks from these instead of recalling from training data. Editable as plain markdown. Specialty-tool picks are deliberately not catalogued — the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
 
 ## Host support
@@ -96,11 +96,12 @@ Ten transcripts showing the workflow on real code — diff reviews refusing to c
 
 ## When sumo-qa doesn't fit
 
-If your QA intent has no native fit (Playwright E2E, accessibility audits, k6 load testing), sumo-qa offers (`[y/N]`) to install Vercel Labs' [find-skills](https://github.com/vercel-labs/skills) meta-skill, which then searches and installs from [skills.sh](https://www.skills.sh/).
+If your QA intent has no native fit (Playwright E2E, accessibility audits, k6 load testing, type checking), sumo-qa searches for an external skill through its MCP server, offers a `[y/N]` install gate, installs through the Skills CLI, then loads the installed `SKILL.md` back into the conversation.
 
-- No companion MCP shim. All CLI invocations go through the host LLM's `Bash` tool inside the skill.
-- Node.js is required (for `npx`). If it's missing, sumo-qa prints the install URL and stops. It doesn't elevate via sudo.
-- find-skills handles scope (global vs project-local), registry search, and install; sumo-qa's discipline wraps the response.
+- The host does not run `npx` directly; `sumo_qa_search_external_skills`, `sumo_qa_check_external_skill_installed`, `sumo_qa_install_external_skill`, and `sumo_qa_execute_external_skill` own the lifecycle.
+- Search returns the Skills CLI's text output verbatim (ANSI stripped); the host LLM reads it as the user would. No structured parser to drift out of date.
+- Node.js is required for the Skills CLI. If `npx` is missing, the MCP tool returns an actionable error and stops. It doesn't elevate via sudo.
+- The external skill handles tool-specific setup, while sumo-qa keeps the confirmation gates, test evidence, and risk-to-test mapping.
 
 ## License
 

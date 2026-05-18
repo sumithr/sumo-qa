@@ -1,6 +1,6 @@
 # Tool-selection scenarios
 
-For each of the 24 MCP tools sumo-qa exposes, an eval prompt + the tool the host LLM should pick + the anti-pick (the tool a less-disciplined LLM might wrongly fire).
+For each of the 28 MCP tools sumo-qa exposes, an eval prompt + the tool the host LLM should pick + the anti-pick (the tool a less-disciplined LLM might wrongly fire).
 
 These complement [`SCENARIOS.md`](SCENARIOS.md) (which evaluates *skill* behaviour) by evaluating *tool selection* — does the host LLM choose the right tool name when the user's intent surfaces? Tool descriptions in `src/sumo_qa/server.py` are the only signal the host has, so these scenarios stress-test those descriptions.
 
@@ -9,10 +9,11 @@ These complement [`SCENARIOS.md`](SCENARIOS.md) (which evaluates *skill* behavio
 | Skill tools | 14 (one per `skills/<name>/SKILL.md`) | Returns the SKILL.md body |
 | Knowledge loaders | 6 (`sumo_qa_load_*`) | Returns a markdown catalogue verbatim |
 | Test-data tools | 4 (`sumo_qa_*_test_data*`) | Reads / writes the local known-good catalogue |
+| External-skill lifecycle | 4 (`sumo_qa_*_external_skill*`) | Searches, installs, locates, and loads external skills |
 
 The 14 skill tools are tested transitively by the scenarios in `SCENARIOS.md` — when the user's intent matches a skill, the host LLM should invoke that skill's tool. They are not duplicated here.
 
-The 10 atomic non-skill tools each get a dedicated scenario below.
+The 14 atomic non-skill tools each get a dedicated scenario below.
 
 ---
 
@@ -137,6 +138,56 @@ The 10 atomic non-skill tools each get a dedicated scenario below.
 **Expected use of result:** the LLM constructs the full `entry` dict with required fields (id, environment, domain, scenario_tags, known_valid_for, owner, confidence, source) before calling. Confirms with the user before writing to the catalogue (per the skill's discipline). Surfaces the resulting `isError` envelope with `actionable_hint` if the entry shape is invalid.
 
 **Anti-pick:** calls without confirmation; partial entry that fails pydantic validation; tries to update the catalogue file directly via Bash instead of the tool.
+
+---
+
+## External-skill lifecycle (4)
+
+### TS-11. Search external skills
+
+**User prompt:** *"No native skill fits this. Find an external skill for Python type checking."*
+
+**Expected tool:** `sumo_qa_search_external_skills(query="python type checking mypy")`.
+
+**Expected use of result:** the LLM inspects `matches` and `raw_output`, names only candidates returned by the tool, and asks before installing anything.
+
+**Anti-pick:** runs `npx skills find` directly; invents a skill name from memory; installs before presenting the `[y/N]` gate.
+
+---
+
+### TS-12. Check installed external skill
+
+**User prompt:** *"Before installing, check whether the mypy type-checking skill is already installed."*
+
+**Expected tool:** `sumo_qa_check_external_skill_installed(skill="mypy-type-checking", scope="auto")`.
+
+**Expected use of result:** if a path is returned, the LLM executes that installed skill; if null, it searches or asks before installing.
+
+**Anti-pick:** reads `~/.codex/skills` directly; assumes absence without checking project and global locations.
+
+---
+
+### TS-13. Install external skill
+
+**User prompt:** *"Yes, install `mypy-type-checking` from `vercel-labs/skills` for Codex in project scope."*
+
+**Expected tool:** `sumo_qa_install_external_skill(skill="mypy-type-checking", source="vercel-labs/skills", scope="project", agent="codex", confirmed=true)`.
+
+**Expected use of result:** the LLM passes `confirmed=true` only after explicit user approval, then surfaces success or the `isError` actionable hint.
+
+**Anti-pick:** omits `confirmed=true`; shells out directly; silently switches to global scope.
+
+---
+
+### TS-14. Execute external skill
+
+**User prompt:** *"The type-checking skill is installed. Execute it for this repo and create the first automated checks."*
+
+**Expected tool:** `sumo_qa_execute_external_skill(skill="mypy-type-checking", intent="create automated type-checking checks for this repo", scope="auto")`.
+
+**Expected use of result:** the LLM follows the returned `skill_body` and keeps sumo-qa confirmation gates for dependency installs and file writes.
+
+**Anti-pick:** treats execution as a shell command; ignores the returned `SKILL.md`; bypasses sumo-qa evidence requirements.
 
 ---
 
