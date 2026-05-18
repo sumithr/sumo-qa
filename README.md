@@ -9,103 +9,111 @@
 [![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.3.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
-A senior-QA MCP server + skills library that delivers ISTQB-grade testing discipline to AI coding agents across **Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot**. The discipline lives in [skill files](skills/) the host LLM follows literally; MCP tools provide canonical knowledge catalogues. Skills auto-trigger from their YAML descriptions on QA-shaped natural language — the workflow kicks in without you having to remember to invoke it.
+An MCP server and skills library that gives AI coding agents a senior-QA workflow. Works with Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant + Junie, and VS Code + GitHub Copilot.
 
 > [!IMPORTANT]
-> **sumo-qa is an advisor, not an oracle.** Like all AI tools, it can be wrong — do not rely on its output 100%. Use your own judgment and your team's standards as the final word. sumo-qa loads you with discipline, named risks, and design techniques faster than you'd assemble them by hand; the engineer at the keyboard still makes the call.
+> sumo-qa is an advisor, not an oracle. Like any AI tool it can be wrong. Your judgment and your team's standards are the final word.
 
 > ### 🚀 New here? **[5-minute demo →](DEMO.md)**
-> Install with one line, run one prompt on your real repo, see the senior-QA workflow happen on actual code. No staged data, no scripted output.
+> One install line, one prompt on your repo, the workflow runs on real code.
 
-## Why sumo-qa?
+## Why it exists
 
-Most AI coding assistants approach QA the way a junior engineer would: *"add unit tests, consider edge cases, maybe test performance too."* That's a checklist, not testing. sumo-qa makes the AI work like a senior QA — risks named against specific lines, design techniques (boundary-value, decision-table, property-based, mutation) picked from a loaded ISTQB-grounded catalogue, test suites run fresh in *this* turn before any "safe to merge" claim.
+Ask a stock AI assistant to QA a change and you get the junior answer: "add unit tests, consider edge cases, maybe test performance." That's a checklist.
 
-The discipline is enforced by 14 [skill files](skills/) the host LLM follows literally (1 entry router + 13 sub-skills) — each one with an Iron Law (TDD's red phase before any production code; mutation-strengthening keeps production code locked; no plan ships without measurable entry AND exit criteria) and a HARD-GATE callout the LLM can't talk itself past. Skills auto-trigger from their YAML `description:` field on QA-shaped requests in natural language; when sumo-qa is loaded as a Claude Code / Cursor plugin, the bundled SessionStart hook additionally pre-injects the entry router into the conversation's system context as a stronger guarantee.
+sumo-qa makes the agent work the way a senior QA does:
 
-Read [DEMO.md](DEMO.md) for the 5-minute install-and-run-this-prompt walkthrough.
+- Names 3–7 risks tied to specific files and lines, not categories
+- Picks one design technique per risk from an ISTQB-grounded catalogue (boundary-value, decision-table, property-based, mutation)
+- Runs your test suite fresh in the current turn before any "safe to merge" claim
+- Holds TDD's red phase before any production code is written
+- Keeps production code locked while strengthening tests against mutation survivors
+- Won't ship a plan without measurable entry and exit criteria
+
+The discipline lives in 14 [skill files](skills/) (1 router + 13 sub-skills). The host LLM follows them literally, and each one has an Iron Law and a HARD-GATE callout the LLM can't talk past. Skills route automatically from natural-language prompts; you don't need to remember to invoke them.
 
 ## Install
-
-**One line — install and wire it into your host of choice:**
 
 ```bash
 pip install sumo-qa && sumo-qa-install --claude-code
 ```
 
-Swap `--claude-code` for `--vscode --workspace <path-to-repo>` (VS Code + Copilot), `--jetbrains` (JetBrains AI Assistant), or drop the flag entirely to configure every host detected on this machine. Works identically on Windows / macOS / Linux — `pip` generates `.exe` wrappers on Windows, so no `python3` invocation to deal with. Restart your host (or open a fresh chat) once it's done.
+Other hosts: swap `--claude-code` for `--vscode --workspace <path-to-repo>`, `--jetbrains`, or drop the flag to configure every host on the machine. Works the same on macOS, Linux, and Windows (pip generates `.exe` wrappers, so no `python3` invocation).
+
+Restart your host or open a fresh chat afterwards.
 
 Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md).
 
-### Updating
+### Verify it's wired
+
+In any host, ask:
+
+> load the QA classifications
+
+You should get 10 names back: api_contract_change, business_logic_change, security_change, performance_change, frontend_change, infrastructure_change, test_change, docs_change, config_change, data_migration. If you do, you're wired.
+
+### Update
 
 ```bash
 pip install --upgrade sumo-qa && sumo-qa-install
 ```
 
-Then restart the host. The SessionStart hook re-injects new content; bundled skills + knowledge refresh from the upgraded package.
+Restart the host. The SessionStart hook re-injects the latest content; skills and knowledge refresh from the upgraded package.
 
-## What you get
+## What's included
 
-| Layer | What it is |
+| Layer | What |
 |---|---|
-| **14 skills** (`skills/*/SKILL.md`) | Iron-Law-enforced procedures the host LLM follows. Cover deciding approach, preparing for work, scaffolding TDD, reviewing diffs, strengthening tests, finding test data, answering testing questions, repo-wide strategising — **plus planning + subagent execution + finishing chain** (planning → dispatch parallel subagents → capture evidence + PR-ready summary). |
-| **24 MCP entry points** | 14 skill tools + 6 knowledge loaders + 4 test-data tools. Thin file IO; no inference. |
-| **4 knowledge catalogues** (`knowledge/*.md`) | Classifications, approaches, principles, techniques — the LLM picks from these, not from training-data recall. Editable as plain markdown. Specialty-tool picks are intentionally NOT catalogued: the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
+| **14 skills** ([`skills/`](skills/)) | Iron-Law procedures: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, finding test data, answering testing questions, repo strategy — plus the planning → parallel subagent execution → finishing chain. |
+| **24 MCP entry points** | 14 skill tools, 6 knowledge loaders, 4 test-data tools. Thin file IO, no inference. |
+| **4 knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques. The agent picks from these instead of recalling from training data. Editable as plain markdown. Specialty-tool picks are deliberately not catalogued — the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
 
 ## Host support
 
-Each host surfaces the same skills and tools differently — that's a host-API difference, not a sumo-qa choice. All routes call the same MCP server and read the same SKILL.md content.
+Every host calls the same MCP server and reads the same SKILL.md files. What differs is how each host exposes them — that's a host-API difference, not a sumo-qa choice.
 
-The hosts below have been verified end-to-end with `sumo-qa-install`:
+These hosts are verified end-to-end with `sumo-qa-install`:
 
-| Host | Slash invocation | Setup |
+| Host | Slash | Setup |
 |---|---|---|
 | **Claude Code** | `/sumo-qa-deciding-approach` (hyphens) | `sumo-qa-install --claude-code` |
-| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language; Copilot picks tools by description | `sumo-qa-install --vscode --workspace <repo>` writes `<repo>/.vscode/mcp.json` |
-| **JetBrains AI Assistant** | `/sumo_qa_deciding_approach` (underscores) | One-time **Settings → Tools → AI Assistant → Model Context Protocol → Add server** with absolute binary path. `sumo-qa-install --jetbrains` prints the fields to paste. |
-| **JetBrains Junie** | Natural language; Junie picks tools by description | Drop the JSON `sumo-qa-install` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per-project) |
+| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language | `sumo-qa-install --vscode --workspace <repo>` writes `.vscode/mcp.json` |
+| **JetBrains AI Assistant** | `/sumo_qa_deciding_approach` (underscores) | One-time UI setup; `sumo-qa-install --jetbrains` prints the fields to paste |
+| **JetBrains Junie** | Natural language | Drop the JSON `sumo-qa-install` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) |
 
-**Slash-invocation in Claude Code.** After `sumo-qa-install --claude-code`, type `/` and start typing `sumo-qa-`:
+In Claude Code, type `/` then `sumo-qa-` to see all 14 skills as hyphenated entries (symlinked into `~/.claude/skills/`). The same skills are also registered through MCP with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`); both routes call the same SKILL.md.
 
-- The 14 skills appear as native Claude Code skills with hyphens (`/sumo-qa-deciding-approach`, `/sumo-qa-creating-test-plan`, …) — `sumo-qa-install` symlinks them into `~/.claude/skills/`.
-- The skills are also registered through MCP, and the MCP knowledge loaders + test-data tools show with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`, …). You may see both the hyphen and underscore forms of each skill — they call the same SKILL.md and behave identically.
+Natural language works everywhere. *"Review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths produce the same result.
 
-**Natural language always works.** *"review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths produce the same result.
-
-In **JetBrains AI Assistant** every entry point is slash-invocable with underscores (`/sumo_qa_deciding_approach`, `/sumo_qa_load_classifications`). In **VS Code + Copilot** and **Junie**, neither host routes via slash menu — use natural language; both pick tools by description.
-
-**Other MCP-capable hosts** (Cursor, Codex, OpenCode, etc.): the `sumo-qa` binary you get from `pip install sumo-qa` exposes a standard stdio MCP server, so it should work with any host that speaks MCP — follow that host's own MCP-server setup docs and point it at the absolute path printed by `sumo-qa-install --help`. We haven't verified those end-to-end ourselves, so we don't ship instructions for them.
-
-**Quick test in any host:** ask in chat *"load the QA classifications"*. Should return 10 names: api_contract_change, business_logic_change, security_change, performance_change, frontend_change, infrastructure_change, test_change, docs_change, config_change, data_migration. If yes, you're wired correctly.
+**Other MCP hosts** (Cursor, Codex, OpenCode, etc.): `pip install sumo-qa` ships a standard stdio MCP server, so it should work with anything that speaks MCP. Follow your host's MCP-server setup docs and point it at the absolute path from `sumo-qa-install --help`. Not verified end-to-end by us, so we don't ship instructions.
 
 ## See it in action
 
-Ten polished worked examples showing what sumo-qa actually looks like in conversation — diff reviews refusing to declare safe-to-merge, TDD cycles with the red output surfaced verbatim, mutation survivors walked one-at-a-time, formal test plans gated on measurable entry/exit criteria, and the surprising one where it correctly says *"no tests needed"* and stops:
+Ten transcripts showing the workflow on real code — diff reviews refusing to call safe-to-merge from stale CI, TDD cycles with the red output surfaced verbatim, mutation survivors walked one at a time, formal test plans gated on entry/exit criteria, and the case where the right answer is "no tests needed, stop here":
 
-- **[tests/scenarios/worked-examples/](tests/scenarios/worked-examples/)** — see [02 — review-my-changes](tests/scenarios/worked-examples/02-review-my-changes.md) for a representative end-to-end transcript.
-- **[tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md)** — the underlying scenario specs (user prompt → expected interaction shape → anti-patterns the skill prevents).
+- [tests/scenarios/worked-examples/](tests/scenarios/worked-examples/) — start with [02 — review my changes](tests/scenarios/worked-examples/02-review-my-changes.md) for a representative end-to-end
+- [tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md) — the scenario specs (prompt → expected shape → anti-patterns the skill prevents)
 
-## External-skill discovery
+## When sumo-qa doesn't fit
 
-If your QA intent has no native sumo-qa fit (e.g. *"set up Playwright E2E tests"*, *"add an accessibility audit"*, *"run k6 load tests"*), sumo-qa offers (with `[y/N]`) to install Vercel Labs' [`find-skills`](https://github.com/vercel-labs/skills) meta-skill, which then drives end-to-end discovery and install from [skills.sh](https://www.skills.sh/).
+If your QA intent has no native fit (Playwright E2E, accessibility audits, k6 load testing), sumo-qa offers (`[y/N]`) to install Vercel Labs' [find-skills](https://github.com/vercel-labs/skills) meta-skill, which then searches and installs from [skills.sh](https://www.skills.sh/).
 
-- No companion MCP shim — sumo-qa stays one MCP server. All CLI invocations happen through the host LLM's native `Bash` tool inside the SKILL itself.
-- Node.js (and therefore `npx`) is required. If it isn't installed, sumo-qa prints the install URL (https://nodejs.org) and stops — it never auto-elevates via sudo.
-- find-skills handles scope (global vs project-local), registry search, and install end-to-end; sumo-qa's discipline wraps the final response.
+- No companion MCP shim. All CLI invocations go through the host LLM's `Bash` tool inside the skill.
+- Node.js is required (for `npx`). If it's missing, sumo-qa prints the install URL and stops. It doesn't elevate via sudo.
+- find-skills handles scope (global vs project-local), registry search, and install; sumo-qa's discipline wraps the response.
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for attribution requirements that apply to forks and redistributors.
+[Apache 2.0](LICENSE). See [NOTICE](NOTICE) for attribution requirements that apply to forks and redistributors.
 
-## Docs
+## More docs
 
 - [AGENTS.md](AGENTS.md) — AI-agent bootstrap and per-host setup
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — three layers, host delivery, knowledge authority
-- [docs/SKILLS.md](docs/SKILLS.md) — the 14 skills with their Iron Laws
-- [docs/TOOLS.md](docs/TOOLS.md) — the 24 MCP entry points
-- [docs/INSTALL.md](docs/INSTALL.md) — per-host install detail, schema differences, troubleshooting
+- [docs/SKILLS.md](docs/SKILLS.md) — every skill with its Iron Law
+- [docs/TOOLS.md](docs/TOOLS.md) — every MCP entry point
+- [docs/INSTALL.md](docs/INSTALL.md) — per-host install detail and troubleshooting
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
-- [docs/PERSONA.md](docs/PERSONA.md) — optional in-character voice (Sumo-sensei). Off by default; ask the agent to enable mid-conversation.
+- [docs/PERSONA.md](docs/PERSONA.md) — optional Sumo-sensei voice (off by default)
