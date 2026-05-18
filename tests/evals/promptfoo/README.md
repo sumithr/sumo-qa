@@ -238,3 +238,7 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 - **Per-skill hand-authored second/third scenarios** — the architecture
   is generative-from-a-seed deliberately, to avoid maintaining hundreds
   of inputs/outputs.
+
+## A/B value-measurement (experimental)
+
+This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the full SKILL.md. The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. Scope is prototype on deciding-approach only, not rolled across the estate.

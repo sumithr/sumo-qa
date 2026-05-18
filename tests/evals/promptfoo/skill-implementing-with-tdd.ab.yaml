@@ -1,0 +1,385 @@
+disableVarExpansion: true
+description: 'A/B/C value-measurement for sumo-qa-implementing-with-tdd'
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-implementing-with-tdd/SKILL.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+    principles: file://../../../knowledge/principles.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL — apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+    - type: javascript
+      value: 'output.match(/boundary value analysis|equivalence partitioning|decision table|state transition|pairwise|exploratory/i) !== null'
+      threshold: 1
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE — does the response demonstrate the expected shape concretely?
+         (Concrete = produces the artefact: test code, assertion, file path,
+         specific function name. Ends with exactly one of the two pinned
+         handoff phrasings; either is valid. Hedging = SHAPE FAIL.)
+
+      B. GROUNDING — does the response use the provided ground-truth context?
+         The response must visibly reference it. Narrating without using the
+         supplied context → GROUNDING FAIL.
+         B GROUNDING: the named test-design technique must appear verbatim in {{loaded_techniques}}.
+
+      C. ANTI-PATTERNS — for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then
+      verdict>"}
+prompts:
+  - label: 'A0 — no skill, no catalogues'
+    raw: |
+      You are a senior QA agent in an IDE chat session.
+
+      Repository state and prior conversation context for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is a post-confirmation red-phase turn. Produce the concrete failing
+      test artefact now: target test file path, function under test, concrete
+      input, distinguishing assertion, and one named test-design technique
+      applied to this risk. Write the COMPLETE failing test FUNCTION inline as
+      a fenced code block, not just the assertion line. Skip writing production
+      code. End with exactly one handoff sentence telling the developer what
+      happens next. No confirmation question. No closing pleasantry.
+  - label: 'A1 — catalogues only, no skill'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded these
+      canonical QA catalogues:
+
+      --- LOADED PRINCIPLES ---
+      {{principles}}
+      --- END LOADED PRINCIPLES ---
+
+      --- LOADED TECHNIQUES ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
+
+      Repository state and prior conversation context for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is a post-confirmation red-phase turn. Produce the concrete failing
+      test artefact now: target test file path, function under test, concrete
+      input, distinguishing assertion, and one named test-design technique from
+      the loaded techniques catalogue using verbatim wording. Write the
+      COMPLETE failing test FUNCTION inline as a fenced code block, not just
+      the assertion line. Skip writing production code. End with exactly one
+      handoff sentence telling the developer what happens next. No confirmation
+      question. No closing pleasantry.
+  - label: 'B — full skill (current)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content}}
+      --- END SKILL ---
+
+      You have also loaded the test-design technique catalogue (the source of
+      truth for valid technique names; verbatim wording is mandatory per the
+      skill's step 3):
+
+      --- LOADED TECHNIQUES ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
+
+      Repository state and prior conversation context for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is a post-confirmation red-phase turn. Execute step 3 of the skill's
+      checklist (which names ALL FIVE required artefacts: target test file path,
+      function under test, concrete input, distinguishing assertion, named
+      test-design technique with verbatim catalogue wording), then write the
+      COMPLETE failing test FUNCTION inline as a fenced code block (e.g.
+      ```python
+      def test_xxx():
+          ...
+          assert ...
+      ```
+      — not just the assertion line, the full test function with setup,
+      invocation, and assertion). Skip writing production code. End with
+      EXACTLY one of the skill's two pinned handoff phrasings (no question, no
+      pleasantry) — phrasing (a) only when real red output is in the
+      ground-truth context, otherwise phrasing (b).
+tests:
+  - description: SEED 1 — regression-first bug fix (VIP double-discount)
+    vars:
+      user_prompt: >-
+        Fix the VIP-customer double-discount bug regression-first. The discount
+        stacks twice when a VIP gets a promo code applied. Logic is in
+        `pricing/discount_calculator.py`.
+      ground_truth_context: |
+        ## pricing/discount_calculator.py (production — buggy)
+        ```python
+        def apply_discounts(order):
+            total = order.total
+            if order.customer.tier == "VIP":
+                total = total * 0.9   # 10% VIP discount
+            if order.promo_code:
+                total = total * 0.9   # 10% promo discount
+            # BUG: a VIP with a promo code gets BOTH discounts (effectively 19%)
+            # The intended behaviour is that VIP + promo should cap at 15% combined.
+            return total
+        ```
+
+        ## tests/pricing/test_discount_calculator.py (existing tests)
+        ```python
+        import pytest
+        from pricing.discount_calculator import apply_discounts
+        from tests.fixtures.order import make_order
+
+        def test_vip_alone():
+            order = make_order(total=100, tier="VIP")
+            assert apply_discounts(order) == 90.0
+
+        def test_promo_alone():
+            order = make_order(total=100, promo_code="BLACKFRIDAY10")
+            assert apply_discounts(order) == 90.0
+
+        # No test for VIP + promo combination — this is the coverage gap.
+        ```
+      expected_shape: >-
+        Concrete TDD red-phase artefact for the VIP double-discount regression.
+        Names `tests/pricing/test_discount_calculator.py` as the target test
+        file, `apply_discounts` as the function under test, a VIP order with
+        total 100 and promo code `BLACKFRIDAY10` as concrete input, and an
+        assertion that the result is 85.0 so VIP + promo caps at 15% combined
+        instead of compounding to 81.0. Uses `decision tables` or another
+        technique from the loaded techniques catalogue verbatim and applies it
+        to the combined VIP/promo rule. Writes the complete failing test
+        function inline. Refuses to write the production fix in the same turn.
+        Ends with EXACTLY ONE of the SKILL's two pinned handoff phrasings:
+        "red phase confirmed. Implement to make it green; I'll re-run when
+        ready. If you'd like me to write the production code, say so." or
+        "I'll run this and surface the assertion failure next."
+      anti_patterns:
+        - >-
+          Writes the production fix in the same turn (Iron Law: red phase is
+          test-only).
+        - >-
+          Tautology assertion that re-states the broken production code, such
+          as asserting the compounded 81.0 buggy result.
+        - >-
+          Asks 4+ clarification questions instead of grounding in the supplied
+          context.
+        - >-
+          Stub allowance violation: any *behaviour* in a production stub instead
+          of signature-only `pass` / `raise NotImplementedError`.
+        - >-
+          Hedging language — 'would write...', 'likely named...', 'probably
+          check...' — instead of producing the concrete test code.
+  - description: SEED 2 — billing rule diff regression test
+    vars:
+      user_prompt: >-
+        Given this billing diff, write the failing regression test before the
+        fix. The 14-day trial should still be free on day 14; the change now
+        charges trial customers one day early.
+      ground_truth_context: |
+        ## billing/subscriptions.py (diff that introduced the bug)
+        ```diff
+        def amount_due(account, invoice_total):
+        -    if account.plan == "trial" and account.days_since_signup <= 14:
+        +    if account.plan == "trial" and account.days_since_signup < 14:
+                 return 0.0
+             return invoice_total
+        ```
+
+        ## tests/billing/test_subscriptions.py (existing tests)
+        ```python
+        from dataclasses import dataclass
+
+        from billing.subscriptions import amount_due
+
+        @dataclass
+        class Account:
+            plan: str
+            days_since_signup: int
+
+        def test_trial_is_free_before_day_14():
+            account = Account(plan="trial", days_since_signup=13)
+            assert amount_due(account, 199.0) == 0.0
+
+        def test_trial_charges_after_day_14():
+            account = Account(plan="trial", days_since_signup=15)
+            assert amount_due(account, 199.0) == 199.0
+
+        def test_paid_plan_is_charged():
+            account = Account(plan="pro", days_since_signup=3)
+            assert amount_due(account, 199.0) == 199.0
+
+        # No test covers the inclusive day-14 billing boundary.
+        ```
+      expected_shape: >-
+        Concrete TDD red-phase artefact for the billing-rule regression caused
+        by the diff. Names `tests/billing/test_subscriptions.py` as the target
+        test file, `amount_due` as the function under test, a trial account at
+        `days_since_signup=14` with invoice total 199.0 as concrete input, and
+        an assertion that the due amount remains 0.0. Uses `boundary value
+        analysis` from the loaded techniques catalogue verbatim and applies it
+        to the inclusive trial-day boundary. Writes the complete failing test
+        function inline. Refuses to write the production fix in the same turn.
+        Ends with EXACTLY ONE of the SKILL's two pinned handoff phrasings:
+        "red phase confirmed. Implement to make it green; I'll re-run when
+        ready. If you'd like me to write the production code, say so." or
+        "I'll run this and surface the assertion failure next."
+      anti_patterns:
+        - >-
+          Writes the production fix in the same turn (Iron Law: red phase is
+          test-only).
+        - >-
+          Tautology assertion that re-states the broken production code, such
+          as asserting day 14 is charged 199.0.
+        - >-
+          Asks 4+ clarification questions instead of grounding in the supplied
+          context.
+        - >-
+          Stub allowance violation: any *behaviour* in a production stub instead
+          of signature-only `pass` / `raise NotImplementedError`.
+        - >-
+          Hedging language — 'would write...', 'likely named...', 'probably
+          check...' — instead of producing the concrete test code.
+  - description: SEED 3 — characterization test before refactor rename
+    vars:
+      user_prompt: >-
+        Before I refactor and rename `display_name_for` to `account_label_for`,
+        add a characterization test that pins the current behaviour so the
+        rename does not change output.
+      ground_truth_context: |
+        ## customers/display.py (production — current behaviour before refactor)
+        ```python
+        def display_name_for(customer):
+            if customer.nickname:
+                return customer.nickname.strip()
+            if customer.company_name:
+                return f"{customer.company_name} ({customer.id})"
+            return f"Customer #{customer.id}"
+        ```
+
+        ## tests/customers/test_display.py (existing tests)
+        ```python
+        from dataclasses import dataclass
+
+        from customers.display import display_name_for
+
+        @dataclass
+        class Customer:
+            id: int
+            nickname: str = ""
+            company_name: str = ""
+
+        def test_uses_nickname_when_present():
+            customer = Customer(id=42, nickname="  Priya  ", company_name="Acme Ltd")
+            assert display_name_for(customer) == "Priya"
+
+        # No characterization covers the company-name fallback before the rename.
+        ```
+      expected_shape: >-
+        Concrete TDD red-phase artefact for a refactor characterization test.
+        Names `tests/customers/test_display.py` as the target test file and
+        `display_name_for` as the function under test. Constructs a Customer
+        with nickname empty or whitespace-only AND company_name set to any
+        non-empty string AND id set to any positive integer — these inputs
+        must exercise the company-name fallback branch of the production
+        function. The assertion must pin the output to exactly
+        `"{company_name} ({id})"` using the chosen input values (the specific
+        strings/numbers don't matter — what matters is the assertion uses
+        the company-name-with-id format, NOT the nickname branch and NOT
+        the `Customer #{id}` final branch). Uses `equivalence partitioning`
+        or `exploratory testing charters` from the loaded techniques
+        catalogue verbatim and applies it to the company-name fallback
+        behaviour being pinned before rename. Writes the complete
+        failing-or-characterization test function inline. Refuses to write
+        the production rename or refactor in the same turn. Ends with
+        EXACTLY ONE of the SKILL's two pinned handoff phrasings: "red phase
+        confirmed. Implement to make it green; I'll re-run when ready. If
+        you'd like me to write the production code, say so." or "I'll run
+        this and surface the assertion failure next."
+      anti_patterns:
+        - >-
+          Writes the production rename or refactor in the same turn instead of
+          only adding the characterization test.
+        - >-
+          Tautology assertion that simply mirrors an implementation expression
+          without pinning the externally observed label string.
+        - >-
+          Asks 4+ clarification questions instead of grounding in the supplied
+          context.
+        - >-
+          Stub allowance violation: any *behaviour* in a production stub instead
+          of signature-only `pass` / `raise NotImplementedError`.
+        - >-
+          Hedging language — 'would write...', 'likely named...', 'probably
+          check...' — instead of producing the concrete test code.

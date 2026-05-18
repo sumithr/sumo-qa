@@ -40,13 +40,29 @@ You MUST create a TodoWrite item per checklist item and complete in order:
 3. Call `sumo_qa_load_principles()` if a principle citation is needed in the output.
 4. Reason about classification: which catalogue entry applies? Cite the words / paths internally.
 5. Reason about shape: single change vs repo-wide / strategy ask vs config tweak vs docs-only? Strategy-shaped asks ("audit", "strategy", "pyramid", "rollout") route to `strategy-orchestration` — do NOT force per-change output.
-6. Pick the approach. The catalogue is authoritative; describe a new one only when none fits, with rationale.
+6. Pick the approach. The catalogue is authoritative; use `n/a` for approach only when no catalogue approach fits and capture the non-canonical surface in `rationale`.
 7. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question. Otherwise, do not ask.
-8. Return INTERNALLY: `{approach, classification, rationale, next_action: {skill: <name>}}` — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; the sub-skill produces what the user sees.
+8. Return INTERNALLY using the Routing-payload shape below — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; the sub-skill produces what the user sees.
 
 ## Process Flow
 
 See the Checklist above — that's the flow.
+
+## Routing-payload shape
+
+Return exactly these fields internally:
+
+`{classification, approach, rationale, next_action: {skill}}`
+
+- `next_action.skill` is NEVER `n/a`: use a real sumo-qa skill name when routing, or `none` only for the STOP case where `approach` is `no-tests-recommended`.
+- `classification` is `n/a` only for `strategy-orchestration` intents or non-canonical intents routed to `sumo-qa-suggesting-external-skill`.
+- For every catalogue classification, use the verbatim entry: `test_change`, `docs_change`, `config_change`, `data_migration`, and all other real classifications are never `n/a`.
+- `approach` is `n/a` only when no canonical approach fits and routing goes to `sumo-qa-suggesting-external-skill`. Strategy intents use `approach: "strategy-orchestration"`, not `n/a`.
+- Capture non-canonical surface detail in `rationale`, not in `classification` or `approach`. Do not use `null` or invented values.
+
+Anti-patterns:
+- BAD: `classification: "n/a"` for a `test_change` intent (mutation-testing follow-up, raise coverage, strengthen weak assertions). USE: `classification: "test_change"`.
+- BAD: `next_action.skill: "n/a"` for a STOP case. USE: `next_action.skill: "none"`.
 
 ## Routing table (approach → next skill)
 
@@ -60,13 +76,13 @@ See the Checklist above — that's the flow.
 | verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
 | spike-first-then-tests | sumo-qa-preparing-for-work (deliverable mode) |
-| (no native fit, intent involves a non-native tool/surface) | sumo-qa-suggesting-external-skill |
+| n/a (no canonical approach fits; intent involves a non-native tool/surface) | sumo-qa-suggesting-external-skill |
 
 For "create a test plan" / "plan QA for this story" intents, after approach is picked, route to `sumo-qa-creating-test-plan` or `sumo-qa-preparing-for-work` per user phrasing. For "how do I test this?" intents that don't fit any specific approach, route to `sumo-qa-answering-testing-question`.
 
 ## Fallback to find-skills / skills.sh
 
-When **no canonical approach fits** the intent, decide whether the intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine. If yes → return `next_action: {skill: "sumo-qa-suggesting-external-skill"}` with the inferred surface in the internal rationale. If no (the intent fits a native sub-skill once you look closer) → continue with the native routing.
+When **no canonical approach fits** the intent, decide whether the intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine. If yes → return `classification: "n/a"`, `approach: "n/a"`, and `next_action: {skill: "sumo-qa-suggesting-external-skill"}` with the inferred surface in the internal rationale. If no (the intent fits a native sub-skill once you look closer) → continue with the native routing.
 
 `sumo-qa-suggesting-external-skill` will offer (with `[y/N]`) to install Vercel Labs' `find-skills` meta-skill, which then drives end-to-end discovery and install from [skills.sh](https://www.skills.sh/). No companion MCP shim is involved — all CLI invocations happen through the host LLM's native `Bash` tool. Don't pre-emptively warn the user — just route.
 
@@ -91,6 +107,16 @@ User: "create a test plan for refactoring the pricing pipeline".
 - Cite ISTQB Principle 4 (defects cluster — refactor risks introducing bugs at extraction boundaries).
 - Route to `sumo-qa-creating-test-plan`.
 
+User: "audit our test coverage across the repo and design where to invest QA effort next quarter".
+- Load classifications + approaches.
+- Internally return `{classification: "n/a", approach: "strategy-orchestration", rationale: "Repo-wide QA strategy ask, not a single change-shaped intent.", next_action: {skill: "sumo-qa-strategising"}}`.
+- Route to `sumo-qa-strategising`.
+
+User: "add end-to-end browser tests with Playwright for checkout".
+- Load classifications + approaches.
+- Internally return `{classification: "n/a", approach: "n/a", rationale: "Playwright E2E is a non-canonical external QA surface.", next_action: {skill: "sumo-qa-suggesting-external-skill"}}`.
+- Route to `sumo-qa-suggesting-external-skill`.
+
 ### Bad
 
 User: "create a test plan for refactoring the pricing pipeline". Pick `tdd-scaffold` because "test plan" sounds like adding tests. Wrong — refactor needs characterization tests first. SHAPE FIRST was violated by ignoring "refactoring" in the intent.
@@ -108,5 +134,5 @@ Routes to exactly ONE of the following, based on the approach picked:
 - When the intent is a generic testing question → `sumo-qa-answering-testing-question` to cite a principle and technique.
 - When the approach is `strategy-orchestration` → `sumo-qa-strategising` to walk the repo and design a phased rollout.
 - When the work has 3+ independent tasks needing dispatch → `sumo-qa-planning-qa-rollout` to turn the work into a bite-sized, dispatchable plan.
-- When no canonical approach fits AND the intent involves a tool / framework / surface sumo-qa doesn't natively cover → `sumo-qa-suggesting-external-skill`.
+- When no canonical approach fits AND the intent involves a tool / framework / surface sumo-qa doesn't natively cover → `sumo-qa-suggesting-external-skill` with `classification` and `approach` set to `n/a`.
 - When the approach is `no-tests-recommended` → stop. No next-skill handoff.

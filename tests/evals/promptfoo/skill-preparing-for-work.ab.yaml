@@ -1,0 +1,390 @@
+disableVarExpansion: true
+description: 'A/B/C value-measurement for sumo-qa-preparing-for-work'
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-preparing-for-work/SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate has loaded the canonical classifications catalogue below
+      for your verification:
+
+
+      --- LOADED CLASSIFICATIONS ---
+
+      {{loaded_classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         It must name risks anchored in change-shape evidence (file paths,
+         behaviours, line refs), propose a smallest useful test set tied to each
+         named risk, optionally name techniques for the test ideas, and avoid
+         formal test-plan entry/exit criteria.
+
+      B. GROUNDING - the named risks and test ideas must visibly use the
+         supplied CartSummary snippet or promo-code feature sketch. Narrating
+         without using the supplied context -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - label: 'A0 - no skill, no catalogues'
+    raw: |
+      You are a senior QA agent in an IDE chat session.
+
+      Repository state and product sketch for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is the QA-prep turn. Produce EXACTLY this response format:
+
+      Line 1: `Naming risks and the smallest test set.`
+
+      ## Risks (each MUST cite a specific line number from the supplied snippet, e.g. "line 5: subtotal+tax+shipping = total — promo discount must be subtracted here")
+
+      1. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor in observable behaviour.
+      2. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor.
+      3. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor.
+
+      ## Tests (each tied to a risk by NUMBER)
+
+      1. Test for risk 1: one-sentence test idea.
+      2. Test for risk 2: one-sentence test idea.
+      3. Test for risk 3: one-sentence test idea.
+
+      ## Techniques (each named verbatim from knowledge/techniques.md)
+
+      - Risk 1 → <technique>
+      - Risk 2 → <technique>
+      - Risk 3 → <technique>
+
+      NO test code. NO formal entry/exit criteria (that's creating-test-plan's surface). NO confirmation question. NO closing pleasantry. Each risk MUST cite a specific line number from the supplied snippet — unanchored risks fail.
+  - label: 'A1 - catalogues only, no skill'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded the
+      canonical change classifications:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{loaded_classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      Repository state and product sketch for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is the QA-prep turn. Produce EXACTLY this response format:
+
+      Line 1: `Naming risks and the smallest test set.`
+
+      ## Risks (each MUST cite a specific line number from the supplied snippet, e.g. "line 5: subtotal+tax+shipping = total — promo discount must be subtracted here")
+
+      1. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor in observable behaviour.
+      2. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor.
+      3. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor.
+
+      ## Tests (each tied to a risk by NUMBER)
+
+      1. Test for risk 1: one-sentence test idea.
+      2. Test for risk 2: one-sentence test idea.
+      3. Test for risk 3: one-sentence test idea.
+
+      ## Techniques (each named verbatim from knowledge/techniques.md)
+
+      - Risk 1 → <technique>
+      - Risk 2 → <technique>
+      - Risk 3 → <technique>
+
+      NO test code. NO formal entry/exit criteria (that's creating-test-plan's surface). NO confirmation question. NO closing pleasantry. Each risk MUST cite a specific line number from the supplied snippet — unanchored risks fail.
+  - label: 'B - full skill (current)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content}}
+      --- END SKILL ---
+
+      You have also loaded the canonical change classifications:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{loaded_classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      Repository state and product sketch for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is the QA-prep turn. Produce EXACTLY this response format:
+
+      Line 1: `Naming risks and the smallest test set.`
+
+      ## Risks (each MUST cite a specific line number from the supplied snippet, e.g. "line 5: subtotal+tax+shipping = total — promo discount must be subtracted here")
+
+      1. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor in observable behaviour.
+      2. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor.
+      3. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor.
+
+      ## Tests (each tied to a risk by NUMBER)
+
+      1. Test for risk 1: one-sentence test idea.
+      2. Test for risk 2: one-sentence test idea.
+      3. Test for risk 3: one-sentence test idea.
+
+      ## Techniques (each named verbatim from knowledge/techniques.md)
+
+      - Risk 1 → <technique>
+      - Risk 2 → <technique>
+      - Risk 3 → <technique>
+
+      NO test code. NO formal entry/exit criteria (that's creating-test-plan's surface). NO confirmation question. NO closing pleasantry. Each risk MUST cite a specific line number from the supplied snippet — unanchored risks fail.
+tests:
+  - description: SEED 1 - promo-code discount prep for CartSummary
+    vars:
+      user_prompt: >-
+        I'm about to add a promo-code discount to the checkout CartSummary
+        component; help me prep QA.
+      ground_truth_context: |
+        ## src/checkout/CartSummary.tsx
+        ```tsx
+         1 export function CartSummary({ cart, onSubmit }) {
+         2   const subtotal = cart.items.reduce((sum, item) => sum + item.price * item.qty, 0);
+         3   const tax = subtotal * 0.0825;
+         4   const shipping = subtotal >= 50 ? 0 : 6.99;
+         5   const total = subtotal + tax + shipping;
+         6
+         7   return (
+         8     <section aria-label="Cart summary">
+         9       <p data-testid="item-count">{cart.items.length} items</p>
+        10       <p data-testid="subtotal">${subtotal.toFixed(2)}</p>
+        11       <p data-testid="total">${total.toFixed(2)}</p>
+        12       <button disabled={cart.items.length === 0} onClick={onSubmit}>
+        13         Checkout
+        14       </button>
+        15     </section>
+        16   );
+        17 }
+        ```
+
+        ## Feature sketch
+        Add a `promo_code` input field. If the code is valid, subtract the
+        discount from total. If the code is invalid, show an error banner.
+      expected_shape: >-
+        Risk-shaped QA prep brief. Names 3-4 risks anchored to change-shape
+        evidence in the supplied CartSummary snippet and promo-code sketch (file
+        paths, behaviours, or line refs). Proposes 3-5 concrete test ideas, each
+        tied directly to a named risk. Optionally names techniques for the test
+        ideas and does not write test code.
+      anti_patterns:
+        - Generic "add unit tests" advice not tied to specific risks.
+        - Unanchored risks ("performance might matter", "security could be an issue").
+        - Jumping straight to writing test code.
+        - Producing a formal test plan with entry/exit criteria.
+        - Surfacing literal taxonomy labels such as business_logic_change or frontend_change.
+  - description: SEED 2 - item-count bug fix prep for CartSummary
+    vars:
+      user_prompt: >-
+        I'm fixing CartSummary because it shows the number of item rows instead
+        of the total quantity in the cart; help me prep QA.
+      ground_truth_context: |
+        ## src/checkout/CartSummary.tsx
+        ```tsx
+         1 export function CartSummary({ cart, onSubmit }) {
+         2   const subtotal = cart.items.reduce((sum, item) => sum + item.price * item.qty, 0);
+         3   const tax = subtotal * 0.0825;
+         4   const shipping = subtotal >= 50 ? 0 : 6.99;
+         5   const total = subtotal + tax + shipping;
+         6
+         7   return (
+         8     <section aria-label="Cart summary">
+         9       <p data-testid="item-count">{cart.items.length} items</p>
+        10       <p data-testid="subtotal">${subtotal.toFixed(2)}</p>
+        11       <p data-testid="total">${total.toFixed(2)}</p>
+        12       <button disabled={cart.items.length === 0} onClick={onSubmit}>
+        13         Checkout
+        14       </button>
+        15     </section>
+        16   );
+        17 }
+        ```
+
+        ## Bug sketch
+        For a cart with two line items and quantities 2 and 3, the item-count
+        display currently shows `2 items`. It should show `5 items`, while the
+        checkout disabled state should still depend on whether the cart has any
+        line items.
+      expected_shape: >-
+        Risk-shaped QA prep brief. Names 3-4 risks anchored to change-shape
+        evidence in the supplied CartSummary snippet and item-count bug sketch
+        (file paths, behaviours, or line refs). Proposes 3-5 concrete test ideas,
+        each tied directly to a named risk. Optionally names techniques for the
+        test ideas and does not write test code.
+      anti_patterns:
+        - Generic "add unit tests" advice not tied to specific risks.
+        - Treating the bug as a broad checkout redesign instead of an item-count quantity fix.
+        - Ignoring the existing empty-cart checkout disabled behaviour.
+        - Jumping straight to writing test code.
+        - Producing a formal test plan with entry/exit criteria.
+        - Surfacing literal taxonomy labels such as business_logic_change or frontend_change.
+  - description: SEED 3 - totals-helper refactor prep for CartSummary
+    vars:
+      user_prompt: >-
+        I'm refactoring CartSummary totals into a useCartTotals helper without
+        changing checkout behaviour; help me prep QA.
+      ground_truth_context: |
+        ## src/checkout/CartSummary.tsx
+        ```tsx
+         1 export function CartSummary({ cart, onSubmit }) {
+         2   const subtotal = cart.items.reduce((sum, item) => sum + item.price * item.qty, 0);
+         3   const tax = subtotal * 0.0825;
+         4   const shipping = subtotal >= 50 ? 0 : 6.99;
+         5   const total = subtotal + tax + shipping;
+         6
+         7   return (
+         8     <section aria-label="Cart summary">
+         9       <p data-testid="item-count">{cart.items.length} items</p>
+        10       <p data-testid="subtotal">${subtotal.toFixed(2)}</p>
+        11       <p data-testid="total">${total.toFixed(2)}</p>
+        12       <button disabled={cart.items.length === 0} onClick={onSubmit}>
+        13         Checkout
+        14       </button>
+        15     </section>
+        16   );
+        17 }
+        ```
+
+        ## Refactor sketch
+        Move the subtotal, tax, shipping, and total calculations from lines 2-5
+        into `src/checkout/useCartTotals.ts`. The rendered subtotal, total,
+        item count, and checkout disabled behaviour should remain unchanged.
+      expected_shape: >-
+        Risk-shaped QA prep brief. Names 3-4 risks anchored to change-shape
+        evidence in the supplied CartSummary snippet and totals-helper refactor
+        sketch (file paths, behaviours, or line refs). Proposes 3-5 concrete test
+        ideas, each tied directly to a named risk. Optionally names techniques
+        for the test ideas and does not write test code.
+      anti_patterns:
+        - Generic "run regression tests" advice not tied to specific risks.
+        - Proposing new feature behaviour instead of preserving existing totals behaviour.
+        - Ignoring exact formatting and threshold behaviours visible in the snippet.
+        - Jumping straight to writing test code.
+        - Producing a formal test plan with entry/exit criteria.
+        - Surfacing literal taxonomy labels such as test_change or frontend_change.
+  - description: SEED 4 - gift-wrap fee feature prep for CartSummary
+    vars:
+      user_prompt: >-
+        I'm adding a gift-wrap option to CartSummary that adds a fee to the
+        checkout total; help me prep QA.
+      ground_truth_context: |
+        ## src/checkout/CartSummary.tsx
+        ```tsx
+         1 export function CartSummary({ cart, onSubmit }) {
+         2   const subtotal = cart.items.reduce((sum, item) => sum + item.price * item.qty, 0);
+         3   const tax = subtotal * 0.0825;
+         4   const shipping = subtotal >= 50 ? 0 : 6.99;
+         5   const total = subtotal + tax + shipping;
+         6
+         7   return (
+         8     <section aria-label="Cart summary">
+         9       <p data-testid="item-count">{cart.items.length} items</p>
+        10       <p data-testid="subtotal">${subtotal.toFixed(2)}</p>
+        11       <p data-testid="total">${total.toFixed(2)}</p>
+        12       <button disabled={cart.items.length === 0} onClick={onSubmit}>
+        13         Checkout
+        14       </button>
+        15     </section>
+        16   );
+        17 }
+        ```
+
+        ## Feature sketch
+        Add a `gift_wrap` checkbox. When selected, add a $4.99 gift-wrap fee to
+        the total and render a `data-testid="gift-wrap-fee"` row. If the cart is
+        empty, the gift-wrap checkbox should be disabled.
+      expected_shape: >-
+        Risk-shaped QA prep brief. Names 3-4 risks anchored to change-shape
+        evidence in the supplied CartSummary snippet and gift-wrap feature
+        sketch (file paths, behaviours, or line refs). Proposes 3-5 concrete
+        test ideas, each tied directly to a named risk. Optionally names
+        techniques for the test ideas and does not write test code.
+      anti_patterns:
+        - Generic "add unit tests" advice not tied to specific risks.
+        - Ignoring the fee's interaction with the total calculation and empty-cart disabled state.
+        - Treating gift wrap as a visual-only change with no calculation risk.
+        - Jumping straight to writing test code.
+        - Producing a formal test plan with entry/exit criteria.
+        - Surfacing literal taxonomy labels such as business_logic_change or frontend_change.
