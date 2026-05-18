@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/sumithr/sumo-qa/compare/v0.4.2...v0.4.3) (2026-05-18)
+
+
+### Build System
+
+* **deps:** bump googleapis/release-please-action from 4 to 5 ([#65](https://github.com/sumithr/sumo-qa/issues/65)) ([bf118ae](https://github.com/sumithr/sumo-qa/commit/bf118aeea79013bb716f127ccb9a786fbe9873de))
+
 ## [0.4.2](https://github.com/sumithr/sumo-qa/compare/v0.4.1...v0.4.2) (2026-05-18)
 
 
