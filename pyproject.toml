@@ -67,6 +67,7 @@ Issues = "https://github.com/sumithr/sumo-qa/issues"
 [project.scripts]
 sumo-qa = "sumo_qa.server:main"
 sumo-qa-install = "sumo_qa.installer:main"
+sumo-qa-validate = "sumo_qa.validate_content:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sumo_qa"]

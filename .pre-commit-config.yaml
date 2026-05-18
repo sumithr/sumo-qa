@@ -103,6 +103,24 @@ repos:
         require_serial: true
         stages: [pre-commit]
 
+      - id: sumo-qa-validate
+        name: sumo-qa-validate (knowledge/standards schemas)
+        # Runs the strict-schema loaders (StandardsRulesEngine.from_file,
+        # TestDataCatalogue) and the soft checks (standards-pack YAML
+        # parseable, knowledge .md non-empty) against the repo. Fires only
+        # when content files change so ordinary commits don't pay the cost.
+        # `language: system` matches the pip-audit hook pattern — uses the
+        # `sumo-qa-validate` console script from the user's `pip install -e .`
+        # so the hook doesn't need its own isolated venv with the project
+        # bootstrapped. Contributors must have run `pip install -e .` for
+        # the script to be on PATH.
+        entry: sumo-qa-validate
+        language: system
+        files: ^(knowledge/|standards/|src/sumo_qa/validate_content\.py$)
+        pass_filenames: false
+        require_serial: true
+        stages: [pre-commit]
+
       - id: pytest
         name: pytest (pre-push)
         # Runs on `git push`, not on every commit (too slow for single-file
