@@ -179,6 +179,158 @@ You should get 10 names back: api_contract_change, business_logic_change, securi
 | `python3 install.py` opens Windows Store / "command not found" | Either no `python3` on this Windows machine (Windows ships only a Store stub) or no install.py on disk (pip-only install never had it) | Use the console-script entry instead: `pip install sumo-qa` then `sumo-qa-install`. Avoids the `python3` shell-stub issue entirely. |
 | Copilot says "I don't have access to those tools" with mini model | Mini/fast model can't reliably call MCP tools | Switch to Claude Sonnet 4.5 or GPT-5 full in Copilot's model picker |
 
+## Install from a local clone
+
+Use this flow when you want to **edit skills, knowledge catalogues, or standards packs in place** — your team's own QA standards, custom techniques, extra change rules — and have the host pick the edits up immediately, with no env vars and no reinstall step. Common cases:
+
+- A team fork that bakes in your org's standards pack and change rules
+- Trying a custom skill on a branch without publishing it
+- Extending the canonical knowledge catalogues (techniques, principles) with team-specific entries
+- Working on sumo-qa itself
+
+### What "editable" gets you
+
+An editable install (`pip install -e .`) leaves the package files at the repo root and adds a `.pth` pointer to the venv's `site-packages`. Two side-effects make live editing work end-to-end:
+
+| What you edit in the clone | How it reaches the host | Reinstall needed? |
+|---|---|---|
+| `skills/<name>/SKILL.md` (existing skill) | `sumo-qa-install` symlinks `~/.claude/skills/<name>` → `<repo>/skills/<name>`. Claude Code re-reads the file on every invocation. | No |
+| `knowledge/*.md` (classifications, approaches, principles, techniques) | The bundled `_data/knowledge/` is **only created when a wheel is built**, not in editable installs. The loader's `_knowledge_dir()` falls through to `<repo>/knowledge/`. | No |
+| `standards/packs/*.yml` / `*.yaml` | Same fall-through: `_standards_dir()` returns `<repo>/standards/packs/`. The MCP server reads from disk on each `sumo_qa_load_standards` call. | No |
+| `standards/rules/change_rules.yaml` | Same — `_rules_path()` resolves to the repo file. | No |
+| `knowledge/test_data/<domain>/<record>.yml` | The test-data catalogue scans the repo directory (or `QA_TEST_DATA_PATH` if set). | No |
+| **New** `skills/<new-name>/SKILL.md` | Symlink doesn't exist yet under `~/.claude/skills/`. Re-run `sumo-qa-install`. | `sumo-qa-install` only |
+| `src/sumo_qa/*.py` | Editable install → already live. Restart the host so it spawns a fresh MCP server process. | Restart host |
+| `pyproject.toml` (dependency / script entry change) | `pip install -e .` to refresh the venv's metadata. | `pip install -e .` |
+
+### Prerequisites
+
+- **Python 3.10+** (`python3 --version`)
+- **git**
+- The `claude` CLI on PATH if you want Claude Code's MCP registry written automatically. Optional — skill symlinks work without it.
+
+### Steps
+
+```bash
+git clone https://github.com/sumithr/sumo-qa.git
+cd sumo-qa
+
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e .                    # editable, no dev extras
+sumo-qa-install --claude-code       # or just `sumo-qa-install` for every detected host
+```
+
+Two things to know about that `sumo-qa-install` step:
+
+1. It runs with the activated venv's `sumo-qa` first on PATH, so the absolute path it writes into Claude Code's MCP registry / `claude_desktop_config.json` / `.vscode/mcp.json` is `<repo>/.venv/bin/sumo-qa`. That binary, when invoked, runs the editable install → reads `<repo>/skills/`, `<repo>/knowledge/`, `<repo>/standards/` live.
+2. Skills get symlinked **per skill** into `~/.claude/skills/<name>` pointing at `<repo>/skills/<name>`. Editing a SKILL.md needs no further action; the host re-reads it on next invocation.
+
+Restart the host (or open a fresh chat) once `sumo-qa-install` is done.
+
+### Verify the clone is wired live, not a stale PyPI install
+
+In a fresh host session, ask:
+
+> load the QA classifications
+
+The text returned should match `<repo>/knowledge/classifications.md` byte-for-byte. To confirm the clone is what the host is actually reading, add one classification to that file — say, a placeholder line under the existing list — save, restart the host, and ask again. The new line should appear in the output.
+
+Quick sanity check from the shell:
+
+```bash
+readlink ~/.claude/skills/sumo-qa-deciding-approach
+# Expect: <repo>/skills/sumo-qa-deciding-approach
+#   NOT: ~/.local/share/uv/tools/sumo-qa/lib/.../_data/skills/...
+
+.venv/bin/python -c "from sumo_qa.knowledge_loaders import _knowledge_dir, _standards_dir; print(_knowledge_dir()); print(_standards_dir())"
+# Expect both to point inside <repo>, not a site-packages _data directory.
+```
+
+If `readlink` points at `~/.local/share/uv/tools/...` you've got a PyPI / `uv tool install` copy winning the PATH race — re-activate the venv and re-run `sumo-qa-install` from inside it.
+
+### Adding your team's standards pack
+
+Full schema reference and a recipe for swapping ISTQB out for a different body of QA practice: [CONTENT-FORMATS.md](CONTENT-FORMATS.md). Run `sumo-qa-validate` (or wait for the pre-commit hook) to confirm a new pack parses and your `change_rules.yaml` entry stays inside the closed `suggested_test_types` enum.
+
+1. Drop a new YAML file into `standards/packs/` (sibling of the existing `istqb_v1.yml`, `qa_shift_left_v1.yml`):
+
+   ```yaml
+   # standards/packs/my_team_v1.yml
+   pack: my_team_v1
+   description: Internal QA standards for <team>
+   # Optional metadata filter: makes this pack returned only for matching classifications.
+   # Omit to make the pack always-loaded.
+   applies_to_classifications: [api_contract_change, business_logic_change]
+   standards:
+     - id: my-team-1
+       statement: Every public endpoint must have a contract test pinned to the OpenAPI schema.
+     - id: my-team-2
+       statement: PII never appears in logs at INFO level or below.
+   ```
+
+2. In the host: *"load the QA standards"*. The output should include `# my_team_v1.yml` followed by your YAML.
+
+The loader takes **every** `*.yml` / `*.yaml` file in `standards/packs/` — there's no registry to update. Same for `change_rules.yaml` (a single file under `standards/rules/`); edit in place to add team-specific change-class rules.
+
+### Adding to the knowledge catalogues
+
+`knowledge/techniques.md`, `knowledge/principles.md`, `knowledge/approaches.md`, `knowledge/classifications.md` are plain markdown the host LLM reads verbatim — the skills tell it to "pick from this catalogue". To extend:
+
+- **New test design technique** → append an entry to `knowledge/techniques.md` matching the existing entries' shape (name, when-to-use, worked example). The TDD and strengthening skills will then consider it.
+- **New change classification** → append to `knowledge/classifications.md`. The `sumo-qa-deciding-approach` skill picks from whatever this file says, no code change needed.
+
+Don't add `_data/` directories — they are only created by Hatch when building a wheel, and adding them by hand will shadow the live repo files.
+
+### Adding a new skill
+
+```
+skills/
+  my-team-perf-review/
+    SKILL.md          # follow the structure tested by tests/test_skill_conformance.py
+```
+
+Then:
+
+```bash
+sumo-qa-install --claude-code   # only needed to create the new ~/.claude/skills/my-team-perf-review symlink
+```
+
+The MCP server picks up `skills/*/SKILL.md` automatically on its next startup (host restart).
+
+### Updating from upstream
+
+```bash
+git pull
+# Re-run install only if pyproject.toml or new skills/ entries arrived:
+pip install -e .          # only if dependencies or src/ changed
+sumo-qa-install           # only if new skills/<name>/ directories arrived
+```
+
+Routine knowledge / standards / SKILL.md edits from upstream require neither.
+
+### Switching between a clone and the PyPI install
+
+`sumo-qa-install` writes whatever `sumo-qa` is first on PATH at the time it runs. To switch:
+
+```bash
+# Clone wins (live edits):
+source <repo>/.venv/bin/activate
+sumo-qa-install
+
+# Back to PyPI / uv tool install (stable, bundled _data):
+deactivate
+sumo-qa-install
+```
+
+Restart the host after either switch.
+
+### Caveats
+
+- Don't commit your team's private standards / rules to a public fork of sumo-qa upstream. Either fork into a private repo or keep team packs on a long-lived local branch.
+- The bundled `_data/` directory only appears in built wheels. If you ever see `<repo>/src/sumo_qa/_data/` after running editable commands, something built a wheel inside the source tree — delete it; otherwise the loaders will read from it instead of `<repo>/knowledge/` and `<repo>/standards/`.
+- `QA_KNOWLEDGE_PATH`, `QA_STANDARDS_PATH`, `QA_RULES_PATH`, `QA_TEST_DATA_PATH` env vars always win over the resolution chain. Useful if you want to point a single host at a *different* team-standards directory while leaving the clone's defaults alone. See [CONFIGURATION.md](CONFIGURATION.md).
+
 ## Manual install (no `sumo-qa-install`)
 
 If you're not running `sumo-qa-install` for any reason, the binary path you need everywhere is:
