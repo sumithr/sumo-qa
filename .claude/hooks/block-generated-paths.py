@@ -14,6 +14,21 @@ import json
 import sys
 from pathlib import Path
 
+
+def find_repo_root(start: Path) -> Path:
+    """Walk up looking for pyproject.toml or .git; fall back to start.
+
+    The hook compares edit paths against repo-relative deny patterns, so the
+    anchor must be the repo root regardless of where the session's cwd
+    happens to be. Anchoring to cwd silently allows edits to protected
+    paths whenever Claude is launched from (or chdirs into) a subdirectory.
+    """
+    for candidate in [start, *start.parents]:
+        if (candidate / "pyproject.toml").is_file() or (candidate / ".git").exists():
+            return candidate
+    return start
+
+
 DENY_PATTERNS = [
     "tests/fixtures/**",
     "mutants/**",
@@ -57,11 +72,12 @@ def main() -> int:
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input", {}) or {}
     cwd = Path(payload.get("cwd") or Path.cwd()).resolve()
+    repo_root = find_repo_root(cwd)
 
     for raw in candidate_paths(tool_name, tool_input):
         try:
             abs_path = Path(raw).resolve()
-            rel = abs_path.relative_to(cwd).as_posix()
+            rel = abs_path.relative_to(repo_root).as_posix()
         except (ValueError, OSError):
             continue
         matched = matches_deny(rel)

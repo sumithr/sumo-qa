@@ -16,6 +16,21 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+def find_repo_root(start: Path) -> Path:
+    """Walk up looking for pyproject.toml or .git; fall back to start.
+
+    The hook compares edit paths against repo-relative WATCHED_PREFIXES, so
+    the anchor must be the repo root regardless of where the session's cwd
+    happens to be. Anchoring to cwd causes the validator to silently skip
+    content edits whenever Claude is launched from a subdirectory.
+    """
+    for candidate in [start, *start.parents]:
+        if (candidate / "pyproject.toml").is_file() or (candidate / ".git").exists():
+            return candidate
+    return start
+
+
 WATCHED_PREFIXES = ("knowledge/", "standards/", "src/sumo_qa/validate_content.py")
 
 
@@ -37,11 +52,12 @@ def main() -> int:
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input", {}) or {}
     cwd = Path(payload.get("cwd") or Path.cwd()).resolve()
+    repo_root = find_repo_root(cwd)
 
     relevant = False
     for raw in candidate_paths(tool_name, tool_input):
         try:
-            rel = Path(raw).resolve().relative_to(cwd).as_posix()
+            rel = Path(raw).resolve().relative_to(repo_root).as_posix()
         except (ValueError, OSError):
             continue
         if any(rel.startswith(p) for p in WATCHED_PREFIXES):
@@ -53,7 +69,7 @@ def main() -> int:
 
     result = subprocess.run(
         ["sumo-qa-validate"],
-        cwd=cwd,
+        cwd=repo_root,
         capture_output=True,
         text=True,
     )
