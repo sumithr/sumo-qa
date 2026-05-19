@@ -120,3 +120,18 @@ class TestDataRegisterResponse(BaseModel):
     validation: ValidationResult
     catalogue_path: str
     duplicate_of: str | None = None
+
+
+# These are production Pydantic models, not pytest test classes. Their public
+# names intentionally start with TestData*, so opt them out of pytest collection.
+for _model in (
+    TestDataConfidence,
+    TestDataEntry,
+    TestDataRequirements,
+    TestDataSearchResult,
+    TestDataFindResponse,
+    TestDataValidateResponse,
+    TestDataRegisterResponse,
+):
+    _model.__test__ = False
+del _model
