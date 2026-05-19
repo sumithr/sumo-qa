@@ -10,6 +10,7 @@ propagate as a protocol-level error. The host can then surface the
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 
 from sumo_qa.server import build_mcp_server
@@ -29,7 +30,7 @@ def _broken_service(tmp_path: Path) -> QAShiftLeftService:
 def _invoke_tool(server, tool_name: str, **kwargs):
     tool = server._tool_manager._tools[tool_name]
     fn = tool.fn
-    if asyncio.iscoroutinefunction(fn):
+    if inspect.iscoroutinefunction(fn):
         return asyncio.run(fn(**kwargs))
     return fn(**kwargs)
 
