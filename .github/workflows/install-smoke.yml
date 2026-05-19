@@ -1,15 +1,16 @@
 name: install-smoke
 
-# End-to-end execution test for the canonical install path documented in
+# End-to-end execution test for the canonical install paths documented in
 # README.md and DEMO.md:
 #
 #   pip install sumo-qa && sumo-qa-install --claude-code
+#   pip install sumo-qa && sumo-qa-install --vscode --workspace <repo>
+#   pip install sumo-qa && sumo-qa-install --claude-desktop
+#   pip install sumo-qa && sumo-qa-install --jetbrains
 #
 # Works on macOS, Linux, AND Windows because pip generates `.exe` wrappers
-# on Windows. This is the only install path users are pointed at; without
-# this smoke, Windows-specific regressions in pyproject.toml entry points
-# or the installer module (APPDATA handling, .cmd shims, symlink-vs-copy
-# fallback in installer.py) would slip through to release.
+# on Windows. This smoke catches host-specific regressions in pyproject.toml
+# entry points and installer.py without expanding the full Python matrix.
 #
 # Trigger pattern matches the rest of .github/workflows/*.yml: push on
 # main, pull_request for everything else, concurrency cancel for rapid
@@ -64,8 +65,7 @@ jobs:
           sumo-qa-install --help >/dev/null
 
       - name: Run sumo-qa-install --claude-code
-        # Second half of the canonical README install — the host-wiring
-        # path that contains the Windows-specific branches in
+        # Claude Code host-wiring path contains the Windows-specific branches in
         # installer.py (APPDATA handling, .cmd shims, symlink-vs-copy
         # fallback in _install_claude_code_skills_per_dir). Without
         # it, a Windows regression in _setup_claude_code() ships
@@ -83,3 +83,123 @@ jobs:
         # are what get exercised here.
         shell: bash
         run: sumo-qa-install --claude-code
+
+      - name: Smoke VS Code workspace config
+        # Exercises the installed-wheel console script against a temporary
+        # workspace and verifies the VS Code-native schema. VS Code ignores
+        # Claude's `mcpServers` schema, so this check guards the documented
+        # `--vscode --workspace <repo>` path.
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          workspace = Path(tempfile.mkdtemp(prefix="sumo-qa-vscode-"))
+          (workspace / "pyproject.toml").write_text("[project]\nname = 'smoke'\n", encoding="utf-8")
+
+          subprocess.run(
+              ["sumo-qa-install", "--vscode", "--workspace", str(workspace)],
+              check=True,
+          )
+
+          config_path = workspace / ".vscode" / "mcp.json"
+          config = json.loads(config_path.read_text(encoding="utf-8"))
+          assert "servers" in config, config
+          assert "mcpServers" not in config, config
+          server = config["servers"]["sumo-qa"]
+          assert server["type"] == "stdio", server
+          assert server["command"], server
+          assert server["args"] == [], server
+          PY
+
+      - name: Smoke Claude Desktop config path
+        # Creates only the host config directory under temporary HOME/APPDATA
+        # and verifies that the installed console script writes the Claude
+        # Desktop `mcpServers` config there without touching the runner user.
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import platform
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          root = Path(tempfile.mkdtemp(prefix="sumo-qa-claude-desktop-"))
+          home = root / "home"
+          appdata = root / "AppData" / "Roaming"
+          home.mkdir(parents=True)
+          appdata.mkdir(parents=True)
+
+          system = platform.system()
+          if system == "Darwin":
+              config_dir = home / "Library" / "Application Support" / "Claude"
+          elif system == "Windows":
+              config_dir = appdata / "Claude"
+          else:
+              config_dir = home / ".config" / "Claude"
+          config_dir.mkdir(parents=True)
+
+          env = os.environ.copy()
+          env["HOME"] = str(home)
+          env["USERPROFILE"] = str(home)
+          env["APPDATA"] = str(appdata)
+
+          subprocess.run(["sumo-qa-install", "--claude-desktop"], check=True, env=env)
+
+          config_path = config_dir / "claude_desktop_config.json"
+          config = json.loads(config_path.read_text(encoding="utf-8"))
+          server = config["mcpServers"]["sumo-qa"]
+          assert server["command"], server
+          PY
+
+      - name: Smoke JetBrains manual output
+        # JetBrains setup intentionally remains a Settings-UI workflow. This
+        # smoke creates a fake IDE config root and verifies the installer prints
+        # the manual fields instead of writing a Claude/VS Code JSON schema.
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import platform
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          root = Path(tempfile.mkdtemp(prefix="sumo-qa-jetbrains-"))
+          home = root / "home"
+          appdata = root / "AppData" / "Roaming"
+          home.mkdir(parents=True)
+          appdata.mkdir(parents=True)
+
+          system = platform.system()
+          if system == "Darwin":
+              jb_root = home / "Library" / "Application Support" / "JetBrains"
+          elif system == "Windows":
+              jb_root = appdata / "JetBrains"
+          else:
+              jb_root = home / ".config" / "JetBrains"
+          (jb_root / "IntelliJIdea2026.1" / "options").mkdir(parents=True)
+
+          env = os.environ.copy()
+          env["HOME"] = str(home)
+          env["USERPROFILE"] = str(home)
+          env["APPDATA"] = str(appdata)
+
+          proc = subprocess.run(
+              ["sumo-qa-install", "--jetbrains"],
+              check=True,
+              env=env,
+              capture_output=True,
+              text=True,
+          )
+          assert "Command:" in proc.stdout, proc.stdout
+          assert "Model Context Protocol" in proc.stdout, proc.stdout
+          assert "mcpServers" not in proc.stdout, proc.stdout
+          assert not list(jb_root.rglob("*.json"))
+          assert not list(jb_root.rglob("*.xml"))
+          PY
