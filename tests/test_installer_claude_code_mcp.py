@@ -12,6 +12,28 @@ def _ok(stdout: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr=b"")
 
 
+def _mcp_verify_stdout(
+    *,
+    init_result: dict | None = None,
+    tools: list[dict] | None = None,
+    init_id: int = 1,
+    tools_id: int = 2,
+) -> str:
+    init_result = init_result or {
+        "serverInfo": {"name": "sumo-qa"},
+        "capabilities": {},
+    }
+    tools = tools or [{"name": name} for name in sorted(installer._EXPECTED_MCP_TOOL_NAMES)]
+    return "\n".join(
+        [
+            "",
+            f'{{"jsonrpc":"2.0","id":{init_id},"result":{installer.json.dumps(init_result)}}}',
+            "",
+            f'{{"jsonrpc":"2.0","id":{tools_id},"result":{{"tools":{installer.json.dumps(tools)}}}}}',
+        ]
+    )
+
+
 def test_register_runs_remove_then_add_with_user_scope() -> None:
     mcp_path = Path("/abs/path/to/sumo-qa")
     with (
@@ -197,11 +219,11 @@ def test_setup_claude_code_surfaces_json_error(
 
 
 def test_verify_mcp_responds_returns_true_on_result(capsys) -> None:
-    """_verify_mcp_responds() returns True when stdout contains '"result"' (line 641)."""
+    """_verify_mcp_responds() returns True when initialize and tools/list are valid."""
     proc = subprocess.CompletedProcess(
         args=[],
         returncode=0,
-        stdout='{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}',
+        stdout=_mcp_verify_stdout(),
         stderr="",
     )
     with patch("sumo_qa.installer.subprocess.run", return_value=proc):
@@ -209,11 +231,10 @@ def test_verify_mcp_responds_returns_true_on_result(capsys) -> None:
 
     assert result is True
     out = capsys.readouterr().out
-    assert "responded" in out
+    assert "MCP verified" in out
 
 
-def test_verify_mcp_responds_returns_false_on_empty_stdout(capsys) -> None:
-    """_verify_mcp_responds() returns False when stdout has no '"result"' (lines 643-648)."""
+def test_verify_mcp_responds_returns_false_on_non_json_stdout(capsys) -> None:
     proc = subprocess.CompletedProcess(
         args=[],
         returncode=0,
@@ -225,7 +246,8 @@ def test_verify_mcp_responds_returns_false_on_empty_stdout(capsys) -> None:
 
     assert result is False
     out = capsys.readouterr().out
-    assert "WARNING" in out
+    assert "stdout contained non-JSON output" in out
+    assert "error hint" in out
 
 
 def test_verify_mcp_responds_returns_false_on_timeout(capsys) -> None:
@@ -242,12 +264,215 @@ def test_verify_mcp_responds_returns_false_on_timeout(capsys) -> None:
 
 
 def test_verify_mcp_responds_returns_false_when_stdout_empty(capsys) -> None:
-    """_verify_mcp_responds() handles empty stdout without printing stdout line (line 644 branch)."""
     proc = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     with patch("sumo_qa.installer.subprocess.run", return_value=proc):
         result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
 
     assert result is False
+    out = capsys.readouterr().out
+    assert "missing initialize response" in out
+
+
+def test_verify_mcp_responds_returns_false_on_json_rpc_error(capsys) -> None:
+    stdout = "\n".join(
+        [
+            '{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"boom"}}',
+            f'{{"jsonrpc":"2.0","id":2,"result":{{"tools":{installer.json.dumps([])}}}}}',
+        ]
+    )
+    proc = subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "initialize returned an error" in out
+
+
+def test_verify_mcp_responds_returns_false_on_unexpected_id(capsys) -> None:
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=_mcp_verify_stdout(tools_id=99),
+        stderr="",
+    )
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "unexpected JSON-RPC response id: 99" in out
+
+
+def test_verify_mcp_responds_returns_false_on_duplicate_id(capsys) -> None:
+    stdout = "\n".join(
+        [
+            '{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"sumo-qa"},"capabilities":{}}}',
+            '{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}',
+        ]
+    )
+    proc = subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "duplicate JSON-RPC response id: 1" in out
+
+
+def test_verify_mcp_responds_returns_false_on_non_object_message(capsys) -> None:
+    proc = subprocess.CompletedProcess(args=[], returncode=0, stdout='["not-an-object"]', stderr="")
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "was not an object" in out
+
+
+def test_verify_mcp_responds_returns_false_on_bad_json_rpc_version(capsys) -> None:
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout='{"jsonrpc":"1.0","id":1,"result":{}}',
+        stderr="",
+    )
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "invalid version" in out
+
+
+def test_verify_mcp_responds_returns_false_on_bad_initialize_shape(capsys) -> None:
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=_mcp_verify_stdout(init_result={"capabilities": {}}),
+        stderr="",
+    )
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "serverInfo" in out
+
+
+def test_verify_mcp_responds_returns_false_on_wrong_server_name(capsys) -> None:
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=_mcp_verify_stdout(
+            init_result={"serverInfo": {"name": "other"}, "capabilities": {}}
+        ),
+        stderr="",
+    )
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "did not identify sumo-qa" in out
+
+
+def test_verify_mcp_responds_returns_false_on_missing_capabilities(capsys) -> None:
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=_mcp_verify_stdout(init_result={"serverInfo": {"name": "sumo-qa"}}),
+        stderr="",
+    )
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "did not include capabilities" in out
+
+
+def test_verify_mcp_responds_returns_false_on_result_not_object(capsys) -> None:
+    stdout = "\n".join(
+        [
+            '{"jsonrpc":"2.0","id":1,"result":[]}',
+            '{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}',
+        ]
+    )
+    proc = subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "initialize result was not an object" in out
+
+
+def test_verify_mcp_responds_returns_false_on_bad_tools_shape(capsys) -> None:
+    stdout = "\n".join(
+        [
+            '{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"sumo-qa"},"capabilities":{}}}',
+            '{"jsonrpc":"2.0","id":2,"result":{"tools":"not-a-list"}}',
+        ]
+    )
+    proc = subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "tools/list result did not include a tools list" in out
+
+
+def test_verify_mcp_responds_returns_false_on_malformed_tool_entry(capsys) -> None:
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=_mcp_verify_stdout(tools=[{"name": "sumo_qa_load_classifications"}, {}]),
+        stderr="",
+    )
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "malformed tool entry" in out
+
+
+def test_verify_mcp_responds_returns_false_when_expected_tool_missing(capsys) -> None:
+    tools = [
+        {"name": name}
+        for name in sorted(installer._EXPECTED_MCP_TOOL_NAMES)
+        if name != "sumo_qa_load_classifications"
+    ]
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=_mcp_verify_stdout(tools=tools),
+        stderr="",
+    )
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "sumo_qa_load_classifications" in out
+
+
+def test_verify_mcp_responds_returns_false_on_process_error_with_clipped_stderr(capsys) -> None:
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=7,
+        stdout="",
+        stderr="x" * 400,
+    )
+    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
+        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "exited with code 7" in out
+    assert "xxx..." in out
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +498,7 @@ def test_main_all_hosts_success(tmp_path: Path, monkeypatch) -> None:
     mcp_proc = subprocess.CompletedProcess(
         args=[],
         returncode=0,
-        stdout='{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}',
+        stdout=_mcp_verify_stdout(),
         stderr="",
     )
 
@@ -345,7 +570,7 @@ def test_main_skip_mcp_install_with_binary_found(tmp_path: Path, monkeypatch) ->
     mcp_proc = subprocess.CompletedProcess(
         args=[],
         returncode=0,
-        stdout='{"jsonrpc":"2.0","id":1,"result":{}}',
+        stdout=_mcp_verify_stdout(),
         stderr="",
     )
 
@@ -374,7 +599,7 @@ def test_main_claude_only_flag(tmp_path: Path, monkeypatch) -> None:
     mcp_proc = subprocess.CompletedProcess(
         args=[],
         returncode=0,
-        stdout='{"jsonrpc":"2.0","id":1,"result":{}}',
+        stdout=_mcp_verify_stdout(),
         stderr="",
     )
 

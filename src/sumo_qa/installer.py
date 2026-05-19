@@ -48,6 +48,7 @@ import platform
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 # Mode detection: are we running from inside an installed wheel
 # (sumo_qa/_data/skills/ bundled next to this module) or from a git
@@ -227,8 +228,8 @@ def main() -> int:
     if ok:
         print("Installation complete. Restart any host you just configured.")
         return 0
-    print("Installation finished but the MCP did not respond cleanly to a")
-    print("JSON-RPC initialize ping. Check that the binary is healthy:")
+    print("Installation finished but MCP verification failed.")
+    print("Check that the binary is healthy:")
     print(f"  {mcp_path}")
     return 2
 
@@ -707,26 +708,136 @@ def _setup_claude_desktop(mcp_path: Path, system: str) -> HostResult:
 # Verification
 # ----------------------------------------------------------------------
 
+_VERIFY_INITIALIZE_ID = 1
+_VERIFY_TOOLS_LIST_ID = 2
+_EXPECTED_MCP_TOOL_NAMES = frozenset(
+    {
+        "using_sumo_qa",
+        "sumo_qa_deciding_approach",
+        "sumo_qa_preparing_for_work",
+        "sumo_qa_creating_test_plan",
+        "sumo_qa_implementing_with_tdd",
+        "sumo_qa_reviewing_before_merge",
+        "sumo_qa_strengthening_tests",
+        "sumo_qa_answering_testing_question",
+        "sumo_qa_finding_test_data",
+        "sumo_qa_strategising",
+        "sumo_qa_planning_qa_rollout",
+        "sumo_qa_executing_qa_rollout",
+        "sumo_qa_finishing_qa_work",
+        "sumo_qa_suggesting_external_skill",
+        "sumo_qa_explain_test_data_requirements",
+        "sumo_qa_find_test_data",
+        "sumo_qa_validate_test_data",
+        "sumo_qa_register_known_good_test_data",
+        "sumo_qa_load_classifications",
+        "sumo_qa_load_approaches",
+        "sumo_qa_load_principles",
+        "sumo_qa_load_techniques",
+        "sumo_qa_load_standards",
+        "sumo_qa_load_rules",
+        "sumo_qa_search_external_skills",
+        "sumo_qa_check_external_skill_installed",
+        "sumo_qa_install_external_skill",
+        "sumo_qa_execute_external_skill",
+    }
+)
+
+
+def _verify_request(method: str, request_id: int | None = None) -> dict[str, Any]:
+    request: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+    if request_id is not None:
+        request["id"] = request_id
+    return request
+
+
+def _parse_json_rpc_stdout(stdout: str) -> tuple[dict[int, dict[str, Any]] | None, str | None]:
+    responses: dict[int, dict[str, Any]] = {}
+    expected_ids = {_VERIFY_INITIALIZE_ID, _VERIFY_TOOLS_LIST_ID}
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            return None, "stdout contained non-JSON output"
+        if not isinstance(payload, dict):
+            return None, "stdout JSON-RPC message was not an object"
+        if payload.get("jsonrpc") != "2.0":
+            return None, "stdout JSON-RPC message had an invalid version"
+        response_id = payload.get("id")
+        if response_id not in expected_ids:
+            return None, f"unexpected JSON-RPC response id: {response_id!r}"
+        if response_id in responses:
+            return None, f"duplicate JSON-RPC response id: {response_id!r}"
+        responses[response_id] = payload
+    return responses, None
+
+
+def _verify_result_response(
+    responses: dict[int, dict[str, Any]], response_id: int, label: str
+) -> tuple[dict[str, Any] | None, str | None]:
+    response = responses.get(response_id)
+    if response is None:
+        return None, f"missing {label} response"
+    if "error" in response:
+        return None, f"{label} returned an error"
+    result = response.get("result")
+    if not isinstance(result, dict):
+        return None, f"{label} result was not an object"
+    return result, None
+
+
+def _verify_initialize_result(result: dict[str, Any]) -> str | None:
+    server_info = result.get("serverInfo")
+    if not isinstance(server_info, dict):
+        return "initialize result did not include serverInfo"
+    if server_info.get("name") != "sumo-qa":
+        return "initialize result did not identify sumo-qa"
+    if not isinstance(result.get("capabilities"), dict):
+        return "initialize result did not include capabilities"
+    return None
+
+
+def _verify_tools_list_result(result: dict[str, Any]) -> tuple[int | None, str | None]:
+    tools = result.get("tools")
+    if not isinstance(tools, list):
+        return None, "tools/list result did not include a tools list"
+    tool_names: set[str] = set()
+    for tool in tools:
+        if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
+            return None, "tools/list included a malformed tool entry"
+        tool_names.add(tool["name"])
+    missing = sorted(_EXPECTED_MCP_TOOL_NAMES - tool_names)
+    if missing:
+        return None, "tools/list missing expected tool(s): " + ", ".join(missing[:5])
+    return len(tools), None
+
+
+def _clip_for_output(value: str) -> str:
+    value = value.strip().replace("\n", " ")
+    if len(value) <= 300:
+        return value
+    return value[:297] + "..."
+
 
 def _verify_mcp_responds(mcp_path: Path) -> bool:
-    """Send a JSON-RPC initialize and confirm the binary responds."""
-    print("Verifying the MCP responds to initialize...")
-    init_req = json.dumps(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "sumo-qa-install", "version": "1"},
-            },
-        }
-    )
+    """Send JSON-RPC initialize and tools/list checks to confirm the binary works."""
+    print("Verifying MCP initialize and tools/list...")
+    init_req = _verify_request("initialize", _VERIFY_INITIALIZE_ID)
+    init_req["params"] = {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {"name": "sumo-qa-install", "version": "1"},
+    }
+    initialized_req = _verify_request("notifications/initialized")
+    tools_list_req = _verify_request("tools/list", _VERIFY_TOOLS_LIST_ID)
+    stdin = "\n".join(json.dumps(req) for req in (init_req, initialized_req, tools_list_req))
     try:
         proc = subprocess.run(
             [str(mcp_path)],
-            input=init_req + "\n",
+            input=stdin + "\n",
             capture_output=True,
             text=True,
             timeout=10,
@@ -734,14 +845,33 @@ def _verify_mcp_responds(mcp_path: Path) -> bool:
     except subprocess.TimeoutExpired:
         print("  WARNING: MCP did not respond within 10s.")
         return False
-    if proc.stdout and '"result"' in proc.stdout:
-        print("  MCP responded to initialize.")
+
+    failure: str | None = None
+    tool_count: int | None = None
+    if proc.returncode != 0:
+        failure = f"MCP process exited with code {proc.returncode}"
+    else:
+        responses, failure = _parse_json_rpc_stdout(proc.stdout)
+        if responses is not None and failure is None:
+            init_result, failure = _verify_result_response(
+                responses, _VERIFY_INITIALIZE_ID, "initialize"
+            )
+            if init_result is not None and failure is None:
+                failure = _verify_initialize_result(init_result)
+            tools_result: dict[str, Any] | None = None
+            if failure is None:
+                tools_result, failure = _verify_result_response(
+                    responses, _VERIFY_TOOLS_LIST_ID, "tools/list"
+                )
+            if tools_result is not None and failure is None:
+                tool_count, failure = _verify_tools_list_result(tools_result)
+
+    if failure is None:
+        print(f"  MCP verified ({tool_count} tools).")
         return True
-    print("  WARNING: MCP did not return a result.")
-    if proc.stdout:
-        print(f"    stdout: {proc.stdout[:300]}")
+    print(f"  WARNING: MCP verification failed: {failure}.")
     if proc.stderr:
-        print(f"    stderr: {proc.stderr[:300]}")
+        print(f"    stderr: {_clip_for_output(proc.stderr)}")
     return False
 
 
