@@ -1,36 +1,62 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Regression tests for .claude/hooks/*.py scripts.
 
-These are standalone Python scripts (not part of the sumo_qa package), so they
-are invoked here via subprocess to match how Claude Code actually runs them.
-The pattern mirrors tests/test_installer_*.py.
+The PreToolUse `block-generated-paths` hook is tested via subprocess because
+its output (deny JSON on stdout) is directly observable that way.
+
+The PostToolUse `validate-on-content-edit` hook is tested via importlib +
+monkeypatch on `subprocess.run` because the bug it guards against is
+"did the hook reach subprocess.run with the right cwd?" — observable by
+recording the call, not by side-effect detection. This avoids the
+platform-specific shell-script fake the earlier version relied on (which
+failed on Windows because `#!/bin/sh` shebangs and `touch` are not native).
 
 History: PR #100 shipped both hooks with a cwd-anchored path check that
 silently no-op'd whenever Claude Code's session cwd was a repo subdirectory.
 Codex flagged the bypass; the fix (commit 32f8220) anchors to repo root.
 These tests pin the post-fix behaviour so the bypass cannot regress silently.
 
-Technique: equivalence partitioning over (cwd_location × file_location). The
-bug lives in exactly one class — cwd in a subdir, file at a repo-relative
-protected path outside the cwd subtree — so one representative per relevant
-class is enough.
+Technique: equivalence partitioning over (cwd_location × file_location) for
+the path-resolution tests; checklist-based testing for the binary
+discoverability smoke test.
 """
 
 from __future__ import annotations
 
+import importlib.util
+import io
 import json
-import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
 
 
-def _run_hook(
+def _import_hook(hook_filename: str) -> ModuleType:
+    """Import a .claude/hooks/*.py file as a Python module despite the
+    dash-containing filename. The hook is a script with a module-level
+    `main()`; importing it executes top-level definitions only (no
+    `if __name__ == "__main__"` side-effects).
+    """
+    path = HOOKS_DIR / hook_filename
+    module_name = hook_filename.removesuffix(".py").replace("-", "_")
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not load {hook_filename} from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _run_subprocess_hook(
     hook_name: str, payload: dict, env: dict | None = None
 ) -> subprocess.CompletedProcess:
+    """Subprocess invocation, used for the block-generated-paths hook
+    whose output is directly observable as stdout JSON."""
     return subprocess.run(
         [sys.executable, str(HOOKS_DIR / hook_name)],
         input=json.dumps(payload),
@@ -52,7 +78,7 @@ class TestBlockGeneratedPathsHook:
         the deny never fired. This test pins that the hook now anchors to
         the repo root and the deny fires regardless of cwd location.
         """
-        result = _run_hook(
+        result = _run_subprocess_hook(
             "block-generated-paths.py",
             {
                 "tool_name": "Edit",
@@ -82,7 +108,7 @@ class TestBlockGeneratedPathsHook:
         """Same equivalence class shape, opposite axis: confirm fix didn't
         introduce a false-positive that denies legitimate source edits.
         """
-        result = _run_hook(
+        result = _run_subprocess_hook(
             "block-generated-paths.py",
             {
                 "tool_name": "Edit",
@@ -100,30 +126,43 @@ class TestBlockGeneratedPathsHook:
 
 
 class TestValidateOnContentEditHook:
-    """PostToolUse hook: must run sumo-qa-validate when knowledge/ or
-    standards/ files are edited, regardless of cwd."""
+    """PostToolUse hook: must invoke sumo-qa-validate with cwd=repo_root when
+    knowledge/ or standards/ files are edited, regardless of session cwd."""
 
-    def test_runs_validator_when_cwd_is_subdir(self, tmp_path: Path) -> None:
-        """Codex's PR #100 reproducer (validate hook variant): cwd in subdir,
-        file in knowledge/. Before the fix, the relative_to(cwd) call raised,
-        the bare-continue caught it, and `sumo-qa-validate` was never invoked.
+    @staticmethod
+    def _run_hook_with_payload(monkeypatch, payload: dict) -> list[dict]:
+        """Import the hook, monkeypatch its stdin and subprocess.run, call
+        main(). Returns the list of recorded subprocess.run invocations."""
+        hook = _import_hook("validate-on-content-edit.py")
 
-        We can't directly observe "validator ran" without a side-channel, so
-        this test installs a stand-in `sumo-qa-validate` at the front of PATH
-        that touches a marker file. If the hook reaches its subprocess.run
-        call, the marker exists. If the path-resolution bug returns, the
-        early-exit fires and the marker does not exist.
+        calls: list[dict] = []
+
+        def record(cmd, **kwargs):
+            calls.append({"cmd": cmd, "cwd": kwargs.get("cwd")})
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr(hook.subprocess, "run", record)
+        monkeypatch.setattr(hook.sys, "stdin", io.StringIO(json.dumps(payload)))
+
+        exit_code = hook.main()
+        assert exit_code == 0, f"hook exited non-zero: {exit_code}"
+        return calls
+
+    def test_runs_validator_with_repo_root_cwd_when_session_cwd_is_subdir(
+        self, monkeypatch
+    ) -> None:
+        """Codex's PR #100 reproducer (validate hook variant). Before the fix,
+        `Path(raw).resolve().relative_to(cwd)` raised ValueError for files
+        outside the session cwd's subtree, the bare-continue caught it, and
+        the validator was never invoked. This pins that the hook now resolves
+        paths against the repo root and runs the validator from there.
+
+        Observability: monkeypatch subprocess.run to record the cmd+cwd it
+        gets called with, then assert on the recording. No PATH manipulation,
+        no platform-specific fake — same logic exercised on every OS.
         """
-        marker = tmp_path / "validator_was_invoked"
-        fake_validate = tmp_path / "sumo-qa-validate"
-        fake_validate.write_text(f"#!/bin/sh\ntouch {marker}\nexit 0\n")
-        fake_validate.chmod(0o755)
-
-        env = os.environ.copy()
-        env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
-
-        result = _run_hook(
-            "validate-on-content-edit.py",
+        calls = self._run_hook_with_payload(
+            monkeypatch,
             {
                 "tool_name": "Edit",
                 "tool_input": {
@@ -131,34 +170,25 @@ class TestValidateOnContentEditHook:
                 },
                 "cwd": str(REPO_ROOT / "skills"),
             },
-            env=env,
         )
 
-        assert marker.exists(), (
-            "validator was not invoked. This is the PR #100 bypass: the hook's "
-            "cwd-anchored relative_to() raised ValueError for knowledge/ files "
-            "when cwd was a subdir, hit the bare-continue, and silently skipped "
-            "the validator. The hook must anchor to repo root.\n"
-            f"hook stderr={result.stderr!r}\n"
-            f"hook stdout={result.stdout!r}"
+        assert len(calls) == 1, (
+            f"hook should invoke validator exactly once for a knowledge/ edit, "
+            f"got: {calls}. The pre-fix bug skipped this invocation because "
+            f"relative_to(cwd=subdir) raised ValueError for the knowledge/ path."
         )
-        assert result.returncode == 0, (
-            f"hook exited non-zero after invoking validator: stderr={result.stderr!r}"
+        assert calls[0]["cmd"] == ["sumo-qa-validate"]
+        assert Path(calls[0]["cwd"]) == REPO_ROOT, (
+            f"validator must run from repo root, not session cwd. "
+            f"Got cwd={calls[0]['cwd']!r}. Running from the session subdir "
+            f"makes the validator scan the wrong tree."
         )
 
-    def test_skips_validator_when_edit_is_outside_watched_dirs(self, tmp_path: Path) -> None:
+    def test_skips_validator_when_edit_is_outside_watched_dirs(self, monkeypatch) -> None:
         """Same equivalence class shape, opposite axis: edits outside
         knowledge/ and standards/ should not trigger the validator."""
-        marker = tmp_path / "validator_was_invoked"
-        fake_validate = tmp_path / "sumo-qa-validate"
-        fake_validate.write_text(f"#!/bin/sh\ntouch {marker}\nexit 0\n")
-        fake_validate.chmod(0o755)
-
-        env = os.environ.copy()
-        env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
-
-        result = _run_hook(
-            "validate-on-content-edit.py",
+        calls = self._run_hook_with_payload(
+            monkeypatch,
             {
                 "tool_name": "Edit",
                 "tool_input": {
@@ -166,11 +196,36 @@ class TestValidateOnContentEditHook:
                 },
                 "cwd": str(REPO_ROOT),
             },
-            env=env,
         )
 
-        assert not marker.exists(), (
-            "validator was invoked for an edit outside knowledge/ and standards/. "
-            "The hook should early-exit and skip the subprocess.run call."
+        assert calls == [], (
+            f"hook should skip subprocess.run for edits outside watched dirs; got: {calls}"
         )
-        assert result.returncode == 0
+
+
+def test_sumo_qa_validate_is_discoverable_on_path() -> None:
+    """Smoke test: the binary the validate hook shells out to must be on PATH.
+
+    The hook does `subprocess.run(["sumo-qa-validate"], ...)`. That relies on
+    pip's console-script wrapper being on PATH:
+      - Unix: `sumo-qa-validate` (extensionless, executable bit set)
+      - Windows: `sumo-qa-validate.exe` (PATHEXT resolution)
+
+    If pip's wrapper generation breaks for any reason, the hook silently fails
+    in production and the cwd-vs-repo-root tests above (which monkeypatch
+    subprocess.run) wouldn't catch it. This test is the deployment-contract
+    check that the binary is actually discoverable on each platform CI covers.
+
+    Technique: checklist-based testing — verify the dependency contract from
+    `.pre-commit-config.yaml:133` (sumo-qa-validate must be installed) and
+    `AGENTS.md` (`pip install sumo-qa` must produce a callable binary).
+    """
+    resolved = shutil.which("sumo-qa-validate")
+    assert resolved is not None, (
+        "sumo-qa-validate not on PATH. The validate-on-content-edit hook "
+        "will silently fail in production. On Windows this typically means "
+        "pip didn't generate the .exe wrapper; on Unix the script wasn't "
+        "installed with executable bit. Confirm `pip install -e .` ran "
+        f"successfully. Current PATH={sys.executable!r}'s sys.path may help "
+        "diagnose."
+    )
