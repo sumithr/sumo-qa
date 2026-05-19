@@ -2,10 +2,9 @@
 """sumo-qa installer.
 
 Shipped as the `sumo-qa-install` console script (exposed via [project.scripts]
-in pyproject.toml). After `pip install sumo-qa`, both `sumo-qa` (the MCP
-server) and `sumo-qa-install` (this) land on PATH automatically — on Windows
-pip generates `.exe` wrappers, so users don't fight `python` vs `python3` vs
-`py`.
+in pyproject.toml) and as `python -m sumo_qa.installer`. The module form is
+the PATH-proof fallback for shells where pip creates the script wrapper but the
+Python Scripts directory is not on PATH yet.
 
 What this script does:
 
@@ -256,11 +255,11 @@ def _install_mcp_binary() -> Path | None:
     if shutil.which("uv") is None:
         print("  ERROR: uv is not installed and sumo-qa is not on PATH.")
         print("  The simplest fix is to install sumo-qa via pip (no uv needed):")
-        print("    pip install --upgrade sumo-qa")
+        print("    python -m pip install --upgrade sumo-qa")
         print("  Or, if you prefer uv, install it first:")
         print("    macOS / Linux:  curl -LsSf https://astral.sh/uv/install.sh | sh")
         print('    Windows (PS):   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"')
-        print("  Then re-run: sumo-qa-install")
+        print("  Then re-run: python -m sumo_qa.installer")
         return None
     try:
         subprocess.run(
@@ -281,7 +280,7 @@ def _install_mcp_binary() -> Path | None:
                 return candidate.resolve()
         print("  ERROR: uv install succeeded but sumo-qa is not on PATH and")
         print("  not at any conventional uv tool location. Restart your shell")
-        print("  and re-run sumo-qa-install.")
+        print("  and re-run python -m sumo_qa.installer.")
         return None
     return Path(binary).resolve()
 

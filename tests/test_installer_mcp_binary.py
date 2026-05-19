@@ -1,11 +1,15 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 from sumo_qa import installer
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -14,6 +18,26 @@ from sumo_qa import installer
 
 def _completed(returncode: int = 0) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout="", stderr=b"")
+
+
+def test_installer_module_help_is_path_independent() -> None:
+    """`python -m sumo_qa.installer` must work when console scripts are not on PATH."""
+    src_path = str(REPO_ROOT / "src")
+    existing = os.environ.get("PYTHONPATH", "")
+    pythonpath = f"{src_path}{os.pathsep}{existing}" if existing else src_path
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "sumo_qa.installer", "--help"],
+        cwd=str(REPO_ROOT),
+        env={**os.environ, "PYTHONPATH": pythonpath},
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert proc.returncode == 0
+    assert "--claude-code" in proc.stdout
+    assert "--vscode" in proc.stdout
 
 
 # ---------------------------------------------------------------------------
