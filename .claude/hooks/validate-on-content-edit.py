@@ -35,11 +35,13 @@ WATCHED_PREFIXES = ("knowledge/", "standards/", "src/sumo_qa/validate_content.py
 
 
 def candidate_paths(tool_name: str, tool_input: dict) -> list[str]:
-    if tool_name in ("Edit", "Write", "NotebookEdit"):
+    # MultiEdit edits a single file via multiple find/replace pairs; its
+    # schema has `file_path` at the top level (not inside `edits[]`). The
+    # v1 of this function read per-edit file_path and silently skipped
+    # every MultiEdit invocation because the resulting list was empty.
+    if tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         path = tool_input.get("file_path") or tool_input.get("notebook_path")
         return [path] if path else []
-    if tool_name == "MultiEdit":
-        return [e.get("file_path") for e in tool_input.get("edits", []) if e.get("file_path")]
     return []
 
 

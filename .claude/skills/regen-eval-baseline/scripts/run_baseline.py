@@ -16,9 +16,31 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def validate_slug(value: str, field: str) -> None:
+    """Reject anything that isn't kebab-case lower-alphanumeric.
+
+    Both `--skill` and `--label` are interpolated into the snapshot
+    filename:
+        docs/qa/runs/eval-baselines/<date>-skill-<skill>-<label>.json
+    A value containing `/` or `..` can land the snapshot outside the
+    baselines dir entirely. Reject before composing the path so the
+    validation failure is on the input, not on the resulting state.
+    """
+    if not SLUG_RE.fullmatch(value):
+        raise ValueError(
+            f"{field}={value!r} is not a valid kebab-case slug. "
+            "Expected lowercase letters, digits, and single hyphens only "
+            "(e.g. 'baseline' or 'implementing-with-tdd'). Reject reason: "
+            "prevents the snapshot path from escaping the baselines dir."
+        )
 
 
 def find_repo_root(start: Path) -> Path:
@@ -84,6 +106,13 @@ def main() -> int:
         "--no-diff", action="store_true", help="Skip the delta-against-prior-baseline section."
     )
     args = parser.parse_args()
+
+    try:
+        validate_slug(args.skill, "skill")
+        validate_slug(args.label, "label")
+    except ValueError as e:
+        print(f"Invalid input: {e}", file=sys.stderr)
+        return 2
 
     repo_root = args.repo_root or find_repo_root(Path.cwd())
 

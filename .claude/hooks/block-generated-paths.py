@@ -41,6 +41,10 @@ DENY_PATTERNS = [
     ".ruff_cache/**",
     ".mypy_cache/**",
     ".idea/**",
+    # Python fnmatch treats `**` as plain `*` and the leading `**/` requires
+    # at least one parent dir, so a single `**/__pycache__/**` pattern
+    # silently allows root-level `__pycache__/`. List both forms.
+    "__pycache__/**",
     "**/__pycache__/**",
     ".coverage",
     ".coverage.*",
@@ -55,11 +59,14 @@ def matches_deny(repo_relative: str) -> str | None:
 
 
 def candidate_paths(tool_name: str, tool_input: dict) -> list[str]:
-    if tool_name in ("Edit", "Write", "NotebookEdit"):
+    # Edit / Write / MultiEdit / NotebookEdit all carry `file_path` at the
+    # top level of tool_input. MultiEdit's `edits` array contains
+    # {old_string, new_string} pairs only — no per-edit file_path. The v1
+    # of this function read per-edit file_path and silently allowed every
+    # MultiEdit because the list came back empty.
+    if tool_name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         path = tool_input.get("file_path") or tool_input.get("notebook_path")
         return [path] if path else []
-    if tool_name == "MultiEdit":
-        return [e.get("file_path") for e in tool_input.get("edits", []) if e.get("file_path")]
     return []
 
 

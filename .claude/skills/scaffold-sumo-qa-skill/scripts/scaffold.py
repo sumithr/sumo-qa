@@ -24,6 +24,28 @@ import sys
 from pathlib import Path
 from textwrap import dedent
 
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def validate_slug(value: str, field: str) -> None:
+    """Reject anything that isn't kebab-case lower-alphanumeric.
+
+    The script interpolates `name` and `approach-tag` into file paths
+    (`skills/sumo-qa-<name>/`, `tests/evals/promptfoo/skill-<name>.yaml`,
+    catalogue entries). Without validation, a value containing `/` or `..`
+    can write outside the intended subtree. We reject before any file is
+    touched.
+    """
+    # Tolerate the optional sumo-qa- prefix on the skill name.
+    candidate = value.removeprefix("sumo-qa-") if field == "name" else value
+    if not SLUG_RE.fullmatch(candidate):
+        raise ValueError(
+            f"{field}={value!r} is not a valid kebab-case slug. "
+            "Expected lowercase letters, digits, and single hyphens only "
+            "(e.g. 'triaging-flaky-tests'). Reject reason: prevents path "
+            "traversal via separators or `..` components."
+        )
+
 
 def normalize_name(raw: str) -> str:
     """Ensure the skill name carries the sumo-qa- prefix per repo policy."""
@@ -236,6 +258,14 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = args.repo_root or find_repo_root(Path.cwd())
+
+    try:
+        validate_slug(args.name, "name")
+        validate_slug(args.approach_tag, "approach-tag")
+    except ValueError as e:
+        print(f"Invalid input: {e}", file=sys.stderr)
+        return 2
+
     full_name = normalize_name(args.name)
 
     problems = check_collisions(repo_root, full_name, args.approach_tag)
