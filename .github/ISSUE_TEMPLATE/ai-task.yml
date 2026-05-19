@@ -1,7 +1,50 @@
 name: AI task
 description: Structured implementation task for AI-created issues
 title: "[Task]: "
+labels:
+  - enhancement
+projects:
+  - sumithr/1
 body:
+  - type: markdown
+    attributes:
+      value: |
+        AI-created issues should also be added to the `sumo-qa roadmap` project with Status, Priority, Size, Order, and Depends on populated where applicable.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority / sequencing
+      description: Select the roadmap priority and apply the matching GitHub label plus project Priority field after creation.
+      options:
+        - P0 / priority: high
+        - P1 / priority: next
+        - P2 / priority: later
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: suggested_labels
+    attributes:
+      label: Suggested labels
+      description: Select all category labels that should be applied after creation.
+      options:
+        - label: documentation
+        - label: ux
+        - label: compatibility
+        - label: distribution
+    validations:
+      required: false
+
+  - type: input
+    id: roadmap_fields
+    attributes:
+      label: Roadmap fields
+      description: Project metadata to set after creation.
+      placeholder: "Status: Backlog; Priority: P1; Size: M; Order: 5; Depends on: #81"
+    validations:
+      required: true
+
   - type: textarea
     id: problem
     attributes:
