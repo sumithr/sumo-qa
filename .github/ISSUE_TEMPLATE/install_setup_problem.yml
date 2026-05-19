@@ -1,0 +1,88 @@
+name: Install / setup problem
+description: pip install, sumo-qa-install, or first-run setup failed
+title: "[Install]: "
+labels:
+  - distribution
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when `pip install sumo-qa` or `sumo-qa-install` (any host
+        flag) did not produce a working setup. For runtime/host-integration issues
+        after a successful install, use **Host compatibility problem** instead.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong during install or setup?
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: e.g. macOS 14.5 (arm64), Ubuntu 22.04, Windows 11
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      description: Output of `python --version` (or `python3 --version`).
+    validations:
+      required: true
+
+  - type: input
+    id: install_command
+    attributes:
+      label: Install command(s) you ran
+      description: The exact commands, including any flags.
+      placeholder: "pip install sumo-qa && sumo-qa-install --claude-code"
+    validations:
+      required: true
+
+  - type: input
+    id: host
+    attributes:
+      label: Target host
+      description: Claude Code, VS Code + Copilot, JetBrains AI Assistant, Junie, Cursor, other, or "machine-wide (no flag)".
+    validations:
+      required: true
+
+  - type: textarea
+    id: help_output
+    attributes:
+      label: "`sumo-qa --help` output"
+      description: Paste the full output. If `sumo-qa` is not on PATH, say so here.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: install_output
+    attributes:
+      label: "`sumo-qa-install` output"
+      description: Full output from the install command, including any error lines.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor_output
+    attributes:
+      label: "`sumo-qa doctor` output (if available)"
+      description: Once the `doctor` command ships, paste its output. Leave blank if it is not available yet.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Other context
+      description: Virtualenv / pipx / system Python, proxy or corporate cert quirks, prior versions, anything else that might be relevant.
+    validations:
+      required: false

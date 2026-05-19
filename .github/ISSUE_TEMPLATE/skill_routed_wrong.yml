@@ -1,0 +1,64 @@
+name: Skill routed wrong
+description: A prompt invoked the wrong sumo-qa skill, or no skill when one was expected
+title: "[Routing]: "
+labels:
+  - ux
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when natural-language routing picked the wrong skill,
+        invoked no skill when one of the 14 should have run, or chained skills in
+        an unexpected order. For complaints about a skill's *output* once it ran,
+        use **QA output quality issue** instead.
+
+  - type: textarea
+    id: user_prompt
+    attributes:
+      label: User prompt
+      description: The exact prompt you sent to the host. Quote it verbatim.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_workflow
+    attributes:
+      label: Expected skill / workflow
+      description: Which sumo-qa skill (or chain) should have run, and why? Link skill files if useful.
+      placeholder: |
+        e.g. `sumo_qa_review_diff` should have run, because the prompt asked to review changed files.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual_workflow
+    attributes:
+      label: Actual workflow / output
+      description: Which skill ran (or none), and what did the host produce? Include the relevant excerpt.
+    validations:
+      required: true
+
+  - type: input
+    id: host_model
+    attributes:
+      label: Host and model
+      description: e.g. Claude Code + Claude Sonnet 4.5, VS Code + Copilot (Claude 4.5), JetBrains AI Assistant + GPT-4o.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repo_context
+    attributes:
+      label: Relevant repo context
+      description: Language(s), framework(s), size of the diff, whether tests exist, anything that would influence which skill the agent should pick. Do not paste private code.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Other context
+      description: Other MCP servers active, custom standards/knowledge, conversation history that might have biased routing, etc.
+    validations:
+      required: false

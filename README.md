@@ -182,6 +182,19 @@ flowchart LR
 - Node.js is required for the Skills CLI. If `npx` is missing, the MCP tool returns an actionable error and stops. It doesn't elevate via sudo.
 - The external skill handles tool-specific setup, while sumo-qa keeps the confirmation gates, test evidence, and risk-to-test mapping.
 
+## Support
+
+Filing a clear issue gets it fixed faster. Pick the template that matches the problem:
+
+| Symptom | Template |
+|---|---|
+| `pip install` / `sumo-qa-install` failed, or first-run setup is broken | [Install / setup problem](.github/ISSUE_TEMPLATE/install_setup_problem.yml) |
+| Install worked, but the host (Claude Code, VS Code + Copilot, JetBrains, Cursor, …) does not surface tools or skills correctly | [Host compatibility problem](.github/ISSUE_TEMPLATE/host_compatibility.yml) |
+| The wrong sumo-qa skill ran for a prompt (or none ran when one should have) | [Skill routed wrong](.github/ISSUE_TEMPLATE/skill_routed_wrong.yml) |
+| A skill ran, but its QA output was generic, wrong, or missed something | [QA output quality issue](.github/ISSUE_TEMPLATE/qa_output_quality.yml) |
+| You want a new workflow, skill, or host integration | [Feature / workflow request](.github/ISSUE_TEMPLATE/feature_request.yml) |
+| Reproducible defect that does not fit the above | [Bug report](.github/ISSUE_TEMPLATE/bug_report.yml) |
+
 ## License
 
 [Apache 2.0](LICENSE). See [NOTICE](NOTICE) for attribution requirements that apply to forks and redistributors.
