@@ -1,0 +1,96 @@
+name: Host compatibility problem
+description: Install succeeded, but sumo-qa does not work correctly inside a host
+title: "[Host]: "
+labels:
+  - compatibility
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when `sumo-qa-install` completed but the host (Claude Code,
+        VS Code + Copilot, JetBrains AI / Junie, Cursor, Codex, etc.) is not surfacing
+        sumo-qa correctly — MCP tools missing, skills not appearing, slash commands
+        not routing, etc. Setup failures belong in **Install / setup problem**.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken in the host?
+    validations:
+      required: true
+
+  - type: input
+    id: host
+    attributes:
+      label: Host and version
+      description: e.g. Claude Code 1.2.3, VS Code 1.94 + Copilot Chat 0.30, JetBrains AI Assistant 2024.3, Junie 1.0
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model / provider
+      description: Only if relevant — e.g. Claude Sonnet 4.5 via Anthropic, GPT-4o via Copilot.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: mcp_tools_visible
+    attributes:
+      label: Do MCP tools appear in the host?
+      description: Look for tool names prefixed with `sumo_qa_` (e.g. `sumo_qa_load_classifications`).
+      options:
+        - "Yes — all 28 entry points visible"
+        - "Yes — some visible, some missing"
+        - "No — none visible"
+        - "Not sure / host does not expose a tool list"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: skills_visible
+    attributes:
+      label: Do sumo-qa skills appear?
+      description: In Claude Code, `/sumo-qa-...` entries. In other hosts, however that host surfaces skills.
+      options:
+        - "Yes — all 14 skills visible"
+        - "Yes — some visible, some missing"
+        - "No — none visible"
+        - "Host does not surface skills separately from tools"
+    validations:
+      required: true
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt used
+      description: The exact natural-language prompt or slash command you sent.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What did the host actually do? Include the relevant excerpt of the response (redact anything sensitive).
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Other context
+      description: Other MCP servers configured, custom skill paths, OS, logs, screenshots, etc.
+    validations:
+      required: false

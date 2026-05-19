@@ -1,0 +1,45 @@
+name: Feature / workflow request
+description: Suggest a new QA workflow, skill, or host integration
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: desired_workflow
+    attributes:
+      label: Desired QA workflow
+      description: What would you like sumo-qa to do? Be specific about the user-facing behavior, not the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this useful?
+      description: What QA outcome does this enable that is hard / fragile / impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Current workaround
+      description: How do you handle this today (manual prompts, external skills, ad-hoc tooling, just doing without)?
+    validations:
+      required: false
+
+  - type: input
+    id: hosts
+    attributes:
+      label: Host(s) affected
+      description: Which hosts should this work in? Claude Code, VS Code + Copilot, JetBrains AI / Junie, Cursor, Codex, "all", etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Other context
+      description: Prior art, related skills, links to similar features in other tools, example prompts/outputs.
+    validations:
+      required: false

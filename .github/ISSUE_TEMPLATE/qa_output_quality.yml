@@ -1,0 +1,74 @@
+name: QA output quality issue
+description: A skill ran, but the QA output was generic, wrong, or missed something
+title: "[Quality]: "
+labels:
+  - ux
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when the correct skill ran but its output was unhelpful —
+        generic risks instead of file-and-line specifics, wrong technique picked,
+        missing mutation step, skipped HARD-GATE callout, etc. For wrong-skill
+        problems, use **Skill routed wrong** instead.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What was generic / wrong / missing?
+      description: Quote the offending part of the QA output and say what is wrong with it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected QA behavior
+      description: What should the skill have produced? Reference the relevant Iron Law / HARD-GATE / catalogue entry if you can.
+    validations:
+      required: true
+
+  - type: input
+    id: skill
+    attributes:
+      label: Which skill produced the output?
+      description: e.g. `sumo_qa_review_diff`, `sumo_qa_plan_qa`, `sumo_qa_strengthen_tests`. Use "unsure" if you cannot tell.
+    validations:
+      required: true
+
+  - type: textarea
+    id: files_change_type
+    attributes:
+      label: Files / change type (if shareable)
+      description: File extensions, change type (api_contract_change, business_logic_change, etc.), rough diff size. Do not paste private code.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: catalogues_loaded
+    attributes:
+      label: Were catalogues / standards loaded in the conversation?
+      description: Check whether `load classifications / approaches / principles / techniques` or your team standards had been pulled in before the skill ran.
+      options:
+        - "Yes — relevant catalogues were loaded"
+        - "Yes — team standards were loaded"
+        - "No — neither was loaded"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: host_model
+    attributes:
+      label: Host and model
+      description: e.g. Claude Code + Claude Sonnet 4.5, VS Code + Copilot, JetBrains AI Assistant + GPT-4o.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Other context
+      description: Anything else — conversation history that may have skewed the output, prior turns where the agent committed to a wrong direction, etc.
+    validations:
+      required: false
