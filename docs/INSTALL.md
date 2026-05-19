@@ -3,12 +3,18 @@
 ## One line, any host
 
 ```bash
-pip install sumo-qa && sumo-qa-install --claude-code
+python -m pip install sumo-qa && python -m sumo_qa.installer --claude-code
 ```
 
-Swap `--claude-code` for `--vscode --workspace <path-to-repo>` (VS Code + Copilot), `--jetbrains` (JetBrains AI Assistant), or drop the flag entirely to configure every host detected on this machine. Works identically on Windows / macOS / Linux — `pip` generates `.exe` wrappers on Windows, so no `python3` invocation involved.
+Swap `--claude-code` for `--vscode --workspace <path-to-repo>` (VS Code + Copilot), `--jetbrains` (JetBrains AI Assistant), or drop the flag entirely to configure every host detected on this machine. This module-entry command works on Windows, macOS, and Linux, including shells where pip's script directory is not on PATH yet.
 
-`pip install sumo-qa` puts both binaries on PATH: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator that wires it into your host). The chained `sumo-qa-install` step then symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` / `.vscode/mcp.json`, or prints JetBrains UI steps — depending on the flag.
+On Windows PowerShell, use:
+
+```powershell
+py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
+```
+
+`pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator that wires it into your host). The `python -m sumo_qa.installer` form runs the same configurator without depending on the script directory being on PATH. It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` / `.vscode/mcp.json`, or prints JetBrains UI steps depending on the flag.
 
 Restart your host (or open a fresh chat) once it's done.
 
@@ -23,21 +29,21 @@ We haven't verified those host-specific paths end-to-end ourselves, so we don't 
 When you only want to configure one host (or you're scripting per-host install):
 
 ```bash
-sumo-qa-install --claude-code             # Claude Code only
-sumo-qa-install --claude-desktop          # Claude Desktop app only
-sumo-qa-install --vscode                  # VS Code: writes <cwd>/.vscode/mcp.json
-sumo-qa-install --vscode --workspace /path/to/repo
-sumo-qa-install --jetbrains               # prints Settings UI steps
-sumo-qa-install --vscode --skip-mcp-install   # skip uv reinstall (faster re-runs)
+python -m sumo_qa.installer --claude-code             # Claude Code only
+python -m sumo_qa.installer --claude-desktop          # Claude Desktop app only
+python -m sumo_qa.installer --vscode                  # VS Code: writes <cwd>/.vscode/mcp.json
+python -m sumo_qa.installer --vscode --workspace /path/to/repo
+python -m sumo_qa.installer --jetbrains               # prints Settings UI steps
+python -m sumo_qa.installer --vscode --skip-mcp-install   # skip uv reinstall (faster re-runs)
 ```
 
-`sumo-qa-install --help` for the full list.
+`python -m sumo_qa.installer --help` for the full list.
 
 ## Updating
 
 ```bash
-pip install --upgrade sumo-qa     # refresh server + bundled skills/knowledge
-sumo-qa-install                   # refresh symlinks + host configs (Claude Code, VS Code, …)
+python -m pip install --upgrade sumo-qa     # refresh server + bundled skills/knowledge
+python -m sumo_qa.installer                 # refresh symlinks + host configs (Claude Code, VS Code, ...)
 # Restart Claude Code / open a fresh chat — the SessionStart hook re-injects new content.
 ```
 
@@ -46,16 +52,16 @@ What each step refreshes:
 | What changed in the new version | What picks it up |
 |---|---|
 | `sumo-qa` binary, MCP tools, bundled standards/knowledge/skills in site-packages | `pip install --upgrade` |
-| Symlinks in `~/.claude/skills/`, `claude_desktop_config.json`, `.vscode/mcp.json` | re-running `sumo-qa-install` |
+| Symlinks in `~/.claude/skills/`, `claude_desktop_config.json`, `.vscode/mcp.json` | re-running `python -m sumo_qa.installer` |
 | Skill content the agent reads each turn | next chat session (the SessionStart hook re-fires) |
 
-You only strictly need to re-run `sumo-qa-install` when **new** skills are added or a host's MCP config schema changes; routine content updates flow through the existing symlinks automatically.
+You only strictly need to re-run `python -m sumo_qa.installer` when **new** skills are added or a host's MCP config schema changes; routine content updates flow through the existing symlinks automatically.
 
 ## Per-host detail
 
 ### Claude Code
 
-`sumo-qa-install --claude-code` does three things:
+`python -m sumo_qa.installer --claude-code` does three things:
 
 1. Symlinks each `skills/<name>/` directory (either from the bundled `sumo_qa/_data/skills/` after `pip install`, or from the repo `skills/` in dev mode) into `~/.claude/skills/<name>/` so Claude Code's native skill loader picks them up as top-level skills. Earlier versions used a wrapper symlink (`~/.claude/skills/sumo-qa/`) — that was wrong because Claude Code doesn't recurse. Each skill is now its own top-level entry.
 2. Registers the MCP server with Claude Code via `claude mcp add sumo-qa <abs-binary-path> -s user`. This is what makes the MCP tools (`sumo_qa_load_classifications`, `sumo_qa_find_test_data`, etc.) actually surface inside Claude Code sessions — without this step, only the skill files are visible in the slash menu, not the underscored MCP tools. Idempotent (any existing `sumo-qa` entry is removed first). Skipped silently if the `claude` CLI isn't on PATH.
@@ -88,13 +94,13 @@ The installer:
 
 After install: **quit and reopen Claude Desktop** (or restart the relevant Cowork session). The `sumo-qa` MCP tools will appear in the tools panel.
 
-Note: `sumo-qa-install --claude-code` also writes a `claude_desktop_config.json`, but to `~/.config/claude/` (lowercase) — a path Claude Desktop does **not** read. That write is kept for backward compatibility. The `--claude-desktop` flag is the authoritative path for Claude Desktop users.
+Note: `python -m sumo_qa.installer --claude-code` also writes a `claude_desktop_config.json`, but to `~/.config/claude/` (lowercase) — a path Claude Desktop does **not** read. That write is kept for backward compatibility. The `--claude-desktop` flag is the authoritative path for Claude Desktop users.
 
 ### JetBrains AI Assistant + Junie
 
 JetBrains' MCP plugin in IDEA 2026.1 has an undocumented internal flow we can't reliably hit by writing the XML config externally — entries written that way show up disabled with `LazyStandaloneCoroutine cancelled` in the UI. The supported path is the Settings UI.
 
-`sumo-qa-install --jetbrains` prints:
+`python -m sumo_qa.installer --jetbrains` prints:
 
 ```
 Settings → Tools → AI Assistant → Model Context Protocol → + Add server
@@ -123,7 +129,7 @@ Add once; persists across restarts. After it's added, every MCP entry — `/sumo
 
 ### VS Code + GitHub Copilot
 
-`sumo-qa-install --vscode --workspace /path/to/repo` writes `<repo>/.vscode/mcp.json` using VS Code's native schema:
+`python -m sumo_qa.installer --vscode --workspace /path/to/repo` writes `<repo>/.vscode/mcp.json` using VS Code's native schema:
 
 ```json
 {
@@ -174,9 +180,10 @@ You should get 10 names back: api_contract_change, business_logic_change, securi
 |---|---|---|
 | "no tools available" in Copilot Chat | VS Code reloaded with old schema or no MCP entry visible | Cmd+Shift+P → Developer: Reload Window; verify `.vscode/mcp.json` has `"servers"` key (not `"mcpServers"`) |
 | "LazyStandaloneCoroutine was cancelled" in JetBrains MCP list | External XML write didn't register the runtime coroutine | Remove the entry; re-add via Settings UI with absolute path |
-| Claude Code shows only some skills | Earlier wrapper-symlink install left stale top-level dirs | `sumo-qa-install --claude-code` cleans up and re-symlinks at the right granularity |
+| Claude Code shows only some skills | Earlier wrapper-symlink install left stale top-level dirs | `python -m sumo_qa.installer --claude-code` cleans up and re-symlinks at the right granularity |
 | `sumo-qa-install` says "VS Code skipped: not a workspace" | Ran from `$HOME` or a directory without `.git`/`.vscode`/project marker | Re-run with `--workspace /path/to/repo`, or cd into a workspace first |
-| `python3 install.py` opens Windows Store / "command not found" | Either no `python3` on this Windows machine (Windows ships only a Store stub) or no install.py on disk (pip-only install never had it) | Use the console-script entry instead: `pip install sumo-qa` then `sumo-qa-install`. Avoids the `python3` shell-stub issue entirely. |
+| `sumo-qa-install` is not recognized on Windows | pip installed the script wrapper into a Scripts directory that PowerShell has not added to PATH | Use the module entrypoint: `py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }` |
+| `python3 install.py` opens Windows Store / "command not found" | Either no `python3` on this Windows machine (Windows ships only a Store stub) or no install.py on disk (pip-only install never had it) | Use the module entrypoint: `py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }` |
 | Copilot says "I don't have access to those tools" with mini model | Mini/fast model can't reliably call MCP tools | Switch to Claude Sonnet 4.5 or GPT-5 full in Copilot's model picker |
 
 ## Install from a local clone
@@ -217,16 +224,16 @@ cd sumo-qa
 
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -e .                    # editable, no dev extras
-sumo-qa-install --claude-code       # or just `sumo-qa-install` for every detected host
+python -m pip install -e .                    # editable, no dev extras
+python -m sumo_qa.installer --claude-code     # or omit the flag for every detected host
 ```
 
-Two things to know about that `sumo-qa-install` step:
+Two things to know about that installer step:
 
 1. It runs with the activated venv's `sumo-qa` first on PATH, so the absolute path it writes into Claude Code's MCP registry / `claude_desktop_config.json` / `.vscode/mcp.json` is `<repo>/.venv/bin/sumo-qa`. That binary, when invoked, runs the editable install → reads `<repo>/skills/`, `<repo>/knowledge/`, `<repo>/standards/` live.
 2. Skills get symlinked **per skill** into `~/.claude/skills/<name>` pointing at `<repo>/skills/<name>`. Editing a SKILL.md needs no further action; the host re-reads it on next invocation.
 
-Restart the host (or open a fresh chat) once `sumo-qa-install` is done.
+Restart the host (or open a fresh chat) once the installer is done.
 
 ### Verify the clone is wired live, not a stale PyPI install
 
@@ -247,7 +254,7 @@ readlink ~/.claude/skills/sumo-qa-deciding-approach
 # Expect both to point inside <repo>, not a site-packages _data directory.
 ```
 
-If `readlink` points at `~/.local/share/uv/tools/...` you've got a PyPI / `uv tool install` copy winning the PATH race — re-activate the venv and re-run `sumo-qa-install` from inside it.
+If `readlink` points at `~/.local/share/uv/tools/...` you've got a PyPI / `uv tool install` copy winning the PATH race. Re-activate the venv and re-run `python -m sumo_qa.installer` from inside it.
 
 ### Adding your team's standards pack
 
@@ -293,7 +300,7 @@ skills/
 Then:
 
 ```bash
-sumo-qa-install --claude-code   # only needed to create the new ~/.claude/skills/my-team-perf-review symlink
+python -m sumo_qa.installer --claude-code   # only needed to create the new ~/.claude/skills/my-team-perf-review symlink
 ```
 
 The MCP server picks up `skills/*/SKILL.md` automatically on its next startup (host restart).
@@ -303,24 +310,24 @@ The MCP server picks up `skills/*/SKILL.md` automatically on its next startup (h
 ```bash
 git pull
 # Re-run install only if pyproject.toml or new skills/ entries arrived:
-pip install -e .          # only if dependencies or src/ changed
-sumo-qa-install           # only if new skills/<name>/ directories arrived
+python -m pip install -e .          # only if dependencies or src/ changed
+python -m sumo_qa.installer         # only if new skills/<name>/ directories arrived
 ```
 
 Routine knowledge / standards / SKILL.md edits from upstream require neither.
 
 ### Switching between a clone and the PyPI install
 
-`sumo-qa-install` writes whatever `sumo-qa` is first on PATH at the time it runs. To switch:
+The installer writes whatever `sumo-qa` is first on PATH at the time it runs. To switch:
 
 ```bash
 # Clone wins (live edits):
 source <repo>/.venv/bin/activate
-sumo-qa-install
+python -m sumo_qa.installer
 
 # Back to PyPI / uv tool install (stable, bundled _data):
 deactivate
-sumo-qa-install
+python -m sumo_qa.installer
 ```
 
 Restart the host after either switch.

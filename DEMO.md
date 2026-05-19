@@ -16,28 +16,34 @@ Pick the line for your host:
 
 ```bash
 # Claude Code
-pip install sumo-qa && sumo-qa-install --claude-code
+python -m pip install sumo-qa && python -m sumo_qa.installer --claude-code
 
 # VS Code + GitHub Copilot
-pip install sumo-qa && sumo-qa-install --vscode --workspace <path-to-your-repo>
+python -m pip install sumo-qa && python -m sumo_qa.installer --vscode --workspace <path-to-your-repo>
 
 # JetBrains AI Assistant
-pip install sumo-qa && sumo-qa-install --jetbrains
+python -m pip install sumo-qa && python -m sumo_qa.installer --jetbrains
 
 # Every host detected on this machine
-pip install sumo-qa && sumo-qa-install
+python -m pip install sumo-qa && python -m sumo_qa.installer
 ```
 
-`pip install sumo-qa` puts two binaries on PATH: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator). The configurator symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps — whichever the flag asks for. Works the same on macOS, Linux, and Windows (pip generates `.exe` wrappers on Windows, so no `python3` invocation).
+Windows PowerShell:
+
+```powershell
+py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
+```
+
+`pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator). The `python -m sumo_qa.installer` form runs the configurator without depending on the script directory being on PATH. It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for.
 
 Restart your host or open a fresh chat afterwards.
 
-**Cursor, Codex, OpenCode and other MCP hosts:** `sumo-qa` is a standard stdio MCP server. Follow your host's MCP-server setup docs and point it at the absolute path from `sumo-qa-install --help`.
+**Cursor, Codex, OpenCode and other MCP hosts:** `sumo-qa` is a standard stdio MCP server. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script.
 
 ### Updating
 
 ```bash
-pip install --upgrade sumo-qa && sumo-qa-install
+python -m pip install --upgrade sumo-qa && python -m sumo_qa.installer
 ```
 
 Open a fresh chat afterwards. The host re-reads `~/.claude/skills/` (Claude Code) and the MCP tool list on the next session. If you installed sumo-qa as a Claude Code or Cursor plugin, the SessionStart hook re-fires automatically.

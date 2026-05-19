@@ -9,11 +9,11 @@ When creating GitHub issues, use the closest template in `.github/ISSUE_TEMPLATE
 ## Default: configure every detected host
 
 ```bash
-pip install sumo-qa
-sumo-qa-install
+python -m pip install sumo-qa
+python -m sumo_qa.installer
 ```
 
-`pip install sumo-qa` puts both `sumo-qa` (the MCP server binary) and `sumo-qa-install` (this configurator) on PATH. On Windows, `pip` generates `.exe` wrappers — no `python3` invocation needed.
+`pip install sumo-qa` creates both `sumo-qa` (the MCP server binary) and `sumo-qa-install` (this configurator). Use `python -m sumo_qa.installer` for setup because it works even when the pip Scripts directory is not on PATH yet.
 
 What `sumo-qa-install` does:
 
@@ -28,11 +28,11 @@ What `sumo-qa-install` does:
 Use these when you only want to configure one host:
 
 ```bash
-sumo-qa-install --claude-code              # Claude Code only
-sumo-qa-install --vscode                   # VS Code workspace (cwd-based)
-sumo-qa-install --vscode --workspace /path/to/repo
-sumo-qa-install --jetbrains                # Prints JetBrains UI steps only
-sumo-qa-install --vscode --skip-mcp-install   # Skip uv reinstall for speed
+python -m sumo_qa.installer --claude-code              # Claude Code only
+python -m sumo_qa.installer --vscode                   # VS Code workspace (cwd-based)
+python -m sumo_qa.installer --vscode --workspace /path/to/repo
+python -m sumo_qa.installer --jetbrains                # Prints JetBrains UI steps only
+python -m sumo_qa.installer --vscode --skip-mcp-install   # Skip uv reinstall for speed
 ```
 
 Re-runs are idempotent.
@@ -40,8 +40,8 @@ Re-runs are idempotent.
 ## Updating
 
 ```bash
-pip install --upgrade sumo-qa     # refresh server + bundled skills/knowledge
-sumo-qa-install                   # refresh host symlinks + MCP configs
+python -m pip install --upgrade sumo-qa     # refresh server + bundled skills/knowledge
+python -m sumo_qa.installer                 # refresh host symlinks + MCP configs
 # Restart the host or open a fresh chat — SessionStart hook re-injects new content
 ```
 
@@ -108,7 +108,7 @@ The host needs to re-read its MCP config:
 
 | You (the agent) CAN | You MUST ASK the user |
 |---|---|
-| Run `pip install sumo-qa` then `sumo-qa-install` (with whatever host flags) | Restart their host application(s) after install |
+| Run `python -m pip install sumo-qa` then `python -m sumo_qa.installer` (with whatever host flags) | Restart their host application(s) after install |
 | Run the verification call | Anything that requires admin / sudo elevation |
-| Re-run `sumo-qa-install` to refresh | The JetBrains AI Assistant Settings UI add (it's a clicks-only flow; can't be scripted) |
+| Re-run `python -m sumo_qa.installer` to refresh | The JetBrains AI Assistant Settings UI add (it's a clicks-only flow; can't be scripted) |
 | Verify Junie's `~/.junie/mcp/sumo-qa.json` file content | |
