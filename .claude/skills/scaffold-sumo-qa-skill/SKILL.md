@@ -51,10 +51,10 @@ It writes three files (the SKILL.md skeleton, the eval YAML stub, the approaches
 
 Remind the user, in this order:
 
-1. Flesh out the workflow in the new `skills/sumo-qa-<name>/SKILL.md` — the skeleton is intentionally generic.
-2. Replace the seed scenario in the new eval YAML with a concrete case before running `npm run eval`. The placeholder will fail every assertion.
-3. Add the routing line in `skills/sumo-qa-deciding-approach/SKILL.md` manually.
+1. **Flesh out the new SKILL.md via `/skill-creator:skill-creator`** (or `/superpowers:writing-skills`) — hand it the scaffolded file as the starting point. This is the repo convention per `feedback_use_skill_creator_for_skills`: skill-creator handles description-trigger optimisation, format consistency with the rest of the estate, and the eval-driven quality loop. Hand-authoring the body by pattern-matching sibling skills drifts on all three and is exactly the failure mode the scaffolder exists to make easier to avoid. Don't skip this step even when the skill feels "obvious" — every skill in the estate ran through skill-creator at least once.
+2. Replace the seed scenario in the new eval YAML with a concrete case before running `npm run eval`. The placeholder will fail every assertion. The eval YAML stub is intentionally `<REPLACE>`-marked throughout so this can't be missed.
+3. Add the routing line in `skills/sumo-qa-deciding-approach/SKILL.md` manually. The script prints the exact markdown row to paste.
 4. Run `sumo-qa-validate` so the catalogue still parses.
 5. Reinstall the package (`pip install -e .`) and restart the MCP host before the new approach tag becomes visible to `sumo_qa_load_approaches`. Until then, source and installed views disagree — that's expected, not a bug.
 
-The scaffold is a starting point, not a finished skill. Don't open a PR with just the scaffold contents; the eval will fail against the placeholder content, and the policy in this repo is to fix the SKILL.md until the eval passes rather than ship with known gaps.
+The scaffold is a starting point, not a finished skill. Don't open a PR with just the scaffold contents; the eval will fail against the placeholder content, and the repo policy (`feedback_eval_fixes_target_skill_not_rubric`) is to fix the SKILL.md until the eval passes rather than ship with known gaps.

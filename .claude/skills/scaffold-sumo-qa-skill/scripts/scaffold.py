@@ -259,12 +259,20 @@ def main() -> int:
         print(f"  - {path.relative_to(repo_root)}")
     print(
         "\nNext (each step is the contributor's responsibility — the scaffold is intentionally incomplete):\n"
-        f"  1. Open skills/{full_name}/SKILL.md and replace every <PLACEHOLDER>: the title, the intent paragraph, the announce phrase, the three workflow steps, and the constraints. The eval will FAIL until these are real.\n"
-        f"  2. Open tests/evals/promptfoo/skill-{eval_name}.yaml and replace every <PLACEHOLDER>: expected_shape, anti_patterns, the javascript regex, the test description, and the ground_truth_context.\n"
-        f"  3. Add the routing line in skills/sumo-qa-deciding-approach/SKILL.md. The routing table is a simple markdown table; the line for this skill is:\n"
+        f"  1. Flesh out skills/{full_name}/SKILL.md via /skill-creator:skill-creator\n"
+        f"     (or /superpowers:writing-skills). Hand the scaffolded file in as the starting point.\n"
+        "     This is the repo convention; hand-authoring drifts from format and eval-trigger\n"
+        "     accuracy. Replace every <PLACEHOLDER> through that loop, not by direct edit.\n"
+        f"  2. Open tests/evals/promptfoo/skill-{eval_name}.yaml and replace every <REPLACE>\n"
+        "     placeholder: expected_shape, anti_patterns, the javascript regex, the test\n"
+        "     description, and the ground_truth_context. The eval WILL fail against the stub.\n"
+        f"  3. Add the routing line in skills/sumo-qa-deciding-approach/SKILL.md.\n"
+        f"     The routing table is a simple markdown table; the line for this skill is:\n"
         f"     | {args.approach_tag} | {full_name} |\n"
         "  4. Run `sumo-qa-validate` to confirm the catalogue still parses.\n"
-        "  5. The new approach tag will not appear in `sumo_qa_load_approaches` output until the package is reinstalled (`pip install -e .`) and the MCP host restarted. Until then, source and installed views disagree — that's expected, not a bug."
+        "  5. The new approach tag will not appear in `sumo_qa_load_approaches` output until\n"
+        "     the package is reinstalled (`pip install -e .`) and the MCP host restarted.\n"
+        "     Until then, source and installed views disagree — that's expected, not a bug."
     )
     return 0
 
