@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/sumithr/sumo-qa/compare/v0.5.2...v0.5.3) (2026-05-19)
+
+
+### Miscellaneous Chores
+
+* add Claude Code config for project-shared QA automations ([#100](https://github.com/sumithr/sumo-qa/issues/100)) ([d353e41](https://github.com/sumithr/sumo-qa/commit/d353e4145fba0ce792919ad1403d1669fb90c5a2))
+
 ## [0.5.2](https://github.com/sumithr/sumo-qa/compare/v0.5.1...v0.5.2) (2026-05-18)
 
 
