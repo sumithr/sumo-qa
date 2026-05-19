@@ -41,6 +41,26 @@ def _run_hook(
     )
 
 
+def _write_fake_validate(tmp_path: Path, marker: Path) -> Path:
+    """Cross-platform fake `sumo-qa-validate` that touches `marker` and exits 0.
+
+    On Windows the executable must carry a PATHEXT extension (`.cmd`) and use
+    cmd.exe syntax — `/bin/sh` shebangs are ignored, `chmod` is a no-op, and
+    `touch` is not native. On Unix we write the extensionless name with a sh
+    shebang and the executable bit. The hook does
+    `subprocess.run(["sumo-qa-validate"], ...)`, which resolves via PATHEXT on
+    Windows and via the executable bit elsewhere.
+    """
+    if sys.platform == "win32":
+        fake = tmp_path / "sumo-qa-validate.cmd"
+        fake.write_text(f'@echo off\r\ntype nul > "{marker}"\r\nexit /b 0\r\n')
+    else:
+        fake = tmp_path / "sumo-qa-validate"
+        fake.write_text(f"#!/bin/sh\ntouch {marker}\nexit 0\n")
+        fake.chmod(0o755)
+    return fake
+
+
 class TestBlockGeneratedPathsHook:
     """PreToolUse hook: must deny edits to protected paths regardless of cwd."""
 
@@ -115,9 +135,7 @@ class TestValidateOnContentEditHook:
         early-exit fires and the marker does not exist.
         """
         marker = tmp_path / "validator_was_invoked"
-        fake_validate = tmp_path / "sumo-qa-validate"
-        fake_validate.write_text(f"#!/bin/sh\ntouch {marker}\nexit 0\n")
-        fake_validate.chmod(0o755)
+        _write_fake_validate(tmp_path, marker)
 
         env = os.environ.copy()
         env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
@@ -150,9 +168,7 @@ class TestValidateOnContentEditHook:
         """Same equivalence class shape, opposite axis: edits outside
         knowledge/ and standards/ should not trigger the validator."""
         marker = tmp_path / "validator_was_invoked"
-        fake_validate = tmp_path / "sumo-qa-validate"
-        fake_validate.write_text(f"#!/bin/sh\ntouch {marker}\nexit 0\n")
-        fake_validate.chmod(0o755)
+        _write_fake_validate(tmp_path, marker)
 
         env = os.environ.copy()
         env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
