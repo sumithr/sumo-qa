@@ -46,11 +46,15 @@ if sys.version_info < (
     )
     sys.exit(1)
 
+import collections
 import json
 import os
 import platform
+import queue
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 # Mode detection: are we running from inside an installed wheel
@@ -63,6 +67,41 @@ from pathlib import Path
 # the git-clone branch and pick up live edits to skills/.
 _MODULE_DIR = Path(__file__).resolve().parent
 _BUNDLED_SKILLS = _MODULE_DIR / "_data" / "skills"
+
+# Canonical sumo-qa tool surface — exactly what the post-install handshake
+# expects to find in the MCP's tools/list response. Kept in lock-step with
+# the @mcp.tool decorators in src/sumo_qa/server.py; if a tool is added,
+# renamed or removed there, update this tuple (and the matching tests).
+REQUIRED_TOOL_NAMES: tuple[str, ...] = (
+    # Test-data
+    "sumo_qa_explain_test_data_requirements",
+    "sumo_qa_find_test_data",
+    "sumo_qa_validate_test_data",
+    "sumo_qa_register_known_good_test_data",
+    # Knowledge loaders
+    "sumo_qa_load_classifications",
+    "sumo_qa_load_approaches",
+    "sumo_qa_load_principles",
+    "sumo_qa_load_techniques",
+    "sumo_qa_load_standards",
+    "sumo_qa_load_rules",
+    # External skills
+    "sumo_qa_search_external_skills",
+    "sumo_qa_check_external_skill_installed",
+    "sumo_qa_install_external_skill",
+    "sumo_qa_execute_external_skill",
+)
+
+# Truncate stdout/stderr to keep installer output readable when the MCP
+# verification fails. 300 chars is enough to surface a Python traceback header
+# or the first failing JSON-RPC line without flooding the terminal.
+_DUMP_STREAM_CHARS = 300
+
+# Overall budget for the JSON-RPC handshake (initialize + tools/list).
+# Mirrors the legacy ``timeout=10`` literal on ``subprocess.run``; expressed
+# as a constant so the value is visible at the top of the module instead of
+# buried inside the verifier.
+_VERIFY_TIMEOUT_SECONDS = 10
 
 
 def _detect_install_mode(
@@ -746,9 +785,35 @@ def _setup_claude_desktop(mcp_cmd: McpCommand, system: str) -> HostResult:
 # ----------------------------------------------------------------------
 
 
+class _VerifyTimeout(Exception):
+    """Raised internally when a JSON-RPC response doesn't arrive in time."""
+
+
 def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
-    """Send a JSON-RPC initialize and confirm the server responds."""
-    print("Verifying the MCP responds to initialize...")
+    """Drive a JSON-RPC handshake and confirm the expected tool surface.
+
+    Spawns the MCP server with ``subprocess.Popen`` and walks the
+    ``initialize`` + ``notifications/initialized`` + ``tools/list`` handshake
+    one message at a time, reading each response off stdout BEFORE sending
+    the next request. Critically, stdin stays open until both responses have
+    been collected — closing stdin signals EOF to FastMCP's async stdio
+    transport, which cancels any in-flight ``ListToolsRequest`` work before
+    its response reaches stdout. That was the root cause of the ubuntu
+    install-smoke flake: ``subprocess.run`` writes all stdin in one shot and
+    immediately closes it, racing the server's async response queue.
+
+    Validates:
+
+    1. An ``initialize`` response with ``id=1``, ``jsonrpc='2.0'``, no top-level
+       ``error`` envelope, and a ``dict`` ``result``.
+    2. A ``tools/list`` response with ``id=2`` whose ``result.tools[*].name``
+       set is a superset of ``REQUIRED_TOOL_NAMES``.
+
+    Returns True only when both responses validate cleanly. Failures print a
+    WARNING line naming the specific shape that broke, plus truncated
+    stdout/stderr so the user has something actionable to debug.
+    """
+    print("Verifying the MCP responds to initialize and exposes the expected tools...")
     init_req = json.dumps(
         {
             "jsonrpc": "2.0",
@@ -761,26 +826,359 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
             },
         }
     )
+    initialized_note = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    tools_req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+
+    proc = subprocess.Popen(  # noqa: S603 -- argv comes from a trusted McpCommand
+        mcp_cmd.as_subprocess_argv(),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    # Spawn the stdout reader thread once per process so both
+    # ``_read_json_rpc_response`` calls (id=1 and id=2) share the same queue.
+    # Cross-platform timeout falls out of ``queue.get(timeout=...)`` — no
+    # platform-branched ``select`` needed.
+    line_queue = _start_stdout_reader(proc)
+    deadline = time.monotonic() + _VERIFY_TIMEOUT_SECONDS
+    init_resp: dict | None = None
+    tools_resp: dict | None = None
+    extra_stdout: list[str] = []
+    # Buffer of parsed JSON-RPC response objects that didn't match the
+    # expected id at the time they were read. Shared across both
+    # ``_read_json_rpc_response`` calls so a server that batches responses
+    # per spec 2.0 §6 (a single line containing
+    # ``[{"id":1,...}, {"id":2,...}]``) still resolves id=1 on the first
+    # call and id=2 on the second.
+    pending_responses: collections.deque[dict] = collections.deque()
     try:
-        proc = subprocess.run(
-            mcp_cmd.as_subprocess_argv(),
-            input=init_req + "\n",
-            capture_output=True,
-            text=True,
-            timeout=10,
+        # Step 1: initialize.
+        proc.stdin.write(init_req + "\n")
+        proc.stdin.flush()
+        init_resp = _read_json_rpc_response(
+            line_queue=line_queue,
+            expected_id=1,
+            deadline=deadline,
+            extra_lines=extra_stdout,
+            pending_responses=pending_responses,
         )
-    except subprocess.TimeoutExpired:
-        print("  WARNING: MCP did not respond within 10s.")
+
+        # Step 2: notifications/initialized — no response on the wire.
+        proc.stdin.write(initialized_note + "\n")
+        proc.stdin.flush()
+
+        # Step 3: tools/list.
+        proc.stdin.write(tools_req + "\n")
+        proc.stdin.flush()
+        tools_resp = _read_json_rpc_response(
+            line_queue=line_queue,
+            expected_id=2,
+            deadline=deadline,
+            extra_lines=extra_stdout,
+            pending_responses=pending_responses,
+        )
+    except _VerifyTimeout:
+        print(f"  WARNING: MCP did not respond within {_VERIFY_TIMEOUT_SECONDS}s (timeout).")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
-    if proc.stdout and '"result"' in proc.stdout:
-        print("  MCP responded to initialize.")
-        return True
-    print("  WARNING: MCP did not return a result.")
-    if proc.stdout:
-        print(f"    stdout: {proc.stdout[:300]}")
-    if proc.stderr:
-        print(f"    stderr: {proc.stderr[:300]}")
-    return False
+    except BrokenPipeError:  # pragma: no cover -- defensive; server-crash race
+        # Server exited mid-handshake (e.g. import error in the MCP package).
+        print("  WARNING: MCP closed stdin mid-handshake (server likely crashed on startup).")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    finally:
+        try:
+            if proc.stdin and not proc.stdin.closed:
+                proc.stdin.close()
+        except Exception:  # pragma: no cover -- defensive cleanup; noqa: BLE001
+            pass
+
+    # --- initialize ----------------------------------------------------------
+    if init_resp is None:
+        print("  WARNING: MCP did not return an initialize response (no id=1 message).")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    if init_resp.get("jsonrpc") != "2.0":
+        print("  WARNING: initialize response missing jsonrpc='2.0'.")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    if "error" in init_resp:
+        print(f"  WARNING: initialize returned an error envelope: {init_resp['error']!r}")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    init_result = init_resp.get("result")
+    if not isinstance(init_result, dict):
+        print(
+            "  WARNING: initialize response 'result' is not a dict "
+            f"(got {type(init_result).__name__})."
+        )
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+
+    # --- tools/list ----------------------------------------------------------
+    if tools_resp is None:
+        print("  WARNING: MCP did not return a tools/list response (no id=2 message).")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    if "error" in tools_resp:
+        print(f"  WARNING: tools/list returned an error envelope: {tools_resp['error']!r}")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    tools_result = tools_resp.get("result")
+    if not isinstance(tools_result, dict):
+        print(
+            "  WARNING: tools/list response 'result' is not a dict "
+            f"(got {type(tools_result).__name__})."
+        )
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    tools = tools_result.get("tools", [])
+    if not isinstance(tools, list):
+        print("  WARNING: tools/list 'result.tools' is not a list.")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    advertised = {t.get("name") for t in tools if isinstance(t, dict)}
+    missing = [n for n in REQUIRED_TOOL_NAMES if n not in advertised]
+    if missing:
+        print(f"  WARNING: tools/list is missing required tools: {missing}")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+
+    _terminate(proc)
+    print(f"  MCP responded with {len(advertised)} tools; all required tools present.")
+    return True
+
+
+def _start_stdout_reader(proc: subprocess.Popen) -> queue.Queue:
+    """Spawn a daemon thread that pumps each stdout line into a queue.
+
+    Returns the queue. The thread reads via blocking ``readline`` until EOF
+    (empty string from ``readline``), at which point it pushes a ``None``
+    sentinel so the main thread can distinguish "stalled server" (queue stays
+    empty, ``get`` raises ``queue.Empty``) from "server exited" (queue yields
+    ``None``).
+
+    Daemon so it doesn't block process exit if the parent forgets to drain.
+    Cross-platform: blocking ``readline`` works identically on POSIX and
+    Windows, and ``queue.Queue.get(timeout=...)`` honours the timeout on both.
+    This is the replacement for the previous platform-branched ``select``
+    polling, which silently degraded to a no-timeout blocking ``readline`` on
+    Windows.
+    """
+    q: queue.Queue = queue.Queue()
+
+    def _pump() -> None:
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                q.put(line)
+        finally:
+            q.put(None)  # EOF sentinel
+
+    t = threading.Thread(target=_pump, daemon=True)
+    t.start()
+    return q
+
+
+def _read_json_rpc_response(
+    *,
+    line_queue: queue.Queue,
+    expected_id: int,
+    deadline: float,
+    extra_lines: list[str],
+    pending_responses: collections.deque[dict],
+) -> dict | None:
+    """Read lines from ``line_queue`` until one parses as a JSON object with
+    ``id == expected_id``.
+
+    Returns the parsed dict on success, ``None`` if the reader thread signals
+    EOF (the server exited) before the expected response arrives. Raises
+    ``_VerifyTimeout`` when ``deadline`` elapses with no matching response.
+
+    Non-matching lines (notifications, malformed JSON, log noise, JSON values
+    that aren't objects) are accumulated into ``extra_lines`` so a later
+    ``_dump_proc_streams`` call can surface them when verification fails.
+
+    Cross-platform by construction: ``queue.Queue.get(timeout=...)`` honours
+    the timeout identically on POSIX and Windows. No ``select`` needed.
+
+    Batched-response support (JSON-RPC 2.0 §6): if a line parses to a JSON
+    array, each dict element is treated as if it had arrived on its own
+    line. A match for ``expected_id`` returns immediately; the remaining
+    dict elements are buffered into ``pending_responses`` so a subsequent
+    call (e.g. the second handshake read for id=2) picks them up before
+    pulling the next line off ``line_queue``. Non-dict array elements
+    (strings, numbers, nested lists) are accumulated into ``extra_lines``
+    as noise — JSON-RPC messages are always objects.
+
+    On EOF: pushes the ``None`` sentinel back onto the queue so any subsequent
+    read from the same queue also short-circuits to ``None`` instead of
+    blocking for the full deadline. The reader thread only puts ``None``
+    once; without this re-push, the second handshake read (tools/list) would
+    hang waiting for a sentinel that's already been consumed.
+    """
+    # First, drain any buffered batched responses from the previous call.
+    # If one of them carries the expected id, return it without touching
+    # the queue at all.
+    while pending_responses:
+        candidate = pending_responses.popleft()
+        if candidate.get("id") == expected_id:
+            return candidate
+        # Otherwise it's still unmatched — keep it visible to the failure
+        # dump so noise isn't silently swallowed.
+        extra_lines.append(json.dumps(candidate))
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise _VerifyTimeout()
+        try:
+            line = line_queue.get(timeout=remaining)
+        except queue.Empty:
+            raise _VerifyTimeout() from None
+        if line is None:
+            # EOF sentinel — the reader thread saw stdout close. Re-push so
+            # any later read on the same queue also yields None immediately,
+            # then surface as missing-response.
+            line_queue.put(None)
+            return None
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            value = json.loads(stripped)
+        except json.JSONDecodeError:
+            extra_lines.append(stripped)
+            continue
+        if isinstance(value, list):
+            # Batched response per JSON-RPC 2.0 §6. Process each dict element
+            # as if it had arrived on its own line: a match for the expected
+            # id returns immediately; remaining dicts buffer for the next
+            # call. Non-dict elements (strings, numbers, nested lists) are
+            # log noise from the verifier's perspective.
+            matched: dict | None = None
+            for item in value:
+                if not isinstance(item, dict):
+                    extra_lines.append(json.dumps(item))
+                    continue
+                if matched is None and item.get("id") == expected_id:
+                    matched = item
+                else:
+                    pending_responses.append(item)
+            if matched is not None:
+                return matched
+            continue
+        if not isinstance(value, dict):
+            extra_lines.append(stripped)
+            continue
+        if value.get("id") == expected_id:
+            return value
+        # Some other JSON-RPC message (e.g. a server notification). Keep it
+        # for the failure dump and continue reading.
+        extra_lines.append(stripped)
+
+
+def _terminate(proc: subprocess.Popen) -> None:
+    """Best-effort process teardown.
+
+    Mirrors the cleanup in ``tests/test_e2e_mcp_initialize.py``: close stdin,
+    ``terminate()``, wait briefly, ``kill()`` on stragglers. Tolerant of
+    already-exited processes and missing pipe handles.
+    """
+    try:
+        if proc.stdin and not proc.stdin.closed:
+            proc.stdin.close()
+    except Exception:  # pragma: no cover -- defensive cleanup; noqa: BLE001
+        pass
+    try:
+        proc.terminate()
+    except Exception:  # pragma: no cover -- defensive; already gone; noqa: BLE001
+        pass
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:  # pragma: no cover -- defensive; kill fallback
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            proc.wait(timeout=2)
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception:  # pragma: no cover -- defensive; wait on missing pid; noqa: BLE001
+        pass
+
+
+def _parse_json_rpc_lines(stdout: str) -> list[dict]:
+    """Split stdout on newlines and decode each line as a JSON object.
+
+    Defensive against:
+    - Empty / whitespace-only lines (skipped).
+    - Non-JSON log noise some servers emit alongside JSON-RPC (skipped).
+    - JSON values that aren't objects or arrays of objects, e.g. bare
+      strings or numbers (skipped) — JSON-RPC messages are always objects,
+      so anything else is noise from the verifier's perspective.
+
+    Batched-response support (JSON-RPC 2.0 §6): a line that parses to a
+    JSON array is flattened — dict elements are appended to the output in
+    order; non-dict elements (nested arrays, strings, numbers) are
+    skipped, matching the single-line behaviour.
+    """
+    out: list[dict] = []
+    for raw in stdout.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            out.append(value)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    out.append(item)
+    return out
+
+
+def _dump_proc_streams(proc: subprocess.Popen, *, extra_lines: list[str]) -> None:
+    """Print truncated stdout/stderr from a live Popen for diagnostics.
+
+    Drains any remaining stderr (non-blocking best-effort) and prints the
+    accumulated stdout lines we couldn't match plus any stderr bytes the
+    server emitted. Truncated to ``_DUMP_STREAM_CHARS`` to keep the install
+    log readable on failure.
+
+    Cross-platform: only reads stderr when the process has exited (so we
+    don't block the installer waiting on a stalled server's stderr pipe).
+    The previous POSIX-only ``select`` polling has been removed in favour of
+    this exit-gated read, which works identically on Windows.
+    """
+    if extra_lines:
+        joined = "\n".join(extra_lines)
+        print(f"    stdout: {joined[:_DUMP_STREAM_CHARS]}")
+    # Best-effort: only drain stderr once the process has exited so the read
+    # is guaranteed not to block.
+    stderr_text = ""
+    try:
+        if proc.stderr is not None and proc.poll() is not None:
+            stderr_text = proc.stderr.read() or ""
+    except Exception:  # pragma: no cover -- defensive; noqa: BLE001
+        pass
+    if stderr_text:
+        print(f"    stderr: {stderr_text[:_DUMP_STREAM_CHARS]}")
 
 
 if __name__ == "__main__":  # pragma: no cover -- main guard
