@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sumo-qa": {
+      "args": [],
+      "command": "sumo-qa",
+      "type": "stdio"
+    }
+  }
+}
