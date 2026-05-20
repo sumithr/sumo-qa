@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/sumithr/sumo-qa/compare/v0.5.3...v0.5.4) (2026-05-20)
+
+
+### Continuous Integration
+
+* align workflows with the documented pip install path ([#105](https://github.com/sumithr/sumo-qa/issues/105)) ([91dadb1](https://github.com/sumithr/sumo-qa/commit/91dadb1c8ed226e1ba2d2ef36f0e8b624fee1331))
+
 ## [0.5.3](https://github.com/sumithr/sumo-qa/compare/v0.5.2...v0.5.3) (2026-05-19)
 
 
