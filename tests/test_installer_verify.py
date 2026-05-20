@@ -628,12 +628,198 @@ def test_parse_json_rpc_lines_skips_empty_and_malformed() -> None:
 
 
 def test_parse_json_rpc_lines_skips_non_dict_json() -> None:
-    """A bare JSON array or string at the line level is skipped — only objects count."""
-    stdout = '"a-string"\n[1, 2, 3]\n{"jsonrpc": "2.0", "id": 1, "result": {}}\n'
+    """A bare JSON string or number at the line level is skipped — only objects
+    (and dict elements of top-level arrays, per the batched-response branch)
+    count. Bare arrays of dicts are flattened, not skipped: see
+    ``test_parse_json_rpc_lines_flattens_top_level_array``."""
+    stdout = '"a-string"\n42\n{"jsonrpc": "2.0", "id": 1, "result": {}}\n'
     parsed = installer._parse_json_rpc_lines(stdout)
 
     assert len(parsed) == 1
     assert parsed[0]["id"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Batched JSON-RPC arrays (spec 2.0 §6) — must be parsed, not discarded
+# ---------------------------------------------------------------------------
+
+
+def _batched_line(*objs: dict) -> str:
+    """Build a single newline-terminated line containing a JSON-RPC array."""
+    return json.dumps(list(objs)) + "\n"
+
+
+def test_verify_accepts_batched_responses(capsys) -> None:
+    """A server that batches both responses into a single JSON-RPC array per
+    spec 2.0 §6 must verify just like one that sends them on separate lines.
+
+    Feeds a single stdout line containing ``[initialize_resp, tools_resp]``
+    — the previous behaviour dropped this as "non-dict noise" and the
+    verifier then reported missing id=1/id=2 on a healthy server.
+    """
+    batched = _batched_line(
+        _initialize_ok(),
+        _tools_list_response(list(installer.REQUIRED_TOOL_NAMES)),
+    )
+    proc = _FakeProc([batched])
+    with patch(_POPEN_TARGET, return_value=proc):
+        result = installer._verify_mcp_responds(_mcp_cmd())
+
+    assert result is True
+    out = capsys.readouterr().out
+    assert "MCP responded with" in out
+    assert "all required tools present" in out
+
+
+def test_verify_accepts_batched_initialize_then_separate_tools_list(capsys) -> None:
+    """A batched array carrying only the initialize response, followed by a
+    standalone tools/list line, must still verify. Pins the interleaving
+    contract: the buffered (but unused) batched items don't poison the next
+    read, and a subsequent unbatched line is still picked up in order."""
+    proc = _FakeProc(
+        [
+            _batched_line(_initialize_ok()),
+            json.dumps(_tools_list_response(list(installer.REQUIRED_TOOL_NAMES))) + "\n",
+        ]
+    )
+    with patch(_POPEN_TARGET, return_value=proc):
+        result = installer._verify_mcp_responds(_mcp_cmd())
+
+    assert result is True
+    out = capsys.readouterr().out
+    assert "all required tools present" in out
+
+
+def test_verify_accepts_batched_id1_id2_resolved_across_calls(capsys) -> None:
+    """A single batched line containing BOTH id=1 and id=2 must satisfy both
+    ``_read_json_rpc_response`` calls — the first returns id=1, the second
+    pulls id=2 out of the shared pending buffer before touching the queue.
+    The order of ids inside the array is reversed here to pin that the
+    lookup is id-keyed, not positional."""
+    batched = _batched_line(
+        _tools_list_response(list(installer.REQUIRED_TOOL_NAMES)),  # id=2 first
+        _initialize_ok(),  # id=1 second
+    )
+    proc = _FakeProc([batched])
+    with patch(_POPEN_TARGET, return_value=proc):
+        result = installer._verify_mcp_responds(_mcp_cmd())
+
+    assert result is True
+
+
+def test_parse_json_rpc_lines_flattens_top_level_array() -> None:
+    """``_parse_json_rpc_lines`` must flatten a top-level JSON array's dict
+    elements into the output list, preserving order. Mirrors the batched
+    branch in ``_read_json_rpc_response``."""
+    stdout = (
+        json.dumps(
+            [
+                {"jsonrpc": "2.0", "id": 1, "result": {}},
+                {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}},
+            ]
+        )
+        + "\n"
+    )
+    parsed = installer._parse_json_rpc_lines(stdout)
+
+    assert len(parsed) == 2
+    assert parsed[0]["id"] == 1
+    assert parsed[1]["id"] == 2
+
+
+def test_parse_skips_non_dict_array_elements() -> None:
+    """A batched array mixing dicts with strings, numbers, and nested arrays
+    must yield only the dict elements. Pins the per-element ``isinstance``
+    guard inside the batched branch."""
+    stdout = (
+        json.dumps(
+            [
+                {"jsonrpc": "2.0", "id": 1, "result": {}},
+                "string-element",
+                42,
+                None,
+                [1, 2, 3],
+            ]
+        )
+        + "\n"
+        + json.dumps({"jsonrpc": "2.0", "id": 2, "result": {"tools": []}})
+        + "\n"
+    )
+    parsed = installer._parse_json_rpc_lines(stdout)
+
+    assert len(parsed) == 2
+    assert parsed[0]["id"] == 1
+    assert parsed[1]["id"] == 2
+
+
+def test_verify_dumps_non_matching_pending_responses(capsys) -> None:
+    """When a batched array carries an unexpected-id dict alongside the
+    expected ones, the unexpected dict must survive the first call as a
+    pending response, and on the second call (which doesn't match it
+    either) it gets flushed into ``extra_lines`` so the failure dump can
+    surface it. Pins the drain-but-no-match arm at the top of
+    ``_read_json_rpc_response``.
+
+    We trigger the dump via a missing-required-tool failure so capsys can
+    actually see the noise line.
+    """
+    noisy_id = {"jsonrpc": "2.0", "id": 99, "result": {"note": "unexpected-id"}}
+    line = (
+        json.dumps(
+            [
+                noisy_id,
+                _initialize_ok(),
+                _tools_list_response(["sumo_qa_find_test_data"]),  # missing rest
+            ]
+        )
+        + "\n"
+    )
+    proc = _FakeProc([line])
+    with patch(_POPEN_TARGET, return_value=proc):
+        result = installer._verify_mcp_responds(_mcp_cmd())
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    # The unexpected-id dict must appear in the dumped extra-lines output —
+    # ``"unexpected-id"`` is unique enough to anchor on.
+    assert "unexpected-id" in out
+
+
+def test_verify_dumps_non_dict_batch_elements_on_failure(capsys) -> None:
+    """When verification fails (e.g. missing required tools), non-dict items
+    inside a batched array must show up in the failure dump so the user can
+    see what the server actually sent. Pins the noise-into-extra-lines arm
+    of the batched branch."""
+    bad_batched = _batched_line(
+        _initialize_ok(),
+        _tools_list_response(["sumo_qa_find_test_data"]),  # missing the rest
+    )
+    # Drop a non-dict array element in alongside the responses to ensure
+    # it lands in extra_lines (visible in the dump).
+    line = (
+        json.dumps(
+            [
+                _initialize_ok(),
+                "string-noise-from-batch",
+                _tools_list_response(["sumo_qa_find_test_data"]),
+            ]
+        )
+        + "\n"
+    )
+    assert "string-noise-from-batch" in line  # guard
+    proc = _FakeProc([line])
+    with patch(_POPEN_TARGET, return_value=proc):
+        result = installer._verify_mcp_responds(_mcp_cmd())
+
+    assert result is False
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    # The string noise from inside the batch must surface in the dump.
+    assert "string-noise-from-batch" in out
+    # And the suppress-unused-variable assertion above keeps ``bad_batched``
+    # in scope as documentation of the simpler shape.
+    assert isinstance(bad_batched, str)
 
 
 # ---------------------------------------------------------------------------

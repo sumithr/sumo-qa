@@ -46,6 +46,7 @@ if sys.version_info < (
     )
     sys.exit(1)
 
+import collections
 import json
 import os
 import platform
@@ -844,6 +845,13 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
     init_resp: dict | None = None
     tools_resp: dict | None = None
     extra_stdout: list[str] = []
+    # Buffer of parsed JSON-RPC response objects that didn't match the
+    # expected id at the time they were read. Shared across both
+    # ``_read_json_rpc_response`` calls so a server that batches responses
+    # per spec 2.0 §6 (a single line containing
+    # ``[{"id":1,...}, {"id":2,...}]``) still resolves id=1 on the first
+    # call and id=2 on the second.
+    pending_responses: collections.deque[dict] = collections.deque()
     try:
         # Step 1: initialize.
         proc.stdin.write(init_req + "\n")
@@ -853,6 +861,7 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
             expected_id=1,
             deadline=deadline,
             extra_lines=extra_stdout,
+            pending_responses=pending_responses,
         )
 
         # Step 2: notifications/initialized — no response on the wire.
@@ -867,6 +876,7 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
             expected_id=2,
             deadline=deadline,
             extra_lines=extra_stdout,
+            pending_responses=pending_responses,
         )
     except _VerifyTimeout:
         print(f"  WARNING: MCP did not respond within {_VERIFY_TIMEOUT_SECONDS}s (timeout).")
@@ -987,6 +997,7 @@ def _read_json_rpc_response(
     expected_id: int,
     deadline: float,
     extra_lines: list[str],
+    pending_responses: collections.deque[dict],
 ) -> dict | None:
     """Read lines from ``line_queue`` until one parses as a JSON object with
     ``id == expected_id``.
@@ -1002,12 +1013,32 @@ def _read_json_rpc_response(
     Cross-platform by construction: ``queue.Queue.get(timeout=...)`` honours
     the timeout identically on POSIX and Windows. No ``select`` needed.
 
+    Batched-response support (JSON-RPC 2.0 §6): if a line parses to a JSON
+    array, each dict element is treated as if it had arrived on its own
+    line. A match for ``expected_id`` returns immediately; the remaining
+    dict elements are buffered into ``pending_responses`` so a subsequent
+    call (e.g. the second handshake read for id=2) picks them up before
+    pulling the next line off ``line_queue``. Non-dict array elements
+    (strings, numbers, nested lists) are accumulated into ``extra_lines``
+    as noise — JSON-RPC messages are always objects.
+
     On EOF: pushes the ``None`` sentinel back onto the queue so any subsequent
     read from the same queue also short-circuits to ``None`` instead of
     blocking for the full deadline. The reader thread only puts ``None``
     once; without this re-push, the second handshake read (tools/list) would
     hang waiting for a sentinel that's already been consumed.
     """
+    # First, drain any buffered batched responses from the previous call.
+    # If one of them carries the expected id, return it without touching
+    # the queue at all.
+    while pending_responses:
+        candidate = pending_responses.popleft()
+        if candidate.get("id") == expected_id:
+            return candidate
+        # Otherwise it's still unmatched — keep it visible to the failure
+        # dump so noise isn't silently swallowed.
+        extra_lines.append(json.dumps(candidate))
+
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -1029,6 +1060,24 @@ def _read_json_rpc_response(
             value = json.loads(stripped)
         except json.JSONDecodeError:
             extra_lines.append(stripped)
+            continue
+        if isinstance(value, list):
+            # Batched response per JSON-RPC 2.0 §6. Process each dict element
+            # as if it had arrived on its own line: a match for the expected
+            # id returns immediately; remaining dicts buffer for the next
+            # call. Non-dict elements (strings, numbers, nested lists) are
+            # log noise from the verifier's perspective.
+            matched: dict | None = None
+            for item in value:
+                if not isinstance(item, dict):
+                    extra_lines.append(json.dumps(item))
+                    continue
+                if matched is None and item.get("id") == expected_id:
+                    matched = item
+                else:
+                    pending_responses.append(item)
+            if matched is not None:
+                return matched
             continue
         if not isinstance(value, dict):
             extra_lines.append(stripped)
@@ -1077,9 +1126,14 @@ def _parse_json_rpc_lines(stdout: str) -> list[dict]:
     Defensive against:
     - Empty / whitespace-only lines (skipped).
     - Non-JSON log noise some servers emit alongside JSON-RPC (skipped).
-    - JSON values that aren't objects, e.g. bare arrays or strings (skipped) —
-      JSON-RPC messages are always objects, so anything else is noise from
-      the verifier's perspective.
+    - JSON values that aren't objects or arrays of objects, e.g. bare
+      strings or numbers (skipped) — JSON-RPC messages are always objects,
+      so anything else is noise from the verifier's perspective.
+
+    Batched-response support (JSON-RPC 2.0 §6): a line that parses to a
+    JSON array is flattened — dict elements are appended to the output in
+    order; non-dict elements (nested arrays, strings, numbers) are
+    skipped, matching the single-line behaviour.
     """
     out: list[dict] = []
     for raw in stdout.splitlines():
@@ -1092,6 +1146,10 @@ def _parse_json_rpc_lines(stdout: str) -> list[dict]:
             continue
         if isinstance(value, dict):
             out.append(value)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    out.append(item)
     return out
 
 
