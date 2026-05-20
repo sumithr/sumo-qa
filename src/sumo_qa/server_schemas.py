@@ -9,9 +9,12 @@ in this file, not in the tool.
 
 Error envelope: every tool can also return the existing dict-based
 ``{"isError": True, "error": {...}}`` shape on failure (built by
-``server._error_envelope``). To preserve that without modelling the error
-path twice, each tool's annotated return is ``ModelName | dict`` — Pydantic
-accepts both branches and FastMCP emits a ``oneOf`` outputSchema.
+``server._error_envelope``). That shape is modelled by :class:`ErrorEnvelope`
+below, and each tool's annotated return is ``ModelName | ErrorEnvelope`` —
+Pydantic accepts both branches and FastMCP emits a discriminated union
+outputSchema keyed on ``isError``. Using a bare ``dict`` here would emit
+``additionalProperties: true`` on the error arm and silently widen the
+public outputSchema, defeating the contract this module exists to provide.
 """
 
 from __future__ import annotations
@@ -40,6 +43,41 @@ class _StrictBase(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     __test__ = False
+
+
+class _ErrorDetail(_StrictBase):
+    """Inner payload of the MCP tool error envelope."""
+
+    type: str = Field(description="Exception class name (e.g. 'ValueError', 'FileNotFoundError').")
+    message: str = Field(
+        description=(
+            "Cleaned exception message; '(no message)' when the exception was raised with no args."
+        )
+    )
+    actionable_hint: str = Field(
+        description="One-line hint the host surfaces to the user with a concrete next step."
+    )
+
+
+class ErrorEnvelope(_StrictBase):
+    """The MCP tool error envelope returned by ``sumo_qa.server._error_envelope``.
+
+    Used as the typed alternative to a bare ``dict`` in every tool's return
+    annotation. Without this, FastMCP would emit an unconstrained
+    ``additionalProperties: true`` schema arm, allowing any shape through and
+    defeating the outputSchema contract.
+
+    ``isError`` is ``Literal[True]`` so Pydantic + FastMCP treat it as a
+    discriminator, routing between each tool's success model and this
+    envelope in the emitted ``anyOf``/``oneOf`` schema.
+    """
+
+    isError: Literal[True] = Field(
+        description="Marks the response as an error per the MCP error-shape convention."
+    )
+    error: _ErrorDetail = Field(
+        description="Structured error payload with type, message, and actionable_hint."
+    )
 
 
 class _Confidence(_StrictBase):

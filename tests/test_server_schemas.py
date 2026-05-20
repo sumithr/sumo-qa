@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from sumo_qa import external_skills as ext
 from sumo_qa.server_schemas import (
     CheckExternalSkillInstalledOutput,
+    ErrorEnvelope,
     ExecuteExternalSkillOutput,
     InstallExternalSkillOutput,
     SearchExternalSkillsOutput,
@@ -500,3 +501,47 @@ def test_execute_external_skill_output_rejects_unknown_field(tmp_path: Path) -> 
     payload["bonus"] = "no"
     with pytest.raises(ValidationError):
         ExecuteExternalSkillOutput.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# ErrorEnvelope
+#
+# The error arm of every tool's return annotation. Pinning this shape stops
+# FastMCP from emitting an unconstrained ``additionalProperties: true`` branch
+# in the discriminated union outputSchema.
+# ---------------------------------------------------------------------------
+
+
+def test_error_envelope_round_trips() -> None:
+    payload = {
+        "isError": True,
+        "error": {
+            "type": "ValueError",
+            "message": "bad arg",
+            "actionable_hint": "Check the question parameter.",
+        },
+    }
+    model = ErrorEnvelope.model_validate(payload)
+    assert model.isError is True
+    assert model.error.type == "ValueError"
+    assert model.error.message == "bad arg"
+    assert model.error.actionable_hint == "Check the question parameter."
+
+
+def test_error_envelope_rejects_unknown_field() -> None:
+    payload = {
+        "isError": True,
+        "error": {"type": "ValueError", "message": "x", "actionable_hint": "y"},
+        "surprise_field": "nope",
+    }
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate(payload)
+
+
+def test_error_envelope_rejects_isError_false() -> None:
+    payload = {
+        "isError": False,  # Literal[True] should reject
+        "error": {"type": "ValueError", "message": "x", "actionable_hint": "y"},
+    }
+    with pytest.raises(ValidationError):
+        ErrorEnvelope.model_validate(payload)
