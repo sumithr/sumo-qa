@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.5](https://github.com/sumithr/sumo-qa/compare/v0.5.4...v0.5.5) (2026-05-20)
+
+
+### Continuous Integration
+
+* **mutation:** pin to Python 3.12 to dodge mutmut+3.13 crash ([#109](https://github.com/sumithr/sumo-qa/issues/109)) ([e1ccf85](https://github.com/sumithr/sumo-qa/commit/e1ccf85cf7e4e23741b10491a2e88955f36e9068))
+
 ## [0.5.4](https://github.com/sumithr/sumo-qa/compare/v0.5.3...v0.5.4) (2026-05-20)
 
 
