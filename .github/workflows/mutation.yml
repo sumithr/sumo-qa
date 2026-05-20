@@ -30,11 +30,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          # Pinned to 3.12: mutmut 3.x's trampoline re-imports mutmut.__main__,
-          # which calls multiprocessing.set_start_method('fork') at module level
-          # and raises "context has already been set" on Python 3.13. test.yml
-          # covers 3.10-3.14, so the mutation gate doesn't need to multi-version.
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
           cache-dependency-path: pyproject.toml
 
@@ -45,10 +41,19 @@ jobs:
         id: mutate
         # Don't fail the step on non-zero exit; mutmut exits non-zero when
         # survivors exist.  We do our own comparison in the next step.
+        #
+        # MUST invoke via the `mutmut` console-script wrapper (not `python -m
+        # mutmut`). The wrapper's shim does `from mutmut.__main__ import cli`,
+        # putting `mutmut.__main__` into sys.modules under that key. `python -m
+        # mutmut` loads it as `__main__` only — and mutmut's injected trampoline
+        # later does `from mutmut.__main__ import record_trampoline_hit`, which
+        # then re-imports mutmut.__main__ as a *fresh* module and re-runs its
+        # top-level `set_start_method('fork')` call against an already-set
+        # multiprocessing context → RuntimeError → "failed to collect stats".
         continue-on-error: true
         run: |
           set +e
-          python -m mutmut run 2>&1 | tee mutmut.log
+          mutmut run 2>&1 | tee mutmut.log
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
       - name: Compare against baseline
