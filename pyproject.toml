@@ -123,4 +123,12 @@ also_copy = [
   "knowledge/",
   "skills/",
   "hooks/",
+  # tests/test_claude_hooks.py spawns the hook scripts via subprocess and
+  # resolves their path relative to repo-root (which under mutmut is mutants/).
+  # Without this entry, the first claude-hooks test fails on "No such file",
+  # mutmut's -x aborts stats collection, and the gate reports false-DROPPED
+  # for every module. NOT shipped in the wheel: Hatch reads only
+  # [tool.hatch.build.targets.wheel.force-include], so this entry is
+  # mutmut-local-only.
+  ".claude/",
 ]

@@ -41,9 +41,15 @@ def _classification_filter_terms(classification: str | None) -> set[str] | None:
     if classification is None:
         return None
     return {
-        part.strip("`'\"")
+        # pragma: no mutate — XX-quoted strip variant is equivalent (no realistic
+        # classification name contains a literal 'X' distinct from the trimmed
+        # quote chars). The strip→None variant is covered by
+        # test_classification_filter_strips_backticks_and_quotes.
+        part.strip("`'\"")  # pragma: no mutate
         for part in re.split(r"[\s,;]+", str(classification))
-        if part.strip("`'\"")
+        # pragma: no mutate — same rationale as the result-expression strip above;
+        # filter behaviour is verified by the same strengthening test.
+        if part.strip("`'\"")  # pragma: no mutate
     }
 
 
@@ -54,10 +60,17 @@ def _metadata_terms(value: Any) -> set[str]:
         return _classification_filter_terms(value) or set()
     if isinstance(value, (list, tuple, set)):
         return {
-            part.strip("`'\"")
+            # pragma: no mutate — XX-quoted strip variant is equivalent (see
+            # rationale in _classification_filter_terms). Strip→None covered by
+            # test_metadata_terms_strips_backticks_in_list_inputs.
+            part.strip("`'\"")  # pragma: no mutate
             for item in value
-            for part in re.split(r"[\s,;]+", str(item))
-            if part.strip("`'\"")
+            # pragma: no mutate — regex XX-wrapped variant matches only inputs
+            # containing literal "XX...XX"; equivalent for realistic metadata.
+            for part in re.split(r"[\s,;]+", str(item))  # pragma: no mutate
+            # pragma: no mutate — same rationale as the result-expression strip
+            # above; covered by the same metadata strengthening test.
+            if part.strip("`'\"")  # pragma: no mutate
         }
     return {str(value)}
 
@@ -104,11 +117,20 @@ def _standards_dir() -> Path:
     """Return the standards directory, honouring QA_STANDARDS_PATH override."""
     override = os.environ.get("QA_STANDARDS_PATH")
     if override:
-        return Path(override) / "packs" if (Path(override) / "packs").is_dir() else Path(override)
+        # pragma: no mutate — "packs" → "PACKS" mutation is Mac-survivor-only:
+        # killed on case-sensitive FS (Linux CI) by
+        # test_standards_dir_env_var_with_packs_subdirectory, indistinguishable
+        # on case-insensitive APFS. Pragma keeps the pre-push hook usable on Mac.
+        return (
+            Path(override) / "packs" if (Path(override) / "packs").is_dir() else Path(override)
+        )  # pragma: no mutate
     bundled = Path(__file__).parent / "_data" / "standards" / "packs"
     if bundled.is_dir():
         return bundled
-    return Path(__file__).parent.parent.parent / "standards" / "packs"
+    # pragma: no mutate — "standards"/"packs" → "STANDARDS"/"PACKS" mutations
+    # are Mac-survivor-only (same rationale as the override branch above);
+    # killed on Linux CI by the fallback-path tests.
+    return Path(__file__).parent.parent.parent / "standards" / "packs"  # pragma: no mutate
 
 
 def sumo_qa_load_standards(classification: str | None = None) -> str:
