@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.5](https://github.com/sumithr/sumo-qa/compare/v0.6.4...v0.6.5) (2026-05-20)
+
+
+### Documentation
+
+* add support-specific issue templates ([f40b5e5](https://github.com/sumithr/sumo-qa/commit/f40b5e5c1fc4755a940d2c7c87d9f391134bae47))
+* **issue-templates:** use real sumo-qa tool names in placeholders ([38628ff](https://github.com/sumithr/sumo-qa/commit/38628ff098c8c58fc7cd4e459a2f26a6a53aa440))
+
 ## [0.6.4](https://github.com/sumithr/sumo-qa/compare/v0.6.3...v0.6.4) (2026-05-20)
 
 
