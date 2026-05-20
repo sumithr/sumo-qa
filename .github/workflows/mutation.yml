@@ -30,7 +30,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          # Pinned to 3.12: mutmut 3.x's trampoline re-imports mutmut.__main__,
+          # which calls multiprocessing.set_start_method('fork') at module level
+          # and raises "context has already been set" on Python 3.13. test.yml
+          # covers 3.10-3.14, so the mutation gate doesn't need to multi-version.
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: pyproject.toml
 
