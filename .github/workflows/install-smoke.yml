@@ -22,6 +22,12 @@ on:
   pull_request:
     branches: [main]
 
+# Minimum-required token scope. Every job only checks out the repo and
+# runs scripts against it — no write actions, no PR comments, no checks
+# API. Satisfies CodeQL's "workflow does not contain permissions" lint.
+permissions:
+  contents: read
+
 concurrency:
   group: install-smoke-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

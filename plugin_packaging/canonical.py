@@ -12,10 +12,14 @@ lives under `[tool.sumo-qa.plugin]`. No field is duplicated.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import tomllib
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover -- 3.10 backport path; covered by py3.10 CI matrix
+    import tomli as tomllib
 
 
 class CanonicalLoadError(ValueError):

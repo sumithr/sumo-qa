@@ -19,6 +19,11 @@ on:
   pull_request:
     branches: [main]
 
+# Minimum-required token scope. The job only reads the repo to run the
+# generator and validator; no write actions, no PR comments, no checks API.
+permissions:
+  contents: read
+
 concurrency:
   group: plugin-packaging-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

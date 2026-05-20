@@ -11,10 +11,15 @@ Covers:
 from __future__ import annotations
 
 import dataclasses
+import sys
 from pathlib import Path
 
 import pytest
-import tomllib
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover -- 3.10 backport path
+    import tomli as tomllib
 
 from sumo_qa import plugin_metadata
 

@@ -173,6 +173,10 @@ repos:
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
           - "pytest-cov>=6,<7"
+          # tomllib stdlib backport for Python 3.10 (used by
+          # plugin_packaging.canonical + tests/test_plugin_metadata.py).
+          # 3.11+ ignores this via the marker.
+          - "tomli>=2,<3; python_version < '3.11'"
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
         files: ^(src/sumo_qa/(knowledge_loaders|rules|standards|tdm_validation)\.py|tests/.*\.py)$
@@ -206,6 +210,10 @@ repos:
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
           - "pytest-cov>=6,<7"
+          # tomllib stdlib backport for Python 3.10 (used by
+          # plugin_packaging.canonical + tests/test_plugin_metadata.py).
+          # 3.11+ ignores this via the marker.
+          - "tomli>=2,<3; python_version < '3.11'"
           # Conditional via PEP 508 marker: only installed on Windows hooks.
           # Needed by Hypothesis's `st.timezones()` strategy in
           # tests/test_hypothesis_tdm_validation.py — Windows ships no
