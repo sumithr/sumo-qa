@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/sumithr/sumo-qa/compare/v0.6.1...v0.6.2) (2026-05-20)
+
+
+### Tests
+
+* pin tools/list snapshot to catch contract drift ([#121](https://github.com/sumithr/sumo-qa/issues/121)) ([b36e887](https://github.com/sumithr/sumo-qa/commit/b36e8877fba4d6e08a97ac8f7f8e681245eac422))
+
 ## [0.6.1](https://github.com/sumithr/sumo-qa/compare/v0.6.0...v0.6.1) (2026-05-20)
 
 
