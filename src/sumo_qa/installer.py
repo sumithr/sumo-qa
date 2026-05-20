@@ -49,8 +49,10 @@ if sys.version_info < (
 import json
 import os
 import platform
+import select
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 # Mode detection: are we running from inside an installed wheel
@@ -92,6 +94,12 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
 # verification fails. 300 chars is enough to surface a Python traceback header
 # or the first failing JSON-RPC line without flooding the terminal.
 _DUMP_STREAM_CHARS = 300
+
+# Overall budget for the JSON-RPC handshake (initialize + tools/list).
+# Mirrors the legacy ``timeout=10`` literal on ``subprocess.run``; expressed
+# as a constant so the value is visible at the top of the module instead of
+# buried inside the verifier.
+_VERIFY_TIMEOUT_SECONDS = 10
 
 
 def _detect_install_mode(
@@ -775,14 +783,24 @@ def _setup_claude_desktop(mcp_cmd: McpCommand, system: str) -> HostResult:
 # ----------------------------------------------------------------------
 
 
+class _VerifyTimeout(Exception):
+    """Raised internally when a JSON-RPC response doesn't arrive in time."""
+
+
 def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
     """Drive a JSON-RPC handshake and confirm the expected tool surface.
 
-    Sends ``initialize`` + ``notifications/initialized`` + ``tools/list`` in
-    one stdin write, then parses each non-empty stdout line as JSON. The
-    legacy ``'"result"' in proc.stdout`` substring check passed on any line
-    containing the literal word "result" (e.g. a benign log line) — this
-    version instead validates:
+    Spawns the MCP server with ``subprocess.Popen`` and walks the
+    ``initialize`` + ``notifications/initialized`` + ``tools/list`` handshake
+    one message at a time, reading each response off stdout BEFORE sending
+    the next request. Critically, stdin stays open until both responses have
+    been collected — closing stdin signals EOF to FastMCP's async stdio
+    transport, which cancels any in-flight ``ListToolsRequest`` work before
+    its response reaches stdout. That was the root cause of the ubuntu
+    install-smoke flake: ``subprocess.run`` writes all stdin in one shot and
+    immediately closes it, racing the server's async response queue.
+
+    Validates:
 
     1. An ``initialize`` response with ``id=1``, ``jsonrpc='2.0'``, no top-level
        ``error`` envelope, and a ``dict`` ``result``.
@@ -794,46 +812,83 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
     stdout/stderr so the user has something actionable to debug.
     """
     print("Verifying the MCP responds to initialize and exposes the expected tools...")
-    init_req = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "sumo-qa-install", "version": "1"},
-        },
-    }
-    initialized_note = {"jsonrpc": "2.0", "method": "notifications/initialized"}
-    tools_req = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
-    payload = "\n".join(json.dumps(m) for m in (init_req, initialized_note, tools_req)) + "\n"
-    try:
-        proc = subprocess.run(
-            mcp_cmd.as_subprocess_argv(),
-            input=payload,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except subprocess.TimeoutExpired:
-        print("  WARNING: MCP did not respond within 10s (timeout).")
-        return False
+    init_req = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "sumo-qa-install", "version": "1"},
+            },
+        }
+    )
+    initialized_note = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    tools_req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
 
-    messages = _parse_json_rpc_lines(proc.stdout or "")
+    proc = subprocess.Popen(  # noqa: S603 -- argv comes from a trusted McpCommand
+        mcp_cmd.as_subprocess_argv(),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + _VERIFY_TIMEOUT_SECONDS
+    init_resp: dict | None = None
+    tools_resp: dict | None = None
+    extra_stdout: list[str] = []
+    try:
+        # Step 1: initialize.
+        proc.stdin.write(init_req + "\n")
+        proc.stdin.flush()
+        init_resp = _read_json_rpc_response(
+            proc, expected_id=1, deadline=deadline, extra_lines=extra_stdout
+        )
+
+        # Step 2: notifications/initialized — no response on the wire.
+        proc.stdin.write(initialized_note + "\n")
+        proc.stdin.flush()
+
+        # Step 3: tools/list.
+        proc.stdin.write(tools_req + "\n")
+        proc.stdin.flush()
+        tools_resp = _read_json_rpc_response(
+            proc, expected_id=2, deadline=deadline, extra_lines=extra_stdout
+        )
+    except _VerifyTimeout:
+        print(f"  WARNING: MCP did not respond within {_VERIFY_TIMEOUT_SECONDS}s (timeout).")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    except BrokenPipeError:  # pragma: no cover -- defensive; server-crash race
+        # Server exited mid-handshake (e.g. import error in the MCP package).
+        print("  WARNING: MCP closed stdin mid-handshake (server likely crashed on startup).")
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
+        return False
+    finally:
+        try:
+            if proc.stdin and not proc.stdin.closed:
+                proc.stdin.close()
+        except Exception:  # pragma: no cover -- defensive cleanup; noqa: BLE001
+            pass
 
     # --- initialize ----------------------------------------------------------
-    init_resp = next((m for m in messages if m.get("id") == 1), None)
     if init_resp is None:
         print("  WARNING: MCP did not return an initialize response (no id=1 message).")
-        _dump_streams(proc)
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
     if init_resp.get("jsonrpc") != "2.0":
         print("  WARNING: initialize response missing jsonrpc='2.0'.")
-        _dump_streams(proc)
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
     if "error" in init_resp:
         print(f"  WARNING: initialize returned an error envelope: {init_resp['error']!r}")
-        _dump_streams(proc)
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
     init_result = init_resp.get("result")
     if not isinstance(init_result, dict):
@@ -841,18 +896,20 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
             "  WARNING: initialize response 'result' is not a dict "
             f"(got {type(init_result).__name__})."
         )
-        _dump_streams(proc)
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
 
     # --- tools/list ----------------------------------------------------------
-    tools_resp = next((m for m in messages if m.get("id") == 2), None)
     if tools_resp is None:
         print("  WARNING: MCP did not return a tools/list response (no id=2 message).")
-        _dump_streams(proc)
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
     if "error" in tools_resp:
         print(f"  WARNING: tools/list returned an error envelope: {tools_resp['error']!r}")
-        _dump_streams(proc)
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
     tools_result = tools_resp.get("result")
     if not isinstance(tools_result, dict):
@@ -860,22 +917,127 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
             "  WARNING: tools/list response 'result' is not a dict "
             f"(got {type(tools_result).__name__})."
         )
-        _dump_streams(proc)
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
     tools = tools_result.get("tools", [])
     if not isinstance(tools, list):
         print("  WARNING: tools/list 'result.tools' is not a list.")
-        _dump_streams(proc)
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
     advertised = {t.get("name") for t in tools if isinstance(t, dict)}
     missing = [n for n in REQUIRED_TOOL_NAMES if n not in advertised]
     if missing:
         print(f"  WARNING: tools/list is missing required tools: {missing}")
-        _dump_streams(proc)
+        _dump_proc_streams(proc, extra_lines=extra_stdout)
+        _terminate(proc)
         return False
 
+    _terminate(proc)
     print(f"  MCP responded with {len(advertised)} tools; all required tools present.")
     return True
+
+
+def _read_json_rpc_response(
+    proc: subprocess.Popen,
+    *,
+    expected_id: int,
+    deadline: float,
+    extra_lines: list[str],
+) -> dict | None:
+    """Read stdout lines from ``proc`` until one parses as a JSON object with
+    ``id == expected_id``.
+
+    Returns the parsed dict on success, ``None`` if the process exits before
+    the expected response arrives. Raises ``_VerifyTimeout`` if ``deadline``
+    elapses with no matching response.
+
+    Non-matching lines (notifications, malformed JSON, log noise, JSON values
+    that aren't objects) are accumulated into ``extra_lines`` so a later
+    ``_dump_proc_streams`` call can surface them when verification fails.
+
+    On platforms where ``select.select`` works on file objects (POSIX), uses
+    a poll loop so the timeout is honoured even if the server never writes
+    another byte. On Windows, ``select`` doesn't work on pipes — falls back
+    to a blocking ``readline`` and relies on ``proc.terminate()`` in the
+    caller's timeout-handling branch.
+    """
+    # Prefer ``select`` on POSIX so a stalled server can be detected without
+    # blocking. ``select`` requires the underlying stream to expose ``fileno``,
+    # which test fakes don't — fall back to blocking ``readline`` in that case.
+    use_select = hasattr(select, "select") and os.name != "nt" and hasattr(proc.stdout, "fileno")
+    if use_select:
+        try:
+            proc.stdout.fileno()
+        except (OSError, ValueError, AttributeError):  # pragma: no cover -- defensive
+            use_select = False
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise _VerifyTimeout()
+
+        if use_select:
+            ready, _, _ = select.select([proc.stdout], [], [], remaining)
+            if not ready:
+                # No data within the remaining window — either the server
+                # exited (poll returns a code) or it's just slow (timeout).
+                if proc.poll() is not None:
+                    return None
+                raise _VerifyTimeout()
+
+        line = proc.stdout.readline()
+        if line == "":
+            # EOF — the server closed stdout. Either it exited or it's about
+            # to. Surface that to the caller as a missing-response.
+            return None
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            value = json.loads(stripped)
+        except json.JSONDecodeError:
+            extra_lines.append(stripped)
+            continue
+        if not isinstance(value, dict):
+            extra_lines.append(stripped)
+            continue
+        if value.get("id") == expected_id:
+            return value
+        # Some other JSON-RPC message (e.g. a server notification). Keep it
+        # for the failure dump and continue reading.
+        extra_lines.append(stripped)
+
+
+def _terminate(proc: subprocess.Popen) -> None:
+    """Best-effort process teardown.
+
+    Mirrors the cleanup in ``tests/test_e2e_mcp_initialize.py``: close stdin,
+    ``terminate()``, wait briefly, ``kill()`` on stragglers. Tolerant of
+    already-exited processes and missing pipe handles.
+    """
+    try:
+        if proc.stdin and not proc.stdin.closed:
+            proc.stdin.close()
+    except Exception:  # pragma: no cover -- defensive cleanup; noqa: BLE001
+        pass
+    try:
+        proc.terminate()
+    except Exception:  # pragma: no cover -- defensive; already gone; noqa: BLE001
+        pass
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:  # pragma: no cover -- defensive; kill fallback
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            proc.wait(timeout=2)
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception:  # pragma: no cover -- defensive; wait on missing pid; noqa: BLE001
+        pass
 
 
 def _parse_json_rpc_lines(stdout: str) -> list[dict]:
@@ -902,12 +1064,44 @@ def _parse_json_rpc_lines(stdout: str) -> list[dict]:
     return out
 
 
-def _dump_streams(proc: subprocess.CompletedProcess) -> None:
-    """Print truncated stdout/stderr to help diagnose verification failures."""
-    if proc.stdout:
-        print(f"    stdout: {proc.stdout[:_DUMP_STREAM_CHARS]}")
-    if proc.stderr:
-        print(f"    stderr: {proc.stderr[:_DUMP_STREAM_CHARS]}")
+def _dump_proc_streams(proc: subprocess.Popen, *, extra_lines: list[str]) -> None:
+    """Print truncated stdout/stderr from a live Popen for diagnostics.
+
+    Drains any remaining stderr (non-blocking best-effort) and prints the
+    accumulated stdout lines we couldn't match plus any stderr bytes the
+    server emitted. Truncated to ``_DUMP_STREAM_CHARS`` to keep the install
+    log readable on failure.
+    """
+    if extra_lines:
+        joined = "\n".join(extra_lines)
+        print(f"    stdout: {joined[:_DUMP_STREAM_CHARS]}")
+    # Best-effort: pull whatever stderr is buffered. Don't block on it.
+    stderr_text = ""
+    try:
+        if proc.stderr is not None:
+            can_select = (
+                hasattr(select, "select") and os.name != "nt" and hasattr(proc.stderr, "fileno")
+            )
+            if can_select:
+                try:
+                    proc.stderr.fileno()
+                except (OSError, ValueError, AttributeError):  # pragma: no cover -- defensive
+                    can_select = False
+            if can_select:
+                ready, _, _ = select.select([proc.stderr], [], [], 0.1)
+                if ready:
+                    chunk = proc.stderr.read(_DUMP_STREAM_CHARS * 4)
+                    if chunk:
+                        stderr_text = chunk
+            else:  # pragma: no cover -- Windows fallback; not reachable in POSIX unit tests
+                # No select support (Windows or test fake) — only read when
+                # the process has exited so we don't block the installer.
+                if proc.poll() is not None:
+                    stderr_text = proc.stderr.read() or ""
+    except Exception:  # pragma: no cover -- defensive; noqa: BLE001
+        pass
+    if stderr_text:
+        print(f"    stderr: {stderr_text[:_DUMP_STREAM_CHARS]}")
 
 
 if __name__ == "__main__":  # pragma: no cover -- main guard

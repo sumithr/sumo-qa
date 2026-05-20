@@ -3,18 +3,103 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from sumo_qa import installer
+
+
+@pytest.fixture(autouse=True)
+def _select_always_ready(monkeypatch):
+    """See tests/test_installer_verify.py — patches the production select
+    branch so FakeStream's dummy fileno is never touched by the OS."""
+
+    def _ready(rlist, wlist, xlist, timeout=None):  # noqa: ARG001
+        return list(rlist), [], []
+
+    monkeypatch.setattr(installer.select, "select", _ready)
 
 
 def _ok(stdout: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr=b"")
 
 
-def _full_handshake_stdout() -> str:
-    """Stdout the verifier expects: initialize + tools/list with all required tools."""
+# ---------------------------------------------------------------------------
+# Fake Popen used by tests that exercise _verify_mcp_responds end-to-end via
+# main(). Mirrors tests/test_installer_verify.py's _FakeProc but kept local
+# here so this file is self-contained.
+# ---------------------------------------------------------------------------
+
+
+class _FakeStream:
+    def __init__(self, lines: Iterable[str] | None = None) -> None:
+        self._queue: list[str] = list(lines or [])
+        self.writes: list[str] = []
+        self.closed = False
+
+    def write(self, data: str) -> int:
+        self.writes.append(data)
+        return len(data)
+
+    def flush(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+    def readline(self) -> str:
+        if not self._queue:
+            return ""
+        return self._queue.pop(0)
+
+    def read(self, _size: int = -1) -> str:
+        rest = "".join(self._queue)
+        self._queue.clear()
+        return rest
+
+    def fileno(self) -> int:
+        # Returning a dummy fd lets the production code take the
+        # select-on-POSIX branch (the real install-smoke path) while tests
+        # patch ``select.select`` to control timing.
+        return -1
+
+
+class _FakeProc:
+    def __init__(
+        self,
+        stdout_lines: Iterable[str] | None = None,
+        stderr_text: str = "",
+    ) -> None:
+        self.stdin = _FakeStream()
+        self.stdout = _FakeStream(stdout_lines)
+        self.stderr = _FakeStream([stderr_text] if stderr_text else [])
+        self.returncode: int | None = None
+        self.terminated = False
+        self.killed = False
+
+    def poll(self) -> int | None:
+        if not self.stdout._queue:
+            self.returncode = 0
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.returncode = 0
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.returncode = 0 if self.returncode is None else self.returncode
+        return self.returncode
+
+
+def _handshake_lines() -> list[str]:
+    """Lines the verifier expects: initialize + tools/list with all required tools."""
     init = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -29,7 +114,11 @@ def _full_handshake_stdout() -> str:
         "id": 2,
         "result": {"tools": [{"name": n} for n in installer.REQUIRED_TOOL_NAMES]},
     }
-    return json.dumps(init) + "\n" + json.dumps(tools) + "\n"
+    return [json.dumps(init) + "\n", json.dumps(tools) + "\n"]
+
+
+def _handshake_proc() -> _FakeProc:
+    return _FakeProc(_handshake_lines())
 
 
 def test_register_runs_remove_then_add_with_user_scope() -> None:
@@ -273,16 +362,10 @@ def test_main_all_hosts_success(tmp_path: Path, monkeypatch) -> None:
     (home / ".claude").mkdir(parents=True)
     # No JetBrains config dir — that host will be skipped.
 
-    mcp_proc = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout=_full_handshake_stdout(),
-        stderr="",
-    )
-
     with (
         patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
-        patch("sumo_qa.installer.subprocess.run", return_value=mcp_proc),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
+        patch("sumo_qa.installer.subprocess.Popen", return_value=_handshake_proc()),
         patch("sys.argv", ["sumo-qa-install"]),
     ):
         rc = installer.main()
@@ -312,13 +395,14 @@ def test_main_returns_2_when_mcp_does_not_respond(tmp_path: Path, monkeypatch) -
     monkeypatch.chdir(workspace)
     (home / ".claude").mkdir(parents=True)
 
-    no_result_proc = subprocess.CompletedProcess(
-        args=[], returncode=0, stdout="unexpected", stderr=""
-    )
+    # Stdout contains unparseable noise — no id=1 line — so the verifier
+    # fails and main() returns 2.
+    bad_proc = _FakeProc(["unexpected\n"])
 
     with (
         patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
-        patch("sumo_qa.installer.subprocess.run", return_value=no_result_proc),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
+        patch("sumo_qa.installer.subprocess.Popen", return_value=bad_proc),
         patch("sys.argv", ["sumo-qa-install"]),
     ):
         rc = installer.main()
@@ -334,13 +418,6 @@ def test_main_skip_mcp_install_with_binary_found(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     (home / ".claude").mkdir(parents=True)
 
-    mcp_proc = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout=_full_handshake_stdout(),
-        stderr="",
-    )
-
     with (
         patch(
             "sumo_qa.installer.shutil.which",
@@ -348,7 +425,8 @@ def test_main_skip_mcp_install_with_binary_found(tmp_path: Path, monkeypatch) ->
                 "/usr/local/bin/sumo-qa" if name in ("sumo-qa", "claude") else None
             ),
         ),
-        patch("sumo_qa.installer.subprocess.run", return_value=mcp_proc),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
+        patch("sumo_qa.installer.subprocess.Popen", return_value=_handshake_proc()),
         patch("sys.argv", ["sumo-qa-install", "--skip-mcp-install"]),
     ):
         rc = installer.main()
@@ -363,16 +441,10 @@ def test_main_claude_only_flag(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     (home / ".claude").mkdir(parents=True)
 
-    mcp_proc = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout=_full_handshake_stdout(),
-        stderr="",
-    )
-
     with (
         patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
-        patch("sumo_qa.installer.subprocess.run", return_value=mcp_proc),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
+        patch("sumo_qa.installer.subprocess.Popen", return_value=_handshake_proc()),
         patch("sys.argv", ["sumo-qa-install", "--claude-code"]),
     ):
         rc = installer.main()
