@@ -112,6 +112,28 @@ def test_no_skill_body_content_in_json(fresh_repo: Path) -> None:
         assert "## " not in text, rel
 
 
+def test_generated_outputs_are_not_gitignored() -> None:
+    """T8 — every committed-generator output must be tracked by git on a
+    clean checkout. A gitignore rule that silently swallows `git add` would
+    pass the on-disk drift check locally but leave the file absent on a CI
+    checkout, where `check` then reports MISSING. Regression for codex
+    finding on PR #128."""
+    import subprocess
+
+    for rel in _files_to_check():
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", rel],
+            cwd=REPO_ROOT,
+            capture_output=True,
+        )
+        # git check-ignore exits 0 when the path IS ignored, 1 when not.
+        # We want NOT ignored for every output.
+        assert result.returncode != 0, (
+            f"{rel} is gitignored — `git add` would silently skip it. "
+            f"Edit .gitignore to un-ignore generated plugin outputs."
+        )
+
+
 def test_emitted_json_is_deterministic(fresh_repo: Path) -> None:
     """T7 — JSON outputs have sorted keys and end with a single newline."""
     plugin_generator.sync(fresh_repo)

@@ -30,12 +30,16 @@ mutants/
 # Per-machine MCP config written by sumo-qa-install
 .vscode/mcp.json
 
-# Per-machine plugin manifests for direct-clone install paths (Claude Code
-# marketplace, Cursor, Codex). Not shipped to pip users; not part of the
-# documented install surface. Kept locally for the maintainer who loads
-# sumo-qa as a Claude Code plugin from this checkout.
-.claude-plugin/
-.codex-plugin/
+# `.cursor-plugin/` is host-machine output only — Cursor is out of scope
+# for issue #81 and not yet a generator target. When it lands, this
+# entry is removed in lockstep with adding the cursor template under
+# plugin_packaging/templates/.
+#
+# `.claude-plugin/` and `.codex-plugin/` are GENERATED and COMMITTED —
+# see plugin_packaging.plugin_generator. They live in the tree so
+# `claude plugin install <this-repo>` and `/plugins install <this-repo>`
+# work directly against a clone. Drift between pyproject.toml and these
+# folders is caught by the plugin-packaging CI workflow.
 .cursor-plugin/
 
 # Claude Code config — per-user state stays local; project-shared hooks,
