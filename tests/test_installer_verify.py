@@ -79,13 +79,21 @@ def test_required_tool_names_constant_is_defined() -> None:
 
 
 def test_verify_rejects_initialize_with_error_key(capsys) -> None:
-    """An ``initialize`` response carrying ``error`` is rejected."""
+    """An ``initialize`` response carrying ``error`` is rejected even when the
+    stdout still contains the substring ``"result"`` (catches the legacy
+    substring-check behaviour — do not weaken this payload).
+    """
+    # ``result: null`` forces the bytes ``"result"`` into stdout, so the OLD
+    # ``'"result"' in proc.stdout`` check would have falsely passed. The new
+    # shape-aware code must still reject on the ``error`` envelope.
     init_err = {
         "jsonrpc": "2.0",
         "id": 1,
+        "result": None,
         "error": {"code": -32600, "message": "bad request"},
     }
     stdout = json.dumps(init_err) + "\n"
+    assert '"result"' in stdout  # guard: legacy substring check would have passed
     with patch("sumo_qa.installer.subprocess.run", return_value=_proc(stdout)):
         result = installer._verify_mcp_responds(_mcp_cmd())
 
