@@ -91,7 +91,13 @@ packages = ["src/sumo_qa"]
 "assets" = "sumo_qa/_data/assets"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# `src` exposes the installed package `sumo_qa`. `.` (repo root) exposes the
+# build-time-only `plugin_packaging` package — it is NOT shipped in the
+# wheel (no entry under `[tool.hatch.build.targets.wheel]`), so it must be
+# resolvable from the repo root for the test suite and the pre-push hook
+# (which runs in pre-commit's isolated venv where conftest.py's sys.path
+# tweak doesn't fire before collection).
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 addopts = "-q --cov=src/sumo_qa --cov-fail-under=100"
 
