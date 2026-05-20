@@ -315,3 +315,50 @@ def test_parse_json_rpc_lines_skips_non_dict_json() -> None:
 
     assert len(parsed) == 1
     assert parsed[0]["id"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Drift guard: REQUIRED_TOOL_NAMES vs the live MCP tool registry
+# ---------------------------------------------------------------------------
+
+
+def test_required_tool_names_matches_live_registry() -> None:
+    """If someone adds an @mcp.tool to server.py, REQUIRED_TOOL_NAMES must
+    be updated in lock-step. The verify-fn's subset check would silently
+    accept a missing entry today — this test prevents that drift.
+
+    Skill-prompt tools (registered dynamically via register_skills_as_prompts,
+    one per skills/<name>/SKILL.md on disk) are excluded: they're filesystem-
+    driven, so enumerating them in a static tuple would churn on every skill
+    add. We compute the skill-prompt names from the same source the registrar
+    walks, then subtract them before comparing against REQUIRED_TOOL_NAMES."""
+    from sumo_qa import skill_prompts
+    from sumo_qa.server import build_mcp_server
+
+    mcp = build_mcp_server()
+    live_tool_names = set(mcp._tool_manager._tools.keys())
+
+    # Compute the dynamic skill-prompt tool names the same way the registrar
+    # does (directory name with `-` -> `_`). Subtract to leave only the
+    # static @mcp.tool decorators declared in server.py.
+    skills_dir = skill_prompts._skills_dir()
+    skill_tool_names = set()
+    if skills_dir.is_dir():
+        for skill_dir in skills_dir.iterdir():
+            if skill_dir.is_dir() and (skill_dir / "SKILL.md").is_file():
+                skill_tool_names.add(skill_dir.name.replace("-", "_"))
+
+    static_tool_names = live_tool_names - skill_tool_names
+    expected = set(installer.REQUIRED_TOOL_NAMES)
+    missing_from_required = static_tool_names - expected
+    extra_in_required = expected - static_tool_names
+
+    assert missing_from_required == set(), (
+        f"server.py registers tools not in REQUIRED_TOOL_NAMES: "
+        f"{sorted(missing_from_required)}. Update installer.REQUIRED_TOOL_NAMES "
+        f"(and the dispatch comment groups) when adding new @mcp.tool decorators."
+    )
+    assert extra_in_required == set(), (
+        f"REQUIRED_TOOL_NAMES lists tools no longer registered in server.py: "
+        f"{sorted(extra_in_required)}. Remove from the tuple."
+    )
