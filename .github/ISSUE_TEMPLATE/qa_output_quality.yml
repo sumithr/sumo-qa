@@ -32,7 +32,7 @@ body:
     id: skill
     attributes:
       label: Which skill produced the output?
-      description: e.g. `sumo_qa_review_diff`, `sumo_qa_plan_qa`, `sumo_qa_strengthen_tests`. Use "unsure" if you cannot tell.
+      description: e.g. `sumo_qa_reviewing_before_merge`, `sumo_qa_planning_qa_rollout`, `sumo_qa_strengthening_tests`. Use "unsure" if you cannot tell.
     validations:
       required: true
 

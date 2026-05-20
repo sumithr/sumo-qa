@@ -27,7 +27,7 @@ body:
       label: Expected skill / workflow
       description: Which sumo-qa skill (or chain) should have run, and why? Link skill files if useful.
       placeholder: |
-        e.g. `sumo_qa_review_diff` should have run, because the prompt asked to review changed files.
+        e.g. `sumo_qa_reviewing_before_merge` should have run, because the prompt asked to review changed files.
     validations:
       required: true
 
