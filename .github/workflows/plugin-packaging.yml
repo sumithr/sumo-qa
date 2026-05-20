@@ -1,0 +1,49 @@
+name: plugin-packaging
+
+# Two CI gates:
+#   1. Internal drift — generator output vs committed files
+#   2. Host-schema correctness — vendored Claude Code + Codex hooks schemas
+# (See docs/host-adapters.md for the architecture context.)
+#
+# Trigger pattern matches every other .github/workflows/*.yml in this
+# repo: push on main, pull_request, concurrency cancel.
+#
+# Workflow safety: no untrusted user input is interpolated into run:
+# scripts. All steps invoke fixed `python -m ...` commands against the
+# checkout's own pyproject.toml — so the GitHub Actions injection
+# patterns in the security-reminder hook do not apply here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: plugin-packaging-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift-and-schemas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev deps
+        run: pip install -e ".[dev]"
+
+      - name: Drift check
+        # Re-runs the generator into memory + diffs against on-disk.
+        # Exits 1 on any byte drift OR sidecar tampering.
+        run: python -m plugin_packaging.plugin_generator check
+
+      - name: Host-schema validation
+        # Validates .claude-plugin/plugin.json against the vendored
+        # Claude Code schema and hooks/hooks-codex.json against the
+        # vendored Codex hooks schema. Codex manifest itself has no
+        # published schema — that's covered by install-smoke.yml.
+        run: python -m plugin_packaging.validate_plugins
