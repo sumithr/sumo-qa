@@ -57,6 +57,21 @@ import threading
 import time
 from pathlib import Path
 
+from sumo_qa.plugin_metadata import PluginMetadata
+
+# Canonical plugin metadata — loaded once at import time from the bundled
+# snapshot at sumo_qa/_data/plugin_metadata.json. Every host-config write
+# site (claude_desktop_config.json, .vscode/mcp.json, `claude mcp add`)
+# sources the MCP server name and command from here so adding a new host
+# never requires a string-literal grep across the installer.
+#
+# NOT used: console-script wrapper lookups (`shutil.which("sumo-qa")`)
+# and banner / error strings that reference the pip-managed
+# `[project.scripts]` entry-point name. Those literals govern the script
+# pip generates and intentionally stay decoupled from the runtime
+# MCP-server identifier.
+PLUGIN_METADATA = PluginMetadata.from_bundle()
+
 # Mode detection: are we running from inside an installed wheel
 # (sumo_qa/_data/skills/ bundled next to this module) or from a git
 # clone / editable install (skills/ live at the repo root)?
@@ -402,11 +417,12 @@ def _setup_claude_code(mcp_cmd: McpCommand, system: str) -> HostResult:
             r.message = (
                 f"{config_path} exists but is invalid JSON; not modifying. "
                 f"Add manually:\n"
-                f'    "sumo-qa": {json.dumps(mcp_cmd.to_config_entry())}'
+                f'    "{PLUGIN_METADATA.mcp_server_name}": '
+                f"{json.dumps(mcp_cmd.to_config_entry())}"
             )
             return r
     config.setdefault("mcpServers", {})
-    config["mcpServers"]["sumo-qa"] = mcp_cmd.to_config_entry()
+    config["mcpServers"][PLUGIN_METADATA.mcp_server_name] = mcp_cmd.to_config_entry()
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     # 3. Register with Claude Code's own MCP registry via `claude mcp add`.
@@ -438,8 +454,9 @@ def _register_claude_code_mcp(mcp_cmd: McpCommand) -> str:
     if claude is None:
         return "claude CLI not on PATH — skipped MCP-registry registration"
     # Remove first; ignore failure (entry may not exist). Idempotent re-add.
+    server_name = PLUGIN_METADATA.mcp_server_name
     subprocess.run(
-        [claude, "mcp", "remove", "sumo-qa", "-s", "user"],
+        [claude, "mcp", "remove", server_name, "-s", "user"],
         capture_output=True,
         check=False,
     )
@@ -452,7 +469,7 @@ def _register_claude_code_mcp(mcp_cmd: McpCommand) -> str:
         "add",
         "-s",
         "user",
-        "sumo-qa",
+        server_name,
         "--",
         mcp_cmd.command,
         *mcp_cmd.args,
@@ -599,7 +616,7 @@ def _setup_vscode_copilot(mcp_cmd: McpCommand, workspace: Path) -> HostResult:
         except json.JSONDecodeError:
             r.message = (
                 f"{config_path} exists but is invalid JSON; not modifying. "
-                f'Add manually: "sumo-qa": {{ "type": "stdio", '
+                f'Add manually: "{PLUGIN_METADATA.mcp_server_name}": {{ "type": "stdio", '
                 f"{json.dumps(mcp_cmd.to_config_entry(include_empty_args=True))[1:-1]} }}"
             )
             return r
@@ -610,7 +627,7 @@ def _setup_vscode_copilot(mcp_cmd: McpCommand, workspace: Path) -> HostResult:
     config.pop("mcpServers", None)
 
     config.setdefault("servers", {})
-    config["servers"]["sumo-qa"] = {
+    config["servers"][PLUGIN_METADATA.mcp_server_name] = {
         "type": "stdio",
         **mcp_cmd.to_config_entry(include_empty_args=True),
     }
@@ -760,15 +777,17 @@ def _setup_claude_desktop(mcp_cmd: McpCommand, system: str) -> HostResult:
             r.message = (
                 f"{config_path} exists but is invalid JSON; not modifying. "
                 f"Add manually:\n"
-                f'    "sumo-qa": {json.dumps(mcp_cmd.to_config_entry())}'
+                f'    "{PLUGIN_METADATA.mcp_server_name}": '
+                f"{json.dumps(mcp_cmd.to_config_entry())}"
             )
             return r
 
+    server_name = PLUGIN_METADATA.mcp_server_name
     existing_servers = config.get("mcpServers") or {}
-    other_servers_count = sum(1 for k in existing_servers if k != "sumo-qa")
+    other_servers_count = sum(1 for k in existing_servers if k != server_name)
 
     config.setdefault("mcpServers", {})
-    config["mcpServers"]["sumo-qa"] = mcp_cmd.to_config_entry()
+    config["mcpServers"][server_name] = mcp_cmd.to_config_entry()
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     r.configured = True
