@@ -13,12 +13,12 @@ def _ok(stdout: str = "") -> subprocess.CompletedProcess:
 
 
 def test_register_runs_remove_then_add_with_user_scope() -> None:
-    mcp_path = Path("/abs/path/to/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
     with (
         patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
         patch("sumo_qa.installer.subprocess.run", return_value=_ok()) as run,
     ):
-        msg = installer._register_claude_code_mcp(mcp_path)
+        msg = installer._register_claude_code_mcp(mcp_cmd)
 
     assert run.call_count == 2
     remove_args = run.call_args_list[0].args[0]
@@ -28,21 +28,49 @@ def test_register_runs_remove_then_add_with_user_scope() -> None:
         "/usr/local/bin/claude",
         "mcp",
         "add",
-        "sumo-qa",
-        str(mcp_path),
         "-s",
         "user",
+        "sumo-qa",
+        "--",
+        mcp_cmd.command,
     ]
     assert "registered" in msg
-    assert str(mcp_path) in msg
+    assert mcp_cmd.command in msg
+
+
+def test_register_includes_module_args_after_double_dash() -> None:
+    """Module-fallback invocation must pass `-m sumo_qa` to claude mcp add via `--`."""
+    import sys
+
+    mcp_cmd = installer.McpCommand(command=sys.executable, args=["-m", "sumo_qa"])
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()) as run,
+    ):
+        installer._register_claude_code_mcp(mcp_cmd)
+
+    add_args = run.call_args_list[1].args[0]
+    assert add_args == [
+        "/usr/local/bin/claude",
+        "mcp",
+        "add",
+        "-s",
+        "user",
+        "sumo-qa",
+        "--",
+        sys.executable,
+        "-m",
+        "sumo_qa",
+    ]
 
 
 def test_register_skips_when_claude_cli_not_on_path() -> None:
+    mcp_cmd = installer.McpCommand(command="/abs/sumo-qa", args=[])
     with (
         patch("sumo_qa.installer.shutil.which", return_value=None),
         patch("sumo_qa.installer.subprocess.run") as run,
     ):
-        msg = installer._register_claude_code_mcp(Path("/abs/sumo-qa"))
+        msg = installer._register_claude_code_mcp(mcp_cmd)
 
     assert run.call_count == 0
     assert "claude CLI not on PATH" in msg
@@ -56,11 +84,12 @@ def test_register_tolerates_remove_failure_and_still_adds() -> None:
             return subprocess.CompletedProcess(args=cmd, returncode=1, stderr=b"not found")
         return _ok()
 
+    mcp_cmd = installer.McpCommand(command="/abs/sumo-qa", args=[])
     with (
         patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
         patch("sumo_qa.installer.subprocess.run", side_effect=run_side_effect) as run,
     ):
-        msg = installer._register_claude_code_mcp(Path("/abs/sumo-qa"))
+        msg = installer._register_claude_code_mcp(mcp_cmd)
 
     assert run.call_count == 2
     assert "registered" in msg
@@ -74,11 +103,12 @@ def test_register_surfaces_add_failure_in_message() -> None:
             )
         return _ok()
 
+    mcp_cmd = installer.McpCommand(command="/abs/sumo-qa", args=[])
     with (
         patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
         patch("sumo_qa.installer.subprocess.run", side_effect=run_side_effect),
     ):
-        msg = installer._register_claude_code_mcp(Path("/abs/sumo-qa"))
+        msg = installer._register_claude_code_mcp(mcp_cmd)
 
     assert "claude mcp add failed" in msg
     assert "some error from claude" in msg
@@ -140,7 +170,9 @@ def test_setup_claude_code_not_detected_when_neither_dir_exists(
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     # Do NOT create ~/.claude or ~/.config/claude — both missing.
 
-    result = installer._setup_claude_code(Path("/usr/local/bin/sumo-qa"), "Darwin")
+    result = installer._setup_claude_code(
+        installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[]), "Darwin"
+    )
 
     assert result.detected is False
     assert "not detected" in result.message
@@ -162,7 +194,9 @@ def test_setup_claude_code_on_linux_uses_config_home(
         patch("sumo_qa.installer.shutil.which", return_value="/usr/bin/claude"),
         patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
     ):
-        result = installer._setup_claude_code(Path("/usr/local/bin/sumo-qa"), "Linux")
+        result = installer._setup_claude_code(
+            installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[]), "Linux"
+        )
 
     assert result.configured is True
 
@@ -185,7 +219,9 @@ def test_setup_claude_code_surfaces_json_error(
         patch("sumo_qa.installer.shutil.which", return_value="/usr/bin/claude"),
         patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
     ):
-        result = installer._setup_claude_code(Path("/usr/local/bin/sumo-qa"), "Darwin")
+        result = installer._setup_claude_code(
+            installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[]), "Darwin"
+        )
 
     assert result.configured is False
     assert "invalid JSON" in result.message
@@ -205,7 +241,9 @@ def test_verify_mcp_responds_returns_true_on_result(capsys) -> None:
         stderr="",
     )
     with patch("sumo_qa.installer.subprocess.run", return_value=proc):
-        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+        result = installer._verify_mcp_responds(
+            installer.McpCommand(command="/fake/sumo-qa", args=[])
+        )
 
     assert result is True
     out = capsys.readouterr().out
@@ -221,7 +259,9 @@ def test_verify_mcp_responds_returns_false_on_empty_stdout(capsys) -> None:
         stderr="error hint",
     )
     with patch("sumo_qa.installer.subprocess.run", return_value=proc):
-        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+        result = installer._verify_mcp_responds(
+            installer.McpCommand(command="/fake/sumo-qa", args=[])
+        )
 
     assert result is False
     out = capsys.readouterr().out
@@ -234,7 +274,9 @@ def test_verify_mcp_responds_returns_false_on_timeout(capsys) -> None:
         "sumo_qa.installer.subprocess.run",
         side_effect=subprocess.TimeoutExpired(cmd=[], timeout=10),
     ):
-        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+        result = installer._verify_mcp_responds(
+            installer.McpCommand(command="/fake/sumo-qa", args=[])
+        )
 
     assert result is False
     out = capsys.readouterr().out
@@ -245,7 +287,9 @@ def test_verify_mcp_responds_returns_false_when_stdout_empty(capsys) -> None:
     """_verify_mcp_responds() handles empty stdout without printing stdout line (line 644 branch)."""
     proc = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     with patch("sumo_qa.installer.subprocess.run", return_value=proc):
-        result = installer._verify_mcp_responds(Path("/fake/sumo-qa"))
+        result = installer._verify_mcp_responds(
+            installer.McpCommand(command="/fake/sumo-qa", args=[])
+        )
 
     assert result is False
 
@@ -321,17 +365,6 @@ def test_main_returns_2_when_mcp_does_not_respond(tmp_path: Path, monkeypatch) -
         rc = installer.main()
 
     assert rc == 2
-
-
-def test_main_install_mcp_binary_failure_returns_1(monkeypatch) -> None:
-    """main() returns 1 when _install_mcp_binary returns None (line 183-184)."""
-    with (
-        patch("sumo_qa.installer.shutil.which", return_value=None),
-        patch("sys.argv", ["sumo-qa-install"]),
-    ):
-        rc = installer.main()
-
-    assert rc == 1
 
 
 def test_main_skip_mcp_install_with_binary_found(tmp_path: Path, monkeypatch) -> None:

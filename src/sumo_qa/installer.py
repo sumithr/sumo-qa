@@ -1,26 +1,30 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """sumo-qa installer.
 
-Shipped as the `sumo-qa-install` console script (exposed via [project.scripts]
-in pyproject.toml) and as `python -m sumo_qa.installer`. The module form is
-the PATH-proof fallback for shells where pip creates the script wrapper but the
-Python Scripts directory is not on PATH yet.
+Shipped as the ``sumo-qa-install`` console script (exposed via
+``[project.scripts]`` in pyproject.toml) and as ``python -m sumo_qa.installer``.
+The module form is the PATH-proof entry point for shells where pip created
+the script wrapper but the Python Scripts directory isn't on PATH (e.g.
+Microsoft-Store Python on Windows, ``pip install --user`` on Linux without
+``~/.local/bin`` exported).
 
 What this script does:
 
-- Locates the `sumo-qa` MCP binary. If pip already put it on PATH (the
-  common case), uses that path directly — does NOT invoke uv. Falls back
-  to `uv tool install` only when the binary is not yet on PATH.
-- Claude Code: symlinks skills/ into ~/.claude/skills/, registers the MCP
-  server via `claude mcp add -s user`, and writes claude_desktop_config.json
-  (the latter is a no-op for Claude Code itself but harmless if Claude Desktop
-  is also installed).
-- VS Code + Copilot: writes .vscode/mcp.json in the current workspace.
+- Decides how the MCP server should be invoked by hosts: if pip's
+  ``sumo-qa`` wrapper is on PATH, uses it; otherwise configures hosts to
+  call ``<sys.executable> -m sumo_qa`` directly. Never installs a second
+  package manager (no uv fallback) — the installer trusts the interpreter
+  that was used to launch it.
+- Claude Code: symlinks skills/ into ``~/.claude/skills/``, registers the
+  MCP server via ``claude mcp add -s user``, and writes
+  ``claude_desktop_config.json`` (the latter is a no-op for Claude Code
+  itself but harmless if Claude Desktop is also installed).
+- VS Code + Copilot: writes ``.vscode/mcp.json`` in the current workspace.
 - IntelliJ AI Assistant: detects the latest installation and prints the
-  exact Settings-UI fields to fill in (with the absolute binary path).
-  The JetBrains MCP plugin's options XML schema isn't publicly documented
-  and varies by IntelliJ version, so we don't write the XML directly to
-  avoid corrupting user configs.
+  exact Settings-UI fields to fill in (Command + Arguments). The JetBrains
+  MCP plugin's options XML schema isn't publicly documented and varies
+  by IntelliJ version, so we don't write the XML directly to avoid
+  corrupting user configs.
 
 Idempotent. Re-run to refresh after updates. Runs on Windows, macOS, Linux.
 
@@ -30,6 +34,7 @@ Requires Python 3.10+ (enforced by [project.requires-python] in pyproject).
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass, field
 
 if sys.version_info < (
     3,
@@ -63,17 +68,16 @@ _BUNDLED_SKILLS = _MODULE_DIR / "_data" / "skills"
 def _detect_install_mode(
     module_dir: Path = _MODULE_DIR,
     bundled_skills: Path = _BUNDLED_SKILLS,
-) -> tuple[Path, Path, list[str]]:
-    """Return (REPO_ROOT, SKILLS_SRC, UV_INSTALL_FROM) for the active install layout.
+) -> tuple[Path, Path]:
+    """Return (REPO_ROOT, SKILLS_SRC) for the active install layout.
 
     Two arms:
-    - Wheel mode: bundled skills exist next to this module → use them directly,
-      and let `uv tool install` resolve sumo-qa by name from PyPI.
+    - Wheel mode: bundled skills exist next to this module → use them directly.
     - Editable / git-clone mode: skills live at the repo root two levels above
-      the module dir; `uv tool install` gets `--from <repo>`.
+      the module dir.
     """
     if bundled_skills.is_dir():
-        return module_dir, bundled_skills, []
+        return module_dir, bundled_skills
     repo_root = module_dir.parent.parent
     if not (repo_root / "pyproject.toml").is_file():
         sys.stderr.write(
@@ -83,10 +87,50 @@ def _detect_install_mode(
             "ensure the standard repo layout.\n"
         )
         sys.exit(1)
-    return repo_root, repo_root / "skills", ["--from", str(repo_root)]
+    return repo_root, repo_root / "skills"
 
 
-REPO_ROOT, SKILLS_SRC, _UV_INSTALL_FROM = _detect_install_mode()
+REPO_ROOT, SKILLS_SRC = _detect_install_mode()
+
+
+@dataclass(frozen=True)
+class McpCommand:
+    """How to invoke the sumo-qa MCP server.
+
+    Two shapes the installer can return:
+    - Single binary: ``McpCommand("/usr/local/bin/sumo-qa", [])`` — the
+      console-script wrapper pip placed on PATH.
+    - Module form: ``McpCommand(sys.executable, ["-m", "sumo_qa"])`` — used
+      when the pip Scripts dir isn't on PATH (Microsoft-Store Python on
+      Windows, ``pip install --user`` without ``~/.local/bin`` on Linux).
+      Works because the installer is currently executing inside an
+      interpreter that can ``import sumo_qa``.
+    """
+
+    command: str
+    args: list[str] = field(default_factory=list)
+
+    def to_config_entry(self, *, include_empty_args: bool = False) -> dict:
+        """Return the dict shape MCP host configs expect.
+
+        ``include_empty_args=True`` always emits an ``args`` key (VS Code's
+        ``mcp.json`` writers historically wrote ``"args": []``); the Claude
+        Code / Claude Desktop writers omit it when empty so existing user
+        configs don't pick up a no-op key on re-run.
+        """
+        if self.args or include_empty_args:
+            return {"command": self.command, "args": list(self.args)}
+        return {"command": self.command}
+
+    def as_subprocess_argv(self) -> list[str]:
+        """Return ``[command, *args]`` for ``subprocess.run`` / Popen."""
+        return [self.command, *self.args]
+
+    def display(self) -> str:
+        """Human-readable form for log output."""
+        if self.args:
+            return f"{self.command} {' '.join(self.args)}"
+        return self.command
 
 
 class HostResult:
@@ -193,42 +237,40 @@ def main() -> int:
 
     if args.skip_mcp_install:
         binary = shutil.which("sumo-qa")
-        mcp_path = Path(binary).resolve() if binary else None
-        if mcp_path is None:
+        mcp_cmd = McpCommand(command=str(Path(binary).resolve()), args=[]) if binary else None
+        if mcp_cmd is None:
             print("ERROR: --skip-mcp-install was set but sumo-qa is not on PATH.")
             return 1
-        print(f"MCP binary (existing): {mcp_path}\n")
+        print(f"MCP command (existing): {mcp_cmd.display()}\n")
     else:
-        mcp_path = _install_mcp_binary()
-        if mcp_path is None:
-            return 1
-        print(f"\nMCP binary: {mcp_path}\n")
+        mcp_cmd = _install_mcp_binary()
+        print(f"\nMCP command: {mcp_cmd.display()}\n")
 
     workspace = args.workspace.resolve() if args.workspace else Path.cwd()
 
     results: list[HostResult] = []
     if do_claude:
-        results.append(_setup_claude_code(mcp_path, system))
+        results.append(_setup_claude_code(mcp_cmd, system))
     if do_vscode:
-        results.append(_setup_vscode_copilot(mcp_path, workspace))
+        results.append(_setup_vscode_copilot(mcp_cmd, workspace))
     if do_jetbrains:
-        results.append(_setup_intellij(mcp_path, system))
+        results.append(_setup_intellij(mcp_cmd, system))
     if do_claude_desktop:
-        results.append(_setup_claude_desktop(mcp_path, system))
+        results.append(_setup_claude_desktop(mcp_cmd, system))
 
     print("Host setup:")
     for r in results:
         print(r.render())
 
     print()
-    ok = _verify_mcp_responds(mcp_path)
+    ok = _verify_mcp_responds(mcp_cmd)
     print()
     if ok:
         print("Installation complete. Restart any host you just configured.")
         return 0
     print("Installation finished but the MCP did not respond cleanly to a")
-    print("JSON-RPC initialize ping. Check that the binary is healthy:")
-    print(f"  {mcp_path}")
+    print("JSON-RPC initialize ping. Check that the command is healthy:")
+    print(f"  {mcp_cmd.display()}")
     return 2
 
 
@@ -237,52 +279,36 @@ def main() -> int:
 # ----------------------------------------------------------------------
 
 
-def _install_mcp_binary() -> Path | None:
-    # Fast path: if the user already has `sumo-qa` on PATH — because they
-    # installed sumo-qa via pip / pipx / uv tool / their own venv — we don't
-    # need to install it a second time. Use the path they already have.
+def _install_mcp_binary() -> McpCommand:
+    """Decide how the host should invoke the sumo-qa MCP server.
+
+    Two-step resolution, no uv recovery:
+
+    1. **Console script on PATH** — pip / pipx / uv-tool / a custom venv all
+       generate a ``sumo-qa`` wrapper. If ``shutil.which`` finds it, use it.
+
+    2. **Module form** — fall back to ``<sys.executable> -m sumo_qa``. Safe
+       because this function is reached via ``python -m sumo_qa.installer``
+       (or via the wrapper script, which itself imports ``sumo_qa``), so the
+       current interpreter is proof that ``import sumo_qa`` works. This is
+       the path Microsoft-Store Python on Windows always lands in — pip
+       successfully installs ``sumo-qa.exe`` into a Scripts dir that is
+       never on PATH by default; the previous uv-based fallback surprised
+       users with an unrequested second install vector.
+    """
     existing = shutil.which("sumo-qa")
     if existing is not None:
         resolved = Path(existing).resolve()
         print(f"Using existing sumo-qa binary at {resolved}")
-        return resolved
+        return McpCommand(command=str(resolved), args=[])
 
-    # Fall back to uv tool install. This branch is mostly for users who
-    # somehow ran sumo-qa-install without pip-installing sumo-qa first
-    # (e.g. from a fresh clone with a dev environment that doesn't add
-    # console scripts to PATH).
-    print("sumo-qa not on PATH. Installing the MCP server via uv...")
-    if shutil.which("uv") is None:
-        print("  ERROR: uv is not installed and sumo-qa is not on PATH.")
-        print("  The simplest fix is to install sumo-qa via pip (no uv needed):")
-        print("    python -m pip install --upgrade sumo-qa")
-        print("  Or, if you prefer uv, install it first:")
-        print("    macOS / Linux:  curl -LsSf https://astral.sh/uv/install.sh | sh")
-        print('    Windows (PS):   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"')
-        print("  Then re-run: python -m sumo_qa.installer")
-        return None
-    try:
-        subprocess.run(
-            ["uv", "tool", "install", *_UV_INSTALL_FROM, "sumo-qa", "--reinstall"],
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        print(f"  ERROR: uv tool install failed ({exc.returncode})")
-        return None
-    binary = shutil.which("sumo-qa")
-    if binary is None:
-        # Fall back to the conventional uv tool bin dir.
-        for candidate in [
-            Path.home() / ".local" / "bin" / "sumo-qa",
-            Path.home() / ".local" / "share" / "uv" / "tools" / "sumo-qa" / "bin" / "sumo-qa",
-        ]:
-            if candidate.is_file():
-                return candidate.resolve()
-        print("  ERROR: uv install succeeded but sumo-qa is not on PATH and")
-        print("  not at any conventional uv tool location. Restart your shell")
-        print("  and re-run python -m sumo_qa.installer.")
-        return None
-    return Path(binary).resolve()
+    invocation = McpCommand(command=sys.executable, args=["-m", "sumo_qa"])
+    print(
+        f"sumo-qa script not on PATH; using `{invocation.display()}` directly. "
+        "(Common when the pip Scripts directory is off PATH, e.g. Microsoft-Store "
+        "Python on Windows.)"
+    )
+    return invocation
 
 
 # ----------------------------------------------------------------------
@@ -290,7 +316,7 @@ def _install_mcp_binary() -> Path | None:
 # ----------------------------------------------------------------------
 
 
-def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
+def _setup_claude_code(mcp_cmd: McpCommand, system: str) -> HostResult:
     r = HostResult("Claude Code")
     home = Path.home()
 
@@ -337,11 +363,11 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
             r.message = (
                 f"{config_path} exists but is invalid JSON; not modifying. "
                 f"Add manually:\n"
-                f'    "sumo-qa": {{ "command": "{mcp_path}" }}'
+                f'    "sumo-qa": {json.dumps(mcp_cmd.to_config_entry())}'
             )
             return r
     config.setdefault("mcpServers", {})
-    config["mcpServers"]["sumo-qa"] = {"command": str(mcp_path)}
+    config["mcpServers"]["sumo-qa"] = mcp_cmd.to_config_entry()
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     # 3. Register with Claude Code's own MCP registry via `claude mcp add`.
@@ -349,7 +375,7 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
     #    keeps its own MCP server list managed via the `claude mcp` subcommand.
     #    Without this step the MCP tools (sumo_qa_load_*, etc.) never surface
     #    in a Claude Code session even though the skill files are symlinked.
-    mcp_msg = _register_claude_code_mcp(mcp_path)
+    mcp_msg = _register_claude_code_mcp(mcp_cmd)
 
     r.configured = True
     r.config_path = config_path
@@ -357,14 +383,15 @@ def _setup_claude_code(mcp_path: Path, system: str) -> HostResult:
     return r
 
 
-def _register_claude_code_mcp(mcp_path: Path) -> str:
+def _register_claude_code_mcp(mcp_cmd: McpCommand) -> str:
     """Idempotently register sumo-qa as a user-scoped MCP server in Claude Code.
 
-    Removes any existing `sumo-qa` entry first (covers the case where a previous
-    install registered the wrong command name), then re-adds with the correct
-    absolute binary path. Returns a one-line summary for the install output.
+    Removes any existing ``sumo-qa`` entry first (covers the case where a
+    previous install registered a stale invocation — e.g. a binary path that
+    no longer exists after a venv move), then re-adds. Returns a one-line
+    summary for the install output.
 
-    No-ops gracefully when the `claude` CLI isn't on PATH — users running
+    No-ops gracefully when the ``claude`` CLI isn't on PATH — users running
     sumo-qa-install on a machine without Claude Code installed only get the
     skill symlinks, not an error.
     """
@@ -377,16 +404,26 @@ def _register_claude_code_mcp(mcp_path: Path) -> str:
         capture_output=True,
         check=False,
     )
+    # `claude mcp add [options] NAME -- COMMAND [ARGS...]` — `--` terminates
+    # option parsing so subprocess flags (e.g. `-m sumo_qa`) reach the MCP
+    # server intact rather than being intercepted as claude CLI options.
+    add_argv = [
+        claude,
+        "mcp",
+        "add",
+        "-s",
+        "user",
+        "sumo-qa",
+        "--",
+        mcp_cmd.command,
+        *mcp_cmd.args,
+    ]
     try:
-        subprocess.run(
-            [claude, "mcp", "add", "sumo-qa", str(mcp_path), "-s", "user"],
-            capture_output=True,
-            check=True,
-        )
+        subprocess.run(add_argv, capture_output=True, check=True)
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode("utf-8", errors="replace").strip() if exc.stderr else ""
         return f"claude mcp add failed ({exc.returncode}): {stderr or 'no stderr'}"
-    return f"registered with claude mcp at {mcp_path}"
+    return f"registered with claude mcp as `{mcp_cmd.display()}`"
 
 
 def _install_claude_code_skills_per_dir(skills_dir: Path, system: str) -> str:
@@ -467,7 +504,7 @@ def _install_claude_code_skills_per_dir(skills_dir: Path, system: str) -> str:
 # ----------------------------------------------------------------------
 
 
-def _setup_vscode_copilot(mcp_path: Path, workspace: Path) -> HostResult:
+def _setup_vscode_copilot(mcp_cmd: McpCommand, workspace: Path) -> HostResult:
     r = HostResult("VS Code + Copilot")
 
     # Refuse to write to the user's home directory. VS Code reads
@@ -523,7 +560,8 @@ def _setup_vscode_copilot(mcp_path: Path, workspace: Path) -> HostResult:
         except json.JSONDecodeError:
             r.message = (
                 f"{config_path} exists but is invalid JSON; not modifying. "
-                f'Add manually: "sumo-qa": {{ "type": "stdio", "command": "{mcp_path}" }}'
+                f'Add manually: "sumo-qa": {{ "type": "stdio", '
+                f"{json.dumps(mcp_cmd.to_config_entry(include_empty_args=True))[1:-1]} }}"
             )
             return r
 
@@ -535,8 +573,7 @@ def _setup_vscode_copilot(mcp_path: Path, workspace: Path) -> HostResult:
     config.setdefault("servers", {})
     config["servers"]["sumo-qa"] = {
         "type": "stdio",
-        "command": str(mcp_path),
-        "args": [],
+        **mcp_cmd.to_config_entry(include_empty_args=True),
     }
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
@@ -565,7 +602,7 @@ _JB_IDE_PREFIXES = (
 )
 
 
-def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
+def _setup_intellij(mcp_cmd: McpCommand, system: str) -> HostResult:
     """Print manual setup instructions for JetBrains IDEs.
 
     History note (left here so future-us doesn't re-walk this path): earlier
@@ -612,14 +649,16 @@ def _setup_intellij(mcp_path: Path, system: str) -> HostResult:
         f"detected {latest.name} (and {len(ide_dirs) - 1} other IDE(s)). "
         "JetBrains MCP plugin requires one-time Settings-UI add."
     )
+    args_line = " ".join(mcp_cmd.args) if mcp_cmd.args else "leave empty"
     r.followup = (
         "      In any JetBrains IDE, open the chat / AI Assistant panel,\n"
         "      then:\n"
         "        Settings -> Tools -> AI Assistant -> Model Context Protocol\n"
         "        Click + Add server, fill in:\n"
         "          Name:    sumo-qa\n"
-        f"          Command: {mcp_path}\n"
-        "          Arguments / Working directory: leave empty\n"
+        f"          Command: {mcp_cmd.command}\n"
+        f"          Arguments: {args_line}\n"
+        "          Working directory: leave empty\n"
         "        Apply.\n"
         "\n"
         "      Why manual: external writes to JetBrains' MCP config XML are\n"
@@ -653,7 +692,7 @@ def _claude_desktop_config_path(home: Path, system: str) -> Path:
     return home / ".config" / "Claude" / "claude_desktop_config.json"
 
 
-def _setup_claude_desktop(mcp_path: Path, system: str) -> HostResult:
+def _setup_claude_desktop(mcp_cmd: McpCommand, system: str) -> HostResult:
     """Wire sumo-qa into the Claude Desktop app's MCP config.
 
     Reads the existing claude_desktop_config.json (if any), merges the sumo-qa
@@ -682,7 +721,7 @@ def _setup_claude_desktop(mcp_path: Path, system: str) -> HostResult:
             r.message = (
                 f"{config_path} exists but is invalid JSON; not modifying. "
                 f"Add manually:\n"
-                f'    "sumo-qa": {{ "command": "{mcp_path}" }}'
+                f'    "sumo-qa": {json.dumps(mcp_cmd.to_config_entry())}'
             )
             return r
 
@@ -690,7 +729,7 @@ def _setup_claude_desktop(mcp_path: Path, system: str) -> HostResult:
     other_servers_count = sum(1 for k in existing_servers if k != "sumo-qa")
 
     config.setdefault("mcpServers", {})
-    config["mcpServers"]["sumo-qa"] = {"command": str(mcp_path)}
+    config["mcpServers"]["sumo-qa"] = mcp_cmd.to_config_entry()
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     r.configured = True
@@ -707,8 +746,8 @@ def _setup_claude_desktop(mcp_path: Path, system: str) -> HostResult:
 # ----------------------------------------------------------------------
 
 
-def _verify_mcp_responds(mcp_path: Path) -> bool:
-    """Send a JSON-RPC initialize and confirm the binary responds."""
+def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
+    """Send a JSON-RPC initialize and confirm the server responds."""
     print("Verifying the MCP responds to initialize...")
     init_req = json.dumps(
         {
@@ -724,7 +763,7 @@ def _verify_mcp_responds(mcp_path: Path) -> bool:
     )
     try:
         proc = subprocess.run(
-            [str(mcp_path)],
+            mcp_cmd.as_subprocess_argv(),
             input=init_req + "\n",
             capture_output=True,
             text=True,

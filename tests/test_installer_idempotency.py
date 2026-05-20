@@ -48,14 +48,14 @@ def test_setup_claude_code_two_runs_leave_single_mcp_entry(
     config_dir = home / ".config" / "claude"
     config_dir.mkdir(parents=True)
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
 
     with (
         patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
         patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
     ):
-        installer._setup_claude_code(mcp_path, "Darwin")
-        installer._setup_claude_code(mcp_path, "Darwin")
+        installer._setup_claude_code(mcp_cmd, "Darwin")
+        installer._setup_claude_code(mcp_cmd, "Darwin")
 
     config_path = config_dir / "claude_desktop_config.json"
     assert config_path.exists(), "claude_desktop_config.json was not written"
@@ -67,7 +67,7 @@ def test_setup_claude_code_two_runs_leave_single_mcp_entry(
     assert list(mcp_servers.keys()) == ["sumo-qa"], (
         f"Expected exactly one 'sumo-qa' key; got keys: {list(mcp_servers.keys())}"
     )
-    assert mcp_servers["sumo-qa"] == {"command": str(mcp_path)}
+    assert mcp_servers["sumo-qa"] == {"command": mcp_cmd.command}
 
 
 # ---------------------------------------------------------------------------
@@ -78,14 +78,14 @@ def test_setup_claude_code_two_runs_leave_single_mcp_entry(
 def test_register_claude_code_mcp_second_run_still_removes_then_adds() -> None:
     """Each invocation of _register_claude_code_mcp must issue remove then add,
     even on the second call — the function must not short-circuit on re-run."""
-    mcp_path = Path("/abs/path/to/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
 
     with (
         patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
         patch("sumo_qa.installer.subprocess.run", return_value=_ok()) as mock_run,
     ):
-        installer._register_claude_code_mcp(mcp_path)
-        installer._register_claude_code_mcp(mcp_path)
+        installer._register_claude_code_mcp(mcp_cmd)
+        installer._register_claude_code_mcp(mcp_cmd)
 
     # Each call fires 2 subprocess invocations (remove + add), so two calls → 4 total.
     assert mock_run.call_count == 4, (

@@ -41,8 +41,8 @@ def test_macos_path_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     config_dir = home / "Library" / "Application Support" / "Claude"
     config_dir.mkdir(parents=True)
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    result = installer._setup_claude_desktop(mcp_path, "Darwin")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    result = installer._setup_claude_desktop(mcp_cmd, "Darwin")
 
     assert result.detected is True
     assert result.configured is True
@@ -51,7 +51,7 @@ def test_macos_path_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert expected.exists()
 
     written = json.loads(expected.read_text(encoding="utf-8"))
-    assert written["mcpServers"]["sumo-qa"]["command"] == str(mcp_path)
+    assert written["mcpServers"]["sumo-qa"]["command"] == mcp_cmd.command
 
 
 # ---------------------------------------------------------------------------
@@ -68,8 +68,8 @@ def test_linux_path_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     config_dir = home / ".config" / "Claude"
     config_dir.mkdir(parents=True)
 
-    mcp_path = Path("/home/user/.local/bin/sumo-qa")
-    result = installer._setup_claude_desktop(mcp_path, "Linux")
+    mcp_cmd = installer.McpCommand(command="/home/user/.local/bin/sumo-qa", args=[])
+    result = installer._setup_claude_desktop(mcp_cmd, "Linux")
 
     assert result.detected is True
     assert result.configured is True
@@ -78,7 +78,7 @@ def test_linux_path_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert expected.exists()
 
     written = json.loads(expected.read_text(encoding="utf-8"))
-    assert written["mcpServers"]["sumo-qa"]["command"] == str(mcp_path)
+    assert written["mcpServers"]["sumo-qa"]["command"] == mcp_cmd.command
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +95,8 @@ def test_not_detected_when_parent_dir_absent(
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     # Do NOT create ~/Library/Application Support/Claude/ — simulates no app installed.
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    result = installer._setup_claude_desktop(mcp_path, "Darwin")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    result = installer._setup_claude_desktop(mcp_cmd, "Darwin")
 
     assert result.detected is False
     assert result.configured is False
@@ -129,8 +129,8 @@ def test_merges_with_existing_mcp_servers(tmp_path: Path, monkeypatch: pytest.Mo
     }
     config_path.write_text(json.dumps(existing) + "\n", encoding="utf-8")
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    result = installer._setup_claude_desktop(mcp_path, "Darwin")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    result = installer._setup_claude_desktop(mcp_cmd, "Darwin")
 
     assert result.configured is True
     written = json.loads(config_path.read_text(encoding="utf-8"))
@@ -141,7 +141,7 @@ def test_merges_with_existing_mcp_servers(tmp_path: Path, monkeypatch: pytest.Mo
 
     # sumo-qa entry must have been added.
     assert "sumo-qa" in written["mcpServers"]
-    assert written["mcpServers"]["sumo-qa"]["command"] == str(mcp_path)
+    assert written["mcpServers"]["sumo-qa"]["command"] == mcp_cmd.command
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +162,8 @@ def test_creates_config_when_parent_exists_but_file_does_not(
     config_dir.mkdir(parents=True)
     # Do NOT pre-create claude_desktop_config.json.
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    result = installer._setup_claude_desktop(mcp_path, "Darwin")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    result = installer._setup_claude_desktop(mcp_cmd, "Darwin")
 
     assert result.detected is True
     assert result.configured is True
@@ -172,7 +172,7 @@ def test_creates_config_when_parent_exists_but_file_does_not(
     assert config_path.exists(), "Config file should have been created"
 
     written = json.loads(config_path.read_text(encoding="utf-8"))
-    assert written == {"mcpServers": {"sumo-qa": {"command": str(mcp_path)}}}
+    assert written == {"mcpServers": {"sumo-qa": {"command": mcp_cmd.command}}}
 
 
 # ---------------------------------------------------------------------------
@@ -193,8 +193,8 @@ def test_graceful_error_on_invalid_json(tmp_path: Path, monkeypatch: pytest.Monk
     bad_content = "{ this is not json !!!"
     config_path.write_text(bad_content, encoding="utf-8")
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    result = installer._setup_claude_desktop(mcp_path, "Darwin")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    result = installer._setup_claude_desktop(mcp_cmd, "Darwin")
 
     assert result.detected is True
     assert result.configured is False
@@ -218,9 +218,9 @@ def test_rerun_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     config_dir = home / "Library" / "Application Support" / "Claude"
     config_dir.mkdir(parents=True)
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    installer._setup_claude_desktop(mcp_path, "Darwin")
-    installer._setup_claude_desktop(mcp_path, "Darwin")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    installer._setup_claude_desktop(mcp_cmd, "Darwin")
+    installer._setup_claude_desktop(mcp_cmd, "Darwin")
 
     config_path = config_dir / "claude_desktop_config.json"
     written = json.loads(config_path.read_text(encoding="utf-8"))
@@ -229,7 +229,7 @@ def test_rerun_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert list(mcp_servers.keys()) == ["sumo-qa"], (
         f"Expected exactly one 'sumo-qa' key after two runs; got: {list(mcp_servers.keys())}"
     )
-    assert mcp_servers["sumo-qa"] == {"command": str(mcp_path)}
+    assert mcp_servers["sumo-qa"] == {"command": mcp_cmd.command}
 
 
 # ---------------------------------------------------------------------------
@@ -246,10 +246,10 @@ def test_windows_path_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     config_dir = app_data / "Claude"
     config_dir.mkdir(parents=True)
 
-    mcp_path = Path("C:/tools/sumo-qa.exe")
+    mcp_cmd = installer.McpCommand(command="C:/tools/sumo-qa.exe", args=[])
 
     with patch.dict(os.environ, {"APPDATA": str(app_data)}):
-        result = installer._setup_claude_desktop(mcp_path, "Windows")
+        result = installer._setup_claude_desktop(mcp_cmd, "Windows")
 
     assert result.detected is True
     assert result.configured is True
@@ -258,4 +258,4 @@ def test_windows_path_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert expected.exists()
 
     written = json.loads(expected.read_text(encoding="utf-8"))
-    assert written["mcpServers"]["sumo-qa"]["command"] == str(mcp_path)
+    assert written["mcpServers"]["sumo-qa"]["command"] == mcp_cmd.command

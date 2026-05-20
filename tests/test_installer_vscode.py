@@ -14,8 +14,8 @@ from sumo_qa import installer
 
 def test_not_detected_when_no_workspace_marker(tmp_path: Path) -> None:
     """A plain empty directory has no marker → detected=False, configured=False."""
-    mcp_path = Path("/abs/path/to/sumo-qa")
-    result = installer._setup_vscode_copilot(mcp_path, workspace=tmp_path)
+    mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
+    result = installer._setup_vscode_copilot(mcp_cmd, workspace=tmp_path)
 
     assert result.detected is False
     assert result.configured is False
@@ -35,8 +35,8 @@ def test_workspace_flag_honoured_over_cwd(tmp_path: Path) -> None:
     workspace.mkdir()
     (workspace / "pyproject.toml").touch()  # marker so detection passes
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    result = installer._setup_vscode_copilot(mcp_path, workspace=workspace)
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    result = installer._setup_vscode_copilot(mcp_cmd, workspace=workspace)
 
     assert result.configured is True
     expected_config = workspace / ".vscode" / "mcp.json"
@@ -52,9 +52,9 @@ def test_workspace_flag_honoured_over_cwd(tmp_path: Path) -> None:
 def test_writes_servers_schema_not_mcp_servers(tmp_path: Path) -> None:
     """The VS Code schema uses 'servers', NOT 'mcpServers'.  Regression guard."""
     (tmp_path / ".git").mkdir()  # workspace marker
-    mcp_path = Path("/usr/local/bin/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
 
-    result = installer._setup_vscode_copilot(mcp_path, workspace=tmp_path)
+    result = installer._setup_vscode_copilot(mcp_cmd, workspace=tmp_path)
 
     assert result.configured is True
     written = json.loads((tmp_path / ".vscode" / "mcp.json").read_text())
@@ -67,7 +67,7 @@ def test_writes_servers_schema_not_mcp_servers(tmp_path: Path) -> None:
 
     entry = written["servers"]["sumo-qa"]
     assert entry["type"] == "stdio"
-    assert entry["command"] == str(mcp_path)
+    assert entry["command"] == mcp_cmd.command
     assert entry["args"] == []
 
 
@@ -85,8 +85,8 @@ def test_preserves_existing_server_entries(tmp_path: Path) -> None:
     existing = {"servers": {"other-tool": {"type": "stdio", "command": "other-bin", "args": []}}}
     config_path.write_text(json.dumps(existing) + "\n", encoding="utf-8")
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    result = installer._setup_vscode_copilot(mcp_path, workspace=tmp_path)
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    result = installer._setup_vscode_copilot(mcp_cmd, workspace=tmp_path)
 
     assert result.configured is True
     written = json.loads(config_path.read_text())
@@ -108,8 +108,8 @@ def test_invalid_json_not_clobbered(tmp_path: Path) -> None:
     bad_content = "{ this is not json !!!"
     config_path.write_text(bad_content, encoding="utf-8")
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    result = installer._setup_vscode_copilot(mcp_path, workspace=tmp_path)
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    result = installer._setup_vscode_copilot(mcp_cmd, workspace=tmp_path)
 
     # Should not be configured.
     assert result.configured is False
@@ -126,12 +126,12 @@ def test_invalid_json_not_clobbered(tmp_path: Path) -> None:
 
 def test_refuses_home_directory(tmp_path: Path) -> None:
     """Writing to $HOME/.vscode/mcp.json is actively refused (VS Code ignores it)."""
-    mcp_path = Path("/usr/local/bin/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
 
     # Patch Path.home() to return tmp_path so the guard fires without touching
     # the real home directory.
     with patch.object(Path, "home", return_value=tmp_path):
-        result = installer._setup_vscode_copilot(mcp_path, workspace=tmp_path)
+        result = installer._setup_vscode_copilot(mcp_cmd, workspace=tmp_path)
 
     assert result.detected is False
     assert result.configured is False
@@ -153,11 +153,11 @@ def test_strips_legacy_mcp_servers_key(tmp_path: Path) -> None:
     legacy = {"mcpServers": {"sumo-qa": {"command": "/old/path"}}}
     config_path.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
 
-    mcp_path = Path("/usr/local/bin/sumo-qa")
-    result = installer._setup_vscode_copilot(mcp_path, workspace=tmp_path)
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    result = installer._setup_vscode_copilot(mcp_cmd, workspace=tmp_path)
 
     assert result.configured is True
     written = json.loads(config_path.read_text())
     assert "mcpServers" not in written, "Legacy mcpServers key must be stripped"
     assert "servers" in written
-    assert written["servers"]["sumo-qa"]["command"] == str(mcp_path)
+    assert written["servers"]["sumo-qa"]["command"] == mcp_cmd.command
