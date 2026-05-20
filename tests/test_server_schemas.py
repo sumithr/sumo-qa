@@ -22,7 +22,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from sumo_qa import external_skills as ext
 from sumo_qa.server_schemas import (
+    CheckExternalSkillInstalledOutput,
+    ExecuteExternalSkillOutput,
+    InstallExternalSkillOutput,
+    SearchExternalSkillsOutput,
     TestDataFindOutput,
     TestDataRegisterOutput,
     TestDataRequirementsOutput,
@@ -283,3 +288,215 @@ def test_register_output_rejects_unknown_field(tmp_path: Path) -> None:
     payload["bonus_key"] = "nope"
     with pytest.raises(ValidationError):
         TestDataRegisterOutput.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# SearchExternalSkillsOutput
+#
+# The live ``search_external_skills`` function shells out to ``npx`` and hits
+# the network, so we hand-build a representative payload here. Shape pinning is
+# what matters; CheckExternalSkillInstalledOutput below exercises a live
+# function for drift detection.
+# ---------------------------------------------------------------------------
+
+
+def test_search_external_skills_output_accepts_representative_payload() -> None:
+    payload = {
+        "query": "mypy",
+        "command": ["/usr/bin/npx", "--yes", "skills", "find", "mypy"],
+        "raw_output": "vercel-labs/skills@mypy-type-checking\n",
+        "stderr": "",
+        "hint": "Read raw_output as the user would in a terminal.",
+    }
+
+    model = SearchExternalSkillsOutput.model_validate(payload)
+
+    assert model.query == "mypy"
+    assert model.command == ["/usr/bin/npx", "--yes", "skills", "find", "mypy"]
+    assert model.raw_output.startswith("vercel-labs/skills@")
+    assert model.stderr == ""
+    assert model.hint
+
+
+def test_search_external_skills_output_rejects_unknown_field() -> None:
+    payload = {
+        "query": "mypy",
+        "command": ["/usr/bin/npx", "--yes", "skills", "find", "mypy"],
+        "raw_output": "vercel-labs/skills@mypy-type-checking\n",
+        "stderr": "",
+        "hint": "Read raw_output as the user would in a terminal.",
+        "extra": "boom",
+    }
+    with pytest.raises(ValidationError):
+        SearchExternalSkillsOutput.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# CheckExternalSkillInstalledOutput
+#
+# This one IS exercised against the live function — populating a tmp_path
+# skill directory is cheap and catches drift between the dict the function
+# returns and the model declared here, the same way the test-data side does.
+# ---------------------------------------------------------------------------
+
+
+def test_check_external_skill_installed_output_accepts_live_payload(tmp_path: Path) -> None:
+    skill_path = tmp_path / ".codex" / "skills" / "mypy-type-checking" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text("# Mypy skill", encoding="utf-8")
+
+    payload = ext.check_external_skill_installed(
+        "mypy-type-checking", cwd=tmp_path, home=tmp_path / "home"
+    )
+    assert payload is not None, "fixture skill should be discovered"
+
+    model = CheckExternalSkillInstalledOutput.model_validate(payload)
+
+    assert model.name == "mypy-type-checking"
+    assert model.path == skill_path.as_posix()
+    assert model.agent == "codex"
+    assert model.scope == "project"
+
+
+def test_check_external_skill_installed_output_rejects_unknown_field(tmp_path: Path) -> None:
+    skill_path = tmp_path / ".codex" / "skills" / "mypy-type-checking" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text("# Mypy skill", encoding="utf-8")
+
+    payload = ext.check_external_skill_installed(
+        "mypy-type-checking", cwd=tmp_path, home=tmp_path / "home"
+    )
+    assert payload is not None
+    payload["extra"] = "nope"
+    with pytest.raises(ValidationError):
+        CheckExternalSkillInstalledOutput.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# InstallExternalSkillOutput
+#
+# Live ``install_external_skill`` requires ``npx`` + network, so we hand-build.
+# We exercise both the populated-installed (nested model) and installed=None
+# arms so the ``CheckExternalSkillInstalledOutput | None`` annotation is
+# covered.
+# ---------------------------------------------------------------------------
+
+
+def test_install_external_skill_output_accepts_representative_payload() -> None:
+    payload = {
+        "skill": "mypy-type-checking",
+        "source": "https://github.com/vercel-labs/skills",
+        "scope": "project",
+        "agent": "codex",
+        "command": [
+            "/usr/bin/npx",
+            "--yes",
+            "skills",
+            "add",
+            "https://github.com/vercel-labs/skills",
+            "--skill",
+            "mypy-type-checking",
+            "-a",
+            "codex",
+            "-y",
+        ],
+        "installed": {
+            "name": "mypy-type-checking",
+            "path": "/tmp/proj/.codex/skills/mypy-type-checking/SKILL.md",
+            "agent": "codex",
+            "scope": "project",
+        },
+        "raw_output": "installed mypy-type-checking\n",
+        "stderr": "",
+    }
+
+    model = InstallExternalSkillOutput.model_validate(payload)
+
+    assert model.skill == "mypy-type-checking"
+    assert model.source == "https://github.com/vercel-labs/skills"
+    assert model.scope == "project"
+    assert model.agent == "codex"
+    assert model.command[0].endswith("npx")
+    assert model.installed is not None
+    # Nested model is the same type CheckExternalSkillInstalledOutput exposes.
+    assert model.installed.name == "mypy-type-checking"
+    assert model.installed.scope == "project"
+    assert model.raw_output.startswith("installed")
+    assert model.stderr == ""
+
+
+def test_install_external_skill_output_accepts_none_installed() -> None:
+    payload = {
+        "skill": "mypy-type-checking",
+        "source": "https://github.com/vercel-labs/skills",
+        "scope": "project",
+        "agent": "codex",
+        "command": ["/usr/bin/npx", "--yes", "skills", "add", "..."],
+        "installed": None,
+        "raw_output": "",
+        "stderr": "install failed\n",
+    }
+
+    model = InstallExternalSkillOutput.model_validate(payload)
+
+    assert model.installed is None
+
+
+def test_install_external_skill_output_rejects_unknown_field() -> None:
+    payload = {
+        "skill": "mypy-type-checking",
+        "source": "https://github.com/vercel-labs/skills",
+        "scope": "project",
+        "agent": "codex",
+        "command": ["/usr/bin/npx", "--yes", "skills", "add", "..."],
+        "installed": None,
+        "raw_output": "",
+        "stderr": "",
+        "stray": True,
+    }
+    with pytest.raises(ValidationError):
+        InstallExternalSkillOutput.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# ExecuteExternalSkillOutput
+# ---------------------------------------------------------------------------
+
+
+def test_execute_external_skill_output_accepts_live_payload(tmp_path: Path) -> None:
+    skill_path = tmp_path / ".codex" / "skills" / "mypy-type-checking" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text("---\nname: mypy-type-checking\n---\n# Body", encoding="utf-8")
+
+    payload = ext.execute_external_skill(
+        "mypy-type-checking",
+        intent="add type checking",
+        cwd=tmp_path,
+        home=tmp_path / "home",
+    )
+
+    model = ExecuteExternalSkillOutput.model_validate(payload)
+
+    assert model.skill == "mypy-type-checking"
+    assert model.path == skill_path.as_posix()
+    assert model.agent == "codex"
+    assert model.scope == "project"
+    assert model.intent == "add type checking"
+    assert "# Body" in model.skill_body
+    assert model.execution_prompt
+
+
+def test_execute_external_skill_output_rejects_unknown_field(tmp_path: Path) -> None:
+    skill_path = tmp_path / ".codex" / "skills" / "mypy-type-checking" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text("---\nname: mypy-type-checking\n---\n# Body", encoding="utf-8")
+
+    payload = ext.execute_external_skill(
+        "mypy-type-checking",
+        intent="add type checking",
+        cwd=tmp_path,
+        home=tmp_path / "home",
+    )
+    payload["bonus"] = "no"
+    with pytest.raises(ValidationError):
+        ExecuteExternalSkillOutput.model_validate(payload)

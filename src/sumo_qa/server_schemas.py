@@ -243,3 +243,87 @@ class TestDataRegisterOutput(_StrictBase):
         default=None,
         description="Catalogue id of the existing duplicate when action is 'duplicate'.",
     )
+
+
+# ---------------------------------------------------------------------------
+# External-skills tools (delegate to external_skills.py)
+# ---------------------------------------------------------------------------
+
+
+class SearchExternalSkillsOutput(_StrictBase):
+    """Output of ``sumo_qa_search_external_skills``."""
+
+    query: str = Field(description="Echo of the search query the caller supplied.")
+    command: list[str] = Field(
+        description="The argv list executed (npx + skills CLI args) for traceability."
+    )
+    raw_output: str = Field(
+        description="ANSI-stripped stdout from the Skills CLI; one candidate per line."
+    )
+    stderr: str = Field(
+        description="ANSI-stripped stderr from the Skills CLI; usually empty on success."
+    )
+    hint: str = Field(description="Guidance for the host LLM on how to parse raw_output.")
+
+
+class CheckExternalSkillInstalledOutput(_StrictBase):
+    """Success-shape output of ``sumo_qa_check_external_skill_installed``.
+
+    The underlying function returns ``None`` when the skill is not installed;
+    that branch is preserved at the server-wiring layer via a
+    ``CheckExternalSkillInstalledOutput | None`` annotation rather than
+    modelled here.
+    """
+
+    name: str = Field(
+        description="Canonical skill name (hyphen/underscore-normalised) as discovered on disk."
+    )
+    path: str = Field(description="POSIX path to the installed SKILL.md file.")
+    agent: str = Field(
+        description="Agent flavour the skill is installed for (codex / claude-code / agents)."
+    )
+    scope: Literal["project", "global"] = Field(
+        description="Where the skill is installed: project (cwd-relative) or global (home-relative)."
+    )
+
+
+class InstallExternalSkillOutput(_StrictBase):
+    """Output of ``sumo_qa_install_external_skill``."""
+
+    skill: str = Field(description="Echo of the skill name the caller requested.")
+    source: str = Field(description="Source URL or registry the skill was installed from.")
+    scope: Literal["project", "global"] = Field(
+        description="Install scope: project (cwd-relative) or global (home-relative)."
+    )
+    agent: str = Field(description="Agent flavour the skill was installed for.")
+    command: list[str] = Field(
+        description="The argv list executed (npx + skills CLI args) for traceability."
+    )
+    installed: CheckExternalSkillInstalledOutput | None = Field(
+        description=(
+            "Discovered on-disk location after install, or null when the post-install "
+            "check could not find a SKILL.md."
+        )
+    )
+    raw_output: str = Field(description="ANSI-stripped stdout from the Skills CLI install run.")
+    stderr: str = Field(description="ANSI-stripped stderr from the Skills CLI install run.")
+
+
+class ExecuteExternalSkillOutput(_StrictBase):
+    """Output of ``sumo_qa_execute_external_skill``."""
+
+    skill: str = Field(description="Canonical skill name as discovered on disk.")
+    path: str = Field(description="POSIX path to the SKILL.md that was loaded.")
+    agent: str = Field(description="Agent flavour the skill is installed for.")
+    scope: Literal["project", "global"] = Field(
+        description="Install scope the loaded skill came from."
+    )
+    intent: str = Field(
+        description="Echo of the intent the caller passed; empty string when none supplied."
+    )
+    skill_body: str = Field(
+        description="Verbatim contents of SKILL.md, ready to hand to the host LLM."
+    )
+    execution_prompt: str = Field(
+        description="Fixed handoff prompt instructing the host to follow the loaded SKILL.md."
+    )
