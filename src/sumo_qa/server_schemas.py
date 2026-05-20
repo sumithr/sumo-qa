@@ -282,6 +282,8 @@ class CheckExternalSkillInstalledOutput(_StrictBase):
     agent: str = Field(
         description="Agent flavour the skill is installed for (codex / claude-code / agents)."
     )
+    # Resolved on-disk scope, never the "auto" input — see external_skills.py
+    # _candidate_paths which emits only "project" or "global".
     scope: Literal["project", "global"] = Field(
         description="Where the skill is installed: project (cwd-relative) or global (home-relative)."
     )
