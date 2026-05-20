@@ -137,6 +137,13 @@ also_copy = [
   "knowledge/",
   "skills/",
   "hooks/",
+  # plugin_packaging/ lives at the repo root (not under src/). Tests in
+  # tests/test_plugin_packaging_*.py import it directly; without copying
+  # it into the mutants/ mirror those tests fail to collect, mutmut's
+  # `-x` aborts after the first failure, and the gate false-DROPs every
+  # module. Not shipped in the wheel — mutmut-local-only, same as
+  # `.claude/`.
+  "plugin_packaging/",
   # tests/test_claude_hooks.py spawns the hook scripts via subprocess and
   # resolves their path relative to repo-root (which under mutmut is mutants/).
   # Without this entry, the first claude-hooks test fails on "No such file",
