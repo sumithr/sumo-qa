@@ -405,3 +405,92 @@ def test_rules_path_returns_first_candidate_when_none_exist(monkeypatch, tmp_pat
     assert "standards" in result.parts, (
         f"Fallback must return candidates[0] (with 'standards' in path); got {result.parts}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.3 — strengthening tests against 5/19 mutation survivors
+# ---------------------------------------------------------------------------
+
+
+def test_classification_filter_strips_backticks_and_quotes():
+    """Backtick/quote-wrapped classification names must be normalised AND
+    pure-backtick inputs must be filtered out.
+
+    Kills the strip→None mutations on lines 11 + 13 of
+    _classification_filter_terms: with strip(None) the default whitespace-only
+    strip leaves the wrapping chars in place, so 'auth' would appear as
+    '\\`auth\\`' in the result and a pure-backtick token would pass the filter.
+    """
+    from sumo_qa.knowledge_loaders import _classification_filter_terms
+
+    # Result-expression strip: wrapping chars must be removed from the output.
+    assert _classification_filter_terms("`api_contract_change`") == {"api_contract_change"}
+    assert _classification_filter_terms("'security_change'") == {"security_change"}
+    assert _classification_filter_terms('"data_migration"') == {"data_migration"}
+
+    # If-filter strip: a token consisting only of wrapping chars must drop out,
+    # not pass through as a backtick/quote-only entry. The result set must
+    # contain only the real classification name, not a stray empty-after-strip
+    # placeholder.
+    assert _classification_filter_terms("```, security_change") == {"security_change"}
+    assert _classification_filter_terms("'''") == set()
+    assert _classification_filter_terms('"""') == set()
+
+
+def test_metadata_terms_strips_backticks_in_list_inputs():
+    """List/tuple/set values containing backtick/quote-wrapped strings must be
+    normalised AND pure-quote tokens must be filtered out.
+
+    Kills the strip→None mutations on lines 7 + 10 of _metadata_terms.
+    """
+    from sumo_qa.knowledge_loaders import _metadata_terms
+
+    # Result-expression strip on the list branch.
+    assert _metadata_terms(["`auth_change`", '"config_change"']) == {
+        "auth_change",
+        "config_change",
+    }
+    assert _metadata_terms(("'data_migration'",)) == {"data_migration"}
+
+    # If-filter strip — pure-quote items must not survive into the output set.
+    assert _metadata_terms(["```", "security_change"]) == {"security_change"}
+    assert _metadata_terms(["```", "'''", '"""']) == set()
+
+
+def test_load_rules_resolves_aliases_for_multiple_terms_in_one_call(tmp_path, monkeypatch):
+    """When several terms are requested and the first is a direct hit while a
+    later one needs alias resolution, both must end up in the response.
+
+    Kills the continue→break mutation on line 19 of sumo_qa_load_rules:
+    with `break`, the alias-resolution loop would short-circuit on the first
+    direct-hit term and the alias-only term would be dropped from the output.
+    """
+    import yaml as _yaml
+
+    from sumo_qa.knowledge_loaders import sumo_qa_load_rules
+
+    # Build a rules doc where:
+    #   - "api_contract_change" is a direct hit (no alias needed)
+    #   - "frontend_change" is NOT in the doc; its alias "ui_only_change" IS
+    # Alphabetical iteration order (sorted in the source) processes
+    # api_contract_change first, then frontend_change. With `continue`, the
+    # loop continues to frontend_change's alias resolution. With `break`,
+    # the loop exits and frontend_change never resolves.
+    rules_doc = {
+        "api_contract_change": {"checks": ["contract_v1"]},
+        "ui_only_change": {"checks": ["snapshot_diff"]},  # alias for frontend_change
+    }
+    rules_file = tmp_path / "change_rules.yaml"
+    rules_file.write_text(_yaml.safe_dump(rules_doc), encoding="utf-8")
+    monkeypatch.setenv("QA_RULES_PATH", str(rules_file))
+
+    result_text = sumo_qa_load_rules(classification="api_contract_change, frontend_change")
+    result = _yaml.safe_load(result_text)
+
+    # Both terms must be in the result; frontend_change resolves via alias.
+    assert set(result.keys()) == {"api_contract_change", "frontend_change"}, (
+        f"Expected both terms in result; got {set(result.keys())}. "
+        "If only 'api_contract_change' is present, the loop short-circuited "
+        "(continue→break mutation)."
+    )
+    assert result["frontend_change"] == {"checks": ["snapshot_diff"]}
