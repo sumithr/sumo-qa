@@ -107,7 +107,12 @@ paths_to_mutate = [
 #   mutmut's CWD because REPO_ROOT resolves to mutants/ and the subprocess
 #   PYTHONPATH then points at the incomplete mutants/src/ package.
 # Note: mutmut 3.x does not support a `runner` key — use pytest_add_cli_args.
-pytest_add_cli_args = ["--no-cov", "-x", "--ignore=tests/test_e2e_mcp_initialize.py"]
+pytest_add_cli_args = [
+  "--no-cov",
+  "-x",
+  "--ignore=tests/test_e2e_mcp_initialize.py",
+  "--ignore=tests/test_tools_list_contract.py",
+]
 tests_dir = ["tests/"]
 # mutmut only copies paths_to_mutate modules into mutants/src/sumo_qa/, leaving the
 # rest of the package absent. also_copy ensures the full src/ tree is mirrored into
