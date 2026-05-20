@@ -39,6 +39,17 @@ from sumo_qa.knowledge_loaders import (
 from sumo_qa.knowledge_loaders import (
     sumo_qa_load_techniques as _load_techniques,
 )
+from sumo_qa.server_schemas import (
+    CheckExternalSkillInstalledOutput,
+    ErrorEnvelope,
+    ExecuteExternalSkillOutput,
+    InstallExternalSkillOutput,
+    SearchExternalSkillsOutput,
+    TestDataFindOutput,
+    TestDataRegisterOutput,
+    TestDataRequirementsOutput,
+    TestDataValidateOutput,
+)
 from sumo_qa.skill_prompts import register_skills_as_prompts
 from sumo_qa.tools import QAShiftLeftService
 
@@ -136,7 +147,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         question: str,
         environment: str = "",
         domain: str = "",
-    ) -> dict:
+    ) -> TestDataRequirementsOutput | ErrorEnvelope:
         """Explain what test data shape and characteristics are needed for a scenario.
 
         Returns: required entity characteristics, resource-state conditions,
@@ -191,7 +202,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         sku: str = "",
         limit: int = 5,
         offset: int = 0,
-    ) -> dict:
+    ) -> TestDataFindOutput | ErrorEnvelope:
         """Search the local known-good test data catalogue for entries that match a scenario.
 
         Returns: ranked matches with confidence, freshness, and suitability
@@ -241,7 +252,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     def sumo_qa_validate_test_data(
         entry_id: str | None = None,
         entry: dict | None = None,
-    ) -> dict:
+    ) -> TestDataValidateOutput | ErrorEnvelope:
         """Validate a test data entry without provisioning or mutating downstream systems.
 
         Returns: validation result with confidence level, freshness status, and
@@ -269,7 +280,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     @mcp.tool(annotations=_writer_local)
     def sumo_qa_register_known_good_test_data(
         entry: dict,
-    ) -> dict:
+    ) -> TestDataRegisterOutput | ErrorEnvelope:
         """Add or update a known-good test data entry in the local YAML catalogue.
 
         Detects duplicates by environment + domain + product/SKU + scenario
@@ -358,7 +369,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     _register_knowledge_loaders(mcp)
 
     @mcp.tool(annotations=_read_only_external)
-    def sumo_qa_search_external_skills(query: str) -> dict:
+    def sumo_qa_search_external_skills(query: str) -> SearchExternalSkillsOutput | ErrorEnvelope:
         """Search the Skills CLI registry for external agent skills.
 
         Returns the ANSI-stripped CLI output verbatim plus a one-line hint on
@@ -379,7 +390,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     def sumo_qa_check_external_skill_installed(
         skill: str,
         scope: str = "auto",
-    ) -> dict | None:
+    ) -> CheckExternalSkillInstalledOutput | ErrorEnvelope | None:
         """Locate an installed external SKILL.md file for Codex, Claude, or agents paths.
 
         Returns the first matching path for project or global skill locations,
@@ -402,7 +413,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         scope: str = "project",
         agent: str = "codex",
         confirmed: bool = False,
-    ) -> dict:
+    ) -> InstallExternalSkillOutput | ErrorEnvelope:
         """Install an external agent skill through the Skills CLI.
 
         The confirmed flag records that the host received explicit user
@@ -435,7 +446,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         skill: str,
         intent: str = "",
         scope: str = "auto",
-    ) -> dict:
+    ) -> ExecuteExternalSkillOutput | ErrorEnvelope:
         """Load an installed external SKILL.md and return the execution handoff.
 
         The payload contains the skill body plus the original intent so the
