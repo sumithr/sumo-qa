@@ -242,3 +242,97 @@ jobs:
           assert not list(jb_root.rglob("*.json"))
           assert not list(jb_root.rglob("*.xml"))
           PY
+
+  plugin-dir-handshake:
+    # Validates each generated plugin folder by spawning the MCP server it
+    # references and running an `initialize` + `tools/list` handshake. This
+    # provides the schema-correctness guarantee for the Codex manifest
+    # (which has no published JSON Schema) and a behavioural guarantee for
+    # the Claude Code manifest (which is also schema-validated by
+    # plugin-packaging.yml).
+    #
+    # We do NOT run the host binaries themselves (auth + sandboxing make
+    # that fragile in CI). Instead we read the adapter's `.mcp.json`,
+    # spawn the declared `command`, and assert sumo_qa_* tools come back —
+    # mirroring how the installer's own _verify_mcp_handshake works.
+    name: plugin-dir handshake (${{ matrix.host }})
+    runs-on: ubuntu-latest
+    needs: install-pip
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [claude-code, codex]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install wheel
+        run: pip install .
+
+      - name: MCP initialize handshake
+        env:
+          # The adapter folder is fixed per matrix entry; no untrusted
+          # input flows into the run: script. Pinning via env keeps the
+          # workflow-injection lint clean.
+          ADAPTER: ${{ matrix.host == 'claude-code' && '.claude-plugin' || '.codex-plugin' }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          adapter = Path(os.environ["ADAPTER"])
+          (adapter / "plugin.json").read_text(encoding="utf-8")  # asserts present
+          mcp = json.loads(Path(".mcp.json").read_text(encoding="utf-8"))
+          server_name, entry = next(iter(mcp["mcpServers"].items()))
+          cmd = [entry["command"], *entry.get("args", [])]
+
+          proc = subprocess.Popen(
+              cmd,
+              stdin=subprocess.PIPE,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+              text=True,
+          )
+          init = {
+              "jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {
+                  "protocolVersion": "2024-11-05",
+                  "capabilities": {},
+                  "clientInfo": {"name": "plugin-dir-smoke", "version": "0"},
+              },
+          }
+          notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+          tools = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+          payload = "\n".join(json.dumps(x) for x in (init, notif, tools)) + "\n"
+
+          try:
+              out, err = proc.communicate(payload, timeout=20)
+          except subprocess.TimeoutExpired:
+              proc.kill()
+              sys.stderr.write("MCP server timed out responding to handshake\n")
+              sys.exit(1)
+
+          ok = False
+          for line in out.splitlines():
+              try:
+                  msg = json.loads(line)
+              except Exception:
+                  continue
+              if msg.get("id") == 2 and "result" in msg:
+                  names = {t["name"] for t in msg["result"]["tools"]}
+                  if any(n.startswith("sumo_qa_") for n in names):
+                      ok = True
+                      break
+          if not ok:
+              sys.stderr.write("MCP handshake did not return sumo_qa_* tools\n")
+              sys.stderr.write((err or "")[-500:] + "\n")
+              sys.exit(1)
+          print(f"{adapter}: MCP handshake OK (server={server_name})")
+          PY
