@@ -14,12 +14,12 @@ from sumo_qa import installer
 def test_not_detected_when_no_jb_config_dir(tmp_path: Path) -> None:
     """If the JetBrains config root does not exist the function returns
     detected=False with a human-readable message and does not raise."""
-    mcp_path = Path("/abs/path/to/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
     # jb_root at tmp_path / "Library" / "Application Support" / "JetBrains"
     # is intentionally NOT created — home() returns tmp_path, no JB dir exists
 
     with patch.object(Path, "home", return_value=tmp_path):
-        result = installer._setup_intellij(mcp_path, system="Darwin")
+        result = installer._setup_intellij(mcp_cmd, system="Darwin")
 
     assert result.detected is False
     assert result.configured is False
@@ -34,14 +34,14 @@ def test_not_detected_when_no_jb_config_dir(tmp_path: Path) -> None:
 def test_not_detected_when_no_ide_subdirs(tmp_path: Path) -> None:
     """If the JetBrains root exists but no recognised IDE prefix dirs are
     present, detected=False with an appropriate message."""
-    mcp_path = Path("/abs/path/to/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
     jb_root = tmp_path / "Library" / "Application Support" / "JetBrains"
     jb_root.mkdir(parents=True)
     # A directory that doesn't match any _JB_IDE_PREFIXES
     (jb_root / "SomeOtherTool2025.1" / "options").mkdir(parents=True)
 
     with patch.object(Path, "home", return_value=tmp_path):
-        result = installer._setup_intellij(mcp_path, system="Darwin")
+        result = installer._setup_intellij(mcp_cmd, system="Darwin")
 
     assert result.detected is False
     assert "no JetBrains IDE installation found" in result.message
@@ -55,17 +55,17 @@ def test_not_detected_when_no_ide_subdirs(tmp_path: Path) -> None:
 def test_darwin_detected_followup_contains_settings_ui_fields(tmp_path: Path) -> None:
     """On Darwin, when an IntelliJ dir exists, detected=True and followup
     contains 'Name: sumo-qa' and the absolute binary path."""
-    mcp_path = Path("/abs/path/to/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
     jb_root = tmp_path / "Library" / "Application Support" / "JetBrains"
     idea_dir = jb_root / "IntelliJIdea2025.1"
     (idea_dir / "options").mkdir(parents=True)
 
     with patch.object(Path, "home", return_value=tmp_path):
-        result = installer._setup_intellij(mcp_path, system="Darwin")
+        result = installer._setup_intellij(mcp_cmd, system="Darwin")
 
     assert result.detected is True
     assert "sumo-qa" in result.followup
-    assert str(mcp_path) in result.followup
+    assert mcp_cmd.command in result.followup
     # Must reference the Settings-UI menu path
     assert "AI Assistant" in result.followup
     assert "Model Context Protocol" in result.followup
@@ -81,12 +81,12 @@ def test_followup_uses_command_field_not_mcp_servers_json(tmp_path: Path) -> Non
     """The JetBrains setup is a Settings-UI guide, not a JSON config write.
     The followup must contain a 'Command:' field and must NOT contain a
     'mcpServers' JSON key — that would be the wrong schema (Claude Desktop)."""
-    mcp_path = Path("/abs/path/to/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
     jb_root = tmp_path / "Library" / "Application Support" / "JetBrains"
     (jb_root / "IntelliJIdea2026.1" / "options").mkdir(parents=True)
 
     with patch.object(Path, "home", return_value=tmp_path):
-        result = installer._setup_intellij(mcp_path, system="Darwin")
+        result = installer._setup_intellij(mcp_cmd, system="Darwin")
 
     assert result.detected is True
     assert "Command:" in result.followup
@@ -106,15 +106,15 @@ def test_followup_uses_command_field_not_mcp_servers_json(tmp_path: Path) -> Non
 
 def test_linux_config_dir_detected(tmp_path: Path) -> None:
     """On Linux (system != Darwin/Windows), the root is ~/.config/JetBrains."""
-    mcp_path = Path("/usr/local/bin/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
     jb_root = tmp_path / ".config" / "JetBrains"
     (jb_root / "PyCharm2025.3" / "options").mkdir(parents=True)
 
     with patch.object(Path, "home", return_value=tmp_path):
-        result = installer._setup_intellij(mcp_path, system="Linux")
+        result = installer._setup_intellij(mcp_cmd, system="Linux")
 
     assert result.detected is True
-    assert str(mcp_path) in result.followup
+    assert mcp_cmd.command in result.followup
 
 
 # ---------------------------------------------------------------------------
@@ -125,13 +125,13 @@ def test_linux_config_dir_detected(tmp_path: Path) -> None:
 def test_latest_ide_selected_by_reverse_sort(tmp_path: Path) -> None:
     """When multiple IDE dirs exist, the one that sorts last alphabetically
     (highest version) is selected as 'latest' and mentioned in the message."""
-    mcp_path = Path("/abs/path/to/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
     jb_root = tmp_path / "Library" / "Application Support" / "JetBrains"
     for name in ("IntelliJIdea2024.1", "IntelliJIdea2025.3", "IntelliJIdea2023.2"):
         (jb_root / name / "options").mkdir(parents=True)
 
     with patch.object(Path, "home", return_value=tmp_path):
-        result = installer._setup_intellij(mcp_path, system="Darwin")
+        result = installer._setup_intellij(mcp_cmd, system="Darwin")
 
     assert result.detected is True
     # "IntelliJIdea2025.3" sorts last reverse → is the latest
@@ -147,15 +147,15 @@ def test_latest_ide_selected_by_reverse_sort(tmp_path: Path) -> None:
 
 def test_windows_appdata_dir_detected(tmp_path: Path) -> None:
     """On Windows, the root is %APPDATA%/JetBrains, not ~/Library/..."""
-    mcp_path = Path("C:/tools/sumo-qa.exe")
+    mcp_cmd = installer.McpCommand(command="C:/tools/sumo-qa.exe", args=[])
     jb_root = tmp_path / "JetBrains"
     (jb_root / "GoLand2025.1" / "options").mkdir(parents=True)
 
     with patch.dict("os.environ", {"APPDATA": str(tmp_path)}):
-        result = installer._setup_intellij(mcp_path, system="Windows")
+        result = installer._setup_intellij(mcp_cmd, system="Windows")
 
     assert result.detected is True
-    assert str(mcp_path) in result.followup
+    assert mcp_cmd.command in result.followup
 
 
 # ---------------------------------------------------------------------------
@@ -165,14 +165,14 @@ def test_windows_appdata_dir_detected(tmp_path: Path) -> None:
 
 def test_ide_dir_without_options_not_counted(tmp_path: Path) -> None:
     """A dir with a recognised prefix but no 'options' subdir is filtered out."""
-    mcp_path = Path("/abs/path/to/sumo-qa")
+    mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
     jb_root = tmp_path / "Library" / "Application Support" / "JetBrains"
     jb_root.mkdir(parents=True)
     # Recognised prefix, but no 'options' subdir
     (jb_root / "WebStorm2025.1").mkdir()
 
     with patch.object(Path, "home", return_value=tmp_path):
-        result = installer._setup_intellij(mcp_path, system="Darwin")
+        result = installer._setup_intellij(mcp_cmd, system="Darwin")
 
     assert result.detected is False
     assert "no JetBrains IDE installation found" in result.message

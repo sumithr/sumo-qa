@@ -27,16 +27,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
       - name: Set up Python
-        run: uv python install 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
-      - name: Sync dependencies
-        run: uv sync --all-extras
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev,vertex]"
 
       - name: Run mutmut
         id: mutate
@@ -45,7 +44,7 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          uv run mutmut run 2>&1 | tee mutmut.log
+          python -m mutmut run 2>&1 | tee mutmut.log
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
       - name: Compare against baseline
@@ -70,7 +69,7 @@ jobs:
         # per-module source and matches how mutmut's own browse/results commands
         # work internally.
         run: |
-          uv run python <<'EOF'
+          python <<'EOF'
           import json
           import os
           import sys

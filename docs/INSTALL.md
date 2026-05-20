@@ -34,7 +34,7 @@ python -m sumo_qa.installer --claude-desktop          # Claude Desktop app only
 python -m sumo_qa.installer --vscode                  # VS Code: writes <cwd>/.vscode/mcp.json
 python -m sumo_qa.installer --vscode --workspace /path/to/repo
 python -m sumo_qa.installer --jetbrains               # prints Settings UI steps
-python -m sumo_qa.installer --vscode --skip-mcp-install   # skip uv reinstall (faster re-runs)
+python -m sumo_qa.installer --vscode --skip-mcp-install   # skip MCP binary lookup (faster re-runs)
 ```
 
 `python -m sumo_qa.installer --help` for the full list.
@@ -318,15 +318,21 @@ Routine knowledge / standards / SKILL.md edits from upstream require neither.
 
 ### Switching between a clone and the PyPI install
 
-The installer writes whatever `sumo-qa` is first on PATH at the time it runs. To switch:
+The installer picks the invocation in this order:
+
+1. **`sumo-qa` script on PATH** — whichever venv currently has it wins, so activating a different venv changes which sumo-qa each host invokes.
+2. **No script on PATH** — falls back to `<sys.executable> -m sumo_qa`, i.e. the interpreter you ran the installer with. So even when pip's script directory isn't exported (Microsoft-Store Python on Windows, `--user` installs on Linux without `~/.local/bin` on PATH), every host still gets a working command pointing at the right Python.
+
+To switch:
 
 ```bash
 # Clone wins (live edits):
 source <repo>/.venv/bin/activate
 python -m sumo_qa.installer
 
-# Back to PyPI / uv tool install (stable, bundled _data):
+# Back to a different venv's install:
 deactivate
+source ~/other-venv/bin/activate     # or whichever env you want
 python -m sumo_qa.installer
 ```
 
@@ -340,11 +346,19 @@ Restart the host after either switch.
 
 ## Manual install (no `sumo-qa-install`)
 
-If you're not running `sumo-qa-install` for any reason, the binary path you need everywhere is:
+If you're not running `sumo-qa-install` for any reason, two options for the MCP server command:
 
 ```bash
-uv tool install --from . sumo-qa --reinstall
-which sumo-qa   # or: ls ~/.local/share/uv/tools/sumo-qa/bin/sumo-qa
+# Option A — pip wrapper on PATH
+python -m pip install sumo-qa
+which sumo-qa     # or `where sumo-qa` on Windows
 ```
 
-Then paste that absolute path into each host's MCP config in the schema appropriate to that host (see "Per-host detail" above).
+```bash
+# Option B — module form (no PATH dependency, works in any venv where
+# `import sumo_qa` succeeds)
+python -m pip install sumo-qa
+python -c "import sys; print(sys.executable, '-m sumo_qa')"
+```
+
+For Option A, paste the absolute path into each host's MCP config as the `command` field. For Option B, set `command` to the Python interpreter and `args` to `["-m", "sumo_qa"]`. Use Option B on Microsoft-Store Python (Windows) or `pip install --user` (Linux) when the pip Scripts directory isn't exported. Schema details per host: "Per-host detail" above.

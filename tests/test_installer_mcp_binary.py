@@ -11,14 +11,6 @@ from sumo_qa import installer
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _completed(returncode: int = 0) -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout="", stderr=b"")
-
 
 def test_installer_module_help_is_path_independent() -> None:
     """`python -m sumo_qa.installer` must work when console scripts are not on PATH."""
@@ -45,8 +37,12 @@ def test_installer_module_help_is_path_independent() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_fast_path_returns_resolved_binary_without_uv_call(capsys) -> None:
-    """When sumo-qa is already on PATH the function returns immediately."""
+def test_fast_path_returns_resolved_binary_without_subprocess_call(capsys) -> None:
+    """When sumo-qa is already on PATH the function returns immediately.
+
+    Asserts no subprocess.run is called — neither for module-fallback probing
+    nor for the now-removed uv path.
+    """
     existing = "/usr/local/bin/sumo-qa"
     with (
         patch("sumo_qa.installer.shutil.which", return_value=existing),
@@ -54,121 +50,37 @@ def test_fast_path_returns_resolved_binary_without_uv_call(capsys) -> None:
     ):
         result = installer._install_mcp_binary()
 
-    assert result == Path(existing).resolve()
+    assert result == installer.McpCommand(command=str(Path(existing).resolve()), args=[])
     run.assert_not_called()
     out = capsys.readouterr().out
     assert "Using existing sumo-qa binary" in out
 
 
-def test_fallback_uv_install_succeeds_and_which_finds_binary(capsys) -> None:
-    """No existing sumo-qa, uv present, uv install succeeds, post-install which returns path."""
-    post_install_path = "/home/user/.local/bin/sumo-qa"
+def test_module_fallback_when_script_not_on_path(capsys) -> None:
+    """Script not on PATH → fall back to `<sys.executable> -m sumo_qa`, never invoke uv.
 
-    def which_side_effect(name: str):
-        if name == "sumo-qa":
-            # First call (fast path): not found. Second call (post-install): found.
-            if which_side_effect.count == 0:
-                which_side_effect.count += 1
-                return None
-            return post_install_path
-        if name == "uv":
-            return "/usr/bin/uv"
-        return None
-
-    which_side_effect.count = 0
-
+    This is the canonical Windows-cmd-with-MS-Store-Python case: pip installed
+    sumo-qa.exe into a Scripts dir that isn't on PATH. The installer must
+    detect that `sumo_qa` is importable in the current interpreter and use
+    the module-invocation form, NOT silently fall back to uv.
+    """
     with (
-        patch("sumo_qa.installer.shutil.which", side_effect=which_side_effect),
-        patch("sumo_qa.installer.subprocess.run", return_value=_completed()) as run,
+        patch("sumo_qa.installer.shutil.which", return_value=None),
+        patch("sumo_qa.installer.subprocess.run") as run,
     ):
         result = installer._install_mcp_binary()
 
-    assert result == Path(post_install_path).resolve()
-    run.assert_called_once()
-    uv_cmd = run.call_args.args[0]
-    assert uv_cmd[0] == "uv"
-    assert "sumo-qa" in uv_cmd
-
-
-def test_no_sumo_qa_and_no_uv_prints_pip_hint_and_returns_none(capsys) -> None:
-    """Both sumo-qa and uv are absent; function prints pip install hint and returns None."""
-    with patch("sumo_qa.installer.shutil.which", return_value=None):
-        result = installer._install_mcp_binary()
-
-    assert result is None
+    assert result == installer.McpCommand(
+        command=sys.executable,
+        args=["-m", "sumo_qa"],
+    )
+    # Critical: no subprocess.run call. No uv install, no module-import probe.
+    # The current interpreter is already proof that `import sumo_qa` works
+    # (we got here by running installer.py, which lives inside the package).
+    run.assert_not_called()
     out = capsys.readouterr().out
-    assert "pip install --upgrade sumo-qa" in out
-
-
-def test_uv_install_raises_called_process_error_returns_none(capsys) -> None:
-    """uv tool install fails with CalledProcessError; function returns None and prints returncode."""
-
-    def which_side_effect(name: str):
-        if name == "uv":
-            return "/usr/bin/uv"
-        return None  # sumo-qa not on PATH
-
-    exc = subprocess.CalledProcessError(returncode=1, cmd=["uv", "tool", "install", "sumo-qa"])
-
-    with (
-        patch("sumo_qa.installer.shutil.which", side_effect=which_side_effect),
-        patch("sumo_qa.installer.subprocess.run", side_effect=exc),
-    ):
-        result = installer._install_mcp_binary()
-
-    assert result is None
-    out = capsys.readouterr().out
-    assert "1" in out  # returncode in error message
-
-
-def test_uv_install_succeeds_which_misses_but_conventional_path_exists(tmp_path, capsys) -> None:
-    """After uv install, which still returns None; a conventional bin location exists."""
-
-    def which_side_effect(name: str):
-        if name == "uv":
-            return "/usr/bin/uv"
-        return None  # sumo-qa never appears on PATH
-
-    fake_candidate = tmp_path / "sumo-qa"
-    fake_candidate.touch()
-
-    conventional_paths = [
-        Path.home() / ".local" / "bin" / "sumo-qa",
-        Path.home() / ".local" / "share" / "uv" / "tools" / "sumo-qa" / "bin" / "sumo-qa",
-    ]
-
-    def is_file_side_effect(self: Path) -> bool:
-        # Return True only for the first conventional candidate.
-        return self == conventional_paths[0]
-
-    with (
-        patch("sumo_qa.installer.shutil.which", side_effect=which_side_effect),
-        patch("sumo_qa.installer.subprocess.run", return_value=_completed()),
-        patch.object(Path, "is_file", is_file_side_effect),
-    ):
-        result = installer._install_mcp_binary()
-
-    assert result == conventional_paths[0].resolve()
-
-
-def test_all_fallbacks_miss_prints_restart_hint_and_returns_none(capsys) -> None:
-    """uv install succeeds, which returns None, no conventional path exists → None + hint."""
-
-    def which_side_effect(name: str):
-        if name == "uv":
-            return "/usr/bin/uv"
-        return None
-
-    with (
-        patch("sumo_qa.installer.shutil.which", side_effect=which_side_effect),
-        patch("sumo_qa.installer.subprocess.run", return_value=_completed()),
-        patch.object(Path, "is_file", return_value=False),
-    ):
-        result = installer._install_mcp_binary()
-
-    assert result is None
-    out = capsys.readouterr().out
-    assert "uv install succeeded" in out
+    assert "uv" not in out.lower()
+    assert "python -m sumo_qa" in out or "-m sumo_qa" in out
 
 
 # ---------------------------------------------------------------------------
@@ -183,17 +95,16 @@ def test_detect_install_mode_wheel_branch(tmp_path: Path) -> None:
     bundled = module_dir / "_data" / "skills"
     bundled.mkdir(parents=True)
 
-    repo_root, skills_src, uv_install_from = installer._detect_install_mode(
+    repo_root, skills_src = installer._detect_install_mode(
         module_dir=module_dir, bundled_skills=bundled
     )
 
     assert repo_root == module_dir
     assert skills_src == bundled
-    assert uv_install_from == []
 
 
 def test_detect_install_mode_editable_branch(tmp_path: Path) -> None:
-    """When no bundled _data/skills, returns repo-root + --from arg."""
+    """When no bundled _data/skills, returns repo-root + skills dir."""
     repo_root = tmp_path / "repo"
     src_dir = repo_root / "src"
     module_dir = src_dir / "sumo_qa"
@@ -201,13 +112,12 @@ def test_detect_install_mode_editable_branch(tmp_path: Path) -> None:
     (repo_root / "pyproject.toml").write_text("[project]\nname='sumo-qa'\n", encoding="utf-8")
     bundled = module_dir / "_data" / "skills"  # does NOT exist
 
-    detected_root, skills_src, uv_install_from = installer._detect_install_mode(
+    detected_root, skills_src = installer._detect_install_mode(
         module_dir=module_dir, bundled_skills=bundled
     )
 
     assert detected_root == repo_root
     assert skills_src == repo_root / "skills"
-    assert uv_install_from == ["--from", str(repo_root)]
 
 
 def test_detect_install_mode_broken_layout_exits(tmp_path: Path, capsys) -> None:
