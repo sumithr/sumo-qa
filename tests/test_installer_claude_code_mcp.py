@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +11,25 @@ from sumo_qa import installer
 
 def _ok(stdout: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr=b"")
+
+
+def _full_handshake_stdout() -> str:
+    """Stdout the verifier expects: initialize + tools/list with all required tools."""
+    init = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "protocolVersion": "2024-11-05",
+            "serverInfo": {"name": "sumo-qa", "version": "test"},
+            "capabilities": {},
+        },
+    }
+    tools = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {"tools": [{"name": n} for n in installer.REQUIRED_TOOL_NAMES]},
+    }
+    return json.dumps(init) + "\n" + json.dumps(tools) + "\n"
 
 
 def test_register_runs_remove_then_add_with_user_scope() -> None:
@@ -228,70 +248,9 @@ def test_setup_claude_code_surfaces_json_error(
 
 
 # ---------------------------------------------------------------------------
-# _verify_mcp_responds — lines 616-648
+# _verify_mcp_responds tests live in tests/test_installer_verify.py — the
+# new JSON-RPC + tools/list verification surface is exercised there.
 # ---------------------------------------------------------------------------
-
-
-def test_verify_mcp_responds_returns_true_on_result(capsys) -> None:
-    """_verify_mcp_responds() returns True when stdout contains '"result"' (line 641)."""
-    proc = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout='{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}',
-        stderr="",
-    )
-    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
-        result = installer._verify_mcp_responds(
-            installer.McpCommand(command="/fake/sumo-qa", args=[])
-        )
-
-    assert result is True
-    out = capsys.readouterr().out
-    assert "responded" in out
-
-
-def test_verify_mcp_responds_returns_false_on_empty_stdout(capsys) -> None:
-    """_verify_mcp_responds() returns False when stdout has no '"result"' (lines 643-648)."""
-    proc = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout="some unexpected output",
-        stderr="error hint",
-    )
-    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
-        result = installer._verify_mcp_responds(
-            installer.McpCommand(command="/fake/sumo-qa", args=[])
-        )
-
-    assert result is False
-    out = capsys.readouterr().out
-    assert "WARNING" in out
-
-
-def test_verify_mcp_responds_returns_false_on_timeout(capsys) -> None:
-    """_verify_mcp_responds() returns False on TimeoutExpired (lines 637-639)."""
-    with patch(
-        "sumo_qa.installer.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=[], timeout=10),
-    ):
-        result = installer._verify_mcp_responds(
-            installer.McpCommand(command="/fake/sumo-qa", args=[])
-        )
-
-    assert result is False
-    out = capsys.readouterr().out
-    assert "10s" in out
-
-
-def test_verify_mcp_responds_returns_false_when_stdout_empty(capsys) -> None:
-    """_verify_mcp_responds() handles empty stdout without printing stdout line (line 644 branch)."""
-    proc = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-    with patch("sumo_qa.installer.subprocess.run", return_value=proc):
-        result = installer._verify_mcp_responds(
-            installer.McpCommand(command="/fake/sumo-qa", args=[])
-        )
-
-    assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +276,7 @@ def test_main_all_hosts_success(tmp_path: Path, monkeypatch) -> None:
     mcp_proc = subprocess.CompletedProcess(
         args=[],
         returncode=0,
-        stdout='{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}',
+        stdout=_full_handshake_stdout(),
         stderr="",
     )
 
@@ -378,7 +337,7 @@ def test_main_skip_mcp_install_with_binary_found(tmp_path: Path, monkeypatch) ->
     mcp_proc = subprocess.CompletedProcess(
         args=[],
         returncode=0,
-        stdout='{"jsonrpc":"2.0","id":1,"result":{}}',
+        stdout=_full_handshake_stdout(),
         stderr="",
     )
 
@@ -407,7 +366,7 @@ def test_main_claude_only_flag(tmp_path: Path, monkeypatch) -> None:
     mcp_proc = subprocess.CompletedProcess(
         args=[],
         returncode=0,
-        stdout='{"jsonrpc":"2.0","id":1,"result":{}}',
+        stdout=_full_handshake_stdout(),
         stderr="",
     )
 

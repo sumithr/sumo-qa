@@ -64,6 +64,30 @@ from pathlib import Path
 _MODULE_DIR = Path(__file__).resolve().parent
 _BUNDLED_SKILLS = _MODULE_DIR / "_data" / "skills"
 
+# Canonical sumo-qa tool surface — exactly what the post-install handshake
+# expects to find in the MCP's tools/list response. Kept in lock-step with
+# the @mcp.tool decorators in src/sumo_qa/server.py; if a tool is added,
+# renamed or removed there, update this tuple (and the matching tests).
+REQUIRED_TOOL_NAMES: tuple[str, ...] = (
+    # Test-data
+    "sumo_qa_explain_test_data_requirements",
+    "sumo_qa_find_test_data",
+    "sumo_qa_validate_test_data",
+    "sumo_qa_register_known_good_test_data",
+    # Knowledge loaders
+    "sumo_qa_load_classifications",
+    "sumo_qa_load_approaches",
+    "sumo_qa_load_principles",
+    "sumo_qa_load_techniques",
+    "sumo_qa_load_standards",
+    "sumo_qa_load_rules",
+    # External skills
+    "sumo_qa_search_external_skills",
+    "sumo_qa_check_external_skill_installed",
+    "sumo_qa_install_external_skill",
+    "sumo_qa_execute_external_skill",
+)
+
 
 def _detect_install_mode(
     module_dir: Path = _MODULE_DIR,
@@ -747,40 +771,138 @@ def _setup_claude_desktop(mcp_cmd: McpCommand, system: str) -> HostResult:
 
 
 def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
-    """Send a JSON-RPC initialize and confirm the server responds."""
-    print("Verifying the MCP responds to initialize...")
-    init_req = json.dumps(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "sumo-qa-install", "version": "1"},
-            },
-        }
-    )
+    """Drive a JSON-RPC handshake and confirm the expected tool surface.
+
+    Sends ``initialize`` + ``notifications/initialized`` + ``tools/list`` in
+    one stdin write, then parses each non-empty stdout line as JSON. The
+    legacy ``'"result"' in proc.stdout`` substring check passed on any line
+    containing the literal word "result" (e.g. a benign log line) — this
+    version instead validates:
+
+    1. An ``initialize`` response with ``id=1``, ``jsonrpc='2.0'``, no top-level
+       ``error`` envelope, and a ``dict`` ``result``.
+    2. A ``tools/list`` response with ``id=2`` whose ``result.tools[*].name``
+       set is a superset of ``REQUIRED_TOOL_NAMES``.
+
+    Returns True only when both responses validate cleanly. Failures print a
+    WARNING line naming the specific shape that broke, plus truncated
+    stdout/stderr so the user has something actionable to debug.
+    """
+    print("Verifying the MCP responds to initialize and exposes the expected tools...")
+    init_req = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "sumo-qa-install", "version": "1"},
+        },
+    }
+    initialized_note = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+    tools_req = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+    payload = "\n".join(json.dumps(m) for m in (init_req, initialized_note, tools_req)) + "\n"
     try:
         proc = subprocess.run(
             mcp_cmd.as_subprocess_argv(),
-            input=init_req + "\n",
+            input=payload,
             capture_output=True,
             text=True,
             timeout=10,
         )
     except subprocess.TimeoutExpired:
-        print("  WARNING: MCP did not respond within 10s.")
+        print("  WARNING: MCP did not respond within 10s (timeout).")
         return False
-    if proc.stdout and '"result"' in proc.stdout:
-        print("  MCP responded to initialize.")
-        return True
-    print("  WARNING: MCP did not return a result.")
+
+    messages = _parse_json_rpc_lines(proc.stdout or "")
+
+    # --- initialize ----------------------------------------------------------
+    init_resp = next((m for m in messages if m.get("id") == 1), None)
+    if init_resp is None:
+        print("  WARNING: MCP did not return an initialize response (no id=1 message).")
+        _dump_streams(proc)
+        return False
+    if init_resp.get("jsonrpc") != "2.0":
+        print("  WARNING: initialize response missing jsonrpc='2.0'.")
+        _dump_streams(proc)
+        return False
+    if "error" in init_resp:
+        print(f"  WARNING: initialize returned an error envelope: {init_resp['error']!r}")
+        _dump_streams(proc)
+        return False
+    init_result = init_resp.get("result")
+    if not isinstance(init_result, dict):
+        print(
+            "  WARNING: initialize response 'result' is not a dict "
+            f"(got {type(init_result).__name__})."
+        )
+        _dump_streams(proc)
+        return False
+
+    # --- tools/list ----------------------------------------------------------
+    tools_resp = next((m for m in messages if m.get("id") == 2), None)
+    if tools_resp is None:
+        print("  WARNING: MCP did not return a tools/list response (no id=2 message).")
+        _dump_streams(proc)
+        return False
+    if "error" in tools_resp:
+        print(f"  WARNING: tools/list returned an error envelope: {tools_resp['error']!r}")
+        _dump_streams(proc)
+        return False
+    tools_result = tools_resp.get("result")
+    if not isinstance(tools_result, dict):
+        print(
+            "  WARNING: tools/list response 'result' is not a dict "
+            f"(got {type(tools_result).__name__})."
+        )
+        _dump_streams(proc)
+        return False
+    tools = tools_result.get("tools", [])
+    if not isinstance(tools, list):
+        print("  WARNING: tools/list 'result.tools' is not a list.")
+        _dump_streams(proc)
+        return False
+    advertised = {t.get("name") for t in tools if isinstance(t, dict)}
+    missing = [n for n in REQUIRED_TOOL_NAMES if n not in advertised]
+    if missing:
+        print(f"  WARNING: tools/list is missing required tools: {missing}")
+        _dump_streams(proc)
+        return False
+
+    print(f"  MCP responded with {len(advertised)} tools; all required tools present.")
+    return True
+
+
+def _parse_json_rpc_lines(stdout: str) -> list[dict]:
+    """Split stdout on newlines and decode each line as a JSON object.
+
+    Defensive against:
+    - Empty / whitespace-only lines (skipped).
+    - Non-JSON log noise some servers emit alongside JSON-RPC (skipped).
+    - JSON values that aren't objects, e.g. bare arrays or strings (skipped) —
+      JSON-RPC messages are always objects, so anything else is noise from
+      the verifier's perspective.
+    """
+    out: list[dict] = []
+    for raw in stdout.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            out.append(value)
+    return out
+
+
+def _dump_streams(proc: subprocess.CompletedProcess) -> None:
+    """Print truncated stdout/stderr to help diagnose verification failures."""
     if proc.stdout:
         print(f"    stdout: {proc.stdout[:300]}")
     if proc.stderr:
         print(f"    stderr: {proc.stderr[:300]}")
-    return False
 
 
 if __name__ == "__main__":  # pragma: no cover -- main guard
