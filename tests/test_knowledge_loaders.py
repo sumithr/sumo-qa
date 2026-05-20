@@ -356,11 +356,14 @@ def test_standards_dir_returns_bundled_when_bundled_exists(monkeypatch, tmp_path
         result = kl._standards_dir()
         assert result == bundled_packs
     finally:
-        # Clean up — only remove what we created.
+        # Clean up — only remove the standards/ subtree we created. The parent
+        # _data/ directory may contain other bundled artefacts (e.g.
+        # plugin_metadata.json from plugin_packaging) that this test did not
+        # create and must not delete.
         import shutil
 
-        data_dir = Path(kl.__file__).parent / "_data"
-        shutil.rmtree(data_dir, ignore_errors=True)
+        standards_dir = Path(kl.__file__).parent / "_data" / "standards"
+        shutil.rmtree(standards_dir, ignore_errors=True)
 
 
 def test_rules_path_returns_bundled_when_bundled_exists(monkeypatch, tmp_path) -> None:
@@ -378,10 +381,13 @@ def test_rules_path_returns_bundled_when_bundled_exists(monkeypatch, tmp_path) -
         result = kl._rules_path()
         assert result == bundled_rules
     finally:
+        # Clean up — only remove the standards/ subtree we created. The parent
+        # _data/ directory may contain other bundled artefacts that this test
+        # did not create and must not delete.
         import shutil
 
-        data_dir = Path(kl.__file__).parent / "_data"
-        shutil.rmtree(data_dir, ignore_errors=True)
+        standards_dir = Path(kl.__file__).parent / "_data" / "standards"
+        shutil.rmtree(standards_dir, ignore_errors=True)
 
 
 def test_rules_path_returns_first_candidate_when_none_exist(monkeypatch, tmp_path) -> None:
