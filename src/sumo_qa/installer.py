@@ -88,6 +88,11 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_execute_external_skill",
 )
 
+# Truncate stdout/stderr to keep installer output readable when the MCP
+# verification fails. 300 chars is enough to surface a Python traceback header
+# or the first failing JSON-RPC line without flooding the terminal.
+_DUMP_STREAM_CHARS = 300
+
 
 def _detect_install_mode(
     module_dir: Path = _MODULE_DIR,
@@ -900,9 +905,9 @@ def _parse_json_rpc_lines(stdout: str) -> list[dict]:
 def _dump_streams(proc: subprocess.CompletedProcess) -> None:
     """Print truncated stdout/stderr to help diagnose verification failures."""
     if proc.stdout:
-        print(f"    stdout: {proc.stdout[:300]}")
+        print(f"    stdout: {proc.stdout[:_DUMP_STREAM_CHARS]}")
     if proc.stderr:
-        print(f"    stderr: {proc.stderr[:300]}")
+        print(f"    stderr: {proc.stderr[:_DUMP_STREAM_CHARS]}")
 
 
 if __name__ == "__main__":  # pragma: no cover -- main guard
