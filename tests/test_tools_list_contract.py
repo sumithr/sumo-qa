@@ -78,7 +78,11 @@ def _live_tools_list() -> list[dict]:
         except Exception:  # noqa: BLE001
             pass
         proc.terminate()
-        proc.wait(timeout=2)
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
 
 
 @pytest.fixture(scope="module")

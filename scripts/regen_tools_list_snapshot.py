@@ -85,7 +85,11 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             pass
         proc.terminate()
-        proc.wait(timeout=2)
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
 
     tools = response["result"]["tools"]
     snapshot = {
