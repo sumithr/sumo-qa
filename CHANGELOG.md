@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.3](https://github.com/sumithr/sumo-qa/compare/v0.6.2...v0.6.3) (2026-05-20)
+
+
+### Continuous Integration
+
+* expand install smoke host coverage ([3bd2f95](https://github.com/sumithr/sumo-qa/commit/3bd2f957b2c359ef2ebf1fc0a22c1035f89e03f3))
+* **install-smoke:** assert Claude Code host wiring with temp HOME ([4c95f64](https://github.com/sumithr/sumo-qa/commit/4c95f64c62d7d8d39dd99c52ad11700e01dba75c))
+
 ## [0.6.2](https://github.com/sumithr/sumo-qa/compare/v0.6.1...v0.6.2) (2026-05-20)
 
 
