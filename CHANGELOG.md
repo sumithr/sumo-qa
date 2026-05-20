@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/sumithr/sumo-qa/compare/v0.6.0...v0.6.1) (2026-05-20)
+
+
+### Bug Fixes
+
+* **installer:** JSON-RPC + tools/list verification ([#76](https://github.com/sumithr/sumo-qa/issues/76)) ([#114](https://github.com/sumithr/sumo-qa/issues/114)) ([35d28b7](https://github.com/sumithr/sumo-qa/commit/35d28b7d7549e8325cd496620f91e9eff02747a4))
+
 ## [0.6.0](https://github.com/sumithr/sumo-qa/compare/v0.5.8...v0.6.0) (2026-05-20)
 
 
