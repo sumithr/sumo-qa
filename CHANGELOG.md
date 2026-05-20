@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/sumithr/sumo-qa/compare/v0.6.3...v0.6.4) (2026-05-20)
+
+
+### Bug Fixes
+
+* clean pytest warning noise ([255ba06](https://github.com/sumithr/sumo-qa/commit/255ba06fde26d634e92eb01297677af014bb1a35))
+
 ## [0.6.3](https://github.com/sumithr/sumo-qa/compare/v0.6.2...v0.6.3) (2026-05-20)
 
 
