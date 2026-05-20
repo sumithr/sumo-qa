@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.7](https://github.com/sumithr/sumo-qa/compare/v0.5.6...v0.5.7) (2026-05-20)
+
+
+### Bug Fixes
+
+* **ci:** use mutmut console-script wrapper to avoid trampoline double-import ([#117](https://github.com/sumithr/sumo-qa/issues/117)) ([888b3df](https://github.com/sumithr/sumo-qa/commit/888b3df1aeeaf2d4f7b20a962c99ea93e435002f))
+
 ## [0.5.6](https://github.com/sumithr/sumo-qa/compare/v0.5.5...v0.5.6) (2026-05-20)
 
 
