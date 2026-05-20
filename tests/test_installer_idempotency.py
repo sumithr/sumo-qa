@@ -336,3 +336,115 @@ def test_install_skills_re_raises_os_error_on_non_windows(tmp_path: Path) -> Non
         pytest.raises(OSError),
     ):
         installer._install_claude_code_skills_per_dir(skills_dir, "Darwin")
+
+
+# ---------------------------------------------------------------------------
+# T_CD — _setup_claude_desktop: two runs leave exactly one 'sumo-qa' mcpServers entry
+# ---------------------------------------------------------------------------
+
+
+def test_setup_claude_desktop_two_runs_leave_single_mcp_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-running _setup_claude_desktop must not duplicate the mcpServers entry."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+
+    # Use the OS-correct config dir helper to mirror real behaviour.
+    config_path = installer._claude_desktop_config_path(home, "Darwin")
+    config_path.parent.mkdir(parents=True)
+
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+
+    installer._setup_claude_desktop(mcp_cmd, "Darwin")
+    installer._setup_claude_desktop(mcp_cmd, "Darwin")
+
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    mcp_servers = config.get("mcpServers", {})
+    assert list(mcp_servers.keys()) == ["sumo-qa"], (
+        f"Expected exactly one 'sumo-qa' key; got {list(mcp_servers.keys())}"
+    )
+    assert mcp_servers["sumo-qa"] == {"command": mcp_cmd.command}
+
+
+def test_setup_claude_desktop_preserves_other_servers_on_rerun(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-running must not strip pre-existing third-party mcpServers entries."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+
+    config_path = installer._claude_desktop_config_path(home, "Darwin")
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {"other-server": {"command": "/bin/other"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    installer._setup_claude_desktop(mcp_cmd, "Darwin")
+    installer._setup_claude_desktop(mcp_cmd, "Darwin")
+
+    servers = json.loads(config_path.read_text(encoding="utf-8"))["mcpServers"]
+    assert servers["other-server"] == {"command": "/bin/other"}
+    assert servers["sumo-qa"] == {"command": mcp_cmd.command}
+
+
+# ---------------------------------------------------------------------------
+# T_VS — _setup_vscode_copilot: two runs leave exactly one 'sumo-qa' servers entry
+# ---------------------------------------------------------------------------
+
+
+def test_setup_vscode_two_runs_leave_single_servers_entry(tmp_path: Path) -> None:
+    """Re-running _setup_vscode_copilot must not duplicate the servers entry."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    # Touch a project marker so the heuristic accepts it.
+    (workspace / "pyproject.toml").write_text("", encoding="utf-8")
+
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+
+    installer._setup_vscode_copilot(mcp_cmd, workspace)
+    installer._setup_vscode_copilot(mcp_cmd, workspace)
+
+    config = json.loads((workspace / ".vscode" / "mcp.json").read_text(encoding="utf-8"))
+    servers = config.get("servers", {})
+    assert list(servers.keys()) == ["sumo-qa"], (
+        f"Expected exactly one 'sumo-qa' key; got {list(servers.keys())}"
+    )
+    assert servers["sumo-qa"]["command"] == mcp_cmd.command
+    assert servers["sumo-qa"]["type"] == "stdio"
+
+
+def test_setup_vscode_strips_legacy_mcp_servers_key(tmp_path: Path) -> None:
+    """A pre-existing legacy `mcpServers` key (from old installer versions) must
+    be stripped — VS Code never read it; leaving it is misleading."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "pyproject.toml").write_text("", encoding="utf-8")
+
+    vscode_dir = workspace / ".vscode"
+    vscode_dir.mkdir()
+    (vscode_dir / "mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {"sumo-qa": {"command": "/old/binary"}},
+                "servers": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    mcp_cmd = installer.McpCommand(command="/usr/local/bin/sumo-qa", args=[])
+    installer._setup_vscode_copilot(mcp_cmd, workspace)
+    installer._setup_vscode_copilot(mcp_cmd, workspace)
+
+    config = json.loads((vscode_dir / "mcp.json").read_text(encoding="utf-8"))
+    assert "mcpServers" not in config, "Legacy mcpServers key should be stripped"
+    assert config["servers"]["sumo-qa"]["command"] == mcp_cmd.command
