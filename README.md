@@ -133,6 +133,17 @@ Natural language works everywhere. *"Review my changes"*, *"plan QA for this sto
 
 **Other MCP hosts** (Cursor, Codex, OpenCode, etc.): `pip install sumo-qa` ships a standard stdio MCP server, so it should work with anything that speaks MCP. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script. Not verified end-to-end by us, so we don't ship instructions.
 
+### Host adapter folders
+
+`sumo-qa` also ships first-class plugin folders for hosts that consume plugin manifests directly. Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) — see [docs/host-adapters.md](docs/host-adapters.md) for the architecture.
+
+| Host | Plugin install | Source-of-truth contract |
+|---|---|---|
+| Claude Code | `claude plugin install sumithr/sumo-qa` reads `.claude-plugin/plugin.json` | Schema-validated against the published JSON Schema in CI |
+| OpenAI Codex | `/plugins install sumithr/sumo-qa` reads `.codex-plugin/plugin.json` | MCP `initialize` handshake smoke in CI (no published schema) |
+
+Adding a new host is one new template under `plugin_packaging/templates/` plus the canonical-source line that describes it. The `plugin-packaging` CI workflow re-runs the generator on every PR and fails if any committed adapter file diverges from the canonical source.
+
 ## See it in action
 
 Ten transcripts showing the workflow on real code — diff reviews refusing to call safe-to-merge from stale CI, TDD cycles with the red output surfaced verbatim, mutation survivors walked one at a time, formal test plans gated on entry/exit criteria, and the case where the right answer is "no tests needed, stop here":

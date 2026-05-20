@@ -213,3 +213,18 @@ repos:
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
         stages: [pre-push]
+
+  - repo: local
+    # Plugin-packaging drift mirror — runs the same check as the
+    # plugin-packaging.yml CI gate so contributors see drift locally
+    # before pushing. Triggered only when files in the canonical-source
+    # chain change (pyproject overlay, plugin_packaging/, .claude-plugin/,
+    # .codex-plugin/, .mcp.json, hooks/*.json).
+    hooks:
+      - id: plugin-packaging-drift
+        name: plugin packaging drift check
+        entry: python -m plugin_packaging.plugin_generator check
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|plugin_packaging/|\.claude-plugin/|\.codex-plugin/|\.mcp\.json|hooks/.*\.json)$
+        require_serial: true
