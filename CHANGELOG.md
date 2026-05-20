@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.8](https://github.com/sumithr/sumo-qa/compare/v0.5.7...v0.5.8) (2026-05-20)
+
+
+### Tests
+
+* **installer:** close idempotency gaps for Claude Desktop and VS Code ([#113](https://github.com/sumithr/sumo-qa/issues/113)) ([d28be6a](https://github.com/sumithr/sumo-qa/commit/d28be6a5341892c0ddb9b1e2c3324e8d3813b67a))
+
 ## [0.5.7](https://github.com/sumithr/sumo-qa/compare/v0.5.6...v0.5.7) (2026-05-20)
 
 
