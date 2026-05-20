@@ -173,6 +173,10 @@ repos:
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
           - "pytest-cov>=6,<7"
+          # tomllib stdlib backport for Python 3.10 (used by
+          # plugin_packaging.canonical + tests/test_plugin_metadata.py).
+          # 3.11+ ignores this via the marker.
+          - "tomli>=2,<3; python_version < '3.11'"
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
         files: ^(src/sumo_qa/(knowledge_loaders|rules|standards|tdm_validation)\.py|tests/.*\.py)$
@@ -206,6 +210,10 @@ repos:
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
           - "pytest-cov>=6,<7"
+          # tomllib stdlib backport for Python 3.10 (used by
+          # plugin_packaging.canonical + tests/test_plugin_metadata.py).
+          # 3.11+ ignores this via the marker.
+          - "tomli>=2,<3; python_version < '3.11'"
           # Conditional via PEP 508 marker: only installed on Windows hooks.
           # Needed by Hypothesis's `st.timezones()` strategy in
           # tests/test_hypothesis_tdm_validation.py — Windows ships no
@@ -213,3 +221,18 @@ repos:
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
         stages: [pre-push]
+
+  - repo: local
+    # Plugin-packaging drift mirror — runs the same check as the
+    # plugin-packaging.yml CI gate so contributors see drift locally
+    # before pushing. Triggered only when files in the canonical-source
+    # chain change (pyproject overlay, plugin_packaging/, .claude-plugin/,
+    # .codex-plugin/, .mcp.json, hooks/*.json).
+    hooks:
+      - id: plugin-packaging-drift
+        name: plugin packaging drift check
+        entry: python -m plugin_packaging.plugin_generator check
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|plugin_packaging/|\.claude-plugin/|\.codex-plugin/|\.mcp\.json|hooks/.*\.json)$
+        require_serial: true

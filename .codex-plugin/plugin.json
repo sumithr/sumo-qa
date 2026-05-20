@@ -1,0 +1,24 @@
+{
+  "author": {
+    "email": "sumithr51@gmail.com",
+    "name": "Sumith Ramsookbhai"
+  },
+  "description": "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery.",
+  "homepage": "https://github.com/sumithr/sumo-qa",
+  "hooks": "./hooks/hooks-codex.json",
+  "keywords": [
+    "qa",
+    "testing",
+    "tdd",
+    "mutation-testing",
+    "mcp",
+    "claude-code",
+    "codex"
+  ],
+  "license": "Apache-2.0",
+  "mcpServers": "./.mcp.json",
+  "name": "sumo-qa",
+  "repository": "https://github.com/sumithr/sumo-qa",
+  "skills": "./skills/",
+  "version": "0.6.5"
+}

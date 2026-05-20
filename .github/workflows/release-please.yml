@@ -29,6 +29,60 @@ jobs:
           # blocked by branch protection.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
+      - name: Regenerate plugin adapters for the bumped version
+        # When release-please bumps [project].version in pyproject.toml,
+        # four other committed files embed that version literal:
+        #   .claude-plugin/plugin.json, .codex-plugin/plugin.json,
+        #   src/sumo_qa/_data/plugin_metadata.json, and the SHA256 sidecar
+        #   at plugin_packaging/generated/manifest.json.
+        # Without this step the plugin-packaging drift check would fail
+        # on the release PR and permanently block the release.
+        # We check out the release PR branch, run the generator, and
+        # push the regenerated files back if anything changed.
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          # Read action outputs via env to avoid inline ${{ }} expansion
+          # in run: blocks (workflow-injection-safe pattern).
+          RELEASE_PR_JSON: ${{ steps.release.outputs.pr }}
+          # PAT is needed so the push triggers required status checks on
+          # the release PR (same reasoning as the release-please-action
+          # token above).
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          HEAD_BRANCH=$(echo "$RELEASE_PR_JSON" | jq -r '.headBranchName')
+          if [ -z "$HEAD_BRANCH" ] || [ "$HEAD_BRANCH" = "null" ]; then
+            echo "release-please pr output missing headBranchName — nothing to regen"
+            exit 0
+          fi
+          echo "Checking out release branch: $HEAD_BRANCH"
+          # Clone using the PAT so the subsequent push is authenticated
+          # against branch protection without needing a separate
+          # checkout step.
+          REPO="${GITHUB_REPOSITORY}"
+          WORKDIR=$(mktemp -d)
+          git -c http.extraheader="AUTHORIZATION: bearer ${GH_TOKEN}" \
+              clone "https://github.com/${REPO}.git" "$WORKDIR"
+          cd "$WORKDIR"
+          git checkout "$HEAD_BRANCH"
+          # The runner shell uses the same Python that release-please-action
+          # provisioned; install deps for the generator.
+          python -m pip install --quiet -e ".[dev]"
+          python -m plugin_packaging.plugin_generator sync
+          if git diff --quiet; then
+            echo "Generator output already matches the bumped version — nothing to commit."
+            exit 0
+          fi
+          git config user.name  "release-please[bot]"
+          git config user.email "release-please[bot]@users.noreply.github.com"
+          git add .claude-plugin .codex-plugin .mcp.json hooks/hooks.json \
+                  hooks/hooks-codex.json docs/host-adapters.md \
+                  src/sumo_qa/_data/plugin_metadata.json \
+                  plugin_packaging/generated/manifest.json
+          git commit -m "chore(packaging): regenerate plugin adapters for version bump"
+          git -c http.extraheader="AUTHORIZATION: bearer ${GH_TOKEN}" \
+              push origin "$HEAD_BRANCH"
+
       - name: Enable auto-merge on the release PR
         if: ${{ steps.release.outputs.pr }}
         env:

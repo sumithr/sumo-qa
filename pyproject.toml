@@ -46,6 +46,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "hypothesis>=6,<7",
+  "jsonschema>=4,<5",
+  # tomllib is stdlib on 3.11+; 3.10 needs the backport. Used by the
+  # plugin_packaging canonical loader (build-time / maintainer-time) and
+  # by tests/test_plugin_metadata.py — both are dev-only surfaces, so
+  # the backport stays out of main dependencies.
+  "tomli>=2,<3; python_version < '3.11'",
   "mutmut>=3,<4",
   "pytest>=8.4,<10",
   "pytest-cov>=6,<8",
@@ -86,9 +92,17 @@ packages = ["src/sumo_qa"]
 "standards" = "sumo_qa/_data/standards"
 "knowledge" = "sumo_qa/_data/knowledge"
 "skills" = "sumo_qa/_data/skills"
+"hooks" = "sumo_qa/_data/hooks"
+"assets" = "sumo_qa/_data/assets"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# `src` exposes the installed package `sumo_qa`. `.` (repo root) exposes the
+# build-time-only `plugin_packaging` package — it is NOT shipped in the
+# wheel (no entry under `[tool.hatch.build.targets.wheel]`), so it must be
+# resolvable from the repo root for the test suite and the pre-push hook
+# (which runs in pre-commit's isolated venv where conftest.py's sys.path
+# tweak doesn't fire before collection).
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 addopts = "-q --cov=src/sumo_qa --cov-fail-under=100"
 
@@ -128,6 +142,13 @@ also_copy = [
   "knowledge/",
   "skills/",
   "hooks/",
+  # plugin_packaging/ lives at the repo root (not under src/). Tests in
+  # tests/test_plugin_packaging_*.py import it directly; without copying
+  # it into the mutants/ mirror those tests fail to collect, mutmut's
+  # `-x` aborts after the first failure, and the gate false-DROPs every
+  # module. Not shipped in the wheel — mutmut-local-only, same as
+  # `.claude/`.
+  "plugin_packaging/",
   # tests/test_claude_hooks.py spawns the hook scripts via subprocess and
   # resolves their path relative to repo-root (which under mutmut is mutants/).
   # Without this entry, the first claude-hooks test fails on "No such file",
@@ -137,3 +158,29 @@ also_copy = [
   # mutmut-local-only.
   ".claude/",
 ]
+
+# ---------------------------------------------------------------------------
+# Plugin packaging — host-neutral canonical source
+#
+# Shared metadata (name, version, description, license, author, urls) lives
+# in [project] and [project.urls] above. Do NOT duplicate those fields here.
+# This overlay carries only plugin-specific metadata and host-shared content
+# (MCP server entry, hook declarations) consumed by
+# plugin_packaging.plugin_generator to emit .claude-plugin/plugin.json,
+# .codex-plugin/plugin.json, .mcp.json, hooks/hooks.json, and
+# hooks/hooks-codex.json.
+# ---------------------------------------------------------------------------
+[tool.sumo-qa.plugin]
+display_name = "Sumo QA"
+keywords = ["qa", "testing", "tdd", "mutation-testing", "mcp", "claude-code", "codex"]
+
+[tool.sumo-qa.plugin.mcp]
+server_name = "sumo-qa"
+command = "sumo-qa"
+transport = "stdio"
+args = []
+
+[[tool.sumo-qa.plugin.hooks]]
+event = "SessionStart"
+script = "session-start"
+trigger = "startup|clear|compact"
