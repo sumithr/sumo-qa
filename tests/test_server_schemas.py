@@ -15,6 +15,7 @@ that's hardest to hand-mock (nested results / validation / confidence).
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -45,8 +46,6 @@ def _assistant(tmp_path: Path | None = None) -> TestDataAssistant:
     if tmp_path is not None:
         # Copy the fixture catalogue into tmp_path so the register test does
         # not mutate the shared fixture directory.
-        import shutil
-
         dest = tmp_path / "test_data"
         shutil.copytree(catalogue_root, dest)
         catalogue_root = dest
@@ -153,6 +152,14 @@ def test_find_output_accepts_live_service_payload() -> None:
     assert model.freshness.reason
     assert model.validation_source
 
+    # Force pagination so we exercise the `True` arm of `has_more` and the
+    # `int` arm of `next_offset` — the default-limit call above can't, because
+    # the auth fixture only has 2 entries (both fit under limit=5).
+    paged = _assistant().find_test_data(environment="integration", domain="auth", limit=1)
+    paged_model = TestDataFindOutput.model_validate(paged)
+    assert paged_model.has_more is True
+    assert isinstance(paged_model.next_offset, int)
+
 
 def test_find_output_rejects_unknown_field() -> None:
     payload = _assistant().find_test_data(environment="integration", domain="auth")
@@ -213,6 +220,8 @@ def test_register_output_accepts_live_service_payload(tmp_path: Path) -> None:
             "id": "billing-overdue-invoice-schema-001",
             "environment": "staging",
             "domain": "billing",
+            "product_id": "BILL-OVERDUE",
+            "sku": "INV-PREMIUM-001",
             "scenario_tags": ["overdue_invoice", "dunning_eligible"],
             "known_valid_for": ["dunning workflow testing"],
             "constraints": ["Reset overdue flag after test."],
@@ -231,6 +240,10 @@ def test_register_output_accepts_live_service_payload(tmp_path: Path) -> None:
     assert model.entry.id == "billing-overdue-invoice-schema-001"
     assert model.entry.domain == "billing"
     assert model.entry.environment == "staging"
+    # Exercise the populated str arms of _Entry.product_id / _Entry.sku
+    # so a future regression that types them as bool/int would fail here.
+    assert model.entry.product_id == "BILL-OVERDUE"
+    assert model.entry.sku == "INV-PREMIUM-001"
     assert model.entry.owner == "billing-platform"
     assert model.entry.source == "qa-curated"
     assert model.entry.scenario_tags
