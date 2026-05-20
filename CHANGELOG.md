@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/sumithr/sumo-qa/compare/v0.5.8...v0.6.0) (2026-05-20)
+
+
+### Features
+
+* add outputSchema to 8 structured MCP tools ([#112](https://github.com/sumithr/sumo-qa/issues/112)) ([44d770c](https://github.com/sumithr/sumo-qa/commit/44d770c0222ba09472902ebece8252eb329467c8))
+
 ## [0.5.8](https://github.com/sumithr/sumo-qa/compare/v0.5.7...v0.5.8) (2026-05-20)
 
 
