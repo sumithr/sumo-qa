@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.6](https://github.com/sumithr/sumo-qa/compare/v0.5.5...v0.5.6) (2026-05-20)
+
+
+### Bug Fixes
+
+* **mutation:** restore gate; close 5/19 survivors; add pre-push hook ([#115](https://github.com/sumithr/sumo-qa/issues/115)) ([8e098ea](https://github.com/sumithr/sumo-qa/commit/8e098eaf3874e457017daa32a8cf244dee81d7d8))
+
 ## [0.5.5](https://github.com/sumithr/sumo-qa/compare/v0.5.4...v0.5.5) (2026-05-20)
 
 
