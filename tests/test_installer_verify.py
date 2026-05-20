@@ -25,29 +25,17 @@ stderr.read, poll, terminate, wait, kill).
 from __future__ import annotations
 
 import json
+import queue as _queue
 from collections.abc import Iterable
 from unittest.mock import patch
 
-import pytest
-
 from sumo_qa import installer
 
-
-@pytest.fixture(autouse=True)
-def _select_always_ready(monkeypatch):
-    """Patch ``installer.select.select`` so the production POSIX-select branch
-    in ``_read_json_rpc_response`` never actually touches our FakeStream's
-    bogus file descriptor.
-
-    The default is "stdout is always ready", which is what the test FakeProc
-    models — data is always available because we pre-loaded the queue.
-    Individual tests can override this fixture's effect by re-monkeypatching
-    inside their own body (see ``test_verify_handles_timeout``)."""
-
-    def _ready(rlist, wlist, xlist, timeout=None):  # noqa: ARG001
-        return list(rlist), [], []
-
-    monkeypatch.setattr(installer.select, "select", _ready)
+# No ``select`` fixture needed — the production reader uses a daemon thread +
+# ``queue.Queue.get(timeout=...)``, which works identically on POSIX and
+# Windows. Tests drive the reader by populating ``_FakeProc.stdout`` lines (the
+# thread pumps them into the queue) or by patching ``queue.Queue.get`` to
+# simulate a stalled server.
 
 
 # ---------------------------------------------------------------------------
@@ -115,12 +103,10 @@ class _FakeStream:
         return rest
 
     def fileno(self) -> int:
-        # The production code uses ``select.select(..., proc.stdout, ...)`` on
-        # POSIX. Test cases patch ``select.select`` so this number is never
-        # actually dereferenced — but ``hasattr(stdout, 'fileno')`` AND a
-        # successful ``fileno()`` call gate which branch the verifier takes.
-        # Returning a constant dummy descriptor keeps the test on the
-        # production select-branch (the one ubuntu install-smoke exercises).
+        # Vestigial — the production code no longer branches on
+        # ``hasattr(stdout, 'fileno')`` after the move to a queue-based
+        # reader. Kept on the fake so any external assertion about
+        # Popen-pipe shape continues to hold.
         return -1
 
 
@@ -355,8 +341,8 @@ def test_verify_rejects_tools_list_non_dict_result(capsys) -> None:
 def test_verify_handles_deadline_exceeded_at_loop_top(capsys, monkeypatch) -> None:
     """If ``time.monotonic()`` ticks past the deadline between iterations, the
     next pass through the loop must raise ``_VerifyTimeout`` immediately —
-    without burning another ``select.select`` call. Pins the early-bail arm
-    at the top of ``_read_json_rpc_response``'s while-loop."""
+    without burning another ``queue.get`` call. Pins the early-bail arm at
+    the top of ``_read_json_rpc_response``'s while-loop."""
 
     # First call: deadline = 0 + 10 = 10. Subsequent calls jump past it.
     times = iter([0.0, 1000.0, 1001.0])
@@ -366,10 +352,6 @@ def test_verify_handles_deadline_exceeded_at_loop_top(capsys, monkeypatch) -> No
 
     monkeypatch.setattr(installer.time, "monotonic", fake_monotonic)
     proc = _FakeProc()
-    proc.poll = lambda: None  # type: ignore[assignment]
-    # Stub select so even if execution reaches it (it shouldn't), the test
-    # still terminates instead of hitting our dummy fileno.
-    monkeypatch.setattr(installer.select, "select", lambda *_a, **_kw: ([], [], []))
 
     with patch(_POPEN_TARGET, return_value=proc):
         result = installer._verify_mcp_responds(_mcp_cmd())
@@ -381,23 +363,25 @@ def test_verify_handles_deadline_exceeded_at_loop_top(capsys, monkeypatch) -> No
 
 
 def test_verify_handles_timeout(capsys, monkeypatch) -> None:
-    """When ``select`` reports no data AND ``poll()`` says the process is
-    still alive, ``_read_json_rpc_response`` raises ``_VerifyTimeout`` and the
+    """When the queue stays empty (stalled server — no stdout output AND no
+    EOF), ``_read_json_rpc_response`` must raise ``_VerifyTimeout`` and the
     verifier surfaces a "did not respond within Ns" warning.
 
-    Pins the live-but-silent server arm — distinct from
-    ``test_verify_handles_server_exited_with_no_response``, which exercises
-    the "process exited cleanly with no output" arm a few lines up."""
+    Pins the cross-platform stalled-server arm. The previous POSIX-only
+    ``select.select`` polling silently degraded to a no-timeout blocking
+    ``readline`` on Windows; this test now drives the queue-based timeout
+    that works identically on both platforms.
 
-    # Stdout that never produces an id=1 line.
-    proc = _FakeProc()
-    # Keep poll() returning None so the reader takes the timeout arm,
-    # not the "process exited" arm.
-    proc.poll = lambda: None  # type: ignore[assignment]
+    Implementation: monkeypatch ``queue.Queue.get`` to raise ``queue.Empty``
+    immediately, simulating a server that never writes a byte AND never
+    closes stdout."""
 
-    # Stub select to report "no data ready" — the timeout path fires from
-    # inside the select arm.
-    monkeypatch.setattr(installer.select, "select", lambda *_args, **_kw: ([], [], []))
+    proc = _FakeProc(stdout_lines=[])
+
+    def _raise_empty(self, timeout=None):  # noqa: ARG001
+        raise _queue.Empty()
+
+    monkeypatch.setattr(installer.queue.Queue, "get", _raise_empty)
 
     with patch(_POPEN_TARGET, return_value=proc):
         result = installer._verify_mcp_responds(_mcp_cmd())
@@ -550,15 +534,13 @@ def test_verify_terminates_process_on_failure(capsys) -> None:
 
 
 def test_verify_handles_server_exited_with_no_response(capsys, monkeypatch) -> None:
-    """If ``select`` reports no data AND ``poll()`` shows the process exited,
-    the reader returns ``None`` so the caller can surface a "no initialize
-    response" warning. This pins the 989-990 arm — process-died-before-reply,
-    distinct from a true timeout."""
-    proc = _FakeProc()
-
-    # First select call: no data. poll() returns 0 (exited cleanly with no
-    # output) so _read_json_rpc_response should return None.
-    monkeypatch.setattr(installer.select, "select", lambda *_a, **_kw: ([], [], []))
+    """If the reader thread sees EOF before any id=1 line, ``readline``
+    returns ``""`` and the reader pushes the ``None`` sentinel onto the queue.
+    ``_read_json_rpc_response`` returns ``None`` so the caller can surface a
+    "no initialize response" warning. Pins the EOF arm — process-died-before-
+    reply, distinct from a true timeout."""
+    # Empty stdout — reader pumps zero lines then pushes the None EOF sentinel.
+    proc = _FakeProc(stdout_lines=[])
     proc.poll = lambda: 0  # type: ignore[assignment]
 
     with patch(_POPEN_TARGET, return_value=proc):
@@ -606,23 +588,13 @@ def test_verify_skips_non_dict_json_values_on_the_wire(capsys) -> None:
     assert result is True
 
 
-def test_verify_dump_streams_when_stderr_select_reports_nothing(capsys, monkeypatch) -> None:
-    """When ``select`` on stderr reports "no data ready", the diagnostics path
-    must still complete without raising — covers the empty-stderr-select arm
-    of ``_dump_proc_streams``."""
+def test_verify_dump_streams_when_proc_still_running(capsys) -> None:
+    """``_dump_proc_streams`` only drains stderr when the process has exited
+    (so the read is guaranteed not to block). Covers the proc-still-running
+    arm — diagnostics complete without raising and without reading stderr."""
     proc = _FakeProc(_lines({"jsonrpc": "2.0", "id": 1, "result": "not-a-dict"}))
-
-    call_count = {"n": 0}
-
-    def select_first_ready_then_empty(rlist, _wlist, _xlist, _timeout=None):
-        # First call (stdout read for id=1): say "ready" so the line is read.
-        # Subsequent calls (stderr drain in _dump_proc_streams): say "no data".
-        call_count["n"] += 1
-        if call_count["n"] == 1:
-            return list(rlist), [], []
-        return [], [], []
-
-    monkeypatch.setattr(installer.select, "select", select_first_ready_then_empty)
+    # Force poll() to report "still running" so the stderr read is skipped.
+    proc.poll = lambda: None  # type: ignore[assignment]
 
     with patch(_POPEN_TARGET, return_value=proc):
         result = installer._verify_mcp_responds(_mcp_cmd())

@@ -7,20 +7,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from sumo_qa import installer
 
-
-@pytest.fixture(autouse=True)
-def _select_always_ready(monkeypatch):
-    """See tests/test_installer_verify.py — patches the production select
-    branch so FakeStream's dummy fileno is never touched by the OS."""
-
-    def _ready(rlist, wlist, xlist, timeout=None):  # noqa: ARG001
-        return list(rlist), [], []
-
-    monkeypatch.setattr(installer.select, "select", _ready)
+# No ``select`` fixture needed — the production reader uses a daemon thread +
+# ``queue.Queue.get(timeout=...)``, which works identically on POSIX and
+# Windows. Tests drive the verifier purely through ``_FakeProc.stdout`` lines.
 
 
 def _ok(stdout: str = "") -> subprocess.CompletedProcess:
@@ -61,9 +52,8 @@ class _FakeStream:
         return rest
 
     def fileno(self) -> int:
-        # Returning a dummy fd lets the production code take the
-        # select-on-POSIX branch (the real install-smoke path) while tests
-        # patch ``select.select`` to control timing.
+        # Vestigial — the production reader no longer branches on
+        # ``fileno``. Kept on the fake to mirror real Popen-pipe shape.
         return -1
 
 

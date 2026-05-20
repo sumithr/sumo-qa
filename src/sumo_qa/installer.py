@@ -49,9 +49,10 @@ if sys.version_info < (
 import json
 import os
 import platform
-import select
+import queue
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -834,6 +835,11 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
         stderr=subprocess.PIPE,
         text=True,
     )
+    # Spawn the stdout reader thread once per process so both
+    # ``_read_json_rpc_response`` calls (id=1 and id=2) share the same queue.
+    # Cross-platform timeout falls out of ``queue.get(timeout=...)`` — no
+    # platform-branched ``select`` needed.
+    line_queue = _start_stdout_reader(proc)
     deadline = time.monotonic() + _VERIFY_TIMEOUT_SECONDS
     init_resp: dict | None = None
     tools_resp: dict | None = None
@@ -843,7 +849,10 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
         proc.stdin.write(init_req + "\n")
         proc.stdin.flush()
         init_resp = _read_json_rpc_response(
-            proc, expected_id=1, deadline=deadline, extra_lines=extra_stdout
+            line_queue=line_queue,
+            expected_id=1,
+            deadline=deadline,
+            extra_lines=extra_stdout,
         )
 
         # Step 2: notifications/initialized — no response on the wire.
@@ -854,7 +863,10 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
         proc.stdin.write(tools_req + "\n")
         proc.stdin.flush()
         tools_resp = _read_json_rpc_response(
-            proc, expected_id=2, deadline=deadline, extra_lines=extra_stdout
+            line_queue=line_queue,
+            expected_id=2,
+            deadline=deadline,
+            extra_lines=extra_stdout,
         )
     except _VerifyTimeout:
         print(f"  WARNING: MCP did not respond within {_VERIFY_TIMEOUT_SECONDS}s (timeout).")
@@ -939,57 +951,76 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
     return True
 
 
+def _start_stdout_reader(proc: subprocess.Popen) -> queue.Queue:
+    """Spawn a daemon thread that pumps each stdout line into a queue.
+
+    Returns the queue. The thread reads via blocking ``readline`` until EOF
+    (empty string from ``readline``), at which point it pushes a ``None``
+    sentinel so the main thread can distinguish "stalled server" (queue stays
+    empty, ``get`` raises ``queue.Empty``) from "server exited" (queue yields
+    ``None``).
+
+    Daemon so it doesn't block process exit if the parent forgets to drain.
+    Cross-platform: blocking ``readline`` works identically on POSIX and
+    Windows, and ``queue.Queue.get(timeout=...)`` honours the timeout on both.
+    This is the replacement for the previous platform-branched ``select``
+    polling, which silently degraded to a no-timeout blocking ``readline`` on
+    Windows.
+    """
+    q: queue.Queue = queue.Queue()
+
+    def _pump() -> None:
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                q.put(line)
+        finally:
+            q.put(None)  # EOF sentinel
+
+    t = threading.Thread(target=_pump, daemon=True)
+    t.start()
+    return q
+
+
 def _read_json_rpc_response(
-    proc: subprocess.Popen,
     *,
+    line_queue: queue.Queue,
     expected_id: int,
     deadline: float,
     extra_lines: list[str],
 ) -> dict | None:
-    """Read stdout lines from ``proc`` until one parses as a JSON object with
+    """Read lines from ``line_queue`` until one parses as a JSON object with
     ``id == expected_id``.
 
-    Returns the parsed dict on success, ``None`` if the process exits before
-    the expected response arrives. Raises ``_VerifyTimeout`` if ``deadline``
-    elapses with no matching response.
+    Returns the parsed dict on success, ``None`` if the reader thread signals
+    EOF (the server exited) before the expected response arrives. Raises
+    ``_VerifyTimeout`` when ``deadline`` elapses with no matching response.
 
     Non-matching lines (notifications, malformed JSON, log noise, JSON values
     that aren't objects) are accumulated into ``extra_lines`` so a later
     ``_dump_proc_streams`` call can surface them when verification fails.
 
-    On platforms where ``select.select`` works on file objects (POSIX), uses
-    a poll loop so the timeout is honoured even if the server never writes
-    another byte. On Windows, ``select`` doesn't work on pipes — falls back
-    to a blocking ``readline`` and relies on ``proc.terminate()`` in the
-    caller's timeout-handling branch.
+    Cross-platform by construction: ``queue.Queue.get(timeout=...)`` honours
+    the timeout identically on POSIX and Windows. No ``select`` needed.
+
+    On EOF: pushes the ``None`` sentinel back onto the queue so any subsequent
+    read from the same queue also short-circuits to ``None`` instead of
+    blocking for the full deadline. The reader thread only puts ``None``
+    once; without this re-push, the second handshake read (tools/list) would
+    hang waiting for a sentinel that's already been consumed.
     """
-    # Prefer ``select`` on POSIX so a stalled server can be detected without
-    # blocking. ``select`` requires the underlying stream to expose ``fileno``,
-    # which test fakes don't — fall back to blocking ``readline`` in that case.
-    use_select = hasattr(select, "select") and os.name != "nt" and hasattr(proc.stdout, "fileno")
-    if use_select:
-        try:
-            proc.stdout.fileno()
-        except (OSError, ValueError, AttributeError):  # pragma: no cover -- defensive
-            use_select = False
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise _VerifyTimeout()
-
-        if use_select:
-            ready, _, _ = select.select([proc.stdout], [], [], remaining)
-            if not ready:
-                # No data within the remaining window — either the server
-                # exited (poll returns a code) or it's just slow (timeout).
-                if proc.poll() is not None:
-                    return None
-                raise _VerifyTimeout()
-
-        line = proc.stdout.readline()
-        if line == "":
-            # EOF — the server closed stdout. Either it exited or it's about
-            # to. Surface that to the caller as a missing-response.
+        try:
+            line = line_queue.get(timeout=remaining)
+        except queue.Empty:
+            raise _VerifyTimeout() from None
+        if line is None:
+            # EOF sentinel — the reader thread saw stdout close. Re-push so
+            # any later read on the same queue also yields None immediately,
+            # then surface as missing-response.
+            line_queue.put(None)
             return None
         stripped = line.strip()
         if not stripped:
@@ -1071,33 +1102,21 @@ def _dump_proc_streams(proc: subprocess.Popen, *, extra_lines: list[str]) -> Non
     accumulated stdout lines we couldn't match plus any stderr bytes the
     server emitted. Truncated to ``_DUMP_STREAM_CHARS`` to keep the install
     log readable on failure.
+
+    Cross-platform: only reads stderr when the process has exited (so we
+    don't block the installer waiting on a stalled server's stderr pipe).
+    The previous POSIX-only ``select`` polling has been removed in favour of
+    this exit-gated read, which works identically on Windows.
     """
     if extra_lines:
         joined = "\n".join(extra_lines)
         print(f"    stdout: {joined[:_DUMP_STREAM_CHARS]}")
-    # Best-effort: pull whatever stderr is buffered. Don't block on it.
+    # Best-effort: only drain stderr once the process has exited so the read
+    # is guaranteed not to block.
     stderr_text = ""
     try:
-        if proc.stderr is not None:
-            can_select = (
-                hasattr(select, "select") and os.name != "nt" and hasattr(proc.stderr, "fileno")
-            )
-            if can_select:
-                try:
-                    proc.stderr.fileno()
-                except (OSError, ValueError, AttributeError):  # pragma: no cover -- defensive
-                    can_select = False
-            if can_select:
-                ready, _, _ = select.select([proc.stderr], [], [], 0.1)
-                if ready:
-                    chunk = proc.stderr.read(_DUMP_STREAM_CHARS * 4)
-                    if chunk:
-                        stderr_text = chunk
-            else:  # pragma: no cover -- Windows fallback; not reachable in POSIX unit tests
-                # No select support (Windows or test fake) — only read when
-                # the process has exited so we don't block the installer.
-                if proc.poll() is not None:
-                    stderr_text = proc.stderr.read() or ""
+        if proc.stderr is not None and proc.poll() is not None:
+            stderr_text = proc.stderr.read() or ""
     except Exception:  # pragma: no cover -- defensive; noqa: BLE001
         pass
     if stderr_text:
