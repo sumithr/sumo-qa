@@ -3,7 +3,7 @@
 
 We use ``sys.executable -m sumo_qa`` (Option B) rather than looking up
 the ``sumo-qa`` console-script binary on PATH.  This is more portable: it works
-in any venv-based CI environment and during local ``uv run pytest`` without
+in any venv-based CI environment and during local ``python -m pytest`` without
 requiring a separate ``pip install`` step to register the entry-point.
 
 Note: ``python -m sumo_qa.server`` does NOT work because ``server.py`` has no
@@ -55,7 +55,7 @@ _TOOLS_LIST_REQUEST = {
 def _spawn_mcp() -> subprocess.Popen:
     # Prepend src/ to PYTHONPATH so the spawned interpreter can `import sumo_qa`
     # even when sumo-qa isn't pip-installed in the active venv. Without this,
-    # `pytest --cov` under `uv run` works (the project is editable-installed),
+    # `pytest --cov` works when the project is editable-installed,
     # but the pre-commit-hooks isolated venv (which only installs the deps
     # listed in additional_dependencies, not the project itself) fails with
     # `No module named sumo_qa`.
