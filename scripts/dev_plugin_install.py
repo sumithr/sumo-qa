@@ -159,6 +159,87 @@ def _marketplace_already_registered(claude: str) -> bool:
     return _MARKETPLACE_NAME in (result.stdout + result.stderr)
 
 
+def _verify_plugin_install() -> bool:
+    """Verify the plugin install via filesystem reads only — no dependency
+    on the sumo_qa Python package being importable.
+
+    This is the parallel of doctor's ``claude_code_plugin`` check, lifted
+    out so the script works when ONLY the plugin install path is wired
+    (no pip install of sumo-qa). Reads the same files doctor would —
+    keeps the two surfaces consistent without sharing code.
+    """
+    registry = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+    if not registry.exists():
+        print(f"[plugin-verify] FAIL — plugin registry not found at {registry}")
+        return False
+    try:
+        data = json.loads(registry.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"[plugin-verify] FAIL — {registry} is not valid JSON ({exc.msg})")
+        return False
+    plugins = data.get("plugins") if isinstance(data, dict) else None
+    if not isinstance(plugins, dict):
+        print(f"[plugin-verify] FAIL — {registry} has no `plugins` map")
+        return False
+    matching = [
+        (key, records) for key, records in plugins.items() if key.startswith(f"{_PLUGIN_NAME}@")
+    ]
+    if not matching:
+        print(f"[plugin-verify] FAIL — no {_PLUGIN_NAME}@* entry in plugin registry")
+        return False
+    key, records = matching[0]
+    if not isinstance(records, list) or not records:
+        print(f"[plugin-verify] FAIL — {key} has no install records")
+        return False
+    record = records[0]
+    install_path_str = record.get("installPath")
+    install_path = Path(install_path_str) if isinstance(install_path_str, str) else None
+    if install_path is None or not install_path.exists():
+        print(
+            f"[plugin-verify] FAIL — {key} installPath "
+            f"{install_path_str!r} does not exist (dangling install)"
+        )
+        return False
+    plugin_manifest = install_path / ".claude-plugin" / "plugin.json"
+    if not plugin_manifest.exists():
+        print(f"[plugin-verify] FAIL — plugin manifest {plugin_manifest} not found")
+        return False
+    version = record.get("version", "unknown")
+    sha = record.get("gitCommitSha", "")
+    sha_short = sha[:7] if isinstance(sha, str) and sha else "no-sha"
+    print(f"[plugin-verify] OK — {key} v{version} registered (commit {sha_short})")
+    print(f"[plugin-verify]    installPath: {install_path}")
+    return True
+
+
+def _maybe_run_full_doctor(python: str) -> None:
+    """Run the full ``sumo-qa-doctor`` smoke ONLY when the Python package
+    is importable. The dev_install.py script handles the pip-install path
+    that puts ``sumo_qa`` on disk; if the user is testing the plugin path
+    in isolation, ``import sumo_qa`` will fail and we surface that as a
+    clear note rather than crashing.
+    """
+    probe = subprocess.run(
+        [python, "-c", "import sumo_qa.doctor"],
+        capture_output=True,
+        check=False,
+    )
+    if probe.returncode != 0:
+        print()
+        print(
+            "[dev_plugin_install] note: the `sumo_qa` Python package is not "
+            "installed in the active interpreter. The plugin install "
+            "registers skills + hooks + MCP-server configuration, but the "
+            "MCP server itself runs the `sumo-qa` binary from the wheel — "
+            "install that separately with `python scripts/dev_install.py` "
+            "(or `pip install sumo-qa`) for a fully functional setup."
+        )
+        return
+    print()
+    print("[dev_plugin_install] sumo_qa package available — running full doctor:")
+    _run([python, "-m", "sumo_qa.doctor", "--host", "claude-code"], check=False)
+
+
 def install(claude: str) -> None:
     _build_marketplace()
     if _marketplace_already_registered(claude):
@@ -169,8 +250,16 @@ def install(claude: str) -> None:
     else:
         _run([claude, "plugin", "marketplace", "add", str(_MARKETPLACE_DIR)])
     _run([claude, "plugin", "install", f"{_PLUGIN_NAME}@{_MARKETPLACE_NAME}"])
+
+    # First: filesystem-based plugin-install verification. Works even when
+    # the sumo_qa Python package isn't installed — reads the same registry
+    # the doctor's claude_code_plugin check inspects.
     print()
-    _run([sys.executable, "-m", "sumo_qa.doctor", "--host", "claude-code"], check=False)
+    if not _verify_plugin_install():
+        sys.exit(2)
+    # Then: optionally run the full Python doctor for the hybrid case
+    # (user has both plugin install and pip install).
+    _maybe_run_full_doctor(sys.executable)
 
 
 def uninstall(claude: str) -> None:
