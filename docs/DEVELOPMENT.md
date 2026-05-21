@@ -112,6 +112,32 @@ Adding a new technique, classification, or specialty tool = editing one file.
 3. Conformance tests parametrise over `skills/*/SKILL.md` — they run on the new skill too.
 4. If the skill is meant to auto-trigger in Claude Code, the frontmatter `description` is what the host LLM uses to route.
 
+## Editing plugin packaging (host adapters)
+
+Plugin-format hosts (Claude Code, Codex) consume `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` at the repo root. These folders — along with `.mcp.json`, `hooks/hooks.json`, `hooks/hooks-codex.json`, `docs/host-adapters.md`, and the runtime snapshot at `src/sumo_qa/_data/plugin_metadata.json` — are **generated** from `pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay. Do not hand-edit them.
+
+```bash
+# After bumping any plugin metadata in [tool.sumo-qa.plugin]:
+python -m plugin_packaging.plugin_generator sync
+
+# Before pushing, the pre-commit drift hook re-runs:
+python -m plugin_packaging.plugin_generator check
+
+# Schema correctness (Claude Code manifest + Codex hooks):
+python -m plugin_packaging.validate_plugins
+```
+
+The `plugin-packaging` CI workflow runs both gates on every PR. If `pyproject.toml`'s plugin overlay changes without a matching `sync`, the drift check fails.
+
+### Adding a new host adapter
+
+1. Add `plugin_packaging/templates/<host>.py` exposing `render(plugin: CanonicalPlugin) -> dict`.
+2. Wire it into `plugin_packaging.plugin_generator._build_outputs`.
+3. Run `python -m plugin_packaging.plugin_generator sync` and commit the generated folder.
+4. If the host publishes a JSON Schema, vendor it under `plugin_packaging/schemas/` and add a `validate_<host>` call to `plugin_packaging/validate_plugins.py`. Otherwise extend the `plugin-dir-handshake` matrix in `.github/workflows/install-smoke.yml`.
+
+See [host-adapters.md](host-adapters.md) for the full architecture rationale.
+
 ## Reinstalling locally
 
 ```bash

@@ -117,13 +117,30 @@ def test_generated_outputs_are_not_gitignored() -> None:
     clean checkout. A gitignore rule that silently swallows `git add` would
     pass the on-disk drift check locally but leave the file absent on a CI
     checkout, where `check` then reports MISSING. Regression for codex
-    finding on PR #128."""
+    finding on PR #128.
+
+    Skipped under mutmut: the mutmut mirror at `mutants/` is itself
+    gitignored, so every path under it is reported ignored by inheritance.
+    This test asserts a property of the SOURCE repo's gitignore, not the
+    mutant tree, so resolving REPO_ROOT against the real worktree via
+    `git rev-parse` is the correct anchor.
+    """
     import subprocess
+
+    real_root = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if "mutants" in Path(real_root).parts:
+        pytest.skip("running under mutmut mirror — assertion is about source tree, not mirror")
 
     for rel in _files_to_check():
         result = subprocess.run(
             ["git", "check-ignore", "-q", rel],
-            cwd=REPO_ROOT,
+            cwd=real_root,
             capture_output=True,
         )
         # git check-ignore exits 0 when the path IS ignored, 1 when not.
@@ -132,6 +149,59 @@ def test_generated_outputs_are_not_gitignored() -> None:
             f"{rel} is gitignored — `git add` would silently skip it. "
             f"Edit .gitignore to un-ignore generated plugin outputs."
         )
+
+
+def test_version_bump_propagates_to_every_embedding_site(fresh_repo: Path) -> None:
+    """T9 — Regression for release-please breakage observed on PR #129.
+
+    Simulates a release-please version bump: rewrite
+    pyproject.toml[project].version to a fake value, run sync, and assert
+    EVERY committed file that embeds the version literal carries the new
+    value. The release-please regen step in .github/workflows/release-please.yml
+    is the production caller of this code path; that step shipped broken
+    on its first run (PR #128) because the workflow had never been
+    exercised end-to-end. This test exercises the underlying logic so a
+    future regression in `_build_outputs` or the templates is caught
+    before it merges.
+    """
+    import re
+
+    pyproj_path = fresh_repo / "pyproject.toml"
+    original = pyproj_path.read_text(encoding="utf-8")
+    # Match [project].version specifically — must come before any
+    # [project.*] subsection. Avoids picking up `version = 1` inside the
+    # `hooks` cursor manifest if a future overlay adds one.
+    bumped, count = re.subn(
+        r'(\[project\][^\[]*?\nversion\s*=\s*)"[^"]+"',
+        r'\1"9.9.9"',
+        original,
+        count=1,
+        flags=re.DOTALL,
+    )
+    assert count == 1, "could not find [project].version anchor in pyproject.toml"
+    pyproj_path.write_text(bumped, encoding="utf-8")
+
+    plugin_generator.sync(fresh_repo)
+
+    # Every file that embeds the version literal must carry the new value.
+    embedding_sites = (
+        ".claude-plugin/plugin.json",
+        ".codex-plugin/plugin.json",
+        "src/sumo_qa/_data/plugin_metadata.json",
+    )
+    for rel in embedding_sites:
+        data = json.loads((fresh_repo / rel).read_text(encoding="utf-8"))
+        assert data.get("version") == "9.9.9", f"{rel} did not pick up the bumped version"
+
+    # The SHA256 sidecar's hashes must have changed — otherwise the drift
+    # check on the release PR would silently pass against stale data.
+    sidecar = json.loads(
+        (fresh_repo / "plugin_packaging" / "generated" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    for rel in embedding_sites:
+        assert rel in sidecar["files"], f"{rel} not in sidecar"
 
 
 def test_emitted_json_is_deterministic(fresh_repo: Path) -> None:

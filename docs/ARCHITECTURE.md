@@ -96,6 +96,14 @@ Different hosts surface MCP entries through different UIs and (in some cases) di
 
 All routes ultimately call the same `sumo-qa` binary which reads the same `skills/*/SKILL.md` files and the same `knowledge/*.md` catalogues. Skill content is one source of truth.
 
+### Plugin-format adapters (Claude Code / Codex)
+
+Hosts that consume plugin manifests (`.claude-plugin/plugin.json` for Claude Code, `.codex-plugin/plugin.json` for Codex) read first-class folders that live at the repo root. Both folders, plus `.mcp.json` and `hooks/hooks*.json`, are generated from a single canonical source — `pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay — by `python -m plugin_packaging.plugin_generator sync`. Drift is gated in CI: the next PR that edits the overlay or the generator without re-running sync fails the `plugin-packaging` workflow.
+
+Adding a new host (Cursor, OpenCode, …) is one new template under `plugin_packaging/templates/` plus the per-host description line in `[tool.sumo-qa.plugin]`. See [host-adapters.md](host-adapters.md) for the full architecture, including how the wheel-vs-repo path resolution interacts with `force-include`.
+
+The `sumo-qa-install` console script consumes the same canonical source at runtime through a frozen snapshot bundled in the wheel at `sumo_qa/_data/plugin_metadata.json`. Every host-config write site (Claude Desktop, VS Code, JetBrains) sources its server name + command from `sumo_qa.plugin_metadata.PluginMetadata.from_bundle()` — no host-specific literals duplicated across the codebase.
+
 ## Knowledge authority hierarchy
 
 A global rule declared in `using-sumo-qa`:
