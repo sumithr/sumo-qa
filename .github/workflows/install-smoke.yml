@@ -322,6 +322,17 @@ jobs:
       - name: Install wheel
         run: pip install .
 
+      - name: Install uv
+        # The plugin's .mcp.json command is now `uvx --from git+...`
+        # (per #83 plugin self-containment). The handshake spawns whatever
+        # .mcp.json says, so uvx must be on PATH. Astral's official
+        # installer puts uv at $HOME/.local/bin on Linux.
+        # No untrusted GitHub event inputs interpolated.
+        shell: bash
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: MCP initialize handshake
         env:
           # The adapter folder is fixed per matrix entry; no untrusted
@@ -341,7 +352,17 @@ jobs:
           (adapter / "plugin.json").read_text(encoding="utf-8")  # asserts present
           mcp = json.loads(Path(".mcp.json").read_text(encoding="utf-8"))
           server_name, entry = next(iter(mcp["mcpServers"].items()))
-          cmd = [entry["command"], *entry.get("args", [])]
+          args = list(entry.get("args", []))
+          # Substitute the canonical git source with the local checkout so
+          # the test validates THIS branch's code, not whatever's on the
+          # default branch of the public repo. The .mcp.json command
+          # STRUCTURE (uvx + --from + source + entry-point) is still
+          # exercised exactly as a real user would hit it.
+          args = [
+              "." if a.startswith("git+") and "sumithr/sumo-qa" in a else a
+              for a in args
+          ]
+          cmd = [entry["command"], *args]
 
           proc = subprocess.Popen(
               cmd,
@@ -407,15 +428,29 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install uv
-        # uv is the assumed prerequisite for Python stdio MCP plugins
-        # (parallel to npx for Node). Install via Astral's official
-        # installer — same one-liner users follow from docs/INSTALL.md.
+      - name: Install uv (Linux/macOS)
+        # Bash installer + PATH for *nix runners. Cross-platform install
+        # via a single step is unreliable: the bash installer doesn't
+        # work on Windows-native shells, and $HOME/.local/bin doesn't
+        # resolve identically across shells.
         # No untrusted GitHub event inputs interpolated.
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install uv (Windows)
+        # Windows uses Astral's PowerShell installer. uv installs to
+        # %USERPROFILE%\.local\bin (per Astral's docs); add that to
+        # the Windows-native PATH so subsequent steps can find uvx
+        # from python subprocess.
+        # No untrusted GitHub event inputs interpolated.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+          "$env:USERPROFILE\.local\bin" >> $env:GITHUB_PATH
 
       - name: Verify uvx can resolve sumo-qa from this checkout
         # The plugin's .mcp.json invokes uvx with --from git+https://...
