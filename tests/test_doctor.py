@@ -1614,3 +1614,71 @@ def test_check_python_version_handles_missing_package_metadata(monkeypatch) -> N
     assert result.status == "OK"
     assert "unknown" in result.details["sumo_qa_version"]
     assert "unknown" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# Check: uvx_available
+# ---------------------------------------------------------------------------
+
+
+def test_check_uvx_available_ok_when_uvx_on_path(monkeypatch) -> None:
+    monkeypatch.setattr(
+        doctor.shutil, "which", lambda name: "/opt/homebrew/bin/uvx" if name == "uvx" else None
+    )
+    result = doctor.check_uvx_available()
+    assert result.check_id == "uvx_available"
+    assert result.status == "OK"
+    assert "/opt/homebrew/bin/uvx" in result.summary
+
+
+def test_check_uvx_available_fail_when_uvx_missing(monkeypatch) -> None:
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    result = doctor.check_uvx_available()
+    assert result.check_id == "uvx_available"
+    assert result.status == "FAIL"
+    assert "uv" in result.summary.lower()
+    assert result.fix is not None
+    assert "astral.sh/uv/install.sh" in result.fix
+
+
+def test_check_uvx_available_runs_before_mcp_handshake(monkeypatch) -> None:
+    """uvx is foundational — if missing, mcp_handshake fails opaquely.
+    The new check must surface the actual prereq gap BEFORE the misleading
+    handshake error."""
+
+    def stub(name, **kw):
+        return doctor.CheckResult(name, "OK", f"{name} stub")
+
+    monkeypatch.setattr(doctor, "check_python_version", lambda: stub("python_version"))
+    monkeypatch.setattr(doctor, "check_install_mode", lambda: stub("install_mode"))
+    monkeypatch.setattr(doctor, "check_binary_discoverable", lambda: stub("binary_discoverable"))
+    monkeypatch.setattr(doctor, "check_uvx_available", lambda: stub("uvx_available"))
+    monkeypatch.setattr(
+        doctor,
+        "run_mcp_probe",
+        lambda cmd: (
+            doctor.CheckResult("mcp_handshake", "OK", "stub"),
+            doctor.CheckResult("tools_list_complete", "OK", "stub"),
+        ),
+    )
+    monkeypatch.setattr(doctor, "check_claude_code_config", lambda: stub("claude_code_config"))
+    monkeypatch.setattr(doctor, "check_claude_code_plugin", lambda: stub("claude_code_plugin"))
+    monkeypatch.setattr(
+        doctor, "check_claude_desktop_config", lambda: stub("claude_desktop_config")
+    )
+    monkeypatch.setattr(doctor, "check_codex_plugin", lambda: stub("codex_plugin"))
+    monkeypatch.setattr(
+        doctor, "check_vscode_workspace_config", lambda workspace: stub("vscode_workspace_config")
+    )
+    monkeypatch.setattr(
+        doctor, "check_vscode_user_misleading", lambda workspace: stub("vscode_user_misleading")
+    )
+    monkeypatch.setattr(doctor, "check_jetbrains_detection", lambda: stub("jetbrains_detection"))
+
+    from pathlib import Path as _PathTest
+
+    results = doctor._collect_checks(workspace=_PathTest("/tmp"), host_filter=None)
+    check_ids = [r.check_id for r in results]
+    assert "uvx_available" in check_ids
+    assert "mcp_handshake" in check_ids
+    assert check_ids.index("uvx_available") < check_ids.index("mcp_handshake")

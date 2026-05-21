@@ -95,6 +95,7 @@ __all__ = [
     "McpCommand",
     "REQUIRED_TOOL_NAMES",
     "check_binary_discoverable",
+    "check_uvx_available",
     "check_claude_code_config",
     "check_claude_code_plugin",
     "check_claude_desktop_config",
@@ -1032,6 +1033,38 @@ def check_binary_discoverable() -> CheckResult:
     )
 
 
+def check_uvx_available() -> CheckResult:
+    """Check that ``uvx`` (Astral's package runner) is on PATH.
+
+    The plugin install path's ``.mcp.json`` invokes
+    ``uvx --from ${CLAUDE_PLUGIN_ROOT} sumo-qa``. If ``uvx`` is not
+    discoverable, the MCP server can't launch and ``mcp_handshake`` fails
+    with an opaque "subprocess didn't start" style error. This dedicated
+    check pinpoints the missing prereq with the canonical install command.
+    """
+    path = shutil.which("uvx")
+    if path:
+        return CheckResult(
+            check_id="uvx_available",
+            status="OK",
+            summary=f"uvx on PATH at {path}",
+        )
+    return CheckResult(
+        check_id="uvx_available",
+        status="FAIL",
+        summary=(
+            "uvx not on PATH — the plugin install path needs uv. "
+            "Without it, the MCP server cannot launch."
+        ),
+        fix=(
+            "Install uv once: "
+            "macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh  "
+            "Windows (PowerShell): irm https://astral.sh/uv/install.ps1 | iex  "
+            "Homebrew: brew install uv"
+        ),
+    )
+
+
 def check_install_mode(module_dir: _Path | None = None) -> CheckResult:
     """Disclose whether sumo-qa is running from a built wheel or an editable
     install. Always ``OK`` — drives the "I edited skills/X but the change
@@ -1099,6 +1132,7 @@ def _collect_checks(
         check_python_version(),
         check_install_mode(),
         check_binary_discoverable(),
+        check_uvx_available(),
     ]
     handshake, tools = run_mcp_probe(_resolve_mcp_command())
     out.extend([handshake, tools])
