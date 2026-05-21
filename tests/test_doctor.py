@@ -599,6 +599,52 @@ def test_main_human_renders_fix_line_for_failures(monkeypatch, capsys, tmp_path)
     assert "Fix: run X" in out
 
 
+def test_human_renderer_emits_color_when_stdout_is_tty(monkeypatch) -> None:
+    """When stdout is a TTY, status tags get ANSI colors (green/yellow/red).
+
+    Top-tier doctors (flutter doctor, brew doctor) colorise status —
+    visual rank order matters when scanning ~10 checks for the one FAIL.
+    """
+    monkeypatch.setenv("NO_COLOR", "")  # ensure not set
+    results = _stub_results(("c1", "OK"), ("c2", "WARN", "x"), ("c3", "FAIL", "y"))
+    rendered = doctor._render_human(results, use_color=True)
+    assert "\x1b[32m" in rendered  # green for OK
+    assert "\x1b[33m" in rendered  # yellow for WARN
+    assert "\x1b[31m" in rendered  # red for FAIL
+    assert "\x1b[0m" in rendered  # reset after each tag
+
+
+def test_human_renderer_omits_color_when_not_tty() -> None:
+    """Pipe / file destination → no colors (ANSI escapes pollute log files
+    and IDE captures). Matches the `isatty` contract honoured by ls, git, etc.
+    """
+    results = _stub_results(("c1", "OK"), ("c2", "FAIL", "y"))
+    rendered = doctor._render_human(results, use_color=False)
+    assert "\x1b[" not in rendered
+    assert "[OK]" in rendered
+    assert "[FAIL]" in rendered
+
+
+def test_main_respects_no_color_env(monkeypatch, capsys, tmp_path) -> None:
+    """``NO_COLOR=1`` suppresses ANSI escapes even when stdout is a TTY.
+
+    Honours the de-facto `NO_COLOR` standard (https://no-color.org/) —
+    users with screen readers and CI log captures rely on this knob.
+    """
+    monkeypatch.setattr(
+        doctor,
+        "_collect_checks",
+        lambda **kw: _stub_results(("c1", "OK"), ("c2", "FAIL", "y")),
+    )
+    monkeypatch.setenv("NO_COLOR", "1")
+    # Force the TTY detection to claim a TTY, so we're specifically
+    # testing the NO_COLOR override rather than the non-TTY arm.
+    monkeypatch.setattr(doctor, "_stdout_is_tty", lambda: True)
+    doctor.main(["--workspace", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "\x1b[" not in out
+
+
 def test_main_summary_line_includes_counts(monkeypatch, capsys, tmp_path) -> None:
     monkeypatch.setattr(
         doctor,

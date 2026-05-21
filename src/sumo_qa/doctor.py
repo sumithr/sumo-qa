@@ -770,18 +770,57 @@ def _collect_checks(
     return out
 
 
-def _render_human(results: list[CheckResult]) -> str:
+# ANSI escape sequences for colorised status tags. Kept module-level so the
+# renderer is a pure function of (results, use_color) — no globals captured
+# at call time, no env-var reads from inside the formatter.
+_ANSI_RESET = "\x1b[0m"
+_ANSI_BY_STATUS: dict[str, str] = {
+    "OK": "\x1b[32m",  # green
+    "WARN": "\x1b[33m",  # yellow
+    "FAIL": "\x1b[31m",  # red
+}
+
+
+def _stdout_is_tty() -> bool:
+    """Return True when stdout is connected to a real terminal. Wrapped so
+    tests can override the answer without monkeypatching ``sys.stdout``.
+    """
+    return _sys.stdout.isatty()
+
+
+def _should_use_color() -> bool:
+    """Decide whether to emit ANSI color codes.
+
+    Honours the de-facto NO_COLOR standard (https://no-color.org/) — any
+    non-empty value disables color. Otherwise gates on whether stdout is
+    a TTY so piped / redirected output stays escape-code-free.
+    """
+    if os.environ.get("NO_COLOR"):
+        return False
+    return _stdout_is_tty()
+
+
+def _render_human(results: list[CheckResult], *, use_color: bool = False) -> str:
     """Render results as a plain-text report.
 
     One line per check, followed by an indented ``Fix:`` line where one is
     set. Trailing summary line carries the OK / WARN / FAIL counts so a
     fast scroll-to-bottom is enough to see overall health.
+
+    When ``use_color`` is True, the status tag is wrapped in an ANSI
+    color code (green/yellow/red). When False, plain ``[OK]`` / ``[WARN]``
+    / ``[FAIL]`` text is used — safe for log files, CI captures, and
+    consumers piping stdout to another program.
     """
     lines: list[str] = []
     counts = {"OK": 0, "WARN": 0, "FAIL": 0}
     for r in results:
         counts[r.status] += 1
-        lines.append(f"[{r.status}] {r.check_id} — {r.summary}")
+        if use_color:
+            tag = f"{_ANSI_BY_STATUS[r.status]}[{r.status}]{_ANSI_RESET}"
+        else:
+            tag = f"[{r.status}]"
+        lines.append(f"{tag} {r.check_id} — {r.summary}")
         if r.fix:
             lines.append(f"      Fix: {r.fix}")
     lines.append("")
@@ -863,7 +902,10 @@ def main(argv: list[str] | None = None) -> int:
     workspace = args.workspace.resolve() if args.workspace else _Path.cwd().resolve()
     results = _collect_checks(workspace=workspace, host_filter=args.host)
 
-    rendered = _render_json(results) if args.json else _render_human(results)
+    if args.json:
+        rendered = _render_json(results)
+    else:
+        rendered = _render_human(results, use_color=_should_use_color())
     _sys.stdout.write(rendered)
 
     return 1 if any(r.status == "FAIL" for r in results) else 0
