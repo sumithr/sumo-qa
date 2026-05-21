@@ -314,6 +314,194 @@ def test_run_mcp_probe_no_tools_list_response(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Check: claude_code_config
+# ---------------------------------------------------------------------------
+
+
+def test_check_claude_code_config_not_installed(tmp_path) -> None:
+    result = doctor.check_claude_code_config(home=tmp_path, system="Linux")
+    assert result.check_id == "claude_code_config"
+    # Neither ~/.claude/ nor the config dir exists → Claude Code not installed.
+    assert result.status == "OK"
+    assert "not detected" in result.summary.lower()
+
+
+def test_check_claude_code_config_missing_when_claude_present(tmp_path) -> None:
+    # Claude Code installed (~/.claude/ exists) but the config wasn't written.
+    (tmp_path / ".claude").mkdir()
+    result = doctor.check_claude_code_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert "missing" in result.summary.lower() or "not written" in result.summary.lower()
+    assert result.fix is not None and "sumo-qa-install" in result.fix
+
+
+def test_check_claude_code_config_present_and_resolvable(tmp_path) -> None:
+    cfg_dir = tmp_path / ".config" / "claude"
+    cfg_dir.mkdir(parents=True)
+    (tmp_path / ".claude").mkdir()
+    fake_binary = tmp_path / "bin" / "sumo-qa"
+    fake_binary.parent.mkdir(parents=True)
+    fake_binary.write_text("#!/bin/sh\nexit 0\n")
+    fake_binary.chmod(0o755)
+    (cfg_dir / "claude_desktop_config.json").write_text(
+        json.dumps({"mcpServers": {"sumo-qa": {"command": str(fake_binary)}}})
+    )
+
+    result = doctor.check_claude_code_config(home=tmp_path, system="Linux")
+    assert result.status == "OK"
+    assert "sumo-qa" in result.summary
+
+
+def test_check_claude_code_config_malformed_json(tmp_path) -> None:
+    cfg_dir = tmp_path / ".config" / "claude"
+    cfg_dir.mkdir(parents=True)
+    (tmp_path / ".claude").mkdir()
+    cfg_path = cfg_dir / "claude_desktop_config.json"
+    cfg_path.write_text("{not valid json")
+
+    result = doctor.check_claude_code_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert str(cfg_path) in result.summary
+    assert result.fix is not None and "sumo-qa-install" in result.fix
+
+
+def test_check_claude_code_config_no_sumo_qa_entry(tmp_path) -> None:
+    cfg_dir = tmp_path / ".config" / "claude"
+    cfg_dir.mkdir(parents=True)
+    (tmp_path / ".claude").mkdir()
+    (cfg_dir / "claude_desktop_config.json").write_text(json.dumps({"mcpServers": {}}))
+
+    result = doctor.check_claude_code_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert "sumo-qa" in result.summary
+    assert result.fix is not None
+
+
+def test_check_claude_code_config_stale_binary(tmp_path) -> None:
+    cfg_dir = tmp_path / ".config" / "claude"
+    cfg_dir.mkdir(parents=True)
+    (tmp_path / ".claude").mkdir()
+    (cfg_dir / "claude_desktop_config.json").write_text(
+        json.dumps({"mcpServers": {"sumo-qa": {"command": str(tmp_path / "no_such_binary")}}})
+    )
+
+    result = doctor.check_claude_code_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert "stale" in result.summary.lower() or "not resolve" in result.summary.lower()
+    assert result.fix is not None and "sumo-qa-install" in result.fix
+
+
+def test_check_claude_code_config_unreadable(tmp_path, monkeypatch) -> None:
+    from pathlib import Path as _PathTest
+
+    cfg_dir = tmp_path / ".config" / "claude"
+    cfg_dir.mkdir(parents=True)
+    (tmp_path / ".claude").mkdir()
+    cfg_path = cfg_dir / "claude_desktop_config.json"
+    cfg_path.write_text(json.dumps({"mcpServers": {}}))
+
+    real_read = _PathTest.read_text
+
+    def boom(self, *a, **k):
+        if self == cfg_path:
+            raise PermissionError("no read")
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(_PathTest, "read_text", boom)
+    result = doctor.check_claude_code_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert "permission" in result.summary.lower() or "unreadable" in result.summary.lower()
+
+
+# ---------------------------------------------------------------------------
+# Check: claude_desktop_config
+# ---------------------------------------------------------------------------
+
+
+def test_check_claude_desktop_config_not_installed(tmp_path) -> None:
+    result = doctor.check_claude_desktop_config(home=tmp_path, system="Linux")
+    assert result.check_id == "claude_desktop_config"
+    assert result.status == "OK"
+    assert "not detected" in result.summary.lower()
+
+
+def test_check_claude_desktop_config_missing_when_dir_present(tmp_path) -> None:
+    (tmp_path / ".config" / "Claude").mkdir(parents=True)
+    result = doctor.check_claude_desktop_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert "missing" in result.summary.lower() or "not written" in result.summary.lower()
+
+
+def test_check_claude_desktop_config_present_and_resolvable(tmp_path) -> None:
+    cfg_dir = tmp_path / ".config" / "Claude"
+    cfg_dir.mkdir(parents=True)
+    fake_binary = tmp_path / "bin" / "sumo-qa"
+    fake_binary.parent.mkdir(parents=True)
+    fake_binary.write_text("#!/bin/sh\nexit 0\n")
+    fake_binary.chmod(0o755)
+    (cfg_dir / "claude_desktop_config.json").write_text(
+        json.dumps({"mcpServers": {"sumo-qa": {"command": str(fake_binary)}}})
+    )
+
+    result = doctor.check_claude_desktop_config(home=tmp_path, system="Linux")
+    assert result.status == "OK"
+
+
+def test_check_claude_desktop_config_malformed(tmp_path) -> None:
+    cfg_dir = tmp_path / ".config" / "Claude"
+    cfg_dir.mkdir(parents=True)
+    cfg_path = cfg_dir / "claude_desktop_config.json"
+    cfg_path.write_text("{not json")
+
+    result = doctor.check_claude_desktop_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert str(cfg_path) in result.summary
+
+
+def test_check_claude_desktop_config_stale_binary(tmp_path) -> None:
+    cfg_dir = tmp_path / ".config" / "Claude"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "claude_desktop_config.json").write_text(
+        json.dumps({"mcpServers": {"sumo-qa": {"command": str(tmp_path / "no_such")}}})
+    )
+
+    result = doctor.check_claude_desktop_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert "stale" in result.summary.lower() or "not resolve" in result.summary.lower()
+
+
+def test_check_claude_desktop_config_no_sumo_qa_entry(tmp_path) -> None:
+    cfg_dir = tmp_path / ".config" / "Claude"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "claude_desktop_config.json").write_text(json.dumps({"mcpServers": {}}))
+
+    result = doctor.check_claude_desktop_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert "sumo-qa" in result.summary
+
+
+def test_check_claude_desktop_config_unreadable(tmp_path, monkeypatch) -> None:
+    from pathlib import Path as _PathTest
+
+    cfg_dir = tmp_path / ".config" / "Claude"
+    cfg_dir.mkdir(parents=True)
+    cfg_path = cfg_dir / "claude_desktop_config.json"
+    cfg_path.write_text(json.dumps({"mcpServers": {}}))
+
+    real_read = _PathTest.read_text
+
+    def boom(self, *a, **k):
+        if self == cfg_path:
+            raise PermissionError("nope")
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(_PathTest, "read_text", boom)
+    result = doctor.check_claude_desktop_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert "permission" in result.summary.lower() or "unreadable" in result.summary.lower()
+
+
+# ---------------------------------------------------------------------------
 # Check: binary_discoverable
 # ---------------------------------------------------------------------------
 
