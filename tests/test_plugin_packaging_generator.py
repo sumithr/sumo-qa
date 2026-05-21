@@ -117,13 +117,30 @@ def test_generated_outputs_are_not_gitignored() -> None:
     clean checkout. A gitignore rule that silently swallows `git add` would
     pass the on-disk drift check locally but leave the file absent on a CI
     checkout, where `check` then reports MISSING. Regression for codex
-    finding on PR #128."""
+    finding on PR #128.
+
+    Skipped under mutmut: the mutmut mirror at `mutants/` is itself
+    gitignored, so every path under it is reported ignored by inheritance.
+    This test asserts a property of the SOURCE repo's gitignore, not the
+    mutant tree, so resolving REPO_ROOT against the real worktree via
+    `git rev-parse` is the correct anchor.
+    """
     import subprocess
+
+    real_root = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if "mutants" in Path(real_root).parts:
+        pytest.skip("running under mutmut mirror — assertion is about source tree, not mirror")
 
     for rel in _files_to_check():
         result = subprocess.run(
             ["git", "check-ignore", "-q", rel],
-            cwd=REPO_ROOT,
+            cwd=real_root,
             capture_output=True,
         )
         # git check-ignore exits 0 when the path IS ignored, 1 when not.
