@@ -14,6 +14,41 @@ The JSON shape is INTERNAL until sumo-qa 1.0 — see docs/INSTALL.md.
 Doctor never modifies installer.py — every read-only probe it needs is
 imported from installer's existing public + private surface. That keeps
 the installer's existing test suite passing unchanged across this change.
+
+Design: defence-in-depth against host schema changes
+====================================================
+
+Two tiers of checks:
+
+1. **Canonical functional checks** — ``run_mcp_probe`` drives a JSON-RPC
+   ``initialize`` + ``tools/list`` handshake against the running server.
+   If this passes, sumo-qa is operationally healthy regardless of how it
+   was installed. This is the ground-truth answer to "does it work?".
+
+2. **Storage-probe checks** — inspect host-vendor storage (Anthropic's
+   ``~/.claude/plugins/installed_plugins.json``, OpenAI's
+   ``~/.codex/config.toml``, Claude Desktop / VS Code config files).
+   These are diagnostic value-adds: when something is broken, they tell
+   the user which config drifted and how to fix it.
+
+Storage-probe checks are deliberately defensive. The host vendors own
+their on-disk schemas; a future release could rename keys, restructure
+sections, or add new variants. To keep schema drift from producing false
+FAILs, storage probes:
+
+- Use minimal pattern-matching (regex section-header detection for TOML;
+  presence-of-key lookups for JSON) rather than full-schema validators.
+- Fall through to ``OK`` (with a "couldn't determine install state"
+  disclosure) when the layout doesn't match the known shape. They never
+  ``FAIL`` purely because a vendor changed the format.
+- Reserve ``FAIL`` for cases where a real install is genuinely broken
+  (malformed JSON / TOML in a known file, dangling install paths, stale
+  binary references) — situations the user needs to fix regardless of
+  schema evolution.
+
+If functional checks pass but storage probes return "not detected", that
+isn't a failure — it means sumo-qa is working through an installation
+source the storage probes don't (yet) recognise.
 """
 
 from __future__ import annotations
@@ -23,6 +58,7 @@ import collections
 import json
 import os
 import platform as _platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -55,6 +91,7 @@ __all__ = [
     "check_claude_code_config",
     "check_claude_code_plugin",
     "check_claude_desktop_config",
+    "check_codex_plugin",
     "check_install_mode",
     "check_jetbrains_detection",
     "check_python_version",
@@ -621,6 +658,104 @@ def check_claude_code_plugin(home: _Path | None = None) -> CheckResult:
     )
 
 
+# Pattern that matches `[plugins."sumo-qa@<marketplace>"]` section headers
+# in Codex's config.toml. We don't pull in a TOML parser dependency just for
+# this — the section header is the only signal we need, and a regex
+# degrades gracefully if OpenAI ever rearranges the rest of the schema.
+# Captures the marketplace name; whitespace-tolerant per TOML's parser.
+_CODEX_PLUGIN_SECTION_RE = re.compile(r'^\s*\[plugins\."sumo-qa@([^"]+)"\]\s*$', re.MULTILINE)
+
+_CODEX_PLUGIN_REINSTALL_FIX = (
+    "Run `/plugins install sumithr/sumo-qa` from inside Codex (or your usual "
+    "sumo-qa marketplace source) to refresh the install."
+)
+
+
+def check_codex_plugin(home: _Path | None = None) -> CheckResult:
+    """Report whether sumo-qa is installed via OpenAI Codex's plugin manager
+    (``/plugins install sumithr/sumo-qa``).
+
+    Codex stores plugin state in ``~/.codex/config.toml`` under
+    ``[plugins."<name>@<marketplace>"]`` sections; the actual content lives
+    at ``~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/``.
+
+    Status semantics mirror ``check_claude_code_plugin``:
+      - OK / "not detected": Codex CLI isn't on this machine.
+      - OK / "config.toml missing": Codex installed but never configured.
+      - OK / "no sumo-qa entry": config present, sumo-qa not registered.
+      - OK / "registered via plugin manager": entry + cache dir exist.
+      - FAIL: entry present but cache dir absent (dangling), or config
+        unreadable.
+
+    Defensive parsing — uses a regex on the section header rather than a
+    full TOML parser. If OpenAI changes any other part of the schema, the
+    check still recognises the section it cares about; if they rename the
+    section entirely the check falls through to "no sumo-qa entry" (OK,
+    not FAIL) so schema drift doesn't trigger false failures.
+    """
+    h = home or _Path.home()
+    codex_home = h / ".codex"
+    if not codex_home.exists():
+        return CheckResult(
+            check_id="codex_plugin",
+            status="OK",
+            summary="Codex not detected on this machine",
+        )
+    config = codex_home / "config.toml"
+    if not config.exists():
+        return CheckResult(
+            check_id="codex_plugin",
+            status="OK",
+            summary=(f"{config} missing — Codex has no plugins or MCP servers configured"),
+        )
+    try:
+        text = config.read_text(encoding="utf-8")
+    except OSError as exc:
+        return CheckResult(
+            check_id="codex_plugin",
+            status="FAIL",
+            summary=(f"{config} unreadable (permission/OS error: {exc.__class__.__name__}: {exc})"),
+            fix=f"Fix the permissions on {config} so the current user can read it.",
+        )
+    match = _CODEX_PLUGIN_SECTION_RE.search(text)
+    if match is None:
+        return CheckResult(
+            check_id="codex_plugin",
+            status="OK",
+            summary="sumo-qa not installed via Codex plugin manager (no sumo-qa entry)",
+        )
+    marketplace = match.group(1)
+    cache_root = codex_home / "plugins" / "cache" / marketplace / "sumo-qa"
+    versions: list[str] = []
+    if cache_root.exists():
+        versions = sorted(
+            (p.name for p in cache_root.iterdir() if p.is_dir()),
+            reverse=True,
+        )
+    if not versions:
+        return CheckResult(
+            check_id="codex_plugin",
+            status="FAIL",
+            summary=(
+                f"Codex registers sumo-qa@{marketplace} in {config} but the "
+                f"plugin cache at {cache_root} is missing or empty — dangling install"
+            ),
+            fix=_CODEX_PLUGIN_REINSTALL_FIX,
+            details={"marketplace": marketplace, "cache_root": str(cache_root)},
+        )
+    version = versions[0]
+    return CheckResult(
+        check_id="codex_plugin",
+        status="OK",
+        summary=(f"sumo-qa registered via Codex plugin manager (sumo-qa@{marketplace} v{version})"),
+        details={
+            "marketplace": marketplace,
+            "version": version,
+            "cache_root": str(cache_root),
+        },
+    )
+
+
 def check_claude_code_config(
     home: _Path | None = None,
     system: str | None = None,
@@ -910,7 +1045,13 @@ def check_install_mode(module_dir: _Path | None = None) -> CheckResult:
 # Stable host names exposed via ``--host``. Kept narrow on purpose: doctor's
 # job is to validate what the installer would write to, not advertise every
 # imaginable MCP-capable surface.
-_HOST_CHOICES: tuple[str, ...] = ("claude-code", "claude-desktop", "vscode", "jetbrains")
+_HOST_CHOICES: tuple[str, ...] = (
+    "claude-code",
+    "claude-desktop",
+    "codex",
+    "vscode",
+    "jetbrains",
+)
 
 
 def _resolve_mcp_command() -> McpCommand:
@@ -949,6 +1090,8 @@ def _collect_checks(
         out.append(check_claude_code_plugin())
     if host_filter in (None, "claude-desktop"):
         out.append(check_claude_desktop_config())
+    if host_filter in (None, "codex"):
+        out.append(check_codex_plugin())
     if host_filter in (None, "vscode"):
         out.append(check_vscode_workspace_config(workspace=workspace))
         out.append(check_vscode_user_misleading(workspace=workspace))

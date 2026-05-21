@@ -705,6 +705,138 @@ def test_check_claude_code_config_plugin_install_does_not_mask_stale_binary(tmp_
 
 
 # ---------------------------------------------------------------------------
+# Check: codex_plugin
+# ---------------------------------------------------------------------------
+
+
+def _write_codex_config(home, body: str) -> Path:
+    """Write a ~/.codex/config.toml with the given body."""
+    codex_home = home / ".codex"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    cfg = codex_home / "config.toml"
+    cfg.write_text(body)
+    return cfg
+
+
+def _make_codex_plugin_cache(home, marketplace: str, version: str = "1.0.0") -> Path:
+    """Create a realistic plugin cache dir at
+    ~/.codex/plugins/cache/<marketplace>/sumo-qa/<version>/ with a
+    .codex-plugin/plugin.json inside.
+    """
+    cache = home / ".codex" / "plugins" / "cache" / marketplace / "sumo-qa" / version
+    (cache / ".codex-plugin").mkdir(parents=True)
+    (cache / ".codex-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "sumo-qa", "version": version})
+    )
+    return cache
+
+
+def test_check_codex_plugin_not_installed(tmp_path) -> None:
+    """No ~/.codex/ at all → Codex CLI isn't on this machine."""
+    result = doctor.check_codex_plugin(home=tmp_path)
+    assert result.check_id == "codex_plugin"
+    assert result.status == "OK"
+    assert "not detected" in result.summary.lower()
+
+
+def test_check_codex_plugin_no_config(tmp_path) -> None:
+    """~/.codex/ exists but no config.toml — fresh / never-configured user."""
+    (tmp_path / ".codex").mkdir()
+    result = doctor.check_codex_plugin(home=tmp_path)
+    assert result.status == "OK"
+    assert "config.toml" in result.summary or "no plugins" in result.summary.lower()
+
+
+def test_check_codex_plugin_no_sumo_qa_entry(tmp_path) -> None:
+    """config.toml present, has other plugins, but not sumo-qa."""
+    _write_codex_config(
+        tmp_path,
+        '[plugins."github@openai-curated"]\nenabled = true\n',
+    )
+    result = doctor.check_codex_plugin(home=tmp_path)
+    assert result.status == "OK"
+    assert "no sumo-qa" in result.summary.lower() or "not installed" in result.summary.lower()
+
+
+def test_check_codex_plugin_registered_with_cache(tmp_path) -> None:
+    """Real install: [plugins."sumo-qa@<marketplace>"] in config.toml AND
+    the plugin cache dir exists. Doctor must report OK with the marketplace
+    + version surfaced so a hybrid user can see which source is active.
+    """
+    _make_codex_plugin_cache(tmp_path, "sumithr", "0.7.1")
+    _write_codex_config(
+        tmp_path,
+        '[plugins."sumo-qa@sumithr"]\nenabled = true\n',
+    )
+    result = doctor.check_codex_plugin(home=tmp_path)
+    assert result.status == "OK"
+    assert "sumo-qa" in result.summary
+    assert "sumithr" in result.summary
+    assert result.details["marketplace"] == "sumithr"
+
+
+def test_check_codex_plugin_registered_cache_missing(tmp_path) -> None:
+    """config.toml registers the plugin but no cache dir → dangling install.
+    Real-world cause: a marketplace re-sync left a stale registration, or
+    the user manually rm'd the cache. FAIL with a reinstall fix.
+    """
+    _write_codex_config(
+        tmp_path,
+        '[plugins."sumo-qa@sumithr"]\nenabled = true\n',
+    )
+    result = doctor.check_codex_plugin(home=tmp_path)
+    assert result.status == "FAIL"
+    assert "cache" in result.summary.lower() or "missing" in result.summary.lower()
+    assert result.fix is not None
+    assert "/plugins install" in result.fix or "codex" in result.fix.lower()
+
+
+def test_check_codex_plugin_config_unreadable(tmp_path, monkeypatch) -> None:
+    """Permissions denied on config.toml → FAIL with the OS error."""
+    from pathlib import Path as _PathTest
+
+    cfg = _write_codex_config(tmp_path, '[plugins."sumo-qa@sumithr"]\nenabled = true\n')
+
+    real_read = _PathTest.read_text
+
+    def boom(self, *a, **k):
+        if self == cfg:
+            raise PermissionError("nope")
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(_PathTest, "read_text", boom)
+    result = doctor.check_codex_plugin(home=tmp_path)
+    assert result.status == "FAIL"
+    assert "permission" in result.summary.lower() or "unreadable" in result.summary.lower()
+
+
+def test_check_codex_plugin_marketplace_separator_flex(tmp_path) -> None:
+    """Match on the ``sumo-qa@`` prefix only — any marketplace name accepted
+    (e.g. user-defined marketplaces, not just official ones)."""
+    _make_codex_plugin_cache(tmp_path, "my-custom-marketplace", "2.0")
+    _write_codex_config(
+        tmp_path,
+        '[plugins."sumo-qa@my-custom-marketplace"]\nenabled = true\n',
+    )
+    result = doctor.check_codex_plugin(home=tmp_path)
+    assert result.status == "OK"
+    assert "my-custom-marketplace" in result.summary
+
+
+def test_check_codex_plugin_handles_quoted_section_variations(tmp_path) -> None:
+    """TOML allows whitespace around section markers; the regex must
+    tolerate \`[plugins.\"sumo-qa@foo\"]\` with various whitespace shapes."""
+    _make_codex_plugin_cache(tmp_path, "foo", "1.0")
+    # Trailing spaces, leading newline, no surrounding whitespace — all valid TOML.
+    _write_codex_config(
+        tmp_path,
+        '\n[plugins."sumo-qa@foo"]   \nenabled = true\n',
+    )
+    result = doctor.check_codex_plugin(home=tmp_path)
+    assert result.status == "OK"
+
+
+# ---------------------------------------------------------------------------
 # Check: claude_desktop_config
 # ---------------------------------------------------------------------------
 
@@ -993,6 +1125,7 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
     monkeypatch.setattr(
         doctor, "check_claude_desktop_config", lambda: stub("claude_desktop_config")
     )
+    monkeypatch.setattr(doctor, "check_codex_plugin", lambda: stub("codex_plugin"))
     monkeypatch.setattr(
         doctor, "check_vscode_workspace_config", lambda workspace: stub("vscode_workspace_config")
     )
@@ -1009,6 +1142,7 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
     assert "claude_code_config" in ids
     assert "claude_code_plugin" in ids
     assert "claude_desktop_config" in ids
+    assert "codex_plugin" in ids
     assert "vscode_workspace_config" in ids
     assert "vscode_user_misleading" in ids
     assert "jetbrains_detection" in ids
@@ -1022,6 +1156,7 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
     # plugin-install registry — they're complementary, both Claude-Code-shaped.
     assert "claude_code_plugin" in ids_cc
     assert "claude_desktop_config" not in ids_cc
+    assert "codex_plugin" not in ids_cc
     assert "vscode_workspace_config" not in ids_cc
     assert "jetbrains_detection" not in ids_cc
 
@@ -1033,6 +1168,7 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
     assert "vscode_user_misleading" in ids_vs
     assert "claude_code_config" not in ids_vs
     assert "claude_code_plugin" not in ids_vs
+    assert "codex_plugin" not in ids_vs
 
     ids_jb = [
         r.check_id
@@ -1041,6 +1177,15 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
     assert "jetbrains_detection" in ids_jb
     assert "claude_code_config" not in ids_jb
     assert "claude_code_plugin" not in ids_jb
+    assert "codex_plugin" not in ids_jb
+
+    ids_codex = [
+        r.check_id for r in doctor._collect_checks(workspace=_PathTest("/tmp"), host_filter="codex")
+    ]
+    assert "codex_plugin" in ids_codex
+    assert "claude_code_config" not in ids_codex
+    assert "vscode_workspace_config" not in ids_codex
+    assert "jetbrains_detection" not in ids_codex
 
 
 def test_resolve_mcp_command_uses_path(monkeypatch, tmp_path) -> None:

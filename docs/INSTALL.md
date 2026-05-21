@@ -40,7 +40,7 @@ python -m sumo_qa.doctor
 
 This runs the same code through the interpreter directly — no wrapper script required. It mirrors the same fallback `sumo-qa-install` uses when the Scripts dir isn't on PATH. If `python -m sumo_qa.doctor` also can't find the package, the failure is at the pip / Python level (not a sumo-qa issue) — `python -m pip show sumo-qa` will tell you whether the package is installed at all.
 
-The default run covers eleven checks:
+The default run covers twelve checks:
 
 1. `python_version` — interpreter + `sumo-qa` package version
 2. `install_mode` — wheel vs editable layout (catches "I edited skills/X but the change isn't visible")
@@ -48,20 +48,25 @@ The default run covers eleven checks:
 4. `mcp_handshake` — JSON-RPC `initialize` handshake against the running server
 5. `tools_list_complete` — all 14 `REQUIRED_TOOL_NAMES` advertised
 6. `claude_code_config` — Claude Code's `claude_desktop_config.json` parseable, points at a resolvable binary
-7. `claude_code_plugin` — detects whether sumo-qa is installed via `claude plugin install` (alternative to `pip install`); cross-checked with `claude_code_config` so a plugin-install user doesn't get a false FAIL on the pip-install config check
+7. `claude_code_plugin` — detects whether sumo-qa is installed via `claude plugin install` (reads `~/.claude/plugins/installed_plugins.json`); cross-checked with `claude_code_config` so a plugin-install user doesn't get a false FAIL on the pip-install config check
 8. `claude_desktop_config` — Claude Desktop's separate config path (macOS / Windows / Linux variations)
-9. `vscode_workspace_config` — `<workspace>/.vscode/mcp.json` parseable, resolvable
-10. `vscode_user_misleading` — WARN when `~/.vscode/mcp.json` exists (VS Code never reads it; common gotcha)
-11. `jetbrains_detection` — detects installed JetBrains IDEs and prints the manual UI-add steps
+9. `codex_plugin` — detects whether sumo-qa is installed via Codex's `/plugins install` (reads `~/.codex/config.toml` for the `[plugins."sumo-qa@<marketplace>"]` section and validates the plugin cache at `~/.codex/plugins/cache/<marketplace>/sumo-qa/`)
+10. `vscode_workspace_config` — `<workspace>/.vscode/mcp.json` parseable, resolvable
+11. `vscode_user_misleading` — WARN when `~/.vscode/mcp.json` exists (VS Code never reads it; common gotcha)
+12. `jetbrains_detection` — detects installed JetBrains IDEs and prints the manual UI-add steps
 
 ### Dual install paths
 
 sumo-qa supports two install flows; doctor covers both:
 
 - **pip install** (canonical) — `pip install sumo-qa && sumo-qa-install` writes per-host JSON configs (`claude_desktop_config.json`, `.vscode/mcp.json`) and symlinks skills into `~/.claude/skills/`. The host-config checks (`claude_code_config`, `claude_desktop_config`, `vscode_workspace_config`) validate this path.
-- **plugin install** — `claude plugin install sumithr/sumo-qa` (or `/plugins install sumithr/sumo-qa` in Codex) registers the package via the host's plugin manager. Claude Code records the install in `~/.claude/plugins/installed_plugins.json`. The `claude_code_plugin` check validates this path.
+- **plugin install** — `claude plugin install sumithr/sumo-qa` registers via Claude Code's plugin manager (recorded in `~/.claude/plugins/installed_plugins.json`); `/plugins install sumithr/sumo-qa` does the equivalent in Codex (recorded in `~/.codex/config.toml`). The `claude_code_plugin` and `codex_plugin` checks validate these paths.
 
-A user can install via either flow (or both — they're additive, not mutually exclusive). Doctor checks each path independently and only FAILs when an active install is genuinely broken. Codex plugin-install detection is a future follow-up; the canonical pip-install Codex path is unaffected.
+A user can install via either flow (or both — they're additive, not mutually exclusive). Doctor checks each path independently and only FAILs when an active install is genuinely broken.
+
+### Defence-in-depth against host schema changes
+
+Host vendors (Anthropic, OpenAI) own the storage layouts doctor inspects. If a future release renames a file, changes a section key, or adds new shape variations, the storage-probe checks (`claude_code_plugin`, `codex_plugin`, the host-config checks) **fall through to OK with a "couldn't determine install state" disclosure** rather than FAILing — schema drift never produces false failures. The canonical "is it actually working" answer comes from `mcp_handshake` and `tools_list_complete`, which exercise the live JSON-RPC surface directly. As long as those pass, sumo-qa is functionally healthy regardless of what the storage probes can or can't recognise.
 
 ### Flags
 
