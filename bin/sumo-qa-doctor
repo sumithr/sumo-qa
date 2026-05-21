@@ -50,8 +50,6 @@ uv (>=0.4) once, then re-run:
     # Homebrew
     brew install uv
 
-uv is the assumed prerequisite for Python stdio MCP plugins — parallel
-to how `npx` is assumed for Node-based plugins.
 EOF
     exit 3
 fi

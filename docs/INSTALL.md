@@ -121,7 +121,7 @@ claude plugin install sumithr/sumo-qa
 
 ### Prerequisite: `uv`
 
-The plugin's `.mcp.json` invokes `uvx` (Astral's package runner) with `--from ${CLAUDE_PLUGIN_ROOT}` — [Anthropic's canonical substitution for plugin-bundled MCP servers](https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers). At runtime Claude Code expands `${CLAUDE_PLUGIN_ROOT}` to the plugin's source directory (the local checkout for `claude --plugin-dir <repo>`, the marketplace cache for `claude plugin install`), and uvx builds + caches the Python package from there. `uvx` is treated as an assumed prerequisite for Python stdio MCP plugins, parallel to how Node-based plugins assume `npx`.
+The plugin's `.mcp.json` invokes `uvx` (Astral's package runner) with `--from ${CLAUDE_PLUGIN_ROOT}` — [Anthropic's canonical substitution for plugin-bundled MCP servers](https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers). At runtime Claude Code expands `${CLAUDE_PLUGIN_ROOT}` to the plugin's source directory (the local checkout for `claude --plugin-dir <repo>`, the marketplace cache for `claude plugin install`), and uvx builds + caches the Python package from there.
 
 Install `uv` once via [Astral's official installer](https://docs.astral.sh/uv/getting-started/installation/) (one line, no Python prerequisite — `uv` ships its own Python toolchain):
 
