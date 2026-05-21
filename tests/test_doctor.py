@@ -46,3 +46,22 @@ def test_python_version_module_marker_used_in_tests() -> None:
     # Sanity guard: the doctor's sumo-qa version probe relies on the
     # interpreter that installed sumo-qa being the one running pytest.
     assert sys.version_info >= (3, 10)
+
+
+# ---------------------------------------------------------------------------
+# Check: python_version
+# ---------------------------------------------------------------------------
+
+
+def test_check_python_version_reports_interpreter_and_package() -> None:
+    from importlib.metadata import version as _pkg_version
+
+    result = doctor.check_python_version()
+    assert result.check_id == "python_version"
+    assert result.status == "OK"
+    py = ".".join(str(p) for p in sys.version_info[:3])
+    assert py in result.summary
+    assert _pkg_version("sumo-qa") in result.summary
+    assert result.fix is None
+    assert result.details["python_version"] == py
+    assert result.details["sumo_qa_version"] == _pkg_version("sumo-qa")

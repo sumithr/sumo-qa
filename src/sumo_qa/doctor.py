@@ -18,7 +18,10 @@ the installer's existing test suite passing unchanged across this change.
 
 from __future__ import annotations
 
+import sys as _sys
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from typing import Literal
 
 Status = Literal["OK", "WARN", "FAIL"]
@@ -40,6 +43,28 @@ class CheckResult:
     summary: str
     fix: str | None = None
     details: dict = field(default_factory=dict)
+
+
+def check_python_version() -> CheckResult:
+    """Report the interpreter version and the installed sumo-qa package version.
+
+    Always ``OK`` — Python <3.10 is rejected by pyproject.toml's
+    ``requires-python = ">=3.10"`` before this script can even import, so
+    the check is a disclosure not a gate. The two strings end up in install
+    bug reports and let support distinguish "user is on the wrong Python"
+    from "user is on a stale sumo-qa".
+    """
+    py = ".".join(str(p) for p in _sys.version_info[:3])
+    try:
+        pkg = _pkg_version("sumo-qa")
+    except PackageNotFoundError:  # pragma: no cover -- defensive; not pip-installed
+        pkg = "unknown (not installed via pip)"
+    return CheckResult(
+        check_id="python_version",
+        status="OK",
+        summary=f"Python {py}; sumo-qa {pkg}",
+        details={"python_version": py, "sumo_qa_version": pkg},
+    )
 
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover -- wired in Task 11
