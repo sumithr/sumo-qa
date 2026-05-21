@@ -30,23 +30,76 @@ WORKFLOWS = sorted((Path(__file__).resolve().parents[1] / ".github" / "workflows
 
 @pytest.mark.parametrize("workflow", WORKFLOWS, ids=lambda p: p.name)
 def test_no_unguarded_fromjson_on_step_outputs(workflow: Path) -> None:
-    """Every `fromJSON(steps.*)` call must be preceded by an `&&` short-circuit
-    guard on the same expression — otherwise an empty step output crashes
-    template validation (PR #131 regression)."""
-    pattern = re.compile(r"fromJSON\(steps\.")
+    """Every `fromJSON(steps.<id>.outputs.<name>)` call must be guarded by an
+    `&&` short-circuit on the SAME `steps.<id>.outputs.<name>` value — not just
+    by any `&&` on the line. A guard on a different expression (e.g.
+    `github.ref == 'refs/heads/main' && fromJSON(steps.x.outputs.y)`) still
+    lets `fromJSON('')` execute when the left predicate is true and the step
+    output is empty (PR #131 regression, codex P2 follow-up)."""
+    fromjson_pattern = re.compile(r"fromJSON\((steps\.[\w-]+\.outputs\.[\w-]+)[^)]*\)")
     offenders: list[tuple[int, str]] = []
     for lineno, raw in enumerate(workflow.read_text(encoding="utf-8").splitlines(), 1):
-        match = pattern.search(raw)
-        if not match:
-            continue
-        before = raw[: match.start()]
-        if "&&" not in before:
-            offenders.append((lineno, raw.strip()))
+        for match in fromjson_pattern.finditer(raw):
+            step_path = match.group(1)
+            # Required guard: literal `<step_path> && fromJSON(<step_path>`.
+            # The repeated path is what makes the short-circuit actually skip
+            # the fromJSON call when the step output is empty.
+            guard = re.compile(rf"{re.escape(step_path)}\s*&&\s*fromJSON\({re.escape(step_path)}")
+            if not guard.search(raw):
+                offenders.append((lineno, raw.strip()))
+                break  # one offender per line is enough
     assert not offenders, (
-        f"{workflow.name}: unguarded `fromJSON(steps.*)` — wrap with "
-        f"`(steps.X.outputs.Y && fromJSON(steps.X.outputs.Y).field) || ''`:\n"
+        f"{workflow.name}: `fromJSON(steps.X.outputs.Y)` not guarded by "
+        f"`steps.X.outputs.Y && fromJSON(steps.X.outputs.Y...)` on the same line. "
+        f"An `&&` on a different expression doesn't short-circuit the empty-output "
+        f"case. Wrap with `(steps.X.outputs.Y && fromJSON(steps.X.outputs.Y).field) || ''`:\n"
         + "\n".join(f"  L{n}: {line}" for n, line in offenders)
     )
+
+
+def _run_fromjson_lint(workflow_text: str) -> list[tuple[int, str]]:
+    """Re-implement the check against arbitrary YAML text for self-testing.
+    Kept in sync with test_no_unguarded_fromjson_on_step_outputs above."""
+    fromjson_pattern = re.compile(r"fromJSON\((steps\.[\w-]+\.outputs\.[\w-]+)[^)]*\)")
+    offenders: list[tuple[int, str]] = []
+    for lineno, raw in enumerate(workflow_text.splitlines(), 1):
+        for match in fromjson_pattern.finditer(raw):
+            step_path = match.group(1)
+            guard = re.compile(rf"{re.escape(step_path)}\s*&&\s*fromJSON\({re.escape(step_path)}")
+            if not guard.search(raw):
+                offenders.append((lineno, raw.strip()))
+                break
+    return offenders
+
+
+def test_fromjson_lint_rejects_unrelated_guard() -> None:
+    """Self-test of the lint logic: an `&&` on an unrelated expression (e.g.
+    `github.ref`) must NOT count as a guard for `fromJSON(steps.x.outputs.y)`.
+    Codex P2 finding on PR #133 — the original lint accepted this shape as a
+    false negative."""
+    yaml = (
+        "ref: ${{ github.ref == 'refs/heads/main' && "
+        "fromJSON(steps.release.outputs.pr).headBranchName }}\n"
+    )
+    assert _run_fromjson_lint(yaml), "unrelated-guard form should be flagged"
+
+
+def test_fromjson_lint_accepts_matching_guard() -> None:
+    """Self-test: the canonical guarded form
+    `(steps.X.outputs.Y && fromJSON(steps.X.outputs.Y).field) || ''`
+    must be accepted."""
+    yaml = (
+        "ref: ${{ (steps.release.outputs.pr && "
+        "fromJSON(steps.release.outputs.pr).headBranchName) || '' }}\n"
+    )
+    assert not _run_fromjson_lint(yaml), "canonical guarded form should be accepted"
+
+
+def test_fromjson_lint_rejects_no_guard() -> None:
+    """Self-test: a raw `fromJSON(steps.X.outputs.Y)` with no `&&` at all is
+    flagged (the PR #131 bug we shipped)."""
+    yaml = "ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}\n"
+    assert _run_fromjson_lint(yaml), "unguarded form should be flagged"
 
 
 @pytest.mark.parametrize("workflow", WORKFLOWS, ids=lambda p: p.name)
