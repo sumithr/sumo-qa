@@ -109,7 +109,20 @@ def test_claude_code_template_required_fields(plugin):
     assert out["license"] == "Apache-2.0"
     assert out["keywords"] == ["qa", "tdd"]
     assert out["mcpServers"] == "./.mcp.json"
-    assert out["hooks"] == "./hooks/hooks.json"
+
+
+def test_claude_code_template_omits_hooks_pointer(plugin):
+    """Claude Code auto-discovers `hooks/hooks.json` at the standard path
+    and rejects manifest-level pointers to it as duplicates (surfaces as a
+    "Duplicate hooks file detected" error in `/plugin`). The manifest
+    should only reference non-standard hook files; sumo-qa has none, so
+    the `hooks` key must be absent."""
+    out = claude_code.render(plugin)
+    assert "hooks" not in out, (
+        "Manifest must NOT reference hooks/hooks.json — Claude Code "
+        "auto-loads it from the standard path and treats the manifest "
+        "pointer as a duplicate-file error."
+    )
 
 
 def test_codex_template_required_fields(plugin):

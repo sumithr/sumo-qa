@@ -1,6 +1,6 @@
 {
   "files": {
-    ".claude-plugin/plugin.json": "58acfaa3ee31f683bdeb81f14324c28304505e03ba3a364879f24843b092e8c3",
+    ".claude-plugin/plugin.json": "ab515eb691c69655ddbd3d5f109314320fa9e6c699acb9bad448fe9e788c480d",
     ".codex-plugin/plugin.json": "3ec07c4f1a99cef0da020232ca2c7406bb76f9d3a69110389909019ed80720f8",
     ".mcp.json": "a7b8d1a7539b36b432bb9ef9529caf0f6422e6c835c1cfbe6db03b01548a7e5b",
     "docs/host-adapters.md": "c87bb0540666584fca59b097fd85266ce611ed301f9e0b162e969e8f1ddee51b",
