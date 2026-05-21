@@ -18,6 +18,7 @@ the installer's existing test suite passing unchanged across this change.
 
 from __future__ import annotations
 
+import argparse
 import collections
 import json
 import os
@@ -720,6 +721,149 @@ def check_install_mode(module_dir: _Path | None = None) -> CheckResult:
     )
 
 
-def main(argv: list[str] | None = None) -> int:  # pragma: no cover -- wired in Task 11
-    """Stub. Filled in by the CLI surface task."""
-    return 0
+# Stable host names exposed via ``--host``. Kept narrow on purpose: doctor's
+# job is to validate what the installer would write to, not advertise every
+# imaginable MCP-capable surface.
+_HOST_CHOICES: tuple[str, ...] = ("claude-code", "claude-desktop", "vscode", "jetbrains")
+
+
+def _resolve_mcp_command() -> McpCommand:
+    """Mirror ``installer._install_mcp_binary``'s resolution without printing.
+
+    The installer prints its choice (good UX during install); doctor never
+    prints from the resolver — every line of output goes through the
+    renderer, so callers can swap human / JSON without re-coupling.
+    """
+    existing = shutil.which("sumo-qa")
+    if existing is not None:
+        return McpCommand(command=str(_Path(existing).resolve()), args=[])
+    return McpCommand(command=_sys.executable, args=["-m", "sumo_qa"])
+
+
+def _collect_checks(
+    *,
+    workspace: _Path,
+    host_filter: str | None,
+) -> list[CheckResult]:
+    """Run every check (or just the host-filtered subset) in a fixed order.
+
+    Environment → install mode → binary → MCP handshake → tools/list →
+    per-host configs. The ordering matches the user's mental model: "is my
+    environment OK?" before "is my host registered?".
+    """
+    out: list[CheckResult] = [
+        check_python_version(),
+        check_install_mode(),
+        check_binary_discoverable(),
+    ]
+    handshake, tools = run_mcp_probe(_resolve_mcp_command())
+    out.extend([handshake, tools])
+    if host_filter in (None, "claude-code"):
+        out.append(check_claude_code_config())
+    if host_filter in (None, "claude-desktop"):
+        out.append(check_claude_desktop_config())
+    if host_filter in (None, "vscode"):
+        out.append(check_vscode_workspace_config(workspace=workspace))
+        out.append(check_vscode_user_misleading(workspace=workspace))
+    if host_filter in (None, "jetbrains"):
+        out.append(check_jetbrains_detection())
+    return out
+
+
+def _render_human(results: list[CheckResult]) -> str:
+    """Render results as a plain-text report.
+
+    One line per check, followed by an indented ``Fix:`` line where one is
+    set. Trailing summary line carries the OK / WARN / FAIL counts so a
+    fast scroll-to-bottom is enough to see overall health.
+    """
+    lines: list[str] = []
+    counts = {"OK": 0, "WARN": 0, "FAIL": 0}
+    for r in results:
+        counts[r.status] += 1
+        lines.append(f"[{r.status}] {r.check_id} — {r.summary}")
+        if r.fix:
+            lines.append(f"      Fix: {r.fix}")
+    lines.append("")
+    lines.append(f"Summary: {counts['OK']} OK, {counts['WARN']} WARN, {counts['FAIL']} FAIL")
+    return "\n".join(lines) + "\n"
+
+
+def _render_json(results: list[CheckResult]) -> str:
+    """Render results as a JSON document.
+
+    Schema is internal until sumo-qa 1.0 — ``schema_version`` is "0" so
+    downstream integrations can detect a future stable contract. Don't
+    treat the absence of a stable contract as a contract.
+    """
+    counts = {"OK": 0, "WARN": 0, "FAIL": 0}
+    serialised: list[dict] = []
+    for r in results:
+        counts[r.status] += 1
+        serialised.append(
+            {
+                "check_id": r.check_id,
+                "status": r.status,
+                "summary": r.summary,
+                "fix": r.fix,
+                "details": r.details,
+            }
+        )
+    payload = {
+        "schema_version": "0",  # internal — subject to change before sumo-qa 1.0
+        "summary": {
+            "ok": counts["OK"],
+            "warn": counts["WARN"],
+            "fail": counts["FAIL"],
+        },
+        "checks": serialised,
+    }
+    return json.dumps(payload, indent=2) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Entry point for ``sumo-qa-doctor`` and ``python -m sumo_qa.doctor``.
+
+    Exit code: 1 when any check reports ``FAIL``; 0 otherwise. ``WARN``
+    does not fail the run — WARN is informational ("you have dead config
+    sitting around"); FAIL is the actionable severity ("install is broken").
+    """
+    parser = argparse.ArgumentParser(
+        prog="sumo-qa-doctor",
+        description=(
+            "Run read-only diagnostics on the local sumo-qa install. Reports "
+            "the state of every check and prints exact fix commands for "
+            "failures. Never writes to disk."
+        ),
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Emit JSON instead of human-readable output. The schema is internal until sumo-qa 1.0."
+        ),
+    )
+    parser.add_argument(
+        "--host",
+        choices=_HOST_CHOICES,
+        default=None,
+        help="Limit host-specific checks to a single host.",
+    )
+    parser.add_argument(
+        "--workspace",
+        type=_Path,
+        default=None,
+        help=(
+            "Workspace root for VS Code's .vscode/mcp.json check. Defaults "
+            "to the current directory."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    workspace = args.workspace.resolve() if args.workspace else _Path.cwd().resolve()
+    results = _collect_checks(workspace=workspace, host_filter=args.host)
+
+    rendered = _render_json(results) if args.json else _render_human(results)
+    _sys.stdout.write(rendered)
+
+    return 1 if any(r.status == "FAIL" for r in results) else 0

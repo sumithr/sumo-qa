@@ -12,6 +12,8 @@ import queue as _queue
 import sys
 from collections.abc import Iterable
 
+import pytest
+
 from sumo_qa import doctor
 
 # ---------------------------------------------------------------------------
@@ -313,6 +315,29 @@ def test_run_mcp_probe_no_tools_list_response(monkeypatch) -> None:
     assert tools.status == "FAIL"
 
 
+def test_run_mcp_probe_initialize_error_envelope_string(monkeypatch) -> None:
+    # ``error`` is not always an object — defensive arm: bare string err.
+    bad = json.dumps({"jsonrpc": "2.0", "id": 1, "error": "boom"}) + "\n"
+    proc = _FakeProc([bad])
+    monkeypatch.setattr(doctor.subprocess, "Popen", lambda *a, **k: proc)
+
+    handshake, _ = doctor.run_mcp_probe(_mcp_cmd())
+    assert handshake.status == "FAIL"
+    assert "boom" in handshake.summary
+
+
+def test_run_mcp_probe_clean_exit_without_response(monkeypatch) -> None:
+    # Server exits with code 0 having said nothing — distinguishes the
+    # "no_response" arm (vs the "nonzero_exit" arm covered above).
+    proc = _FakeProc([], exited=True, exit_code=0)
+    monkeypatch.setattr(doctor.subprocess, "Popen", lambda *a, **k: proc)
+    monkeypatch.setattr(doctor, "_HANDSHAKE_TIMEOUT_SECONDS", 0.2)
+
+    handshake, _ = doctor.run_mcp_probe(_mcp_cmd())
+    assert handshake.status == "FAIL"
+    assert handshake.details["kind"] == "no_response"
+
+
 # ---------------------------------------------------------------------------
 # Check: claude_code_config
 # ---------------------------------------------------------------------------
@@ -502,6 +527,222 @@ def test_check_claude_desktop_config_unreadable(tmp_path, monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# CLI surface: main(), argparse, renderers
+# ---------------------------------------------------------------------------
+
+
+def _stub_results(*specs):
+    """Build a list of CheckResults from (status, summary, fix?) tuples."""
+    out = []
+    for spec in specs:
+        if len(spec) == 2:
+            check_id, status = spec
+            out.append(doctor.CheckResult(check_id, status, f"{check_id} ok"))
+        elif len(spec) == 3:
+            check_id, status, fix = spec
+            out.append(doctor.CheckResult(check_id, status, f"{check_id} body", fix=fix))
+        else:
+            check_id, status, fix, details = spec
+            out.append(
+                doctor.CheckResult(check_id, status, f"{check_id} body", fix=fix, details=details)
+            )
+    return out
+
+
+def test_main_exits_zero_when_all_ok(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.setattr(
+        doctor,
+        "_collect_checks",
+        lambda **kw: _stub_results(("c1", "OK"), ("c2", "OK")),
+    )
+    code = doctor.main(["--workspace", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "[OK]" in out
+    assert "c1" in out and "c2" in out
+
+
+def test_main_exits_one_when_any_fail(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.setattr(
+        doctor,
+        "_collect_checks",
+        lambda **kw: _stub_results(("c1", "OK"), ("c2", "FAIL", "run X")),
+    )
+    code = doctor.main(["--workspace", str(tmp_path)])
+    assert code == 1
+
+
+def test_main_exits_zero_with_warn_only(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        doctor,
+        "_collect_checks",
+        lambda **kw: _stub_results(("c1", "WARN", "optional")),
+    )
+    code = doctor.main(["--workspace", str(tmp_path)])
+    assert code == 0
+
+
+def test_main_human_renders_fix_line_for_failures(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.setattr(
+        doctor,
+        "_collect_checks",
+        lambda **kw: _stub_results(("c2", "FAIL", "run X")),
+    )
+    doctor.main(["--workspace", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "[FAIL]" in out
+    assert "Fix: run X" in out
+
+
+def test_main_summary_line_includes_counts(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.setattr(
+        doctor,
+        "_collect_checks",
+        lambda **kw: _stub_results(
+            ("c1", "OK"), ("c2", "OK"), ("c3", "WARN", "x"), ("c4", "FAIL", "y")
+        ),
+    )
+    doctor.main(["--workspace", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "2 OK" in out
+    assert "1 WARN" in out
+    assert "1 FAIL" in out
+
+
+def test_main_json_output_parses(monkeypatch, capsys, tmp_path) -> None:
+    monkeypatch.setattr(
+        doctor,
+        "_collect_checks",
+        lambda **kw: _stub_results(("c1", "OK"), ("c2", "FAIL", "run X", {"k": "v"})),
+    )
+    code = doctor.main(["--json", "--workspace", str(tmp_path)])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert payload["summary"]["fail"] == 1
+    assert payload["summary"]["ok"] == 1
+    assert payload["checks"][1]["check_id"] == "c2"
+    assert payload["checks"][1]["status"] == "FAIL"
+    assert payload["checks"][1]["fix"] == "run X"
+    assert payload["checks"][1]["details"]["k"] == "v"
+    assert code == 1
+
+
+def test_main_host_filter_claude_code(monkeypatch, tmp_path) -> None:
+    captured = {}
+
+    def fake_collect(*, workspace, host_filter):
+        captured["host_filter"] = host_filter
+        captured["workspace"] = workspace
+        return []
+
+    monkeypatch.setattr(doctor, "_collect_checks", fake_collect)
+    doctor.main(["--host", "claude-code", "--workspace", str(tmp_path)])
+    assert captured["host_filter"] == "claude-code"
+    assert captured["workspace"] == tmp_path.resolve()
+
+
+def test_main_rejects_invalid_host(tmp_path) -> None:
+    with pytest.raises(SystemExit):
+        doctor.main(["--host", "bogus", "--workspace", str(tmp_path)])
+
+
+def test_main_no_workspace_defaults_to_cwd(monkeypatch, tmp_path) -> None:
+    captured = {}
+
+    def fake_collect(*, workspace, host_filter):
+        captured["workspace"] = workspace
+        return []
+
+    monkeypatch.setattr(doctor, "_collect_checks", fake_collect)
+    monkeypatch.chdir(tmp_path)
+    doctor.main([])
+    assert captured["workspace"] == tmp_path.resolve()
+
+
+def test_collect_checks_uses_filter(monkeypatch) -> None:
+    # Make every per-host check return a sentinel record. Verifies the host
+    # filter actually narrows the list rather than just labelling.
+    def stub(name, **kw):
+        return doctor.CheckResult(name, "OK", f"{name} stub")
+
+    monkeypatch.setattr(doctor, "check_python_version", lambda: stub("python_version"))
+    monkeypatch.setattr(doctor, "check_install_mode", lambda: stub("install_mode"))
+    monkeypatch.setattr(doctor, "check_binary_discoverable", lambda: stub("binary_discoverable"))
+    monkeypatch.setattr(
+        doctor,
+        "run_mcp_probe",
+        lambda cmd: (
+            doctor.CheckResult("mcp_handshake", "OK", "stub"),
+            doctor.CheckResult("tools_list_complete", "OK", "stub"),
+        ),
+    )
+    monkeypatch.setattr(doctor, "check_claude_code_config", lambda: stub("claude_code_config"))
+    monkeypatch.setattr(
+        doctor, "check_claude_desktop_config", lambda: stub("claude_desktop_config")
+    )
+    monkeypatch.setattr(
+        doctor, "check_vscode_workspace_config", lambda workspace: stub("vscode_workspace_config")
+    )
+    monkeypatch.setattr(
+        doctor, "check_vscode_user_misleading", lambda workspace: stub("vscode_user_misleading")
+    )
+    monkeypatch.setattr(doctor, "check_jetbrains_detection", lambda: stub("jetbrains_detection"))
+
+    from pathlib import Path as _PathTest
+
+    ids = [
+        r.check_id for r in doctor._collect_checks(workspace=_PathTest("/tmp"), host_filter=None)
+    ]
+    assert "claude_code_config" in ids
+    assert "claude_desktop_config" in ids
+    assert "vscode_workspace_config" in ids
+    assert "vscode_user_misleading" in ids
+    assert "jetbrains_detection" in ids
+
+    ids_cc = [
+        r.check_id
+        for r in doctor._collect_checks(workspace=_PathTest("/tmp"), host_filter="claude-code")
+    ]
+    assert "claude_code_config" in ids_cc
+    assert "claude_desktop_config" not in ids_cc
+    assert "vscode_workspace_config" not in ids_cc
+    assert "jetbrains_detection" not in ids_cc
+
+    ids_vs = [
+        r.check_id
+        for r in doctor._collect_checks(workspace=_PathTest("/tmp"), host_filter="vscode")
+    ]
+    assert "vscode_workspace_config" in ids_vs
+    assert "vscode_user_misleading" in ids_vs
+    assert "claude_code_config" not in ids_vs
+
+    ids_jb = [
+        r.check_id
+        for r in doctor._collect_checks(workspace=_PathTest("/tmp"), host_filter="jetbrains")
+    ]
+    assert "jetbrains_detection" in ids_jb
+    assert "claude_code_config" not in ids_jb
+
+
+def test_resolve_mcp_command_uses_path(monkeypatch, tmp_path) -> None:
+    fake = tmp_path / "sumo-qa"
+    fake.write_text("#")
+    fake.chmod(0o755)
+    monkeypatch.setattr(
+        doctor.shutil, "which", lambda name: str(fake) if name == "sumo-qa" else None
+    )
+    cmd = doctor._resolve_mcp_command()
+    assert cmd.command == str(fake.resolve())
+    assert cmd.args == []
+
+
+def test_resolve_mcp_command_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    cmd = doctor._resolve_mcp_command()
+    assert cmd.args == ["-m", "sumo_qa"]
+
+
+# ---------------------------------------------------------------------------
 # Check: vscode_workspace_config
 # ---------------------------------------------------------------------------
 
@@ -547,6 +788,41 @@ def test_check_vscode_workspace_config_malformed(tmp_path) -> None:
     result = doctor.check_vscode_workspace_config(workspace=tmp_path)
     assert result.status == "FAIL"
     assert "mcp.json" in result.summary
+
+
+def test_check_vscode_workspace_config_unreadable(tmp_path, monkeypatch) -> None:
+    from pathlib import Path as _PathTest
+
+    vscode = tmp_path / ".vscode"
+    vscode.mkdir()
+    cfg = vscode / "mcp.json"
+    cfg.write_text(json.dumps({"servers": {}}))
+
+    real_read = _PathTest.read_text
+
+    def boom(self, *a, **k):
+        if self == cfg:
+            raise PermissionError("nope")
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(_PathTest, "read_text", boom)
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+    assert result.status == "FAIL"
+    assert "permission" in result.summary.lower() or "unreadable" in result.summary.lower()
+
+
+def test_check_vscode_workspace_config_non_string_command(tmp_path) -> None:
+    # Defensive: command is a non-string value (e.g. accidentally written as
+    # an int or list). The stale-binary check must still trip cleanly.
+    vscode = tmp_path / ".vscode"
+    vscode.mkdir()
+    (vscode / "mcp.json").write_text(
+        json.dumps({"servers": {"sumo-qa": {"type": "stdio", "command": 42}}})
+    )
+
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+    assert result.status == "FAIL"
+    assert "stale" in result.summary.lower() or "not resolve" in result.summary.lower()
 
 
 def test_check_vscode_workspace_config_no_sumo_qa_entry(tmp_path) -> None:
