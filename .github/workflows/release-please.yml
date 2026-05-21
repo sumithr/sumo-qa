@@ -51,7 +51,7 @@ jobs:
         if: ${{ steps.release.outputs.pr }}
         uses: actions/checkout@v4
         with:
-          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          ref: ${{ (steps.release.outputs.pr && fromJSON(steps.release.outputs.pr).headBranchName) || '' }}
           # PAT so the follow-up push triggers required status checks
           # on the release PR (same reasoning as the action's `token:`).
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
@@ -68,7 +68,7 @@ jobs:
         env:
           # Read action outputs via env to avoid inline ${{ }} expansion
           # in run: blocks (workflow-injection-safe pattern).
-          HEAD_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          HEAD_BRANCH: ${{ (steps.release.outputs.pr && fromJSON(steps.release.outputs.pr).headBranchName) || '' }}
         run: |
           set -euo pipefail
           python -m pip install --quiet -e ".[dev]"
