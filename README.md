@@ -48,6 +48,8 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
 
 Restart your host or open a fresh chat afterwards.
 
+> **Plugin install requires `uv`** (Astral's package runner; one-line installer, no Python prerequisite). See [INSTALL.md#prerequisite-uv](docs/INSTALL.md#prerequisite-uv).
+
 ### Something not working?
 
 ```bash

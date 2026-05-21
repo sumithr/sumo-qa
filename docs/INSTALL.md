@@ -61,7 +61,7 @@ The default run covers thirteen checks:
 sumo-qa supports two install flows; doctor covers both:
 
 - **pip install** (canonical) — `pip install sumo-qa && sumo-qa-install` writes per-host JSON configs (`claude_desktop_config.json`, `.vscode/mcp.json`) and symlinks skills into `~/.claude/skills/`. The host-config checks (`claude_code_config`, `claude_desktop_config`, `vscode_workspace_config`) validate this path.
-- **plugin install** — `claude plugin install sumithr/sumo-qa` registers via Claude Code's plugin manager (recorded in `~/.claude/plugins/installed_plugins.json`); `/plugins install sumithr/sumo-qa` does the equivalent in Codex (recorded in `~/.codex/config.toml`). The `claude_code_plugin` and `codex_plugin` checks validate these paths.
+- **plugin install** — `claude plugin install` registers via Claude Code's plugin manager (recorded in `~/.claude/plugins/installed_plugins.json`); `/plugins install` does the equivalent in Codex (recorded in `~/.codex/config.toml`). The `claude_code_plugin` and `codex_plugin` checks validate these paths.
 
 A user can install via either flow (or both — they're additive, not mutually exclusive). Doctor checks each path independently and only FAILs when an active install is genuinely broken.
 
@@ -110,19 +110,11 @@ We haven't verified those host-specific paths end-to-end ourselves, so we don't 
 
 ## Plugin-format install (Claude Code / Codex)
 
-For hosts that consume the `.claude-plugin/` / `.codex-plugin/` manifest formats, `sumo-qa` ships first-class plugin folders that wire everything (skills, hooks, MCP server, doctor) in one command — no `pip install sumo-qa` step required:
-
-```bash
-# Claude Code
-claude plugin install sumithr/sumo-qa
-
-# OpenAI Codex
-/plugins install sumithr/sumo-qa
-```
+For hosts that consume the `.claude-plugin/` / `.codex-plugin/` manifest formats, `sumo-qa` ships first-class plugin folders that wire everything (skills, hooks, MCP server, doctor) in one command — no `pip install sumo-qa` step required.
 
 ### Prerequisite: `uv`
 
-The plugin's `.mcp.json` invokes `uvx` (Astral's package runner) with `--from ${CLAUDE_PLUGIN_ROOT}` — [Anthropic's canonical substitution for plugin-bundled MCP servers](https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers). At runtime Claude Code expands `${CLAUDE_PLUGIN_ROOT}` to the plugin's source directory (the local checkout for `claude --plugin-dir <repo>`, the marketplace cache for `claude plugin install`), and uvx builds + caches the Python package from there.
+The plugin install path requires `uv` (Astral's package runner) on PATH. The plugin's `.mcp.json` invokes `uvx` with `--from ${CLAUDE_PLUGIN_ROOT}` — [Anthropic's canonical substitution for plugin-bundled MCP servers](https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers). At runtime Claude Code expands `${CLAUDE_PLUGIN_ROOT}` to the plugin's source directory (the local checkout for `claude --plugin-dir <repo>`, the marketplace cache for `claude plugin install`), and uvx builds + caches the Python package from there. Without it, the MCP server cannot launch and `sumo_qa_*` tools fail silently.
 
 Install `uv` once via [Astral's official installer](https://docs.astral.sh/uv/getting-started/installation/) (one line, no Python prerequisite — `uv` ships its own Python toolchain):
 
@@ -138,6 +130,16 @@ brew install uv
 ```
 
 After install, `uv --version` should print ≥0.4 and `uvx --version` should resolve. uv caches downloaded wheels under `~/.cache/uv/`, so first MCP-server spawn after `claude plugin install` takes ~5-20s; subsequent spawns are instant.
+
+### Install commands
+
+```bash
+# Claude Code
+claude plugin install sumithr/sumo-qa
+
+# OpenAI Codex
+/plugins install sumithr/sumo-qa
+```
 
 ### Doctor for plugin-install users
 
