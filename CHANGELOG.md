@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/sumithr/sumo-qa/compare/v0.7.0...v0.7.1) (2026-05-21)
+
+
+### Bug Fixes
+
+* **ci:** guard fromJSON against empty release-please output ([#131](https://github.com/sumithr/sumo-qa/issues/131)) ([4bd7919](https://github.com/sumithr/sumo-qa/commit/4bd791908e10b82b55c96a2da088c16c664336d8))
+
 ## [0.7.0](https://github.com/sumithr/sumo-qa/compare/v0.6.5...v0.7.0) (2026-05-21)
 
 
