@@ -57,6 +57,48 @@ def test_mcp_template_shape(plugin):
     }
 
 
+def test_mcp_template_emits_env_when_set():
+    """When the canonical mcp overlay declares env vars, render() includes
+    them in the .mcp.json under the server entry. Pins the contract the
+    plugin install relies on: PYTHONUNBUFFERED=1 reaches the host's
+    spawned MCP server unmodified.
+    """
+    plugin = CanonicalPlugin(
+        name="sumo-qa",
+        version="0.0.1",
+        description="d",
+        license="Apache-2.0",
+        author={"name": "T", "email": "t@t.test"},
+        homepage="https://h.test",
+        repository="https://r.test",
+        display_name="Sumo QA",
+        keywords=(),
+        mcp=McpSpec(
+            server_name="sumo-qa",
+            command="uvx",
+            args=("--from", "git+https://example.test/sumo-qa", "sumo-qa"),
+            transport="stdio",
+            env={"PYTHONUNBUFFERED": "1"},
+        ),
+        hooks=(),
+    )
+
+    out = mcp.render(plugin)
+    entry = out["mcpServers"]["sumo-qa"]
+    assert entry["command"] == "uvx"
+    assert entry["args"] == ["--from", "git+https://example.test/sumo-qa", "sumo-qa"]
+    assert entry["env"] == {"PYTHONUNBUFFERED": "1"}
+
+
+def test_mcp_template_omits_env_when_empty(plugin):
+    """An empty env dict should not appear as a key in the rendered output —
+    keeps the .mcp.json minimal when no env vars are needed and preserves
+    the pre-env shape for plugins that don't use it.
+    """
+    out = mcp.render(plugin)
+    assert "env" not in out["mcpServers"]["sumo-qa"]
+
+
 def test_claude_code_template_required_fields(plugin):
     out = claude_code.render(plugin)
     assert out["$schema"] == "https://json.schemastore.org/claude-code-plugin-manifest.json"
@@ -67,7 +109,20 @@ def test_claude_code_template_required_fields(plugin):
     assert out["license"] == "Apache-2.0"
     assert out["keywords"] == ["qa", "tdd"]
     assert out["mcpServers"] == "./.mcp.json"
-    assert out["hooks"] == "./hooks/hooks.json"
+
+
+def test_claude_code_template_omits_hooks_pointer(plugin):
+    """Claude Code auto-discovers `hooks/hooks.json` at the standard path
+    and rejects manifest-level pointers to it as duplicates (surfaces as a
+    "Duplicate hooks file detected" error in `/plugin`). The manifest
+    should only reference non-standard hook files; sumo-qa has none, so
+    the `hooks` key must be absent."""
+    out = claude_code.render(plugin)
+    assert "hooks" not in out, (
+        "Manifest must NOT reference hooks/hooks.json — Claude Code "
+        "auto-loads it from the standard path and treats the manifest "
+        "pointer as a duplicate-file error."
+    )
 
 
 def test_codex_template_required_fields(plugin):

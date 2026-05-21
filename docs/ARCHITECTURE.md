@@ -83,6 +83,14 @@ Specialty-tool picks are intentionally NOT catalogued. The discipline (declared 
 
 Plus team-loaded `standards/packs/*.yml` and `standards/rules/change_rules.yaml`.
 
+## Degraded mode (MCP server unavailable)
+
+When the MCP server can't launch — most commonly because `uvx` isn't on PATH in the plugin install path — three layers surface the failure (SessionStart hook system-message, `/mcp` failed status, `bin/sumo-qa-doctor` actionable error). What still works and what doesn't is intentionally asymmetric:
+
+- **Skills still load.** They're static markdown read from the plugin's `skills/<name>/SKILL.md` at session start by the plugin loader, totally independent of MCP runtime state. A uv-less user gets the QA discipline scaffolding (Iron Law, approach gates, output economy) even though the tools are dead.
+- **Knowledge catalogues remain readable via filesystem fallback.** The host LLM has Read/Grep tools and the plugin source is on disk (the `--plugin-dir` checkout or the `~/.claude/plugins/cache/...` marketplace copy), so when asked *"list the sumo-qa testing classifications"* the LLM may bypass the dead `sumo_qa_load_classifications` tool and read `knowledge/classifications.md` directly. The data is authoritative (same file the MCP server would have served); the LLM should and does cite the path. This is accepted graceful degradation, not a bug — but skill chains that traverse multiple `sumo_qa_*` tools don't fall back this way.
+- **Compute-style tools genuinely cannot fall back.** `sumo_qa_deciding_approach`, `sumo_qa_finding_test_data`, the install-an-external-skill flow — anything that's logic rather than catalogue lookup — produces no useful output when MCP is down. Failure here is loud and unambiguous; install uv and the user's back online.
+
 ## Host delivery
 
 Different hosts surface MCP entries through different UIs and (in some cases) different config schemas. `sumo-qa-install` (shipped as a console script via `pip install sumo-qa`) handles each correctly; the same MCP server and SKILL.md content reach every host.

@@ -7,7 +7,6 @@
   "description": "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery.",
   "displayName": "Sumo QA",
   "homepage": "https://github.com/sumithr/sumo-qa",
-  "hooks": "./hooks/hooks.json",
   "keywords": [
     "qa",
     "testing",

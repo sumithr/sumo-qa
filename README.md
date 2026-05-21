@@ -48,7 +48,24 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
 
 Restart your host or open a fresh chat afterwards.
 
-Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md). Want to run from a local clone with your team's own standards / knowledge packs editable in place? [docs/INSTALL.md#install-from-a-local-clone](docs/INSTALL.md#install-from-a-local-clone).
+> **Plugin install requires `uv`** (Astral's package runner; one-line installer, no Python prerequisite). See [INSTALL.md#prerequisite-uv](docs/INSTALL.md#prerequisite-uv).
+
+### Something not working?
+
+```bash
+# pip-install path (after `pip install sumo-qa`)
+sumo-qa-doctor                  # or `python -m sumo_qa.doctor` if not on PATH
+
+# plugin-install path (no pip install required) — inside a Claude Code session
+!sumo-qa-doctor                 # the plugin ships bin/sumo-qa-doctor on PATH
+
+# plugin-install path from outside Claude Code
+uvx --from /path/to/plugin/source sumo-qa-doctor
+```
+
+Read-only setup diagnostics — checks Python + sumo-qa version, install mode, the MCP `initialize` + `tools/list` handshake, and every host config the installer touches (Claude Code, Claude Desktop, VS Code workspace, JetBrains detection, Codex plugin). Each failure prints the exact `Fix:` command. `--json` for machine output. Details: [docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor](docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor).
+
+Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md). Want to install from a local clone — to try an unreleased branch or run with your team's standards / knowledge packs editable in place? See [docs/INSTALL.md#install-from-a-local-clone](docs/INSTALL.md#install-from-a-local-clone). For the pip path use `python scripts/dev_install.py`; for the Claude Code plugin path use `claude --plugin-dir /path/to/sumo-qa` ([Anthropic's documented local-dev mode](https://code.claude.com/docs/en/plugins#test-your-plugins-locally)).
 
 ### Verify it's wired
 
@@ -139,7 +156,7 @@ Natural language works everywhere. *"Review my changes"*, *"plan QA for this sto
 
 | Host | Plugin install | Source-of-truth contract |
 |---|---|---|
-| Claude Code | `claude plugin install sumithr/sumo-qa` reads `.claude-plugin/plugin.json` | Schema-validated against the published JSON Schema in CI |
+| Claude Code | `claude plugin install sumithr/sumo-qa` reads `.claude-plugin/plugin.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | Schema-validated against the published JSON Schema in CI |
 | OpenAI Codex | `/plugins install sumithr/sumo-qa` reads `.codex-plugin/plugin.json` | MCP `initialize` handshake smoke in CI (no published schema) |
 
 Adding a new host is one new template under `plugin_packaging/templates/` plus the canonical-source line that describes it. The `plugin-packaging` CI workflow re-runs the generator on every PR and fails if any committed adapter file diverges from the canonical source.

@@ -32,6 +32,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HOOKS_DIR = REPO_ROOT / ".claude" / "hooks"
 
@@ -216,10 +218,29 @@ def test_sumo_qa_validate_is_discoverable_on_path() -> None:
     subprocess.run) wouldn't catch it. This test is the deployment-contract
     check that the binary is actually discoverable on each platform CI covers.
 
+    Skipped when sumo-qa is not pip-installed in the active interpreter
+    (e.g. pre-commit's hook venv uses `pythonpath = ["src"]` instead of
+    pip-installing the project, and the pre-push pytest run happens there
+    — the console-script contract doesn't apply in that mode). Same
+    resilience pattern as ``test_python_version_reports_interpreter_and_package``
+    in tests/test_doctor.py (commit 4d4a19a).
+
     Technique: checklist-based testing — verify the dependency contract from
     `.pre-commit-config.yaml:133` (sumo-qa-validate must be installed) and
     `AGENTS.md` (`pip install sumo-qa` must produce a callable binary).
     """
+    import importlib.metadata as _imd
+
+    try:
+        _imd.version("sumo-qa")
+    except _imd.PackageNotFoundError:
+        pytest.skip(
+            "sumo-qa is not pip-installed in the active interpreter "
+            "(running via PYTHONPATH — e.g. pre-commit's hook venv). The "
+            "console-script discoverability contract only applies to "
+            "pip/uv-installed environments; CI exercises that path."
+        )
+
     resolved = shutil.which("sumo-qa-validate")
     assert resolved is not None, (
         "sumo-qa-validate not on PATH. The validate-on-content-edit hook "

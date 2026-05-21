@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+#
+# `sumo-qa-doctor` wrapper for plugin-install users.
+#
+# When the sumo-qa plugin is enabled, Claude Code adds
+# ${CLAUDE_PLUGIN_ROOT}/bin/ to the Bash tool's PATH per Anthropic's
+# documented `bin/` mechanism
+# (https://code.claude.com/docs/en/plugins-reference#plugin-directory-structure).
+#
+# That puts a plain `sumo-qa-doctor` on PATH inside Claude Code sessions
+# without the user needing a separate `pip install sumo-qa` — the wrapper
+# just delegates to `uvx`, the same package runner the plugin's MCP server
+# uses for ${CLAUDE_PLUGIN_ROOT} substitution.
+#
+# Usage from inside a Claude Code session:
+#   !sumo-qa-doctor
+#   !sumo-qa-doctor --json
+#   !sumo-qa-doctor --host claude-code
+#
+# Outside Claude Code, run the same wrapper directly with CLAUDE_PLUGIN_ROOT
+# pointing at the plugin folder, or invoke `uvx --from <path> sumo-qa-doctor`
+# without the wrapper.
+
+set -euo pipefail
+
+# Resolve the plugin root from this script's own location: the script
+# lives at <plugin-root>/bin/sumo-qa-doctor, so the plugin root is two
+# levels up. Falls through to CLAUDE_PLUGIN_ROOT only if it's set
+# externally — keeps the wrapper functional whether or not Claude Code
+# exposes the variable as an env var to bin/ processes (the docs
+# substitute ${CLAUDE_PLUGIN_ROOT} in .mcp.json / hooks.json but don't
+# explicitly guarantee it's set in the env of bin/ commands).
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+
+if ! command -v uvx >/dev/null 2>&1; then
+    cat >&2 <<'EOF'
+sumo-qa-doctor: `uvx` not on PATH.
+
+The sumo-qa plugin's doctor runs via uv's `uvx` package runner. Install
+uv (>=0.4) once, then re-run:
+
+    # macOS / Linux
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    # Windows (PowerShell)
+    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+    # Homebrew
+    brew install uv
+
+EOF
+    exit 3
+fi
+
+exec uvx --from "${PLUGIN_ROOT}" sumo-qa-doctor "$@"

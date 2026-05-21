@@ -73,6 +73,7 @@ Issues = "https://github.com/sumithr/sumo-qa/issues"
 [project.scripts]
 sumo-qa = "sumo_qa.server:main"
 sumo-qa-install = "sumo_qa.installer:main"
+sumo-qa-doctor = "sumo_qa.doctor:main"
 sumo-qa-validate = "sumo_qa.validate_content:main"
 
 [tool.hatch.build.targets.wheel]
@@ -176,9 +177,32 @@ keywords = ["qa", "testing", "tdd", "mutation-testing", "mcp", "claude-code", "c
 
 [tool.sumo-qa.plugin.mcp]
 server_name = "sumo-qa"
-command = "sumo-qa"
+# Anthropic's canonical pattern for plugin-bundled MCP servers (per
+# https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers) uses
+# the ${CLAUDE_PLUGIN_ROOT} substitution to resolve files inside the
+# plugin's own folder. For Python plugins, uvx --from ${CLAUDE_PLUGIN_ROOT}
+# builds and runs the Python package from that folder — the plugin is
+# genuinely self-contained because the repo IS the plugin (pyproject.toml +
+# src/sumo_qa/ + bundled standards/knowledge/skills/hooks/assets all live
+# at the plugin root).
+#
+# Works identically in both install modes:
+#   - claude --plugin-dir <local-repo>  → ${CLAUDE_PLUGIN_ROOT} = <local-repo>
+#   - claude plugin install <name>      → ${CLAUDE_PLUGIN_ROOT} = the cache dir
+#                                          (= the plugin folder which IS the repo)
+#
+# Users need `uv` (≥0.4) on PATH — documented prerequisite in
+# docs/INSTALL.md, parallel to how `npx` is assumed for Node-based plugins
+# per Anthropic's published MCP docs.
+command = "uvx"
+args = ["--from", "${CLAUDE_PLUGIN_ROOT}", "sumo-qa"]
 transport = "stdio"
-args = []
+
+[tool.sumo-qa.plugin.mcp.env]
+# Anthropic's Python-stdio MCP best practices recommend PYTHONUNBUFFERED=1
+# so the server's JSON-RPC responses aren't held in a stdout buffer waiting
+# for an explicit flush — keeps the handshake latency low and predictable.
+PYTHONUNBUFFERED = "1"
 
 [[tool.sumo-qa.plugin.hooks]]
 event = "SessionStart"

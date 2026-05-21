@@ -1,8 +1,15 @@
 {
   "mcpServers": {
     "sumo-qa": {
-      "args": [],
-      "command": "sumo-qa",
+      "args": [
+        "--from",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "sumo-qa"
+      ],
+      "command": "uvx",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      },
       "type": "stdio"
     }
   }

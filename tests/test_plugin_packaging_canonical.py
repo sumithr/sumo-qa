@@ -141,3 +141,63 @@ command = "sumo-qa"
     )
     with pytest.raises(canonical.CanonicalLoadError, match="version"):
         canonical.load(pyproj)
+
+
+def test_mcp_env_roundtrips_from_pyproject(tmp_path: Path) -> None:
+    """T9 — The mcp overlay supports an optional [mcp.env] map for environment
+    variables the host should set when spawning the MCP server. Anthropic's
+    Python-MCP best practices recommend `PYTHONUNBUFFERED=1`; the overlay
+    must round-trip arbitrary env vars without losing them.
+    """
+    pyproj = _write_pyproject(
+        tmp_path / "pyproject.toml",
+        """\
+[project]
+name = "sumo-qa"
+version = "0.0.1"
+description = "x"
+license = "Apache-2.0"
+
+[tool.sumo-qa.plugin]
+display_name = "Sumo QA"
+
+[tool.sumo-qa.plugin.mcp]
+server_name = "sumo-qa"
+command = "uvx"
+args = ["--from", "git+https://example.test/sumo-qa", "sumo-qa"]
+transport = "stdio"
+
+[tool.sumo-qa.plugin.mcp.env]
+PYTHONUNBUFFERED = "1"
+EXTRA_FLAG = "value"
+""",
+    )
+    plugin = canonical.load(pyproj)
+    assert plugin.mcp.command == "uvx"
+    assert plugin.mcp.args == ("--from", "git+https://example.test/sumo-qa", "sumo-qa")
+    assert plugin.mcp.env == {"PYTHONUNBUFFERED": "1", "EXTRA_FLAG": "value"}
+
+
+def test_mcp_env_defaults_to_empty_dict(tmp_path: Path) -> None:
+    """T10 — Plugins without an [mcp.env] block get an empty env dict (not
+    None), so downstream templates can iterate without a None check.
+    """
+    pyproj = _write_pyproject(
+        tmp_path / "pyproject.toml",
+        """\
+[project]
+name = "sumo-qa"
+version = "0.0.1"
+description = "x"
+license = "Apache-2.0"
+
+[tool.sumo-qa.plugin]
+display_name = "Sumo QA"
+
+[tool.sumo-qa.plugin.mcp]
+server_name = "sumo-qa"
+command = "sumo-qa"
+""",
+    )
+    plugin = canonical.load(pyproj)
+    assert plugin.mcp.env == {}
