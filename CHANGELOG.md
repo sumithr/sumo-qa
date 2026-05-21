@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/sumithr/sumo-qa/compare/v0.6.5...v0.7.0) (2026-05-21)
+
+
+### Features
+
+* **packaging:** host-neutral plugin folders from canonical pyproject source ([#128](https://github.com/sumithr/sumo-qa/issues/128)) ([c75fb2e](https://github.com/sumithr/sumo-qa/commit/c75fb2edb2a4fc409c5af4b50e6bf7af65e0eceb))
+
+
+### Bug Fixes
+
+* **ci:** use actions/checkout for release-please branch regen ([#130](https://github.com/sumithr/sumo-qa/issues/130)) ([fa6d726](https://github.com/sumithr/sumo-qa/commit/fa6d72668614eb71228cd94e4a5a485d437ea56d))
+
 ## [0.6.5](https://github.com/sumithr/sumo-qa/compare/v0.6.4...v0.6.5) (2026-05-20)
 
 
