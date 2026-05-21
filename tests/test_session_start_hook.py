@@ -196,3 +196,37 @@ def test_session_start_warning_appears_before_skill_in_context():
     warning_idx = ctx.find("UVX_WARNING")
     skill_idx = ctx.find("using-sumo-qa")
     assert warning_idx < skill_idx
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Bash hook test not applicable on Windows",
+)
+def test_session_start_emits_user_visible_systemMessage_when_uvx_missing():
+    """`additionalContext` is silent context for the LLM; `systemMessage` is
+    what Claude Code surfaces to the user in the chat UI. The uvx-missing
+    warning must appear in BOTH so the user sees it immediately AND the LLM
+    has the install commands in context if asked."""
+    payload = _run_hook_with_env(uvx_present=False)
+    assert "systemMessage" in payload, (
+        "Hook must emit a top-level `systemMessage` when uvx is missing "
+        "so Claude Code displays a visible warning to the user; "
+        "`additionalContext` alone is silent and the user never sees it."
+    )
+    msg = payload["systemMessage"]
+    assert "uvx" in msg.lower() or "uv" in msg.lower()
+    assert "astral.sh/uv/install.sh" in msg or "brew install uv" in msg
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Bash hook test not applicable on Windows",
+)
+def test_session_start_no_systemMessage_when_uvx_present():
+    """`systemMessage` is for the uvx-missing failure mode only. When uvx is
+    on PATH, the hook must not emit a visible warning."""
+    payload = _run_hook_with_env(uvx_present=True)
+    assert "systemMessage" not in payload, (
+        "systemMessage is for the uvx-missing failure mode only; "
+        "emitting it on every healthy session would be noise."
+    )

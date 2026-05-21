@@ -38,6 +38,7 @@ using_sumo_qa_escaped=$(escape_for_json "$using_sumo_qa_content")
 # (macOS system bash) does not support quoted heredocs inside $() subshells.
 if command -v uvx >/dev/null 2>&1; then
     uvx_warning_escaped=""
+    system_message_escaped=""
 else
     uvx_warning=$(printf '%s\n%s\n\n%s\n    %s\n    %s\n    %s\n    %s\n    %s\n    %s\n\n%s\n%s\n' \
         '<UVX_WARNING>' \
@@ -52,6 +53,18 @@ else
         "Then restart this Claude Code session so the plugin's MCP server is re-spawned." \
         '</UVX_WARNING>')
     uvx_warning_escaped=$(escape_for_json "$uvx_warning")
+
+    # The additionalContext above is silent — Claude reads it but the user
+    # never sees it directly. Emit a separate user-visible systemMessage so
+    # Claude Code surfaces the failure mode in the chat UI immediately at
+    # session start, instead of relying on the LLM to remember to mention it.
+    system_message=$(printf '%s\n\n%s\n  %s\n\nOr: %s\n\n%s' \
+        'sumo-qa plugin: uvx is not on PATH. The plugin MCP server cannot launch and sumo_qa_* tools will fail.' \
+        'Install uv (macOS / Linux):' \
+        'curl -LsSf https://astral.sh/uv/install.sh | sh' \
+        'brew install uv' \
+        'Then restart Claude Code so the plugin MCP server is re-spawned.')
+    system_message_escaped=$(escape_for_json "$system_message")
 fi
 
 # Note: the Sumo-sensei persona is OFF by default. To enable it the user must
@@ -71,13 +84,28 @@ session_context="${uvx_warning_escaped}<EXTREMELY_IMPORTANT>\nYou have sumo-qa: 
 # Uses printf instead of heredoc to work around bash 5.3+ heredoc hang.
 if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
   # Cursor sets CURSOR_PLUGIN_ROOT (may also set CLAUDE_PLUGIN_ROOT)
-  printf '{\n  "additional_context": "%s"\n}\n' "$session_context"
+  if [ -n "$system_message_escaped" ]; then
+    printf '{\n  "systemMessage": "%s",\n  "additional_context": "%s"\n}\n' \
+      "$system_message_escaped" "$session_context"
+  else
+    printf '{\n  "additional_context": "%s"\n}\n' "$session_context"
+  fi
 elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
   # Claude Code sets CLAUDE_PLUGIN_ROOT without COPILOT_CLI
-  printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
+  if [ -n "$system_message_escaped" ]; then
+    printf '{\n  "systemMessage": "%s",\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' \
+      "$system_message_escaped" "$session_context"
+  else
+    printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
+  fi
 else
   # Copilot CLI (sets COPILOT_CLI=1) or unknown platform — SDK standard format
-  printf '{\n  "additionalContext": "%s"\n}\n' "$session_context"
+  if [ -n "$system_message_escaped" ]; then
+    printf '{\n  "systemMessage": "%s",\n  "additionalContext": "%s"\n}\n' \
+      "$system_message_escaped" "$session_context"
+  else
+    printf '{\n  "additionalContext": "%s"\n}\n' "$session_context"
+  fi
 fi
 
 exit 0
