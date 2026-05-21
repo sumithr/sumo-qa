@@ -48,7 +48,7 @@ The default run covers twelve checks:
 4. `mcp_handshake` — JSON-RPC `initialize` handshake against the running server
 5. `tools_list_complete` — all 14 `REQUIRED_TOOL_NAMES` advertised
 6. `claude_code_config` — Claude Code's `claude_desktop_config.json` parseable, points at a resolvable binary
-7. `claude_code_plugin` — detects whether sumo-qa is installed via `claude plugin install` (reads `~/.claude/plugins/installed_plugins.json`); cross-checked with `claude_code_config` so a plugin-install user doesn't get a false FAIL on the pip-install config check
+7. `claude_code_plugin` — detects whether sumo-qa is installed via `claude plugin install` (reads `~/.claude/plugins/installed_plugins.json`); cross-checked with `claude_code_config` so a plugin-install user doesn't get a false FAIL on the pip-install config check. The plugin install is self-contained — its `.mcp.json` invokes `uvx --from git+...` so doctor's `mcp_handshake` + `tools_list_complete` checks also pass via the same uvx-bootstrapped wheel
 8. `claude_desktop_config` — Claude Desktop's separate config path (macOS / Windows / Linux variations)
 9. `codex_plugin` — detects whether sumo-qa is installed via Codex's `/plugins install` (reads `~/.codex/config.toml` for the `[plugins."sumo-qa@<marketplace>"]` section and validates the plugin cache at `~/.codex/plugins/cache/<marketplace>/sumo-qa/`)
 10. `vscode_workspace_config` — `<workspace>/.vscode/mcp.json` parseable, resolvable

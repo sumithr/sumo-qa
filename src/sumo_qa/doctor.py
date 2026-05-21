@@ -561,9 +561,15 @@ def check_claude_code_plugin(home: _Path | None = None) -> CheckResult:
     """Report whether sumo-qa is installed via Claude Code's plugin manager
     (``claude plugin install sumithr/sumo-qa``).
 
-    Plugin install is an alternative to the pip-install path: Claude Code
-    clones the repo, reads ``.claude-plugin/plugin.json``, and registers
-    skills/hooks/MCP servers itself — no per-host config files are written.
+    Plugin install is a self-contained alternative to the pip-install path:
+    Claude Code clones the repo, reads ``.claude-plugin/plugin.json``, and
+    registers skills + hooks + MCP-server config itself. The plugin's
+    ``.mcp.json`` declares ``uvx --from git+https://github.com/sumithr/sumo-qa
+    sumo-qa`` as the server command, so uv fetches and caches the Python
+    package on first MCP spawn — no separate ``pip install sumo-qa`` is
+    required. Users get a fully working install from the single
+    ``claude plugin install`` command (uv is the assumed prerequisite,
+    matching how npx is assumed for Node-based plugins).
 
     Status semantics:
       - OK / "not detected": Claude Code itself isn't on this machine.
