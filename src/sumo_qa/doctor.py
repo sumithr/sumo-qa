@@ -867,3 +867,7 @@ def main(argv: list[str] | None = None) -> int:
     _sys.stdout.write(rendered)
 
     return 1 if any(r.status == "FAIL" for r in results) else 0
+
+
+if __name__ == "__main__":  # pragma: no cover -- main guard for `python -m sumo_qa.doctor`
+    _sys.exit(main())

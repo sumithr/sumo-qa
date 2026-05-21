@@ -8,13 +8,18 @@ in src/sumo_qa/doctor.py; installer.py is never modified.
 from __future__ import annotations
 
 import json
+import os
 import queue as _queue
+import subprocess
 import sys
 from collections.abc import Iterable
+from pathlib import Path
 
 import pytest
 
 from sumo_qa import doctor
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
 # Fake subprocess primitives, shared across MCP handshake tests
@@ -740,6 +745,33 @@ def test_resolve_mcp_command_fallback(monkeypatch) -> None:
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
     cmd = doctor._resolve_mcp_command()
     assert cmd.args == ["-m", "sumo_qa"]
+
+
+def test_doctor_module_form_help_is_path_independent() -> None:
+    """``python -m sumo_qa.doctor --help`` must succeed even when the
+    ``sumo-qa-doctor`` console-script wrapper isn't on PATH.
+
+    Same PATH-proof fallback as installer's ``test_installer_module_help_is_path_independent``.
+    Critical because doctor is the troubleshooting step for "binary not on PATH"
+    — it can't itself require the binary to be on PATH.
+    """
+    src_path = str(_REPO_ROOT / "src")
+    existing = os.environ.get("PYTHONPATH", "")
+    pythonpath = f"{src_path}{os.pathsep}{existing}" if existing else src_path
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "sumo_qa.doctor", "--help"],
+        cwd=str(_REPO_ROOT),
+        env={**os.environ, "PYTHONPATH": pythonpath},
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert proc.returncode == 0
+    assert "--json" in proc.stdout
+    assert "--host" in proc.stdout
+    assert "--workspace" in proc.stdout
 
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,18 @@ sumo-qa-doctor
 
 It's the first troubleshooting step for any host-setup or compatibility issue. The command is **read-only** — it never writes to your config files, never re-runs the installer, and never spawns long-lived processes. Each check prints `[OK]`, `[WARN]`, or `[FAIL]` plus a one-line summary, and every failure includes the exact `Fix:` command to run. Exit code is `1` when any check fails, `0` otherwise.
 
+### How doctor is delivered (and what to do when it isn't on PATH)
+
+`pip install sumo-qa` registers three console scripts — `sumo-qa`, `sumo-qa-install`, and `sumo-qa-doctor` — all in the same wheel. If `pip install` succeeded for the server, the doctor is already installed alongside it. No separate step.
+
+If the `sumo-qa-doctor` script is **not on PATH** (Microsoft-Store Python on Windows, `pip install --user` on Linux without `~/.local/bin` exported, some corporate-managed Python installs), the module-form is the PATH-proof fallback:
+
+```bash
+python -m sumo_qa.doctor
+```
+
+This runs the same code through the interpreter directly — no wrapper script required. It mirrors the same fallback `sumo-qa-install` uses when the Scripts dir isn't on PATH. If `python -m sumo_qa.doctor` also can't find the package, the failure is at the pip / Python level (not a sumo-qa issue) — `python -m pip show sumo-qa` will tell you whether the package is installed at all.
+
 The default run covers ten checks:
 
 1. `python_version` — interpreter + `sumo-qa` package version
