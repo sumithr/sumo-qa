@@ -352,17 +352,17 @@ jobs:
           (adapter / "plugin.json").read_text(encoding="utf-8")  # asserts present
           mcp = json.loads(Path(".mcp.json").read_text(encoding="utf-8"))
           server_name, entry = next(iter(mcp["mcpServers"].items()))
-          args = list(entry.get("args", []))
-          # Substitute the canonical git source with the local checkout so
-          # the test validates THIS branch's code, not whatever's on the
-          # default branch of the public repo. The .mcp.json command
-          # STRUCTURE (uvx + --from + source + entry-point) is still
-          # exercised exactly as a real user would hit it.
+          # Substitute ${CLAUDE_PLUGIN_ROOT} (the canonical plugin-relative
+          # path variable per
+          # https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers)
+          # with the checkout root, mirroring what Claude Code does at
+          # runtime. os.path.expandvars handles both $VAR and ${VAR}.
+          os.environ["CLAUDE_PLUGIN_ROOT"] = os.path.abspath(".")
           args = [
-              "." if a.startswith("git+") and "sumithr/sumo-qa" in a else a
-              for a in args
+              os.path.expandvars(a) if isinstance(a, str) else a
+              for a in entry.get("args", [])
           ]
-          cmd = [entry["command"], *args]
+          cmd = [os.path.expandvars(entry["command"]), *args]
 
           proc = subprocess.Popen(
               cmd,
@@ -452,34 +452,40 @@ jobs:
           powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
           "$env:USERPROFILE\.local\bin" >> $env:GITHUB_PATH
 
-      - name: Verify uvx can resolve sumo-qa from this checkout
-        # The plugin's .mcp.json invokes uvx with --from git+https://...
-        # We simulate the same resolution against the local checkout
-        # (uvx accepts a local path the same way it accepts a git URL).
-        # If uvx can resolve + run sumo-qa, sumo-qa-install, and
-        # sumo-qa-doctor from the source tree, the plugin install path
-        # is self-contained.
-        # No untrusted GitHub event inputs interpolated.
+      - name: Verify uvx can resolve sumo-qa via ${CLAUDE_PLUGIN_ROOT}
+        # The plugin's .mcp.json declares `uvx --from ${CLAUDE_PLUGIN_ROOT}
+        # sumo-qa` per Anthropic's canonical pattern
+        # (https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers).
+        # Mirror the runtime substitution by setting CLAUDE_PLUGIN_ROOT to
+        # the checkout root, then verify uvx can resolve the three console
+        # scripts the package ships. No untrusted GitHub event inputs.
         shell: bash
+        env:
+          CLAUDE_PLUGIN_ROOT: ${{ github.workspace }}
         run: |
-          uvx --from . sumo-qa --help >/dev/null
-          uvx --from . sumo-qa-install --help >/dev/null
-          uvx --from . sumo-qa-doctor --help >/dev/null
+          uvx --from "$CLAUDE_PLUGIN_ROOT" sumo-qa --help >/dev/null
+          uvx --from "$CLAUDE_PLUGIN_ROOT" sumo-qa-install --help >/dev/null
+          uvx --from "$CLAUDE_PLUGIN_ROOT" sumo-qa-doctor --help >/dev/null
 
       - name: Smoke MCP initialize via uvx-spawned server
         # End-to-end: spawn the MCP server via uvx and drive an initialize
         # + tools/list handshake. Confirms the uvx-bootstrap pattern
         # produces a working JSON-RPC server on every OS — catches
         # regressions in the canonical plugin install vector.
+        # Mirrors the runtime ${CLAUDE_PLUGIN_ROOT} substitution Claude
+        # Code performs when reading .mcp.json (Anthropic's canonical
+        # pattern: https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers).
         # No untrusted GitHub event inputs interpolated.
         shell: bash
+        env:
+          CLAUDE_PLUGIN_ROOT: ${{ github.workspace }}
         run: |
           python - <<'PY'
           import json, os, subprocess, sys
           env = os.environ.copy()
           env["PYTHONUNBUFFERED"] = "1"
           proc = subprocess.Popen(
-              ["uvx", "--from", ".", "sumo-qa"],
+              ["uvx", "--from", os.environ["CLAUDE_PLUGIN_ROOT"], "sumo-qa"],
               stdin=subprocess.PIPE,
               stdout=subprocess.PIPE,
               stderr=subprocess.PIPE,
