@@ -71,6 +71,11 @@ body:
         `sumo-qa-doctor --host claude-code`). This pinpoints config drift
         — stale binary paths, malformed mcp.json, missing tools — that the
         host UI otherwise hides. Without it, host-compat triage is guesswork.
+
+        Plugin-install users (no separate pip install) can invoke doctor
+        via `!sumo-qa-doctor --host claude-code` inside a Claude Code
+        session, or `uvx --from /path/to/plugin/source sumo-qa-doctor
+        --host claude-code` from any shell.
       render: shell
     validations:
       required: true

@@ -75,12 +75,21 @@ body:
     attributes:
       label: "`sumo-qa-doctor` output"
       description: |
-        Paste the full output of `sumo-qa-doctor` (run from inside the workspace
-        you installed into). This is the first triage step we run on every
+        Paste the full doctor output (run from inside the workspace you
+        installed into). This is the first triage step we run on every
         install report — without it we're guessing.
 
-        If `sumo-qa-doctor` itself fails to run (e.g. not on PATH after install),
-        say so here and paste the error.
+        Invocation depends on your install path:
+
+        * **pip install** — `sumo-qa-doctor` (or `python -m sumo_qa.doctor`
+          if the script directory isn't on PATH yet).
+        * **Claude Code plugin** — `!sumo-qa-doctor` inside a Claude Code
+          session (the plugin's `bin/` wrapper handles the `uvx` call), or
+          `uvx --from /path/to/plugin/source sumo-qa-doctor` from any shell.
+
+        If `sumo-qa-doctor` itself fails to run (e.g. uvx not installed,
+        binary not on PATH, ModuleNotFoundError), say so here and paste
+        the error verbatim.
       render: shell
     validations:
       required: true
