@@ -1111,6 +1111,15 @@ def test_check_install_mode_defaults_to_actual_module() -> None:
 
 
 def test_check_python_version_reports_interpreter_and_package() -> None:
+    """The check always returns OK with the Python version in the summary.
+
+    The sumo-qa version field is whatever importlib.metadata resolves to in
+    the current environment — pip-installed → a real version string;
+    PYTHONPATH-only (pre-commit hook venv, source checkout) → the
+    ``"unknown (not installed via pip)"`` fallback. We assert both arms
+    are valid rather than locking the test to one specific environment.
+    """
+    from importlib.metadata import PackageNotFoundError
     from importlib.metadata import version as _pkg_version
 
     result = doctor.check_python_version()
@@ -1118,7 +1127,29 @@ def test_check_python_version_reports_interpreter_and_package() -> None:
     assert result.status == "OK"
     py = ".".join(str(p) for p in sys.version_info[:3])
     assert py in result.summary
-    assert _pkg_version("sumo-qa") in result.summary
+    assert "sumo-qa" in result.summary
     assert result.fix is None
     assert result.details["python_version"] == py
-    assert result.details["sumo_qa_version"] == _pkg_version("sumo-qa")
+    try:
+        expected_pkg = _pkg_version("sumo-qa")
+    except PackageNotFoundError:
+        expected_pkg = "unknown (not installed via pip)"
+    assert result.details["sumo_qa_version"] == expected_pkg
+
+
+def test_check_python_version_handles_missing_package_metadata(monkeypatch) -> None:
+    """When ``importlib.metadata.version`` raises (sumo-qa not pip-installed,
+    e.g. running from a clone with only PYTHONPATH set), the check still
+    returns OK with the ``"unknown..."`` placeholder. Exercises the
+    PackageNotFoundError arm pinned by ``# pragma: no cover``-removal.
+    """
+    from importlib.metadata import PackageNotFoundError
+
+    def _raise(_name):
+        raise PackageNotFoundError("sumo-qa")
+
+    monkeypatch.setattr(doctor, "_pkg_version", _raise)
+    result = doctor.check_python_version()
+    assert result.status == "OK"
+    assert "unknown" in result.details["sumo_qa_version"]
+    assert "unknown" in result.summary

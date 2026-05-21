@@ -103,7 +103,11 @@ def check_python_version() -> CheckResult:
     py = ".".join(str(p) for p in _sys.version_info[:3])
     try:
         pkg = _pkg_version("sumo-qa")
-    except PackageNotFoundError:  # pragma: no cover -- defensive; not pip-installed
+    except PackageNotFoundError:
+        # Not pip-installed — running from a source checkout with PYTHONPATH
+        # set (or via the pre-commit hook venv that resolves sumo_qa via
+        # pythonpath rather than installing the wheel). The doctor's job is
+        # to report state, not gate on this — surface the fact and move on.
         pkg = "unknown (not installed via pip)"
     return CheckResult(
         check_id="python_version",
