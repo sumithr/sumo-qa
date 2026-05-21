@@ -48,7 +48,7 @@ The default run covers twelve checks:
 4. `mcp_handshake` — JSON-RPC `initialize` handshake against the running server
 5. `tools_list_complete` — all 14 `REQUIRED_TOOL_NAMES` advertised
 6. `claude_code_config` — Claude Code's `claude_desktop_config.json` parseable, points at a resolvable binary
-7. `claude_code_plugin` — detects whether sumo-qa is installed via `claude plugin install` (reads `~/.claude/plugins/installed_plugins.json`); cross-checked with `claude_code_config` so a plugin-install user doesn't get a false FAIL on the pip-install config check. The plugin install is self-contained — its `.mcp.json` invokes `uvx --from git+...` so doctor's `mcp_handshake` + `tools_list_complete` checks also pass via the same uvx-bootstrapped wheel
+7. `claude_code_plugin` — detects whether sumo-qa is installed via `claude plugin install` (reads `~/.claude/plugins/installed_plugins.json`); cross-checked with `claude_code_config` so a plugin-install user doesn't get a false FAIL on the pip-install config check. The plugin install is self-contained — its `.mcp.json` invokes `uvx --from ${CLAUDE_PLUGIN_ROOT} sumo-qa` ([Anthropic's canonical pattern](https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers)) so doctor's `mcp_handshake` + `tools_list_complete` checks pass via the same uvx-bootstrapped wheel
 8. `claude_desktop_config` — Claude Desktop's separate config path (macOS / Windows / Linux variations)
 9. `codex_plugin` — detects whether sumo-qa is installed via Codex's `/plugins install` (reads `~/.codex/config.toml` for the `[plugins."sumo-qa@<marketplace>"]` section and validates the plugin cache at `~/.codex/plugins/cache/<marketplace>/sumo-qa/`)
 10. `vscode_workspace_config` — `<workspace>/.vscode/mcp.json` parseable, resolvable
@@ -121,7 +121,7 @@ claude plugin install sumithr/sumo-qa
 
 ### Prerequisite: `uv`
 
-The plugin's `.mcp.json` invokes `uvx` (Astral's package runner) to fetch and cache sumo-qa on first MCP-server spawn. `uvx` is treated as an assumed prerequisite for Python stdio MCP plugins — parallel to how Node-based plugins assume `npx`. This pattern mirrors Anthropic's own [serena plugin](https://github.com/oraios/serena), which uses the same `uvx --from git+...` invocation.
+The plugin's `.mcp.json` invokes `uvx` (Astral's package runner) with `--from ${CLAUDE_PLUGIN_ROOT}` — [Anthropic's canonical substitution for plugin-bundled MCP servers](https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers). At runtime Claude Code expands `${CLAUDE_PLUGIN_ROOT}` to the plugin's source directory (the local checkout for `claude --plugin-dir <repo>`, the marketplace cache for `claude plugin install`), and uvx builds + caches the Python package from there. `uvx` is treated as an assumed prerequisite for Python stdio MCP plugins, parallel to how Node-based plugins assume `npx`.
 
 Install `uv` once via [Astral's official installer](https://docs.astral.sh/uv/getting-started/installation/) (one line, no Python prerequisite — `uv` ships its own Python toolchain):
 
