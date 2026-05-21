@@ -63,16 +63,21 @@ python scripts/dev_install.py --help         # full flag matrix
 
 Runs `pip install --upgrade --force-reinstall .` against the active interpreter, then `python -m sumo_qa.installer` (passing through any host flags you provide), then `python -m sumo_qa.doctor`. Bootstraps pip automatically via `ensurepip` when the target venv lacks it (e.g. uv-created venvs). Full write-up: [docs/INSTALL.md#wheel-from-clone-matches-canonical-pypi-install](INSTALL.md#wheel-from-clone-matches-canonical-pypi-install).
 
-**`scripts/dev_plugin_install.py`** — Claude Code plugin path:
+**Claude Code plugin path** — use Claude Code's `--plugin-dir` flag (the [official local-dev mechanism](https://code.claude.com/docs/en/plugins#test-your-plugins-locally)):
 
 ```bash
-python scripts/dev_plugin_install.py           # install / refresh
-python scripts/dev_plugin_install.py --uninstall   # tear down
+claude --plugin-dir /path/to/sumo-qa
 ```
 
-Materialises a local marketplace under `.claude/local-marketplace/` (gitignored), symlinks the repo as the plugin source, runs `claude plugin marketplace add` + `claude plugin install`, then `sumo-qa-doctor --host claude-code` so you can confirm the new `claude_code_plugin` check sees the install. The two scripts can be run together (the plugin install and pip install are additive — doctor reports both as OK).
+That loads the plugin directly from the directory — no marketplace, no install step. `/reload-plugins` inside Claude Code picks up edits without restarting. The plugin's `.mcp.json` uses `${CLAUDE_PLUGIN_ROOT}` so `uvx` resolves the local checkout's Python source — `claude --plugin-dir` invocations run THIS branch's code end-to-end (skills + hooks + MCP server tools).
 
-Reversal: `pip install --upgrade sumo-qa==<previous-version>` restores the PyPI build for the pip path; `python scripts/dev_plugin_install.py --uninstall` tears down the plugin path.
+For the plugin's own doctor, run it the same way `${CLAUDE_PLUGIN_ROOT}` resolves:
+
+```bash
+uvx --from /path/to/sumo-qa sumo-qa-doctor
+```
+
+Reversal: `pip install --upgrade sumo-qa==<previous-version>` restores the PyPI build for the pip path; exit the Claude Code session to drop the `--plugin-dir` plugin.
 
 ## Local verification — automatic via git hooks
 
