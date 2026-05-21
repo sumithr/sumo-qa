@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/sumithr/sumo-qa/compare/v0.7.1...v0.8.0) (2026-05-21)
+
+
+### Features
+
+* **doctor:** add sumo-qa-doctor read-only diagnostics CLI ([#135](https://github.com/sumithr/sumo-qa/issues/135)) ([20c7d2a](https://github.com/sumithr/sumo-qa/commit/20c7d2a9e25df0e26da1b4bda2cd45a3f0661102))
+
 ## [0.7.1](https://github.com/sumithr/sumo-qa/compare/v0.7.0...v0.7.1) (2026-05-21)
 
 
