@@ -212,54 +212,99 @@ def _verify_plugin_install() -> bool:
     return True
 
 
-def _maybe_run_full_doctor(python: str) -> None:
-    """Run the full ``sumo-qa-doctor`` smoke ONLY when the Python package
-    is importable. The dev_install.py script handles the pip-install path
-    that puts ``sumo_qa`` on disk; if the user is testing the plugin path
-    in isolation, ``import sumo_qa`` will fail and we surface that as a
-    clear note rather than crashing.
+def _run_doctor_via_uvx() -> None:
+    """Run sumo-qa-doctor via uvx so plugin-only users get the full doctor
+    output without needing a separate ``pip install`` step.
+
+    The plugin's ``.mcp.json`` declares ``uvx --from git+https://...
+    sumo-qa`` as the MCP server command, so uvx is already an assumed
+    prerequisite for using this plugin. Doctor runs through the same
+    mechanism, just resolving the ``sumo-qa-doctor`` entry point from
+    the same wheel. Source resolves to the local repo so changes in this
+    checkout are picked up; published-branch testing happens via the
+    real ``claude plugin install`` path which uses the canonical git URL.
     """
-    probe = subprocess.run(
-        [python, "-c", "import sumo_qa.doctor"],
-        capture_output=True,
-        check=False,
-    )
-    if probe.returncode != 0:
+    uvx = shutil.which("uvx")
+    if uvx is None:
         print()
         print(
-            "[dev_plugin_install] note: the `sumo_qa` Python package is not "
-            "installed in the active interpreter. The plugin install "
-            "registers skills + hooks + MCP-server configuration, but the "
-            "MCP server itself runs the `sumo-qa` binary from the wheel — "
-            "install that separately with `python scripts/dev_install.py` "
-            "(or `pip install sumo-qa`) for a fully functional setup."
+            "[dev_plugin_install] uvx not on PATH — skipping doctor smoke. "
+            "Install uv (https://docs.astral.sh/uv/getting-started/installation/) "
+            "and re-run; the plugin's MCP server also needs uvx to spawn."
         )
         return
+    source = str(_REPO_ROOT)
     print()
-    print("[dev_plugin_install] sumo_qa package available — running full doctor:")
-    _run([python, "-m", "sumo_qa.doctor", "--host", "claude-code"], check=False)
+    print(f"[dev_plugin_install] running doctor via `uvx --from {source} sumo-qa-doctor`:")
+    _run([uvx, "--from", source, "sumo-qa-doctor", "--host", "claude-code"], check=False)
+
+
+def _verify_uvx_can_resolve_source(source: str) -> None:
+    """Sanity-check that ``uvx --from <source> sumo-qa --help`` resolves
+    cleanly before we tell Claude Code's plugin manager to wire it.
+
+    Catches the missing-uv + invalid-source cases at install time, not
+    at first MCP-spawn (when the failure would be opaque to the user —
+    Claude Code would just report "MCP server failed to start").
+    """
+    uvx = shutil.which("uvx")
+    if uvx is None:
+        print(
+            "[dev_plugin_install] ERROR: uvx not on PATH. The plugin install "
+            "path requires `uv` (>=0.4). Install it via Astral's installer "
+            "(https://docs.astral.sh/uv/getting-started/installation/) and "
+            "re-run.\n\n"
+            "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+        )
+        sys.exit(2)
+    print(f"[dev_plugin_install] verifying uvx can resolve source={source!r}")
+    probe = subprocess.run(
+        [uvx, "--from", source, "sumo-qa", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=180,
+    )
+    if probe.returncode != 0:
+        print(
+            f"[dev_plugin_install] uvx probe failed (exit {probe.returncode}). "
+            f"stderr (first 400 chars):\n{probe.stderr[:400]}"
+        )
+        sys.exit(probe.returncode)
+    print("[dev_plugin_install] uvx probe OK — source resolves cleanly")
 
 
 def install(claude: str) -> None:
     _build_marketplace()
+    # Verify uvx can pull the plugin's Python source BEFORE we register it
+    # with Claude Code. If uvx can't resolve, the plugin install would
+    # succeed at the registry layer and the first MCP-spawn would fail
+    # opaquely — much better to surface that here with a clear error.
+    _verify_uvx_can_resolve_source(str(_REPO_ROOT))
+
     if _marketplace_already_registered(claude):
         print(
-            f"[dev_plugin_install] marketplace {_MARKETPLACE_NAME!r} already registered; refreshing."
+            f"[dev_plugin_install] marketplace {_MARKETPLACE_NAME!r} already "
+            "registered; refreshing."
         )
         _run([claude, "plugin", "marketplace", "update", _MARKETPLACE_NAME])
     else:
         _run([claude, "plugin", "marketplace", "add", str(_MARKETPLACE_DIR)])
     _run([claude, "plugin", "install", f"{_PLUGIN_NAME}@{_MARKETPLACE_NAME}"])
 
-    # First: filesystem-based plugin-install verification. Works even when
-    # the sumo_qa Python package isn't installed — reads the same registry
-    # the doctor's claude_code_plugin check inspects.
+    # Filesystem-based plugin-install verification: confirms the registry
+    # entry, installPath, and plugin.json are all in place. Mirrors what
+    # doctor's claude_code_plugin check inspects — runs even when the
+    # sumo_qa Python package isn't pip-installed.
     print()
     if not _verify_plugin_install():
         sys.exit(2)
-    # Then: optionally run the full Python doctor for the hybrid case
-    # (user has both plugin install and pip install).
-    _maybe_run_full_doctor(sys.executable)
+
+    # Then: full doctor via uvx so plugin-only users see the same output a
+    # pip-install user would see. Replaces the previous "skip if not
+    # importable" fallback — now that uvx makes sumo-qa-doctor reachable
+    # via the same wheel the plugin spawns, doctor is no longer pip-exclusive.
+    _run_doctor_via_uvx()
 
 
 def uninstall(claude: str) -> None:
