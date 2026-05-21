@@ -52,7 +52,10 @@ __all__ = [
     "check_claude_code_config",
     "check_claude_desktop_config",
     "check_install_mode",
+    "check_jetbrains_detection",
     "check_python_version",
+    "check_vscode_user_misleading",
+    "check_vscode_workspace_config",
     "main",
     "run_mcp_probe",
 ]
@@ -505,6 +508,157 @@ def check_claude_desktop_config(
         not_installed_predicate=not config_path.parent.exists(),
         install_flag="--claude-desktop",
         config_schema_key="mcpServers",
+    )
+
+
+def check_vscode_workspace_config(workspace: _Path) -> CheckResult:
+    """Verify ``<workspace>/.vscode/mcp.json`` is present, parseable, and
+    its sumo-qa entry points at a resolvable binary.
+
+    VS Code's MCP config schema differs from Claude's — the top-level key
+    is ``servers`` (not ``mcpServers``) and each entry includes a ``type``
+    field. We tolerate either shape on read; ``servers`` wins when both
+    are present so the canonical VS Code-native layout is preferred.
+    """
+    config_path = workspace / ".vscode" / "mcp.json"
+    install_flag = f"--vscode --workspace {workspace}"
+    if not config_path.exists():
+        return CheckResult(
+            check_id="vscode_workspace_config",
+            status="FAIL",
+            summary=f"{config_path} missing — VS Code workspace not initialised",
+            fix=f"Run `sumo-qa-install {install_flag}` to write the config.",
+        )
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return CheckResult(
+            check_id="vscode_workspace_config",
+            status="FAIL",
+            summary=(
+                f"{config_path} unreadable (permission/OS error: {exc.__class__.__name__}: {exc})"
+            ),
+            fix=f"Fix the permissions on {config_path}.",
+        )
+    try:
+        config = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return CheckResult(
+            check_id="vscode_workspace_config",
+            status="FAIL",
+            summary=(f"{config_path} is not valid JSON ({exc.msg} at line {exc.lineno})"),
+            fix=(f"Re-run `sumo-qa-install {install_flag}` to overwrite the corrupt config."),
+        )
+    entry = (config.get("servers") or config.get("mcpServers") or {}).get("sumo-qa")
+    if entry is None or not isinstance(entry, dict):
+        return CheckResult(
+            check_id="vscode_workspace_config",
+            status="FAIL",
+            summary=f"{config_path} has no `sumo-qa` entry under `servers`",
+            fix=f"Run `sumo-qa-install {install_flag}` to register the server.",
+        )
+    if not _server_entry_resolves(entry):
+        return CheckResult(
+            check_id="vscode_workspace_config",
+            status="FAIL",
+            summary=(
+                f"{config_path} points at a binary that does not resolve "
+                f"({entry.get('command')!r}) — stale config"
+            ),
+            fix=f"Run `sumo-qa-install {install_flag}` to refresh the binary path.",
+        )
+    return CheckResult(
+        check_id="vscode_workspace_config",
+        status="OK",
+        summary=f"{config_path} registers sumo-qa at {entry.get('command')}",
+        details={"config_path": str(config_path), "command": entry.get("command")},
+    )
+
+
+def check_vscode_user_misleading(
+    home: _Path | None = None,
+    workspace: _Path | None = None,
+) -> CheckResult:
+    """WARN when ``~/.vscode/mcp.json`` exists alongside a workspace-level
+    config. VS Code does NOT read the user-level file — it looks like
+    configuration but does nothing, which is a common support gotcha.
+    """
+    h = home or _Path.home()
+    ws = workspace or _Path.cwd()
+    user_cfg = h / ".vscode" / "mcp.json"
+    if not user_cfg.exists():
+        return CheckResult(
+            check_id="vscode_user_misleading",
+            status="OK",
+            summary=(
+                "no user-level ~/.vscode/mcp.json present — workspace-level is the right location"
+            ),
+        )
+    return CheckResult(
+        check_id="vscode_user_misleading",
+        status="WARN",
+        summary=(
+            f"{user_cfg} exists but VS Code only reads .vscode/mcp.json from a "
+            "workspace root — that user-level file is dead config"
+        ),
+        fix=(
+            f"Delete {user_cfg} and run `sumo-qa-install --vscode --workspace {ws}` "
+            "from inside your project — the workspace-level config is the one "
+            "VS Code uses."
+        ),
+        details={"user_config": str(user_cfg), "workspace": str(ws)},
+    )
+
+
+def check_jetbrains_detection(
+    home: _Path | None = None,
+    system: str | None = None,
+) -> CheckResult:
+    """Report whether any supported JetBrains IDE is installed.
+
+    The plugin requires manual UI-add (see ``installer._setup_intellij``
+    history note) so this check is always ``OK`` — informational. When a
+    JetBrains IDE is detected, the ``fix`` carries the exact Settings-UI
+    steps the user should follow.
+    """
+    h = home or _Path.home()
+    sys_name = system or _platform.system()
+    if sys_name == "Darwin":
+        jb_root = h / "Library" / "Application Support" / "JetBrains"
+    elif sys_name == "Windows":  # pragma: no cover -- platform-conditional
+        jb_root = _Path(os.environ.get("APPDATA", "")) / "JetBrains"
+    else:
+        jb_root = h / ".config" / "JetBrains"
+    if not jb_root.exists():
+        return CheckResult(
+            check_id="jetbrains_detection",
+            status="OK",
+            summary="JetBrains IDE not detected on this machine",
+        )
+    ide_dirs = [
+        p
+        for p in jb_root.iterdir()
+        if p.is_dir()
+        and any(p.name.startswith(prefix) for prefix in _installer._JB_IDE_PREFIXES)
+        and (p / "options").exists()
+    ]
+    if not ide_dirs:
+        return CheckResult(
+            check_id="jetbrains_detection",
+            status="OK",
+            summary=(f"JetBrains config root {jb_root} found but no supported IDE installation"),
+        )
+    names = sorted(p.name for p in ide_dirs)
+    return CheckResult(
+        check_id="jetbrains_detection",
+        status="OK",
+        summary=(f"detected JetBrains IDE(s): {', '.join(names)} — manual MCP setup required"),
+        fix=(
+            "Open Settings -> Tools -> AI Assistant -> Model Context Protocol, "
+            "click + Add server, Name: sumo-qa, Command: <sumo-qa binary>, "
+            "Arguments: leave empty."
+        ),
+        details={"detected": names, "jetbrains_root": str(jb_root)},
     )
 
 

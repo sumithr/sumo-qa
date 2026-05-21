@@ -502,6 +502,181 @@ def test_check_claude_desktop_config_unreadable(tmp_path, monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Check: vscode_workspace_config
+# ---------------------------------------------------------------------------
+
+
+def test_check_vscode_workspace_config_missing(tmp_path) -> None:
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+    assert result.check_id == "vscode_workspace_config"
+    assert result.status == "FAIL"
+    assert ".vscode/mcp.json" in result.summary or "mcp.json" in result.summary
+    assert result.fix is not None and "sumo-qa-install" in result.fix
+
+
+def test_check_vscode_workspace_config_present_and_resolvable(tmp_path) -> None:
+    vscode = tmp_path / ".vscode"
+    vscode.mkdir()
+    fake_binary = tmp_path / "bin" / "sumo-qa"
+    fake_binary.parent.mkdir()
+    fake_binary.write_text("#!/bin/sh\nexit 0\n")
+    fake_binary.chmod(0o755)
+    (vscode / "mcp.json").write_text(
+        json.dumps(
+            {
+                "servers": {
+                    "sumo-qa": {
+                        "type": "stdio",
+                        "command": str(fake_binary),
+                        "args": [],
+                    }
+                }
+            }
+        )
+    )
+
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+    assert result.status == "OK"
+
+
+def test_check_vscode_workspace_config_malformed(tmp_path) -> None:
+    vscode = tmp_path / ".vscode"
+    vscode.mkdir()
+    (vscode / "mcp.json").write_text("{not json")
+
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+    assert result.status == "FAIL"
+    assert "mcp.json" in result.summary
+
+
+def test_check_vscode_workspace_config_no_sumo_qa_entry(tmp_path) -> None:
+    vscode = tmp_path / ".vscode"
+    vscode.mkdir()
+    (vscode / "mcp.json").write_text(json.dumps({"servers": {}}))
+
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+    assert result.status == "FAIL"
+    assert "sumo-qa" in result.summary
+
+
+def test_check_vscode_workspace_config_stale_binary(tmp_path) -> None:
+    vscode = tmp_path / ".vscode"
+    vscode.mkdir()
+    (vscode / "mcp.json").write_text(
+        json.dumps(
+            {
+                "servers": {
+                    "sumo-qa": {
+                        "type": "stdio",
+                        "command": str(tmp_path / "no_such"),
+                        "args": [],
+                    }
+                }
+            }
+        )
+    )
+
+    result = doctor.check_vscode_workspace_config(workspace=tmp_path)
+    assert result.status == "FAIL"
+    assert "stale" in result.summary.lower() or "not resolve" in result.summary.lower()
+
+
+def test_check_vscode_workspace_config_path_with_spaces(tmp_path) -> None:
+    # Windows-style "Program Files" path-with-spaces coverage.
+    workspace = tmp_path / "Workspace With Spaces"
+    workspace.mkdir()
+    vscode = workspace / ".vscode"
+    vscode.mkdir()
+    fake_binary = tmp_path / "Program Files" / "sumo-qa.exe"
+    fake_binary.parent.mkdir()
+    fake_binary.write_text("#!/bin/sh\nexit 0\n")
+    fake_binary.chmod(0o755)
+    (vscode / "mcp.json").write_text(
+        json.dumps(
+            {
+                "servers": {
+                    "sumo-qa": {
+                        "type": "stdio",
+                        "command": str(fake_binary),
+                        "args": [],
+                    }
+                }
+            }
+        )
+    )
+
+    result = doctor.check_vscode_workspace_config(workspace=workspace)
+    assert result.status == "OK"
+    # The fix-command in any failure case must quote the workspace path
+    # — we just check the OK summary embeds the spaced path correctly.
+    assert "Workspace With Spaces" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# Check: vscode_user_misleading
+# ---------------------------------------------------------------------------
+
+
+def test_check_vscode_user_misleading_absent(tmp_path) -> None:
+    result = doctor.check_vscode_user_misleading(home=tmp_path, workspace=tmp_path / "ws")
+    assert result.check_id == "vscode_user_misleading"
+    assert result.status == "OK"
+
+
+def test_check_vscode_user_misleading_present_warn(tmp_path) -> None:
+    user_dir = tmp_path / ".vscode"
+    user_dir.mkdir()
+    (user_dir / "mcp.json").write_text(json.dumps({"servers": {}}))
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+
+    result = doctor.check_vscode_user_misleading(home=tmp_path, workspace=workspace)
+    assert result.status == "WARN"
+    assert "user" in result.summary.lower() and "workspace" in result.summary.lower()
+    assert result.fix is not None
+
+
+# ---------------------------------------------------------------------------
+# Check: jetbrains_detection
+# ---------------------------------------------------------------------------
+
+
+def test_check_jetbrains_detection_no_config_root(tmp_path) -> None:
+    result = doctor.check_jetbrains_detection(home=tmp_path, system="Linux")
+    assert result.check_id == "jetbrains_detection"
+    assert result.status == "OK"
+    assert "not detected" in result.summary.lower()
+
+
+def test_check_jetbrains_detection_present(tmp_path) -> None:
+    jb = tmp_path / ".config" / "JetBrains" / "IntelliJIdea2026.1" / "options"
+    jb.mkdir(parents=True)
+
+    result = doctor.check_jetbrains_detection(home=tmp_path, system="Linux")
+    assert result.status == "OK"
+    assert "IntelliJIdea" in result.summary
+    # Manual-setup hint — UI add isn't auto-configurable.
+    assert result.fix is not None and "Settings" in result.fix
+
+
+def test_check_jetbrains_detection_config_root_but_no_supported_ide(tmp_path) -> None:
+    # Root exists but no supported IDE installation under it.
+    (tmp_path / ".config" / "JetBrains").mkdir(parents=True)
+    result = doctor.check_jetbrains_detection(home=tmp_path, system="Linux")
+    assert result.status == "OK"
+    assert "no supported" in result.summary.lower() or "no IDE" in result.summary.lower()
+
+
+def test_check_jetbrains_detection_darwin(tmp_path) -> None:
+    jb = tmp_path / "Library" / "Application Support" / "JetBrains" / "PyCharm2026.1" / "options"
+    jb.mkdir(parents=True)
+
+    result = doctor.check_jetbrains_detection(home=tmp_path, system="Darwin")
+    assert result.status == "OK"
+    assert "PyCharm" in result.summary
+
+
+# ---------------------------------------------------------------------------
 # Check: binary_discoverable
 # ---------------------------------------------------------------------------
 
