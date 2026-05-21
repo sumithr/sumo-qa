@@ -88,20 +88,53 @@ def _build_marketplace() -> None:
         .claude/local-marketplace/
             .claude-plugin/marketplace.json
             plugins/
-                sumo-qa  ->  <repo-root>  (symlink)
+                sumo-qa/
+                    .claude-plugin/   (real copy from <repo>/.claude-plugin/)
+                    .mcp.json         (real copy from <repo>/.mcp.json)
+                    skills/           (real copy from <repo>/skills/)
+                    hooks/            (real copy from <repo>/hooks/)
 
-    Idempotent: overwrites marketplace.json, re-points the symlink. We
-    re-write the manifest each run so the ``version`` field stays in
-    sync with whatever pyproject's `[project] version` is set to.
+    Two design constraints drive the real-file copy (not symlinks):
+
+    1. Claude Code refuses to follow symlinks during plugin install
+       (observed empirically — symlinked plugin dirs install cleanly at
+       the registry layer but the cache stays empty). Need real files.
+    2. The marketplace lives inside the repo (``.claude/local-marketplace/``
+       is gitignored). A repo-root symlink at ``plugins/sumo-qa`` would
+       create an infinite recursion (.claude/local-marketplace/plugins/
+       sumo-qa/.claude/local-marketplace/...). Even with per-subdir
+       symlinks, copying real files is simpler.
+
+    We copy only the four entries the plugin actually needs (.claude-plugin/,
+    .mcp.json, skills/, hooks/) — no .venv/, no .claude/, no mutants/, no
+    build artefacts. The marketplace dir stays small.
+
+    Idempotent: wipes plugins/<name>/ and rebuilds it each run so the
+    contents stay in lock-step with the live repo and stale files from a
+    previous version don't linger.
     """
     _MARKETPLACE_DIR.mkdir(parents=True, exist_ok=True)
     (_MARKETPLACE_DIR / ".claude-plugin").mkdir(exist_ok=True)
     plugins_dir = _MARKETPLACE_DIR / "plugins"
     plugins_dir.mkdir(exist_ok=True)
-    plugin_symlink = plugins_dir / _PLUGIN_NAME
-    if plugin_symlink.is_symlink() or plugin_symlink.exists():
-        plugin_symlink.unlink()
-    plugin_symlink.symlink_to(_REPO_ROOT, target_is_directory=True)
+    plugin_dir = plugins_dir / _PLUGIN_NAME
+    # Tear down any prior state — symlink (old broken layout), real
+    # directory (current layout), or stale file.
+    if plugin_dir.is_symlink():
+        plugin_dir.unlink()
+    elif plugin_dir.is_dir():
+        shutil.rmtree(plugin_dir)
+    elif plugin_dir.exists():
+        plugin_dir.unlink()
+    plugin_dir.mkdir()
+    # Copy the four entries Claude Code needs.
+    for entry in (".claude-plugin", ".mcp.json", "skills", "hooks"):
+        source = _REPO_ROOT / entry
+        dest = plugin_dir / entry
+        if source.is_dir():
+            shutil.copytree(source, dest, symlinks=False)
+        else:
+            shutil.copy2(source, dest)
 
     # Read the canonical version from pyproject so the marketplace entry
     # advertises the same version the wheel build would carry.
@@ -130,7 +163,7 @@ def _build_marketplace() -> None:
     manifest_path = _MARKETPLACE_DIR / ".claude-plugin" / "marketplace.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"[dev_plugin_install] wrote {manifest_path}")
-    print(f"[dev_plugin_install] symlinked {plugin_symlink} -> {_REPO_ROOT}")
+    print(f"[dev_plugin_install] copied plugin sources into {plugin_dir}")
 
 
 def _read_project_version() -> str:
