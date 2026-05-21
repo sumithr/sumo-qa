@@ -131,6 +131,8 @@ brew install uv
 
 After install, `uv --version` should print ≥0.4 and `uvx --version` should resolve. uv caches downloaded wheels under `~/.cache/uv/`, so first MCP-server spawn after `claude plugin install` takes ~5-20s; subsequent spawns are instant.
 
+> **Important:** the installer appends a PATH update to your shell rc (`~/.zshrc` or `~/.bashrc`). That only takes effect in **new** shells — the terminal you ran the installer in does not have the updated PATH until you `source ~/.zshrc` (or open a fresh tab). Claude Code locks its environment at process launch, so if you install uv with Claude Code already running, you must `/quit`, open a fresh terminal where `which uvx` resolves, and relaunch — `/reload-plugins` is not enough.
+
 ### Install commands
 
 ```bash
