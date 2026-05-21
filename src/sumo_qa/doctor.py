@@ -23,6 +23,7 @@ import collections
 import json
 import os
 import platform as _platform
+import shlex
 import shutil
 import subprocess
 import sys as _sys
@@ -526,7 +527,11 @@ def check_vscode_workspace_config(workspace: _Path) -> CheckResult:
     are present so the canonical VS Code-native layout is preferred.
     """
     config_path = workspace / ".vscode" / "mcp.json"
-    install_flag = f"--vscode --workspace {workspace}"
+    # Shell-quote the workspace path so the printed Fix command stays
+    # copy-pasteable when the workspace contains spaces or shell metachars
+    # (e.g. "/Users/me/My Project"). Without this, the shell splits on the
+    # space and argparse rejects the trailing tokens.
+    install_flag = f"--vscode --workspace {shlex.quote(str(workspace))}"
     if not config_path.exists():
         return CheckResult(
             check_id="vscode_workspace_config",
@@ -606,10 +611,12 @@ def check_vscode_user_misleading(
             f"{user_cfg} exists but VS Code only reads .vscode/mcp.json from a "
             "workspace root — that user-level file is dead config"
         ),
+        # Shell-quote both paths so spaces in $HOME or workspace don't break
+        # the copy-paste flow (same fix as vscode_workspace_config above).
         fix=(
-            f"Delete {user_cfg} and run `sumo-qa-install --vscode --workspace {ws}` "
-            "from inside your project — the workspace-level config is the one "
-            "VS Code uses."
+            f"Delete {shlex.quote(str(user_cfg))} and run `sumo-qa-install "
+            f"--vscode --workspace {shlex.quote(str(ws))}` from inside your "
+            "project — the workspace-level config is the one VS Code uses."
         ),
         details={"user_config": str(user_cfg), "workspace": str(ws)},
     )

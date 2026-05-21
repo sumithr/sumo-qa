@@ -935,6 +935,29 @@ def test_check_vscode_workspace_config_stale_binary(tmp_path) -> None:
     assert "stale" in result.summary.lower() or "not resolve" in result.summary.lower()
 
 
+def test_check_vscode_workspace_config_fix_quotes_workspace_with_spaces(tmp_path) -> None:
+    """Workspace paths with spaces must be shell-quoted in fix commands so
+    users can copy-paste them as-is. Pins the codex P2 finding on
+    PR #135 — without quoting, ``sumo-qa-install --vscode --workspace
+    /path with spaces`` splits on whitespace and argparse rejects the
+    trailing tokens.
+    """
+    import shlex
+
+    workspace = tmp_path / "My Workspace"
+    workspace.mkdir()
+    # No .vscode/mcp.json → FAIL with the workspace-init fix command.
+    result = doctor.check_vscode_workspace_config(workspace=workspace)
+    assert result.status == "FAIL"
+    assert result.fix is not None
+    # The Fix command must contain the workspace path in shell-quoted form.
+    # ``shlex.quote`` wraps paths containing spaces in single quotes; the
+    # raw unquoted path must NOT appear separately in the fix line.
+    quoted = shlex.quote(str(workspace))
+    assert "'" in quoted, "guard: shlex.quote should single-quote a path with spaces"
+    assert quoted in result.fix
+
+
 def test_check_vscode_workspace_config_path_with_spaces(tmp_path) -> None:
     # Windows-style "Program Files" path-with-spaces coverage.
     workspace = tmp_path / "Workspace With Spaces"
@@ -988,6 +1011,31 @@ def test_check_vscode_user_misleading_present_warn(tmp_path) -> None:
     assert result.status == "WARN"
     assert "user" in result.summary.lower() and "workspace" in result.summary.lower()
     assert result.fix is not None
+
+
+def test_check_vscode_user_misleading_fix_quotes_paths_with_spaces(tmp_path) -> None:
+    """Both the user-config path (passed to ``Delete``) and the workspace
+    path (passed to ``--workspace``) must be shell-quoted in the fix so
+    a user with a spaced $HOME or workspace can copy-paste cleanly.
+    Companion guard to ``...workspace_config_fix_quotes_workspace_with_spaces``.
+    """
+    import shlex
+
+    home = tmp_path / "Home With Spaces"
+    home.mkdir()
+    user_dir = home / ".vscode"
+    user_dir.mkdir()
+    user_cfg = user_dir / "mcp.json"
+    user_cfg.write_text(json.dumps({"servers": {}}))
+    workspace = tmp_path / "My Workspace"
+    workspace.mkdir()
+
+    result = doctor.check_vscode_user_misleading(home=home, workspace=workspace)
+    assert result.status == "WARN"
+    assert result.fix is not None
+    # Both paths must appear shell-quoted in the fix.
+    assert shlex.quote(str(user_cfg)) in result.fix
+    assert shlex.quote(str(workspace)) in result.fix
 
 
 # ---------------------------------------------------------------------------
