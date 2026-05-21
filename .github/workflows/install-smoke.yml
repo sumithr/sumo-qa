@@ -61,14 +61,46 @@ jobs:
         # `shell: bash` makes this step work uniformly on Windows
         # (git-bash, preinstalled on windows-latest), macOS, and Linux
         # — so `command -v` resolves the same way everywhere. Verifies
-        # BOTH entry points declared in pyproject.toml ([project.scripts])
-        # so a Windows .exe wrapper regression on either is caught.
+        # every entry point declared in pyproject.toml ([project.scripts])
+        # so a Windows .exe wrapper regression on any of them is caught.
+        # No untrusted GitHub event inputs are interpolated in this step.
         shell: bash
         run: |
           command -v sumo-qa
           sumo-qa --help >/dev/null
           command -v sumo-qa-install
           sumo-qa-install --help >/dev/null
+          command -v sumo-qa-doctor
+          sumo-qa-doctor --help >/dev/null
+
+      - name: Smoke sumo-qa-doctor end-to-end
+        # Real doctor invocation against a fresh wheel install on each OS.
+        # Unit tests cover the logic; this catches regressions specific to
+        # the install vector — e.g. a hatch packaging bug that drops the
+        # console-script wrapper, or a Windows-specific Path / shutil.which
+        # interaction the unit tests can't reach.
+        #
+        # Two assertions:
+        #   1. Plain run produces structured output (every line starts with
+        #      [OK]/[WARN]/[FAIL] + a Summary footer). Exit code is NOT
+        #      gated — a fresh runner has no host configs so some FAILs are
+        #      expected; we only assert doctor itself runs cleanly.
+        #   2. --json output parses and carries the documented top-level
+        #      shape (schema_version + summary + checks).
+        #
+        # No untrusted GitHub event inputs are interpolated in this step.
+        shell: bash
+        run: |
+          set +e
+          sumo-qa-doctor > doctor.out
+          set -e
+          test -s doctor.out
+          grep -q "^\[OK\]\|^\[WARN\]\|^\[FAIL\]" doctor.out
+          grep -q "^Summary:" doctor.out
+          sumo-qa-doctor --json > doctor.json
+          python -c "import json; d = json.load(open('doctor.json')); assert d['schema_version'] == '0'; assert 'summary' in d and 'checks' in d; assert isinstance(d['checks'], list); assert len(d['checks']) >= 6, d"
+          # Module-form fallback must also work — same wheel, no wrapper.
+          python -m sumo_qa.doctor --help >/dev/null
 
       - name: Smoke sumo-qa-install --claude-code
         # Claude Code host-wiring path contains the Windows-specific branches in
