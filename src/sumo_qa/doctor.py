@@ -22,7 +22,10 @@ import sys as _sys
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
+from pathlib import Path as _Path
 from typing import Literal
+
+from sumo_qa import installer as _installer
 
 Status = Literal["OK", "WARN", "FAIL"]
 
@@ -64,6 +67,33 @@ def check_python_version() -> CheckResult:
         status="OK",
         summary=f"Python {py}; sumo-qa {pkg}",
         details={"python_version": py, "sumo_qa_version": pkg},
+    )
+
+
+def check_install_mode(module_dir: _Path | None = None) -> CheckResult:
+    """Disclose whether sumo-qa is running from a built wheel or an editable
+    install. Always ``OK`` — drives the "I edited skills/X but the change
+    isn't visible" support flow.
+
+    Mirrors ``installer._detect_install_mode`` without exiting on a missing
+    repo root: doctor reports the live state, it never fixes anything, so a
+    half-installed layout produces a diagnostic, not ``sys.exit``.
+    """
+    md = module_dir if module_dir is not None else _Path(_installer.__file__).resolve().parent
+    bundled = md / "_data" / "skills"
+    if bundled.is_dir():
+        return CheckResult(
+            check_id="install_mode",
+            status="OK",
+            summary=f"wheel install (bundled skills at {bundled})",
+            details={"mode": "wheel", "skills_path": str(bundled)},
+        )
+    repo_root = md.parent.parent
+    return CheckResult(
+        check_id="install_mode",
+        status="OK",
+        summary=f"editable install (skills/ under {repo_root})",
+        details={"mode": "editable", "skills_path": str(repo_root / "skills")},
     )
 
 

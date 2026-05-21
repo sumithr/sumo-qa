@@ -53,6 +53,52 @@ def test_python_version_module_marker_used_in_tests() -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Check: install_mode
+# ---------------------------------------------------------------------------
+
+
+def test_check_install_mode_editable(tmp_path) -> None:
+    # Editable layout: skills/ at repo root, no bundled _data/skills/.
+    module_dir = tmp_path / "src" / "sumo_qa"
+    module_dir.mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text("[project]\n")
+    (tmp_path / "skills").mkdir()
+
+    result = doctor.check_install_mode(module_dir=module_dir)
+    assert result.check_id == "install_mode"
+    assert result.status == "OK"
+    assert "editable" in result.summary.lower()
+    assert result.details["mode"] == "editable"
+    assert result.details["skills_path"] == str(tmp_path / "skills")
+
+
+def test_check_install_mode_wheel(tmp_path) -> None:
+    # Wheel layout: bundled skills inside the module directory.
+    module_dir = tmp_path / "site-packages" / "sumo_qa"
+    bundled = module_dir / "_data" / "skills"
+    bundled.mkdir(parents=True)
+
+    result = doctor.check_install_mode(module_dir=module_dir)
+    assert result.status == "OK"
+    assert "wheel" in result.summary.lower()
+    assert result.details["mode"] == "wheel"
+    assert result.details["skills_path"] == str(bundled)
+
+
+def test_check_install_mode_defaults_to_actual_module() -> None:
+    # Smoke: with no arg, checks the live install and returns one of the
+    # known modes. The doctor's own runtime should classify cleanly.
+    result = doctor.check_install_mode()
+    assert result.status == "OK"
+    assert result.details["mode"] in {"wheel", "editable"}
+
+
+# ---------------------------------------------------------------------------
+# Check: python_version
+# ---------------------------------------------------------------------------
+
+
 def test_check_python_version_reports_interpreter_and_package() -> None:
     from importlib.metadata import version as _pkg_version
 
