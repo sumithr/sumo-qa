@@ -54,6 +54,40 @@ def test_python_version_module_marker_used_in_tests() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Check: binary_discoverable
+# ---------------------------------------------------------------------------
+
+
+def test_check_binary_discoverable_on_path(monkeypatch, tmp_path) -> None:
+    fake_binary = tmp_path / "sumo-qa"
+    fake_binary.write_text("#!/bin/sh\nexit 0\n")
+    fake_binary.chmod(0o755)
+    monkeypatch.setattr(
+        doctor.shutil, "which", lambda name: str(fake_binary) if name == "sumo-qa" else None
+    )
+
+    result = doctor.check_binary_discoverable()
+    assert result.check_id == "binary_discoverable"
+    assert result.status == "OK"
+    assert "PATH" in result.summary
+    assert result.details["mode"] == "path"
+    assert result.details["binary_path"] == str(fake_binary.resolve())
+    assert result.fix is None
+
+
+def test_check_binary_discoverable_fallback_to_module(monkeypatch) -> None:
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+
+    result = doctor.check_binary_discoverable()
+    # Module-form is a supported invocation — OK, not FAIL.
+    assert result.status == "OK"
+    assert "python -m sumo_qa" in result.summary or "-m sumo_qa" in result.summary
+    assert result.details["mode"] == "module"
+    # A fix is offered for hosts that strictly need a binary path.
+    assert result.fix is not None
+
+
+# ---------------------------------------------------------------------------
 # Check: install_mode
 # ---------------------------------------------------------------------------
 

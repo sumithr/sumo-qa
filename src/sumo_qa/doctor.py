@@ -18,6 +18,7 @@ the installer's existing test suite passing unchanged across this change.
 
 from __future__ import annotations
 
+import shutil
 import sys as _sys
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError
@@ -67,6 +68,37 @@ def check_python_version() -> CheckResult:
         status="OK",
         summary=f"Python {py}; sumo-qa {pkg}",
         details={"python_version": py, "sumo_qa_version": pkg},
+    )
+
+
+def check_binary_discoverable() -> CheckResult:
+    """Report whether the ``sumo-qa`` console-script wrapper is on ``PATH``,
+    or if we're falling back to ``python -m sumo_qa``.
+
+    ``OK`` either way — both are supported invocations. The fallback path
+    emits a non-``None`` ``fix`` so hosts that strictly need a binary
+    (some JetBrains UI add flows, niche corporate proxies that won't accept
+    a Python interpreter as the MCP command) get an actionable command.
+    """
+    existing = shutil.which("sumo-qa")
+    if existing is not None:
+        resolved = str(_Path(existing).resolve())
+        return CheckResult(
+            check_id="binary_discoverable",
+            status="OK",
+            summary=f"sumo-qa on PATH at {resolved}",
+            details={"mode": "path", "binary_path": resolved},
+        )
+    return CheckResult(
+        check_id="binary_discoverable",
+        status="OK",
+        summary=(f"sumo-qa not on PATH; falling back to `{_sys.executable} -m sumo_qa`"),
+        fix=(
+            "Add your pip Scripts directory to PATH, or re-install via "
+            "`python -m pip install --user sumo-qa` and confirm `which sumo-qa` "
+            "resolves."
+        ),
+        details={"mode": "module", "interpreter": _sys.executable},
     )
 
 
