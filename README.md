@@ -147,7 +147,7 @@ Natural language works everywhere. *"Review my changes"*, *"plan QA for this sto
 
 | Host | Plugin install | Source-of-truth contract |
 |---|---|---|
-| Claude Code | `claude plugin install sumithr/sumo-qa` reads `.claude-plugin/plugin.json` | Schema-validated against the published JSON Schema in CI |
+| Claude Code | `claude plugin install sumithr/sumo-qa` reads `.claude-plugin/plugin.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | Schema-validated against the published JSON Schema in CI |
 | OpenAI Codex | `/plugins install sumithr/sumo-qa` reads `.codex-plugin/plugin.json` | MCP `initialize` handshake smoke in CI (no published schema) |
 
 Adding a new host is one new template under `plugin_packaging/templates/` plus the canonical-source line that describes it. The `plugin-packaging` CI workflow re-runs the generator on every PR and fails if any committed adapter file diverges from the canonical source.

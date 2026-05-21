@@ -109,7 +109,7 @@ We haven't verified those host-specific paths end-to-end ourselves, so we don't 
 
 ## Plugin-format install (Claude Code / Codex)
 
-For hosts that consume the `.claude-plugin/` / `.codex-plugin/` manifest formats, `sumo-qa` ships first-class plugin folders that wire everything (skills, hooks, MCP server) in one command — no `pip install` required:
+For hosts that consume the `.claude-plugin/` / `.codex-plugin/` manifest formats, `sumo-qa` ships first-class plugin folders that wire everything (skills, hooks, MCP server, doctor) in one command — no `pip install sumo-qa` step required:
 
 ```bash
 # Claude Code
@@ -119,9 +119,40 @@ claude plugin install sumithr/sumo-qa
 /plugins install sumithr/sumo-qa
 ```
 
-Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) and validated in CI against the published Claude Code JSON Schema plus an MCP `initialize` handshake for Codex. See [host-adapters.md](host-adapters.md) for the architecture.
+### Prerequisite: `uv`
 
-The `pip install` path remains the primary distribution channel for Claude Desktop, VS Code, and JetBrains — those hosts don't consume plugin manifests.
+The plugin's `.mcp.json` invokes `uvx` (Astral's package runner) to fetch and cache sumo-qa on first MCP-server spawn. `uvx` is treated as an assumed prerequisite for Python stdio MCP plugins — parallel to how Node-based plugins assume `npx`. This pattern mirrors Anthropic's own [serena plugin](https://github.com/oraios/serena), which uses the same `uvx --from git+...` invocation.
+
+Install `uv` once via [Astral's official installer](https://docs.astral.sh/uv/getting-started/installation/) (one line, no Python prerequisite — `uv` ships its own Python toolchain):
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Homebrew
+brew install uv
+```
+
+After install, `uv --version` should print ≥0.4 and `uvx --version` should resolve. uv caches downloaded wheels under `~/.cache/uv/`, so first MCP-server spawn after `claude plugin install` takes ~5-20s; subsequent spawns are instant.
+
+### Doctor for plugin-install users
+
+To run `sumo-qa-doctor` without a separate pip install, invoke it via `uvx` against the canonical git source — the same wheel the plugin spawns:
+
+```bash
+uvx --from git+https://github.com/sumithr/sumo-qa sumo-qa-doctor
+```
+
+That fetches sumo-qa (cached after the first call) and runs its `sumo-qa-doctor` entry point. Doctor's `claude_code_plugin` check reports whether the plugin install is correctly registered, and `mcp_handshake` confirms the uvx-spawned MCP server actually responds — together they prove the plugin install is fully functional, not just registered.
+
+### Architecture
+
+Both plugin folders (`.claude-plugin/`, `.codex-plugin/`) are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) and validated in CI against the published Claude Code JSON Schema plus an MCP `initialize` handshake for Codex. See [host-adapters.md](host-adapters.md) for the architecture.
+
+The `pip install` path remains the primary distribution channel for Claude Desktop, VS Code, and JetBrains — those hosts don't consume plugin manifests. The two install paths are additive — a user can have both wired and doctor reports each independently.
 
 ## Per-host flags
 
