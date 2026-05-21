@@ -177,9 +177,29 @@ keywords = ["qa", "testing", "tdd", "mutation-testing", "mcp", "claude-code", "c
 
 [tool.sumo-qa.plugin.mcp]
 server_name = "sumo-qa"
-command = "sumo-qa"
+# uvx (Astral's package runner) is the accepted norm for Python stdio MCP
+# plugins in 2026 — Anthropic's own `serena` plugin uses the same shape
+# (`uvx --from git+https://github.com/oraios/serena serena start-mcp-server`)
+# and their MCP docs treat `uvx` as an assumed prerequisite for Python
+# stdio servers, parallel to how `npx` is assumed for Node-based plugins.
+#
+# This makes `claude plugin install sumithr/sumo-qa` a genuinely
+# self-contained install — uvx fetches sumo-qa from the canonical git
+# source on first MCP-server spawn, caches the wheels under ~/.cache/uv/,
+# and runs the same `sumo-qa` entry point pip would have installed. No
+# separate `pip install sumo-qa` step required for plugin users.
+#
+# Users need `uv` (>=0.4) on PATH — documented as a prerequisite in
+# docs/INSTALL.md the same way other ecosystems' plugins document node/npx.
+command = "uvx"
+args = ["--from", "git+https://github.com/sumithr/sumo-qa", "sumo-qa"]
 transport = "stdio"
-args = []
+
+[tool.sumo-qa.plugin.mcp.env]
+# Anthropic's Python-stdio MCP best practices recommend PYTHONUNBUFFERED=1
+# so the server's JSON-RPC responses aren't held in a stdout buffer waiting
+# for an explicit flush — keeps the handshake latency low and predictable.
+PYTHONUNBUFFERED = "1"
 
 [[tool.sumo-qa.plugin.hooks]]
 event = "SessionStart"

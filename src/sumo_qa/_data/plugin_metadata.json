@@ -17,8 +17,12 @@
   ],
   "license": "Apache-2.0",
   "mcp": {
-    "args": [],
-    "command": "sumo-qa",
+    "args": [
+      "--from",
+      "git+https://github.com/sumithr/sumo-qa",
+      "sumo-qa"
+    ],
+    "command": "uvx",
     "server_name": "sumo-qa",
     "transport": "stdio"
   },

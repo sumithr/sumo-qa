@@ -2,11 +2,11 @@
   "files": {
     ".claude-plugin/plugin.json": "58acfaa3ee31f683bdeb81f14324c28304505e03ba3a364879f24843b092e8c3",
     ".codex-plugin/plugin.json": "3ec07c4f1a99cef0da020232ca2c7406bb76f9d3a69110389909019ed80720f8",
-    ".mcp.json": "3f5dba336159bf9e694f9e1adebb59c18278440720b05faaf9bb530ce30c5979",
+    ".mcp.json": "b979fc0332f351bd3e2978c42a3a63e2dd93ab5f38bd903349b1649eeb1ad19a",
     "docs/host-adapters.md": "c87bb0540666584fca59b097fd85266ce611ed301f9e0b162e969e8f1ddee51b",
     "hooks/hooks-codex.json": "b1aa5aa5abc8f47401a558ceac37884a2cc51060ae29d1d9a66c65fb34f7542e",
     "hooks/hooks.json": "da88de44e85597e8269f8ba998bd04a2af82522c23cca8f8dece75f8b0e926ca",
-    "src/sumo_qa/_data/plugin_metadata.json": "eaddc2fd00ac538149c6cfcd75d11f25a78a473a052c8ec8874f50270168e787"
+    "src/sumo_qa/_data/plugin_metadata.json": "0c742698852d55cdde8504b6418699981b71f60973a8dda32eaa8908426b494a"
   },
   "generator": "plugin_packaging.plugin_generator"
 }
