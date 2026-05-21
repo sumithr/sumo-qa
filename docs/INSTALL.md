@@ -18,6 +18,62 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
 
 Restart your host (or open a fresh chat) once it's done.
 
+## Diagnosing setup with `sumo-qa-doctor`
+
+After install, run:
+
+```bash
+sumo-qa-doctor
+```
+
+It's the first troubleshooting step for any host-setup or compatibility issue. The command is **read-only** — it never writes to your config files, never re-runs the installer, and never spawns long-lived processes. Each check prints `[OK]`, `[WARN]`, or `[FAIL]` plus a one-line summary, and every failure includes the exact `Fix:` command to run. Exit code is `1` when any check fails, `0` otherwise.
+
+The default run covers ten checks:
+
+1. `python_version` — interpreter + `sumo-qa` package version
+2. `install_mode` — wheel vs editable layout (catches "I edited skills/X but the change isn't visible")
+3. `binary_discoverable` — `sumo-qa` on PATH or `python -m sumo_qa` fallback
+4. `mcp_handshake` — JSON-RPC `initialize` handshake against the running server
+5. `tools_list_complete` — all 14 `REQUIRED_TOOL_NAMES` advertised
+6. `claude_code_config` — Claude Code's `claude_desktop_config.json` parseable, points at a resolvable binary
+7. `claude_desktop_config` — Claude Desktop's separate config path (macOS / Windows / Linux variations)
+8. `vscode_workspace_config` — `<workspace>/.vscode/mcp.json` parseable, resolvable
+9. `vscode_user_misleading` — WARN when `~/.vscode/mcp.json` exists (VS Code never reads it; common gotcha)
+10. `jetbrains_detection` — detects installed JetBrains IDEs and prints the manual UI-add steps
+
+### Flags
+
+```bash
+sumo-qa-doctor --host claude-code            # only Claude Code checks
+sumo-qa-doctor --host claude-desktop         # only Claude Desktop checks
+sumo-qa-doctor --host vscode                 # only VS Code checks
+sumo-qa-doctor --host jetbrains              # only JetBrains detection
+sumo-qa-doctor --workspace /path/to/repo     # VS Code workspace root override
+sumo-qa-doctor --json                        # machine-parseable output
+```
+
+### `--json` shape (internal until sumo-qa 1.0)
+
+The JSON document looks like:
+
+```json
+{
+  "schema_version": "0",
+  "summary": {"ok": 9, "warn": 0, "fail": 1},
+  "checks": [
+    {
+      "check_id": "vscode_workspace_config",
+      "status": "FAIL",
+      "summary": "/path/.vscode/mcp.json points at a binary that does not resolve",
+      "fix": "Run `sumo-qa-install --vscode --workspace /path` to refresh the binary path.",
+      "details": {"config_path": "/path/.vscode/mcp.json", "stale_command": "/usr/local/bin/sumo-qa"}
+    }
+  ]
+}
+```
+
+`schema_version` is `"0"` to signal this contract is **subject to change before sumo-qa 1.0**. Do not build long-lived integrations against it before then. The intent of `--json` today is to make doctor output paste-able into automation and bug reports, not to power scripted decisions.
+
 ## Other MCP-capable hosts
 
 For hosts beyond Claude Code, VS Code + Copilot, and JetBrains (which `sumo-qa-install` handles directly), the `sumo-qa` binary you get from `pip install sumo-qa` exposes a standard stdio MCP server. To wire it into any other MCP-capable host, follow that host's own MCP-server setup documentation and point it at the absolute path of `sumo-qa` on your machine (run `which sumo-qa` or `where sumo-qa` on Windows to find it).

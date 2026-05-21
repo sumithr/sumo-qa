@@ -48,6 +48,14 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
 
 Restart your host or open a fresh chat afterwards.
 
+### Something not working?
+
+```bash
+sumo-qa-doctor
+```
+
+Read-only setup diagnostics — checks Python + sumo-qa version, install mode, the MCP `initialize` + `tools/list` handshake, and every host config the installer touches (Claude Code, Claude Desktop, VS Code workspace, JetBrains detection). Each failure prints the exact `Fix:` command. `--json` for machine output. Details: [docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor](docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor).
+
 Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md). Want to run from a local clone with your team's own standards / knowledge packs editable in place? [docs/INSTALL.md#install-from-a-local-clone](docs/INSTALL.md#install-from-a-local-clone).
 
 ### Verify it's wired

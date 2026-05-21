@@ -63,6 +63,19 @@ body:
       required: true
 
   - type: textarea
+    id: doctor_output
+    attributes:
+      label: "`sumo-qa-doctor --host <your-host>` output"
+      description: |
+        Paste the full doctor output for the affected host (e.g.
+        `sumo-qa-doctor --host claude-code`). This pinpoints config drift
+        — stale binary paths, malformed mcp.json, missing tools — that the
+        host UI otherwise hides. Without it, host-compat triage is guesswork.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
     id: prompt
     attributes:
       label: Prompt used

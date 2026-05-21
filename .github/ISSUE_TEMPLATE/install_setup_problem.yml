@@ -73,11 +73,17 @@ body:
   - type: textarea
     id: doctor_output
     attributes:
-      label: "`sumo-qa doctor` output (if available)"
-      description: Once the `doctor` command ships, paste its output. Leave blank if it is not available yet.
+      label: "`sumo-qa-doctor` output"
+      description: |
+        Paste the full output of `sumo-qa-doctor` (run from inside the workspace
+        you installed into). This is the first triage step we run on every
+        install report — without it we're guessing.
+
+        If `sumo-qa-doctor` itself fails to run (e.g. not on PATH after install),
+        say so here and paste the error.
       render: shell
     validations:
-      required: false
+      required: true
 
   - type: textarea
     id: context
