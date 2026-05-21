@@ -134,6 +134,59 @@ def test_generated_outputs_are_not_gitignored() -> None:
         )
 
 
+def test_version_bump_propagates_to_every_embedding_site(fresh_repo: Path) -> None:
+    """T9 — Regression for release-please breakage observed on PR #129.
+
+    Simulates a release-please version bump: rewrite
+    pyproject.toml[project].version to a fake value, run sync, and assert
+    EVERY committed file that embeds the version literal carries the new
+    value. The release-please regen step in .github/workflows/release-please.yml
+    is the production caller of this code path; that step shipped broken
+    on its first run (PR #128) because the workflow had never been
+    exercised end-to-end. This test exercises the underlying logic so a
+    future regression in `_build_outputs` or the templates is caught
+    before it merges.
+    """
+    import re
+
+    pyproj_path = fresh_repo / "pyproject.toml"
+    original = pyproj_path.read_text(encoding="utf-8")
+    # Match [project].version specifically — must come before any
+    # [project.*] subsection. Avoids picking up `version = 1` inside the
+    # `hooks` cursor manifest if a future overlay adds one.
+    bumped, count = re.subn(
+        r'(\[project\][^\[]*?\nversion\s*=\s*)"[^"]+"',
+        r'\1"9.9.9"',
+        original,
+        count=1,
+        flags=re.DOTALL,
+    )
+    assert count == 1, "could not find [project].version anchor in pyproject.toml"
+    pyproj_path.write_text(bumped, encoding="utf-8")
+
+    plugin_generator.sync(fresh_repo)
+
+    # Every file that embeds the version literal must carry the new value.
+    embedding_sites = (
+        ".claude-plugin/plugin.json",
+        ".codex-plugin/plugin.json",
+        "src/sumo_qa/_data/plugin_metadata.json",
+    )
+    for rel in embedding_sites:
+        data = json.loads((fresh_repo / rel).read_text(encoding="utf-8"))
+        assert data.get("version") == "9.9.9", f"{rel} did not pick up the bumped version"
+
+    # The SHA256 sidecar's hashes must have changed — otherwise the drift
+    # check on the release PR would silently pass against stale data.
+    sidecar = json.loads(
+        (fresh_repo / "plugin_packaging" / "generated" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    for rel in embedding_sites:
+        assert rel in sidecar["files"], f"{rel} not in sidecar"
+
+
 def test_emitted_json_is_deterministic(fresh_repo: Path) -> None:
     """T7 — JSON outputs have sorted keys and end with a single newline."""
     plugin_generator.sync(fresh_repo)

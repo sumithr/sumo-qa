@@ -24,6 +24,22 @@ For hosts beyond Claude Code, VS Code + Copilot, and JetBrains (which `sumo-qa-i
 
 We haven't verified those host-specific paths end-to-end ourselves, so we don't ship per-host instructions — but the underlying server is a vanilla MCP stdio server and should work wherever MCP works.
 
+## Plugin-format install (Claude Code / Codex)
+
+For hosts that consume the `.claude-plugin/` / `.codex-plugin/` manifest formats, `sumo-qa` ships first-class plugin folders that wire everything (skills, hooks, MCP server) in one command — no `pip install` required:
+
+```bash
+# Claude Code
+claude plugin install sumithr/sumo-qa
+
+# OpenAI Codex
+/plugins install sumithr/sumo-qa
+```
+
+Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) and validated in CI against the published Claude Code JSON Schema plus an MCP `initialize` handshake for Codex. See [host-adapters.md](host-adapters.md) for the architecture.
+
+The `pip install` path remains the primary distribution channel for Claude Desktop, VS Code, and JetBrains — those hosts don't consume plugin manifests.
+
 ## Per-host flags
 
 When you only want to configure one host (or you're scripting per-host install):
