@@ -3,7 +3,7 @@
     "sumo-qa": {
       "args": [
         "--from",
-        "git+https://github.com/sumithr/sumo-qa",
+        "${CLAUDE_PLUGIN_ROOT}",
         "sumo-qa"
       ],
       "command": "uvx",
