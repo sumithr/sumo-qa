@@ -30,12 +30,36 @@ escape_for_json() {
 
 using_sumo_qa_escaped=$(escape_for_json "$using_sumo_qa_content")
 
+# Detect uvx — if missing, the plugin's MCP server can't launch. Surface
+# a high-priority warning so Claude tells the user proactively instead of
+# letting MCP tools fail opaquely on first invocation.
+#
+# Note: printf is used instead of a quoted heredoc (<<'EOF') because bash 3.2
+# (macOS system bash) does not support quoted heredocs inside $() subshells.
+if command -v uvx >/dev/null 2>&1; then
+    uvx_warning_escaped=""
+else
+    uvx_warning=$(printf '%s\n%s\n\n%s\n    %s\n    %s\n    %s\n    %s\n    %s\n    %s\n\n%s\n%s\n' \
+        '<UVX_WARNING>' \
+        "The sumo-qa plugin's MCP server runs via uv's \`uvx\` package runner, but \`uvx\` is not on PATH in this session. sumo_qa_* MCP tools will fail to launch until uv is installed." \
+        'Tell the user to install uv once:' \
+        '# macOS / Linux' \
+        'curl -LsSf https://astral.sh/uv/install.sh | sh' \
+        '# Windows (PowerShell)' \
+        'powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"' \
+        '# Homebrew' \
+        'brew install uv' \
+        "Then restart this Claude Code session so the plugin's MCP server is re-spawned." \
+        '</UVX_WARNING>')
+    uvx_warning_escaped=$(escape_for_json "$uvx_warning")
+fi
+
 # Note: the Sumo-sensei persona is OFF by default. To enable it the user must
 # point the agent at docs/PERSONA.md explicitly mid-conversation (e.g. "read
 # docs/PERSONA.md and adopt the Sumo-sensei voice"). No skill currently
 # auto-recognises persona toggle phrases. See docs/PERSONA.md.
 
-session_context="<EXTREMELY_IMPORTANT>\nYou have sumo-qa: a senior-QA skills library + MCP server.\n\n**Below is the full content of your 'sumo-qa:using-sumo-qa' skill - your entry router for every QA-shaped task. For all other sumo-qa skills, use the 'Skill' tool:**\n\n${using_sumo_qa_escaped}\n</EXTREMELY_IMPORTANT>"
+session_context="${uvx_warning_escaped}<EXTREMELY_IMPORTANT>\nYou have sumo-qa: a senior-QA skills library + MCP server.\n\n**Below is the full content of your 'sumo-qa:using-sumo-qa' skill - your entry router for every QA-shaped task. For all other sumo-qa skills, use the 'Skill' tool:**\n\n${using_sumo_qa_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON.
 # Cursor hooks expect additional_context (snake_case).

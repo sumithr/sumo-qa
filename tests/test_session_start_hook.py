@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -122,3 +124,75 @@ def test_hook_registrations_reference_existing_script() -> None:
     assert run_hook_wrapper.exists()
     assert os.access(run_hook_wrapper, os.X_OK), "run-hook.cmd must be executable"
     assert os.access(HOOK_SCRIPT, os.X_OK), "hooks/session-start must be executable"
+
+
+# ---------------------------------------------------------------------------
+# uvx-detection tests (Task 3 — uv-prereq hardening)
+# ---------------------------------------------------------------------------
+
+
+def _run_hook_with_env(uvx_present: bool) -> dict:
+    """Invoke the hook with a doctored PATH controlling uvx visibility."""
+    with tempfile.TemporaryDirectory() as bindir:
+        env = {
+            "HOME": os.environ["HOME"],
+            "CLAUDE_PLUGIN_ROOT": str(ROOT),
+            "PATH": "/usr/bin:/bin",
+        }
+        if uvx_present:
+            stub = pathlib.Path(bindir) / "uvx"
+            stub.write_text("#!/bin/sh\necho 0.5.0\n")
+            stub.chmod(0o755)
+            env["PATH"] = f"{bindir}:/usr/bin:/bin"
+        proc = subprocess.run(
+            ["bash", str(HOOK_SCRIPT)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)
+
+
+def _extract_additional_context(payload: dict) -> str:
+    """Pull out the additionalContext string regardless of host wrapper."""
+    if "hookSpecificOutput" in payload:
+        return payload["hookSpecificOutput"]["additionalContext"]
+    if "additional_context" in payload:
+        return payload["additional_context"]
+    return payload["additionalContext"]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Bash hook test not applicable on Windows",
+)
+def test_session_start_no_warning_when_uvx_present():
+    ctx = _extract_additional_context(_run_hook_with_env(uvx_present=True))
+    assert "UVX_WARNING" not in ctx
+    assert "using-sumo-qa" in ctx  # existing behavior preserved
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Bash hook test not applicable on Windows",
+)
+def test_session_start_warns_when_uvx_missing():
+    ctx = _extract_additional_context(_run_hook_with_env(uvx_present=False))
+    assert "UVX_WARNING" in ctx
+    assert "astral.sh/uv/install.sh" in ctx
+    assert "using-sumo-qa" in ctx  # skill still injected — both signals delivered
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Bash hook test not applicable on Windows",
+)
+def test_session_start_warning_appears_before_skill_in_context():
+    """Order matters — the warning should be at the start of additionalContext
+    so Claude reads the high-priority signal first."""
+    ctx = _extract_additional_context(_run_hook_with_env(uvx_present=False))
+    warning_idx = ctx.find("UVX_WARNING")
+    skill_idx = ctx.find("using-sumo-qa")
+    assert warning_idx < skill_idx
