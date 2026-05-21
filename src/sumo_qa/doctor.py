@@ -18,8 +18,12 @@ the installer's existing test suite passing unchanged across this change.
 
 from __future__ import annotations
 
+import collections
+import json
 import shutil
+import subprocess
 import sys as _sys
+import time
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
@@ -27,6 +31,36 @@ from pathlib import Path as _Path
 from typing import Literal
 
 from sumo_qa import installer as _installer
+from sumo_qa.installer import (
+    REQUIRED_TOOL_NAMES,
+    McpCommand,
+    _read_json_rpc_response,
+    _start_stdout_reader,
+    _terminate,
+    _VerifyTimeout,
+)
+
+# Re-export the names doctor's surface relies on so callers (and tests)
+# can reach them via ``sumo_qa.doctor`` without importing installer.
+__all__ = [
+    "CheckResult",
+    "McpCommand",
+    "REQUIRED_TOOL_NAMES",
+    "check_binary_discoverable",
+    "check_install_mode",
+    "check_python_version",
+    "main",
+    "run_mcp_probe",
+]
+
+# Mirrors ``installer._VERIFY_TIMEOUT_SECONDS`` but kept independent so a
+# future doctor-specific tuning (longer for slow CI, shorter for interactive
+# use) doesn't have to touch the installer's hardened install-time budget.
+_HANDSHAKE_TIMEOUT_SECONDS = 10
+
+# Truncate stderr captured from a crashed server. Matches the installer's
+# ``_DUMP_STREAM_CHARS`` value so bug reports and doctor reports line up.
+_STDERR_DUMP_CHARS = 300
 
 Status = Literal["OK", "WARN", "FAIL"]
 
@@ -68,6 +102,249 @@ def check_python_version() -> CheckResult:
         status="OK",
         summary=f"Python {py}; sumo-qa {pkg}",
         details={"python_version": py, "sumo_qa_version": pkg},
+    )
+
+
+_HANDSHAKE_FIX = "Run `sumo-qa-install` and re-run `sumo-qa-doctor`."
+
+
+def _handshake_fail(
+    *,
+    summary: str,
+    kind: str,
+    stderr: str = "",
+    exit_code: int | None = None,
+) -> tuple[CheckResult, CheckResult]:
+    """Build the two CheckResults returned when the JSON-RPC handshake fails.
+
+    The first record carries the structured failure; the second flags
+    ``tools_list_complete`` as skipped (we never got far enough to drive
+    ``tools/list``). Keeps the rendering layer free of conditional shape.
+    """
+    details: dict = {"kind": kind}
+    if stderr:
+        details["stderr"] = stderr[:_STDERR_DUMP_CHARS]
+    if exit_code is not None:
+        details["exit_code"] = exit_code
+    handshake = CheckResult(
+        check_id="mcp_handshake",
+        status="FAIL",
+        summary=summary,
+        fix=_HANDSHAKE_FIX,
+        details=details,
+    )
+    tools = CheckResult(
+        check_id="tools_list_complete",
+        status="FAIL",
+        summary="skipped — MCP handshake did not complete",
+    )
+    return handshake, tools
+
+
+def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
+    """Drive an ``initialize`` + ``tools/list`` handshake and return two
+    structured CheckResult records: one for the handshake, one for tool
+    coverage.
+
+    Failure classes (all FAIL status):
+
+    - ``timeout``: the server didn't respond within
+      ``_HANDSHAKE_TIMEOUT_SECONDS``.
+    - ``nonzero_exit``: the server exited before responding; first 300 chars
+      of stderr captured in ``details["stderr"]``.
+    - ``malformed_jsonrpc``: a response arrived but failed shape validation
+      (missing id, wrong ``jsonrpc`` version, error envelope, non-dict
+      ``result``).
+    - ``missing_tools``: ``tools/list`` returned a strict subset of
+      ``REQUIRED_TOOL_NAMES``; names listed in ``details["missing"]``.
+
+    On success both records carry status ``OK``.
+    """
+    init_req = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "sumo-qa-doctor", "version": "1"},
+            },
+        }
+    )
+    initialized_note = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    tools_req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+
+    proc = subprocess.Popen(  # noqa: S603 -- argv comes from a trusted McpCommand
+        mcp_cmd.as_subprocess_argv(),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    line_queue = _start_stdout_reader(proc)
+    deadline = time.monotonic() + _HANDSHAKE_TIMEOUT_SECONDS
+    extra: list[str] = []
+    pending: collections.deque[dict] = collections.deque()
+    init_resp: dict | None = None
+    tools_resp: dict | None = None
+    timed_out = False
+
+    try:
+        proc.stdin.write(init_req + "\n")
+        proc.stdin.flush()
+        init_resp = _read_json_rpc_response(
+            line_queue=line_queue,
+            expected_id=1,
+            deadline=deadline,
+            extra_lines=extra,
+            pending_responses=pending,
+        )
+        if init_resp is not None:
+            proc.stdin.write(initialized_note + "\n")
+            proc.stdin.flush()
+            proc.stdin.write(tools_req + "\n")
+            proc.stdin.flush()
+            tools_resp = _read_json_rpc_response(
+                line_queue=line_queue,
+                expected_id=2,
+                deadline=deadline,
+                extra_lines=extra,
+                pending_responses=pending,
+            )
+    except _VerifyTimeout:
+        timed_out = True
+    except (BrokenPipeError, OSError):  # pragma: no cover -- defensive
+        timed_out = True
+    finally:
+        try:
+            if proc.stdin and not proc.stdin.closed:
+                proc.stdin.close()
+        except Exception:  # pragma: no cover -- defensive cleanup; noqa: BLE001
+            pass
+
+    # Drain stderr only after the process has had a chance to exit, so the
+    # read never blocks on a stalled server.
+    stderr_text = ""
+    try:
+        if proc.stderr is not None and proc.poll() is not None:
+            stderr_text = (proc.stderr.read() or "")[:_STDERR_DUMP_CHARS]
+    except Exception:  # pragma: no cover -- defensive; noqa: BLE001
+        pass
+    exit_code = proc.poll()
+    _terminate(proc)
+
+    # --- handshake classification ---
+    if timed_out:
+        return _handshake_fail(
+            summary=(f"MCP handshake timeout — no response within {_HANDSHAKE_TIMEOUT_SECONDS}s"),
+            kind="timeout",
+            stderr=stderr_text,
+            exit_code=exit_code,
+        )
+    if init_resp is None:
+        # No id=1 response arrived before EOF. Distinguish "server crashed"
+        # (non-zero exit) from "server exited cleanly without answering".
+        if exit_code not in (None, 0):
+            return _handshake_fail(
+                summary=(f"MCP exited non-zero ({exit_code}) before responding to initialize"),
+                kind="nonzero_exit",
+                stderr=stderr_text,
+                exit_code=exit_code,
+            )
+        return _handshake_fail(
+            summary="MCP did not return an initialize response",
+            kind="no_response",
+            stderr=stderr_text,
+            exit_code=exit_code,
+        )
+    if init_resp.get("jsonrpc") != "2.0":
+        return _handshake_fail(
+            summary=(
+                f"initialize response missing jsonrpc='2.0' (got {init_resp.get('jsonrpc')!r})"
+            ),
+            kind="malformed_jsonrpc",
+            stderr=stderr_text,
+            exit_code=exit_code,
+        )
+    if "error" in init_resp:
+        err = init_resp["error"]
+        if isinstance(err, dict):
+            msg = f"{err.get('code')}: {err.get('message')}"
+        else:
+            msg = str(err)
+        return _handshake_fail(
+            summary=f"initialize returned error envelope ({msg})",
+            kind="initialize_error",
+            stderr=stderr_text,
+            exit_code=exit_code,
+        )
+    if not isinstance(init_resp.get("result"), dict):
+        return _handshake_fail(
+            summary=(
+                "initialize response 'result' is not a dict "
+                f"(got {type(init_resp.get('result')).__name__})"
+            ),
+            kind="malformed_jsonrpc",
+            stderr=stderr_text,
+            exit_code=exit_code,
+        )
+
+    handshake_ok = CheckResult(
+        check_id="mcp_handshake",
+        status="OK",
+        summary="MCP initialize handshake succeeded",
+        details={"kind": "ok"},
+    )
+
+    # --- tools/list classification ---
+    if tools_resp is None:
+        return handshake_ok, CheckResult(
+            check_id="tools_list_complete",
+            status="FAIL",
+            summary="MCP did not return a tools/list response",
+            fix=_HANDSHAKE_FIX,
+        )
+    if "error" in tools_resp:
+        err = tools_resp["error"]
+        return handshake_ok, CheckResult(
+            check_id="tools_list_complete",
+            status="FAIL",
+            summary=f"tools/list returned error envelope: {err!r}",
+            fix=_HANDSHAKE_FIX,
+        )
+    res = tools_resp.get("result")
+    if not isinstance(res, dict):
+        return handshake_ok, CheckResult(
+            check_id="tools_list_complete",
+            status="FAIL",
+            summary=(f"tools/list 'result' is not a dict (got {type(res).__name__})"),
+        )
+    tools = res.get("tools", [])
+    if not isinstance(tools, list):
+        return handshake_ok, CheckResult(
+            check_id="tools_list_complete",
+            status="FAIL",
+            summary="tools/list 'result.tools' is not a list",
+        )
+    advertised = {t.get("name") for t in tools if isinstance(t, dict)}
+    missing = [n for n in REQUIRED_TOOL_NAMES if n not in advertised]
+    if missing:
+        return handshake_ok, CheckResult(
+            check_id="tools_list_complete",
+            status="FAIL",
+            summary=f"tools/list is missing {len(missing)} required tool(s)",
+            fix=(f"Run `sumo-qa-install` to re-register the server. Missing: {', '.join(missing)}"),
+            details={
+                "missing": missing,
+                "advertised_count": sum(1 for n in advertised if isinstance(n, str)),
+            },
+        )
+    return handshake_ok, CheckResult(
+        check_id="tools_list_complete",
+        status="OK",
+        summary=f"all {len(REQUIRED_TOOL_NAMES)} required tools advertised",
+        details={"advertised_count": len(advertised)},
     )
 
 
