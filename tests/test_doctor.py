@@ -444,6 +444,267 @@ def test_check_claude_code_config_unreadable(tmp_path, monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Check: claude_code_plugin
+# ---------------------------------------------------------------------------
+
+
+def _write_installed_plugins(home, entries: dict) -> Path:
+    """Write a realistic ~/.claude/plugins/installed_plugins.json shape.
+
+    Matches the actual layout observed on a Claude Code dev host: top-level
+    ``version`` + ``plugins`` map, each key is ``<name>@<marketplace>`` and
+    the value is a list of install records (one per scope: user / project).
+    """
+    plugins_dir = home / ".claude" / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    registry = plugins_dir / "installed_plugins.json"
+    registry.write_text(json.dumps({"version": 2, "plugins": entries}, indent=2))
+    return registry
+
+
+def test_check_claude_code_plugin_not_installed(tmp_path) -> None:
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.check_id == "claude_code_plugin"
+    assert result.status == "OK"
+    assert "not detected" in result.summary.lower()
+
+
+def test_check_claude_code_plugin_no_registry(tmp_path) -> None:
+    """Claude Code installed but no installed_plugins.json — common for
+    pip-install-only users who've never run \`claude plugin install\`.
+    """
+    (tmp_path / ".claude").mkdir()
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.status == "OK"
+    assert "no plugin" in result.summary.lower() or "not installed" in result.summary.lower()
+
+
+def test_check_claude_code_plugin_registry_no_sumo_qa(tmp_path) -> None:
+    """Other plugins installed (superpowers, frontend-design, etc.) but
+    sumo-qa is absent. Doctor doesn't care about other plugins — OK.
+    """
+    (tmp_path / ".claude").mkdir()
+    _write_installed_plugins(
+        tmp_path,
+        {
+            "superpowers@claude-plugins-official": [
+                {"scope": "user", "installPath": str(tmp_path / "fake"), "version": "5.1.0"}
+            ]
+        },
+    )
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.status == "OK"
+    assert (
+        "not installed via plugin manager" in result.summary.lower()
+        or "no sumo-qa" in result.summary.lower()
+    )
+
+
+def test_check_claude_code_plugin_installed_path_exists(tmp_path) -> None:
+    """sumo-qa@<marketplace> entry exists AND installPath is a real dir → OK."""
+    (tmp_path / ".claude").mkdir()
+    plugin_root = tmp_path / "plugin-cache" / "sumo-qa" / "0.7.1"
+    (plugin_root / ".claude-plugin").mkdir(parents=True)
+    (plugin_root / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "sumo-qa", "version": "0.7.1"})
+    )
+    _write_installed_plugins(
+        tmp_path,
+        {
+            "sumo-qa@sumithr": [
+                {"scope": "user", "installPath": str(plugin_root), "version": "0.7.1"}
+            ]
+        },
+    )
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.status == "OK"
+    assert "sumo-qa" in result.summary
+    assert "0.7.1" in result.summary
+    assert result.details["install_path"] == str(plugin_root)
+    assert result.details["version"] == "0.7.1"
+
+
+def test_check_claude_code_plugin_installed_path_missing(tmp_path) -> None:
+    """Dangling install: registry lists the plugin but the install dir
+    was manually rm'd or a re-sync left a stale entry. → FAIL with
+    reinstall fix.
+    """
+    (tmp_path / ".claude").mkdir()
+    _write_installed_plugins(
+        tmp_path,
+        {
+            "sumo-qa@sumithr": [
+                {
+                    "scope": "user",
+                    "installPath": str(tmp_path / "missing-plugin-root"),
+                    "version": "0.7.1",
+                }
+            ]
+        },
+    )
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.status == "FAIL"
+    assert "missing" in result.summary.lower() or "does not exist" in result.summary.lower()
+    assert result.fix is not None
+    assert "claude plugin" in result.fix.lower()
+
+
+def test_check_claude_code_plugin_registry_malformed_json(tmp_path) -> None:
+    (tmp_path / ".claude").mkdir()
+    plugins_dir = tmp_path / ".claude" / "plugins"
+    plugins_dir.mkdir()
+    registry = plugins_dir / "installed_plugins.json"
+    registry.write_text("{not valid json")
+
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.status == "FAIL"
+    assert str(registry) in result.summary
+    assert result.fix is not None
+
+
+def test_check_claude_code_plugin_records_not_a_list(tmp_path) -> None:
+    """Defensive: a registry entry whose value isn't a list (schema drift
+    or hand-edited file) must be skipped, not exploded. The check should
+    still classify cleanly as "no sumo-qa entry" rather than raising.
+    """
+    (tmp_path / ".claude").mkdir()
+    plugins_dir = tmp_path / ".claude" / "plugins"
+    plugins_dir.mkdir()
+    (plugins_dir / "installed_plugins.json").write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plugins": {
+                    # value is a dict instead of a list → must be skipped
+                    "sumo-qa@some-marketplace": {"scope": "user"},
+                },
+            }
+        )
+    )
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.status == "OK"
+    # The malformed entry should not have been recognised as a valid install.
+    assert "no sumo-qa" in result.summary.lower() or "not installed" in result.summary.lower()
+
+
+def test_check_claude_code_plugin_marketplace_separator_flex(tmp_path) -> None:
+    """Match on the \`sumo-qa@\` prefix only — any marketplace name accepted."""
+    (tmp_path / ".claude").mkdir()
+    plugin_root = tmp_path / "p"
+    plugin_root.mkdir()
+    _write_installed_plugins(
+        tmp_path,
+        {
+            "sumo-qa@some-random-marketplace": [
+                {"scope": "user", "installPath": str(plugin_root), "version": "1.0"}
+            ]
+        },
+    )
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.status == "OK"
+    assert "some-random-marketplace" in result.summary or "sumo-qa" in result.summary
+
+
+def test_check_claude_code_plugin_registry_unreadable(tmp_path, monkeypatch) -> None:
+    """Permissions block on installed_plugins.json — FAIL with the OS error."""
+    from pathlib import Path as _PathTest
+
+    (tmp_path / ".claude").mkdir()
+    plugins_dir = tmp_path / ".claude" / "plugins"
+    plugins_dir.mkdir()
+    registry = plugins_dir / "installed_plugins.json"
+    registry.write_text(json.dumps({"version": 2, "plugins": {}}))
+
+    real_read = _PathTest.read_text
+
+    def boom(self, *a, **k):
+        if self == registry:
+            raise PermissionError("nope")
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(_PathTest, "read_text", boom)
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.status == "FAIL"
+    assert "permission" in result.summary.lower() or "unreadable" in result.summary.lower()
+
+
+def test_check_claude_code_plugin_registry_unexpected_shape(tmp_path) -> None:
+    """Registry exists but the schema is unfamiliar (no \`plugins\` map, or
+    \`plugins\` is not a dict). Treat as "no plugin install" — OK, not FAIL —
+    so a future Anthropic schema bump doesn't break us catastrophically.
+    """
+    (tmp_path / ".claude").mkdir()
+    plugins_dir = tmp_path / ".claude" / "plugins"
+    plugins_dir.mkdir()
+    (plugins_dir / "installed_plugins.json").write_text(json.dumps({"version": 99}))
+
+    result = doctor.check_claude_code_plugin(home=tmp_path)
+    assert result.status == "OK"
+
+
+# ---------------------------------------------------------------------------
+# Check: claude_code_config — softening when plugin install detected
+# ---------------------------------------------------------------------------
+
+
+def test_check_claude_code_config_plugin_install_softens_no_entry(tmp_path) -> None:
+    """Plugin-install-only user: pip-install config exists with no sumo-qa
+    entry, BUT the plugin registry registers sumo-qa. Doctor must not FAIL —
+    the install is fine, it's just registered via a different mechanism.
+    """
+    cfg_dir = tmp_path / ".config" / "claude"
+    cfg_dir.mkdir(parents=True)
+    (tmp_path / ".claude").mkdir()
+    (cfg_dir / "claude_desktop_config.json").write_text(json.dumps({"mcpServers": {}}))
+
+    plugin_root = tmp_path / "p" / "0.7.1"
+    plugin_root.mkdir(parents=True)
+    _write_installed_plugins(
+        tmp_path,
+        {
+            "sumo-qa@sumithr": [
+                {"scope": "user", "installPath": str(plugin_root), "version": "0.7.1"}
+            ]
+        },
+    )
+
+    result = doctor.check_claude_code_config(home=tmp_path, system="Linux")
+    assert result.status == "OK", (
+        f"plugin-install user must not FAIL on pip-install config check; got {result}"
+    )
+    # Summary must cross-reference the plugin check.
+    assert "plugin" in result.summary.lower()
+
+
+def test_check_claude_code_config_plugin_install_does_not_mask_stale_binary(tmp_path) -> None:
+    """Softening applies only to "no sumo-qa entry" — a stale-binary FAIL
+    must still surface even when a plugin entry coexists. Both can break
+    independently and the user needs both reports.
+    """
+    cfg_dir = tmp_path / ".config" / "claude"
+    cfg_dir.mkdir(parents=True)
+    (tmp_path / ".claude").mkdir()
+    (cfg_dir / "claude_desktop_config.json").write_text(
+        json.dumps({"mcpServers": {"sumo-qa": {"command": str(tmp_path / "no_such")}}})
+    )
+
+    plugin_root = tmp_path / "p" / "0.7.1"
+    plugin_root.mkdir(parents=True)
+    _write_installed_plugins(
+        tmp_path,
+        {
+            "sumo-qa@sumithr": [
+                {"scope": "user", "installPath": str(plugin_root), "version": "0.7.1"}
+            ]
+        },
+    )
+
+    result = doctor.check_claude_code_config(home=tmp_path, system="Linux")
+    assert result.status == "FAIL"
+    assert "stale" in result.summary.lower() or "not resolve" in result.summary.lower()
+
+
+# ---------------------------------------------------------------------------
 # Check: claude_desktop_config
 # ---------------------------------------------------------------------------
 
@@ -728,6 +989,7 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(doctor, "check_claude_code_config", lambda: stub("claude_code_config"))
+    monkeypatch.setattr(doctor, "check_claude_code_plugin", lambda: stub("claude_code_plugin"))
     monkeypatch.setattr(
         doctor, "check_claude_desktop_config", lambda: stub("claude_desktop_config")
     )
@@ -745,6 +1007,7 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
         r.check_id for r in doctor._collect_checks(workspace=_PathTest("/tmp"), host_filter=None)
     ]
     assert "claude_code_config" in ids
+    assert "claude_code_plugin" in ids
     assert "claude_desktop_config" in ids
     assert "vscode_workspace_config" in ids
     assert "vscode_user_misleading" in ids
@@ -755,6 +1018,9 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
         for r in doctor._collect_checks(workspace=_PathTest("/tmp"), host_filter="claude-code")
     ]
     assert "claude_code_config" in ids_cc
+    # `--host claude-code` includes BOTH the pip-install config and the
+    # plugin-install registry — they're complementary, both Claude-Code-shaped.
+    assert "claude_code_plugin" in ids_cc
     assert "claude_desktop_config" not in ids_cc
     assert "vscode_workspace_config" not in ids_cc
     assert "jetbrains_detection" not in ids_cc
@@ -766,6 +1032,7 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
     assert "vscode_workspace_config" in ids_vs
     assert "vscode_user_misleading" in ids_vs
     assert "claude_code_config" not in ids_vs
+    assert "claude_code_plugin" not in ids_vs
 
     ids_jb = [
         r.check_id
@@ -773,6 +1040,7 @@ def test_collect_checks_uses_filter(monkeypatch) -> None:
     ]
     assert "jetbrains_detection" in ids_jb
     assert "claude_code_config" not in ids_jb
+    assert "claude_code_plugin" not in ids_jb
 
 
 def test_resolve_mcp_command_uses_path(monkeypatch, tmp_path) -> None:

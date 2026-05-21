@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys as _sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
@@ -52,6 +53,7 @@ __all__ = [
     "REQUIRED_TOOL_NAMES",
     "check_binary_discoverable",
     "check_claude_code_config",
+    "check_claude_code_plugin",
     "check_claude_desktop_config",
     "check_install_mode",
     "check_jetbrains_detection",
@@ -395,6 +397,7 @@ def _check_host_config(
     not_installed_predicate: bool,
     install_flag: str,
     config_schema_key: str,
+    on_missing_entry: Callable[[], CheckResult | None] | None = None,
 ) -> CheckResult:
     """Shared body for host-config checks (Claude Code, Claude Desktop, VS Code).
 
@@ -403,6 +406,12 @@ def _check_host_config(
     file's existence / readability / JSON shape / sumo-qa entry / resolvable
     binary path. Every FAIL ends with the ``sumo-qa-install <install_flag>``
     fix command.
+
+    ``on_missing_entry`` is an optional hook called when the config parses
+    fine but has no ``sumo-qa`` entry under ``config_schema_key``. If the
+    hook returns a ``CheckResult``, it replaces the default FAIL. Used by
+    Claude Code to soften the FAIL when the user is registered via the
+    plugin manager instead — the pip-install config is intentionally empty.
     """
     if not_installed_predicate:
         return CheckResult(
@@ -444,6 +453,10 @@ def _check_host_config(
         )
     entry = (config.get(config_schema_key) or {}).get("sumo-qa")
     if entry is None or not isinstance(entry, dict):
+        if on_missing_entry is not None:
+            softened = on_missing_entry()
+            if softened is not None:
+                return softened
         return CheckResult(
             check_id=check_id,
             status="FAIL",
@@ -472,6 +485,142 @@ def _check_host_config(
     )
 
 
+_PLUGIN_REINSTALL_FIX = (
+    "Run `claude plugin install <marketplace>/sumo-qa` (e.g. "
+    "`claude plugin install sumithr/sumo-qa`) to refresh the install."
+)
+
+
+def _find_sumo_qa_plugin_entries(plugins: dict) -> list[tuple[str, dict]]:
+    """Return ``(key, entry)`` pairs for every ``sumo-qa@<marketplace>``
+    install record in the plugins registry.
+
+    The registry's top-level ``plugins`` map keys by ``<name>@<marketplace>``;
+    each value is a list of install records (one per scope: user / project).
+    We match on the ``sumo-qa@`` prefix so any marketplace flavour is
+    recognised, and flatten the per-scope list so a hybrid install (e.g.
+    both user-scope and project-scope) surfaces all records.
+    """
+    out: list[tuple[str, dict]] = []
+    for key, records in plugins.items():
+        if not key.startswith("sumo-qa@"):
+            continue
+        if not isinstance(records, list):
+            continue
+        for record in records:
+            if isinstance(record, dict):
+                out.append((key, record))
+    return out
+
+
+def check_claude_code_plugin(home: _Path | None = None) -> CheckResult:
+    """Report whether sumo-qa is installed via Claude Code's plugin manager
+    (``claude plugin install sumithr/sumo-qa``).
+
+    Plugin install is an alternative to the pip-install path: Claude Code
+    clones the repo, reads ``.claude-plugin/plugin.json``, and registers
+    skills/hooks/MCP servers itself — no per-host config files are written.
+
+    Status semantics:
+      - OK / "not detected": Claude Code itself isn't on this machine.
+      - OK / "no plugins installed": registry missing — pip-install-only user.
+      - OK / "no sumo-qa plugin entry": registry present, sumo-qa absent.
+      - OK / "registered via plugin manager": sumo-qa entry + install path
+        exists.
+      - FAIL: entry exists but install path is missing (dangling), or the
+        registry file itself is unreadable / malformed JSON.
+    """
+    h = home or _Path.home()
+    claude_home = h / ".claude"
+    if not claude_home.exists():
+        return CheckResult(
+            check_id="claude_code_plugin",
+            status="OK",
+            summary="Claude Code not detected on this machine",
+        )
+    registry = claude_home / "plugins" / "installed_plugins.json"
+    if not registry.exists():
+        return CheckResult(
+            check_id="claude_code_plugin",
+            status="OK",
+            summary=(
+                "Claude Code has no plugins installed (no installed_plugins.json) "
+                "— pip-install-only user"
+            ),
+        )
+    try:
+        text = registry.read_text(encoding="utf-8")
+    except OSError as exc:
+        return CheckResult(
+            check_id="claude_code_plugin",
+            status="FAIL",
+            summary=(
+                f"{registry} unreadable (permission/OS error: {exc.__class__.__name__}: {exc})"
+            ),
+            fix=f"Fix the permissions on {registry} so the current user can read it.",
+        )
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return CheckResult(
+            check_id="claude_code_plugin",
+            status="FAIL",
+            summary=(f"{registry} is not valid JSON ({exc.msg} at line {exc.lineno})"),
+            fix=_PLUGIN_REINSTALL_FIX,
+        )
+    plugins = data.get("plugins") if isinstance(data, dict) else None
+    if not isinstance(plugins, dict):
+        # Anthropic owns this schema. If a future bump renames `plugins` or
+        # restructures the shape, fall through to "no plugin install" rather
+        # than FAIL — false-positives on schema drift are worse than missing
+        # a real plugin install (which other checks would still catch).
+        return CheckResult(
+            check_id="claude_code_plugin",
+            status="OK",
+            summary=(
+                f"{registry} has no recognisable `plugins` map — treating as no plugin install"
+            ),
+        )
+    entries = _find_sumo_qa_plugin_entries(plugins)
+    if not entries:
+        return CheckResult(
+            check_id="claude_code_plugin",
+            status="OK",
+            summary="sumo-qa not installed via plugin manager (no sumo-qa entry)",
+        )
+    # Take the first record (one install scope is the realistic case);
+    # surface the marketplace name so hybrid users see which source is active.
+    key, record = entries[0]
+    install_path_str = record.get("installPath")
+    install_path = _Path(install_path_str) if isinstance(install_path_str, str) else None
+    version = record.get("version", "unknown")
+    if install_path is None or not install_path.exists():
+        return CheckResult(
+            check_id="claude_code_plugin",
+            status="FAIL",
+            summary=(
+                f"plugin registry lists {key} v{version} but installPath "
+                f"{install_path_str!r} does not exist — dangling install"
+            ),
+            fix=_PLUGIN_REINSTALL_FIX,
+            details={
+                "registry_key": key,
+                "version": version,
+                "install_path": install_path_str,
+            },
+        )
+    return CheckResult(
+        check_id="claude_code_plugin",
+        status="OK",
+        summary=f"sumo-qa registered via Claude Code plugin manager ({key} v{version})",
+        details={
+            "registry_key": key,
+            "version": version,
+            "install_path": str(install_path),
+        },
+    )
+
+
 def check_claude_code_config(
     home: _Path | None = None,
     system: str | None = None,
@@ -482,11 +631,36 @@ def check_claude_code_config(
     OK with "not detected" when neither ``~/.claude/`` nor the config dir
     exists — that machine isn't running Claude Code, so the check is
     informational, not a failure.
+
+    Cross-references ``check_claude_code_plugin``: when the pip-install
+    config has no ``sumo-qa`` entry but the user is registered via the
+    plugin manager, soften the FAIL to OK with a disclosure. Plugin-install
+    users have a valid setup — the pip-install config is intentionally
+    empty for them.
     """
     h = home or _Path.home()
     sys_name = system or _platform.system()
     config_path = _claude_code_config_path(h, sys_name)
     claude_home = h / ".claude"
+
+    def _soften_if_plugin_installed() -> CheckResult | None:
+        plugin_check = check_claude_code_plugin(home=h)
+        if plugin_check.status == "OK" and "registered via" in plugin_check.summary:
+            return CheckResult(
+                check_id="claude_code_config",
+                status="OK",
+                summary=(
+                    f"{config_path} has no `sumo-qa` entry — sumo-qa is "
+                    "registered via Claude Code's plugin manager instead "
+                    "(see claude_code_plugin check)"
+                ),
+                details={
+                    "config_path": str(config_path),
+                    "registered_via": "plugin_manager",
+                },
+            )
+        return None
+
     return _check_host_config(
         check_id="claude_code_config",
         config_path=config_path,
@@ -494,6 +668,7 @@ def check_claude_code_config(
         not_installed_predicate=not (claude_home.exists() or config_path.parent.exists()),
         install_flag="--claude-code",
         config_schema_key="mcpServers",
+        on_missing_entry=_soften_if_plugin_installed,
     )
 
 
@@ -771,6 +946,7 @@ def _collect_checks(
     out.extend([handshake, tools])
     if host_filter in (None, "claude-code"):
         out.append(check_claude_code_config())
+        out.append(check_claude_code_plugin())
     if host_filter in (None, "claude-desktop"):
         out.append(check_claude_desktop_config())
     if host_filter in (None, "vscode"):
