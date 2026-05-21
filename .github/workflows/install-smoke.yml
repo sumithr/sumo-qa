@@ -83,24 +83,36 @@ jobs:
         # Two assertions:
         #   1. Plain run produces structured output (every line starts with
         #      [OK]/[WARN]/[FAIL] + a Summary footer). Exit code is NOT
-        #      gated — a fresh runner has no host configs so some FAILs are
-        #      expected; we only assert doctor itself runs cleanly.
+        #      gated — a fresh runner has no Claude / VS Code / JetBrains
+        #      installation, so multiple FAILs are expected; doctor's exit
+        #      code is 1 in that case. We only assert doctor itself runs
+        #      cleanly and produces the documented output shape.
         #   2. --json output parses and carries the documented top-level
         #      shape (schema_version + summary + checks).
+        #
+        # `set +e` brackets every doctor invocation so a non-zero exit
+        # (expected on a fresh runner) doesn't fail the workflow step.
+        # The shape assertions stay strict.
         #
         # No untrusted GitHub event inputs are interpolated in this step.
         shell: bash
         run: |
           set +e
           sumo-qa-doctor > doctor.out
+          doctor_exit=$?
+          sumo-qa-doctor --json > doctor.json
+          doctor_json_exit=$?
+          python -m sumo_qa.doctor --help > /dev/null
+          module_help_exit=$?
           set -e
+          echo "doctor exit codes: human=$doctor_exit json=$doctor_json_exit module-help=$module_help_exit"
+          # Module-form --help must always exit 0 — it's an argparse help
+          # display, no checks run.
+          [ "$module_help_exit" -eq 0 ]
           test -s doctor.out
           grep -q "^\[OK\]\|^\[WARN\]\|^\[FAIL\]" doctor.out
           grep -q "^Summary:" doctor.out
-          sumo-qa-doctor --json > doctor.json
           python -c "import json; d = json.load(open('doctor.json')); assert d['schema_version'] == '0'; assert 'summary' in d and 'checks' in d; assert isinstance(d['checks'], list); assert len(d['checks']) >= 6, d"
-          # Module-form fallback must also work — same wheel, no wrapper.
-          python -m sumo_qa.doctor --help >/dev/null
 
       - name: Smoke sumo-qa-install --claude-code
         # Claude Code host-wiring path contains the Windows-specific branches in
