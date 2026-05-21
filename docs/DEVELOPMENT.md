@@ -48,6 +48,21 @@ pip install -e .                  # editable install in the active venv, or
 uv tool install --from . sumo-qa  # installs into uv's tool dir
 ```
 
+### Try this branch as a "real user" (without publishing)
+
+The contributor workflow above gives you an **editable** install — perfect for live edits but distinct from what an end-user gets via `pip install sumo-qa`. To validate a branch in a real-user-shaped install (a built wheel that matches the canonical PyPI flow), the repo ships a helper:
+
+```bash
+python scripts/dev_install.py                # full canonical flow: pip install + sumo-qa-install + doctor
+python scripts/dev_install.py --claude-code  # only configure Claude Code
+python scripts/dev_install.py --skip-installer   # just refresh the wheel
+python scripts/dev_install.py --help         # full flag matrix
+```
+
+It runs `pip install --upgrade --force-reinstall .` against the active interpreter, then `python -m sumo_qa.installer` (passing through any host flags you provide), then `python -m sumo_qa.doctor` so you can see whether the install is wired correctly. Full write-up: [docs/INSTALL.md#wheel-from-clone-matches-canonical-pypi-install](INSTALL.md#wheel-from-clone-matches-canonical-pypi-install).
+
+Reversal: `pip install --upgrade sumo-qa==<previous-version>` restores the PyPI build.
+
 ## Local verification — automatic via git hooks
 
 The repo uses [pre-commit](https://pre-commit.com/) to enforce the same checks CI runs.

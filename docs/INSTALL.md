@@ -287,6 +287,53 @@ You should get 10 names back: api_contract_change, business_logic_change, securi
 
 ## Install from a local clone
 
+Two clone-install flows exist; pick by what you want to do.
+
+| Flow | Use when | Pointer |
+| --- | --- | --- |
+| **Wheel from clone** (matches canonical PyPI install) | You want to **try this version** of the code without publishing to PyPI — e.g. validate a feature branch, smoke-test changes against your real host configs, or share a build with a teammate via `pip install /path/to/their/checkout`. | [Wheel from clone](#wheel-from-clone-matches-canonical-pypi-install) |
+| **Editable install** (live-edit workflow) | You want to **edit skills, knowledge catalogues, or standards packs in place** and have the host pick the edits up immediately, with no reinstall step. Closest to working on the project itself. | [Editable install (live-edit workflow)](#editable-install-live-edit-workflow) |
+
+### Wheel from clone (matches canonical PyPI install)
+
+The canonical user install is `pip install sumo-qa && python -m sumo_qa.installer`. Installing from a local clone is the same flow with `pip install .` substituted for `pip install sumo-qa` — pip builds a wheel from the local `pyproject.toml` and installs it just like a PyPI release would, no tags or version bumps required.
+
+The repo ships a helper script that wraps both steps + a post-install `sumo-qa-doctor` smoke:
+
+```bash
+git clone https://github.com/sumithr/sumo-qa.git
+cd sumo-qa
+python scripts/dev_install.py
+```
+
+What the script does, in order:
+
+1. `python -m pip install --upgrade --force-reinstall <repo>` against the active interpreter (override with `--python /path/to/python`). The `--force-reinstall` step bypasses pip's "already satisfied" short-circuit when the version string hasn't bumped, so a branch with the same `version =` in `pyproject.toml` as your installed copy still overwrites the wheel.
+2. `python -m sumo_qa.installer` (default: configure every detected host). Pass through any host flag the installer understands — e.g. `--claude-code`, `--vscode --workspace .`, `--jetbrains`, `--claude-desktop`, `--skip-mcp-install`.
+3. `python -m sumo_qa.doctor` so you can see the result of the install (`[OK]`/`[WARN]`/`[FAIL]` per check, with `Fix:` commands for failures). Skip with `--no-doctor`.
+
+Common invocations:
+
+```bash
+python scripts/dev_install.py                          # full canonical flow
+python scripts/dev_install.py --claude-code            # only Claude Code host
+python scripts/dev_install.py --vscode --workspace .   # only VS Code, this workspace
+python scripts/dev_install.py --skip-installer         # just refresh the wheel
+python scripts/dev_install.py --python /usr/local/bin/python3.12  # target a specific interpreter
+python scripts/dev_install.py --help                   # full flag matrix
+```
+
+Reversal: `python -m pip install --upgrade sumo-qa==<previous-version>` restores the PyPI build.
+
+If you'd rather run the steps manually (no script), the same two commands work directly:
+
+```bash
+python -m pip install --upgrade --force-reinstall .
+python -m sumo_qa.installer --claude-code   # or your host flag of choice
+```
+
+### Editable install (live-edit workflow)
+
 Use this flow when you want to **edit skills, knowledge catalogues, or standards packs in place** — your team's own QA standards, custom techniques, extra change rules — and have the host pick the edits up immediately, with no env vars and no reinstall step. Common cases:
 
 - A team fork that bakes in your org's standards pack and change rules

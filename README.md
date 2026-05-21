@@ -56,7 +56,7 @@ sumo-qa-doctor                  # or `python -m sumo_qa.doctor` if not on PATH
 
 Read-only setup diagnostics — checks Python + sumo-qa version, install mode, the MCP `initialize` + `tools/list` handshake, and every host config the installer touches (Claude Code, Claude Desktop, VS Code workspace, JetBrains detection). Each failure prints the exact `Fix:` command. `--json` for machine output. Doctor ships in the same wheel as `sumo-qa`, so any successful `pip install sumo-qa` already includes it. Details: [docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor](docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor).
 
-Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md). Want to run from a local clone with your team's own standards / knowledge packs editable in place? [docs/INSTALL.md#install-from-a-local-clone](docs/INSTALL.md#install-from-a-local-clone).
+Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md). Want to install from a local clone — to try an unreleased branch or run with your team's standards / knowledge packs editable in place? See [docs/INSTALL.md#install-from-a-local-clone](docs/INSTALL.md#install-from-a-local-clone) — the repo ships `scripts/dev_install.py` for the canonical-flow case (`git clone && python scripts/dev_install.py`).
 
 ### Verify it's wired
 
