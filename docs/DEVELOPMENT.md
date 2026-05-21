@@ -71,7 +71,7 @@ claude --plugin-dir /path/to/sumo-qa
 
 That loads the plugin directly from the directory — no marketplace, no install step. `/reload-plugins` inside Claude Code picks up edits without restarting. The plugin's `.mcp.json` uses `${CLAUDE_PLUGIN_ROOT}` so `uvx` resolves the local checkout's Python source — `claude --plugin-dir` invocations run THIS branch's code end-to-end (skills + hooks + MCP server tools).
 
-For the plugin's own doctor, run it the same way `${CLAUDE_PLUGIN_ROOT}` resolves:
+For the plugin's own doctor, inside the Claude Code session just type `!sumo-qa-doctor` — the plugin ships a `bin/sumo-qa-doctor` wrapper that's on the Bash tool's PATH while the plugin is enabled (Anthropic's [documented `bin/` mechanism](https://code.claude.com/docs/en/plugins-reference#plugin-directory-structure)). From outside Claude Code:
 
 ```bash
 uvx --from /path/to/sumo-qa sumo-qa-doctor

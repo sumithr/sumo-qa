@@ -140,19 +140,27 @@ After install, `uv --version` should print ≥0.4 and `uvx --version` should res
 
 ### Doctor for plugin-install users
 
-To run `sumo-qa-doctor` without a separate pip install, invoke it via `uvx` against the plugin's source directory — the same path Claude Code resolves `${CLAUDE_PLUGIN_ROOT}` to at runtime when spawning the MCP server. For a marketplace-installed plugin, that's `~/.claude/plugins/cache/<marketplace>/sumo-qa/<version>/`:
+When the sumo-qa plugin is enabled in a Claude Code session, the plugin's `bin/sumo-qa-doctor` wrapper is on the Bash tool's PATH (per Anthropic's [documented `bin/` mechanism](https://code.claude.com/docs/en/plugins-reference#plugin-directory-structure)). Inside Claude Code, just type:
+
+```
+!sumo-qa-doctor
+!sumo-qa-doctor --json
+!sumo-qa-doctor --host claude-code
+```
+
+The wrapper resolves its own plugin folder and delegates to `uvx --from <plugin-root> sumo-qa-doctor` — no `pip install sumo-qa` needed, no `--from <long-path>` boilerplate.
+
+For direct invocation outside Claude Code (e.g. from a regular shell), use `uvx` against the plugin's source directory:
 
 ```bash
+# claude --plugin-dir <path> local-dev session
+uvx --from /path/to/sumo-qa sumo-qa-doctor
+
+# marketplace install (cache lives under ~/.claude/plugins/cache/...)
 uvx --from "$HOME/.claude/plugins/cache/<marketplace>/sumo-qa/<version>" sumo-qa-doctor
 ```
 
-For a `claude --plugin-dir <path>` local-dev session, point uvx at the same local path:
-
-```bash
-uvx --from /path/to/sumo-qa sumo-qa-doctor
-```
-
-uvx builds the wheel from that directory (cached after the first call) and runs its `sumo-qa-doctor` entry point. Doctor's `claude_code_plugin` check reports whether the plugin install is correctly registered, and `mcp_handshake` confirms the uvx-spawned MCP server actually responds — together they prove the plugin install is fully functional, not just registered.
+uvx builds the wheel from that directory (cached after the first call) and runs the `sumo-qa-doctor` entry point. Doctor's `claude_code_plugin` check reports whether the plugin install is correctly registered, and `mcp_handshake` confirms the uvx-spawned MCP server actually responds — together they prove the plugin install is fully functional, not just registered.
 
 ### Architecture
 
