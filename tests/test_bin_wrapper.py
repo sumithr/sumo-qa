@@ -1,6 +1,24 @@
 import pathlib
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+def _repo_root() -> pathlib.Path:
+    """Walk up from this file until we find the .git ancestor.
+
+    Robust to mutmut's layout: when the mutation gate runs, mutmut copies
+    ``tests/`` into ``mutants/tests/`` but does NOT copy ``bin/`` or
+    ``docs/`` (only files under mutation + their tests). A naive
+    ``parents[1]`` resolves to ``mutants/`` inside that copy and the bin
+    / docs lookups under it fail. Anchoring on ``.git`` always finds the
+    real repo root regardless of layout.
+    """
+    here = pathlib.Path(__file__).resolve()
+    for candidate in (here, *here.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    raise RuntimeError(f"no .git ancestor of {here!s}")
+
+
+REPO_ROOT = _repo_root()
 
 
 def test_bin_wrapper_does_not_mention_node_or_npx():

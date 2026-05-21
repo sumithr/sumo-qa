@@ -10,7 +10,26 @@ from __future__ import annotations
 
 import pathlib
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
+
+def _repo_root() -> pathlib.Path:
+    """Walk up from this file until we find the .git ancestor.
+
+    Robust to mutmut's layout: when the mutation gate runs, mutmut copies
+    ``tests/`` into ``mutants/tests/`` so the mutated source can be tested
+    — but it does NOT copy ``docs/``, ``README.md``, ``bin/``, etc.
+    (only files under mutation + their tests). A naive
+    ``parents[1]`` resolves to ``mutants/`` inside that copy, and any
+    docs lookup under it fails. Anchoring on ``.git`` always finds the
+    real repo root regardless of layout.
+    """
+    here = pathlib.Path(__file__).resolve()
+    for candidate in (here, *here.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    raise RuntimeError(f"no .git ancestor of {here!s}")
+
+
+REPO = _repo_root()
 
 
 def test_install_md_uv_prereq_precedes_plugin_install_command():

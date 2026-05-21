@@ -25,7 +25,25 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def _repo_root() -> Path:
+    """Walk up from this file until we find the .git ancestor.
+
+    Robust to mutmut's layout: when the mutation gate runs, mutmut copies
+    ``tests/`` into ``mutants/tests/`` but does NOT copy ``hooks/`` or
+    ``skills/`` (only files under mutation + their tests). A naive
+    ``parents[1]`` resolves to ``mutants/`` inside that copy and the hook
+    / skill lookups under it fail. Anchoring on ``.git`` always finds the
+    real repo root regardless of layout.
+    """
+    here = Path(__file__).resolve()
+    for candidate in (here, *here.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    raise RuntimeError(f"no .git ancestor of {here!s}")
+
+
+ROOT = _repo_root()
 HOOK_SCRIPT = ROOT / "hooks" / "session-start"
 USING_SKILL = ROOT / "skills" / "using-sumo-qa" / "SKILL.md"
 
