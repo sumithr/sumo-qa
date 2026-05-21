@@ -50,7 +50,9 @@ uv tool install --from . sumo-qa  # installs into uv's tool dir
 
 ### Try this branch as a "real user" (without publishing)
 
-The contributor workflow above gives you an **editable** install — perfect for live edits but distinct from what an end-user gets via `pip install sumo-qa`. To validate a branch in a real-user-shaped install (a built wheel that matches the canonical PyPI flow), the repo ships a helper:
+The contributor workflow above gives you an **editable** install — perfect for live edits but distinct from what an end-user gets via `pip install sumo-qa` or `claude plugin install sumithr/sumo-qa`. Two helpers cover the two install vectors:
+
+**`scripts/dev_install.py`** — pip-install path (the canonical PyPI flow):
 
 ```bash
 python scripts/dev_install.py                # full canonical flow: pip install + sumo-qa-install + doctor
@@ -59,9 +61,18 @@ python scripts/dev_install.py --skip-installer   # just refresh the wheel
 python scripts/dev_install.py --help         # full flag matrix
 ```
 
-It runs `pip install --upgrade --force-reinstall .` against the active interpreter, then `python -m sumo_qa.installer` (passing through any host flags you provide), then `python -m sumo_qa.doctor` so you can see whether the install is wired correctly. Full write-up: [docs/INSTALL.md#wheel-from-clone-matches-canonical-pypi-install](INSTALL.md#wheel-from-clone-matches-canonical-pypi-install).
+Runs `pip install --upgrade --force-reinstall .` against the active interpreter, then `python -m sumo_qa.installer` (passing through any host flags you provide), then `python -m sumo_qa.doctor`. Bootstraps pip automatically via `ensurepip` when the target venv lacks it (e.g. uv-created venvs). Full write-up: [docs/INSTALL.md#wheel-from-clone-matches-canonical-pypi-install](INSTALL.md#wheel-from-clone-matches-canonical-pypi-install).
 
-Reversal: `pip install --upgrade sumo-qa==<previous-version>` restores the PyPI build.
+**`scripts/dev_plugin_install.py`** — Claude Code plugin path:
+
+```bash
+python scripts/dev_plugin_install.py           # install / refresh
+python scripts/dev_plugin_install.py --uninstall   # tear down
+```
+
+Materialises a local marketplace under `.claude/local-marketplace/` (gitignored), symlinks the repo as the plugin source, runs `claude plugin marketplace add` + `claude plugin install`, then `sumo-qa-doctor --host claude-code` so you can confirm the new `claude_code_plugin` check sees the install. The two scripts can be run together (the plugin install and pip install are additive — doctor reports both as OK).
+
+Reversal: `pip install --upgrade sumo-qa==<previous-version>` restores the PyPI build for the pip path; `python scripts/dev_plugin_install.py --uninstall` tears down the plugin path.
 
 ## Local verification — automatic via git hooks
 

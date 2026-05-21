@@ -332,6 +332,19 @@ python -m pip install --upgrade --force-reinstall .
 python -m sumo_qa.installer --claude-code   # or your host flag of choice
 ```
 
+#### Test the Claude Code plugin install path
+
+The pip flow above exercises the `sumo-qa-install` (host-config) path. To validate the **Claude Code plugin** install path from a local checkout — the alternative install vector users hit when they run `claude plugin install sumithr/sumo-qa` — the repo also ships:
+
+```bash
+python scripts/dev_plugin_install.py            # install / refresh
+python scripts/dev_plugin_install.py --uninstall   # tear down
+```
+
+The script materialises a local marketplace under `.claude/local-marketplace/` (gitignored), symlinks the repo as the plugin source so Claude Code sees the live code, then runs `claude plugin marketplace add` + `claude plugin install sumo-qa@sumo-qa-local`, and finishes with `sumo-qa-doctor --host claude-code` — you should see `[OK] claude_code_plugin — sumo-qa registered via Claude Code plugin manager (sumo-qa@sumo-qa-local vX.Y.Z)` confirming the plugin manager picked up the install.
+
+The pip install and plugin install paths are additive, not mutually exclusive — a user can have both at once, and doctor reports each independently.
+
 ### Editable install (live-edit workflow)
 
 Use this flow when you want to **edit skills, knowledge catalogues, or standards packs in place** — your team's own QA standards, custom techniques, extra change rules — and have the host pick the edits up immediately, with no env vars and no reinstall step. Common cases:
