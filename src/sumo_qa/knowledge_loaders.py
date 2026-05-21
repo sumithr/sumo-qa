@@ -117,13 +117,17 @@ def _standards_dir() -> Path:
     """Return the standards directory, honouring QA_STANDARDS_PATH override."""
     override = os.environ.get("QA_STANDARDS_PATH")
     if override:
-        # pragma: no mutate — "packs" → "PACKS" mutation is Mac-survivor-only:
-        # killed on case-sensitive FS (Linux CI) by
+        # Bind the literal-bearing expression to a variable so the
+        # `"packs"` → `"PACKS"` mutation can be suppressed with a single
+        # trailing `# pragma: no mutate` on the same physical line — mutmut
+        # 3.5.0 only honours the pragma on the line carrying the mutated
+        # token, and ruff's format-on-commit would re-split a multi-line
+        # ternary expression across lines. The mutation is a Mac-survivor-
+        # only artefact: killed on case-sensitive FS (Linux CI) by
         # test_standards_dir_env_var_with_packs_subdirectory, indistinguishable
-        # on case-insensitive APFS. Pragma keeps the pre-push hook usable on Mac.
-        return (
-            Path(override) / "packs" if (Path(override) / "packs").is_dir() else Path(override)
-        )  # pragma: no mutate
+        # on case-insensitive APFS.
+        override_packs = Path(override) / "packs"  # pragma: no mutate
+        return override_packs if override_packs.is_dir() else Path(override)
     bundled = Path(__file__).parent / "_data" / "standards" / "packs"
     if bundled.is_dir():
         return bundled
