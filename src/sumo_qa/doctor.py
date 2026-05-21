@@ -31,24 +31,31 @@ Two tiers of checks:
    These are diagnostic value-adds: when something is broken, they tell
    the user which config drifted and how to fix it.
 
-Storage-probe checks are deliberately defensive. The host vendors own
-their on-disk schemas; a future release could rename keys, restructure
-sections, or add new variants. To keep schema drift from producing false
-FAILs, storage probes:
+Storage-probe checks fall into two risk profiles:
 
-- Use minimal pattern-matching (regex section-header detection for TOML;
-  presence-of-key lookups for JSON) rather than full-schema validators.
-- Fall through to ``OK`` (with a "couldn't determine install state"
-  disclosure) when the layout doesn't match the known shape. They never
-  ``FAIL`` purely because a vendor changed the format.
-- Reserve ``FAIL`` for cases where a real install is genuinely broken
-  (malformed JSON / TOML in a known file, dangling install paths, stale
-  binary references) — situations the user needs to fix regardless of
-  schema evolution.
+- **Plugin-install registries** (``check_claude_code_plugin``,
+  ``check_codex_plugin``) inspect schemas owned by Anthropic / OpenAI.
+  These are newer surfaces and the vendor could restructure them. To
+  keep schema drift from producing false FAILs, these checks use minimal
+  pattern-matching (regex section-header detection for Codex's TOML,
+  presence-of-key lookups for Claude's JSON) and fall through to ``OK``
+  with a "couldn't determine install state" disclosure when the layout
+  doesn't match.
 
-If functional checks pass but storage probes return "not detected", that
-isn't a failure — it means sumo-qa is working through an installation
-source the storage probes don't (yet) recognise.
+- **Host MCP configs** (``check_claude_code_config``,
+  ``check_claude_desktop_config``, ``check_vscode_workspace_config``)
+  inspect the same files ``sumo-qa-install`` WRITES. The schemas
+  (``mcpServers`` for Claude, ``servers`` for VS Code) are defined by
+  the host vendor but consumed by our installer; if the vendor renamed
+  a key the installer would break first and these checks would
+  correctly flag the resulting broken install. FAIL is the right
+  severity here.
+
+Either way, the canonical functional answer comes from ``run_mcp_probe``:
+if that passes, sumo-qa is working regardless of what storage probes
+recognise. If functional checks pass but storage probes return "not
+detected", the install is working through a source the probes don't
+recognise — not a failure.
 """
 
 from __future__ import annotations
