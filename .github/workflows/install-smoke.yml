@@ -386,3 +386,98 @@ jobs:
               sys.exit(1)
           print(f"{adapter}: MCP handshake OK (server={server_name})")
           PY
+
+  install-plugin-uvx:
+    name: plugin install via uvx (${{ matrix.os }})
+    # Smokes the canonical plugin install path: uvx fetches sumo-qa from
+    # the local checkout (simulating `uvx --from git+https://github.com/...`)
+    # and spawns the MCP server. Proves the .mcp.json uvx form actually
+    # works end-to-end on every OS — catches regressions a pip-only smoke
+    # would miss (uvx-incompatible packaging changes, env-var passthrough
+    # bugs, Windows .exe shim differences for uvx).
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        # uv is the assumed prerequisite for Python stdio MCP plugins
+        # (parallel to npx for Node). Install via Astral's official
+        # installer — same one-liner users follow from docs/INSTALL.md.
+        # No untrusted GitHub event inputs interpolated.
+        shell: bash
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify uvx can resolve sumo-qa from this checkout
+        # The plugin's .mcp.json invokes uvx with --from git+https://...
+        # We simulate the same resolution against the local checkout
+        # (uvx accepts a local path the same way it accepts a git URL).
+        # If uvx can resolve + run sumo-qa, sumo-qa-install, and
+        # sumo-qa-doctor from the source tree, the plugin install path
+        # is self-contained.
+        # No untrusted GitHub event inputs interpolated.
+        shell: bash
+        run: |
+          uvx --from . sumo-qa --help >/dev/null
+          uvx --from . sumo-qa-install --help >/dev/null
+          uvx --from . sumo-qa-doctor --help >/dev/null
+
+      - name: Smoke MCP initialize via uvx-spawned server
+        # End-to-end: spawn the MCP server via uvx and drive an initialize
+        # + tools/list handshake. Confirms the uvx-bootstrap pattern
+        # produces a working JSON-RPC server on every OS — catches
+        # regressions in the canonical plugin install vector.
+        # No untrusted GitHub event inputs interpolated.
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, sys
+          env = os.environ.copy()
+          env["PYTHONUNBUFFERED"] = "1"
+          proc = subprocess.Popen(
+              ["uvx", "--from", ".", "sumo-qa"],
+              stdin=subprocess.PIPE,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+              text=True,
+              env=env,
+          )
+          init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": {"protocolVersion": "2024-11-05",
+                             "capabilities": {},
+                             "clientInfo": {"name": "ci", "version": "1"}}}
+          notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+          tools = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+          payload = "\n".join(json.dumps(x) for x in (init, notif, tools)) + "\n"
+          try:
+              out, err = proc.communicate(payload, timeout=120)
+          except subprocess.TimeoutExpired:
+              proc.kill()
+              sys.stderr.write("MCP server timed out responding to handshake\n")
+              sys.exit(1)
+          ok = False
+          for line in out.splitlines():
+              try:
+                  msg = json.loads(line)
+              except Exception:
+                  continue
+              if msg.get("id") == 2 and "result" in msg:
+                  names = {t["name"] for t in msg["result"]["tools"]}
+                  if any(n.startswith("sumo_qa_") for n in names):
+                      ok = True
+                      break
+          if not ok:
+              sys.stderr.write("MCP handshake via uvx did not return sumo_qa_* tools\n")
+              sys.stderr.write((err or "")[-500:] + "\n")
+              sys.exit(1)
+          print(f"uvx-spawned MCP handshake OK ({len(names)} tools)")
+          PY
