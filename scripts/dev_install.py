@@ -87,6 +87,34 @@ def _resolve_python(requested: str | None) -> str:
     return resolved
 
 
+def _ensure_pip(python: str) -> None:
+    """Bootstrap pip into the target Python if it isn't already there.
+
+    uv-managed venvs (``uv venv``) skip pip by default to save disk; a fresh
+    ``python -m venv`` always has it. We detect the missing-pip case with
+    ``python -m pip --version`` and recover via the stdlib ``ensurepip``
+    module — built into every Python distribution, so the bootstrap is
+    always reachable.
+
+    Fast path: pip already present → no subprocess overhead. Slow path:
+    one ``ensurepip --upgrade`` invocation, then we continue.
+    """
+    probe = subprocess.run(
+        [python, "-m", "pip", "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return  # pip already installed; nothing to do
+    print(
+        f"[dev_install] {python} has no pip module — bootstrapping via "
+        "`python -m ensurepip --upgrade` (common with uv-created venvs).",
+        flush=True,
+    )
+    _run([python, "-m", "ensurepip", "--upgrade"])
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dev_install.py",
@@ -138,6 +166,10 @@ def main(argv: list[str] | None = None) -> int:
     python = _resolve_python(args.python)
     print(f"[dev_install] target Python: {python}")
     print(f"[dev_install] repo root:     {_REPO_ROOT}")
+
+    # Step 0: ensure pip is available in the target Python. uv-managed venvs
+    # often skip pip; bootstrap it via ensurepip before the install step.
+    _ensure_pip(python)
 
     # Step 1: pip install — builds a wheel from the local pyproject and
     # installs it into the target Python. --upgrade so a previously-pinned
