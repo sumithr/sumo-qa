@@ -34,6 +34,37 @@ The discipline lives in 14 [skill files](skills/) (1 router + 13 sub-skills). Th
 
 ## Install
 
+Two install methods. Pick one — both wire up Claude Code, the plugin path is self-contained and the pip path is the original PyPI flow.
+
+### Plugin install — Claude Code or OpenAI Codex
+
+```bash
+# Claude Code
+claude plugin install sumithr/sumo-qa
+
+# OpenAI Codex (run from inside the Codex session)
+/plugins install sumithr/sumo-qa
+```
+
+That's the whole install. The plugin folder bundles skills, hooks, the MCP server, and `sumo-qa-doctor` — no `pip install` step needed. Restart your host or open a fresh chat afterwards.
+
+Requires `uv` on PATH. One-liner install if you don't have it yet:
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Homebrew
+brew install uv
+```
+
+Full plugin detail (architecture, what gets wired where, marketplace vs `--plugin-dir`): [docs/INSTALL.md#plugin-format-install-claude-code--codex](docs/INSTALL.md#plugin-format-install-claude-code--codex).
+
+### pip install — VS Code + Copilot, JetBrains, Claude Desktop, or any `pip`-centric workflow
+
 ```bash
 python -m pip install sumo-qa && python -m sumo_qa.installer --claude-code
 ```
@@ -47,8 +78,6 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
 ```
 
 Restart your host or open a fresh chat afterwards.
-
-> **Plugin install requires `uv`** (Astral's package runner; one-line installer, no Python prerequisite). See [INSTALL.md#prerequisite-uv](docs/INSTALL.md#prerequisite-uv).
 
 ### Something not working?
 
