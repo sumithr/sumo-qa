@@ -31,6 +31,28 @@ uv run pre-commit install --install-hooks
 uv run pre-commit install --hook-type pre-push
 ```
 
+### Markdown link-existence gate
+
+Every commit that touches a `.md` file runs [`scripts/check_markdown_links.sh`](../scripts/check_markdown_links.sh) — a thin wrapper over [`pytest-check-links`](https://github.com/jupyterlab/pytest-check-links) that fails if any **relative file link** in the staged markdown points at a file that doesn't exist. CI runs the same script across every tracked markdown file on every PR via the `markdown-links` job in [`.github/workflows/lint.yml`](../.github/workflows/lint.yml).
+
+What it catches:
+
+- `[foo](scripts/old_helper.py)` after `scripts/old_helper.py` is deleted
+- `[bar](docs/RENAMED.md)` after the doc is renamed but not all callers updated
+
+What it does **not** catch (yet):
+
+- Broken section anchors (`#some-heading`). `pytest-check-links` 0.10.1 has a known anchor-detection bug; the gate runs with `--check-anchors` OFF. Revisit when `> 0.10.x` ships.
+- Broken external URLs. Skipped intentionally — pre-commit must stay fast and offline.
+- GitHub-relative URLs like `../../commit/<sha>` or `../../pull/<n>`. These only resolve on github.com; pattern-skipped in the wrapper.
+
+To run the gate manually:
+
+```bash
+./scripts/check_markdown_links.sh                  # scans every tracked .md
+./scripts/check_markdown_links.sh README.md docs/  # scoped to specific paths
+```
+
 ### Eval harness (Node-only — skip if you don't touch evals)
 
 ```bash
