@@ -31,27 +31,23 @@ uv run pre-commit install --install-hooks
 uv run pre-commit install --hook-type pre-push
 ```
 
-### Markdown link-existence gate
+### Markdown drift gate
 
-Every commit that touches a `.md` file runs [`scripts/check_markdown_links.sh`](../scripts/check_markdown_links.sh) — a thin wrapper over [`pytest-check-links`](https://github.com/jupyterlab/pytest-check-links) that fails if any **relative file link** in the staged markdown points at a file that doesn't exist. CI runs the same script across every tracked markdown file on every PR via the `markdown-links` job in [`.github/workflows/lint.yml`](../.github/workflows/lint.yml).
+Every commit that touches a `.md` file runs [`scripts/check_markdown_links.sh`](../scripts/check_markdown_links.sh) — a thin wrapper that fails the commit if any markdown link or root-level user-facing code-block file ref points at a file that doesn't exist. CI runs the same script across every tracked markdown file on every PR via the `markdown-links` job in [`.github/workflows/lint.yml`](../.github/workflows/lint.yml).
 
-What it catches:
+Two layers run in sequence:
 
-- `[foo](scripts/old_helper.py)` after `scripts/old_helper.py` is deleted
-- `[bar](docs/RENAMED.md)` after the doc is renamed but not all callers updated
+1. **`pytest-check-links`** for markdown link syntax (every tracked `.md`). Catches `[label](path/to/file)` after the target file is removed or renamed. Runs across the whole repo with high precision (zero false positives in practice).
+2. **`scripts/check_codeblock_file_refs.py`** for inline-code and fenced-code file refs in **root-level user-facing docs only** (`README.md`, `AGENTS.md`, `DEMO.md`, `CHANGELOG.md`). Catches commands like `python scripts/<removed>.py` whose file no longer exists. Narrower scope by design — `docs/*.md` contains lots of illustrative example paths and would generate too many false positives. Gitignored paths (intentional runtime outputs) are skipped automatically via `git check-ignore`.
 
-What it does **not** catch (yet):
+What the gate does **not** catch (yet):
 
 - Broken section anchors (`#some-heading`). `pytest-check-links` 0.10.1 has a known anchor-detection bug; the gate runs with `--check-anchors` OFF. Revisit when `> 0.10.x` ships.
 - Broken external URLs. Skipped intentionally — pre-commit must stay fast and offline.
 - GitHub-relative URLs like `../../commit/<sha>` or `../../pull/<n>`. These only resolve on github.com; pattern-skipped in the wrapper.
+- Code-block file refs inside `docs/*.md`, `skills/*.md`, `knowledge/*.md`, or `tests/scenarios/**/*.md`. These docs are full of illustrative paths by design; scanning them would flood the gate with false positives.
 
-To run the gate manually:
-
-```bash
-./scripts/check_markdown_links.sh                  # scans every tracked .md
-./scripts/check_markdown_links.sh README.md docs/  # scoped to specific paths
-```
+To run the whole gate manually from the repo root, invoke `scripts/check_markdown_links.sh` with no args to scan every tracked `.md`, or pass explicit paths to limit scope.
 
 ### Eval harness (Node-only — skip if you don't touch evals)
 
