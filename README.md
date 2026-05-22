@@ -178,12 +178,12 @@ Natural language works everywhere. *"Review my changes"*, *"plan QA for this sto
 
 ### Host adapter folders
 
-`sumo-qa` also ships first-class plugin folders for hosts that consume plugin manifests directly. Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) — see [docs/host-adapters.md](docs/host-adapters.md) for the architecture.
+`sumo-qa` ships first-class plugin manifest folders for hosts that consume them directly. Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) — see [docs/host-adapters.md](docs/host-adapters.md) for the architecture.
 
-| Host | Plugin install | Source-of-truth contract |
-|---|---|---|
-| Claude Code | `claude plugin install sumithr/sumo-qa` reads `.claude-plugin/plugin.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | Schema-validated against the published JSON Schema in CI |
-| OpenAI Codex | `/plugins install sumithr/sumo-qa` reads `.codex-plugin/plugin.json` | MCP `initialize` handshake smoke in CI (no published schema) |
+| Host | Manifest | Install status today | Source-of-truth contract |
+|---|---|---|---|
+| Claude Code | `.claude-plugin/plugin.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | `claude --plugin-dir /path/to/sumo-qa` (session-scoped); marketplace install on roadmap | Schema-validated against the published JSON Schema in CI |
+| OpenAI Codex | `.codex-plugin/plugin.json` | Not verified end-to-end yet — treat as TBD | MCP `initialize` handshake smoke in CI (no published schema) |
 
 Adding a new host is one new template under `plugin_packaging/templates/` plus the canonical-source line that describes it. The `plugin-packaging` CI workflow re-runs the generator on every PR and fails if any committed adapter file diverges from the canonical source.
 
