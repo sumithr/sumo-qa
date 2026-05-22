@@ -38,17 +38,7 @@ Two install methods. Pick one — both wire up Claude Code, the plugin path is s
 
 ### Plugin install — Claude Code or OpenAI Codex
 
-```bash
-# Claude Code
-claude plugin install sumithr/sumo-qa
-
-# OpenAI Codex (run from inside the Codex session)
-/plugins install sumithr/sumo-qa
-```
-
-That's the whole install. The plugin folder bundles skills, hooks, the MCP server, and `sumo-qa-doctor` — no `pip install` step needed. Restart your host or open a fresh chat afterwards.
-
-Requires `uv` on PATH. One-liner install if you don't have it yet:
+**Prerequisite:** `uv` on PATH (Astral's package runner — one-line install, no Python prerequisite). Skip this step if `uv --version` already resolves:
 
 ```bash
 # macOS / Linux
@@ -60,6 +50,18 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 # Homebrew
 brew install uv
 ```
+
+Then install the plugin:
+
+```bash
+# Claude Code
+claude plugin install sumithr/sumo-qa
+
+# OpenAI Codex (run from inside the Codex session)
+/plugins install sumithr/sumo-qa
+```
+
+The plugin folder bundles skills, hooks, the MCP server, and `sumo-qa-doctor` — no `pip install` step needed. Restart your host or open a fresh chat afterwards.
 
 Full plugin detail (architecture, what gets wired where, marketplace vs `--plugin-dir`): [docs/INSTALL.md#plugin-format-install-claude-code--codex](docs/INSTALL.md#plugin-format-install-claude-code--codex).
 
