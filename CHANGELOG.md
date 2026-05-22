@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/sumithr/sumo-qa/compare/v0.9.0...v0.9.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* **ci:** keep stdin open until tools/list received [regression-first] ([#141](https://github.com/sumithr/sumo-qa/issues/141)) ([4df0afa](https://github.com/sumithr/sumo-qa/commit/4df0afa2625c2c8a4f984234cba46df1b6c8520e))
+
 ## [0.9.0](https://github.com/sumithr/sumo-qa/compare/v0.8.0...v0.9.0) (2026-05-22)
 
 
