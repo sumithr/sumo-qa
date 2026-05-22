@@ -27,7 +27,47 @@ if [ "${#files[@]}" -eq 0 ]; then
   exit 0
 fi
 
-exec python -m pytest \
+# Resolve the Python interpreter — probe by *capability*, not by existence.
+#
+# Why this is non-trivial: the pre-commit hook can launch with cwd != repo
+# root, AND $VIRTUAL_ENV may point at an unrelated venv (e.g. a contributor
+# working in a worktree while their parent shell has a different .venv
+# activated). A naive existence check sends pytest at an interpreter that
+# can't import pytest-check-links and fails opaquely.
+#
+# Strategy: try candidates in order, pick the first one whose `python -c
+# 'import pytest_check_links'` succeeds. The script always lives at
+# `<repo-root>/scripts/check_markdown_links.sh`, so we resolve repo root
+# from its own location, not from cwd.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+candidates=(
+  "${REPO_ROOT}/.venv/bin/python"
+)
+if [ -n "${VIRTUAL_ENV:-}" ]; then
+  candidates+=("${VIRTUAL_ENV}/bin/python")
+fi
+candidates+=("python3" "python")
+
+PYTHON=""
+for cand in "${candidates[@]}"; do
+  if [ -x "$cand" ] || command -v "$cand" > /dev/null 2>&1; then
+    if "$cand" -c "import pytest_check_links" > /dev/null 2>&1; then
+      PYTHON="$cand"
+      break
+    fi
+  fi
+done
+
+if [ -z "$PYTHON" ]; then
+  echo "check_markdown_links: no Python interpreter with pytest-check-links found." >&2
+  echo "Install dev deps with one of:" >&2
+  echo "  uv sync --all-extras" >&2
+  echo "  python -m pip install -e \".[dev]\"" >&2
+  exit 2
+fi
+
+exec "$PYTHON" -m pytest \
   --override-ini="addopts=" \
   --override-ini="testpaths=" \
   -p no:cacheprovider \
