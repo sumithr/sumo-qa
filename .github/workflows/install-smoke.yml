@@ -475,50 +475,16 @@ jobs:
         # Mirrors the runtime ${CLAUDE_PLUGIN_ROOT} substitution Claude
         # Code performs when reading .mcp.json (Anthropic's canonical
         # pattern: https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers).
+        #
+        # The handshake logic lives in scripts/uvx_smoke_handshake.py so it
+        # is importable + unit-testable (tests/test_uvx_smoke_handshake.py
+        # pins the stdin-stays-open-until-id==2-received contract against
+        # a deterministic mock that mirrors the mcp library's cancel-on-EOF
+        # branch — the bug that bit PR #141 ubuntu CI when the smoke used
+        # subprocess.communicate()).
+        #
         # No untrusted GitHub event inputs interpolated.
         shell: bash
         env:
           CLAUDE_PLUGIN_ROOT: ${{ github.workspace }}
-        run: |
-          python - <<'PY'
-          import json, os, subprocess, sys
-          env = os.environ.copy()
-          env["PYTHONUNBUFFERED"] = "1"
-          proc = subprocess.Popen(
-              ["uvx", "--from", os.environ["CLAUDE_PLUGIN_ROOT"], "sumo-qa"],
-              stdin=subprocess.PIPE,
-              stdout=subprocess.PIPE,
-              stderr=subprocess.PIPE,
-              text=True,
-              env=env,
-          )
-          init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                  "params": {"protocolVersion": "2024-11-05",
-                             "capabilities": {},
-                             "clientInfo": {"name": "ci", "version": "1"}}}
-          notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
-          tools = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-          payload = "\n".join(json.dumps(x) for x in (init, notif, tools)) + "\n"
-          try:
-              out, err = proc.communicate(payload, timeout=120)
-          except subprocess.TimeoutExpired:
-              proc.kill()
-              sys.stderr.write("MCP server timed out responding to handshake\n")
-              sys.exit(1)
-          ok = False
-          for line in out.splitlines():
-              try:
-                  msg = json.loads(line)
-              except Exception:
-                  continue
-              if msg.get("id") == 2 and "result" in msg:
-                  names = {t["name"] for t in msg["result"]["tools"]}
-                  if any(n.startswith("sumo_qa_") for n in names):
-                      ok = True
-                      break
-          if not ok:
-              sys.stderr.write("MCP handshake via uvx did not return sumo_qa_* tools\n")
-              sys.stderr.write((err or "")[-500:] + "\n")
-              sys.exit(1)
-          print(f"uvx-spawned MCP handshake OK ({len(names)} tools)")
-          PY
+        run: python scripts/uvx_smoke_handshake.py
