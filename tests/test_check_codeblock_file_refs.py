@@ -131,25 +131,11 @@ class TestCli:
     """End-to-end: invoke the script via subprocess against a fixture tree."""
 
     def test_exit_0_when_all_refs_resolve(self, tmp_path: Path) -> None:
-        # Build a tiny git repo so `git ls-files` works.
+        # No git init needed: when files are passed explicitly, the script
+        # never calls `git ls-files`. Just verify the CLI exit code path.
         (tmp_path / "scripts").mkdir()
         (tmp_path / "scripts" / "ok.py").write_text("# ok")
         (tmp_path / "doc.md").write_text("```bash\npython scripts/ok.py\n```")
-        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "init", "--no-verify"],
-            cwd=tmp_path,
-            check=True,
-            env={
-                "GIT_AUTHOR_NAME": "t",
-                "GIT_AUTHOR_EMAIL": "t@t",
-                "GIT_COMMITTER_NAME": "t",
-                "GIT_COMMITTER_EMAIL": "t@t",
-                "PATH": __import__("os").environ.get("PATH", ""),
-            },
-        )
-        # Pass the doc explicitly so we don't rely on the fixture's cwd.
         result = subprocess.run(
             [sys.executable, str(SCRIPT), str(tmp_path / "doc.md")],
             capture_output=True,
