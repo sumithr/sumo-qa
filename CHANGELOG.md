@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/sumithr/sumo-qa/compare/v0.8.0...v0.9.0) (2026-05-22)
+
+
+### Features
+
+* **ci:** add markdown drift gate + clarify plugin install in README ([#139](https://github.com/sumithr/sumo-qa/issues/139)) ([5abc428](https://github.com/sumithr/sumo-qa/commit/5abc428c84c22e11ffcbfca893f03523d8a06031))
+
 ## [0.8.0](https://github.com/sumithr/sumo-qa/compare/v0.7.1...v0.8.0) (2026-05-21)
 
 
