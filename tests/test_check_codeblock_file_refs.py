@@ -17,7 +17,23 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def _find_repo_root() -> Path:
+    """Walk up from this test file until we find a pyproject.toml.
+
+    mutmut copies the test tree under `mutants/` and re-runs tests from there,
+    so `Path(__file__).parent.parent` resolves to `mutants/` (which doesn't
+    contain non-mutated source like `scripts/`). Walking up to the real repo
+    root keeps the test working under both plain pytest and mutmut runs.
+    """
+    here = Path(__file__).resolve()
+    for parent in [here.parent, *here.parents]:
+        if (parent / "pyproject.toml").exists() and (parent / "scripts").exists():
+            return parent
+    raise RuntimeError(f"cannot locate repo root from {here}")
+
+
+REPO_ROOT = _find_repo_root()
 SCRIPT = REPO_ROOT / "scripts" / "check_codeblock_file_refs.py"
 
 # Load the script as a module so we can call its functions directly without
