@@ -34,39 +34,6 @@ The discipline lives in 14 [skill files](skills/) (1 router + 13 sub-skills). Th
 
 ## Install
 
-Two install methods. Pick one — both wire up Claude Code, the plugin path is self-contained and the pip path is the original PyPI flow.
-
-### Plugin install — Claude Code or OpenAI Codex
-
-**Prerequisite:** `uv` on PATH (Astral's package runner — one-line install, no Python prerequisite). Skip this step if `uv --version` already resolves:
-
-```bash
-# macOS / Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# Homebrew
-brew install uv
-```
-
-Then install the plugin:
-
-```bash
-# Claude Code
-claude plugin install sumithr/sumo-qa
-
-# OpenAI Codex (run from inside the Codex session)
-/plugins install sumithr/sumo-qa
-```
-
-The plugin folder bundles skills, hooks, the MCP server, and `sumo-qa-doctor` — no `pip install` step needed. Restart your host or open a fresh chat afterwards.
-
-Full plugin detail (architecture, what gets wired where, marketplace vs `--plugin-dir`): [docs/INSTALL.md#plugin-format-install-claude-code--codex](docs/INSTALL.md#plugin-format-install-claude-code--codex).
-
-### pip install — VS Code + Copilot, JetBrains, Claude Desktop, or any `pip`-centric workflow
-
 ```bash
 python -m pip install sumo-qa && python -m sumo_qa.installer --claude-code
 ```
@@ -80,6 +47,34 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
 ```
 
 Restart your host or open a fresh chat afterwards.
+
+### Plugin install from a local clone (Claude Code, session-scoped)
+
+Prefer the plugin experience over pip? Clone the repo and pass `--plugin-dir` to `claude` on each invocation. This loads the `.claude-plugin/plugin.json` manifest directly — no pip install needed, skills + hooks + MCP server come from this checkout.
+
+**Prerequisite:** `uv` on PATH (Astral's package runner — one-line install, no Python prerequisite). Skip if `uv --version` already resolves:
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Homebrew
+brew install uv
+```
+
+Then clone and launch:
+
+```bash
+git clone https://github.com/sumithr/sumo-qa.git
+claude --plugin-dir /path/to/sumo-qa
+```
+
+Session-scoped: every `claude` invocation needs the flag — plain `claude` (no flag) starts a session with no sumo-qa loaded. Use `/reload-plugins` inside the session to pick up edits without restarting.
+
+> Persistent marketplace install (one-time setup, no flag on every launch) is on the roadmap — until then, the pip path above is the canonical persistent install. Full architecture + dev-iteration detail: [docs/INSTALL.md#plugin-format-install-claude-code--codex](docs/INSTALL.md#plugin-format-install-claude-code--codex).
 
 ### Something not working?
 
