@@ -107,6 +107,21 @@ class TestExtractRefs:
         text = "see file path/foo.py in prose"
         assert checker.extract_refs(text) == []
 
+    def test_indented_fenced_block_still_parsed(self) -> None:
+        # CommonMark allows fenced code blocks with up to 3 leading spaces
+        # (e.g. inside a list item). The previous regex anchored to column 0
+        # only and silently skipped these — drift in a list-nested fence
+        # would have slipped past the gate.
+        text = "1. Run this:\n\n   ```bash\n   python scripts/dev_install.py\n   ```\n"
+        assert checker.extract_refs(text) == ["scripts/dev_install.py"]
+
+    def test_four_space_indented_fence_is_not_a_fence(self) -> None:
+        # Per CommonMark: 4+ leading spaces makes it an indented code block,
+        # NOT a fenced one. The fence markers are part of the indented code
+        # content, not fence delimiters. Confirm we don't false-positive here.
+        text = "    ```bash\n    python scripts/dev_install.py\n    ```\n"
+        assert checker.extract_refs(text) == []
+
 
 class TestCheckFile:
     """Integration-ish: write a fixture md, point check_file at it."""

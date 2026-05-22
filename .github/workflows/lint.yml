@@ -13,6 +13,13 @@ concurrency:
   group: lint-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Minimal GITHUB_TOKEN scope — none of the jobs in this workflow write
+# back to the repo, comment, or alter releases. Explicit read-only
+# contents addresses the CodeQL "Workflow does not contain permissions"
+# advisory (https://github.com/sumithr/sumo-qa/security/code-scanning/12).
+permissions:
+  contents: read
+
 jobs:
   ruff:
     name: ruff check + format

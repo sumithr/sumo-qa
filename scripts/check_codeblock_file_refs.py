@@ -89,10 +89,13 @@ def _code_segments(text: str) -> list[str]:
         segments.append(match.group("body"))
         return ""
 
+    # CommonMark: an opening / closing code fence may be preceded by 0–3
+    # spaces of indentation (4+ spaces makes it an indented code block, not
+    # fenced). Both fences can have independent indentation up to 3 spaces.
     fenced_re = re.compile(
-        r"^(?P<fence>```|~~~)[^\n]*\n"
+        r"^[ ]{0,3}(?P<fence>```|~~~)[^\n]*\n"
         r"(?P<body>.*?)"
-        r"^(?P=fence)\s*$",
+        r"^[ ]{0,3}(?P=fence)\s*$",
         re.MULTILINE | re.DOTALL,
     )
     stripped = fenced_re.sub(_eat_fenced, text)
