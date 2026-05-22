@@ -17,7 +17,7 @@ Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarc
 
 Spend output tokens on findings, not framing.
 
-- **Don't preamble the work.** The host already shows tool calls — present findings, don't narrate *"I'll first read X, then Y, then deliver Z."*
+- **Don't preamble the work.** Spend user-visible output on findings, evidence, and gates — don't narrate *"I'll first read X, then Y, then deliver Z."*
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
 - **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
 - **Don't restate the user's input.** They know what they asked.
@@ -33,7 +33,7 @@ SHAPE FIRST, then REACHABILITY. Decide single-change vs repo-wide vs `no-tests-r
 `using-sumo-qa` routes to this skill on every QA-shaped intent. This skill ALWAYS runs before any other QA skill. Even simple intents pass through it — the canonical approaches include `no-tests-recommended` and `verify-existing` for cases that don't merit new tests.
 
 ## Checklist
-You MUST create a TodoWrite item per checklist item and complete in order:
+Track these as an ordered work list (use the host's task primitive if available, otherwise a numbered inline tracker) and complete in order:
 
 1. Read the user's intent verbatim and any supplied target paths.
 2. Call `sumo_qa_load_classifications()` and `sumo_qa_load_approaches()`. Read both catalogues.

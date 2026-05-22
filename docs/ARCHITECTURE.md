@@ -51,7 +51,7 @@ Each skill is a single `skills/<name>/SKILL.md` with:
 - YAML frontmatter (`name` + `description`) used by hosts to auto-trigger
 - An Iron Law — non-negotiable rule for the skill
 - A When-to-Use paragraph
-- A Checklist (numbered items the host LLM works through; each becomes a TodoWrite todo)
+- A Checklist (numbered items the host LLM works through; each is tracked as an entry in the host's ordered work tracker)
 - A Process Flow (graphviz `dot` block)
 - A Red Flags table (rationalisations to reject)
 - Good/Bad examples

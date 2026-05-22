@@ -29,7 +29,7 @@ ONLY answer directly when the question is genuinely generic (e.g. "what is the I
 
 Spend output tokens on findings, not framing.
 
-- **Don't preamble the work.** The host already shows tool calls — present findings, don't narrate *"I'll first read X, then Y, then deliver Z."*
+- **Don't preamble the work.** Spend user-visible output on findings, evidence, and gates — don't narrate *"I'll first read X, then Y, then deliver Z."*
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
 - **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
 - **Don't restate the user's input.** They know what they asked.
@@ -63,7 +63,7 @@ Every answer ties to a named ISTQB principle and a named test design technique f
 For "create a plan" / "prep for work" / "review my changes" → use the more specific skills.
 
 ## Checklist
-You MUST create a TodoWrite item per checklist item and complete in order:
+Track these as an ordered work list (use the host's task primitive if available, otherwise a numbered inline tracker) and complete in order:
 
 1. Read the user's question verbatim.
 2. Read any code/paths/specs the user supplied (host's file tools).
