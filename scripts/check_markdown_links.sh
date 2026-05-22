@@ -67,11 +67,54 @@ if [ -z "$PYTHON" ]; then
   exit 2
 fi
 
-exec "$PYTHON" -m pytest \
+# `|| link_check_exit=$?` is required because `set -e` aborts the script
+# on a bare failing command, so a plain `cmd; x=$?` capture never runs.
+link_check_exit=0
+"$PYTHON" -m pytest \
   --override-ini="addopts=" \
   --override-ini="testpaths=" \
   -p no:cacheprovider \
   --check-links --links-ext=md \
   --check-links-ignore '^https?://' \
   --check-links-ignore '^\.\./\.\./(commit|pull|issues)/' \
-  "${files[@]}"
+  "${files[@]}" || link_check_exit=$?
+
+# Second layer: scan inline code + fenced code blocks for file refs that
+# don't resolve (`python scripts/dev_install.py` style). pytest-check-links
+# only looks at `[text](path)` markdown syntax; this catches the rest.
+#
+# Scope: root-level user-facing docs ONLY (README/AGENTS/DEMO/CHANGELOG).
+# Everywhere else — docs/*.md, skills/*.md, knowledge/*.md, tests/scenarios/**
+# — contains illustrative example paths by design (CONTENT-FORMATS shows
+# shapes like `standards/packs/my_team_v1.yml`, worked-examples reference
+# fictional services like `services/billing/calculator.py`). A broader scan
+# would flood the gate with false positives. The narrow scope still catches
+# the headline bug class (canonical install / demo commands referencing a
+# file that no longer exists) where it matters most.
+user_facing=()
+for f in "${files[@]}"; do
+  # Resolve to a path relative to the repo root so the case statement is
+  # stable regardless of whether pre-commit passes "README.md" or
+  # "/absolute/path/README.md".
+  rel="$f"
+  case "$rel" in
+    "$REPO_ROOT"/*) rel="${rel#"$REPO_ROOT"/}" ;;
+  esac
+  case "$rel" in
+    README.md|AGENTS.md|DEMO.md|CHANGELOG.md)
+      user_facing+=("$f")
+      ;;
+  esac
+done
+
+codeblock_exit=0
+if [ "${#user_facing[@]}" -gt 0 ]; then
+  "$PYTHON" "${REPO_ROOT}/scripts/check_codeblock_file_refs.py" \
+    "${user_facing[@]}" || codeblock_exit=$?
+fi
+
+# Bubble up the worse of the two exits.
+if [ "$link_check_exit" -ne 0 ]; then
+  exit "$link_check_exit"
+fi
+exit "$codeblock_exit"
