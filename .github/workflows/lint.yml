@@ -46,4 +46,29 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: shellcheck
-        run: shellcheck hooks/session-start
+        run: shellcheck hooks/session-start scripts/check_markdown_links.sh
+
+  markdown-links:
+    name: markdown link existence
+    # CI mirror of the local `markdown-link-existence` pre-commit hook.
+    # Runs the same wrapper script against every tracked markdown file,
+    # so a PR that breaks a doc reference fails CI even if the contributor
+    # skipped `pre-commit install`. Single Python + single OS by design —
+    # markdown rendering is platform-independent and the 5x3 test matrix
+    # adds nothing here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dev deps
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run link gate
+        run: ./scripts/check_markdown_links.sh
