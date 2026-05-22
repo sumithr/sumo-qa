@@ -135,13 +135,19 @@ After install, `uv --version` should print ≥0.4 and `uvx --version` should res
 
 ### Install commands
 
-```bash
-# Claude Code
-claude plugin install sumithr/sumo-qa
+**What works today (Claude Code, session-scoped local-dev):**
 
-# OpenAI Codex
-/plugins install sumithr/sumo-qa
+```bash
+git clone https://github.com/sumithr/sumo-qa.git
+claude --plugin-dir /path/to/sumo-qa
 ```
+
+Every `claude` invocation needs the `--plugin-dir` flag — plain `claude` (no flag) starts a session with no sumo-qa loaded. `/reload-plugins` picks up edits inside the session. See [Anthropic's documented local-dev mode](https://code.claude.com/docs/en/plugins#test-your-plugins-locally) for the underlying mechanism.
+
+**Roadmap (not yet shipped):**
+
+- Marketplace publication for persistent install via Claude Code's plugin manager. Tracked separately; until it ships, `--plugin-dir` is the only plugin-path install vehicle. The `pip install sumo-qa && sumo-qa-install` flow remains the canonical persistent install.
+- OpenAI Codex plugin install (`/plugins install ...`) is not yet verified — the `.codex-plugin/` manifest exists but the install + MCP-server-launch flow hasn't been confirmed end-to-end. Treat as TBD.
 
 ### Doctor for plugin-install users
 
@@ -384,7 +390,7 @@ python -m sumo_qa.installer --claude-code   # or your host flag of choice
 
 #### Test the Claude Code plugin install path
 
-The pip flow above exercises the `sumo-qa-install` (host-config) path. To validate the **Claude Code plugin** install path from a local checkout — the alternative install vector users hit when they run `claude plugin install sumithr/sumo-qa` — use Claude Code's [`--plugin-dir` flag](https://code.claude.com/docs/en/plugins#test-your-plugins-locally):
+The pip flow above exercises the `sumo-qa-install` (host-config) path. To validate the **Claude Code plugin** install path from a local checkout — the alternative install vector available today, prior to marketplace publication — use Claude Code's [`--plugin-dir` flag](https://code.claude.com/docs/en/plugins#test-your-plugins-locally):
 
 ```bash
 claude --plugin-dir /path/to/sumo-qa

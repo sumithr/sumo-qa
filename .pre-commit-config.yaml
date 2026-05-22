@@ -143,6 +143,29 @@ repos:
         require_serial: true
         stages: [pre-commit]
 
+      - id: markdown-link-existence
+        name: markdown link existence (pytest-check-links, file refs only)
+        # Catches the dev_install.py-shaped class of bug: a markdown link
+        # whose target file was removed but the link wasn't updated.
+        # Fires only on changed .md files so ordinary code commits don't
+        # pay the ~3s cost. Anchor checking is intentionally disabled
+        # (upstream bug in pytest-check-links 0.10.1); follow up when
+        # > 0.10.x ships. External URLs and GitHub-relative ../../commit/
+        # paths are ignored inside scripts/check_markdown_links.sh.
+        #
+        # `language: system` matches the pip-audit / sumo-qa-validate
+        # pattern — uses pytest from the user's `pip install -e ".[dev]"`
+        # (or `uv sync --all-extras`) environment instead of pre-commit's
+        # isolated venv. Contributors who skipped `[dev]` will see a clear
+        # "pytest not found" error pointing them to the setup line at
+        # the top of this file.
+        entry: scripts/check_markdown_links.sh
+        language: system
+        files: \.md$
+        pass_filenames: true
+        require_serial: true
+        stages: [pre-commit]
+
       - id: mutmut
         name: mutmut (pre-push, on changes to mutated modules or tests)
         # Runs the mutation gate locally before push. Fires only when one of the

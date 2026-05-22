@@ -48,7 +48,33 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
 
 Restart your host or open a fresh chat afterwards.
 
-> **Plugin install requires `uv`** (Astral's package runner; one-line installer, no Python prerequisite). See [INSTALL.md#prerequisite-uv](docs/INSTALL.md#prerequisite-uv).
+### Plugin install from a local clone (Claude Code, session-scoped)
+
+Prefer the plugin experience over pip? Clone the repo and pass `--plugin-dir` to `claude` on each invocation. This loads the `.claude-plugin/plugin.json` manifest directly — no pip install needed, skills + hooks + MCP server come from this checkout.
+
+**Prerequisite:** `uv` on PATH (Astral's package runner — one-line install, no Python prerequisite). Skip if `uv --version` already resolves:
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Homebrew
+brew install uv
+```
+
+Then clone and launch:
+
+```bash
+git clone https://github.com/sumithr/sumo-qa.git
+claude --plugin-dir /path/to/sumo-qa
+```
+
+Session-scoped: every `claude` invocation needs the flag — plain `claude` (no flag) starts a session with no sumo-qa loaded. Use `/reload-plugins` inside the session to pick up edits without restarting.
+
+> Persistent marketplace install (one-time setup, no flag on every launch) is on the roadmap — until then, the pip path above is the canonical persistent install. Full architecture + dev-iteration detail: [docs/INSTALL.md#plugin-format-install-claude-code--codex](docs/INSTALL.md#plugin-format-install-claude-code--codex).
 
 ### Something not working?
 
@@ -152,12 +178,12 @@ Natural language works everywhere. *"Review my changes"*, *"plan QA for this sto
 
 ### Host adapter folders
 
-`sumo-qa` also ships first-class plugin folders for hosts that consume plugin manifests directly. Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) — see [docs/host-adapters.md](docs/host-adapters.md) for the architecture.
+`sumo-qa` ships first-class plugin manifest folders for hosts that consume them directly. Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) — see [docs/host-adapters.md](docs/host-adapters.md) for the architecture.
 
-| Host | Plugin install | Source-of-truth contract |
-|---|---|---|
-| Claude Code | `claude plugin install sumithr/sumo-qa` reads `.claude-plugin/plugin.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | Schema-validated against the published JSON Schema in CI |
-| OpenAI Codex | `/plugins install sumithr/sumo-qa` reads `.codex-plugin/plugin.json` | MCP `initialize` handshake smoke in CI (no published schema) |
+| Host | Manifest | Install status today | Source-of-truth contract |
+|---|---|---|---|
+| Claude Code | `.claude-plugin/plugin.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | `claude --plugin-dir /path/to/sumo-qa` (session-scoped); marketplace install on roadmap | Schema-validated against the published JSON Schema in CI |
+| OpenAI Codex | `.codex-plugin/plugin.json` | Not verified end-to-end yet — treat as TBD | MCP `initialize` handshake smoke in CI (no published schema) |
 
 Adding a new host is one new template under `plugin_packaging/templates/` plus the canonical-source line that describes it. The `plugin-packaging` CI workflow re-runs the generator on every PR and fails if any committed adapter file diverges from the canonical source.
 
