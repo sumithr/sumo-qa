@@ -68,16 +68,18 @@ out of the box.
 
 ## Supported adapters
 
-- **Claude Code** — `claude plugin install <this-repo>` reads
-  `.claude-plugin/plugin.json` and auto-discovers `skills/`, `hooks/`,
-  and `.mcp.json`.
-- **Codex** — `/plugins install <this-repo>` reads
-  `.codex-plugin/plugin.json` and follows the explicit `skills`/
-  `mcpServers`/`hooks` paths.
+- **Claude Code** — `.claude-plugin/plugin.json` auto-discovers `skills/`,
+  `hooks/`, and `.mcp.json`. Loaded today via `claude --plugin-dir <repo>`
+  (session-scoped local-dev); persistent marketplace install
+  (`claude plugin install …`) is on the roadmap pending marketplace
+  publication.
+- **Codex** — `.codex-plugin/plugin.json` declares explicit `skills` /
+  `mcpServers` / `hooks` paths. The install + MCP-server-launch flow
+  hasn't been verified end-to-end yet; treat as TBD until confirmed.
 
-The `pip install sumo-qa && sumo-qa-install` flow remains the primary
-distribution channel for Claude Desktop, VS Code, and JetBrains. See
-[INSTALL.md](INSTALL.md).
+The `pip install sumo-qa && sumo-qa-install` flow is the canonical
+persistent install for every host (Claude Code, Claude Desktop, VS Code,
+JetBrains). See [INSTALL.md](INSTALL.md).
 """
 
 
