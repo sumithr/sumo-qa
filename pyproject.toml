@@ -55,6 +55,12 @@ dev = [
   "mutmut>=3,<4",
   "pytest>=8.4,<10",
   "pytest-cov>=6,<8",
+  # Markdown link-existence gate: pre-commit + CI invoke
+  # `scripts/check_markdown_links.sh`, which wraps pytest-check-links.
+  # Catches the class of bug where a doc references a file that was
+  # removed but the link wasn't updated. Anchor checking stays OFF
+  # (upstream bug in 0.10.1); revisit when > 0.10.x ships.
+  "pytest-check-links>=0.10,<1",
   "ruff>=0.5,<1",
   "pre-commit>=3.7,<5",
   # Windows ships no system tz database; Hypothesis `st.timezones()` strategy
