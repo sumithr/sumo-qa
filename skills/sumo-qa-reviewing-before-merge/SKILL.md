@@ -72,14 +72,36 @@ You MUST work through these in order. Steps 1–4 are AI-only homework (no user 
 
 9. **Map risk coverage** — for each named risk: cite the test that demonstrably exercises that risk (file + test name plus the assertion, condition, or path evidenced by the output) or flag it as uncovered. Do not infer coverage from shared vocabulary or a nearby test name; if the available evidence does not prove the risk path, such as retry behaviour, mark it unproven. A risk with no covering test is a SAFE-blocker.
 
+   **Worked contrast — same-domain test is NOT proof of risk path.** Given risk *"Duplicate Charge on Retry"* and a passing test `tests/billing/test_checkout.py::test_does_not_mark_failed_charge_paid`:
+   - BAD mapping: *"Duplicate Charge on Retry — Covered by `test_does_not_mark_failed_charge_paid`."* The test asserts the invoice is not marked paid on a single failed charge; it never re-invokes `complete_checkout` after a partial failure, so it cannot prove idempotency on retry.
+   - GOOD mapping: *"Duplicate Charge on Retry — UNCOVERED. No fresh test re-invokes `complete_checkout` after a partial failure or asserts the gateway is charged at most once across retries. Treat as a SAFE-blocker."*
+
+   **Worked contrast — cross-module risk needs a test that touches that module.** Given risk *"Auth Session Bypass"* on `app/auth/session.py` and a fresh run that only loads `tests/billing/test_checkout.py`:
+   - BAD mapping: *"Auth Session Bypass — Covered by green billing suite."* Green billing tests never call `can_access_billing`; they prove nothing about the auth path.
+   - GOOD mapping: *"Auth Session Bypass — UNCOVERED. The fresh run did not execute any test in `tests/auth/`; the changed predicate in `app/auth/session.py:33` has zero fresh evidence. SAFE-blocker."*
+
+   If the fresh test run does not load tests for a changed file's module, every risk anchored to that file is UNCOVERED — full stop, regardless of how green the rest of the suite is.
+
+   **Re-anchor named risks to the diff first.** When the user hands you a list of risk *names* (e.g. *"Auth Session Bypass, Billing Paid-State Drift, Duplicate Charge on Retry"*) without anchors, locate each risk's anchor file in the diff BEFORE attempting coverage mapping. *Auth Session Bypass* → scan the diff for `auth/*` changes — here `app/auth/session.py:33`. *Billing Paid-State Drift* → `app/billing/checkout.py`. *Duplicate Charge on Retry* → also `app/billing/checkout.py`. Without an anchor, you cannot apply the module-match rule and will hallucinate coverage.
+
+   **Module-match rule (pinned, deterministic):** once each risk has its anchor file, check the filesystem path of any candidate covering test. A risk anchored to a file under `app/auth/` requires a covering test under `tests/auth/`; a risk anchored to `app/billing/` requires a test under `tests/billing/`. Tests in `tests/billing/test_checkout.py` CANNOT cover an `auth/session.py` risk no matter how the test reads — phrases like *"indirectly validating"*, *"implicitly covers"*, or *"the test session must be valid"* are hallucinated bridges and forbidden. If the module paths don't match, mark the risk UNCOVERED.
+
 ### Verdict-format discipline
 
 When delivering the verdict, include evidence in this order: quote the verification command verbatim (for example, `Run: pytest tests/auth/permissions_test.py`); cite result counts exactly as `18 passed, 0 skipped, 0 failed`; for each named risk, name the covering test by function name or file path, never generic "tests cover this"; cite exact touched file paths from the diff (for example, `auth/permissions.py`, `docs/README.md`); only then emit `SAFE TO MERGE` or `NOT SAFE TO MERGE` (or existing `NEEDS WORK` when step 10 applies).
 
-The verdict line is the LAST line of the response. Before emitting the verdict, the candidate MUST have already listed each named risk by exact name, one per line (for example, `Risk 1: Auth Session Bypass`); for each risk, named the specific covering test(s) by function name or file path; quoted the verification command verbatim; and cited the test counts verbatim (`X passed, Y skipped, Z failed`). Any verdict emitted before all four are present is a discipline violation.
-Do NOT emit SAFE TO MERGE before all named risks have been listed and each tied to a covering test.
+The verdict line is the LAST line of the response. Before emitting the verdict, the candidate MUST have already, in this order:
+1. Listed each named risk by exact name, one per line (for example, `Risk 1: Auth Session Bypass`).
+2. For each risk, named the specific covering test(s) by function name or file path, or marked it UNCOVERED.
+3. Emitted a `Touched files:` line citing every file path from the diff verbatim (for example, `Touched files: app/auth/session.py, app/billing/checkout.py, tests/billing/test_checkout.py` — or for a docs-only diff, `Touched files: docs/README.md`).
+4. Emitted a `Change shape:` line characterising the change in one phrase, anchored to the touched files (for example, `Change shape: docs-only typo fix in docs/README.md, no runtime behaviour change`, or `Change shape: auth predicate + billing checkout ordering, both runtime`).
+5. Quoted the verification command verbatim.
+6. Cited the test counts verbatim (`X passed, Y skipped, Z failed`).
 
-10. **Deliver the verdict + residual concerns** — SAFE TO MERGE | NOT SAFE | NEEDS WORK with concrete evidence (test counts, risk coverage map, rule citations). SAFE only if: (a) suite green right now, (b) every named risk has ≥1 passing covering test, (c) no loaded rule violated. Always list residual concerns even on SAFE.
+Any verdict emitted before all six are present is a discipline violation. The `Touched files:` and `Change shape:` lines are mandatory even on trivial / docs-only changes — they are how the verdict cites the diff. Citing the verification command's file argument does NOT discharge the `Touched files:` line; the verification target and the diff target are different evidence channels.
+Do NOT emit SAFE TO MERGE before all named risks have been listed and each tied to a covering test (or explicitly marked UNCOVERED).
+
+10. **Deliver the verdict + residual concerns** — SAFE TO MERGE | NOT SAFE TO MERGE | NEEDS WORK with concrete evidence (test counts, risk coverage map, rule citations). SAFE only if: (a) suite green right now, (b) every named risk has ≥1 passing covering test that demonstrably exercises that exact risk path (NOT a tangentially-named test), (c) no loaded rule violated. **If ANY named risk is uncovered or unproven, the verdict MUST be NOT SAFE TO MERGE — no exceptions, even if the suite is fully green.** A test named for module X cannot be cited as coverage for risk Y unless its assertion/condition demonstrably exercises Y's failure mode. Always list residual concerns even on SAFE.
 
 ## Process Flow
 

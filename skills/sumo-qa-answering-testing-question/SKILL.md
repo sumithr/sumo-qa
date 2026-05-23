@@ -69,7 +69,12 @@ Track these as an ordered work list (use the host's task primitive if available,
 2. Read any code/paths/specs the user supplied (host's file tools).
 3. Call `sumo_qa_load_principles()` and `sumo_qa_load_techniques()`. Read both catalogues.
 4. Identify the QA shape the question implies: what's the actual concern (correctness / regression / coverage / risk surface)?
-5. Pick at least one principle that shapes the answer (cite by number or name). Pick at least one technique that fits the concern.
+5. Pick at least one principle that shapes the answer (cite by number or name). Pick at least one technique whose shape matches the user's question — verbatim from `knowledge/techniques.md`. Use these surface→technique mappings before reaching for a familiar default:
+   Each bullet pairs the **technique** with the **principle** that anchors it for that surface — pick from the principle list shown, do not default to "Testing shows the presence of defects" (it's catalogue-valid but generic; it doesn't characterise any specific risk surface). **Verbatim copy rule:** technique and principle names must reproduce the catalogue wording byte-for-byte, including spaces around `/`, parentheses, and punctuation. Write *"MC-DC (modified condition / decision coverage)"* — NOT *"MC-DC (modified condition/decision coverage)"*. Paraphrasing or normalising whitespace fails grounding.
+   - **Pure-function / invariant / "no matter what input" question** → technique: property-based testing (NOT decision tables — those fit rule matrices, not invariants over generated inputs). Principle: `Exhaustive testing is impossible; use risk and prioritisation.` (generated inputs are how you cover a space you can't enumerate) or `Defects cluster` (invariants are violated where ranking ties / sentinel scores cluster).
+   - **Safety-critical / regulated / healthcare / aviation / finance domain** → technique: MC-DC, decision tables, review (walkthrough / technical review / inspection), or static analysis. NOT state transition testing unless the user specifically describes a state machine. Principle: `Testing is context-dependent` (safety-critical / regulated context drives technique mix) or `Early testing saves time and money — shift left.` (defects in safety-critical code are 10x cheaper caught in review than in production).
+   - **"Is X worth it?" effort/value question about mutation testing** → technique: mutation testing, framed as a targeted risk tradeoff (not a blanket mandate); the answer MUST contain the literal phrases *"assertion gap"* and *"equivalent mutant"* (or *"equivalent mutants"*) and MUST explain that surviving mutants are signals to inspect — they are either an assertion gap (real test weakness) OR an equivalent mutant (suppress in config). Omitting either phrase collapses the framing into vague advice and fails relevance. Principle: `Pesticide paradox` (the same green tests stop finding defects — mutation refreshes assertions) or `Exhaustive testing is impossible; use risk and prioritisation.` (focus mutation effort on critical logic, not the whole repo).
+   - **Boundary / threshold / range question** → technique: boundary value analysis + equivalence partitioning. Principle: `Defects cluster` (off-by-one and limit defects cluster at boundaries — that's why this technique exists).
 6. If the question implies a specialty surface, follow the discovery discipline from `using-sumo-qa` — observe the surface, reason from first principles about what shape of testing fits, web-search current options for the user's stack, recommend with citation. Sumo-qa intentionally does NOT carry a tool catalogue. "I don't know" is acceptable. Offer to install and scaffold the first tests; confirm before installing dependencies.
 7. Synthesise the answer: 3-7 sentences, naming the principle/technique/tool. Conversational, not a JSON blob.
 8. If the question is actually a prep/plan/review/strategy in disguise, escalate: stop, route to the matching skill.
@@ -92,10 +97,15 @@ See the Checklist above — that's the flow.
 
 ## Examples
 
-### Good
+### Good — risk-shaped surface
 
 User: "how should I test a new feature that re-orders user feeds?"
 Answer cites ISTQB Principle 4 (defects cluster — feed ordering is a hotspot), names decision-table for the ordering rules and equivalence-partitioning for feed sizes, suggests k6 if scale matters, and asks the user to confirm scale before adding performance work.
+
+### Good — "is X worth it?" mutation-testing question
+
+User: "Is mutation testing worth the effort for our small Go service?"
+Answer cites `Pesticide paradox` (green tests stop finding defects — mutation refreshes assertions), names `mutation testing` verbatim, then anchors three load-bearing claims explicitly: (1) **focus on critical logic, not as a blanket mandate** across the whole service; (2) **surviving mutants are signals to inspect**, not auto-triggers to rewrite production code; (3) each survivor is **either an assertion gap (real) or an equivalent mutant (suppress in config)** — the call belongs to the developer. Suggests Gremlins (Go mutation tooling) and asks which package carries the most release risk before scoping a run.
 
 ### Bad
 
