@@ -36,7 +36,7 @@ Each returns a markdown catalogue as plain text. The host LLM reasons over the r
 | Tool | Returns |
 |---|---|
 | `sumo_qa_load_classifications()` | The 10 canonical change classifications (api_contract_change, business_logic_change, …, data_migration) |
-| `sumo_qa_load_approaches()` | The 8 canonical QA approaches (tdd-scaffold, regression-first, …, spike-first-then-tests) |
+| `sumo_qa_load_approaches()` | The 9 canonical QA approaches (tdd-scaffold, regression-first, …, spike-first-then-tests) |
 | `sumo_qa_load_principles()` | ISTQB Foundation principles, Advanced certifications, ISO/IEC 25010 quality characteristics |
 | `sumo_qa_load_techniques()` | Test design techniques (black-box, white-box, experience-based, static, property-based, mutation) |
 | `sumo_qa_load_standards(classification?)` | Team's loaded standards packs; optional metadata-based filter by one or more classifications |
