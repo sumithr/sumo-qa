@@ -70,7 +70,7 @@ You MUST work through these in order. Steps 1–4 are AI-only homework (no user 
 
 8. **Run targeted tests around the changed files** — e.g. `pytest tests/test_<changed_module>.py -v`. Confirm closest neighbours stay green. Surface the count.
 
-9. **Map risk coverage** — for each named risk: cite the test that covers it (file + test name) or flag it as uncovered. A risk with no covering test is a SAFE-blocker.
+9. **Map risk coverage** — for each named risk: cite the test that demonstrably exercises that risk (file + test name plus the assertion, condition, or path evidenced by the output) or flag it as uncovered. Do not infer coverage from shared vocabulary or a nearby test name; if the available evidence does not prove the risk path, such as retry behaviour, mark it unproven. A risk with no covering test is a SAFE-blocker.
 
 ### Verdict-format discipline
 
