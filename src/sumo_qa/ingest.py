@@ -223,7 +223,14 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
     # Validate everything first; write nothing until all checks pass.
     staged: list[tuple[str, Path, str]] = []  # (short_type, dest_path, text)
     for f, kind, dest_name in classified:
-        text = f.read_text(encoding="utf-8")
+        try:
+            text = f.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            # A mislabeled file (e.g. a non-UTF-8 export) must fail with an
+            # actionable error, not a raw traceback out of the CLI's main().
+            raise IngestValidationError(
+                f"{f.name}: not valid UTF-8 ({exc}); re-export the file as UTF-8"
+            ) from exc
         _validate(kind, text, f.name)
         staged.append((kind.split(":", 1)[-1], _dest_path(kind, dest_name, scope), text))
 

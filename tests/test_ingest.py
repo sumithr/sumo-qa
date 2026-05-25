@@ -285,3 +285,24 @@ def test_ingest_rules_invalid_rule_body_is_actionable_error(tmp_path, monkeypatc
         ingest.ingest_pack(str(src), scope="project")
     assert "change_rules.yaml" in str(exc.value) and "Invalid change rule" in str(exc.value)
     assert not (tmp_path / ".sumo-qa").exists()
+
+
+def test_ingest_non_utf8_file_is_actionable_error(tmp_path, monkeypatch):
+    # A mislabeled non-UTF-8 principles.md must fail with a clean ingest error
+    # (CLI main() only catches IngestValidationError), not a raw UnicodeDecodeError.
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "principles.md"
+    src.write_bytes(b"\xff\xfe not valid utf-8 \x80\x81")
+    with pytest.raises(ingest.IngestValidationError) as exc:
+        ingest.ingest_pack(str(src), scope="project")
+    assert "principles.md" in str(exc.value) and "UTF-8" in str(exc.value)
+    assert not (tmp_path / ".sumo-qa").exists()
+
+
+def test_cli_main_non_utf8_returns_one(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "principles.md"
+    src.write_bytes(b"\xff\xfe\x80")
+    rc = ingest.main([str(src)])
+    assert rc == 1
+    assert "sumo-qa-ingest" in capsys.readouterr().err
