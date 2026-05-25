@@ -18,13 +18,22 @@ def test_global_root_honours_xdg_data_home(tmp_path, monkeypatch):
     assert paths.user_pack_root("global") == tmp_path / "xdg" / "sumo-qa"
 
 
-def test_global_root_falls_back_to_local_share(tmp_path, monkeypatch):
-    # On posix hosts (CI) XDG-absent falls back to ~/.local/share. The Windows
-    # LOCALAPPDATA branch is platform-conditional (pragma: no cover) — it can't
-    # be exercised here because flipping os.name to "nt" breaks pathlib on posix.
-    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+def test_posix_global_root(tmp_path, monkeypatch):
+    # _posix_global_root is platform-independent path logic, so it's testable on
+    # any host (no os.name flip, which would break pathlib's Path class choice).
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    assert paths.user_pack_root("global") == tmp_path / ".local" / "share" / "sumo-qa"
+    assert paths._posix_global_root() == tmp_path / ".local" / "share" / "sumo-qa"
+
+
+def test_windows_global_root_uses_localappdata(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    assert paths._windows_global_root() == tmp_path / "appdata" / "sumo-qa"
+
+
+def test_windows_global_root_falls_back_to_home_appdata(tmp_path, monkeypatch):
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    assert paths._windows_global_root() == tmp_path / "AppData" / "Local" / "sumo-qa"
 
 
 def test_unknown_scope_raises(tmp_path):

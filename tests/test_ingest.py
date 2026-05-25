@@ -1,6 +1,8 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Tests for sumo_qa.ingest — runtime ingestion of native QA knowledge packs."""
 
+from pathlib import Path
+
 import pytest
 
 from sumo_qa import ingest
@@ -198,3 +200,88 @@ def test_cli_main_nothing_ingested_returns_one(tmp_path, monkeypatch, capsys):
     rc = ingest.main([str(d)])
     assert rc == 1
     assert "nothing ingested" in capsys.readouterr().err
+
+
+# --- Codex-review hardening (PR #164) -------------------------------------------
+
+
+def test_ingest_nonmapping_rules_is_actionable_error(tmp_path, monkeypatch):
+    # A list/scalar change_rules.yaml would make StandardsRulesEngine.from_file
+    # raise AttributeError (.items() on a list); ingest must surface a clear error.
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "change_rules.yaml"
+    src.write_text("- a\n- b\n", encoding="utf-8")  # top-level list, not a mapping
+    with pytest.raises(ingest.IngestValidationError) as exc:
+        ingest.ingest_pack(str(src), scope="project")
+    assert "change_rules.yaml" in str(exc.value) and "mapping" in str(exc.value)
+    assert not (tmp_path / ".sumo-qa").exists()
+
+
+def test_directory_ingest_skips_symlinks(tmp_path, monkeypatch):
+    # Symlinked entries in a pack dir must be skipped, never followed out of the
+    # source tree. Simulate is_symlink via monkeypatch so the branch is covered
+    # on every OS (real symlinks need privileges on Windows CI).
+    monkeypatch.chdir(tmp_path)
+    d = tmp_path / "pack"
+    d.mkdir()
+    (d / "principles.md").write_text("P\n", encoding="utf-8")
+    (d / "techniques.md").write_text("T\n", encoding="utf-8")
+    real_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda self: self.name == "techniques.md" or real_is_symlink(self),
+    )
+    report = ingest.ingest_pack(str(d), scope="project")
+    assert {f["type"] for f in report["files"]} == {"principles"}
+    assert "techniques.md" in report["skipped"]
+    assert not (tmp_path / ".sumo-qa" / "knowledge" / "techniques.md").exists()
+
+
+def test_write_atomic_cleans_up_temp_on_replace_failure(tmp_path, monkeypatch):
+    dest = tmp_path / "knowledge" / "principles.md"
+
+    def boom(src, dst):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(ingest.os, "replace", boom)
+    with pytest.raises(OSError, match="replace failed"):
+        ingest._write_atomic(dest, "body\n")
+    # No leftover temp file in the destination directory.
+    assert list(dest.parent.glob(".*tmp*")) == []
+
+
+def test_multifile_write_rolls_back_on_oserror(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    d = tmp_path / "pack"
+    d.mkdir()
+    (d / "principles.md").write_text("P\n", encoding="utf-8")
+    (d / "techniques.md").write_text("T\n", encoding="utf-8")
+
+    real_write = ingest._write_atomic
+    calls: list[Path] = []
+
+    def flaky(dest, text):
+        calls.append(dest)
+        if len(calls) == 1:
+            real_write(dest, text)  # first file lands
+        else:
+            raise OSError("disk full")  # second fails
+
+    monkeypatch.setattr(ingest, "_write_atomic", flaky)
+    with pytest.raises(OSError, match="disk full"):
+        ingest.ingest_pack(str(d), scope="project")
+    # The first-written file is rolled back so the pack isn't left partial.
+    assert not (tmp_path / ".sumo-qa" / "knowledge" / "principles.md").exists()
+
+
+def test_ingest_rules_invalid_rule_body_is_actionable_error(tmp_path, monkeypatch):
+    # Valid YAML mapping, but a rule body that fails StandardsRulesEngine's
+    # schema -> from_file raises ValueError, surfaced as an actionable error.
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "change_rules.yaml"
+    src.write_text("api_contract_change: not-a-rule-mapping\n", encoding="utf-8")
+    with pytest.raises(ingest.IngestValidationError) as exc:
+        ingest.ingest_pack(str(src), scope="project")
+    assert "change_rules.yaml" in str(exc.value) and "Invalid change rule" in str(exc.value)
+    assert not (tmp_path / ".sumo-qa").exists()

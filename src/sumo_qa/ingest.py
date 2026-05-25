@@ -116,6 +116,11 @@ def _validate(kind: str, text: str, label: str) -> None:
             doc = yaml.safe_load(text)
         except yaml.YAMLError as exc:
             raise IngestValidationError(f"{label}: not valid YAML ({exc})") from exc
+        # Intentionally stricter than validate_content._check_standards_packs,
+        # which only WARNS on a non-mapping pack. At ingest time a non-mapping
+        # pack would be materialised but then silently skipped by the loader's
+        # classification filter — writing dead content. Reject it up front so
+        # the user fixes the shape instead of wondering why the pack never loads.
         if not isinstance(doc, dict):
             raise IngestValidationError(
                 f"{label}: top-level value must be a mapping, got "
@@ -123,6 +128,18 @@ def _validate(kind: str, text: str, label: str) -> None:
             )
         return
     # kind == "rules"
+    # Pre-check the top level is a mapping: StandardsRulesEngine.from_file calls
+    # `.items()` on the parsed YAML, so a list/scalar would raise AttributeError
+    # (not ValueError/YAMLError) and escape the catch below.
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise IngestValidationError(f"{label}: not valid YAML ({exc})") from exc
+    if doc is not None and not isinstance(doc, dict):
+        raise IngestValidationError(
+            f"{label}: top-level value must be a mapping of classification -> rule, "
+            f"got {type(doc).__name__}"
+        )
     try:
         _validate_rules_text(text)
     except (ValueError, yaml.YAMLError) as exc:
@@ -139,9 +156,18 @@ def _dest_path(kind: str, dest_name: str, scope: str) -> Path:
 
 def _write_atomic(dest: Path, text: str) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.parent / f".{dest.name}.tmp"
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, dest)
+    # mkstemp creates the temp file with O_EXCL + mode 0600 and a random name in
+    # the dest dir, so we never follow a pre-existing (possibly symlinked) temp
+    # path the way a predictable `.<name>.tmp` + write_text would.
+    fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=f".{dest.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp, dest)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _unsupported(source: str, kind: str) -> dict:
@@ -166,9 +192,20 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
         kind = "remote source" if "://" in source else "missing path"
         return _unsupported(source, kind)
 
-    files = [src] if src.is_file() else sorted(p for p in src.iterdir() if p.is_file())
-    classified: list[tuple[Path, str, str]] = []
     skipped: list[str] = []
+    if src.is_file():
+        files = [src]
+    else:
+        files = []
+        for p in sorted(src.iterdir()):
+            if p.is_symlink():
+                # Don't follow symlinks out of a pack directory — a link could
+                # point at a file the user never meant to ingest (e.g. a secret
+                # outside the source tree).
+                skipped.append(p.name)
+            elif p.is_file():
+                files.append(p)
+    classified: list[tuple[Path, str, str]] = []
     for f in files:
         ct = content_type if src.is_file() else None
         result = _classify(f, ct)
@@ -190,10 +227,20 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
         _validate(kind, text, f.name)
         staged.append((kind.split(":", 1)[-1], _dest_path(kind, dest_name, scope), text))
 
+    # All content validated above, so the only failure here is an OS write
+    # error (disk full, permissions). Roll back already-written files so a
+    # multi-file pack is applied transactionally rather than left partial.
     written = []
-    for short_type, dest, text in staged:
-        _write_atomic(dest, text)
-        written.append({"type": short_type, "written": str(dest)})
+    written_paths: list[Path] = []
+    try:
+        for short_type, dest, text in staged:
+            _write_atomic(dest, text)
+            written_paths.append(dest)
+            written.append({"type": short_type, "written": str(dest)})
+    except OSError:
+        for path in written_paths:
+            path.unlink(missing_ok=True)
+        raise
 
     return {
         "status": "ingested",

@@ -41,6 +41,12 @@ dependencies = [
   "mcp>=1.12,<2",
   "pydantic>=2.8,<3",
   "PyYAML>=6,<7",
+  # Security floor for a transitive dependency pulled by `mcp` (FastMCP's
+  # Starlette transport). starlette < 1.0.1 is affected by PYSEC-2026-161.
+  # Declared directly (not just a uv constraint) so the floor propagates to the
+  # built wheel and protects pip/Poetry installers too, not only uv resolution.
+  # Drop once `mcp` requires a safe starlette floor itself.
+  "starlette>=1.0.1",
 ]
 
 [project.optional-dependencies]
@@ -87,14 +93,6 @@ sumo-qa-install = "sumo_qa.installer:main"
 sumo-qa-doctor = "sumo_qa.doctor:main"
 sumo-qa-validate = "sumo_qa.validate_content:main"
 sumo-qa-ingest = "sumo_qa.ingest:main"
-
-[tool.uv]
-# Security floor for a transitive dependency (pulled by `mcp` / `sse-starlette`).
-# starlette < 1.0.1 is affected by PYSEC-2026-161; constrain the resolved tree
-# so the pip-audit --strict gate (and Dependabot) stays green without declaring
-# starlette as a direct runtime dependency. Drop this once `mcp` requires a
-# safe starlette floor itself.
-constraint-dependencies = ["starlette>=1.0.1"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sumo_qa"]

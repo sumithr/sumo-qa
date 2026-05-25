@@ -332,22 +332,22 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         scope: str = "project",
         content_type: str | None = None,
     ) -> dict[str, Any]:
-        """Add or replace team QA knowledge/standards/rules from a local native file.
+        """Adds or replaces team QA knowledge/standards/rules from a local native file.
 
         Accepts a path to a native sumo-qa file or a directory of them:
         principles.md, techniques.md, classifications.md, approaches.md, a
-        standards-pack *.yaml, or change_rules.yaml. Validates the content, then
-        writes a normalized copy into a user-writable pack — `scope='project'`
-        (<cwd>/.sumo-qa, this repo only) or `scope='global'` (all repos). Loader
-        precedence: explicit env var > project > global > bundled > repo root.
+        standards-pack *.yaml, or change_rules.yaml. Validates the content and
+        writes a normalized copy into a user-writable pack. The `scope` argument
+        selects where it lands: `'project'` (<cwd>/.sumo-qa, the current repo
+        only) or `'global'` (the user data dir, every repo) — the right scope is
+        a user choice worth confirming. Loader precedence is env var > project >
+        global > bundled > repo root.
 
-        ASK THE USER whether to apply globally or to this project before calling.
-
-        For a PDF / PPTX / URL or any non-native source this returns an
-        `unsupported_source` result — do NOT read and transcribe it yourself.
-        Use skill-discovery (find-skills / sumo_qa_search_external_skills) to find
-        a dedicated converter skill, convert to markdown in one shot, then
-        re-ingest the result with an explicit `content_type`.
+        A PDF / PPTX / URL or any other non-native source is not parsed here; it
+        returns an `unsupported_source` result naming a converter-skill route
+        (find-skills / sumo_qa_search_external_skills) to turn the source into
+        markdown in one shot, which is then re-ingested with an explicit
+        `content_type`.
 
         Common natural-language phrasings that map to this tool:
         "add this to the knowledge base", "replace our principles", "load our
@@ -355,7 +355,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         """
         try:
             output: dict[str, Any] = ingest_pack(source, scope=scope, content_type=content_type)
-        except (IngestValidationError, ValueError) as exc:
+        except (IngestValidationError, ValueError, OSError) as exc:
             output = _error_envelope(exc, _HINT_INGEST)
         return maybe_capture(
             tool="sumo_qa_ingest_knowledge_pack",
