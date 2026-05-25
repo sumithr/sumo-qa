@@ -51,8 +51,8 @@ Each skill is a single `skills/<name>/SKILL.md` with:
 - YAML frontmatter (`name` + `description`) used by hosts to auto-trigger
 - An Iron Law — non-negotiable rule for the skill
 - A When-to-Use paragraph
-- A Checklist (numbered items the host LLM works through; each becomes a TodoWrite todo)
-- A Process Flow (graphviz `dot` block)
+- A Checklist (numbered items the host LLM works through; each is tracked as an entry in the host's ordered work tracker)
+- A Process Flow section
 - A Red Flags table (rationalisations to reject)
 - Good/Bad examples
 
@@ -74,7 +74,7 @@ See [TOOLS.md](TOOLS.md) for the full list.
 Plain markdown under `knowledge/`:
 
 - `classifications.md` — 10 canonical change classifications
-- `approaches.md` — 8 canonical QA approaches
+- `approaches.md` — 9 canonical QA approaches
 - `principles.md` — ISTQB Foundation, Advanced, ISO/IEC 25010
 - `techniques.md` — black-box / white-box / experience / static / property-based / mutation
 - `test_data/` — known-good test data entries

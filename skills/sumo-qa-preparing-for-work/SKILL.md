@@ -17,7 +17,7 @@ Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarc
 
 Spend output tokens on findings, not framing.
 
-- **Don't preamble the work.** The host already shows tool calls — present findings, don't narrate *"I'll first read X, then Y, then deliver Z."*
+- **Don't preamble the work.** Spend user-visible output on findings, evidence, and gates — don't narrate *"I'll first read X, then Y, then deliver Z."*
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
 - **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
 - **Don't restate the user's input.** They know what they asked.
@@ -40,15 +40,21 @@ User intents that trigger this skill:
 Distinct from `sumo-qa-creating-test-plan` (formal entry/exit criteria, phases, deliverables) and from `sumo-qa-deciding-approach` (which only picks the approach). This skill produces a risk-shaped prep brief: named risks + smallest useful test set + named techniques + specialty fits if relevant.
 
 ## Checklist
-You MUST create a TodoWrite item per checklist item and complete in order:
+Track these as an ordered work list (use the host's task primitive if available, otherwise a numbered inline tracker) and complete in order:
 
 1. Read the user's intent and target paths.
 2. Call `sumo_qa_load_standards(classification=...)` and `sumo_qa_load_rules(classification=...)` using the classification the previous `sumo-qa-deciding-approach` step settled on.
 3. Read the actual files in scope using the host's file tools. Do NOT ask the user for file content the host can read directly.
-4. Identify 3-7 named risks. Each risk MUST be specific (not "input validation breaks" but "currency conversion at the GBP→USD boundary rounds incorrectly when the rate is supplied with >6 decimal places"). Anchor each in a file path or domain term from the user's words.
+4. Identify 3-7 named risks. Each risk MUST be specific (not "input validation breaks" but "currency conversion at the GBP→USD boundary rounds incorrectly when the rate is supplied with >6 decimal places"). Anchor each in a file path or domain term from the user's words, and do not invent thresholds, rules, states, or edge cases that are not present in the supplied change or code. When the intent is refactor/move/extract without behaviour change, name preservation risks: rendered values, exact formatting, thresholds, rounding, disabled states, and public contract must remain unchanged. Do not merely restate the production formulae as generic calculation risks.
+
+   **Anchor-fit rule (pinned):** the cited line must be *semantically* about the risk, not merely the nearest plausible-looking line. If the risk is about behaviour X and the cited code does Y, you have a stapled anchor — delete the risk. Before listing a risk, ask: *"if I removed this line, would the risk still make sense?"* If yes, the anchor is wrong.
+
+   **Stapled-anchor example (BAD):** Risk: *"discount must be correctly calculated when subtotal is at the tax threshold"* citing `const tax = subtotal * 0.0825`. The cited line computes tax, not discount, and the sketch defines no tax threshold — this is a fabricated edge case wearing a real line number.
+
+   **Grounded example (GOOD):** Risk: *"valid promo code does not subtract from total"* citing `const total = subtotal + tax + shipping;` — the cited line is the exact site where the discount must be applied.
 5. Call `sumo_qa_load_techniques()`. Pick one technique per named risk. Use the catalogue's wording.
 6. Recommend specialty tools (if any), and offer to set them up — follow the discovery discipline from `using-sumo-qa`: observe the risk surface, reason from first principles about what shape of testing fits, web-search current options for the user's stack, recommend with citation. Sumo-qa intentionally does NOT carry a tool catalogue. "I don't know" is acceptable. Offer to install and scaffold the first tests against the named risks. Confirm before installing dependencies. Empty list is acceptable.
-7. Produce a smallest useful test set: 3-7 tests, each tied to a named risk. No generic "test happy path".
+7. Produce a smallest useful test set: 3-7 tests, each tied to a named risk. No generic *"test happy path"*. **Concreteness rule (pinned):** if the change-shape supplies a numeric reproduction, a worked example, or specific inputs/outputs (e.g. *"qty 2+3 currently shows 2, must show 5"*), the corresponding test idea MUST reuse those exact numbers. Restating the risk in test-shape (*"verify that the item count displays the correct total"*) is not a test idea — it's the risk again. A test idea names inputs and the observable outcome.
 8. Output: conversational prose, sectioned (risks, tests, techniques, specialty tools, open assumptions). No JSON blob.
 
 ## Process Flow
@@ -75,6 +81,16 @@ User: "I'm adding a refund endpoint to the payments service. What should I test?
 - Risks: (1) refund amount exceeds original charge. (2) refund issued twice for the same charge (idempotency on `charge_id`). (3) partial refund recorded but downstream ledger update fails. (4) refund of an already-refunded charge isn't blocked.
 - Techniques: boundary value analysis; state transition testing; decision table; state transition testing.
 - Tools: Pact (consumer-driven contract test) + Hypothesis (property-based idempotency).
+
+### Good (refactor — *"extract this without changing behaviour"*)
+
+User: *"I'm refactoring the cart totals into a useCartTotals helper without changing checkout behaviour."*
+- Risks: (1) `subtotal.toFixed(2)` rendering changes (e.g. `12.5` instead of `12.50`) — visible at the `data-testid="subtotal"` node. (2) `item-count` text contents change after the move — visible at `{cart.items.length} items`. (3) `$50` shipping threshold flips inclusive/exclusive after the extract — visible at `subtotal >= 50 ? 0 : 6.99`. (4) Checkout `disabled` state stops depending on `cart.items.length === 0`.
+- Techniques: snapshot / golden output; DOM-render assertion; boundary value analysis; state transition testing.
+
+### Bad (refactor)
+
+*"Risks: subtotal calculation correct, tax calculation correct, shipping calculation correct."* — These restate the production formulae, not the preservation contract. A refactor's risk is that the *observable outputs* drift; naming the formulae as risks tells you nothing about what to assert.
 
 ### Bad
 

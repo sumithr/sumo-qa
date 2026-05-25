@@ -17,7 +17,7 @@ Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarc
 
 Spend output tokens on findings, not framing.
 
-- **Don't preamble the work.** The host already shows tool calls — present findings, don't narrate *"I'll first read X, then Y, then deliver Z."*
+- **Don't preamble the work.** Spend user-visible output on findings, evidence, and gates — don't narrate *"I'll first read X, then Y, then deliver Z."*
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
 - **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
 - **Don't restate the user's input.** They know what they asked.
@@ -46,7 +46,7 @@ User intents that trigger this skill:
 
 ## Checklist
 
-You MUST create a TodoWrite item per checklist item and complete in order. Steps 1–2 are AI-only homework (route the request, gather inputs from prior conversation). The user's confirmation gate only applies to **register** (step 5b) — writing to the shared catalogue is a side effect that should always pause for confirmation.
+Track these as an ordered work list (use the host's task primitive if available, otherwise a numbered inline tracker) and complete in order. Steps 1–2 are AI-only homework (route the request, gather inputs from prior conversation). The user's confirmation gate only applies to **register** (step 5b) — writing to the shared catalogue is a side effect that should always pause for confirmation.
 
 1. **Pick the route** *(no user question — derive from intent)*. The four routes are internal dispatch data, NOT a label to echo at the user:
    - **Explain requirements:** "what data do I need" → `sumo_qa_explain_test_data_requirements`

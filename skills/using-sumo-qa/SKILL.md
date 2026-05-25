@@ -15,7 +15,7 @@ description: Use whenever a user asks anything QA-shaped — testing, code revie
 
 Spend output tokens on findings, not framing.
 
-- **Don't preamble the work.** The host already shows tool calls — present findings, don't narrate *"I'll first read X, then Y, then deliver Z."*
+- **Don't preamble the work.** Spend user-visible output on findings, evidence, and gates — don't narrate *"I'll first read X, then Y, then deliver Z."*
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
 - **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
 - **Don't restate the user's input.** They know what they asked.
@@ -120,8 +120,10 @@ attention. Use this hierarchy:
 2. **Inline confirm** for moderate forks. Phrase as one declarative line ending
    in a question: *"Going with X (Y is the alternative); shout if not."* Then
    act unless they object.
-3. **Structured AskUserQuestion ONLY for genuine 50/50 forks** that
-   meaningfully change downstream work. Reserve for: irreversible commits,
+3. **Structured user-choice prompt ONLY for genuine 50/50 forks** that
+   meaningfully change downstream work. Use the host's best structured-input
+   primitive (option-picker, elicitation, etc.); if no structured UI exists,
+   ask one concise inline question and wait. Reserve for: irreversible commits,
    scope changes that double the work, choices the user has explicit context to
    make better than you. NOT for "which of these 4 phrasings sounds right" or
    "should this filename use X or Y convention".
@@ -135,6 +137,14 @@ should be read as: walk per-section when each section genuinely needs the
 user's per-section judgment. Collapse adjacent obvious sections into a single
 update. The Iron Law is "don't dump the whole strategy in one turn"; the goal
 is structured collaboration, not maximum question count.
+
+### Shared vocabulary (host-neutral contracts)
+
+The skills use three terms that name a capability, not any one host's API. Map each to whatever the current host actually exposes.
+
+- **Ordered work tracker** — an explicit, ordered list the agent maintains and ticks off as work progresses. Use the host's native task primitive when available; otherwise keep a numbered tracker inline in the conversation and update it visibly as items complete. The tracking obligation is required; the surface is not.
+- **Structured user-choice prompt** — the host's best primitive for collecting an explicit choice from a small set (option-picker, MCP elicitation, etc.). Reserve for genuine 50/50 forks. If no structured UI is available, ask one concise inline question and wait.
+- **Subagent** (a.k.a. **fresh delegated worker**) — a worker dispatched through the host's delegation primitive that starts with no inherited task context; only the prompt you hand it. Used by the rollout chain to keep tasks isolated. If a host cannot delegate to fresh workers, the rollout skill stops and reports the capability gap rather than executing tasks inline.
 
 ### Specialty + tool fit
 
@@ -155,7 +165,7 @@ the config, write the first tests against the named risks. Confirm with the user
 before installing dependencies; default to doing the actual work once confirmed.
 
 ## Checklist
-You MUST create a TodoWrite item per checklist item and complete in order:
+Track these as an ordered work list (use the host's task primitive if available, otherwise a numbered inline tracker) and complete in order:
 
 1. Read the user's intent verbatim.
 2. Load and re-read this Iron Law to anchor the response.

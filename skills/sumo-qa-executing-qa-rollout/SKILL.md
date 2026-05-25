@@ -19,7 +19,7 @@ Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarc
 
 Spend output tokens on findings, not framing.
 
-- **Don't preamble the work.** The host already shows tool calls — present findings, don't narrate *"I'll first read X, then Y, then deliver Z."*
+- **Don't preamble the work.** Spend user-visible output on findings, evidence, and gates — don't narrate *"I'll first read X, then Y, then deliver Z."*
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
 - **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
 - **Don't restate the user's input.** They know what they asked.
@@ -28,7 +28,7 @@ Spend output tokens on findings, not framing.
 - **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff at the bottom of every skill is where routing lives.
 
 <HARD-GATE>
-Do NOT execute tasks inline. Every task goes to a fresh subagent. The orchestrator (you) does dispatch + review + coordination only — it never edits test files directly. If a subagent fails three times, escalate to the user.
+Do NOT execute tasks inline. Every task goes to a fresh subagent — a fresh delegated worker with no inherited task context (see `using-sumo-qa` → Shared vocabulary). The orchestrator (you) does dispatch + review + coordination only — it never edits test files directly. If the current host has no worker-delegation primitive at all, STOP and report the capability gap to the user; do NOT silently execute the plan inline. If a subagent fails three times, escalate to the user.
 </HARD-GATE>
 
 ## The Iron Law
@@ -49,17 +49,17 @@ For a single-task piece of work, skip this skill — go straight to `sumo-qa-imp
 
 You MUST work through these in order. Steps 1–2 are AI-only homework. The dispatch loop in step 3 is **continuous**: do NOT pause for user check-ins between tasks. Step 4 only fires when all tasks are done or one is genuinely blocked.
 
-1. **Read the plan** *(no user question)* — load `docs/qa/plans/<plan>.md`. Extract every task verbatim, its approach tag, files, `[parallel]`/`[sequential]` marker, and "done when" criteria. Create a `TodoWrite` entry per task.
+1. **Read the plan** *(no user question)* — load `docs/qa/plans/<plan>.md`. Extract every task verbatim, its approach tag, files, `[parallel]`/`[sequential]` marker, and "done when" criteria. Add an entry to the ordered work tracker per task.
 
 2. **Group by parallelism** *(no user question)* — bucket tasks into parallel waves. All `[parallel]` tasks with no upstream dependency form wave 1. Sequential or dependency-blocked tasks form wave 2, 3, etc. Most QA plans collapse to 1–2 waves.
 
 3. **Dispatch loop (per wave, continuous):**
-   - **3a. Dispatch implementer subagents** — for each task in the wave, dispatch a fresh subagent using `prompts/implementer-prompt.md`, filling in the task spec. Wave dispatches go in parallel (single message with multiple Agent tool uses).
+   - **3a. Dispatch implementer subagents** — for each task in the wave, dispatch a fresh subagent using `prompts/implementer-prompt.md`, filling in the task spec. Wave dispatches go in parallel (one delegation call per worker, all issued together so the host can run them concurrently).
    - **3b. Spec-correctness review** — after each subagent returns, dispatch a spec-reviewer subagent using `prompts/spec-reviewer-prompt.md`. Checks: does the test cover the named risk? Does it run? Did the red phase happen (if TDD)? Did production code stay unchanged (if strengthen / verify-existing)?
    - **3c. If spec review fails:** re-dispatch the implementer with findings. Loop until pass or 3 rounds elapsed (then escalate).
    - **3d. Test-quality review** — once spec review passes, dispatch a quality-reviewer subagent using `prompts/quality-reviewer-prompt.md`. Checks: observable assertion (not implementation-coupled)? Deterministic? Tautology check?
    - **3e. If quality review fails:** re-dispatch the implementer with quality findings. Loop until pass or 3 rounds (escalate).
-   - **3f. Mark task complete in TodoWrite.** Move to next task / wave. **Do NOT ask the user "continue?".**
+   - **3f. Mark the task complete in the ordered work tracker.** Move to next task / wave. **Do NOT ask the user "continue?".**
 
 4. **Final cross-task review** — when all tasks are done, dispatch a final reviewer with the entire plan + all task outputs. Do the tests collectively cover all named risks? Are there seams between tasks neither covers? Run the full suite; surface counts.
 
@@ -71,7 +71,7 @@ See the Checklist above — that's the flow.
 
 ## Model Selection
 
-Match the subagent model to the task shape via the Agent tool's `model` parameter:
+Match the subagent model to the task shape via the host's worker-delegation primitive (where it exposes a model override):
 
 - **Test-writing subagents** (clear spec, 1–2 files): fast/cheap (haiku).
 - **Spec-correctness reviewer**: standard (sonnet). Reads code + assesses risk coverage.
