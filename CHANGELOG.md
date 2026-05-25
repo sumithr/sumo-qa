@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/sumithr/sumo-qa/compare/v0.9.1...v0.9.2) (2026-05-25)
+
+
+### Bug Fixes
+
+* **skills:** rewrite skill bodies to host-neutral capability contracts ([#143](https://github.com/sumithr/sumo-qa/issues/143)) ([c95367f](https://github.com/sumithr/sumo-qa/commit/c95367f14917c888ea40bc089c8d92b577963954))
+
 ## [0.9.1](https://github.com/sumithr/sumo-qa/compare/v0.9.0...v0.9.1) (2026-05-22)
 
 
