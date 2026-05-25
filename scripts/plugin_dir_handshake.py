@@ -45,39 +45,25 @@ run_handshake = _handshake_mod.run_handshake
 _dump_diagnostic = _handshake_mod._dump_diagnostic
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--adapter",
-        required=True,
-        help="Plugin adapter directory (e.g. .claude-plugin or .codex-plugin)",
-    )
-    parser.add_argument(
-        "--mcp-json",
-        default=".mcp.json",
-        help="Path to .mcp.json (default: .mcp.json in cwd)",
-    )
-    parser.add_argument("--deadline-secs", type=float, default=20.0)
-    parser.add_argument("--tool-prefix", default="sumo_qa_")
-    args = parser.parse_args(argv)
+def _discover_adapters(root: Path) -> list[Path]:
+    """Return every plugin-adapter directory under `root` (sorted, stable order).
 
-    adapter = Path(args.adapter)
-    plugin_json = adapter / "plugin.json"
-    if not plugin_json.is_file():
-        sys.stderr.write(f"error: {plugin_json} not found\n")
-        return 2
+    Convention: an adapter is any directory whose name matches `.*-plugin` and
+    which contains a `plugin.json` file. Catches `.claude-plugin`,
+    `.codex-plugin`, and any future host adapter the canonical generator
+    emits without requiring a CI matrix edit.
+    """
+    return sorted(p for p in root.glob(".*-plugin") if (p / "plugin.json").is_file())
 
-    mcp_path = Path(args.mcp_json)
-    if not mcp_path.is_file():
-        sys.stderr.write(f"error: {mcp_path} not found\n")
-        return 2
 
+def _handshake_one(adapter: Path, mcp_path: Path, deadline_secs: float, tool_prefix: str) -> bool:
+    """Drive the MCP handshake for one adapter. Returns True on success."""
     mcp = json.loads(mcp_path.read_text(encoding="utf-8"))
     try:
         server_name, entry = next(iter(mcp["mcpServers"].items()))
     except (KeyError, StopIteration):
         sys.stderr.write(f"error: no mcpServers entry in {mcp_path}\n")
-        return 2
+        return False
 
     # Substitute ${CLAUDE_PLUGIN_ROOT} with cwd (matches what Claude Code
     # does at runtime per https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers).
@@ -89,16 +75,72 @@ def main(argv: list[str] | None = None) -> int:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
 
-    result = run_handshake(
-        cmd, deadline_secs=args.deadline_secs, env=env, tool_prefix=args.tool_prefix
-    )
+    result = run_handshake(cmd, deadline_secs=deadline_secs, env=env, tool_prefix=tool_prefix)
 
     if result.success:
         print(f"{adapter}: MCP handshake OK (server={server_name}, {result.tool_count} tools)")
-        return 0
+        return True
 
+    sys.stderr.write(f"{adapter}: MCP handshake FAILED (server={server_name})\n")
     _dump_diagnostic(result)
-    return 1
+    return False
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--adapter",
+        default=None,
+        help=(
+            "Plugin adapter directory to smoke (e.g. .claude-plugin). "
+            "If omitted, auto-discover every `.*-plugin/` directory under cwd "
+            "that contains a plugin.json and smoke each one. The auto-discover "
+            "path is what makes this future-proof: a new host adapter added to "
+            "plugin_packaging/plugin_generator.py is automatically picked up "
+            "by CI with no workflow edit."
+        ),
+    )
+    parser.add_argument(
+        "--mcp-json",
+        default=".mcp.json",
+        help="Path to .mcp.json (default: .mcp.json in cwd)",
+    )
+    parser.add_argument("--deadline-secs", type=float, default=20.0)
+    parser.add_argument("--tool-prefix", default="sumo_qa_")
+    args = parser.parse_args(argv)
+
+    mcp_path = Path(args.mcp_json)
+    if not mcp_path.is_file():
+        sys.stderr.write(f"error: {mcp_path} not found\n")
+        return 2
+
+    if args.adapter is not None:
+        adapters = [Path(args.adapter)]
+        for a in adapters:
+            if not (a / "plugin.json").is_file():
+                sys.stderr.write(f"error: {a / 'plugin.json'} not found\n")
+                return 2
+    else:
+        adapters = _discover_adapters(Path("."))
+        if not adapters:
+            sys.stderr.write(
+                "error: no `.*-plugin/` directories with plugin.json found under cwd. "
+                "Run `python -m plugin_packaging.plugin_generator sync` to regenerate, "
+                "or pass --adapter explicitly.\n"
+            )
+            return 2
+        print(f"Auto-discovered {len(adapters)} adapter(s): {', '.join(str(a) for a in adapters)}")
+
+    failures = 0
+    for adapter in adapters:
+        if not _handshake_one(adapter, mcp_path, args.deadline_secs, args.tool_prefix):
+            failures += 1
+
+    if failures:
+        sys.stderr.write(f"\n{failures} of {len(adapters)} adapter(s) failed handshake\n")
+        return 1
+    print(f"\nAll {len(adapters)} adapter(s) passed handshake")
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover -- main guard
