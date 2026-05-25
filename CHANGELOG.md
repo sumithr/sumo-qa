@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.3](https://github.com/sumithr/sumo-qa/compare/v0.9.2...v0.9.3) (2026-05-25)
+
+
+### Bug Fixes
+
+* **ci:** plugin-dir handshake — stdin contract + auto-discover adapters ([#159](https://github.com/sumithr/sumo-qa/issues/159)) ([417cb39](https://github.com/sumithr/sumo-qa/commit/417cb39dd48f25fb6d953b1003243a7e7e3e6337))
+
 ## [0.9.2](https://github.com/sumithr/sumo-qa/compare/v0.9.1...v0.9.2) (2026-05-25)
 
 
