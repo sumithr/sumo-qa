@@ -235,19 +235,31 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
         staged.append((kind.split(":", 1)[-1], _dest_path(kind, dest_name, scope), text))
 
     # All content validated above, so the only failure here is an OS write
-    # error (disk full, permissions). Roll back already-written files so a
-    # multi-file pack is applied transactionally rather than left partial.
+    # error (disk full, permissions). Apply the pack transactionally: move any
+    # pre-existing destination aside to a backup before overwriting it, and on
+    # failure restore the backups — so a partial multi-file ingest never leaves
+    # the pack half-applied AND never destroys the user's prior files.
     written = []
-    written_paths: list[Path] = []
+    restore: list[tuple[Path, Path | None]] = []  # (dest, backup-or-None) to undo
     try:
         for short_type, dest, text in staged:
+            backup: Path | None = None
+            if dest.exists():
+                backup = dest.parent / f".{dest.name}.sumo-bak"
+                os.replace(dest, backup)
+            restore.append((dest, backup))  # record before writing so we can undo
             _write_atomic(dest, text)
-            written_paths.append(dest)
             written.append({"type": short_type, "written": str(dest)})
     except OSError:
-        for path in written_paths:
-            path.unlink(missing_ok=True)
+        for dest, backup in reversed(restore):
+            dest.unlink(missing_ok=True)  # drop our (possibly partial) write
+            if backup is not None:
+                os.replace(backup, dest)  # restore the prior file
         raise
+    # Success: discard the backups of overwritten files.
+    for _, backup in restore:
+        if backup is not None:
+            backup.unlink(missing_ok=True)
 
     return {
         "status": "ingested",

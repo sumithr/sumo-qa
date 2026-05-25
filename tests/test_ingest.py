@@ -306,3 +306,45 @@ def test_cli_main_non_utf8_returns_one(tmp_path, monkeypatch, capsys):
     rc = ingest.main([str(src)])
     assert rc == 1
     assert "sumo-qa-ingest" in capsys.readouterr().err
+
+
+def test_multifile_rollback_restores_preexisting_file(tmp_path, monkeypatch):
+    # P1 (PR #164 review): if a later write fails, an already-overwritten
+    # pre-existing file must be RESTORED to its prior content, not deleted.
+    monkeypatch.chdir(tmp_path)
+    proj_k = tmp_path / ".sumo-qa" / "knowledge"
+    proj_k.mkdir(parents=True)
+    (proj_k / "principles.md").write_text("ORIGINAL\n", encoding="utf-8")
+    d = tmp_path / "pack"
+    d.mkdir()
+    (d / "principles.md").write_text("NEW\n", encoding="utf-8")
+    (d / "techniques.md").write_text("T\n", encoding="utf-8")
+
+    real_write = ingest._write_atomic
+
+    def flaky(dest, text):
+        if dest.name == "techniques.md":
+            raise OSError("disk full")
+        real_write(dest, text)
+
+    monkeypatch.setattr(ingest, "_write_atomic", flaky)
+    with pytest.raises(OSError, match="disk full"):
+        ingest.ingest_pack(str(d), scope="project")
+    # Prior content restored — not left as NEW, not deleted.
+    assert (proj_k / "principles.md").read_text(encoding="utf-8") == "ORIGINAL\n"
+    assert not (proj_k / ".principles.md.sumo-bak").exists()
+
+
+def test_reingest_overwrites_and_leaves_no_backup(tmp_path, monkeypatch):
+    # Successful re-ingest over an existing file writes the new content and
+    # cleans up the backup of the overwritten file.
+    monkeypatch.chdir(tmp_path)
+    proj_k = tmp_path / ".sumo-qa" / "knowledge"
+    proj_k.mkdir(parents=True)
+    (proj_k / "principles.md").write_text("OLD\n", encoding="utf-8")
+    src = tmp_path / "principles.md"
+    src.write_text("REPLACED\n", encoding="utf-8")
+    report = ingest.ingest_pack(str(src), scope="project")
+    assert report["status"] == "ingested"
+    assert (proj_k / "principles.md").read_text(encoding="utf-8") == "REPLACED\n"
+    assert not (proj_k / ".principles.md.sumo-bak").exists()
