@@ -336,77 +336,20 @@ jobs:
       - name: MCP initialize handshake
         env:
           # The adapter folder is fixed per matrix entry; no untrusted
-          # input flows into the run: script. Pinning via env keeps the
-          # workflow-injection lint clean.
+          # input flows into the run: script. Pinning via env (the SAFE
+          # pattern per the workflow-injection guide) keeps the lint clean.
           ADAPTER: ${{ matrix.host == 'claude-code' && '.claude-plugin' || '.codex-plugin' }}
         shell: bash
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          adapter = Path(os.environ["ADAPTER"])
-          (adapter / "plugin.json").read_text(encoding="utf-8")  # asserts present
-          mcp = json.loads(Path(".mcp.json").read_text(encoding="utf-8"))
-          server_name, entry = next(iter(mcp["mcpServers"].items()))
-          # Substitute ${CLAUDE_PLUGIN_ROOT} (the canonical plugin-relative
-          # path variable per
-          # https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers)
-          # with the checkout root, mirroring what Claude Code does at
-          # runtime. os.path.expandvars handles both $VAR and ${VAR}.
-          os.environ["CLAUDE_PLUGIN_ROOT"] = os.path.abspath(".")
-          args = [
-              os.path.expandvars(a) if isinstance(a, str) else a
-              for a in entry.get("args", [])
-          ]
-          cmd = [os.path.expandvars(entry["command"]), *args]
-
-          proc = subprocess.Popen(
-              cmd,
-              stdin=subprocess.PIPE,
-              stdout=subprocess.PIPE,
-              stderr=subprocess.PIPE,
-              text=True,
-          )
-          init = {
-              "jsonrpc": "2.0", "id": 1, "method": "initialize",
-              "params": {
-                  "protocolVersion": "2024-11-05",
-                  "capabilities": {},
-                  "clientInfo": {"name": "plugin-dir-smoke", "version": "0"},
-              },
-          }
-          notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
-          tools = {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
-          payload = "\n".join(json.dumps(x) for x in (init, notif, tools)) + "\n"
-
-          try:
-              out, err = proc.communicate(payload, timeout=20)
-          except subprocess.TimeoutExpired:
-              proc.kill()
-              sys.stderr.write("MCP server timed out responding to handshake\n")
-              sys.exit(1)
-
-          ok = False
-          for line in out.splitlines():
-              try:
-                  msg = json.loads(line)
-              except Exception:
-                  continue
-              if msg.get("id") == 2 and "result" in msg:
-                  names = {t["name"] for t in msg["result"]["tools"]}
-                  if any(n.startswith("sumo_qa_") for n in names):
-                      ok = True
-                      break
-          if not ok:
-              sys.stderr.write("MCP handshake did not return sumo_qa_* tools\n")
-              sys.stderr.write((err or "")[-500:] + "\n")
-              sys.exit(1)
-          print(f"{adapter}: MCP handshake OK (server={server_name})")
-          PY
+        # The handshake logic lives in scripts/plugin_dir_handshake.py and
+        # reuses run_handshake() from scripts/uvx_smoke_handshake.py so the
+        # stdin-stays-open contract has one source of truth. Regression
+        # tests at tests/test_uvx_smoke_handshake.py and
+        # tests/test_plugin_dir_handshake.py keep both job paths protected.
+        # The previous inline heredoc used subprocess.communicate() which
+        # closes stdin immediately and triggers the mcp library's cancel-
+        # in-flight-handlers branch — fails on Linux's epoll scheduler.
+        # Same root cause as PR #141; that fix missed this second job.
+        run: python scripts/plugin_dir_handshake.py --adapter "$ADAPTER"
 
   install-plugin-uvx:
     name: plugin install via uvx (${{ matrix.os }})
