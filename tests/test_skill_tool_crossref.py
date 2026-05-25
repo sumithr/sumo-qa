@@ -68,16 +68,28 @@ def test_no_dead_skill_to_tool_refs() -> None:
     assert not dead, f"SKILL bodies reference nonexistent tools: {dead}"
 
 
+# Standalone, description-discoverable utility tools that deliberately sit
+# OUTSIDE the QA-routing skill chain. `sumo_qa_ingest_knowledge_pack` is a
+# knowledge-management action ("add this to the knowledge base"), not a QA
+# intent — routing it through `using-sumo-qa` would violate that skill's Iron
+# Law (no work before `sumo-qa-deciding-approach`). The agent discovers and
+# calls it from its tool description, so it needs no SKILL.md cross-reference.
+_STANDALONE_UTILITY_TOOLS = {"sumo_qa_ingest_knowledge_pack"}
+
+
 def test_no_orphan_registered_tools() -> None:
     """Reverse: every registered MCP tool must appear in at least one SKILL.md body.
 
     Per-skill content tools (one per skill directory, derived as
     `dir.name.replace('-', '_')`) are whitelisted — they return the SKILL.md
     body itself and don't need to be cross-referenced inside other SKILL bodies.
+    Standalone utility tools (`_STANDALONE_UTILITY_TOOLS`) are whitelisted too.
     """
     bodies = _skill_bodies()
     registered = _registered_tool_names()
-    whitelist = {d.name.replace("-", "_") for d in SKILLS_DIR.iterdir() if d.is_dir()}
+    whitelist = {
+        d.name.replace("-", "_") for d in SKILLS_DIR.iterdir() if d.is_dir()
+    } | _STANDALONE_UTILITY_TOOLS
     orphans = _find_orphan_tools(bodies, registered, whitelist)
     assert not orphans, f"Registered MCP tools with no SKILL reference: {orphans}"
 

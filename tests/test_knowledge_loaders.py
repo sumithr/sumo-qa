@@ -8,6 +8,7 @@ assert that known canonical entries are present in the returned text.
 
 import pytest
 
+from sumo_qa import knowledge_loaders
 from sumo_qa.knowledge_loaders import sumo_qa_load_classifications
 
 
@@ -500,3 +501,81 @@ def test_load_rules_resolves_aliases_for_multiple_terms_in_one_call(tmp_path, mo
         "(continue→break mutation)."
     )
     assert result["frontend_change"] == {"checks": ["snapshot_diff"]}
+
+
+# --- Ingested-pack precedence tiers (issue #92) ---------------------------------
+# Precedence with no env var: project pack > global pack > bundled > repo root.
+# Knowledge markdown resolves per file; standards/rules resolve first-tier-exists.
+
+
+def test_read_prefers_project_pack_per_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("QA_KNOWLEDGE_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    proj = tmp_path / ".sumo-qa" / "knowledge"
+    proj.mkdir(parents=True)
+    (proj / "principles.md").write_text("CUSTOM PRINCIPLES", encoding="utf-8")
+    # principles overridden; techniques falls through to bundled/repo (non-empty).
+    assert knowledge_loaders.sumo_qa_load_principles() == "CUSTOM PRINCIPLES"
+    assert "CUSTOM PRINCIPLES" not in knowledge_loaders.sumo_qa_load_techniques()
+
+
+def test_read_project_beats_global(tmp_path, monkeypatch):
+    monkeypatch.delenv("QA_KNOWLEDGE_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    g = tmp_path / "xdg" / "sumo-qa" / "knowledge"
+    g.mkdir(parents=True)
+    (g / "principles.md").write_text("GLOBAL", encoding="utf-8")
+    p = tmp_path / ".sumo-qa" / "knowledge"
+    p.mkdir(parents=True)
+    (p / "principles.md").write_text("PROJECT", encoding="utf-8")
+    assert knowledge_loaders.sumo_qa_load_principles() == "PROJECT"
+
+
+def test_read_uses_global_when_no_project_pack(tmp_path, monkeypatch):
+    monkeypatch.delenv("QA_KNOWLEDGE_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    g = tmp_path / "xdg" / "sumo-qa" / "knowledge"
+    g.mkdir(parents=True)
+    (g / "principles.md").write_text("GLOBAL ONLY", encoding="utf-8")
+    assert knowledge_loaders.sumo_qa_load_principles() == "GLOBAL ONLY"
+
+
+def test_env_var_still_wins_over_project_pack(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    (env_dir / "principles.md").write_text("ENV", encoding="utf-8")
+    proj = tmp_path / ".sumo-qa" / "knowledge"
+    proj.mkdir(parents=True)
+    (proj / "principles.md").write_text("PROJECT", encoding="utf-8")
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(env_dir))
+    assert knowledge_loaders.sumo_qa_load_principles() == "ENV"
+
+
+def test_standards_dir_prefers_project_pack(tmp_path, monkeypatch):
+    monkeypatch.delenv("QA_STANDARDS_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    packs = tmp_path / ".sumo-qa" / "standards" / "packs"
+    packs.mkdir(parents=True)
+    (packs / "team.yaml").write_text("name: team\n", encoding="utf-8")
+    assert knowledge_loaders._standards_dir() == packs
+
+
+def test_standards_dir_ignores_empty_project_packs_dir(tmp_path, monkeypatch):
+    # An empty .sumo-qa/standards/packs must NOT shadow the bundled packs.
+    monkeypatch.delenv("QA_STANDARDS_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".sumo-qa" / "standards" / "packs").mkdir(parents=True)
+    assert knowledge_loaders._standards_dir() != tmp_path / ".sumo-qa" / "standards" / "packs"
+
+
+def test_rules_path_prefers_project_pack(tmp_path, monkeypatch):
+    monkeypatch.delenv("QA_RULES_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    rules = tmp_path / ".sumo-qa" / "standards" / "rules"
+    rules.mkdir(parents=True)
+    f = rules / "change_rules.yaml"
+    f.write_text("{}\n", encoding="utf-8")
+    assert knowledge_loaders._rules_path() == f

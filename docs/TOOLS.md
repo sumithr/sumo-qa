@@ -1,6 +1,6 @@
 # MCP Tools
 
-The sumo-qa MCP exposes **28 entry points**: 14 skill tools + 6 knowledge loaders + 4 test-data tools + 4 external-skill lifecycle tools. All are thin — each is file IO, small deterministic logic, or a Skills CLI subprocess. No inference, no host-LLM sampling. The host LLM reasons over what they return.
+The sumo-qa MCP exposes **29 entry points**: 14 skill tools + 6 knowledge loaders + 4 test-data tools + 1 ingestion tool + 4 external-skill lifecycle tools. All are thin — each is file IO, small deterministic logic, or a Skills CLI subprocess. No inference, no host-LLM sampling. The host LLM reasons over what they return.
 
 ## Skill tools (14)
 
@@ -54,6 +54,14 @@ Manage the local known-good test data catalogue under `knowledge/test_data/`. Fi
 | `sumo_qa_find_test_data(question, environment, domain, criteria)` | Looks up matching catalogue entries |
 | `sumo_qa_validate_test_data(path)` | Checks a known-good entry against its source system |
 | `sumo_qa_register_known_good_test_data(...)` | Writes a new known-good entry |
+
+## Ingestion (1)
+
+Add or replace team QA knowledge/standards/rules at runtime, without cloning the repo. Validates native files and writes a normalized copy into a user-writable pack (`project` = `<cwd>/.sumo-qa`, `global` = XDG data dir). Loader precedence: explicit env var > project > global > bundled > repo. See [CONFIGURATION.md](CONFIGURATION.md#adding-custom-knowledge-without-cloning-the-repo). Also exposed as the `sumo-qa-ingest` console script.
+
+| Tool | Purpose |
+|---|---|
+| `sumo_qa_ingest_knowledge_pack(source, scope, content_type?)` | Validate + materialize a native pack; non-native sources (PDF/PPTX/URL) return an `unsupported_source` result routing to a converter skill |
 
 ## External-skill lifecycle
 
