@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.4](https://github.com/sumithr/sumo-qa/compare/v0.9.3...v0.9.4) (2026-05-25)
+
+
+### Build System
+
+* **deps:** bump actions/setup-python from 5 to 6 ([ed5d1e6](https://github.com/sumithr/sumo-qa/commit/ed5d1e6b9c5948a8ea5253464257186048722a58))
+
 ## [0.9.3](https://github.com/sumithr/sumo-qa/compare/v0.9.2...v0.9.3) (2026-05-25)
 
 
