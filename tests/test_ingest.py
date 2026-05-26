@@ -64,10 +64,10 @@ def test_unsupported_source_routes_to_converter_skill(tmp_path, monkeypatch):
     src.write_bytes(b"%PDF-1.4 ...")
     report = ingest.ingest_pack(str(src), scope="project")
     assert report["status"] == "unsupported_source"
-    assert (
-        "find-skills" in report["guidance"]
-        or "sumo_qa_search_external_skills" in report["guidance"]
-    )
+    # Routing is structured, not prose-inferred, and names the flow (not find-skills).
+    assert report["next_skill"] == "sumo-qa-suggesting-external-skill"
+    assert report["entry_kind"] == "conversion"
+    assert "sumo-qa-suggesting-external-skill" in report["guidance"]
     assert "pdf" in report["guidance"].lower()
     assert not (tmp_path / ".sumo-qa").exists()
 
@@ -189,7 +189,7 @@ def test_cli_main_unsupported_returns_one(tmp_path, monkeypatch, capsys):
     src.write_bytes(b"%PDF")
     rc = ingest.main([str(src)])
     assert rc == 1
-    assert "find-skills" in capsys.readouterr().err
+    assert "sumo-qa-suggesting-external-skill" in capsys.readouterr().err
 
 
 def test_cli_main_nothing_ingested_returns_one(tmp_path, monkeypatch, capsys):

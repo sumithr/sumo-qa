@@ -3,10 +3,10 @@
 
 Format-strict: accepts only sumo-qa's native files (knowledge markdown, a
 standards-pack YAML, ``change_rules.yaml``). Non-native sources (PDF, PPTX,
-URLs) are NOT parsed here — the result routes the agent to a dedicated
-converter skill discovered via skill-discovery. Validated content is
-materialised under the chosen scope's user-pack dir; nothing is written if
-validation fails.
+URLs) are NOT parsed here — the result routes the agent through the
+``sumo-qa-suggesting-external-skill`` flow to find, install, and run a
+converter skill. Validated content is materialised under the chosen scope's
+user-pack dir; nothing is written if validation fails.
 
 Usage:
     sumo-qa-ingest principles.md                 # ingest into <cwd>/.sumo-qa
@@ -47,12 +47,11 @@ _PRECEDENCE = "explicit env var > project pack > global pack > bundled > repo ro
 _CONVERTER_GUIDANCE = (
     "Unsupported source '{src}'. The ingest tool only accepts native sumo-qa "
     "files (principles.md, techniques.md, classifications.md, approaches.md, a "
-    "standards-pack *.yaml, or change_rules.yaml). To ingest a {kind}: use "
-    "skill-discovery (find-skills / sumo_qa_search_external_skills) to find a "
-    "dedicated converter skill (e.g. a 'pdf-to-markdown' skill), convert the "
-    "source to markdown in one shot, then call ingest again with "
-    "content_type='principles' (or the right catalogue). Do NOT read and "
-    "hand-transcribe the source yourself."
+    "standards-pack *.yaml, or change_rules.yaml). A {kind} needs converting to "
+    "markdown first: route through sumo-qa's external-skill discovery (the "
+    "sumo-qa-suggesting-external-skill flow) to find, install, and run a "
+    "converter skill, then call ingest again with content_type set to the right "
+    "catalogue. Do NOT read and hand-transcribe the source yourself."
 )
 
 
@@ -174,6 +173,9 @@ def _unsupported(source: str, kind: str) -> dict:
     return {
         "status": "unsupported_source",
         "source": source,
+        # Structured routing so the host preserves the entry mode, not prose it infers.
+        "next_skill": "sumo-qa-suggesting-external-skill",
+        "entry_kind": "conversion",
         "guidance": _CONVERTER_GUIDANCE.format(src=source, kind=kind),
     }
 

@@ -48,4 +48,6 @@ def test_ingest_tool_unsupported_source_routes_to_converter(tmp_path, monkeypatc
     server = build_mcp_server()
     result = _invoke_tool(server, "sumo_qa_ingest_knowledge_pack", source=str(src), scope="project")
     assert result["status"] == "unsupported_source"
-    assert "find-skills" in result["guidance"]
+    assert result["next_skill"] == "sumo-qa-suggesting-external-skill"
+    assert result["entry_kind"] == "conversion"
+    assert "sumo-qa-suggesting-external-skill" in result["guidance"]
