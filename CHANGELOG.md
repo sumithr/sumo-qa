@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/sumithr/sumo-qa/compare/v0.11.2...v0.12.0) (2026-05-26)
+
+
+### Features
+
+* add sumo_qa_capabilities discovery tool ([#177](https://github.com/sumithr/sumo-qa/issues/177)) ([e8df4fa](https://github.com/sumithr/sumo-qa/commit/e8df4fa990dbdcc5fbef79630690ba455153f0e5)), closes [#87](https://github.com/sumithr/sumo-qa/issues/87)
+
 ## [0.11.2](https://github.com/sumithr/sumo-qa/compare/v0.11.1...v0.11.2) (2026-05-26)
 
 
