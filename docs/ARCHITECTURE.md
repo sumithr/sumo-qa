@@ -63,9 +63,9 @@ the skill.
 
 ## 2. MCP tools (Python) — atomic knowledge providers
 
-28 tools, all thin. Fourteen skill tools (one per SKILL.md), six knowledge loaders (`sumo_qa_load_*`)
-return markdown catalogues as text. Four test-data tools read/write the local
-known-good catalogue under `knowledge/test_data/`. Four external-skill lifecycle tools search, install, locate, and load external skills through the Skills CLI while preserving the skill-level confirmation gate. The search tool returns ANSI-stripped CLI output verbatim — no structured parsing — so Skills CLI format drift doesn't break the flow.
+30 tools, all thin. Fourteen skill tools (one per SKILL.md), six knowledge loaders (`sumo_qa_load_*`)
+return markdown catalogues as text. One capabilities-discovery tool (`sumo_qa_capabilities`) returns a compact, typed map of the core QA workflows. Four test-data tools read/write the local
+known-good catalogue under `knowledge/test_data/`. One ingestion tool materialises runtime knowledge packs into a user-writable location. Four external-skill lifecycle tools search, install, locate, and load external skills through the Skills CLI while preserving the skill-level confirmation gate. The search tool returns ANSI-stripped CLI output verbatim — no structured parsing — so Skills CLI format drift doesn't break the flow.
 
 See [TOOLS.md](TOOLS.md) for the full list.
 

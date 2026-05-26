@@ -1,6 +1,7 @@
 {
   "required_tools": [
     "sumo_qa_answering_testing_question",
+    "sumo_qa_capabilities",
     "sumo_qa_check_external_skill_installed",
     "sumo_qa_creating_test_plan",
     "sumo_qa_deciding_approach",
@@ -11,6 +12,7 @@
     "sumo_qa_finding_test_data",
     "sumo_qa_finishing_qa_work",
     "sumo_qa_implementing_with_tdd",
+    "sumo_qa_ingest_knowledge_pack",
     "sumo_qa_install_external_skill",
     "sumo_qa_load_approaches",
     "sumo_qa_load_classifications",
@@ -47,6 +49,75 @@
           "result"
         ],
         "title": "sumo_qa_answering_testing_questionOutput",
+        "type": "object"
+      }
+    },
+    "sumo_qa_capabilities": {
+      "inputSchema": {
+        "properties": {},
+        "title": "sumo_qa_capabilitiesArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "CapabilityWorkflow": {
+            "additionalProperties": false,
+            "description": "One core QA workflow surfaced by ``sumo_qa_capabilities``.",
+            "properties": {
+              "outcome": {
+                "description": "One-line description of what the workflow produces.",
+                "title": "Outcome",
+                "type": "string"
+              },
+              "sample_prompt": {
+                "description": "An example user prompt that triggers this workflow.",
+                "title": "Sample Prompt",
+                "type": "string"
+              },
+              "target_skill": {
+                "description": "The sumo-qa skill this workflow routes to (an existing skills/<name>).",
+                "title": "Target Skill",
+                "type": "string"
+              },
+              "workflow": {
+                "description": "Short human name of the workflow.",
+                "title": "Workflow",
+                "type": "string"
+              }
+            },
+            "required": [
+              "workflow",
+              "sample_prompt",
+              "target_skill",
+              "outcome"
+            ],
+            "title": "CapabilityWorkflow",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Output of ``sumo_qa_capabilities``.\n\nA compact, read-only map of sumo-qa's core QA workflows. Discovery only \u2014\nit does not replace the ``using-sumo-qa`` entry router or\n``sumo_qa_deciding_approach``; it just answers \"what can sumo-qa do?\".",
+        "properties": {
+          "tool": {
+            "const": "sumo_qa_capabilities",
+            "default": "sumo_qa_capabilities",
+            "description": "Tool discriminator; always the literal tool name.",
+            "title": "Tool",
+            "type": "string"
+          },
+          "workflows": {
+            "description": "Core QA workflows, each with a sample prompt and the skill it routes to.",
+            "items": {
+              "$ref": "#/$defs/CapabilityWorkflow"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "workflows"
+        ],
+        "title": "CapabilitiesOutput",
         "type": "object"
       }
     },
@@ -1271,6 +1342,43 @@
           "result"
         ],
         "title": "sumo_qa_implementing_with_tddOutput",
+        "type": "object"
+      }
+    },
+    "sumo_qa_ingest_knowledge_pack": {
+      "inputSchema": {
+        "properties": {
+          "content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Content Type"
+          },
+          "scope": {
+            "default": "project",
+            "title": "Scope",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "sumo_qa_ingest_knowledge_packArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "title": "sumo_qa_ingest_knowledge_packDictOutput",
         "type": "object"
       }
     },

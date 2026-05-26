@@ -154,7 +154,7 @@ flowchart LR
 | Layer | What |
 |---|---|
 | **14 skills** ([`skills/`](skills/)) | Iron-Law procedures: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, finding test data, answering testing questions, repo strategy — plus the planning → parallel subagent execution → finishing chain. |
-| **28 MCP entry points** | 14 skill tools, 6 knowledge loaders, 4 test-data tools, 4 external-skill lifecycle tools. Thin operations, no inference. |
+| **30 MCP entry points** | 14 skill tools, 6 knowledge loaders, 1 capabilities-discovery tool, 4 test-data tools, 1 ingestion tool, 4 external-skill lifecycle tools. Thin operations, no inference. |
 | **4 knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques. The agent picks from these instead of recalling from training data. Editable as plain markdown. Specialty-tool picks are deliberately not catalogued — the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
 
 ## Host support

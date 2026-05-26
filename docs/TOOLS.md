@@ -1,6 +1,6 @@
 # MCP Tools
 
-The sumo-qa MCP exposes **29 entry points**: 14 skill tools + 6 knowledge loaders + 4 test-data tools + 1 ingestion tool + 4 external-skill lifecycle tools. All are thin — each is file IO, small deterministic logic, or a Skills CLI subprocess. No inference, no host-LLM sampling. The host LLM reasons over what they return.
+The sumo-qa MCP exposes **30 entry points**: 14 skill tools + 6 knowledge loaders + 1 capabilities-discovery tool + 4 test-data tools + 1 ingestion tool + 4 external-skill lifecycle tools. All are thin — each is file IO, small deterministic logic, or a Skills CLI subprocess. No inference, no host-LLM sampling. The host LLM reasons over what they return.
 
 ## Skill tools (14)
 
@@ -43,6 +43,14 @@ Each returns a markdown catalogue as plain text. The host LLM reasons over the r
 | `sumo_qa_load_rules(classification?)` | Team's loaded change rules; optional filter by one or more classifications |
 
 Specialty-tool picks are intentionally NOT catalogued — the discipline (in `using-sumo-qa`) is to observe the risk surface, web-search current options for the user's stack, and cite when naming a tool. A static catalogue would anchor toward yesterday's brands and create a false floor where novel surfaces never trigger discovery.
+
+## Capabilities discovery (1)
+
+A compact, read-only "what can sumo-qa do?" map: the core QA workflows, each with a sample prompt, the skill it routes to, and a one-line outcome. Typed output (`CapabilitiesOutput`), under 500 approximate tokens. Discovery only — it does **not** replace the `using-sumo-qa` entry router or `sumo_qa_deciding_approach`, and carries no internal classification labels.
+
+| Tool | What it returns |
+|---|---|
+| `sumo_qa_capabilities()` | The eight core QA workflows (review changes, regression-first fix, QA prep, formal test plan, mutation strengthening, test-data discovery, repo strategy, external-skill discovery), each as `{workflow, sample_prompt, target_skill, outcome}` routing to an existing skill |
 
 ## Test-data tools (4)
 
