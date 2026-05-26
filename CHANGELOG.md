@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/sumithr/sumo-qa/compare/v0.11.1...v0.11.2) (2026-05-26)
+
+
+### Performance Improvements
+
+* reduce SKILL.md token weight across the eight remaining sumo-qa skills ([#173](https://github.com/sumithr/sumo-qa/issues/173)) ([77264f5](https://github.com/sumithr/sumo-qa/commit/77264f5e5c2a69d2fd86dca728e32c2a8a2cb98f)), closes [#172](https://github.com/sumithr/sumo-qa/issues/172)
+
 ## [0.11.1](https://github.com/sumithr/sumo-qa/compare/v0.11.0...v0.11.1) (2026-05-26)
 
 
