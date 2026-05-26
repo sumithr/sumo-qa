@@ -24,9 +24,25 @@ def test_skill_has_output_discipline_section() -> None:
     assert "## Output discipline (mandatory)" in text
 
 
-def test_skill_has_output_economy_section() -> None:
+def test_skill_has_output_economy_discipline() -> None:
     text = SKILL_PATH.read_text(encoding="utf-8")
-    assert "## Output economy (mandatory)" in text
+    lower = text.lower()
+    # The token-reduction pass (issue #89) folded the duplicated Output economy
+    # block into the global discipline inherited from using-sumo-qa. The
+    # discipline must still be carried — but a bare "output economy" substring is
+    # too weak (any incidental mention would pass). Require EITHER a dedicated
+    # section OR an explicit using-sumo-qa inheritance statement that names it,
+    # so a reword that effectively drops the policy still fails this guard.
+    has_section = "## output economy" in lower
+    has_inheritance = (
+        "inherits the global discipline from `using-sumo-qa`" in lower and "output economy" in lower
+    )
+    assert has_section or has_inheritance, (
+        "sumo-qa-suggesting-external-skill must carry the output-economy discipline "
+        "as its own `## Output economy` section or via an explicit "
+        "`Inherits the global discipline from `using-sumo-qa`` statement that names "
+        "output economy — not merely an incidental mention."
+    )
 
 
 def test_skill_has_when_to_use_section() -> None:
