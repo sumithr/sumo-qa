@@ -9,21 +9,7 @@ description: Use when sumo-qa-deciding-approach routes here (no native sumo-qa s
 
 ## Output discipline (mandatory)
 
-**Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6", "entry_kind: conversion". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this needs a PDF-to-markdown converter first"*, not *"entry_kind: conversion"*. If you catch yourself typing a label, delete it.
-
-Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit).
-
-## Output economy (mandatory)
-
-Spend output tokens on findings, not framing.
-
-- **Don't preamble the work.** Spend user-visible output on findings, evidence, and gates — don't narrate *"I'll first read X, then Y, then deliver Z."*
-- **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
-- **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
-- **Don't restate the user's input.** They know what they asked.
-- **Section headings only when there are genuinely multiple sections.**
-- **Tables only when comparing >2 things on >2 axes.** Otherwise prose is shorter.
-- **No closing pleasantries.** No *"happy to dig deeper"* — the next-skill handoff is where routing lives.
+Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — including `entry_kind` — say *"this needs a PDF-to-markdown converter first"*, not *"entry_kind: conversion"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.
 
 ## The Iron Law
 
@@ -31,12 +17,12 @@ Spend output tokens on findings, not framing.
 
 ## When to Use
 
-This skill is entered two ways, never cold. The caller mode is carried by `entry_kind`:
+Entered two ways, never cold; the mode is carried by `entry_kind`:
 
-1. **`entry_kind: qa`** — `sumo-qa-deciding-approach` determined no native approach fits and the intent involves a tool, framework, or QA surface sumo-qa doesn't natively cover (Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, type checking, flaky-test quarantine).
-2. **`entry_kind: conversion`** — an ingestion source (a PDF/PPTX/URL/docx reported `unsupported_source`) needs converting to markdown before it can be ingested. The capability gap is a *converter*, not a test tool.
+1. **`entry_kind: qa`** — `sumo-qa-deciding-approach` found no native approach fits and the intent needs a tool/framework/QA surface sumo-qa doesn't natively cover (Playwright/Cypress E2E, accessibility audits, k6/Locust load, Pact contract tests, type checking, flaky-test quarantine).
+2. **`entry_kind: conversion`** — an ingestion source (PDF/PPTX/URL/docx reported `unsupported_source`) needs converting to markdown first. The gap is a *converter*, not a test tool.
 
-Consent for any install is always the per-candidate `[y/N]` prompt in the checklist below. No global on/off switch.
+Any install is gated by the per-candidate `[y/N]` prompt below; no global switch.
 
 ## Checklist
 
@@ -72,17 +58,6 @@ You MUST work through these steps in order. External lifecycle operations are MC
 
    Sumo-qa's confirmation discipline still applies to dependency installs and file writes requested by the external skill.
 
-## Error handling
-
-| Failure | Behaviour |
-|---|---|
-| `sumo_qa_search_external_skills` returns `isError` | Surface the error and actionable hint. Stop. |
-| Search returns no credible match | No-match terminal (step 3): `qa` → native only if it fits; `conversion` → report no converter exists, stop, never transcribe. |
-| `sumo_qa_install_external_skill` returns `isError` | Tell the user this install failed, then advance to the next candidate (re-prompt consent), within the 3-attempt cap. |
-| `sumo_qa_execute_external_skill` returns `isError` | Tell the user it installed but failed to run, then advance to the next candidate (re-prompt consent), within the 3-attempt cap. |
-| 3-attempt cap exhausted (all candidates failed) | All-failed terminal — *distinct* from no-match: report every candidate was tried and each failed (cap reached), then stop. `conversion` → never transcribe. |
-| User answers `n` at any candidate | Acknowledge the decline in one line, then stop the whole flow. |
-
 ## Red Flags
 
 | Thought | Reality |
@@ -91,10 +66,8 @@ You MUST work through these steps in order. External lifecycle operations are MC
 | "I'll install the skill and tell the user after" | No. Permission gate before every install. Always. |
 | "Search failed, but I remember a skill name" | No. Use current MCP search results or say no match. |
 | "I'll read and transcribe the PDF myself" | No. A non-native source needs a converter skill found through this flow — never hand-transcribe it. |
-| "The first candidate's install failed, so I'll give up" | No. Advance to the next candidate (cap 3 attempts) before the caller-aware terminal. |
 | "The user said no, but I'll offer the next candidate anyway" | No. A decline stops the whole flow. |
 | "Execute already returned a `skill_body`, so I'll offer to install the converter" | No. Install and execute already happened — state you'll follow the returned steps to produce the markdown, then re-ingest. Don't regress to an install offer. |
-| "The next-candidate offer is the same as the first offer" | No. A fallback turn OPENS with the failure report — *"The `<skill>` install failed…"* (install) or *"`<skill>` installed but failed to run…"* (execute) — THEN the install offer. Skipping the failure line is a SHAPE fail. |
 | "All attempts failed, so I'll say no converter exists" | No. That's the no-match terminal. After the cap, report that every candidate was tried and each failed — distinct from never finding one. |
 | "The external skill returned instructions, so sumo-qa discipline no longer applies" | Sumo-qa still owns confirmation gates, test evidence, and risk-to-test mapping. |
 | "I'll silently edit host MCP config files" | No silent config edits. Surface the needed JSON or command and stop. |
@@ -105,8 +78,6 @@ See the Checklist above — that's the flow.
 
 ## Next skill in the chain
 
-- External skill executed for a `qa` gap → follow returned `skill_body`, then use the relevant native sumo-qa skill for test evidence and review.
-- External skill executed for a `conversion` gap → follow the converter's returned `skill_body` to produce the markdown, then return to the ingestion flow and re-ingest it with the right `content_type`.
-- No credible match found → no-match terminal: `qa` native fallback only when a native path still fits; `conversion` reports no converter exists and stops.
-- All candidates tried and each failed (3-attempt cap reached) → all-failed terminal: report every attempt failed (distinct from "no converter exists") and stop; `conversion` never transcribes.
-- User declined install → acknowledge the decline and stop.
+- Executed for a `qa` gap → follow the returned `skill_body`, then use the relevant native sumo-qa skill for test evidence and review.
+- Executed for a `conversion` gap → follow the converter's `skill_body` to produce the markdown, then return to the ingestion flow and re-ingest with the right `content_type`.
+- Terminals (all stop): no credible match (`qa` → native fallback only if one fits; `conversion` → report no converter exists); 3-attempt cap reached (all-failed — distinct from no-match; `conversion` never transcribes); user declined.

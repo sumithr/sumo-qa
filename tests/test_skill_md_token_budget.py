@@ -41,7 +41,7 @@ SKILL_TOKEN_BUDGETS = {
     "sumo-qa-reviewing-before-merge": 3030,  # post-cut 2888 (was 4586, -37%)
     "sumo-qa-strategising": 2740,  # measured 2602
     "sumo-qa-strengthening-tests": 2870,  # measured 2724
-    "sumo-qa-suggesting-external-skill": 3240,  # measured 3085
+    "sumo-qa-suggesting-external-skill": 2580,  # post-cut 2459 (was 3085, -20%)
     "using-sumo-qa": 3660,  # measured 3477
 }
 
