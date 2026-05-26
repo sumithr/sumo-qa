@@ -225,8 +225,17 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
         raise IngestValidationError(f"unknown scope {scope!r}; expected one of {paths.SCOPES}")
     src = Path(source)
     if not src.exists():
-        kind = "remote source" if "://" in source else "missing path"
-        return _unsupported(source, kind)
+        if "://" in source:
+            # A remote URL isn't a local file, but it IS a conversion candidate —
+            # the discovered converter skill owns the fetch+convert.
+            return _unsupported(source, "remote source")
+        # A genuine missing local path is a not-found error, not a conversion
+        # opportunity. Don't emit entry_kind=conversion for a file that isn't
+        # there — that would send the agent hunting for a converter pointlessly.
+        raise IngestValidationError(
+            f"source not found: {source!r} — pass an existing native file or "
+            f"directory, or a URL to convert via the sumo-qa-suggesting-external-skill flow"
+        )
 
     skipped: list[str] = []
     files = [src] if src.is_file() else _gather_pack_files(src, skipped)
