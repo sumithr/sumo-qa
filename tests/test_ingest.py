@@ -386,3 +386,18 @@ def test_directory_ingest_skips_symlinked_subdir(tmp_path, monkeypatch):
     report = ingest.ingest_pack(str(d), scope="project")
     assert "knowledge" in report["skipped"]
     assert not (tmp_path / ".sumo-qa" / "knowledge" / "principles.md").exists()
+
+
+def test_conflicting_destinations_rejected_before_write(tmp_path, monkeypatch):
+    # P1 (PR #164 review): a flat principles.md AND a repo-shaped
+    # knowledge/principles.md map to one destination — reject up front so the
+    # transactional backup chain can't be corrupted, and write nothing.
+    monkeypatch.chdir(tmp_path)
+    d = tmp_path / "pack"
+    (d / "knowledge").mkdir(parents=True)
+    (d / "principles.md").write_text("FLAT\n", encoding="utf-8")
+    (d / "knowledge" / "principles.md").write_text("NESTED\n", encoding="utf-8")
+    with pytest.raises(ingest.IngestValidationError) as exc:
+        ingest.ingest_pack(str(d), scope="project")
+    assert "conflicting sources" in str(exc.value) and "principles.md" in str(exc.value)
+    assert not (tmp_path / ".sumo-qa").exists()

@@ -245,6 +245,7 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
 
     # Validate everything first; write nothing until all checks pass.
     staged: list[tuple[str, Path, str]] = []  # (short_type, dest_path, text)
+    dest_sources: dict[Path, Path] = {}
     for f, kind, dest_name in classified:
         try:
             text = f.read_text(encoding="utf-8")
@@ -255,7 +256,18 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
                 f"{f.name}: not valid UTF-8 ({exc}); re-export the file as UTF-8"
             ) from exc
         _validate(kind, text, f.name)
-        staged.append((kind.split(":", 1)[-1], _dest_path(kind, dest_name, scope), text))
+        dest = _dest_path(kind, dest_name, scope)
+        # Two sources mapping to one destination (e.g. a flat `principles.md`
+        # and a repo-shaped `knowledge/principles.md` in the same pack) is
+        # ambiguous and would corrupt the transactional backup chain (both share
+        # one `.<name>.sumo-bak`). Reject it before any write rather than guess.
+        if dest in dest_sources:
+            raise IngestValidationError(
+                f"conflicting sources map to the same destination "
+                f"({dest.name}): '{dest_sources[dest]}' and '{f}'. Provide only one."
+            )
+        dest_sources[dest] = f
+        staged.append((kind.split(":", 1)[-1], dest, text))
 
     # All content validated above, so the only failure here is an OS write
     # error (disk full, permissions). Apply the pack transactionally: move any
