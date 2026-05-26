@@ -168,7 +168,7 @@ prompts:
     - Risk 2 → <technique>
     - Risk 3 → <technique>
 
-    NO test code. NO formal entry/exit criteria. NO confirmation question. NO closing pleasantry. Name the underlying async risk pattern (idempotent retry, poison-message handling, out-of-order tolerance) — not broker-specific tuning steps.
+    NO test code. NO formal entry/exit criteria. NO confirmation question. NO closing pleasantry. Name the underlying risk pattern for this surface — drawn from the loaded rules and the skill's discipline — not broker-specific tuning steps.
 tests:
   - description: message-broker consumer gains retries
     vars:

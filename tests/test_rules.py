@@ -161,9 +161,10 @@ def test_dedupe_removes_duplicates_preserving_first_seen_order() -> None:
 # ---------------------------------------------------------------------------
 
 # surface rule -> concrete probe markers that MUST appear in the rule's
-# must_consider / risk_templates / techniques text. Each marker is a
-# tech-agnostic phrase that does not exist in the pre-#98 generic entries, so
-# the guard fails (red) until the rule carries a concrete probe.
+# ENRICHED fields (must_consider + risk_templates only — NOT test_design_techniques,
+# so a marker can't be satisfied by pre-existing technique text). Each marker is a
+# tech-agnostic phrase absent from the pre-#98 generic entries, so the guard fails
+# (red) until the rule carries the concrete probe itself.
 SURFACE_PROBE_MARKERS = {
     # schema/model validation + request/response/IPC protocol surface
     "api_contract_change": ("removed", "omits", "old-shaped"),
@@ -220,15 +221,32 @@ _BANNED_TECH_TOKENS = frozenset(
         "jwt",
         "oauth",
         "saml",
+        # cloud / protocol / tool namespaces (broadened after adversarial review:
+        # a finite deny-list never proves neutrality, but it should cover the
+        # likeliest leaks, not just the ones the first draft happened to name).
+        "aws",
+        "azure",
+        "gcp",
+        "http",
+        "https",
+        "amqp",
+        "mqtt",
+        "grpcweb",
+        "cloudformation",
+        "lambda",
+        "webhook",
     }
 )
 
 
-def _surface_text(engine: StandardsRulesEngine, classification: str) -> str:
+def _surface_text(
+    engine: StandardsRulesEngine, classification: str, *, include_techniques: bool
+) -> str:
     ev = engine.evaluate([classification])
-    return " ".join(
-        ev["must_consider"] + ev["risk_templates"] + ev["test_design_techniques"]
-    ).lower()
+    fields = ev["must_consider"] + ev["risk_templates"]
+    if include_techniques:
+        fields = fields + ev["test_design_techniques"]
+    return " ".join(fields).lower()
 
 
 @pytest.mark.parametrize(("classification", "markers"), SURFACE_PROBE_MARKERS.items())
@@ -236,7 +254,8 @@ def test_surface_exposes_concrete_probes_beyond_classification_text(
     classification: str, markers: tuple[str, ...]
 ) -> None:
     engine = StandardsRulesEngine.from_file(ROOT / "standards" / "rules" / "change_rules.yaml")
-    text = _surface_text(engine, classification)
+    # Markers must come from the enriched probe fields, not pre-existing techniques.
+    text = _surface_text(engine, classification, include_techniques=False)
     missing = [marker for marker in markers if marker not in text]
     assert not missing, (
         f"{classification} is missing concrete probe markers {missing}; its "
@@ -247,7 +266,10 @@ def test_surface_exposes_concrete_probes_beyond_classification_text(
 @pytest.mark.parametrize("classification", sorted(SURFACE_PROBE_MARKERS))
 def test_surface_probes_stay_host_neutral(classification: str) -> None:
     engine = StandardsRulesEngine.from_file(ROOT / "standards" / "rules" / "change_rules.yaml")
-    tokens = set(re.findall(r"[a-z0-9]+", _surface_text(engine, classification)))
+    # Neutrality is the broadest guard: check every surfaced field, techniques included.
+    tokens = set(
+        re.findall(r"[a-z0-9]+", _surface_text(engine, classification, include_techniques=True))
+    )
     leaked = sorted(_BANNED_TECH_TOKENS & tokens)
     assert not leaked, (
         f"{classification} probes name specific technologies {leaked}; probes "
