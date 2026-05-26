@@ -61,7 +61,7 @@ Add or replace team QA knowledge/standards/rules at runtime, without cloning the
 
 | Tool | Purpose |
 |---|---|
-| `sumo_qa_ingest_knowledge_pack(source, scope, content_type?)` | Validate + materialize a native pack; non-native sources (PDF/PPTX/URL) return an `unsupported_source` result routing to a converter skill |
+| `sumo_qa_ingest_knowledge_pack(source, scope, content_type?)` | Validate + materialize a native pack; non-native sources (PDF/PPTX/URL) return an `unsupported_source` result routing through the `sumo-qa-suggesting-external-skill` flow to convert + re-ingest |
 
 ## External-skill lifecycle
 
