@@ -84,3 +84,31 @@ def test_skill_explicitly_rejects_direct_host_shell_npx() -> None:
     assert "host shell" in lower
     assert "npx skills" in lower
     assert "mcp server owns" in lower
+
+
+def test_skill_documents_conversion_entry() -> None:
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    # Generalized beyond QA tooling: the ingestion conversion entry is documented,
+    # keyed on the structured entry_kind signal.
+    assert "conversion" in text.lower()
+    assert "entry_kind" in text
+
+
+def test_skill_documents_capped_fallback_to_next_candidate() -> None:
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    lower = text.lower()
+    # On install/execute isError, advance to the next candidate, capped at 3.
+    assert "next candidate" in lower
+    assert "3 attempts" in lower
+
+
+def test_skill_conversion_terminal_forbids_hand_transcription() -> None:
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    assert "transcribe" in text.lower()
+
+
+def test_skill_does_not_pin_ingest_tool_token() -> None:
+    text = SKILL_PATH.read_text(encoding="utf-8")
+    # Ingest stays a standalone, description-discoverable tool; the skill must NOT
+    # name its tool token, keeping test_skill_tool_crossref's whitelist comment honest.
+    assert "sumo_qa_ingest_knowledge_pack" not in text
