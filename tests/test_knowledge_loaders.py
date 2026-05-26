@@ -207,6 +207,33 @@ def test_load_rules_filter_maps_canonical_classification_to_legacy_rule_key(
     assert expected_text in result
 
 
+def test_same_surface_different_contexts_get_identical_probes():
+    """Issue #98 AC: two different change contexts sharing one underlying risk
+    surface must receive the SAME concrete guidance, not tech-tailored variants.
+
+    `config_change` (application config) and `infrastructure_change` (deploy /
+    IaC) both resolve to the CI/config/deploy surface, so the WHOLE probe set
+    must be identical for both — not merely sharing a few markers. Asserting the
+    full `must_consider` list (rather than substring presence) proves the
+    surface→probe mapping is keyed on the risk pattern, not the technology, and
+    cannot be satisfied by a partial overlap.
+    """
+    import yaml as _yaml
+
+    app_config = _yaml.safe_load(sumo_qa_load_rules(classification="config_change"))
+    infra = _yaml.safe_load(sumo_qa_load_rules(classification="infrastructure_change"))
+
+    app_probes = app_config["config_change"]["must_consider"]
+    infra_probes = infra["infrastructure_change"]["must_consider"]
+
+    # Identical guidance, and it actually carries the enriched concrete probes.
+    assert app_probes == infra_probes
+    assert (
+        "A missing or empty value falls back to a safe default rather than crashing on startup"
+        in app_probes
+    )
+
+
 # ---------------------------------------------------------------------------
 # Branch coverage for knowledge_loaders.py
 # ---------------------------------------------------------------------------

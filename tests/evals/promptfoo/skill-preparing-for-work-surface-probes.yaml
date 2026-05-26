@@ -1,0 +1,206 @@
+description: >
+  Issue #98 — proves the tech-agnostic surface→probe guidance appears in a SKILL
+  workflow, not just the raw catalogue. Two different async technologies (a
+  message-broker consumer and a cloud-queue consumer) make the SAME change —
+  adding automatic retries to a handler with an un-guarded side effect — and
+  must receive the SAME idempotency/retry probes. The candidate loads the
+  enriched change_rules.yaml; the judge grades that the probes are the async
+  risk pattern, not broker-specific tuning advice.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-preparing-for-work/SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+    expected_shape: >-
+      Risk-shaped QA prep brief for an async consumer that gains automatic
+      retries while its side effect (a customer charge) is not idempotent. Names
+      the async retry risk pattern as a concrete probe — a retried/redelivered
+      message must not double-apply its side effect, i.e. an idempotency key is
+      enforced — anchored to the un-guarded charge line, with a test idea tied
+      to it (a duplicate delivery charges exactly once). May also raise
+      poison-message parking and out-of-order delivery (credit, not required).
+      This guidance is the SAME regardless of which broker, queue, or transport
+      delivers the messages; it must not reduce to broker-specific tuning.
+    anti_patterns:
+      - Broker- or library-specific tuning advice that would not transfer to a
+        different async technology (e.g. only consumer-offset commits, only a
+        visibility-timeout setting) standing in for the idempotency risk pattern.
+      - Treating a retried/redelivered message as if it can only ever be
+        delivered once — ignoring duplicate delivery and idempotency.
+      - Generic "add unit tests" advice not tied to the retry / duplicate-delivery risk.
+      - Surfacing literal taxonomy labels such as async_flow_change.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the async-surface QA shape AND avoids the named
+      anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate loaded these change rules; the async_flow_change entry
+      carries the tech-agnostic idempotency/retry probes the response should
+      surface:
+
+
+      --- LOADED RULES ---
+
+      {{loaded_rules}}
+
+      --- END LOADED RULES ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response name the ASYNC RETRY risk pattern as a
+         concrete probe (a retried/redelivered message must not double-apply its
+         side effect — an idempotency key is enforced), anchored to the supplied
+         snippet, with a test idea tied to it? It must read as guidance that
+         would apply to ANY async technology, not broker-specific tuning.
+         Poison-message parking and out-of-order tolerance are credit, NOT
+         required — do not FAIL a response that omits them if the idempotency
+         probe is present and concrete.
+
+      B. GROUNDING - the named risks must visibly use the supplied snippet (the
+         un-guarded charge_customer side effect, the retry/redelivery, the line
+         it lives on). Narrating without using the supplied context -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical change classifications:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    ...and the team's change rules (keyed by classification):
+
+    --- LOADED RULES ---
+    {{loaded_rules}}
+    --- END LOADED RULES ---
+
+    Repository state and change context for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is the QA-prep turn. Produce EXACTLY this response format:
+
+    Line 1: `Naming risks and the smallest test set.`
+
+    ## Risks (each MUST cite a specific line number from the supplied snippet)
+
+    1. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor in observable behaviour.
+    2. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor.
+    3. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor.
+
+    ## Tests (each tied to a risk by NUMBER)
+
+    1. Test for risk 1: one-sentence test idea.
+    2. Test for risk 2: one-sentence test idea.
+    3. Test for risk 3: one-sentence test idea.
+
+    ## Techniques (each named verbatim from the loaded techniques vocabulary)
+
+    - Risk 1 → <technique>
+    - Risk 2 → <technique>
+    - Risk 3 → <technique>
+
+    NO test code. NO formal entry/exit criteria. NO confirmation question. NO closing pleasantry. Name the underlying risk pattern for this surface — drawn from the loaded rules and the skill's discipline — not broker-specific tuning steps.
+tests:
+  - description: message-broker consumer gains retries
+    vars:
+      user_prompt: >-
+        I'm adding automatic retries to our Kafka order-events consumer so a
+        transient failure re-processes the message. Help me prep QA.
+      ground_truth_context: |
+        ## consumers/order_events.py (after adding the retry wrapper)
+        ```
+         1 @retry(max_attempts=3)
+         2 def handle_order_event(message):
+         3     order = parse(message.value)
+         4     charge_customer(order)          # external side effect, no guard
+         5     mark_fulfilled(order.id)
+         6     return ack(message)
+        ```
+        `charge_customer` posts a real payment. There is no idempotency key on
+        the handler today.
+  - description: cloud-queue consumer gains retries
+    vars:
+      user_prompt: >-
+        I'm adding automatic retries to our SQS order-events consumer so a
+        transient failure re-processes the message. Help me prep QA.
+      ground_truth_context: |
+        ## consumers/order_events.py (after adding the retry policy)
+        ```
+         1 def handle_order_event(record):
+         2     order = parse(record["body"])
+         3     charge_customer(order)          # external side effect, no guard
+         4     mark_fulfilled(order.id)
+         5     # redelivered on failure by the queue's retry policy
+         6     return delete_message(record)
+        ```
+        `charge_customer` posts a real payment. There is no idempotency key on
+        the handler today.

@@ -4,6 +4,12 @@ api_contract_change:
     - schema validation
     - consumer impact
     - error response shape
+    # Concrete probes for the schema/model-validation + request/response/IPC
+    # protocol surface. Tech-agnostic: they describe the contract risk pattern,
+    # not any one library, wire format, or transport.
+    - "Removed or renamed field: a consumer still sending it keeps working, or fails loudly rather than silently dropping the value"
+    - "A consumer that omits a newly-required field is rejected with a clear validation error, not an opaque internal failure"
+    - "An old-shaped request or message replayed against the new contract is still accepted, or is explicitly version-gated"
   suggested_test_types:
     - contract
     - integration
@@ -13,6 +19,7 @@ api_contract_change:
   risk_templates:
     - Consumer behavior can break if payload shape or validation changes silently.
     - Backward compatibility risk exists until old and new payload examples are verified.
+    - A field type widened or narrowed without a contract bump lets values the old boundary accepted silently change meaning for consumers.
   test_design_techniques:
     - equivalence partitioning of valid and invalid payload classes
     - boundary value analysis on payload size, field length, numeric ranges
@@ -97,6 +104,12 @@ configuration_change:
     - environment override behavior
     - feature flag fallback
     - deployment rollback
+    # Concrete probes for the CI/config/deployment surface. Tech-agnostic:
+    # equally true for an app config file, a feature flag, or an IaC/deploy
+    # manifest — the risk pattern, not the toolchain.
+    - "A missing or empty value falls back to a safe default rather than crashing on startup"
+    - "Override precedence is asserted: the most specific scope wins (per-environment over global over built-in default)"
+    - "A flag flipped while requests are in flight does not strand or corrupt in-progress work"
   suggested_test_types:
     - integration
     - functional
@@ -165,6 +178,11 @@ async_flow_change:
     - timeout handling
     - race conditions
     - duplicate messages
+    # Concrete probes for the async/retry/idempotency surface. Tech-agnostic:
+    # the same risk pattern for any queue, broker, stream, or scheduled retry.
+    - "A retried message does not double-apply its side effect (the idempotency key is enforced, not just present)"
+    - "A poison / unprocessable message is parked, not retried forever"
+    - "Out-of-order arrival does not corrupt state or skip a required prior step"
   suggested_test_types:
     - unit
     - integration

@@ -1,4 +1,5 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import re
 from pathlib import Path
 
 import pytest
@@ -147,3 +148,94 @@ def test_dedupe_removes_duplicates_preserving_first_seen_order() -> None:
     from sumo_qa.rules import _dedupe
 
     assert _dedupe(["a", "a", "b", "a", "c"]) == ["a", "b", "c"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #98 — tech-agnostic surface probes
+#
+# Three implementation-surface patterns must carry concrete QA probes that go
+# *beyond* the generic classification text, while staying host-neutral (no
+# library / protocol / framework names). `security_change` is the concreteness
+# template; these guards bring the schema/protocol, async/idempotency, and
+# CI/config/deploy surfaces up to the same bar without overfitting to a vendor.
+# ---------------------------------------------------------------------------
+
+# surface rule -> concrete probe markers that MUST appear in the rule's
+# ENRICHED fields (must_consider + risk_templates only — NOT test_design_techniques,
+# so a marker can't be satisfied by pre-existing technique text). Each marker is a
+# tech-agnostic phrase absent from the pre-#98 generic entries, so the guard fails
+# (red) until the rule carries the concrete probe itself.
+SURFACE_PROBE_MARKERS = {
+    # schema/model validation + request/response/IPC protocol surface
+    "api_contract_change": ("removed", "omits", "old-shaped"),
+    # CI / config / deployment surface
+    "configuration_change": ("missing or empty", "precedence", "in flight"),
+    # async / retry / idempotency surface
+    "async_flow_change": ("double-apply", "poison", "out-of-order"),
+}
+
+# Host-neutrality BACKSTOP — a deliberately small, NON-EXHAUSTIVE tripwire, not a
+# proof of neutrality. Host-neutrality is a semantic property (does a probe reason
+# in a specific technology?), so its real owner is the eval's semantic anti-pattern
+# ("broker/library-specific advice standing in for the risk pattern") plus
+# adversarial review — NOT a maintained list of names, which is the very static
+# catalogue #98 argues against. This set only trips an obvious fat-finger (a vendor
+# name pasted into a probe); deliberately one or two iconic names per surface
+# category. Do NOT grow it chasing completeness — strengthen the eval instead.
+# Matched as whole word-tokens, so "restore" never trips "rest".
+_BANNED_TECH_TOKENS = frozenset(
+    {
+        "kafka",  # async/broker
+        "sqs",
+        "grpc",  # request/response/IPC protocol
+        "graphql",
+        "rest",
+        "fastapi",  # web framework
+        "react",
+        "kubernetes",  # CI/config/deploy
+        "terraform",
+        "redis",  # datastore
+        "postgres",
+        "jwt",  # auth/token
+        "oauth",
+    }
+)
+
+
+def _surface_text(
+    engine: StandardsRulesEngine, classification: str, *, include_techniques: bool
+) -> str:
+    ev = engine.evaluate([classification])
+    fields = ev["must_consider"] + ev["risk_templates"]
+    if include_techniques:
+        fields = fields + ev["test_design_techniques"]
+    return " ".join(fields).lower()
+
+
+@pytest.mark.parametrize(("classification", "markers"), SURFACE_PROBE_MARKERS.items())
+def test_surface_exposes_concrete_probes_beyond_classification_text(
+    classification: str, markers: tuple[str, ...]
+) -> None:
+    engine = StandardsRulesEngine.from_file(ROOT / "standards" / "rules" / "change_rules.yaml")
+    # Markers must come from the enriched probe fields, not pre-existing techniques.
+    text = _surface_text(engine, classification, include_techniques=False)
+    missing = [marker for marker in markers if marker not in text]
+    assert not missing, (
+        f"{classification} is missing concrete probe markers {missing}; its "
+        f"guidance is still generic classification text, not a concrete probe"
+    )
+
+
+@pytest.mark.parametrize("classification", sorted(SURFACE_PROBE_MARKERS))
+def test_surface_probes_stay_host_neutral(classification: str) -> None:
+    engine = StandardsRulesEngine.from_file(ROOT / "standards" / "rules" / "change_rules.yaml")
+    # Backstop tripwire (see _BANNED_TECH_TOKENS): scan every surfaced field,
+    # techniques included, so the widest text is checked against the small set.
+    tokens = set(
+        re.findall(r"[a-z0-9]+", _surface_text(engine, classification, include_techniques=True))
+    )
+    leaked = sorted(_BANNED_TECH_TOKENS & tokens)
+    assert not leaked, (
+        f"{classification} probes name specific technologies {leaked}; probes "
+        f"must describe the risk pattern, not a library/protocol/framework"
+    )
