@@ -42,7 +42,7 @@ SKILL_TOKEN_BUDGETS = {
     "sumo-qa-strategising": 2740,  # measured 2602
     "sumo-qa-strengthening-tests": 2870,  # measured 2724
     "sumo-qa-suggesting-external-skill": 2580,  # post-cut 2459 (was 3085, -20%)
-    "using-sumo-qa": 3660,  # measured 3477
+    "using-sumo-qa": 2910,  # post-cut 2778 (was 3477, -20%)
 }
 
 

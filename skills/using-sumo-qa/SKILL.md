@@ -15,13 +15,11 @@ description: Use whenever a user asks anything QA-shaped — testing, code revie
 
 Spend output tokens on findings, not framing.
 
-- **Don't preamble the work.** Spend user-visible output on findings, evidence, and gates — don't narrate *"I'll first read X, then Y, then deliver Z."*
+- **No preamble or self-narration.** Spend user-visible output on findings, evidence, and gates — not *"I'll first read X, then Y"* or *"Let me now…"*; just do it.
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
-- **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
 - **Don't restate the user's input.** They know what they asked.
-- **Section headings only when there are genuinely multiple sections.** A 3-line scope check doesn't need a `## Scope` heading.
-- **Tables only when comparing >2 things on >2 axes.** Otherwise prose is shorter.
-- **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff at the bottom of every skill is where routing lives.
+- **Structure only when it earns its place.** Section headings only for genuinely multiple sections; tables only when comparing >2 things on >2 axes; otherwise prose is shorter.
+- **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff is where routing lives.
 
 ## The Iron Law
 NO QA WORK WITHOUT FIRST DECIDING THE APPROACH.
@@ -30,18 +28,7 @@ You may not produce test ideas, scaffolds, plans, reviews, or strategies without
 
 ## When to Use
 
-This skill is the entry router for every QA-shaped request. Any of these intents triggers it:
-
-- "review my changes / is this safe to merge"
-- "how should I test X"
-- "create a test plan for X"
-- "plan QA for this story"
-- "scaffold the failing tests for X"
-- "what test data do I need"
-- "audit our test coverage"
-- "design our QA strategy"
-
-It does not produce QA output itself. Its job is to enforce the Iron Law, set up global discipline that every sub-skill inherits, then route to `sumo-qa-deciding-approach`.
+This skill is the entry router for every QA-shaped request — *"review my changes / is this safe to merge"*, *"how should I test X"*, *"create a test plan"*, *"plan QA for this story"*, *"scaffold the failing tests"*, *"what test data do I need"*, *"audit our test coverage"*, *"design our QA strategy"*, and similar. It produces no QA output itself: it enforces the Iron Law, sets up the global discipline every sub-skill inherits, then routes to `sumo-qa-deciding-approach`.
 
 ## Global discipline (inherited by every sub-skill)
 
@@ -51,7 +38,7 @@ The right authority depends on what kind of knowledge you're invoking. Stable co
 
 **Stable concepts** — test design techniques (boundary value, decision table, property-based, mutation), ISTQB principles, change classifications, QA approaches:
 
-**The loaded catalogue is the ONLY authority you may silently cite.** Every named principle, technique, classification, or approach in your user-facing answer must appear in the result of a `sumo_qa_load_*` tool call you actually made this turn. If you reach for material outside the loaded result — *"per ISTQB Advanced Test Manager guidance"*, *"the standard X / Y / Z taxonomy says"*, a remembered technique name not in `load_techniques` — you MUST either (a) explicitly label it as drift: *"this isn't in the loaded catalogue, but…"*, or (b) drop it. **Silent supplementation from training data is the failure mode this rule exists to prevent** — it produces answers that look authoritative but cite phantom sources the user can't verify, and it makes the catalogue look more complete than it is. If a catalogue is silent on a concept you think matters, say so out loud; don't paper over the gap.
+**The loaded catalogue is the ONLY authority you may silently cite.** Every named principle, technique, classification, or approach in a user-facing answer must appear in a `sumo_qa_load_*` result you actually got this turn. Material from outside it (*"per ISTQB Advanced Test Manager guidance"*, a remembered technique not in `load_techniques`) MUST either be labelled as drift (*"this isn't in the loaded catalogue, but…"*) or dropped. **Silent supplementation from training data is the failure mode this rule prevents** — it cites phantom sources the user can't verify and makes the catalogue look more complete than it is. If a catalogue is silent on something you think matters, say so; don't paper over the gap.
 
 Resolution order:
 
@@ -59,113 +46,38 @@ Resolution order:
 2. **Training data** — fallback only when the catalogue is silent AND you label the drift explicitly.
 3. **"I don't know"** — acceptable. Don't invent techniques, principles, or external authorities.
 
-**Specialty tool picks — discovery, not catalogue.** Sumo-qa intentionally does
-NOT carry a tool catalogue. Tools and the categories they fit into evolve faster
-than any pre-loaded list can keep up with, and a stale list both anchors the LLM
-toward yesterday's brands and creates a false floor where novel surfaces never
-trigger discovery. Instead:
-
-1. **Observe the risk surface** in front of you — files, framework constructs,
-   what would actually fail if untested.
-2. **Reason from first principles** about what shape of testing would catch
-   failure here. Don't pattern-match against a remembered list of categories or
-   brands.
-3. **Web-search current options** for that shape in the user's stack. Citation
-   required when naming a tool.
-4. **"I don't know" is acceptable.** Don't invent tool names or force-fit a
-   surface into the closest familiar category when nothing genuinely matches.
+**Specialty tool picks — discovery, not catalogue.** Sumo-qa intentionally carries NO tool catalogue — tools and categories evolve faster than any list, and a stale list both anchors toward yesterday's brands and stops novel surfaces triggering discovery. Instead: (1) **observe the risk surface** — files, framework constructs, what would fail if untested; (2) **reason from first principles** about what shape of testing catches failure here, not a remembered brand list; (3) **web-search current options** for that shape in the user's stack, citation required when naming a tool; (4) **"I don't know" is acceptable** — don't invent tool names or force-fit a surface into the closest familiar category.
 
 ### Setting up the recommended tool
 
-sumo-qa's job is **analysis** — classify the change, identify risks, pick the technique and tool category. The tool itself is just the means to coverage. Once a tool is chosen, you should **set it up and write the tests against the actual change**, not walk the user through commands.
+sumo-qa's job is **analysis** — classify the change, name risks, pick the technique and tool category by fit (not familiarity). Empty selection is fine when nothing genuinely fits; most changes are well-served by plain unit + a small integration test. Once a tool is chosen, **set it up and write the tests against the actual change** — don't walk the user through commands. The path varies (package manager — `pip install hypothesis`, `npm install --save-dev cypress`, Maven/Gradle edit — then the framework's init/scaffold; framework CLI like `npx cypress open`; config edits; or an MCP server when one makes setup easier — but don't bias toward MCP-having tools).
 
-The path to "tests are running" varies by tool:
-
-- **Package manager** (most common): `npm install --save-dev cypress`, `pip install hypothesis`, Maven/Gradle dependency edit, etc. — then run the framework's init / scaffold step.
-- **Framework CLI**: `npx cypress open`, `pytest --co`, `playwright codegen`, etc.
-- **Config file edits**: `pitest.xml`, `cypress.config.ts`, `pact.config.json`.
-- **MCP server install** *(when one exists and makes setup easier)*: useful for tools whose MCP unlocks AI-driven authoring (some browser-automation tools). Don't bias toward MCP-having tools — pick by fit, then use whichever setup path is shortest.
-
-**Always confirm before running an install** (lockfile churn / dependency surface is a real concern), but **default to doing the work yourself once confirmed**: run the install, write the config, scaffold the framework, write the first tests against the named risks. *"Want me to install Cypress, scaffold the config, and write a smoke test for the new checkout flow?"* — not *"Here are the steps for setting up Cypress…"*.
-
-Verify the tool actually exists / hasn't been renamed before naming it. Web-search when uncertain.
+**Always confirm before an install** (lockfile / dependency-surface churn is real), then **default to doing the work yourself**: run the install, write the config, scaffold the framework, write the first tests against the named risks. *"Want me to install Cypress, scaffold the config, and write a smoke test for the new checkout flow?"* — not *"Here are the steps…"*. Verify the tool exists / hasn't been renamed before naming it; web-search when uncertain.
 
 ### Internal reasoning vs user output
 
-Reason internally with citations (which words in intent, which file paths, which catalogue entries grounded the inference). The user-facing output is the WORK, not a description of how you arrived at it. Every line of meta-commentary burns tokens and dilutes signal.
-
-**Keep in output:**
-- The actual finding (risks named, files cited, verdicts delivered)
-- File:line citations the user can verify (`api/refund.py:47`)
-- The current question or confirmation gate
-- Rule references translated to natural English ("the API-change rule requires a contract test bump")
-
-**Strip from output (token waste + noise):**
-- Internal taxonomy labels: "Classification: business_logic_change", "Approach: regression-first"
-- Method commentary: "Anchored to the code I read", "Following the skill's flow", "Per the checklist"
-- Quality self-defense: "Each risk cites a file or domain term, not generic edge cases"
-- Step / phase trace: "Now in step 4", "Working through the checklist"
-- Re-stating what the user just said back to them
-
-When a classification or approach is genuinely useful for the user to know, translate to natural English: not *"Classification: business_logic_change"* but *"this is a behaviour change in the pricing logic"*. The taxonomy is your scaffolding; the meaning belongs in the message.
+Reason internally with citations (which words in the intent, which file paths, which catalogue entries grounded the inference); the user-facing output is the WORK, not a description of how you arrived at it. **Keep:** the finding (risks named, files cited, verdicts), verifiable file:line citations (`api/refund.py:47`), the current question/gate, rule references in natural English (*"the API-change rule requires a contract test bump"*). **Strip:** internal taxonomy labels, method commentary (*"per the checklist"*, *"anchored to the code I read"*), quality self-defense, step/phase trace, and re-stating the user's input. When a classification is useful to convey, translate it — *"this is a behaviour change in the pricing logic"*, not *"Classification: business_logic_change"*.
 
 ### Confirmation discipline
 
-The skills' confirmation gates exist to prevent driving past wrong assumptions —
-but applying them literally to every minor specifics-call wastes the user's
-attention. Use this hierarchy:
+Confirmation gates prevent driving past wrong assumptions, but applying them to every minor call wastes attention. Hierarchy:
 
-1. **Surface + proceed** is the default. State what you're doing, briefly cite
-   the call, and act. The user will redirect if they disagree.
-2. **Inline confirm** for moderate forks. Phrase as one declarative line ending
-   in a question: *"Going with X (Y is the alternative); shout if not."* Then
-   act unless they object.
-3. **Structured user-choice prompt ONLY for genuine 50/50 forks** that
-   meaningfully change downstream work. Use the host's best structured-input
-   primitive (option-picker, elicitation, etc.); if no structured UI exists,
-   ask one concise inline question and wait. Reserve for: irreversible commits,
-   scope changes that double the work, choices the user has explicit context to
-   make better than you. NOT for "which of these 4 phrasings sounds right" or
-   "should this filename use X or Y convention".
+1. **Surface + proceed** (default) — state what you're doing, cite the call briefly, act; the user redirects if they disagree.
+2. **Inline confirm** for moderate forks — one declarative line ending in a question: *"Going with X (Y is the alternative); shout if not."* Then act unless they object.
+3. **Structured user-choice prompt ONLY for genuine 50/50 forks** that meaningfully change downstream work (irreversible commits, scope that doubles the work, choices the user has explicit context to make better than you). Use the host's structured-input primitive, or one concise inline question if none exists. NOT for "which of 4 phrasings sounds right" or "which filename convention".
 
-Rule of thumb: if you'd predict the user's answer with >80% confidence, don't
-ask. Surface and proceed. The cost of a wrong default is one redirect; the
-cost of asking is the user's attention budget across N turns.
-
-Skill checklists that say *"walk section-by-section with confirmation gates"*
-should be read as: walk per-section when each section genuinely needs the
-user's per-section judgment. Collapse adjacent obvious sections into a single
-update. The Iron Law is "don't dump the whole strategy in one turn"; the goal
-is structured collaboration, not maximum question count.
+Rule of thumb: if you'd predict the user's answer with >80% confidence, don't ask — surface and proceed. A wrong default costs one redirect; asking costs the user's attention across N turns. *"Walk section-by-section with confirmation gates"* means walk per-section when each genuinely needs the user's judgment — collapse adjacent obvious sections; the Iron Law is "don't dump the whole strategy in one turn", and the goal is structured collaboration, not maximum question count.
 
 ### Shared vocabulary (host-neutral contracts)
 
-The skills use three terms that name a capability, not any one host's API. Map each to whatever the current host actually exposes.
+The skills use three terms that name a capability, not any one host's API. Map each to whatever the current host exposes.
 
-- **Ordered work tracker** — an explicit, ordered list the agent maintains and ticks off as work progresses. Use the host's native task primitive when available; otherwise keep a numbered tracker inline in the conversation and update it visibly as items complete. The tracking obligation is required; the surface is not.
-- **Structured user-choice prompt** — the host's best primitive for collecting an explicit choice from a small set (option-picker, MCP elicitation, etc.). Reserve for genuine 50/50 forks. If no structured UI is available, ask one concise inline question and wait.
-- **Subagent** (a.k.a. **fresh delegated worker**) — a worker dispatched through the host's delegation primitive that starts with no inherited task context; only the prompt you hand it. Used by the rollout chain to keep tasks isolated. If a host cannot delegate to fresh workers, the rollout skill stops and reports the capability gap rather than executing tasks inline.
-
-### Specialty + tool fit
-
-sumo-qa decides WHAT testing is needed and where. The tool fills the gap. When the
-risk surface genuinely needs specialty tooling beyond plain unit + integration
-tests, follow the discovery discipline above: observe the surface, reason from
-first principles about what shape of testing fits, web-search current options for
-the user's stack, recommend with citation. There is no internal catalogue to
-consult — that's deliberate, and the reasoning is in the discovery section above.
-
-Pick by fit, not by familiarity. Empty selection is acceptable when nothing
-genuinely fits — most changes are well-served by plain unit + a small integration
-test.
-
-Once a tool is chosen, **set it up** (see "Setting up the recommended tool"
-above): install via the project's package manager, init the framework, scaffold
-the config, write the first tests against the named risks. Confirm with the user
-before installing dependencies; default to doing the actual work once confirmed.
+- **Ordered work tracker** — an explicit, ordered list the agent maintains and ticks off as work progresses. Use the host's native task primitive when available; otherwise keep a numbered tracker inline and update it visibly as items complete. The tracking obligation is required; the surface is not.
+- **Structured user-choice prompt** — the host's best primitive for collecting an explicit choice from a small set (option-picker, MCP elicitation, etc.). Reserve for genuine 50/50 forks. If no structured UI exists, ask one concise inline question and wait.
+- **Subagent** (a.k.a. **fresh delegated worker**) — a worker dispatched through the host's delegation primitive that starts with no inherited task context, only the prompt you hand it. Used by the rollout chain to keep tasks isolated. If a host cannot delegate to fresh workers, the rollout skill stops and reports the capability gap rather than executing inline.
 
 ## Checklist
-Track these as an ordered work list (use the host's task primitive if available, otherwise a numbered inline tracker) and complete in order:
+Track these as an ordered work list (see Shared vocabulary), in order:
 
 1. Read the user's intent verbatim.
 2. Load and re-read this Iron Law to anchor the response.
@@ -185,7 +97,7 @@ See the Checklist above — that's the flow.
 | "This question is too simple to need the approach skill" | Simple intents still need shape (no-tests-recommended is a valid approach). Skip the decision and you skip the safety net. |
 | "I'll cite the principles myself from training data" | Loaded catalogue is authoritative. Use `sumo_qa_load_principles()`. |
 | "Let me echo the citation reasoning in the answer for transparency" | Citations belong to internal scratch, not user output. They burn tokens. |
-| "I'll restrict myself to tool categories I already know" | Wrong. Specialty tooling exists for functional surfaces too, and new categories emerge constantly. Reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
+| "I'll restrict myself to tool categories I already know" | Wrong. New categories emerge constantly; reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 
 ## Examples
 
