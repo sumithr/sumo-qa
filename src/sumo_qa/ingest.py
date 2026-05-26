@@ -218,8 +218,9 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
     """Validate and materialise native QA content into the scope's user pack.
 
     Returns a structured report dict. Raises ``IngestValidationError`` on bad
-    content (writing nothing). Non-native or missing sources return an
-    ``unsupported_source`` report.
+    content or a missing local path (writing nothing). Non-native files and
+    remote URLs return an ``unsupported_source`` report that routes through the
+    converter flow.
     """
     if scope not in paths.SCOPES:
         raise IngestValidationError(f"unknown scope {scope!r}; expected one of {paths.SCOPES}")
