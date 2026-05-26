@@ -31,7 +31,7 @@ SKILL_TOKEN_BUDGETS = {
     # compression lands. Cushion ~5% above measured.
     "sumo-qa-answering-testing-question": 3140,  # measured 2989
     "sumo-qa-creating-test-plan": 2230,  # measured 2119
-    "sumo-qa-deciding-approach": 3650,  # measured 3470
+    "sumo-qa-deciding-approach": 2910,  # post-cut 2776 (was 3470, -20%)
     "sumo-qa-executing-qa-rollout": 2200,  # measured 2094
     "sumo-qa-finding-test-data": 1830,  # measured 1740
     "sumo-qa-finishing-qa-work": 2130,  # measured 2025
