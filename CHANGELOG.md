@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/sumithr/sumo-qa/compare/v0.12.0...v0.13.0) (2026-05-26)
+
+
+### Features
+
+* tech-agnostic surface probes for contract, config & async changes ([#179](https://github.com/sumithr/sumo-qa/issues/179)) ([3d9018d](https://github.com/sumithr/sumo-qa/commit/3d9018d39e860aae21fd95b8bda0050bcfabdc73))
+
 ## [0.12.0](https://github.com/sumithr/sumo-qa/compare/v0.11.2...v0.12.0) (2026-05-26)
 
 
