@@ -1,4 +1,5 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import re
 from pathlib import Path
 
 import pytest
@@ -147,3 +148,108 @@ def test_dedupe_removes_duplicates_preserving_first_seen_order() -> None:
     from sumo_qa.rules import _dedupe
 
     assert _dedupe(["a", "a", "b", "a", "c"]) == ["a", "b", "c"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #98 — tech-agnostic surface probes
+#
+# Three implementation-surface patterns must carry concrete QA probes that go
+# *beyond* the generic classification text, while staying host-neutral (no
+# library / protocol / framework names). `security_change` is the concreteness
+# template; these guards bring the schema/protocol, async/idempotency, and
+# CI/config/deploy surfaces up to the same bar without overfitting to a vendor.
+# ---------------------------------------------------------------------------
+
+# surface rule -> concrete probe markers that MUST appear in the rule's
+# must_consider / risk_templates / techniques text. Each marker is a
+# tech-agnostic phrase that does not exist in the pre-#98 generic entries, so
+# the guard fails (red) until the rule carries a concrete probe.
+SURFACE_PROBE_MARKERS = {
+    # schema/model validation + request/response/IPC protocol surface
+    "api_contract_change": ("removed", "omits", "old-shaped"),
+    # CI / config / deployment surface
+    "configuration_change": ("missing or empty", "precedence", "in flight"),
+    # async / retry / idempotency surface
+    "async_flow_change": ("double-apply", "poison", "out-of-order"),
+}
+
+# Library / protocol / framework / vendor names that must NOT leak into the
+# probes — guidance stays host-neutral and is not a vendor playbook (#98
+# regression guard). Matched as whole word-tokens, so "restore" never trips
+# "rest".
+_BANNED_TECH_TOKENS = frozenset(
+    {
+        "pydantic",
+        "fastapi",
+        "django",
+        "flask",
+        "express",
+        "spring",
+        "rails",
+        "kafka",
+        "rabbitmq",
+        "sqs",
+        "sns",
+        "kinesis",
+        "celery",
+        "pubsub",
+        "grpc",
+        "graphql",
+        "rest",
+        "soap",
+        "openapi",
+        "protobuf",
+        "avro",
+        "json",
+        "react",
+        "vue",
+        "angular",
+        "svelte",
+        "terraform",
+        "kubernetes",
+        "k8s",
+        "docker",
+        "helm",
+        "ansible",
+        "redis",
+        "memcached",
+        "postgres",
+        "mysql",
+        "mongodb",
+        "dynamodb",
+        "jwt",
+        "oauth",
+        "saml",
+    }
+)
+
+
+def _surface_text(engine: StandardsRulesEngine, classification: str) -> str:
+    ev = engine.evaluate([classification])
+    return " ".join(
+        ev["must_consider"] + ev["risk_templates"] + ev["test_design_techniques"]
+    ).lower()
+
+
+@pytest.mark.parametrize(("classification", "markers"), SURFACE_PROBE_MARKERS.items())
+def test_surface_exposes_concrete_probes_beyond_classification_text(
+    classification: str, markers: tuple[str, ...]
+) -> None:
+    engine = StandardsRulesEngine.from_file(ROOT / "standards" / "rules" / "change_rules.yaml")
+    text = _surface_text(engine, classification)
+    missing = [marker for marker in markers if marker not in text]
+    assert not missing, (
+        f"{classification} is missing concrete probe markers {missing}; its "
+        f"guidance is still generic classification text, not a concrete probe"
+    )
+
+
+@pytest.mark.parametrize("classification", sorted(SURFACE_PROBE_MARKERS))
+def test_surface_probes_stay_host_neutral(classification: str) -> None:
+    engine = StandardsRulesEngine.from_file(ROOT / "standards" / "rules" / "change_rules.yaml")
+    tokens = set(re.findall(r"[a-z0-9]+", _surface_text(engine, classification)))
+    leaked = sorted(_BANNED_TECH_TOKENS & tokens)
+    assert not leaked, (
+        f"{classification} probes name specific technologies {leaked}; probes "
+        f"must describe the risk pattern, not a library/protocol/framework"
+    )

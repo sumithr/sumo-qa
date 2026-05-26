@@ -37,7 +37,7 @@ SKILL_TOKEN_BUDGETS = {
     "sumo-qa-finishing-qa-work": 1920,  # post-cut 1829 (was 2039, -10.3%)
     "sumo-qa-implementing-with-tdd": 2840,  # post-cut 2708 (was 3385, -20%)
     "sumo-qa-planning-qa-rollout": 2680,  # post-cut 2555 (was 2801, -8.8%)
-    "sumo-qa-preparing-for-work": 2130,  # post-cut 2032 (was 2278, -10.8%)
+    "sumo-qa-preparing-for-work": 2420,  # +#98 surface-signal rule (post-cut 2032 -> ~2301); cushion ~5%
     "sumo-qa-reviewing-before-merge": 3030,  # post-cut 2888 (was 4586, -37%)
     "sumo-qa-strategising": 2500,  # post-cut 2380 (was 2626, -9.4%)
     "sumo-qa-strengthening-tests": 2630,  # post-cut 2501 (was 2747, -9.0%)
