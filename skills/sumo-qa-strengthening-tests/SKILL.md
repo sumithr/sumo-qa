@@ -11,21 +11,7 @@ Help the user kill weak assertions and surviving mutants by walking each survivo
 
 ## Output discipline (mandatory)
 
-**Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
-
-Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit).
-
-## Output economy (mandatory)
-
-Spend output tokens on findings, not framing.
-
-- **Don't preamble the work.** Spend user-visible output on findings, evidence, and gates — don't narrate *"I'll first read X, then Y, then deliver Z."*
-- **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
-- **No self-narration.** *"Let me now..."* / *"I'm going to..."* → just do it.
-- **Don't restate the user's input.** They know what they asked.
-- **Section headings only when there are genuinely multiple sections.** A 3-line scope check doesn't need a `## Scope` heading.
-- **Tables only when comparing >2 things on >2 axes.** Otherwise prose is shorter.
-- **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff at the bottom of every skill is where routing lives.
+Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.
 
 <HARD-GATE>
 Do NOT touch production code in this skill. Ever. If a mutant survives because the production code is wrong, that is a separate `regression-first` task — STOP this flow and route to `sumo-qa-implementing-with-tdd`. The Iron Law has no exceptions for "while I'm in here".
