@@ -5,6 +5,9 @@ description: >
   capped fallback on install/execute isError, candidate ordering, user decline,
   and the no-converter terminal. The QA-mode seed lives in the sibling
   skill-suggesting-external-skill.yaml (deliberately left untouched).
+  MAINTENANCE: this file and the QA-mode seed grade the SAME SKILL.md but carry
+  separate rubrics (QA-specific vs the generalized one here) — keep them in sync
+  when the skill's lifecycle wording changes.
 providers:
   - id: openai:chat:gpt-4o-mini
     label: candidate-gpt-4o-mini
@@ -244,3 +247,49 @@ tests:
         ## MCP tool results
         - `sumo_qa_search_external_skills(query="cad to markdown")` raw_output: ""
           (no credible candidate).
+
+  - description: execute success returns a skill_body to FOLLOW, not finished markdown
+    vars:
+      allowed_skill_name: pdf-to-markdown
+      user_prompt: >-
+        add this PDF to the knowledge base as our principles
+      expected_shape: >-
+        Recognizes that `sumo_qa_execute_external_skill` returned the converter's
+        `skill_body` (instructions to follow in this conversation), and states it
+        will follow those steps to produce the markdown, THEN re-ingest with the
+        right content_type. Does not claim the source is already converted.
+      anti_patterns:
+        - Treats the execute result as finished markdown rather than a skill_body to follow.
+        - Claims the conversion is done or the content is ingested without following the skill_body.
+        - Hand-transcribes the source instead of following the converter's steps.
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion. The user already approved installing
+        `pdf-to-markdown`; it installed successfully.
+        ## MCP tool results
+        - `sumo_qa_execute_external_skill(skill="pdf-to-markdown", intent="convert deck.pdf")`
+          returned a handoff payload: `{"skill_body": "<the pdf-to-markdown skill's
+          step-by-step instructions>", "intent": "convert deck.pdf"}`. Executing the
+          tool does NOT itself produce the markdown — the skill_body must be followed.
+
+  - description: cap exhausted — all candidates fail, report can't-convert and stop
+    vars:
+      allowed_skill_name: none
+      user_prompt: >-
+        add this PDF to the knowledge base
+      expected_shape: >-
+        Reports that every converter attempt failed (the 3-attempt cap is
+        exhausted) and that no converter could be installed, and STOPS. Does not
+        offer a further candidate, does not hand-transcribe the source.
+      anti_patterns:
+        - Offers or tries a fourth candidate after the 3-attempt cap is exhausted.
+        - Falls back to reading/transcribing the source itself.
+        - Claims success despite all attempts failing.
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion.
+        ## MCP tool results (3 attempts already made and exhausted)
+        - search raw_output: "a/skills@pdf-to-markdown\nb/skills@pdf-md-pro\nc/skills@pdf2md\n"
+        - install of `pdf-to-markdown` returned isError (attempt 1).
+        - install of `pdf-md-pro` returned isError (attempt 2).
+        - install of `pdf2md` returned isError (attempt 3 — cap reached).

@@ -56,6 +56,7 @@ Return exactly these fields internally:
 `{classification, approach, rationale, next_action: {skill}}`
 
 - `next_action.skill` is NEVER `n/a`: use a real sumo-qa skill name when routing, or `none` only for the STOP cases where `approach` is `no-tests-recommended` or `recommend-removal`.
+- When routing to `sumo-qa-suggesting-external-skill`, `next_action` ALSO carries `entry_kind: "qa"` — the explicit mode signal that skill branches on (the ingestion conversion entry supplies `entry_kind: "conversion"`; the skill never infers the mode).
 - `classification` is `n/a` only for `strategy-orchestration` intents, `recommend-removal` intents (the action is universal, not change-shaped), or non-canonical intents routed to `sumo-qa-suggesting-external-skill`.
 - For every catalogue classification, use the verbatim entry: `test_change`, `docs_change`, `config_change`, `data_migration`, and all other real classifications are never `n/a`.
 - `approach` is `n/a` only when no canonical approach fits and routing goes to `sumo-qa-suggesting-external-skill`. Strategy intents use `approach: "strategy-orchestration"`, not `n/a`.
@@ -84,7 +85,7 @@ For "create a test plan" / "plan QA for this story" intents, after approach is p
 
 ## Fallback to external skills
 
-When **no canonical approach fits** the intent, decide whether the intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine. If yes → return `classification: "n/a"`, `approach: "n/a"`, and `next_action: {skill: "sumo-qa-suggesting-external-skill"}` with the inferred surface in the internal rationale. If no (the intent fits a native sub-skill once you look closer) → continue with the native routing.
+When **no canonical approach fits** the intent, decide whether the intent involves a tool, framework, or QA surface that sumo-qa's native skills don't cover — e.g. Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, mutation testing, flaky-test quarantine. If yes → return `classification: "n/a"`, `approach: "n/a"`, and `next_action: {skill: "sumo-qa-suggesting-external-skill", entry_kind: "qa"}` with the inferred surface in the internal rationale. If no (the intent fits a native sub-skill once you look closer) → continue with the native routing.
 
 `sumo-qa-suggesting-external-skill` will drive external-skill search, install, and execution handoff through sumo-qa MCP tools, with `[y/N]` confirmation before install. Don't pre-emptively warn the user — just route.
 
@@ -118,7 +119,7 @@ User: "audit our test coverage across the repo and design where to invest QA eff
 
 User: "add end-to-end browser tests with Playwright for checkout".
 - Load classifications + approaches.
-- Internally return `{classification: "n/a", approach: "n/a", rationale: "Playwright E2E is a non-canonical external QA surface.", next_action: {skill: "sumo-qa-suggesting-external-skill"}}`.
+- Internally return `{classification: "n/a", approach: "n/a", rationale: "Playwright E2E is a non-canonical external QA surface.", next_action: {skill: "sumo-qa-suggesting-external-skill", entry_kind: "qa"}}`.
 - Route to `sumo-qa-suggesting-external-skill`.
 
 User: "Help me write tests for ./install.sh — but nothing in the repo references it, no CI uses it, no docs mention it, no entry point points at it."

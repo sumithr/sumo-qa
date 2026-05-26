@@ -62,11 +62,11 @@ You MUST work through these steps in order. External lifecycle operations are MC
 
    On `n` → stop the whole flow (the user is declining external-skill install for this intent — a decline is not a failure to retry around). On `y` → continue.
 
-5. **Install through MCP.** Call `sumo_qa_install_external_skill` with `confirmed=true`. On an `isError` envelope, advance to the next credible candidate from step 2 and return to step 4 (re-prompt consent). Cap at **3 attempts total** across candidates; once the cap is exhausted, apply the caller-aware all-failed terminal (the same one as step 3).
+5. **Install through MCP.** Call `sumo_qa_install_external_skill` with `confirmed=true`. On an `isError` envelope, advance to the next credible candidate from step 2 and return to step 4 (re-prompt consent). Cap at **3 attempts total**, counting the local-install attempt in step 1 and each search candidate; once the cap is exhausted, apply the caller-aware all-failed terminal (the same one as step 3).
 
-6. **Execute through MCP.** Call `sumo_qa_execute_external_skill` with the installed skill name and original intent. On an `isError`, treat it like an install failure — advance to the next candidate (step 4) within the same 3-attempt cap. On success:
+6. **Execute through MCP.** Call `sumo_qa_execute_external_skill` with the installed skill name and original intent. This returns the external skill's `skill_body` — a handoff to follow in this conversation, not a finished result. On an `isError`, treat it like an install failure — advance to the next candidate (step 4) within the same 3-attempt cap. On success:
    - `entry_kind: qa` → follow the returned `skill_body` to set up the tool and create the first automated tests.
-   - `entry_kind: conversion` → the source is now markdown; hand back to the ingestion the user was already doing and re-run it with the right `content_type` for the catalogue. (Do not call sumo-qa's ingest tool from inside this skill — return to that flow.)
+   - `entry_kind: conversion` → follow the returned `skill_body` to actually convert the source to markdown; only once that produces the markdown, hand back to the ingestion the user was already doing and re-run it with the right `content_type` for the catalogue. (Do not call sumo-qa's ingest tool from inside this skill — return to that flow.)
 
    Sumo-qa's confirmation discipline still applies to dependency installs and file writes requested by the external skill.
 
@@ -100,6 +100,6 @@ See the Checklist above — that's the flow.
 ## Next skill in the chain
 
 - External skill executed for a `qa` gap → follow returned `skill_body`, then use the relevant native sumo-qa skill for test evidence and review.
-- External skill executed for a `conversion` gap → return to the ingestion flow and re-ingest the converted markdown with the right `content_type`.
+- External skill executed for a `conversion` gap → follow the converter's returned `skill_body` to produce the markdown, then return to the ingestion flow and re-ingest it with the right `content_type`.
 - No external match → caller-aware terminal: `qa` native fallback only when a native path still fits; `conversion` reports can't-convert and stops.
 - User declined install, or MCP search/install/execute failed past the 3-attempt cap → stop.
