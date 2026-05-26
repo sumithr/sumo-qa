@@ -123,10 +123,10 @@ tests:
         add this PDF to the knowledge base as our principles
       expected_shape: >-
         States the PDF needs converting to markdown first, then asks for `[y/N]`
-        confirmation to install `pdf-to-markdown` from `vercel-labs/skills`
-        through the sumo-qa MCP install tool. Mentions that after conversion it
-        will re-ingest the markdown with the right content_type. Does not run
-        npx, does not hand-transcribe the PDF, does not claim it installed.
+        confirmation to install `pdf-to-markdown` from `vercel-labs/skills`.
+        Mentions that after conversion it will re-ingest the markdown with the
+        right content_type. Does not run npx, does not hand-transcribe the PDF,
+        does not claim it installed.
       anti_patterns:
         - Reads or transcribes the PDF contents itself instead of finding a converter skill.
         - Skips the `[y/N]` confirmation gate.
@@ -145,7 +145,7 @@ tests:
            "raw_output": "vercel-labs/skills@pdf-to-markdown  4.1K installs\nother/repo@pdf-thing  2 installs\n"}
           ```
         Install target inferred from raw_output: `pdf-to-markdown` from
-        `vercel-labs/skills`, for the `codex` agent in `project` scope.
+        `vercel-labs/skills`, for the current agent in `project` scope.
         The candidate must not install anything without an explicit `y`.
 
   - description: install-failure fallback — advance to the next candidate
@@ -161,7 +161,7 @@ tests:
         - Gives up after the first install failure instead of trying the next candidate.
         - Skips the `[y/N]` gate for the next candidate.
         - Claims success despite the install error.
-        - Names a skill other than the next candidate `pdf-md-pro`.
+        - Offers to install a skill other than the next candidate `pdf-md-pro` (naming the failed skill in the failure report is expected, not an anti-pattern).
       ground_truth_context: |
         ## Entry mode
         entry_kind: conversion.
@@ -183,7 +183,7 @@ tests:
       anti_patterns:
         - Treats an execute isError as terminal instead of advancing to the next candidate.
         - Skips the `[y/N]` gate for the next candidate.
-        - Names a skill other than the next candidate `pdf-md-pro`.
+        - Offers to install a skill other than the next candidate `pdf-md-pro` (naming the failed skill in the failure report is expected, not an anti-pattern).
       ground_truth_context: |
         ## Entry mode
         entry_kind: conversion.
@@ -226,8 +226,14 @@ tests:
         - Falls back to transcribing the source itself.
       ground_truth_context: |
         ## Entry mode
-        entry_kind: conversion. The skill already presented the `pdf-to-markdown`
-        candidate and asked `[y/N]`; the user answered `n`.
+        entry_kind: conversion.
+        ## Prior turn in THIS conversation (your own last message)
+        You already asked the install gate: *"This PDF can't be ingested directly
+        — it needs converting to markdown first. Install `pdf-to-markdown` from
+        `vercel-labs/skills` for the current agent in `project` scope, then run it
+        to produce the markdown and re-ingest with the right content_type? [y/N]"*
+        ## This turn
+        The user is answering that gate with `n` — declining the install.
 
   - description: no converter found — report can't-convert, never transcribe
     vars:
