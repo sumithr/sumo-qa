@@ -563,6 +563,7 @@ Restart the host after either switch.
 - Don't commit your team's private standards / rules to a public fork of sumo-qa upstream. Either fork into a private repo or keep team packs on a long-lived local branch.
 - The bundled `_data/` directory only appears in built wheels. If you ever see `<repo>/src/sumo_qa/_data/` after running editable commands, something built a wheel inside the source tree — delete it; otherwise the loaders will read from it instead of `<repo>/knowledge/` and `<repo>/standards/`.
 - `QA_KNOWLEDGE_PATH`, `QA_STANDARDS_PATH`, `QA_RULES_PATH`, `QA_TEST_DATA_PATH` env vars always win over the resolution chain. Useful if you want to point a single host at a *different* team-standards directory while leaving the clone's defaults alone. See [CONFIGURATION.md](CONFIGURATION.md).
+- PyPI users who don't want to clone at all can add custom knowledge/standards/rules at runtime via the `sumo-qa-ingest` command (or the `sumo_qa_ingest_knowledge_pack` MCP tool — *"add this to the knowledge base"*). It writes a validated pack into `<cwd>/.sumo-qa` (project) or the XDG data dir (global); precedence is env var > project > global > bundled > repo. See [Adding custom knowledge without cloning the repo](CONFIGURATION.md#adding-custom-knowledge-without-cloning-the-repo).
 
 ## Manual install (no `sumo-qa-install`)
 

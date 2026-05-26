@@ -513,3 +513,61 @@ def test_load_rules_safe_dump_uses_sort_keys_false(tmp_path, monkeypatch) -> Non
     assert z_pos < a_pos, (
         f"Expected sort_keys=False to preserve insertion order (z before a); got result {result!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Class H — Ingested-pack tier mutations (issue #92) — 4 mutants
+# Kills: x__read__mutmut_12 (encoding=None) + x__read__mutmut_14 (encoding="UTF-8")
+#        on the project/global read path, and
+#        x__has_packs__mutmut_10 ("XX*.ymlXX") + x__has_packs__mutmut_11 ("*.YML")
+#        by making the `*.yml` glob term load-bearing.
+# ---------------------------------------------------------------------------
+
+
+def test_read_uses_utf8_when_reading_ingested_project_pack(tmp_path, monkeypatch) -> None:
+    """The project/global tier read in `_read` must pass `encoding="utf-8"`.
+
+    Mirrors `test_read_passes_explicit_lowercase_utf8_encoding` but forces the
+    project-pack branch (a `.sumo-qa/knowledge/<name>` file present) so the spy
+    captures THAT `read_text` call. Kills `encoding=None` (a real Windows
+    cp1252-mangling bug) and `encoding="UTF-8"` (registry-equivalent, but caught
+    by the exact-string assertion).
+    """
+    monkeypatch.delenv("QA_KNOWLEDGE_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    proj = tmp_path / ".sumo-qa" / "knowledge"
+    proj.mkdir(parents=True)
+    (proj / "principles.md").write_text("ingested principles — em-dash\n", encoding="utf-8")
+
+    captured: list[object] = []
+    original_read_text = Path.read_text
+
+    def spy_read_text(self, *args, **kwargs):
+        if self.name == "principles.md":
+            captured.append(
+                kwargs.get("encoding") if "encoding" in kwargs else (args[0] if args else "MISSING")
+            )
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", spy_read_text)
+    kl._read("principles.md")
+    assert captured == ["utf-8"], (
+        f"Expected the ingested-pack read to pass encoding='utf-8'; got {captured}"
+    )
+
+
+def test_has_packs_yml_only_dir_makes_yml_glob_load_bearing(tmp_path, monkeypatch) -> None:
+    """A project packs dir holding ONLY a `*.yml` file must be discovered.
+
+    This makes the `*.yml` glob term in `_has_packs` load-bearing. Both glob
+    mutations on that term — `"XX*.ymlXX"` (matches nothing) and `"*.YML"`
+    (pathlib glob is case-sensitive on every platform, incl. macOS APFS, so
+    `*.YML` does not match `team.yml`) — cause `_has_packs` to return False,
+    so `_standards_dir` falls through and this assertion fails. Kills both.
+    """
+    monkeypatch.delenv("QA_STANDARDS_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    packs = tmp_path / ".sumo-qa" / "standards" / "packs"
+    packs.mkdir(parents=True)
+    (packs / "team.yml").write_text("name: team\n", encoding="utf-8")  # .yml only, no .yaml
+    assert kl._standards_dir() == packs

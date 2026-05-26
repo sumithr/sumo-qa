@@ -41,6 +41,12 @@ dependencies = [
   "mcp>=1.12,<2",
   "pydantic>=2.8,<3",
   "PyYAML>=6,<7",
+  # Security floor for a transitive dependency pulled by `mcp` (FastMCP's
+  # Starlette transport). starlette < 1.0.1 is affected by PYSEC-2026-161.
+  # Declared directly (not just a uv constraint) so the floor propagates to the
+  # built wheel and protects pip/Poetry installers too, not only uv resolution.
+  # Drop once `mcp` requires a safe starlette floor itself.
+  "starlette>=1.0.1",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +59,11 @@ dev = [
   # the backport stays out of main dependencies.
   "tomli>=2,<3; python_version < '3.11'",
   "mutmut>=3,<4",
+  # NOTE: CVE-2025-71176 (local tmpdir symlink, fixed in pytest 9.0.3) cannot be
+  # remediated by upgrading while pytest-check-links is a dev dep — its latest
+  # release (0.10.1) hard-caps pytest<9 and is unmaintained. The advisory is
+  # ignored in the pip-audit hook with rationale; revisit if a pytest>=9
+  # -compatible link-checker ships. See .pre-commit-config.yaml.
   "pytest>=8.4,<10",
   "pytest-cov>=6,<8",
   # Markdown link-existence gate: pre-commit + CI invoke
@@ -81,6 +92,7 @@ sumo-qa = "sumo_qa.server:main"
 sumo-qa-install = "sumo_qa.installer:main"
 sumo-qa-doctor = "sumo_qa.doctor:main"
 sumo-qa-validate = "sumo_qa.validate_content:main"
+sumo-qa-ingest = "sumo_qa.ingest:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sumo_qa"]

@@ -79,6 +79,14 @@ link_check_exit=0
   --check-links-ignore '^\.\./\.\./(commit|pull|issues)/' \
   "${files[@]}" || link_check_exit=$?
 
+# pytest exit 5 == "no tests collected": the changed markdown had no links to
+# verify (e.g. an agent/spec doc that only uses backticked code refs). That's a
+# pass for a link-existence gate, not a failure — normalise it to 0 so a commit
+# touching only linkless markdown isn't blocked.
+if [ "$link_check_exit" -eq 5 ]; then
+  link_check_exit=0
+fi
+
 # Second layer: scan inline code + fenced code blocks for file refs that
 # don't resolve (`python scripts/dev_install.py` style). pytest-check-links
 # only looks at `[text](path)` markdown syntax; this catches the rest.

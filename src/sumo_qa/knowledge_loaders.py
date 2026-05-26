@@ -20,6 +20,8 @@ from typing import Any
 
 import yaml
 
+from sumo_qa import paths
+
 _REPO_ROOT_KNOWLEDGE = Path(__file__).parent.parent.parent / "knowledge"
 _BUNDLED_KNOWLEDGE = Path(__file__).parent / "_data" / "knowledge"
 _RULE_CLASSIFICATION_ALIASES = {
@@ -88,7 +90,25 @@ def _knowledge_dir() -> Path:
     return _REPO_ROOT_KNOWLEDGE
 
 
+def _has_packs(directory: Path) -> bool:
+    """True when *directory* exists and holds at least one YAML pack.
+
+    An empty ingested-pack dir must not shadow the bundled packs, so emptiness
+    is treated as "tier absent" rather than "tier present but empty".
+    """
+    return directory.is_dir() and bool(
+        list(directory.glob("*.yaml")) + list(directory.glob("*.yml"))
+    )
+
+
 def _read(name: str) -> str:
+    # Explicit QA_KNOWLEDGE_PATH stays authoritative (top precedence tier).
+    # Otherwise resolve per file: project pack > global pack > bundled > repo.
+    if not os.environ.get("QA_KNOWLEDGE_PATH"):
+        for scope in ("project", "global"):
+            candidate = paths.knowledge_dir(scope) / name
+            if candidate.is_file():
+                return candidate.read_text(encoding="utf-8")
     path = _knowledge_dir() / name
     return path.read_text(encoding="utf-8")
 
@@ -128,6 +148,10 @@ def _standards_dir() -> Path:
         # on case-insensitive APFS.
         override_packs = Path(override) / "packs"  # pragma: no mutate
         return override_packs if override_packs.is_dir() else Path(override)
+    for scope in ("project", "global"):
+        candidate = paths.standards_packs_dir(scope)
+        if _has_packs(candidate):
+            return candidate
     bundled = Path(__file__).parent / "_data" / "standards" / "packs"
     if bundled.is_dir():
         return bundled
@@ -166,6 +190,10 @@ def _rules_path() -> Path:
     override = os.environ.get("QA_RULES_PATH")
     if override:
         return Path(override)
+    for scope in ("project", "global"):
+        candidate = paths.rules_path(scope)
+        if candidate.is_file():
+            return candidate
     bundled = Path(__file__).parent / "_data" / "standards" / "rules" / "change_rules.yaml"
     if bundled.is_file():
         return bundled

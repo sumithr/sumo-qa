@@ -21,6 +21,7 @@ from sumo_qa.external_skills import (
 from sumo_qa.external_skills import (
     search_external_skills as _search_external_skills,
 )
+from sumo_qa.ingest import IngestValidationError, ingest_pack
 from sumo_qa.knowledge_loaders import (
     sumo_qa_load_approaches as _load_approaches,
 )
@@ -64,6 +65,11 @@ _HINT_TEST_DATA_WRITE = (
     "`domain` field matches an existing folder."
 )
 _HINT_INVALID_SCOPE = "Pass scope='global' or scope='project'."
+_HINT_INGEST = (
+    "Pass a native md/yaml file (principles.md, techniques.md, classifications.md, "
+    "approaches.md, a standards-pack *.yaml, or change_rules.yaml). Convert other "
+    "formats (PDF/PPTX/URL) via a converter skill first (find-skills)."
+)
 
 
 def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
@@ -319,6 +325,43 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             output=output,
         )
         return captured
+
+    @mcp.tool(annotations=_writer_local)
+    def sumo_qa_ingest_knowledge_pack(
+        source: str,
+        scope: str = "project",
+        content_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Adds or replaces team QA knowledge/standards/rules from a local native file.
+
+        Accepts a path to a native sumo-qa file or a directory of them:
+        principles.md, techniques.md, classifications.md, approaches.md, a
+        standards-pack *.yaml, or change_rules.yaml. Validates the content and
+        writes a normalized copy into a user-writable pack. The `scope` argument
+        selects where it lands: `'project'` (<cwd>/.sumo-qa, the current repo
+        only) or `'global'` (the user data dir, every repo) — the right scope is
+        a user choice worth confirming. Loader precedence is env var > project >
+        global > bundled > repo root.
+
+        A PDF / PPTX / URL or any other non-native source is not parsed here; it
+        returns an `unsupported_source` result naming a converter-skill route
+        (find-skills / sumo_qa_search_external_skills) to turn the source into
+        markdown in one shot, which is then re-ingested with an explicit
+        `content_type`.
+
+        Common natural-language phrasings that map to this tool:
+        "add this to the knowledge base", "replace our principles", "load our
+        team standards pack", "use these change rules", "ingest this QA pack".
+        """
+        try:
+            output: dict[str, Any] = ingest_pack(source, scope=scope, content_type=content_type)
+        except (IngestValidationError, ValueError, OSError) as exc:
+            output = _error_envelope(exc, _HINT_INGEST)
+        return maybe_capture(
+            tool="sumo_qa_ingest_knowledge_pack",
+            args={"source": source, "scope": scope, "content_type": content_type},
+            output=output,
+        )
 
     def _register_knowledge_loaders(mcp):
         """Register the 7 knowledge-provider tools.
