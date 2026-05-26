@@ -35,7 +35,7 @@ SKILL_TOKEN_BUDGETS = {
     "sumo-qa-executing-qa-rollout": 2200,  # measured 2094
     "sumo-qa-finding-test-data": 1830,  # measured 1740
     "sumo-qa-finishing-qa-work": 2130,  # measured 2025
-    "sumo-qa-implementing-with-tdd": 3560,  # measured 3385
+    "sumo-qa-implementing-with-tdd": 2840,  # post-cut 2708 (was 3385, -20%)
     "sumo-qa-planning-qa-rollout": 2920,  # measured 2776
     "sumo-qa-preparing-for-work": 2380,  # measured 2266
     "sumo-qa-reviewing-before-merge": 3030,  # post-cut 2888 (was 4586, -37%)
