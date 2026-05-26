@@ -3,10 +3,10 @@
 
 Format-strict: accepts only sumo-qa's native files (knowledge markdown, a
 standards-pack YAML, ``change_rules.yaml``). Non-native sources (PDF, PPTX,
-URLs) are NOT parsed here — the result routes the agent to a dedicated
-converter skill discovered via skill-discovery. Validated content is
-materialised under the chosen scope's user-pack dir; nothing is written if
-validation fails.
+URLs) are NOT parsed here — the result routes the agent through the
+``sumo-qa-suggesting-external-skill`` flow to find, install, and run a
+converter skill. Validated content is materialised under the chosen scope's
+user-pack dir; nothing is written if validation fails.
 
 Usage:
     sumo-qa-ingest principles.md                 # ingest into <cwd>/.sumo-qa
@@ -47,12 +47,11 @@ _PRECEDENCE = "explicit env var > project pack > global pack > bundled > repo ro
 _CONVERTER_GUIDANCE = (
     "Unsupported source '{src}'. The ingest tool only accepts native sumo-qa "
     "files (principles.md, techniques.md, classifications.md, approaches.md, a "
-    "standards-pack *.yaml, or change_rules.yaml). To ingest a {kind}: use "
-    "skill-discovery (find-skills / sumo_qa_search_external_skills) to find a "
-    "dedicated converter skill (e.g. a 'pdf-to-markdown' skill), convert the "
-    "source to markdown in one shot, then call ingest again with "
-    "content_type='principles' (or the right catalogue). Do NOT read and "
-    "hand-transcribe the source yourself."
+    "standards-pack *.yaml, or change_rules.yaml). A {kind} needs converting to "
+    "markdown first: route through sumo-qa's external-skill discovery (the "
+    "sumo-qa-suggesting-external-skill flow) to find, install, and run a "
+    "converter skill, then call ingest again with content_type set to the right "
+    "catalogue. Do NOT read and hand-transcribe the source yourself."
 )
 
 
@@ -174,6 +173,9 @@ def _unsupported(source: str, kind: str) -> dict:
     return {
         "status": "unsupported_source",
         "source": source,
+        # Structured routing so the host preserves the entry mode, not prose it infers.
+        "next_skill": "sumo-qa-suggesting-external-skill",
+        "entry_kind": "conversion",
         "guidance": _CONVERTER_GUIDANCE.format(src=source, kind=kind),
     }
 
@@ -216,15 +218,25 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
     """Validate and materialise native QA content into the scope's user pack.
 
     Returns a structured report dict. Raises ``IngestValidationError`` on bad
-    content (writing nothing). Non-native or missing sources return an
-    ``unsupported_source`` report.
+    content or a missing local path (writing nothing). Non-native files and
+    remote URLs return an ``unsupported_source`` report that routes through the
+    converter flow.
     """
     if scope not in paths.SCOPES:
         raise IngestValidationError(f"unknown scope {scope!r}; expected one of {paths.SCOPES}")
     src = Path(source)
     if not src.exists():
-        kind = "remote source" if "://" in source else "missing path"
-        return _unsupported(source, kind)
+        if "://" in source:
+            # A remote URL isn't a local file, but it IS a conversion candidate —
+            # the discovered converter skill owns the fetch+convert.
+            return _unsupported(source, "remote source")
+        # A genuine missing local path is a not-found error, not a conversion
+        # opportunity. Don't emit entry_kind=conversion for a file that isn't
+        # there — that would send the agent hunting for a converter pointlessly.
+        raise IngestValidationError(
+            f"source not found: {source!r} — pass an existing native file or "
+            f"directory, or a URL to convert via the sumo-qa-suggesting-external-skill flow"
+        )
 
     skipped: list[str] = []
     files = [src] if src.is_file() else _gather_pack_files(src, skipped)

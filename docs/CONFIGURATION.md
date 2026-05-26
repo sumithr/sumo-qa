@@ -98,10 +98,10 @@ python -c "from sumo_qa.knowledge_loaders import sumo_qa_load_principles as p; p
 
 The ingest tool is format-strict and does **no** conversion or network fetch.
 Hand it a `.pdf`/`.pptx`/URL and it returns an `unsupported_source` result that
-routes you to a dedicated converter skill: discover one via skill-discovery
-(`find-skills` / `sumo_qa_search_external_skills`, e.g. a `pdf-to-markdown`
-skill), convert the source to markdown in one shot, then re-ingest the result
-with an explicit `--type` / `content_type`. Don't transcribe the source by hand.
+routes through the `sumo-qa-suggesting-external-skill` flow: it finds, installs,
+and runs a converter skill to turn the source into markdown (the converter owns
+any URL fetch), then re-ingests the result with an explicit `--type` /
+`content_type`. Don't transcribe the source by hand.
 
 ## Debugging
 

@@ -64,18 +64,32 @@ def test_unsupported_source_routes_to_converter_skill(tmp_path, monkeypatch):
     src.write_bytes(b"%PDF-1.4 ...")
     report = ingest.ingest_pack(str(src), scope="project")
     assert report["status"] == "unsupported_source"
-    assert (
-        "find-skills" in report["guidance"]
-        or "sumo_qa_search_external_skills" in report["guidance"]
-    )
+    # Routing is structured, not prose-inferred, and names the flow (not find-skills).
+    assert report["next_skill"] == "sumo-qa-suggesting-external-skill"
+    assert report["entry_kind"] == "conversion"
+    assert "sumo-qa-suggesting-external-skill" in report["guidance"]
     assert "pdf" in report["guidance"].lower()
     assert not (tmp_path / ".sumo-qa").exists()
 
 
-def test_missing_source_returns_unsupported(tmp_path, monkeypatch):
+def test_missing_local_source_is_not_found_error(tmp_path, monkeypatch):
+    # A genuine missing local path is a not-found error — NOT an entry_kind=conversion
+    # route (don't send the agent hunting for a converter for a file that isn't there).
     monkeypatch.chdir(tmp_path)
-    report = ingest.ingest_pack(str(tmp_path / "nope.md"), scope="project")
+    with pytest.raises(ingest.IngestValidationError, match="not found"):
+        ingest.ingest_pack(str(tmp_path / "nope.md"), scope="project")
+    assert not (tmp_path / ".sumo-qa").exists()
+
+
+def test_remote_url_source_routes_to_conversion(tmp_path, monkeypatch):
+    # A URL isn't a local file but IS a conversion candidate; the converter owns
+    # the fetch, so it routes through the shared external-skill flow.
+    monkeypatch.chdir(tmp_path)
+    report = ingest.ingest_pack("https://example.com/standards", scope="project")
     assert report["status"] == "unsupported_source"
+    assert report["entry_kind"] == "conversion"
+    assert report["next_skill"] == "sumo-qa-suggesting-external-skill"
+    assert "remote source" in report["guidance"]
 
 
 def test_content_type_override_ingests_noncanonical_markdown_as_principles(tmp_path, monkeypatch):
@@ -189,7 +203,7 @@ def test_cli_main_unsupported_returns_one(tmp_path, monkeypatch, capsys):
     src.write_bytes(b"%PDF")
     rc = ingest.main([str(src)])
     assert rc == 1
-    assert "find-skills" in capsys.readouterr().err
+    assert "sumo-qa-suggesting-external-skill" in capsys.readouterr().err
 
 
 def test_cli_main_nothing_ingested_returns_one(tmp_path, monkeypatch, capsys):

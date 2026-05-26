@@ -68,7 +68,7 @@ _HINT_INVALID_SCOPE = "Pass scope='global' or scope='project'."
 _HINT_INGEST = (
     "Pass a native md/yaml file (principles.md, techniques.md, classifications.md, "
     "approaches.md, a standards-pack *.yaml, or change_rules.yaml). Convert other "
-    "formats (PDF/PPTX/URL) via a converter skill first (find-skills)."
+    "formats (PDF/PPTX/URL) to markdown first via the sumo-qa-suggesting-external-skill flow."
 )
 
 
@@ -344,10 +344,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         global > bundled > repo root.
 
         A PDF / PPTX / URL or any other non-native source is not parsed here; it
-        returns an `unsupported_source` result naming a converter-skill route
-        (find-skills / sumo_qa_search_external_skills) to turn the source into
-        markdown in one shot, which is then re-ingested with an explicit
-        `content_type`.
+        returns an `unsupported_source` result that routes through the
+        `sumo-qa-suggesting-external-skill` flow to convert the source to
+        markdown, which is then re-ingested with an explicit `content_type`.
 
         Common natural-language phrasings that map to this tool:
         "add this to the knowledge base", "replace our principles", "load our

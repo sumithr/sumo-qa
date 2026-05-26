@@ -1,0 +1,301 @@
+description: >
+  Conversion/fallback eval for sumo-qa-suggesting-external-skill (entry_kind:
+  conversion). Covers the ingestion converter-discovery scenarios added when the
+  skill was generalized to own non-native source conversion: converter entry,
+  capped fallback on install/execute isError, candidate ordering, user decline,
+  and the no-converter terminal. The QA-mode seed lives in the sibling
+  skill-suggesting-external-skill.yaml (deliberately left untouched).
+  MAINTENANCE: this file and the QA-mode seed grade the SAME SKILL.md but carry
+  separate rubrics (QA-specific vs the generalized one here) — keep them in sync
+  when the skill's lifecycle wording changes.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-suggesting-external-skill/SKILL.md
+    allowed_skill_name: pdf-to-markdown
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the required shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response do exactly what the Expected shape requires
+         for this turn, and nothing more? Depending on the scenario that may be:
+         a `[y/N]` install offer for the supplied candidate; reporting a tool
+         failure and advancing to the NEXT candidate with a fresh `[y/N]` offer;
+         stopping after a user decline; or reporting that no converter is
+         available and stopping. An install/conversion *report* (claiming it
+         already happened) is never the required shape.
+
+      B. GROUNDING - the response must use the supplied context and the loaded
+         skill's wording. When the scenario offers or installs a candidate, only
+         `{{allowed_skill_name}}` is an acceptable external skill name; when
+         `{{allowed_skill_name}}` is `none`, the response must NOT name or offer
+         any external skill. Restating the user's source is acceptable; inventing
+         a different skill name or recommending a direct CLI command is GROUNDING
+         FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    External-skill routing context for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This eval cannot run MCP tools; the context above already gives you the
+    local-install check result and any `sumo_qa_search_external_skills` output.
+    Produce ONLY what the loaded skill requires for THIS turn given that context
+    — nothing more. Do not run or recommend a direct CLI command, do not install
+    anything, do not claim an install or conversion already happened, and add no
+    closing pleasantry. Follow the skill's caller-aware behaviour exactly: offer
+    the per-candidate `[y/N]` gate when the skill calls for it, advance to the
+    next candidate after a tool isError, stop when the user has declined, and
+    report that no skill is available when the search returned no credible match.
+tests:
+  - description: conversion entry — offer a converter for an unsupported PDF
+    vars:
+      allowed_skill_name: pdf-to-markdown
+      user_prompt: >-
+        add this PDF to the knowledge base as our principles
+      expected_shape: >-
+        States the PDF needs converting to markdown first, then asks for `[y/N]`
+        confirmation to install `pdf-to-markdown` from `vercel-labs/skills`.
+        Mentions that after conversion it will re-ingest the markdown with the
+        right content_type. Does not run npx, does not hand-transcribe the PDF,
+        does not claim it installed.
+      anti_patterns:
+        - Reads or transcribes the PDF contents itself instead of finding a converter skill.
+        - Skips the `[y/N]` confirmation gate.
+        - Invents an external skill name other than the supplied `pdf-to-markdown`.
+        - Claims the converter is installed or the content is ingested.
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion — `sumo_qa_ingest_knowledge_pack` returned
+        `unsupported_source` for a `.pdf`; the gap is a converter, not a test tool.
+
+        ## MCP tool results supplied to this eval
+        - `sumo_qa_check_external_skill_installed(skill="pdf-to-markdown")` returned null.
+        - `sumo_qa_search_external_skills(query="pdf to markdown")` returned:
+          ```
+          {"query": "pdf to markdown",
+           "raw_output": "vercel-labs/skills@pdf-to-markdown  4.1K installs\nother/repo@pdf-thing  2 installs\n"}
+          ```
+        Install target inferred from raw_output: `pdf-to-markdown` from
+        `vercel-labs/skills`, for the current agent in `project` scope.
+        The candidate must not install anything without an explicit `y`.
+
+  - description: install-failure fallback — advance to the next candidate
+    vars:
+      allowed_skill_name: pdf-md-pro
+      user_prompt: >-
+        add this PDF to the knowledge base
+      expected_shape: >-
+        Reports that installing the first converter failed, then offers `[y/N]`
+        to install the NEXT candidate `pdf-md-pro` (within a 3-attempt cap).
+        Does not give up after the first failure; does not exceed 3 attempts.
+      anti_patterns:
+        - Gives up after the first install failure instead of trying the next candidate.
+        - Skips the `[y/N]` gate for the next candidate.
+        - Claims success despite the install error.
+        - Offers to install a skill other than the next candidate `pdf-md-pro` (naming the failed skill in the failure report is expected, not an anti-pattern).
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion.
+        ## MCP tool results
+        - `sumo_qa_search_external_skills` raw_output:
+          "vercel/skills@pdf-to-markdown\nacme/skills@pdf-md-pro\n"
+        - `sumo_qa_install_external_skill(skill="pdf-to-markdown", confirmed=true)`
+          returned an isError envelope: install failed (build error on this Python).
+        The next credible candidate is `pdf-md-pro` from `acme/skills`.
+
+  - description: execute-failure fallback — installed but execute errored
+    vars:
+      allowed_skill_name: pdf-md-pro
+      user_prompt: >-
+        add this PDF to the knowledge base
+      expected_shape: >-
+        Reports the first converter installed but failed to run, then offers
+        `[y/N]` to install the next candidate `pdf-md-pro` within the 3-attempt cap.
+      anti_patterns:
+        - Treats an execute isError as terminal instead of advancing to the next candidate.
+        - Skips the `[y/N]` gate for the next candidate.
+        - Offers to install a skill other than the next candidate `pdf-md-pro` (naming the failed skill in the failure report is expected, not an anti-pattern).
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion.
+        ## MCP tool results
+        - `sumo_qa_search_external_skills` raw_output:
+          "vercel/skills@pdf-to-markdown\nacme/skills@pdf-md-pro\n"
+        - install of `pdf-to-markdown` succeeded; `sumo_qa_execute_external_skill`
+          returned an isError (the converter crashed on this file).
+        Next credible candidate: `pdf-md-pro` from `acme/skills`.
+
+  - description: candidate ordering — pick the credible converter from raw output
+    vars:
+      allowed_skill_name: pdf-to-markdown
+      user_prompt: >-
+        add this PDF to the knowledge base
+      expected_shape: >-
+        Picks the credible converter `pdf-to-markdown` (not the unrelated entry)
+        and offers `[y/N]` to install it.
+      anti_patterns:
+        - Selects the unrelated `something-unrelated` entry.
+        - Invents a skill not present in raw_output.
+        - Skips the `[y/N]` gate.
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion.
+        ## MCP tool results
+        - `sumo_qa_search_external_skills(query="pdf to markdown")` raw_output:
+          "vercel/skills@pdf-to-markdown  4.1K installs\nrand/repo@something-unrelated  1 install\n"
+
+  - description: decline stops the loop
+    vars:
+      allowed_skill_name: pdf-to-markdown
+      user_prompt: "n"
+      expected_shape: >-
+        Acknowledges the decline and STOPS — does not offer another candidate,
+        does not install anything, does not hand-transcribe the source.
+      anti_patterns:
+        - Offers a further candidate after the user declined.
+        - Installs or claims to install anything.
+        - Falls back to transcribing the source itself.
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion.
+        ## Prior turn in THIS conversation (your own last message)
+        You already asked the install gate: *"This PDF can't be ingested directly
+        — it needs converting to markdown first. Install `pdf-to-markdown` from
+        `vercel-labs/skills` for the current agent in `project` scope, then run it
+        to produce the markdown and re-ingest with the right content_type? [y/N]"*
+        ## This turn
+        The user is answering that gate with `n` — declining the install.
+
+  - description: no converter found — report can't-convert, never transcribe
+    vars:
+      allowed_skill_name: none
+      user_prompt: >-
+        add this obscure CAD file to the knowledge base
+      expected_shape: >-
+        Reports that no converter skill is available for this source and STOPS.
+        Does not invent a skill, does not offer an install, does not transcribe.
+      anti_patterns:
+        - Invents a converter skill name not in the (empty) search result.
+        - Offers a `[y/N]` install despite no credible candidate.
+        - Reads/transcribes the source itself.
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion.
+        ## MCP tool results
+        - `sumo_qa_search_external_skills(query="cad to markdown")` raw_output: ""
+          (no credible candidate).
+
+  - description: execute success returns a skill_body to FOLLOW, not finished markdown
+    vars:
+      allowed_skill_name: pdf-to-markdown
+      user_prompt: >-
+        add this PDF to the knowledge base as our principles
+      expected_shape: >-
+        Recognizes that `sumo_qa_execute_external_skill` returned the converter's
+        `skill_body` (instructions to follow in this conversation), and states it
+        will follow those steps to produce the markdown, THEN re-ingest with the
+        right content_type. Does not claim the source is already converted.
+      anti_patterns:
+        - Treats the execute result as finished markdown rather than a skill_body to follow.
+        - Claims the conversion is done or the content is ingested without following the skill_body.
+        - Hand-transcribes the source instead of following the converter's steps.
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion. The user already approved installing
+        `pdf-to-markdown`; it installed successfully.
+        ## MCP tool results
+        - `sumo_qa_execute_external_skill(skill="pdf-to-markdown", intent="convert deck.pdf")`
+          returned a handoff payload: `{"skill_body": "<the pdf-to-markdown skill's
+          step-by-step instructions>", "intent": "convert deck.pdf"}`. Executing the
+          tool does NOT itself produce the markdown — the skill_body must be followed.
+
+  - description: cap exhausted — all candidates fail, report can't-convert and stop
+    vars:
+      allowed_skill_name: none
+      user_prompt: >-
+        add this PDF to the knowledge base
+      expected_shape: >-
+        Reports that every converter attempt failed (the 3-attempt cap is
+        exhausted) and that no converter could be installed, and STOPS. Does not
+        offer a further candidate, does not hand-transcribe the source.
+      anti_patterns:
+        - Offers or tries a fourth candidate after the 3-attempt cap is exhausted.
+        - Falls back to reading/transcribing the source itself.
+        - Claims success despite all attempts failing.
+      ground_truth_context: |
+        ## Entry mode
+        entry_kind: conversion.
+        ## MCP tool results (3 attempts already made and exhausted)
+        - search raw_output: "a/skills@pdf-to-markdown\nb/skills@pdf-md-pro\nc/skills@pdf2md\n"
+        - install of `pdf-to-markdown` returned isError (attempt 1).
+        - install of `pdf-md-pro` returned isError (attempt 2).
+        - install of `pdf2md` returned isError (attempt 3 — cap reached).
