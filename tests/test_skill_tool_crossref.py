@@ -72,9 +72,12 @@ def test_no_dead_skill_to_tool_refs() -> None:
 # OUTSIDE the QA-routing skill chain. `sumo_qa_ingest_knowledge_pack` is a
 # knowledge-management action ("add this to the knowledge base"), not a QA
 # intent — routing it through `using-sumo-qa` would violate that skill's Iron
-# Law (no work before `sumo-qa-deciding-approach`). The agent discovers and
-# calls it from its tool description, so it needs no SKILL.md cross-reference.
-_STANDALONE_UTILITY_TOOLS = {"sumo_qa_ingest_knowledge_pack"}
+# Law (no work before `sumo-qa-deciding-approach`). `sumo_qa_capabilities` is a
+# pure discovery tool ("what can sumo-qa do?") — it answers, it does not route a
+# QA intent, so it is deliberately not the target of any SKILL body. The agent
+# discovers and calls both from their tool descriptions, so neither needs a
+# SKILL.md cross-reference.
+_STANDALONE_UTILITY_TOOLS = {"sumo_qa_ingest_knowledge_pack", "sumo_qa_capabilities"}
 
 
 def test_no_orphan_registered_tools() -> None:

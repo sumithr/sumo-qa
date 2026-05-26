@@ -173,13 +173,14 @@ _POPEN_TARGET = "sumo_qa.installer.subprocess.Popen"
 
 
 def test_required_tool_names_constant_is_defined() -> None:
-    """The constant exists and lists the 15 canonical sumo-qa tools."""
+    """The constant exists and lists the 16 canonical (non-skill) sumo-qa tools."""
     assert hasattr(installer, "REQUIRED_TOOL_NAMES")
     assert isinstance(installer.REQUIRED_TOOL_NAMES, tuple)
-    # 4 test-data + 6 knowledge loaders + 1 ingestion + 4 external skills = 15.
-    assert len(installer.REQUIRED_TOOL_NAMES) == 15
+    # 4 test-data + 6 knowledge loaders + 1 capabilities + 1 ingestion + 4 external skills = 16.
+    assert len(installer.REQUIRED_TOOL_NAMES) == 16
     assert "sumo_qa_explain_test_data_requirements" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_load_classifications" in installer.REQUIRED_TOOL_NAMES
+    assert "sumo_qa_capabilities" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_ingest_knowledge_pack" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_install_external_skill" in installer.REQUIRED_TOOL_NAMES
 

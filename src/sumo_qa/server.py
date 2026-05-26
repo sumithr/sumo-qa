@@ -5,6 +5,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
+from sumo_qa.capabilities import build_capabilities
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.external_skills import (
     check_external_skill_installed as _check_external_skill_installed,
@@ -41,6 +42,7 @@ from sumo_qa.knowledge_loaders import (
     sumo_qa_load_techniques as _load_techniques,
 )
 from sumo_qa.server_schemas import (
+    CapabilitiesOutput,
     CheckExternalSkillInstalledOutput,
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
@@ -409,6 +411,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             return _load_rules(classification=classification)
 
     _register_knowledge_loaders(mcp)
+
+    @mcp.tool(annotations=_read_only_local)
+    def sumo_qa_capabilities() -> CapabilitiesOutput:
+        """Return a compact, read-only map of sumo-qa's core QA workflows — each
+        with a sample prompt, the skill it routes to, and a one-line outcome. A
+        discovery aid for "what can sumo-qa do?"; does NOT replace the
+        using-sumo-qa entry router or sumo_qa_deciding_approach."""
+        return build_capabilities()
 
     @mcp.tool(annotations=_read_only_external)
     def sumo_qa_search_external_skills(query: str) -> SearchExternalSkillsOutput | ErrorEnvelope:

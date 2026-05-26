@@ -367,3 +367,31 @@ class ExecuteExternalSkillOutput(_StrictBase):
     execution_prompt: str = Field(
         description="Fixed handoff prompt instructing the host to follow the loaded SKILL.md."
     )
+
+
+class CapabilityWorkflow(_StrictBase):
+    """One core QA workflow surfaced by ``sumo_qa_capabilities``."""
+
+    workflow: str = Field(description="Short human name of the workflow.")
+    sample_prompt: str = Field(description="An example user prompt that triggers this workflow.")
+    target_skill: str = Field(
+        description="The sumo-qa skill this workflow routes to (an existing skills/<name>)."
+    )
+    outcome: str = Field(description="One-line description of what the workflow produces.")
+
+
+class CapabilitiesOutput(_StrictBase):
+    """Output of ``sumo_qa_capabilities``.
+
+    A compact, read-only map of sumo-qa's core QA workflows. Discovery only —
+    it does not replace the ``using-sumo-qa`` entry router or
+    ``sumo_qa_deciding_approach``; it just answers "what can sumo-qa do?".
+    """
+
+    tool: Literal["sumo_qa_capabilities"] = Field(
+        default="sumo_qa_capabilities",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    workflows: list[CapabilityWorkflow] = Field(
+        description="Core QA workflows, each with a sample prompt and the skill it routes to."
+    )

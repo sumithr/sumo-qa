@@ -1,6 +1,6 @@
 # Tool-selection scenarios
 
-For each of the 28 MCP tools sumo-qa exposes, an eval prompt + the tool the host LLM should pick + the anti-pick (the tool a less-disciplined LLM might wrongly fire).
+For each MCP tool below, an eval prompt + the tool the host LLM should pick + the anti-pick (the tool a less-disciplined LLM might wrongly fire).
 
 These complement [`SCENARIOS.md`](SCENARIOS.md) (which evaluates *skill* behaviour) by evaluating *tool selection* — does the host LLM choose the right tool name when the user's intent surfaces? Tool descriptions in `src/sumo_qa/server.py` are the only signal the host has, so these scenarios stress-test those descriptions.
 
@@ -13,7 +13,7 @@ These complement [`SCENARIOS.md`](SCENARIOS.md) (which evaluates *skill* behavio
 
 The 14 skill tools are tested transitively by the scenarios in `SCENARIOS.md` — when the user's intent matches a skill, the host LLM should invoke that skill's tool. They are not duplicated here.
 
-The 14 atomic non-skill tools each get a dedicated scenario below.
+Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario below. `sumo_qa_ingest_knowledge_pack` is a knowledge-management action covered by its own contract tests, not a tool-selection scenario.
 
 ---
 
@@ -188,6 +188,20 @@ The 14 atomic non-skill tools each get a dedicated scenario below.
 **Expected use of result:** the LLM follows the returned `skill_body` and keeps sumo-qa confirmation gates for dependency installs and file writes.
 
 **Anti-pick:** treats execution as a shell command; ignores the returned `SKILL.md`; bypasses sumo-qa evidence requirements.
+
+---
+
+## Capabilities discovery (1)
+
+### TS-15. Discover what sumo-qa can do
+
+**User prompt:** *"What can sumo-qa do? Show me the main QA workflows available."*
+
+**Expected tool:** `sumo_qa_capabilities()` (no args).
+
+**Expected use of result:** the LLM lists the core workflows from the returned map (review changes, regression-first fix, QA prep, formal test plan, mutation strengthening, test-data discovery, repo strategy, external-skill discovery) with their sample prompts and target skills — drawn from the tool output, not training-data recall.
+
+**Anti-pick:** recites a tool list from training data; calls `using_sumo_qa` or `sumo_qa_deciding_approach` (those route a concrete QA intent — capabilities is pure discovery, no intent to route); dumps full skill bodies.
 
 ---
 

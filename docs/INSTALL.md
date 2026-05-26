@@ -47,7 +47,7 @@ The default run covers thirteen checks:
 3. `binary_discoverable` — `sumo-qa` on PATH or `python -m sumo_qa` fallback
 4. `uvx_available` — `uvx` (Astral's package runner) on PATH; required for the plugin install path; FAIL with canonical install command when missing
 5. `mcp_handshake` — JSON-RPC `initialize` handshake against the running server
-6. `tools_list_complete` — all 14 `REQUIRED_TOOL_NAMES` advertised
+6. `tools_list_complete` — all 16 `REQUIRED_TOOL_NAMES` advertised
 7. `claude_code_config` — Claude Code's `claude_desktop_config.json` parseable, points at a resolvable binary
 8. `claude_code_plugin` — detects whether sumo-qa is installed via `claude plugin install` (reads `~/.claude/plugins/installed_plugins.json`); cross-checked with `claude_code_config` so a plugin-install user doesn't get a false FAIL on the pip-install config check. The plugin install is self-contained — its `.mcp.json` invokes `uvx --from ${CLAUDE_PLUGIN_ROOT} sumo-qa` ([Anthropic's canonical pattern](https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers)) so doctor's `mcp_handshake` + `tools_list_complete` checks pass via the same uvx-bootstrapped wheel
 9. `claude_desktop_config` — Claude Desktop's separate config path (macOS / Windows / Linux variations)

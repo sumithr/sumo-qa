@@ -100,6 +100,8 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_load_techniques",
     "sumo_qa_load_standards",
     "sumo_qa_load_rules",
+    # Capabilities discovery
+    "sumo_qa_capabilities",
     # Ingestion
     "sumo_qa_ingest_knowledge_pack",
     # External skills

@@ -42,7 +42,7 @@ body:
       label: Do MCP tools appear in the host?
       description: Look for tool names prefixed with `sumo_qa_` (e.g. `sumo_qa_load_classifications`).
       options:
-        - "Yes — all 28 entry points visible"
+        - "Yes — all 30 entry points visible"
         - "Yes — some visible, some missing"
         - "No — none visible"
         - "Not sure / host does not expose a tool list"
