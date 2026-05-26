@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/sumithr/sumo-qa/compare/v0.9.4...v0.10.0) (2026-05-26)
+
+
+### Features
+
+* runtime ingestion of custom QA knowledge packs ([#164](https://github.com/sumithr/sumo-qa/issues/164)) ([2a35aa4](https://github.com/sumithr/sumo-qa/commit/2a35aa4fac2e52cdc5871be94ee4d2107f92abe7))
+
 ## [0.9.4](https://github.com/sumithr/sumo-qa/compare/v0.9.3...v0.9.4) (2026-05-25)
 
 
