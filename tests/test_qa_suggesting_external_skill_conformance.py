@@ -24,9 +24,13 @@ def test_skill_has_output_discipline_section() -> None:
     assert "## Output discipline (mandatory)" in text
 
 
-def test_skill_has_output_economy_section() -> None:
+def test_skill_has_output_economy_discipline() -> None:
     text = SKILL_PATH.read_text(encoding="utf-8")
-    assert "## Output economy (mandatory)" in text
+    # The token-reduction pass (issue #89) folded the duplicated Output economy
+    # block into the global discipline inherited from using-sumo-qa (declared
+    # under Output discipline). The discipline must still be present — as its own
+    # section OR via the inheritance line — never silently dropped.
+    assert "output economy" in text.lower()
 
 
 def test_skill_has_when_to_use_section() -> None:
