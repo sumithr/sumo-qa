@@ -174,67 +174,30 @@ SURFACE_PROBE_MARKERS = {
     "async_flow_change": ("double-apply", "poison", "out-of-order"),
 }
 
-# Library / protocol / framework / vendor names that must NOT leak into the
-# probes — guidance stays host-neutral and is not a vendor playbook (#98
-# regression guard). Matched as whole word-tokens, so "restore" never trips
-# "rest".
+# Host-neutrality BACKSTOP — a deliberately small, NON-EXHAUSTIVE tripwire, not a
+# proof of neutrality. Host-neutrality is a semantic property (does a probe reason
+# in a specific technology?), so its real owner is the eval's semantic anti-pattern
+# ("broker/library-specific advice standing in for the risk pattern") plus
+# adversarial review — NOT a maintained list of names, which is the very static
+# catalogue #98 argues against. This set only trips an obvious fat-finger (a vendor
+# name pasted into a probe); deliberately one or two iconic names per surface
+# category. Do NOT grow it chasing completeness — strengthen the eval instead.
+# Matched as whole word-tokens, so "restore" never trips "rest".
 _BANNED_TECH_TOKENS = frozenset(
     {
-        "pydantic",
-        "fastapi",
-        "django",
-        "flask",
-        "express",
-        "spring",
-        "rails",
-        "kafka",
-        "rabbitmq",
+        "kafka",  # async/broker
         "sqs",
-        "sns",
-        "kinesis",
-        "celery",
-        "pubsub",
-        "grpc",
+        "grpc",  # request/response/IPC protocol
         "graphql",
         "rest",
-        "soap",
-        "openapi",
-        "protobuf",
-        "avro",
-        "json",
+        "fastapi",  # web framework
         "react",
-        "vue",
-        "angular",
-        "svelte",
+        "kubernetes",  # CI/config/deploy
         "terraform",
-        "kubernetes",
-        "k8s",
-        "docker",
-        "helm",
-        "ansible",
-        "redis",
-        "memcached",
+        "redis",  # datastore
         "postgres",
-        "mysql",
-        "mongodb",
-        "dynamodb",
-        "jwt",
+        "jwt",  # auth/token
         "oauth",
-        "saml",
-        # cloud / protocol / tool namespaces (broadened after adversarial review:
-        # a finite deny-list never proves neutrality, but it should cover the
-        # likeliest leaks, not just the ones the first draft happened to name).
-        "aws",
-        "azure",
-        "gcp",
-        "http",
-        "https",
-        "amqp",
-        "mqtt",
-        "grpcweb",
-        "cloudformation",
-        "lambda",
-        "webhook",
     }
 )
 
@@ -266,7 +229,8 @@ def test_surface_exposes_concrete_probes_beyond_classification_text(
 @pytest.mark.parametrize("classification", sorted(SURFACE_PROBE_MARKERS))
 def test_surface_probes_stay_host_neutral(classification: str) -> None:
     engine = StandardsRulesEngine.from_file(ROOT / "standards" / "rules" / "change_rules.yaml")
-    # Neutrality is the broadest guard: check every surfaced field, techniques included.
+    # Backstop tripwire (see _BANNED_TECH_TOKENS): scan every surfaced field,
+    # techniques included, so the widest text is checked against the small set.
     tokens = set(
         re.findall(r"[a-z0-9]+", _surface_text(engine, classification, include_techniques=True))
     )
