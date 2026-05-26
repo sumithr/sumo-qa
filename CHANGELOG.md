@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/sumithr/sumo-qa/compare/v0.10.0...v0.11.0) (2026-05-26)
+
+
+### Features
+
+* unify external-skill discovery; ingestion reuses it ([#166](https://github.com/sumithr/sumo-qa/issues/166)) ([d7f413e](https://github.com/sumithr/sumo-qa/commit/d7f413ed8ec9f265ab4c073aa4c04c80d5e0979d))
+
 ## [0.10.0](https://github.com/sumithr/sumo-qa/compare/v0.9.4...v0.10.0) (2026-05-26)
 
 
