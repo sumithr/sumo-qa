@@ -29,7 +29,7 @@ def _approx_tokens(text: str) -> int:
 SKILL_TOKEN_BUDGETS = {
     # measured 2026-05-26 (post-#82); cut skills tighten their entry as the
     # compression lands. Cushion ~5% above measured.
-    "sumo-qa-answering-testing-question": 3140,  # measured 2989
+    "sumo-qa-answering-testing-question": 2510,  # post-cut 2390 (was 2989, -20%)
     "sumo-qa-creating-test-plan": 2230,  # measured 2119
     "sumo-qa-deciding-approach": 2910,  # post-cut 2776 (was 3470, -20%)
     "sumo-qa-executing-qa-rollout": 2200,  # measured 2094
