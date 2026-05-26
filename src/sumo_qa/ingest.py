@@ -178,6 +178,40 @@ def _unsupported(source: str, kind: str) -> dict:
     }
 
 
+# Canonical repo-shaped pack subdirectories, scanned in addition to the pack
+# root so an exported `knowledge/` + `standards/` tree ingests without
+# flattening. Scanning is restricted to these known locations rather than
+# recursing everywhere, which would slurp unrelated nested .yaml / .md files.
+_PACK_SUBDIRS = (
+    Path("knowledge"),
+    Path("standards") / "packs",
+    Path("standards") / "rules",
+)
+
+
+def _gather_pack_files(root: Path, skipped: list[str]) -> list[Path]:
+    """Collect native-candidate files from a pack directory.
+
+    Scans the top level (flat pack) plus the canonical repo-shaped subdirs.
+    Symlinks — files or whole subdirs — are skipped, never followed, so a link
+    can't pull in content from outside the pack tree.
+    """
+    files: list[Path] = []
+    for sub in (Path("."), *_PACK_SUBDIRS):
+        directory = root / sub
+        if sub != Path(".") and directory.is_symlink():
+            skipped.append(str(sub))
+            continue
+        if not directory.is_dir():
+            continue
+        for p in sorted(directory.iterdir()):
+            if p.is_symlink():
+                skipped.append(p.name)
+            elif p.is_file():
+                files.append(p)
+    return files
+
+
 def ingest_pack(source: str, scope: str = "project", content_type: str | None = None) -> dict:
     """Validate and materialise native QA content into the scope's user pack.
 
@@ -193,18 +227,7 @@ def ingest_pack(source: str, scope: str = "project", content_type: str | None = 
         return _unsupported(source, kind)
 
     skipped: list[str] = []
-    if src.is_file():
-        files = [src]
-    else:
-        files = []
-        for p in sorted(src.iterdir()):
-            if p.is_symlink():
-                # Don't follow symlinks out of a pack directory — a link could
-                # point at a file the user never meant to ingest (e.g. a secret
-                # outside the source tree).
-                skipped.append(p.name)
-            elif p.is_file():
-                files.append(p)
+    files = [src] if src.is_file() else _gather_pack_files(src, skipped)
     classified: list[tuple[Path, str, str]] = []
     for f in files:
         ct = content_type if src.is_file() else None

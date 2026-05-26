@@ -71,6 +71,13 @@ Accepted native files: `principles.md`, `techniques.md`, `classifications.md`,
 `approaches.md`, a standards-pack `*.yaml`, and `change_rules.yaml`. Invalid
 content fails with an actionable error and **writes nothing**.
 
+A directory source may be either **flat** (the native files sitting directly in
+it) or a **repo-shaped tree** that mirrors the bundled layout
+(`knowledge/*.md`, `standards/packs/*.yaml`, `standards/rules/change_rules.yaml`)
+— so you can export your team's existing tree and ingest it as-is. Scanning is
+limited to those canonical locations (it does not recurse arbitrarily), and
+symlinked files or subdirectories are skipped.
+
 ### End-to-end (PyPI user)
 
 ```bash

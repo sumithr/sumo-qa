@@ -348,3 +348,41 @@ def test_reingest_overwrites_and_leaves_no_backup(tmp_path, monkeypatch):
     assert report["status"] == "ingested"
     assert (proj_k / "principles.md").read_text(encoding="utf-8") == "REPLACED\n"
     assert not (proj_k / ".principles.md.sumo-bak").exists()
+
+
+def test_directory_ingest_repo_shaped_tree(tmp_path, monkeypatch):
+    # An exported repo-shaped pack (knowledge/, standards/packs/, standards/rules/)
+    # must ingest without flattening — the canonical layout this feature mirrors.
+    monkeypatch.chdir(tmp_path)
+    d = tmp_path / "team-pack"
+    (d / "knowledge").mkdir(parents=True)
+    (d / "standards" / "packs").mkdir(parents=True)
+    (d / "standards" / "rules").mkdir(parents=True)
+    (d / "knowledge" / "principles.md").write_text("# Team P\n", encoding="utf-8")
+    (d / "standards" / "packs" / "team.yaml").write_text(
+        "applies_to_classifications: [security_change]\n", encoding="utf-8"
+    )
+    (d / "standards" / "rules" / "change_rules.yaml").write_text("{}\n", encoding="utf-8")
+    report = ingest.ingest_pack(str(d), scope="project")
+    assert report["status"] == "ingested"
+    assert {f["type"] for f in report["files"]} == {"principles", "standards", "rules"}
+    root = tmp_path / ".sumo-qa"
+    assert (root / "knowledge" / "principles.md").is_file()
+    assert (root / "standards" / "packs" / "team.yaml").is_file()
+    assert (root / "standards" / "rules" / "change_rules.yaml").is_file()
+
+
+def test_directory_ingest_skips_symlinked_subdir(tmp_path, monkeypatch):
+    # A symlinked canonical subdir must not be followed out of the pack tree.
+    # Simulate via monkeypatch so the branch is covered on every OS.
+    monkeypatch.chdir(tmp_path)
+    d = tmp_path / "pack"
+    (d / "knowledge").mkdir(parents=True)
+    (d / "knowledge" / "principles.md").write_text("P\n", encoding="utf-8")
+    real_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path, "is_symlink", lambda self: self.name == "knowledge" or real_is_symlink(self)
+    )
+    report = ingest.ingest_pack(str(d), scope="project")
+    assert "knowledge" in report["skipped"]
+    assert not (tmp_path / ".sumo-qa" / "knowledge" / "principles.md").exists()
