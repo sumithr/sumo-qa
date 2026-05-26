@@ -30,17 +30,17 @@ SKILL_TOKEN_BUDGETS = {
     # measured 2026-05-26 (post-#82); cut skills tighten their entry as the
     # compression lands. Cushion ~5% above measured.
     "sumo-qa-answering-testing-question": 2510,  # post-cut 2390 (was 2989, -20%)
-    "sumo-qa-creating-test-plan": 2230,  # measured 2119
+    "sumo-qa-creating-test-plan": 1990,  # post-cut 1895 (was 2141, -11.5%)
     "sumo-qa-deciding-approach": 2910,  # post-cut 2776 (was 3470, -20%)
-    "sumo-qa-executing-qa-rollout": 2200,  # measured 2094
-    "sumo-qa-finding-test-data": 1830,  # measured 1740
-    "sumo-qa-finishing-qa-work": 2130,  # measured 2025
+    "sumo-qa-executing-qa-rollout": 1960,  # post-cut 1863 (was 2109, -11.7%)
+    "sumo-qa-finding-test-data": 1580,  # post-cut 1508 (was 1754, -14.0%)
+    "sumo-qa-finishing-qa-work": 1920,  # post-cut 1829 (was 2039, -10.3%)
     "sumo-qa-implementing-with-tdd": 2840,  # post-cut 2708 (was 3385, -20%)
-    "sumo-qa-planning-qa-rollout": 2920,  # measured 2776
-    "sumo-qa-preparing-for-work": 2380,  # measured 2266
+    "sumo-qa-planning-qa-rollout": 2680,  # post-cut 2555 (was 2801, -8.8%)
+    "sumo-qa-preparing-for-work": 2130,  # post-cut 2032 (was 2278, -10.8%)
     "sumo-qa-reviewing-before-merge": 3030,  # post-cut 2888 (was 4586, -37%)
-    "sumo-qa-strategising": 2740,  # measured 2602
-    "sumo-qa-strengthening-tests": 2870,  # measured 2724
+    "sumo-qa-strategising": 2500,  # post-cut 2380 (was 2626, -9.4%)
+    "sumo-qa-strengthening-tests": 2630,  # post-cut 2501 (was 2747, -9.0%)
     "sumo-qa-suggesting-external-skill": 2580,  # post-cut 2459 (was 3085, -20%)
     "using-sumo-qa": 2910,  # post-cut 2778 (was 3477, -20%)
 }
