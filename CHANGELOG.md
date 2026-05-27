@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.15.1](https://github.com/sumithr/sumo-qa/compare/v0.15.0...v0.15.1) (2026-05-27)
+
+
+### Code Refactoring
+
+* **deciding-approach:** lazy-load catalogues, document responsibilities ([#189](https://github.com/sumithr/sumo-qa/issues/189)) ([3a2929d](https://github.com/sumithr/sumo-qa/commit/3a2929dabf20173cb660be88f00ad89d058d9627))
+
+
+### Continuous Integration
+
+* let release automation bypass approval after checks ([#196](https://github.com/sumithr/sumo-qa/issues/196)) ([6156e19](https://github.com/sumithr/sumo-qa/commit/6156e19ed70ccebb3179e987b489f17bbd479094))
+* wait for release PR checks to appear ([#197](https://github.com/sumithr/sumo-qa/issues/197)) ([0fd3489](https://github.com/sumithr/sumo-qa/commit/0fd3489eb409c770ac3051edd2ab587417eba1a5))
+* wait for release PR head check runs ([#198](https://github.com/sumithr/sumo-qa/issues/198)) ([273da6f](https://github.com/sumithr/sumo-qa/commit/273da6f63af27ba812252096c361a4d0d5a18d56))
+* wait on release workflow head checks ([#199](https://github.com/sumithr/sumo-qa/issues/199)) ([6979be8](https://github.com/sumithr/sumo-qa/commit/6979be861f604aea77dcaeeaf2d67ef103182fae))
+
 ## [0.15.0](https://github.com/sumithr/sumo-qa/compare/v0.14.0...v0.15.0) (2026-05-27)
 
 
