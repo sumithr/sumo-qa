@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.4](https://github.com/sumithr/sumo-qa/compare/v0.15.3...v0.15.4) (2026-05-27)
+
+
+### Documentation
+
+* add code of conduct, contributing, security policy, and PR template ([#203](https://github.com/sumithr/sumo-qa/issues/203)) ([1118aea](https://github.com/sumithr/sumo-qa/commit/1118aea825be81aa00053982df190d4791d99a03))
+
 ## [0.15.3](https://github.com/sumithr/sumo-qa/compare/v0.15.2...v0.15.3) (2026-05-27)
 
 
