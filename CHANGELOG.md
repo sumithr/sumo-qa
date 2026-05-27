@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/sumithr/sumo-qa/compare/v0.13.0...v0.14.0) (2026-05-27)
+
+
+### Features
+
+* ship PEP 561 py.typed marker and add mypy static type checking ([#182](https://github.com/sumithr/sumo-qa/issues/182)) ([2fd78ec](https://github.com/sumithr/sumo-qa/commit/2fd78ecea84282f4cca4c54b0ff44b2ee84eaa41))
+
 ## [0.13.0](https://github.com/sumithr/sumo-qa/compare/v0.12.0...v0.13.0) (2026-05-26)
 
 
