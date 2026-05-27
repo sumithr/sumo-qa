@@ -96,25 +96,59 @@ jobs:
           RELEASE_PR_JSON: ${{ steps.release.outputs.pr }}
         run: |
           PR_NUMBER=$(echo "$RELEASE_PR_JSON" | jq -r '.number')
-          HEAD_SHA=$(gh pr view --repo "${GITHUB_REPOSITORY}" "${PR_NUMBER}" \
-            --json headRefOid --jq '.headRefOid')
-          echo "Waiting for required check runs on release PR head ${HEAD_SHA}"
-          for attempt in {1..60}; do
-            REQUIRED_CHECK_COUNT=$(gh api \
-              "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
-              --jq '[.check_runs[] | select(.name == "ruff check + format" or (.name | startswith("pytest (ubuntu-latest")))] | length')
-            if [ "${REQUIRED_CHECK_COUNT}" -ge 6 ]; then
+          HEAD_SHA=$(git rev-parse HEAD)
+          EXPECTED_CHECKS=$(jq -n -c '[
+            "ruff check + format",
+            "pytest (ubuntu-latest · py3.10)",
+            "pytest (ubuntu-latest · py3.11)",
+            "pytest (ubuntu-latest · py3.12)",
+            "pytest (ubuntu-latest · py3.13)",
+            "pytest (ubuntu-latest · py3.14)",
+            "pytest (macos-latest · py3.10)",
+            "pytest (macos-latest · py3.11)",
+            "pytest (macos-latest · py3.12)",
+            "pytest (macos-latest · py3.13)",
+            "pytest (macos-latest · py3.14)",
+            "pytest (windows-latest · py3.10)",
+            "pytest (windows-latest · py3.11)",
+            "pytest (windows-latest · py3.12)",
+            "pytest (windows-latest · py3.13)",
+            "pytest (windows-latest · py3.14)"
+          ]')
+          echo "Waiting for required checks on release PR #${PR_NUMBER} at ${HEAD_SHA}"
+          for attempt in {1..180}; do
+            CHECK_RUNS=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" \
+              --jq '.check_runs')
+            CHECKS_JSON=$(jq -n \
+              --argjson expected "${EXPECTED_CHECKS}" \
+              --argjson checks "${CHECK_RUNS}" \
+              '$checks
+                | map(select(.name as $name | $expected | index($name)))
+                | group_by(.name)
+                | map(sort_by(.started_at // .created_at) | .[-1])')
+            MISSING_CHECKS=$(jq -n -r \
+              --argjson expected "${EXPECTED_CHECKS}" \
+              --argjson checks "${CHECKS_JSON}" \
+              '$expected - ($checks | map(.name)) | .[]')
+            FAILED_CHECKS=$(echo "${CHECKS_JSON}" | jq -r '.[] | select(.status == "completed" and .conclusion != "success") | "\(.name): \(.conclusion)"')
+            if [ -n "${FAILED_CHECKS}" ]; then
+              echo "${FAILED_CHECKS}" >&2
+              exit 1
+            fi
+            PASSED_CHECK_COUNT=$(echo "${CHECKS_JSON}" | jq '[.[] | select(.status == "completed" and .conclusion == "success")] | length')
+            EXPECTED_CHECK_COUNT=$(echo "${EXPECTED_CHECKS}" | jq 'length')
+            if [ -z "${MISSING_CHECKS}" ] && [ "${PASSED_CHECK_COUNT}" -eq "${EXPECTED_CHECK_COUNT}" ]; then
               break
             fi
-            if [ "${attempt}" -eq 60 ]; then
-              echo "Timed out waiting for required check runs on ${HEAD_SHA}" >&2
+            if [ "${attempt}" -eq 180 ]; then
+              echo "Timed out waiting for required checks on ${HEAD_SHA}" >&2
+              echo "${MISSING_CHECKS}" | sed 's/^/missing: /' >&2
+              echo "${CHECKS_JSON}" | jq -r '.[] | "\(.name): \(.status)/\(.conclusion // "pending")"' >&2
               exit 1
             fi
             sleep 10
           done
-          echo "Waiting for required checks to pass on release PR #${PR_NUMBER}"
-          gh pr checks --required --watch --fail-fast --interval 30 \
-            --repo "${GITHUB_REPOSITORY}" "${PR_NUMBER}"
           echo "Merging release PR #${PR_NUMBER} with branch-rule bypass"
           gh pr merge --squash --admin --delete-branch --match-head-commit "${HEAD_SHA}" \
             --repo "${GITHUB_REPOSITORY}" "${PR_NUMBER}"
