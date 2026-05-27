@@ -98,22 +98,16 @@ jobs:
           PR_NUMBER=$(echo "$RELEASE_PR_JSON" | jq -r '.number')
           HEAD_SHA=$(gh pr view --repo "${GITHUB_REPOSITORY}" "${PR_NUMBER}" \
             --json headRefOid --jq '.headRefOid')
-          echo "Waiting for required checks to appear on release PR #${PR_NUMBER}"
-          for attempt in {1..30}; do
-            set +e
-            CHECKS_JSON=$(gh pr checks --required --json name,state,bucket \
-              --repo "${GITHUB_REPOSITORY}" "${PR_NUMBER}" 2>checks.err)
-            CHECKS_EXIT=$?
-            set -e
-            if [ "${CHECKS_EXIT}" -eq 0 ] || [ "${CHECKS_EXIT}" -eq 8 ]; then
-              CHECK_COUNT=$(echo "${CHECKS_JSON}" | jq 'length')
-              if [ "${CHECK_COUNT}" -gt 0 ]; then
-                break
-              fi
+          echo "Waiting for required check runs on release PR head ${HEAD_SHA}"
+          for attempt in {1..60}; do
+            REQUIRED_CHECK_COUNT=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
+              --jq '[.check_runs[] | select(.name == "ruff check + format" or (.name | startswith("pytest (ubuntu-latest")))] | length')
+            if [ "${REQUIRED_CHECK_COUNT}" -ge 6 ]; then
+              break
             fi
-            if [ "${attempt}" -eq 30 ]; then
-              cat checks.err >&2
-              echo "Timed out waiting for required checks to appear" >&2
+            if [ "${attempt}" -eq 60 ]; then
+              echo "Timed out waiting for required check runs on ${HEAD_SHA}" >&2
               exit 1
             fi
             sleep 10
