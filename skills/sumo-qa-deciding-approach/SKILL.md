@@ -105,7 +105,7 @@ When **no canonical approach fits**, decide whether the intent involves a tool, 
 
 User: "create a test plan for refactoring the pricing pipeline".
 - Internally: refactor of pricing logic — behaviour-preserving, so characterization tests pin behaviour before any code moves.
-- Route to `sumo-qa-creating-test-plan` (which loads its own catalogues — `standards`, `rules`, `techniques` — and is the place to ground any principle citation in user-facing output).
+- Route to `sumo-qa-creating-test-plan` (which loads its own catalogues — `standards`, `rules`, `techniques`, `principles` — and is the place to ground any principle citation in user-facing output).
 
 User: "audit our test coverage across the repo and design where to invest QA effort next quarter".
 - Internally return `{classification: "n/a", approach: "strategy-orchestration", rationale: "Repo-wide QA strategy ask, not a single change-shaped intent.", next_action: {skill: "sumo-qa-strategising"}}`.
