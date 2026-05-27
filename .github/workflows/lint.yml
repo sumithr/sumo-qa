@@ -43,6 +43,27 @@ jobs:
       - name: ruff format --check
         run: python -m ruff format --check .
 
+  mypy:
+    name: mypy (static type check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev,vertex]"
+
+      # Config (target version, paths, narrow ignores) lives in [tool.mypy]
+      # in pyproject.toml so local and CI runs stay identical.
+      - name: mypy
+        run: python -m mypy
+
   shellcheck:
     name: shellcheck
     # CI mirror of the shellcheck-py pre-commit hook so a contributor who

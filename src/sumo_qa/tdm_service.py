@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from sumo_qa.tdm_catalogue import TestDataCatalogue
 from sumo_qa.tdm_models import (
+    TDMConfidenceLevel,
     TestDataConfidence,
     TestDataEntry,
     TestDataFindResponse,
@@ -341,7 +342,7 @@ def _find_confidence_reason(results: list[TestDataSearchResult]) -> str:
     return f"Confidence: {best.validation.confidence.level.title()} because top match {best.validation.validation_reason}"
 
 
-def _aggregate_confidence(levels: list[str]) -> str:
+def _aggregate_confidence(levels: list[str]) -> TDMConfidenceLevel:
     if not levels:
         return "low"
     if "high" in levels:

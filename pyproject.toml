@@ -73,6 +73,14 @@ dev = [
   # (upstream bug in 0.10.1); revisit when > 0.10.x ships.
   "pytest-check-links>=0.10,<1",
   "ruff>=0.5,<1",
+  # Static type checking — see [tool.mypy]. mypy is pure-Python (no Node
+  # toolchain), matching the project's Python-only CI. types-PyYAML supplies
+  # the stubs PyYAML doesn't ship inline. hatchling (the build backend) lets
+  # tests/test_wheel_packaging.py build the wheel offline via
+  # `pip wheel --no-build-isolation` and inspect it for the py.typed marker.
+  "mypy>=2,<3",
+  "types-PyYAML>=6,<7",
+  "hatchling>=1.25",
   "pre-commit>=3.7,<5",
   # Windows ships no system tz database; Hypothesis `st.timezones()` strategy
   # needs `tzdata` to enumerate IANA zones via stdlib `zoneinfo`.
@@ -125,6 +133,20 @@ pythonpath = ["src", "."]
 testpaths = ["tests"]
 addopts = "-q --cov=src/sumo_qa --cov-fail-under=100"
 
+[tool.mypy]
+# Make the `Typing :: Typed` classifier real: type-check the shipped package.
+# Targets the lowest supported runtime (requires-python = ">=3.10") so the
+# checker flags any 3.11+-only syntax/typing the package can't use.
+python_version = "3.10"
+files = ["src/sumo_qa"]
+# Surface accidentally-unused suppressions so the narrow ignores below don't
+# rot silently once the underlying dynamic surface changes.
+warn_unused_ignores = true
+warn_redundant_casts = true
+# Tests are intentionally out of scope — no full strict-mode conversion across
+# the suite (per issue #75 non-goals). mcp and pydantic ship their own py.typed,
+# so only PyYAML needs the types-PyYAML stubs declared in the dev extras.
+
 [tool.mutmut]
 # Target only the four parser/decision modules per the Phase 3 strategy.
 # Other modules (installer, server, tdm_*) aren't included in this baseline.
@@ -145,6 +167,10 @@ pytest_add_cli_args = [
   "-x",
   "--ignore=tests/test_e2e_mcp_initialize.py",
   "--ignore=tests/test_tools_list_contract.py",
+  # Builds a wheel via a subprocess; under mutmut the CWD is mutants/, so the
+  # build would target the incomplete mutated tree. Same exclusion rationale as
+  # the E2E tests above — it exercises packaging, not the four mutated modules.
+  "--ignore=tests/test_wheel_packaging.py",
 ]
 tests_dir = ["tests/"]
 # mutmut only copies paths_to_mutate modules into mutants/src/sumo_qa/, leaving the

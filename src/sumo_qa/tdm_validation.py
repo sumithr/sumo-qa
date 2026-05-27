@@ -6,6 +6,7 @@ from typing import Protocol
 
 from sumo_qa.tdm_models import (
     FreshnessMetadata,
+    FreshnessStatus,
     TDMConfidenceLevel,
     TestDataConfidence,
     TestDataEntry,
@@ -66,6 +67,7 @@ def assess_freshness(
         )
     validated_at = _ensure_aware(last_validated_at)
     age_days = max((reference - validated_at).days, 0)
+    status: FreshnessStatus
     if age_days <= 7:
         status = "fresh"
         reason = f"Validated {age_days} day(s) ago."

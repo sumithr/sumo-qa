@@ -242,6 +242,11 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
         stderr=subprocess.PIPE,
         text=True,
     )
+    # ``stdin=subprocess.PIPE`` guarantees ``proc.stdin`` is a real stream, but
+    # typeshed types it as ``IO[str] | None``. Bind + assert once so the writes
+    # below type-check without a None-guard on every line.
+    stdin = proc.stdin
+    assert stdin is not None
     line_queue = _start_stdout_reader(proc)
     deadline = time.monotonic() + _HANDSHAKE_TIMEOUT_SECONDS
     extra: list[str] = []
@@ -251,8 +256,8 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     timed_out = False
 
     try:
-        proc.stdin.write(init_req + "\n")
-        proc.stdin.flush()
+        stdin.write(init_req + "\n")
+        stdin.flush()
         init_resp = _read_json_rpc_response(
             line_queue=line_queue,
             expected_id=1,
@@ -261,10 +266,10 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
             pending_responses=pending,
         )
         if init_resp is not None:
-            proc.stdin.write(initialized_note + "\n")
-            proc.stdin.flush()
-            proc.stdin.write(tools_req + "\n")
-            proc.stdin.flush()
+            stdin.write(initialized_note + "\n")
+            stdin.flush()
+            stdin.write(tools_req + "\n")
+            stdin.flush()
             tools_resp = _read_json_rpc_response(
                 line_queue=line_queue,
                 expected_id=2,

@@ -241,6 +241,9 @@ repos:
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
           - "pytest-cov>=6,<7"
+          # Build backend — tests/test_wheel_packaging.py builds the wheel via
+          # `pip wheel --no-build-isolation` to assert it ships py.typed.
+          - "hatchling>=1.25"
           # tomllib stdlib backport for Python 3.10 (used by
           # plugin_packaging.canonical + tests/test_plugin_metadata.py).
           # 3.11+ ignores this via the marker.

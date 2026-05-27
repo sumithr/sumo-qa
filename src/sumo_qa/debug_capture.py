@@ -22,6 +22,14 @@ def maybe_capture(*, tool: str, args: dict[str, Any], output: dict[str, Any]) ->
 
     Returns the `output` dict unchanged so callers can wrap returns
     inline: `return maybe_capture(tool=..., args=..., output=...)`.
+
+    Typing note: the FastMCP tool functions annotate their return as the
+    Pydantic *output-schema* model union (which drives the tool's
+    ``outputSchema``) but actually return the ``model_dump(mode="json")`` dict
+    this helper passes straight through. The schema-model-vs-dict gap is the
+    documented FastMCP dynamic boundary, so those call sites carry a narrow
+    ``# type: ignore[return-value]``; changing the annotation to ``dict`` would
+    alter the published tool contract.
     """
     debug_dir = os.environ.get("SUMO_QA_DEBUG_DIR")
     if not debug_dir:
