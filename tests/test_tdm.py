@@ -100,6 +100,11 @@ def test_explain_requirements_enriches_auth_locked_account_scenario() -> None:
     assert "locked" in blob, (
         "auth locked-account scenario must enrich requirements with a locked-state signal"
     )
+    # MFA sub-rule must also fire — the question explicitly names it.
+    # Pinning the phrase here means future regressions to the MFA rule
+    # (renamed enrolment field, dropped item, mis-keyed dict) fail loudly
+    # instead of silently passing through line-coverage.
+    assert "mfa" in blob, "MFA sub-rule must enrich when the question names MFA"
     # Universal skeleton remains (additivity, not replacement).
     assert result["required_entity_characteristics"], (
         "skeleton entity-characteristics still present"
@@ -124,6 +129,12 @@ def test_explain_requirements_enriches_billing_refund_scenario() -> None:
 
     blob = _all_list_values(result)
     assert "refund" in blob, "billing refund scenario must enrich with refund-state signal"
+    # The paid-invoice sub-rule must also fire — the question names "paid
+    # invoice" verbatim. Pinning a `paid` token in the enriched output
+    # catches regressions to that sub-rule that line-coverage misses.
+    assert "paid" in blob, (
+        "paid-invoice sub-rule must enrich when the question names a paid invoice"
+    )
     # Universal skeleton remains.
     assert result["required_entity_characteristics"]
     assert result["resource_state_conditions"]
@@ -147,6 +158,12 @@ def test_explain_requirements_enriches_inventory_product_scenario() -> None:
     assert "discontinued" in blob, (
         "inventory discontinued-product scenario must enrich with a discontinued-state signal"
     )
+    # The SKU and stock sub-rules must also fire — the question names
+    # both `discontinued-SKU` and `stock` verbatim. Pinning each phrase
+    # catches regressions individually instead of relying on the
+    # discontinued assertion to mask their failure.
+    assert "sku" in blob, "SKU sub-rule must enrich when the question names a SKU"
+    assert "stock" in blob, "stock sub-rule must enrich when the question names stock state"
     # Universal skeleton remains.
     assert result["required_entity_characteristics"]
     assert result["resource_state_conditions"]
@@ -199,18 +216,89 @@ def test_explain_requirements_enriches_boundary_and_degraded_state_scenarios() -
 def test_explain_requirements_keeps_general_baseline_clean_with_no_scenario_signals() -> None:
     """Invariant: a question with NO scenario keywords and NO explicit
     domain produces the universal skeleton alone — no scenario-specific
-    items leak in. Guards against false positives in the keyword matcher."""
+    items leak in. Guards against false positives in the keyword matcher.
+
+    Forbidden list is intentionally broader than the R1–R4 happy-path
+    keywords so a sub-rule leaking into the no-signal baseline fails this
+    assertion even if that sub-rule isn't separately phrase-pinned
+    elsewhere."""
     result = service().qa_explain_test_data_requirements(
         "What data do I need to verify the happy path on this feature?",
         environment="integration",
     )
     blob = _all_list_values(result)
-    # None of the scenario-specific signals from R1–R4 should appear.
-    for forbidden in ("locked", "refund", "discontinued", "due-date", "stale"):
+    forbidden_keywords = (
+        # R1: auth
+        "locked",
+        "mfa",
+        "token replay",
+        # R2: billing/payments
+        "refund",
+        "paid invoice",
+        "duplicate payment",
+        "rounding",
+        # R3: inventory
+        "sku",
+        "stock",
+        "discontinued",
+        "backorder",
+        # R4: boundary / degraded
+        "due-date",
+        "stale",
+    )
+    for forbidden in forbidden_keywords:
         assert forbidden not in blob, (
             f"signal-free question must NOT trigger enrichment, but '{forbidden}' leaked"
         )
     assert result["domain"] == "general"
+    assert result["validation_source"] == "requirements-heuristic"
+
+
+def test_explain_requirements_rejects_locked_substring_false_positive() -> None:
+    """`unlocked` must NOT trigger the locked-account rule — the keyword
+    matcher uses word boundaries, not bare substring. Regression test
+    for the codex review finding on issue #78: substring `locked` inside
+    `unlocked` would otherwise pull locked-account requirements into an
+    unlock-flow question."""
+    result = service().qa_explain_test_data_requirements(
+        "What data do I need to test the unlocked-account fast-path?",
+        environment="integration",
+        domain="auth",
+    )
+    blob = _all_list_values(result)
+    # The locked-account enrichment must NOT fire — its specific phrases
+    # ("account is in the locked state", "user-account record with a
+    # stable identifier and a 'locked' status field") would only appear
+    # if `unlocked` mis-matched `locked`.
+    assert "locked state" not in blob, (
+        "word-boundary matcher must NOT enrich on `unlocked` (false positive of bare substring)"
+    )
+    assert "'locked' status field" not in blob, (
+        "locked-account entity-characteristic must NOT fire on `unlocked`"
+    )
+    # The universal skeleton still applies.
+    assert result["domain"] == "auth"
+    assert result["validation_source"] == "requirements-heuristic"
+
+
+def test_explain_requirements_rejects_currency_substring_false_positive() -> None:
+    """`concurrency` must NOT trigger the currency-rounding rule — the
+    keyword matcher uses word boundaries. Regression test for the codex
+    review finding on issue #78: substring `currency` inside
+    `concurrency` would otherwise pull currency-rounding edge cases into
+    a concurrency-control question."""
+    result = service().qa_explain_test_data_requirements(
+        "What data do I need to test concurrency safety on the payment endpoint?",
+        environment="integration",
+        domain="billing",
+    )
+    blob = _all_list_values(result)
+    # The currency-rounding enrichment phrase must NOT appear.
+    assert "rounding boundary" not in blob, (
+        "word-boundary matcher must NOT enrich on `concurrency` (false positive of bare substring)"
+    )
+    assert "minor-unit" not in blob, "currency-rounding edge case must NOT fire on `concurrency`"
+    assert result["domain"] == "billing"
     assert result["validation_source"] == "requirements-heuristic"
 
 

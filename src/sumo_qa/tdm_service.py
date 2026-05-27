@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -521,12 +522,24 @@ _SCENARIO_RULES: tuple[dict[str, Any], ...] = (
 
 def _scenario_rules(question: str) -> list[dict[str, Any]]:
     """Return scenario enrichment rules whose keywords appear in the
-    question text. Case-insensitive substring match — deterministic, no
-    LLM, no network. Multiple rules can match a single question; each
+    question text. Case-insensitive WORD-BOUNDARY match — deterministic,
+    no LLM, no network. Multiple rules can match a single question; each
     contributes items to whichever existing list field on
-    :class:`TestDataRequirements` is the natural home for its scenario."""
+    :class:`TestDataRequirements` is the natural home for its scenario.
+
+    Word-boundary anchoring (``\\b``) prevents short keywords from
+    misfiring on incidental substrings: ``locked`` no longer matches
+    ``unlocked``; ``currency`` no longer matches ``concurrency``;
+    ``stock`` no longer matches ``stockholm``. Multi-word keywords
+    (``token replay``, ``paid invoice``) still match exactly because
+    ``re.escape`` escapes the space and ``\\b`` straddles the
+    non-word characters at each end."""
     text = question.lower()
-    return [rule for rule in _SCENARIO_RULES if any(kw in text for kw in rule["keywords"])]
+    return [
+        rule
+        for rule in _SCENARIO_RULES
+        if any(re.search(rf"\b{re.escape(kw)}\b", text) for kw in rule["keywords"])
+    ]
 
 
 def _clean(value: str | None) -> str | None:
