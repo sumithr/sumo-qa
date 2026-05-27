@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/sumithr/sumo-qa/compare/v0.14.0...v0.15.0) (2026-05-27)
+
+
+### Features
+
+* scenario-aware enrichment in explain_test_data_requirements ([#185](https://github.com/sumithr/sumo-qa/issues/185)) ([273e2a4](https://github.com/sumithr/sumo-qa/commit/273e2a4f093c2d0e4dfa946364cfc4dc71996b71))
+
 ## [0.14.0](https://github.com/sumithr/sumo-qa/compare/v0.13.0...v0.14.0) (2026-05-27)
 
 
