@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-deciding-approach
-description: Use as the FIRST step on any QA intent. Loads classifications, approaches, rules, and standards via the sumo_qa_load_* tools, then reasons over the user's intent to pick the canonical approach. Routes to the matching sub-skill.
+description: Use as the FIRST step on any QA intent. Loads classifications + approaches (the two needed to route), then reasons over the user's intent to pick the canonical approach and routes to the matching sub-skill (which loads any further catalogues on demand).
 ---
 
 # Deciding the QA approach
@@ -22,14 +22,13 @@ SHAPE FIRST, then REACHABILITY. Decide single-change vs repo-wide vs `no-tests-r
 Track these as an ordered work list (use the host's task primitive if available, otherwise a numbered inline tracker) and complete in order:
 
 1. Read the user's intent verbatim and any supplied target paths.
-2. Call `sumo_qa_load_classifications()` and `sumo_qa_load_approaches()`. Read both catalogues.
-3. Call `sumo_qa_load_principles()` if a principle citation is needed in the output.
-4. Reason about classification: which catalogue entry applies? Cite the words / paths internally.
-5. Reason about shape: single change vs repo-wide / strategy ask vs config tweak vs docs-only? Strategy-shaped asks ("audit", "strategy", "pyramid", "rollout") route to `strategy-orchestration` — do NOT force per-change output.
-6. Run the removability gate BEFORE picking a test-writing approach. If the user named target paths and the code is orphaned — zero internal callers, zero CI/workflow refs, zero README/docs refs, no entry-point declaration (`pyproject [project.scripts]`, `package.json scripts`, etc.) — set the approach to `recommend-removal` regardless of natural classification, and surface the reachability evidence in the rationale. If reachability is genuinely ambiguous (external cron, hand-invoked tooling, public CLI), ask ONE clarifying question. Do NOT collapse this into `no-tests-recommended` (that's for behaviour-less changes — docs, typos); `recommend-removal` is for dead production-shaped code that should be deleted.
-7. Pick the approach. The catalogue is authoritative; use `n/a` for approach only when no catalogue approach fits and capture the non-canonical surface in `rationale`.
-8. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question. Otherwise, do not ask.
-9. Return INTERNALLY using the Routing-payload shape below — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; it produces what the user sees.
+2. Call `sumo_qa_load_classifications()` and `sumo_qa_load_approaches()` — the only catalogues this router loads (see *Catalogue responsibilities*).
+3. Reason about classification: which catalogue entry applies? Cite the words / paths internally.
+4. Reason about shape: single change vs repo-wide / strategy ask vs config tweak vs docs-only? Strategy-shaped asks ("audit", "strategy", "pyramid", "rollout") route to `strategy-orchestration` — do NOT force per-change output.
+5. Run the removability gate BEFORE picking a test-writing approach. If the user named target paths and the code is orphaned — zero internal callers, zero CI/workflow refs, zero README/docs refs, no entry-point declaration (`pyproject [project.scripts]`, `package.json scripts`, etc.) — set the approach to `recommend-removal` regardless of natural classification, and surface the reachability evidence in the rationale. If reachability is genuinely ambiguous (external cron, hand-invoked tooling, public CLI), ask ONE clarifying question. Do NOT collapse this into `no-tests-recommended` (that's for behaviour-less changes — docs, typos); `recommend-removal` is for dead production-shaped code that should be deleted.
+6. Pick the approach. The catalogue is authoritative; use `n/a` for approach only when no catalogue approach fits and capture the non-canonical surface in `rationale`.
+7. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question. Otherwise, do not ask.
+8. Return INTERNALLY using the Routing-payload shape below — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; it produces what the user sees.
 
 ## Process Flow
 
@@ -67,6 +66,19 @@ Anti-patterns:
 
 For "create a test plan" / "plan QA for this story" intents, after approach is picked, route to `sumo-qa-creating-test-plan` or `sumo-qa-preparing-for-work` per user phrasing. For "how do I test this?" intents that don't fit any specific approach, route to `sumo-qa-answering-testing-question`.
 
+## Catalogue responsibilities (lazy-load contract)
+
+This router loads ONLY `load_classifications` + `load_approaches` (step 2). Every other catalogue is the routed sub-skill's responsibility, loaded on demand:
+
+- `sumo-qa-implementing-with-tdd` / `sumo-qa-strengthening-tests` → `load_techniques`.
+- `sumo-qa-reviewing-before-merge` → `load_classifications` + `load_standards` + `load_rules`.
+- `sumo-qa-creating-test-plan` → `load_standards` + `load_rules` + `load_techniques` + `load_principles`.
+- `sumo-qa-preparing-for-work` → `load_standards` + `load_rules` + `load_techniques`.
+- `sumo-qa-strategising` → `load_principles` + `load_classifications`.
+- `sumo-qa-answering-testing-question` → `load_principles` + `load_techniques`.
+
+This router does NOT load `load_principles` — the routing payload's `rationale` is internal scratch (not user output), and the sub-skill that cites a principle in its user-facing output is the one that loads it.
+
 ## Fallback to external skills
 
 When **no canonical approach fits**, decide whether the intent involves a tool, framework, or QA surface sumo-qa's native skills don't cover — Playwright/Cypress E2E, accessibility audits, k6/Locust load tests, Pact contract tests, flaky-test quarantine. If yes → return `classification: "n/a"`, `approach: "n/a"`, `next_action: {skill: "sumo-qa-suggesting-external-skill", entry_kind: "qa"}` with the inferred surface in the rationale. If no (it fits a native sub-skill on closer look) → continue native routing.
@@ -93,8 +105,7 @@ When **no canonical approach fits**, decide whether the intent involves a tool, 
 
 User: "create a test plan for refactoring the pricing pipeline".
 - Internally: refactor of pricing logic — behaviour-preserving, so characterization tests pin behaviour before any code moves.
-- Cite ISTQB Principle 4 (defects cluster — refactor risks bugs at extraction boundaries).
-- Route to `sumo-qa-creating-test-plan`.
+- Route to `sumo-qa-creating-test-plan` (which loads its own catalogues — `standards`, `rules`, `techniques`, `principles` — and is the place to ground any principle citation in user-facing output).
 
 User: "audit our test coverage across the repo and design where to invest QA effort next quarter".
 - Internally return `{classification: "n/a", approach: "strategy-orchestration", rationale: "Repo-wide QA strategy ask, not a single change-shaped intent.", next_action: {skill: "sumo-qa-strategising"}}`.

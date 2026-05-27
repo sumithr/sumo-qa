@@ -31,7 +31,7 @@ SKILL_TOKEN_BUDGETS = {
     # compression lands. Cushion ~5% above measured.
     "sumo-qa-answering-testing-question": 2510,  # post-cut 2390 (was 2989, -20%)
     "sumo-qa-creating-test-plan": 1990,  # post-cut 1895 (was 2141, -11.5%)
-    "sumo-qa-deciding-approach": 2910,  # post-cut 2776 (was 3470, -20%)
+    "sumo-qa-deciding-approach": 3060,  # +#188 catalogue-responsibilities section (lazy-load contract). Measured ~2983 post-#188; cushion ~2.6%. Net runtime context tax drops because the router no longer pre-loads principles + the chain explicitly delegates loads downstream.
     "sumo-qa-executing-qa-rollout": 1960,  # post-cut 1863 (was 2109, -11.7%)
     "sumo-qa-finding-test-data": 1580,  # post-cut 1508 (was 1754, -14.0%)
     "sumo-qa-finishing-qa-work": 1920,  # post-cut 1829 (was 2039, -10.3%)
