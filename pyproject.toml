@@ -171,6 +171,14 @@ pytest_add_cli_args = [
   # build would target the incomplete mutated tree. Same exclusion rationale as
   # the E2E tests above — it exercises packaging, not the four mutated modules.
   "--ignore=tests/test_wheel_packaging.py",
+  # Spawns a `python -c` subprocess that imports the mutated
+  # knowledge_loaders.py; the mutmut trampoline references mutmut.config
+  # which is None in a fresh interpreter (no parent harness state), and the
+  # subprocess crashes with `AttributeError: 'NoneType' object has no attribute
+  # 'max_stack_depth'`. Mutmut runs the loader inside the parent harness for
+  # all in-process tests; subprocess-spawning tests need to be excluded. Same
+  # exclusion rationale as the three above.
+  "--ignore=tests/test_ingest_source_free.py",
 ]
 tests_dir = ["tests/"]
 # mutmut only copies paths_to_mutate modules into mutants/src/sumo_qa/, leaving the
