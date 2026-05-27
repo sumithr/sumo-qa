@@ -246,6 +246,16 @@ def test_main_refuses_to_mutate_claude_desktop_when_only_unsafe_on_darwin(
     unsafe_dir = _make_path_with_sumo_qa(tmp_path, "repo/.venv/bin")
     monkeypatch.setenv("PATH", str(unsafe_dir))
 
+    # Pin the interpreter to a source-checkout venv so the module-form
+    # fallback is also unsafe. On Windows shutil.which won't resolve the
+    # extensionless `sumo-qa` file, so _install_mcp_binary falls through to
+    # `<sys.executable> -m sumo_qa`; without this pin the runner's real
+    # (stable) interpreter would be accepted as a safe command and main()
+    # would NOT refuse — defeating the "only unsafe available" premise.
+    monkeypatch.setattr(
+        installer.sys, "executable", str(tmp_path / "repo" / ".venv" / "bin" / "python")
+    )
+
     # If the refusal path ever spawned the unsafe binary, the verify step
     # would call _verify_mcp_responds and we'd see it touched. A real
     # subprocess spawn from the test fixture's placeholder shell stub
