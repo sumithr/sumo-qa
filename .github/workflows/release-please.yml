@@ -86,12 +86,15 @@ jobs:
           git commit -m "chore(packaging): regenerate plugin adapters for version bump"
           git push origin "HEAD:${HEAD_BRANCH}"
 
-      # The release PR is merged automatically: RELEASE_PLEASE_TOKEN is the
+      # The release PR is merged automatically. RELEASE_PLEASE_TOKEN is the
       # repo owner's PAT, an always-bypass actor on the "Protect main"
-      # ruleset, so a plain merge clears the required-approval rule with no
-      # human review. The branch's required status checks are NOT bypassed
-      # (classic protection, enforce_admins) — we wait for them to pass first,
-      # so a broken release can never ship.
+      # ruleset — but a *plain* merge does NOT auto-bypass; GitHub still
+      # blocks it on the unmet required-approval rule. `--admin` is what
+      # invokes the bypass to merge past that rule with no human review.
+      # It does not let a broken release through: we wait for the required
+      # status checks to pass first (classic protection + enforce_admins
+      # keep them mandatory), so by the time --admin runs the checks are
+      # already green and --admin only clears the approval requirement.
       - name: Merge the release PR once required checks pass
         if: ${{ steps.release.outputs.pr }}
         timeout-minutes: 60
@@ -110,5 +113,5 @@ jobs:
           done
           gh pr checks "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
             --required --watch --fail-fast --interval 30
-          gh pr merge --squash --delete-branch \
+          gh pr merge --squash --admin --delete-branch \
             --repo "${GITHUB_REPOSITORY}" "${PR_NUMBER}"
