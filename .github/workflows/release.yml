@@ -5,6 +5,13 @@ on:
     tags:
       - "v*"
 
+# Minimum-required default token scope. The build job only checks out the
+# repo and builds artefacts; the publish job overrides below with the
+# id-token write it needs for OIDC trusted publishing. Satisfies CodeQL's
+# "workflow does not contain permissions" lint.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build wheel + sdist
