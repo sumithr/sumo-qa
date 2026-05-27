@@ -12,6 +12,12 @@ on:
   pull_request:
     branches: [main]
 
+# Minimum-required token scope. The test job only checks out the repo and
+# runs pytest against it — no write actions. Satisfies CodeQL's "workflow
+# does not contain permissions" lint.
+permissions:
+  contents: read
+
 # Cancel in-progress runs when a new push lands on the same ref.
 # Saves CI minutes during rapid iteration; the latest commit always gets the
 # definitive run. Uses `github.ref` (GitHub-computed, not attacker-supplied)
