@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.3](https://github.com/sumithr/sumo-qa/compare/v0.15.2...v0.15.3) (2026-05-27)
+
+
+### Continuous Integration
+
+* fix release-merge race on check-run registration ([#204](https://github.com/sumithr/sumo-qa/issues/204)) ([7381445](https://github.com/sumithr/sumo-qa/commit/738144509d69c52022ae44f1841d0a8a813a5163))
+
 ## [0.15.2](https://github.com/sumithr/sumo-qa/compare/v0.15.1...v0.15.2) (2026-05-27)
 
 
