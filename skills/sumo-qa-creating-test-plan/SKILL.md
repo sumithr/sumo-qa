@@ -40,7 +40,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 2. **Walk the repo for the scope** *(no user question)* — use the host's file tools. Find where the production code lives, existing tests, related callers, classification signal. Don't ask the user where things are.
 
-3. **Load the catalogues** *(no user question)* — call `sumo_qa_load_standards`, `sumo_qa_load_rules`, `sumo_qa_load_techniques`. Internal only.
+3. **Load the catalogues** *(no user question)* — call `sumo_qa_load_standards`, `sumo_qa_load_rules`, `sumo_qa_load_techniques`, `sumo_qa_load_principles`. Internal only. (Principles ground the user-facing plan's risk rationale — e.g. ISTQB Principle 4 "defects cluster" for refactor risk.)
 
 4. **Confirm scope, only for the AMBIGUOUS parts** — present a short paragraph of what you FOUND (file paths, callers, existing tests). Then ask ONE focused question for whatever the code DIDN'T make clear. If exploration left nothing ambiguous, skip the question and move to step 5.
 

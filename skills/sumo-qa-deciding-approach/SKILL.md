@@ -72,7 +72,8 @@ This router loads ONLY `load_classifications` + `load_approaches` (step 2). Ever
 
 - `sumo-qa-implementing-with-tdd` / `sumo-qa-strengthening-tests` → `load_techniques`.
 - `sumo-qa-reviewing-before-merge` → `load_classifications` + `load_standards` + `load_rules`.
-- `sumo-qa-creating-test-plan` / `sumo-qa-preparing-for-work` → `load_standards` + `load_rules` + `load_techniques`.
+- `sumo-qa-creating-test-plan` → `load_standards` + `load_rules` + `load_techniques` + `load_principles`.
+- `sumo-qa-preparing-for-work` → `load_standards` + `load_rules` + `load_techniques`.
 - `sumo-qa-strategising` → `load_principles` + `load_classifications`.
 - `sumo-qa-answering-testing-question` → `load_principles` + `load_techniques`.
 
