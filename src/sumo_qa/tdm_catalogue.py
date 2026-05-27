@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from sumo_qa.tdm_models import TestDataEntry
+from sumo_qa.tdm_models import RegisterAction, TestDataEntry
 
 
 class TestDataCatalogue:
@@ -79,7 +79,9 @@ class TestDataCatalogue:
             results.append(entry)
         return results
 
-    def register(self, entry: TestDataEntry) -> tuple[str, TestDataEntry, str, str | None]:
+    def register(
+        self, entry: TestDataEntry
+    ) -> tuple[RegisterAction, TestDataEntry, str, str | None]:
         self.root.mkdir(parents=True, exist_ok=True)
         path = self._path_for(entry.domain)
         payload = _load_file(path)

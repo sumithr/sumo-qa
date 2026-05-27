@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 TDMConfidenceLevel = Literal["low", "medium", "high"]
 FreshnessStatus = Literal["fresh", "aging", "stale", "unknown", "not_applicable"]
+RegisterAction = Literal["created", "updated", "duplicate"]
 
 
 class FreshnessMetadata(BaseModel):
@@ -115,7 +116,7 @@ class TestDataRegisterResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tool: Literal["sumo_qa_register_known_good_test_data"] = "sumo_qa_register_known_good_test_data"
-    action: Literal["created", "updated", "duplicate"]
+    action: RegisterAction
     entry: TestDataEntry
     validation: ValidationResult
     catalogue_path: str
@@ -133,5 +134,7 @@ for _model in (
     TestDataValidateResponse,
     TestDataRegisterResponse,
 ):
-    _model.__test__ = False
+    # Pydantic's ModelMetaclass has no static ``__test__``; this is a dynamic
+    # pytest-collection opt-out attribute, invisible to the type checker.
+    _model.__test__ = False  # type: ignore[union-attr]
 del _model

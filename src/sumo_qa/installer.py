@@ -859,6 +859,11 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
         stderr=subprocess.PIPE,
         text=True,
     )
+    # ``stdin=subprocess.PIPE`` guarantees ``proc.stdin`` is a real stream, but
+    # typeshed types it as ``IO[str] | None``. Bind + assert once so the writes
+    # below type-check without a None-guard on every line.
+    stdin = proc.stdin
+    assert stdin is not None
     # Spawn the stdout reader thread once per process so both
     # ``_read_json_rpc_response`` calls (id=1 and id=2) share the same queue.
     # Cross-platform timeout falls out of ``queue.get(timeout=...)`` — no
@@ -877,8 +882,8 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
     pending_responses: collections.deque[dict] = collections.deque()
     try:
         # Step 1: initialize.
-        proc.stdin.write(init_req + "\n")
-        proc.stdin.flush()
+        stdin.write(init_req + "\n")
+        stdin.flush()
         init_resp = _read_json_rpc_response(
             line_queue=line_queue,
             expected_id=1,
@@ -888,12 +893,12 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
         )
 
         # Step 2: notifications/initialized — no response on the wire.
-        proc.stdin.write(initialized_note + "\n")
-        proc.stdin.flush()
+        stdin.write(initialized_note + "\n")
+        stdin.flush()
 
         # Step 3: tools/list.
-        proc.stdin.write(tools_req + "\n")
-        proc.stdin.flush()
+        stdin.write(tools_req + "\n")
+        stdin.flush()
         tools_resp = _read_json_rpc_response(
             line_queue=line_queue,
             expected_id=2,
@@ -1003,8 +1008,12 @@ def _start_stdout_reader(proc: subprocess.Popen) -> queue.Queue:
     q: queue.Queue = queue.Queue()
 
     def _pump() -> None:
+        # ``stdout=subprocess.PIPE`` guarantees a real stream; typeshed types it
+        # as ``IO[Any] | None``, so narrow once before the blocking read loop.
+        stdout = proc.stdout
+        assert stdout is not None
         try:
-            for line in iter(proc.stdout.readline, ""):
+            for line in iter(stdout.readline, ""):
                 q.put(line)
         finally:
             q.put(None)  # EOF sentinel

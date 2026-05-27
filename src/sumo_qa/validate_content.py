@@ -67,7 +67,7 @@ def _check_change_rules(repo_root: Path, r: _Report) -> None:
     except (ValueError, yaml.YAMLError) as exc:
         r.err(f"{path.relative_to(repo_root)}: {exc}")
         return
-    rule_count = len(engine._rules)  # type: ignore[attr-defined]
+    rule_count = len(engine._rules)
     if rule_count == 0:
         r.warn(f"{path.relative_to(repo_root)}: parsed OK but contains zero rules")
     else:

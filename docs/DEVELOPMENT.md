@@ -18,7 +18,7 @@ git clone <repo>
 cd sumo-qa
 python -m venv .venv                                # any venv tool works; uv users: `uv venv`
 source .venv/bin/activate                           # Windows: .venv\Scripts\activate
-python -m pip install -e ".[dev]"                   # installs the package + pytest, ruff, pre-commit
+python -m pip install -e ".[dev]"                   # installs the package + pytest, ruff, mypy, pre-commit
 pre-commit install --install-hooks                  # ruff + hygiene hooks on every commit
 pre-commit install --hook-type pre-push             # full pytest suite on every push
 ```
@@ -122,7 +122,7 @@ pre-commit run --all-files --hook-stage pre-push    # pytest
 
 **Skipping hooks** (rare): `git commit --no-verify` or `git push --no-verify`. CI will still catch anything you skipped — use this only for genuine emergencies.
 
-Hooks are pinned in `.pre-commit-config.yaml` and mirror `.github/workflows/lint.yml` + `.github/workflows/test.yml`, so passing the hooks locally guarantees CI passes.
+Hooks are pinned in `.pre-commit-config.yaml` and mirror `.github/workflows/lint.yml` + `.github/workflows/test.yml`, so passing the hooks locally clears the ruff and pytest gates. One CI lint gate is intentionally not a hook — `mypy` (see [Type checking](#type-checking)) — to keep `git push` fast; run `python -m mypy` before pushing to clear it too.
 
 ## Test suite
 
@@ -142,6 +142,28 @@ The full suite covers:
 - `test_tools.py` — service factory
 - `test_standards.py`, `test_rules.py` — file loading
 - `test_debug_capture.py` — `SUMO_QA_DEBUG_DIR` capture
+
+## Type checking
+
+The package ships the PEP 561 marker `src/sumo_qa/py.typed`, so the
+`Typing :: Typed` classifier in `pyproject.toml` is real — downstream
+type-checkers honour sumo-qa's annotations. `tests/test_wheel_packaging.py`
+builds the wheel and asserts the marker is inside it, so a packaging change
+that dropped it would fail the suite.
+
+Run the static type checker from the repo root:
+
+```bash
+python -m mypy        # or `uv run mypy`
+```
+
+Configuration lives in `[tool.mypy]` in `pyproject.toml` (targets Python 3.10,
+the lowest supported runtime; checks `src/sumo_qa` only — tests are out of
+scope). The `mypy` job in [`.github/workflows/lint.yml`](../.github/workflows/lint.yml)
+runs the same command on every PR. The few dynamic surfaces (FastMCP decorator
+returns, a Pydantic opt-out attribute) carry narrow `# type: ignore[<code>]`
+comments with rationale; `warn_unused_ignores` is on, so a suppression that
+stops being needed fails the check until removed.
 
 ## Branch workflow
 

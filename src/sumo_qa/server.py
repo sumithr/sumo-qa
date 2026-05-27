@@ -184,7 +184,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
-        return captured
+        return captured  # type: ignore[return-value]
 
     @mcp.tool(annotations=_read_only_local)
     def sumo_qa_find_test_data(
@@ -254,7 +254,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
-        return captured
+        return captured  # type: ignore[return-value]
 
     @mcp.tool(annotations=_read_only_local)
     def sumo_qa_validate_test_data(
@@ -283,7 +283,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
-        return captured
+        return captured  # type: ignore[return-value]
 
     @mcp.tool(annotations=_writer_local)
     def sumo_qa_register_known_good_test_data(
@@ -326,7 +326,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             },
             output=output,
         )
-        return captured
+        return captured  # type: ignore[return-value]
 
     @mcp.tool(annotations=_writer_local)
     def sumo_qa_ingest_knowledge_pack(
@@ -432,7 +432,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             output = _search_external_skills(query)
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
-        return maybe_capture(
+        return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_search_external_skills",
             args={"query": query},
             output=output,
@@ -452,10 +452,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             output = _check_external_skill_installed(skill, scope=scope)
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
-        return maybe_capture(
+        return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_check_external_skill_installed",
             args={"skill": skill, "scope": scope},
-            output=output,
+            output=output,  # type: ignore[arg-type]
         )
 
     @mcp.tool(annotations=_writer_external)
@@ -481,7 +481,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             )
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
-        return maybe_capture(
+        return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_install_external_skill",
             args={
                 "skill": skill,
@@ -508,7 +508,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             output = _execute_external_skill(skill=skill, intent=intent, scope=scope)
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _hint_for_external_skill_exception(exc))
-        return maybe_capture(
+        return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_execute_external_skill",
             args={"skill": skill, "intent": intent, "scope": scope},
             output=output,
