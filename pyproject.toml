@@ -167,6 +167,13 @@ pytest_add_cli_args = [
   "-x",
   "--ignore=tests/test_e2e_mcp_initialize.py",
   "--ignore=tests/test_tools_list_contract.py",
+  # Spawns `python -m sumo_qa.ingest` / `-c` subprocesses with
+  # PYTHONPATH=REPO_ROOT/src. Under mutmut REPO_ROOT resolves to mutants/, so
+  # the subprocess imports the mutmut-instrumented knowledge_loaders whose
+  # trampoline calls record_trampoline_hit with an unset mutmut.config
+  # (AttributeError: 'NoneType' has no 'max_stack_depth') and exits non-zero.
+  # Same subprocess/CWD incompatibility as the E2E tests above.
+  "--ignore=tests/test_ingest_source_free.py",
   # Builds a wheel via a subprocess; under mutmut the CWD is mutants/, so the
   # build would target the incomplete mutated tree. Same exclusion rationale as
   # the E2E tests above — it exercises packaging, not the four mutated modules.
