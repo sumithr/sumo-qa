@@ -86,9 +86,17 @@ jobs:
           git commit -m "chore(packaging): regenerate plugin adapters for version bump"
           git push origin "HEAD:${HEAD_BRANCH}"
 
-      - name: Merge release PR after required checks pass
+      # The release PR is merged automatically. RELEASE_PLEASE_TOKEN is the
+      # repo owner's PAT, an always-bypass actor on the "Protect main"
+      # ruleset — but a *plain* merge does NOT auto-bypass; GitHub still
+      # blocks it on the unmet required-approval rule. `--admin` is what
+      # invokes the bypass to merge past that rule with no human review.
+      # --admin also bypasses the ruleset's required status checks, so it
+      # would happily merge a red release — that's why we explicitly wait
+      # for those checks to pass below before calling it.
+      - name: Merge the release PR once required checks pass
         if: ${{ steps.release.outputs.pr }}
-        timeout-minutes: 90
+        timeout-minutes: 60
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           # Read action outputs via env to avoid inline ${{ }} expansion
@@ -97,58 +105,20 @@ jobs:
         run: |
           PR_NUMBER=$(echo "$RELEASE_PR_JSON" | jq -r '.number')
           HEAD_SHA=$(git rev-parse HEAD)
-          EXPECTED_CHECKS=$(jq -n -c '[
-            "ruff check + format",
-            "pytest (ubuntu-latest · py3.10)",
-            "pytest (ubuntu-latest · py3.11)",
-            "pytest (ubuntu-latest · py3.12)",
-            "pytest (ubuntu-latest · py3.13)",
-            "pytest (ubuntu-latest · py3.14)",
-            "pytest (macos-latest · py3.10)",
-            "pytest (macos-latest · py3.11)",
-            "pytest (macos-latest · py3.12)",
-            "pytest (macos-latest · py3.13)",
-            "pytest (macos-latest · py3.14)",
-            "pytest (windows-latest · py3.10)",
-            "pytest (windows-latest · py3.11)",
-            "pytest (windows-latest · py3.12)",
-            "pytest (windows-latest · py3.13)",
-            "pytest (windows-latest · py3.14)"
-          ]')
-          echo "Waiting for required checks on release PR #${PR_NUMBER} at ${HEAD_SHA}"
-          for attempt in {1..180}; do
-            CHECK_RUNS=$(gh api \
-              "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" \
-              --jq '.check_runs')
-            CHECKS_JSON=$(jq -n \
-              --argjson expected "${EXPECTED_CHECKS}" \
-              --argjson checks "${CHECK_RUNS}" \
-              '$checks
-                | map(select(.name as $name | $expected | index($name)))
-                | group_by(.name)
-                | map(sort_by(.started_at // .created_at) | .[-1])')
-            MISSING_CHECKS=$(jq -n -r \
-              --argjson expected "${EXPECTED_CHECKS}" \
-              --argjson checks "${CHECKS_JSON}" \
-              '$expected - ($checks | map(.name)) | .[]')
-            FAILED_CHECKS=$(echo "${CHECKS_JSON}" | jq -r '.[] | select(.status == "completed" and .conclusion != "success") | "\(.name): \(.conclusion)"')
-            if [ -n "${FAILED_CHECKS}" ]; then
-              echo "${FAILED_CHECKS}" >&2
-              exit 1
-            fi
-            PASSED_CHECK_COUNT=$(echo "${CHECKS_JSON}" | jq '[.[] | select(.status == "completed" and .conclusion == "success")] | length')
-            EXPECTED_CHECK_COUNT=$(echo "${EXPECTED_CHECKS}" | jq 'length')
-            if [ -z "${MISSING_CHECKS}" ] && [ "${PASSED_CHECK_COUNT}" -eq "${EXPECTED_CHECK_COUNT}" ]; then
-              break
-            fi
-            if [ "${attempt}" -eq 180 ]; then
-              echo "Timed out waiting for required checks on ${HEAD_SHA}" >&2
-              echo "${MISSING_CHECKS}" | sed 's/^/missing: /' >&2
-              echo "${CHECKS_JSON}" | jq -r '.[] | "\(.name): \(.status)/\(.conclusion // "pending")"' >&2
-              exit 1
-            fi
+          # The regen push above creates a fresh commit; GitHub needs a moment
+          # to create its check runs. We can't gate on `gh pr checks` here: it
+          # lists the required *contexts* as pending even when zero runs exist,
+          # so calling `--watch` too early aborts with "no checks reported".
+          # Poll the commit's actual check-runs instead, then watch.
+          for attempt in $(seq 1 60); do
+            COUNT=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" --jq '.total_count' 2>/dev/null || echo 0)
+            [ "${COUNT}" -gt 0 ] && break
+            [ "${attempt}" -eq 60 ] && { echo "no check runs appeared on ${HEAD_SHA}" >&2; exit 1; }
             sleep 10
           done
-          echo "Merging release PR #${PR_NUMBER} with branch-rule bypass"
-          gh pr merge --squash --admin --delete-branch --match-head-commit "${HEAD_SHA}" \
+          # --required watches the full required set (read from the ruleset) to
+          # completion and fails fast on the first unsuccessful check.
+          gh pr checks "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
+            --required --watch --fail-fast --interval 30
+          gh pr merge --squash --admin --delete-branch \
             --repo "${GITHUB_REPOSITORY}" "${PR_NUMBER}"
