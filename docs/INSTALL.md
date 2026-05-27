@@ -50,7 +50,7 @@ The default run covers thirteen checks:
 6. `tools_list_complete` — all 16 `REQUIRED_TOOL_NAMES` advertised
 7. `claude_code_config` — Claude Code's `claude_desktop_config.json` parseable, points at a resolvable binary
 8. `claude_code_plugin` — detects whether sumo-qa is installed via `claude plugin install` (reads `~/.claude/plugins/installed_plugins.json`); cross-checked with `claude_code_config` so a plugin-install user doesn't get a false FAIL on the pip-install config check. The plugin install is self-contained — its `.mcp.json` invokes `uvx --from ${CLAUDE_PLUGIN_ROOT} sumo-qa` ([Anthropic's canonical pattern](https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers)) so doctor's `mcp_handshake` + `tools_list_complete` checks pass via the same uvx-bootstrapped wheel
-9. `claude_desktop_config` — Claude Desktop's separate config path (macOS / Windows / Linux variations)
+9. `claude_desktop_config` — Claude Desktop's separate config path (macOS / Windows / Linux variations); WARN on macOS when the configured command lives in a source-checkout venv (`.venv`/`venv`/`env`/`.tox`/`.nox`) the Claude.app sandbox cannot launch from. With `--host claude-desktop`, the handshake probes the exact command stored in `claude_desktop_config.json`, not just `shutil.which("sumo-qa")` — so a divergence between the configured path and the current PATH is surfaced rather than masked.
 10. `codex_plugin` — detects whether sumo-qa is installed via Codex's `/plugins install` (reads `~/.codex/config.toml` for the `[plugins."sumo-qa@<marketplace>"]` section and validates the plugin cache at `~/.codex/plugins/cache/<marketplace>/sumo-qa/`)
 11. `vscode_workspace_config` — `<workspace>/.vscode/mcp.json` parseable, resolvable
 12. `vscode_user_misleading` — WARN when `~/.vscode/mcp.json` exists (VS Code never reads it; common gotcha)
@@ -244,10 +244,13 @@ The config path is **different** from the one Claude Code uses:
 The installer:
 
 1. Checks whether the parent directory exists. If not, Claude Desktop is assumed not to be installed and the step is skipped (not an error).
-2. If the config file exists, reads it and merges the `sumo-qa` key into `mcpServers` — existing entries (e.g. `obsidian`, `github`) are preserved unchanged. If the existing JSON is invalid, it is not touched and an error is printed instead.
-3. If the config file does not exist but the parent directory does, creates it with just the `sumo-qa` entry.
+2. **On macOS only** — refuses to write a command that lives in a source-checkout venv (`.venv`/`venv`/`env`/`.tox`/`.nox`). The Claude.app sandbox cannot read those locations (the same Privacy & Security wall that blocks Desktop / Documents / Downloads / iCloud paths), so a config pointing there would crash the MCP at app launch with `PermissionError: '…/.venv/pyvenv.cfg'`. If a stable install (pipx, pyenv-managed pip, Homebrew) is also on `PATH`, the installer prefers it. If only the source-checkout venv is available, the installer prints the safer install options and exits non-zero **before** touching `claude_desktop_config.json`.
+3. If the config file exists, reads it and merges the `sumo-qa` key into `mcpServers` — existing entries (e.g. `obsidian`, `github`) are preserved unchanged. If the existing JSON is invalid, it is not touched and an error is printed instead.
+4. If the config file does not exist but the parent directory does, creates it with just the `sumo-qa` entry.
 
 After install: **quit and reopen Claude Desktop** (or restart the relevant Cowork session). The `sumo-qa` MCP tools will appear in the tools panel.
+
+`sumo-qa-doctor --host claude-desktop` mirrors the safety check: it probes the exact command stored in `claude_desktop_config.json` (not just whatever `shutil.which("sumo-qa")` finds on the current shell's `PATH`) and reports `WARN` when that command is in a source-checkout venv on macOS — so a config that looks healthy from the terminal but won't launch from the app is surfaced rather than silently passed.
 
 Note: `python -m sumo_qa.installer --claude-code` also writes a `claude_desktop_config.json`, but to `~/.config/claude/` (lowercase) — a path Claude Desktop does **not** read. That write is kept for backward compatibility. The `--claude-desktop` flag is the authoritative path for Claude Desktop users.
 
@@ -450,8 +453,9 @@ python -m sumo_qa.installer --claude-code     # or omit the flag for every detec
 
 Two things to know about that installer step:
 
-1. It runs with the activated venv's `sumo-qa` first on PATH, so the absolute path it writes into Claude Code's MCP registry / `claude_desktop_config.json` / `.vscode/mcp.json` is `<repo>/.venv/bin/sumo-qa`. That binary, when invoked, runs the editable install → reads `<repo>/skills/`, `<repo>/knowledge/`, `<repo>/standards/` live.
-2. Skills get symlinked **per skill** into `~/.claude/skills/<name>` pointing at `<repo>/skills/<name>`. Editing a SKILL.md needs no further action; the host re-reads it on next invocation.
+1. It runs with the activated venv's `sumo-qa` first on PATH, so the absolute path it writes into Claude Code's MCP registry / `.vscode/mcp.json` is `<repo>/.venv/bin/sumo-qa`. That binary, when invoked, runs the editable install → reads `<repo>/skills/`, `<repo>/knowledge/`, `<repo>/standards/` live. Claude Code and VS Code launch from the user's shell, so the `.venv` path resolves fine for them.
+2. **macOS Claude Desktop is the exception.** Its sandbox can't read repo-`.venv` paths, so the installer refuses to write a `claude_desktop_config.json` entry pointing at `<repo>/.venv/bin/sumo-qa` and exits non-zero (see the [Claude Desktop section](#claude-desktop-macos-app-incl-cowork) above). To wire Claude Desktop from an editable checkout, install a stable companion (`pipx install sumo-qa`, or a pyenv / Homebrew install) first, then re-run `sumo-qa-install --claude-desktop` — the installer skips past the `.venv` candidate and uses the stable one for Claude Desktop while still using `.venv` for the other hosts. Editable dev for the *server* still works — restart Claude Desktop after each MCP server change.
+3. Skills get symlinked **per skill** into `~/.claude/skills/<name>` pointing at `<repo>/skills/<name>`. Editing a SKILL.md needs no further action; the host re-reads it on next invocation.
 
 Restart the host (or open a fresh chat) once the installer is done.
 
