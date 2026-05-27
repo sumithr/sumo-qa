@@ -836,17 +836,47 @@ def check_claude_desktop_config(
 ) -> CheckResult:
     """Verify Claude Desktop's config (separate path from Claude Code on
     macOS) is present, parseable, and resolvable.
+
+    Downgrades the underlying OK to WARN when the configured command lives
+    in a source-checkout venv on Darwin (issue #181): the file is readable
+    and the binary exists, but the macOS Claude.app sandbox can't launch
+    it. The check stays OK off Darwin — the restriction doesn't apply.
     """
     h = home or _Path.home()
     sys_name = system or _platform.system()
     config_path = _installer._claude_desktop_config_path(h, sys_name)
-    return _check_host_config(
+    base = _check_host_config(
         check_id="claude_desktop_config",
         config_path=config_path,
         not_installed_summary="Claude Desktop not detected on this machine",
         not_installed_predicate=not config_path.parent.exists(),
         install_flag="--claude-desktop",
         config_schema_key="mcpServers",
+    )
+    if base.status != "OK":
+        return base
+    command = base.details.get("command")
+    if not isinstance(command, str):
+        return base
+    if not _installer._is_unsafe_for_claude_desktop(command, sys_name):
+        return base
+    return CheckResult(
+        check_id="claude_desktop_config",
+        status="WARN",
+        summary=(
+            f"{config_path} registers sumo-qa at {command} — a source-checkout "
+            "venv path the macOS Claude Desktop sandbox cannot launch from"
+        ),
+        fix=(
+            "Re-run `sumo-qa-install --claude-desktop` from a shell where a "
+            "stable sumo-qa is first on PATH (e.g. `pipx install sumo-qa`, a "
+            "pyenv/asdf-managed install, or via Homebrew)."
+        ),
+        details={
+            "config_path": str(config_path),
+            "command": command,
+            "unsafe_for_claude_desktop": True,
+        },
     )
 
 
@@ -1109,17 +1139,69 @@ _HOST_CHOICES: tuple[str, ...] = (
 )
 
 
-def _resolve_mcp_command() -> McpCommand:
+def _resolve_mcp_command(
+    host: str | None = None,
+    system: str | None = None,
+    home: _Path | None = None,
+) -> McpCommand:
     """Mirror ``installer._install_mcp_binary``'s resolution without printing.
 
-    The installer prints its choice (good UX during install); doctor never
-    prints from the resolver — every line of output goes through the
-    renderer, so callers can swap human / JSON without re-coupling.
+    With no ``host``, returns the same PATH-first command the installer
+    would write — the legacy contract every check downstream of
+    ``run_mcp_probe`` depends on.
+
+    With ``host == "claude-desktop"``, reads
+    ``claude_desktop_config.json`` and returns the command stored there.
+    That's the command the macOS Claude.app sandbox will actually launch,
+    and it can diverge from ``shutil.which`` after the user reinstalls or
+    moves their venv (issue #181). If the file is missing, unreadable, or
+    has no sumo-qa entry, falls back to the PATH command so the rest of
+    the diagnostics still run — the missing-config case is surfaced by
+    ``check_claude_desktop_config``.
+
+    The installer prints its choice (good UX during install); doctor
+    never prints from the resolver — every line of output goes through
+    the renderer, so callers can swap human / JSON without re-coupling.
     """
+    if host == "claude-desktop":
+        sys_name = system or _platform.system()
+        h = home or _Path.home()
+        configured = _read_configured_claude_desktop_command(h, sys_name)
+        if configured is not None:
+            return configured
     existing = shutil.which("sumo-qa")
     if existing is not None:
         return McpCommand(command=str(_Path(existing).resolve()), args=[])
     return McpCommand(command=_sys.executable, args=["-m", "sumo_qa"])
+
+
+def _read_configured_claude_desktop_command(home: _Path, system: str) -> McpCommand | None:
+    """Return the ``sumo-qa`` server entry stored in
+    ``claude_desktop_config.json`` as an ``McpCommand``, or ``None`` if the
+    config is missing / unreadable / corrupt / has no entry."""
+    config_path = _installer._claude_desktop_config_path(home, system)
+    if not config_path.exists():
+        return None
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    # ``mcpServers`` is normally an object, but a user-edited config could
+    # leave it as ``null``, a list, or a string. ``(x or {}).get`` is not
+    # enough — a non-empty list / string is truthy and would propagate to
+    # ``.get`` and ``AttributeError``. Require dicts at each level.
+    mcp_servers = config.get("mcpServers") if isinstance(config, dict) else None
+    if not isinstance(mcp_servers, dict):
+        return None
+    entry = mcp_servers.get("sumo-qa")
+    if not isinstance(entry, dict):
+        return None
+    command = entry.get("command")
+    if not isinstance(command, str) or not command:
+        return None
+    raw_args = entry.get("args") or []
+    args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
+    return McpCommand(command=command, args=args)
 
 
 def _collect_checks(
@@ -1139,7 +1221,7 @@ def _collect_checks(
         check_binary_discoverable(),
         check_uvx_available(),
     ]
-    handshake, tools = run_mcp_probe(_resolve_mcp_command())
+    handshake, tools = run_mcp_probe(_resolve_mcp_command(host=host_filter))
     out.extend([handshake, tools])
     if host_filter in (None, "claude-code"):
         out.append(check_claude_code_config())
