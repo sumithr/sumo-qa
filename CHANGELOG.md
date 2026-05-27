@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.5](https://github.com/sumithr/sumo-qa/compare/v0.15.4...v0.15.5) (2026-05-27)
+
+
+### Bug Fixes
+
+* refuse unsafe Claude Desktop config on macOS ([#193](https://github.com/sumithr/sumo-qa/issues/193)) ([cc59f40](https://github.com/sumithr/sumo-qa/commit/cc59f404a9f39188122e6ff2ca77c04c0f1f26b7))
+
+
+### Continuous Integration
+
+* bump actions/checkout to v5 ([#207](https://github.com/sumithr/sumo-qa/issues/207)) ([ba05cd7](https://github.com/sumithr/sumo-qa/commit/ba05cd7190ac0eaa62c5f50e33b39b26c365c330))
+
 ## [0.15.4](https://github.com/sumithr/sumo-qa/compare/v0.15.3...v0.15.4) (2026-05-27)
 
 
