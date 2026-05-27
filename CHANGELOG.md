@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2](https://github.com/sumithr/sumo-qa/compare/v0.15.1...v0.15.2) (2026-05-27)
+
+
+### Continuous Integration
+
+* simplify release auto-merge to a bypass-actor merge ([#201](https://github.com/sumithr/sumo-qa/issues/201)) ([7043006](https://github.com/sumithr/sumo-qa/commit/704300628a72887ca8b8f3f17cf12773328d3a44))
+
 ## [0.15.1](https://github.com/sumithr/sumo-qa/compare/v0.15.0...v0.15.1) (2026-05-27)
 
 
