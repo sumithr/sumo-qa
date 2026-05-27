@@ -314,7 +314,7 @@ def main() -> int:
     cd_cmd: McpCommand | None = None
     cd_refusal: str | None = None
     if do_claude_desktop and system == "Darwin":
-        safe_cd = _select_safe_command_for_claude_desktop(system)
+        safe_cd = _select_safe_command_for_claude_desktop(system, mcp_cmd)
         if safe_cd is None:
             # Distinguish "no sumo-qa at all on PATH" from "only project-
             # checkout venvs": the user's next step differs (install vs.
@@ -437,16 +437,32 @@ def _iter_sumo_qa_on_path() -> list[str]:
     return out
 
 
-def _select_safe_command_for_claude_desktop(system: str) -> McpCommand | None:
-    """Pick the first ``sumo-qa`` on ``$PATH`` that the macOS Claude Desktop
-    sandbox can launch.
+def _select_safe_command_for_claude_desktop(
+    system: str,
+    mcp_cmd: McpCommand | None = None,
+) -> McpCommand | None:
+    """Pick a ``sumo-qa`` command the macOS Claude Desktop sandbox can launch.
 
-    - On Darwin: skip past any candidate matching the source-checkout venv
-      layout (``_is_unsafe_for_claude_desktop``); return the first
-      remaining one, or ``None`` if every candidate is unsafe (the caller
-      then refuses to mutate ``claude_desktop_config.json``).
-    - Off Darwin: the restriction doesn't apply — return the first
-      candidate, matching ``_install_mcp_binary``'s fast-path behaviour.
+    Resolution order on Darwin:
+
+    1. Walk ``$PATH`` for a ``sumo-qa`` console script outside the source-
+       checkout venv layout (``_is_unsafe_for_claude_desktop``); return the
+       first match.
+    2. If no PATH candidate is safe, fall back to ``mcp_cmd`` when it is
+       the module-form invocation (``<interpreter> -m sumo_qa``) and the
+       interpreter itself lives in a stable install location. This covers
+       the documented "no Scripts dir on PATH" case where the installer
+       settled on ``<sys.executable> -m sumo_qa``: Claude Desktop can
+       launch the interpreter from a framework / pyenv / pipx location
+       even though no console script exists on PATH.
+    3. Otherwise return ``None`` — every candidate (PATH or module-form)
+       was unsafe, and the caller refuses to mutate the config.
+
+    Off Darwin the macOS sandbox restriction does not apply, so the PATH
+    walk's first match wins. The module-form fallback there is harmless:
+    ``_is_unsafe_for_claude_desktop`` short-circuits to ``False`` off
+    Darwin, so any module-form ``mcp_cmd`` is accepted on Linux/Windows
+    too — matching ``_install_mcp_binary``'s fast-path behaviour.
 
     ``None`` distinguishes "no safe candidate" from "no candidate at all";
     both block writing the config but the caller's error message differs.
@@ -454,6 +470,12 @@ def _select_safe_command_for_claude_desktop(system: str) -> McpCommand | None:
     for candidate in _iter_sumo_qa_on_path():
         if not _is_unsafe_for_claude_desktop(candidate, system):
             return McpCommand(command=candidate, args=[])
+    if (
+        mcp_cmd is not None
+        and mcp_cmd.args == ["-m", "sumo_qa"]
+        and not _is_unsafe_for_claude_desktop(mcp_cmd.command, system)
+    ):
+        return mcp_cmd
     return None
 
 

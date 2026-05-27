@@ -21,6 +21,7 @@ Three layers under test, mirroring the issue's acceptance criteria:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -110,7 +111,7 @@ def test_selector_prefers_safe_command_when_unsafe_is_first_on_path(
     unsafe_dir = _make_path_with_sumo_qa(tmp_path, "repo/.venv/bin")
     safe_dir = _make_path_with_sumo_qa(tmp_path, ".pyenv/versions/3.13/bin")
 
-    monkeypatch.setenv("PATH", f"{unsafe_dir}{':'}{safe_dir}")
+    monkeypatch.setenv("PATH", f"{unsafe_dir}{os.pathsep}{safe_dir}")
 
     result = installer._select_safe_command_for_claude_desktop("Darwin")
 
@@ -154,11 +155,61 @@ def test_selector_accepts_unsafe_on_linux(tmp_path: Path, monkeypatch: pytest.Mo
     assert result.command == str(unsafe_dir / "sumo-qa")
 
 
+def test_selector_accepts_module_form_when_interpreter_is_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When no ``sumo-qa`` console script is on PATH but ``_install_mcp_binary``
+    already settled on the module-form invocation
+    (``<sys.executable> -m sumo_qa``), the selector accepts it as long as
+    the interpreter lives in a stable install location. This is the
+    documented "Scripts dir not on PATH" case (Microsoft-Store Python,
+    framework Python without ``$PYTHONUSERBASE/bin``) — refusing here
+    would block otherwise valid macOS Claude Desktop installs.
+    """
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    monkeypatch.setenv("PATH", str(empty_dir))
+    safe_python = "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3"
+    mcp_cmd = installer.McpCommand(command=safe_python, args=["-m", "sumo_qa"])
+
+    result = installer._select_safe_command_for_claude_desktop("Darwin", mcp_cmd=mcp_cmd)
+
+    assert result is not None, (
+        "selector must accept the module-form fallback when its interpreter "
+        "is in a stable install location; refusing here blocks safe installs"
+    )
+    assert result.command == safe_python
+    assert result.args == ["-m", "sumo_qa"]
+
+
+def test_selector_refuses_module_form_when_interpreter_is_unsafe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the module-form's interpreter is itself inside a source-checkout
+    venv layout, fallback must still refuse — Claude Desktop's sandbox
+    can't read those locations whether the path points at a console
+    script or a Python interpreter."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    monkeypatch.setenv("PATH", str(empty_dir))
+    unsafe_python = "/Users/me/proj/.venv/bin/python"
+    mcp_cmd = installer.McpCommand(command=unsafe_python, args=["-m", "sumo_qa"])
+
+    result = installer._select_safe_command_for_claude_desktop("Darwin", mcp_cmd=mcp_cmd)
+
+    assert result is None, (
+        "selector must still refuse when the module-form interpreter is "
+        "inside an unsafe venv — the sandbox restriction applies to "
+        "interpreters too, not just console scripts"
+    )
+
+
 def test_iter_skips_empty_path_segments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A ``PATH`` with an empty middle segment (``/foo::/bar``) must not
     cause ``Path('') / "sumo-qa"`` lookups — the iterator skips it."""
     safe_dir = _make_path_with_sumo_qa(tmp_path, "bin")
-    monkeypatch.setenv("PATH", f"::{safe_dir}::")
+    sep = os.pathsep
+    monkeypatch.setenv("PATH", f"{sep}{sep}{safe_dir}{sep}{sep}")
 
     candidates = installer._iter_sumo_qa_on_path()
 
@@ -240,7 +291,7 @@ def test_main_verifies_safe_command_when_unsafe_shadowed_it_on_path(
     safe_dir = _make_path_with_sumo_qa(tmp_path, "homebrew/bin")
     # Unsafe first → shutil.which picks it as mcp_cmd; selector skips past
     # it to safe_dir for cd_cmd. Verify must follow cd_cmd, not mcp_cmd.
-    monkeypatch.setenv("PATH", f"{unsafe_dir}{':'}{safe_dir}")
+    monkeypatch.setenv("PATH", f"{unsafe_dir}{os.pathsep}{safe_dir}")
 
     captured: list[installer.McpCommand] = []
     monkeypatch.setattr(installer, "_verify_mcp_responds", lambda cmd: captured.append(cmd) or True)
@@ -275,6 +326,16 @@ def test_main_refusal_message_when_no_sumo_qa_on_path(
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
     monkeypatch.setenv("PATH", str(empty_dir))
+
+    # _install_mcp_binary falls through to the `<sys.executable> -m sumo_qa`
+    # module form, which the selector now considers as a Claude-Desktop
+    # candidate. Pin the interpreter to a source-checkout venv so it's
+    # rejected as unsafe — otherwise the test outcome would depend on
+    # whether the runner's real interpreter happens to live in a stable
+    # location (CI hosted-tool Python is safe; a local .venv is not).
+    monkeypatch.setattr(
+        installer.sys, "executable", str(tmp_path / "proj" / ".venv" / "bin" / "python")
+    )
 
     # main() also calls _install_mcp_binary which would fall through to
     # the python -m sumo_qa module form. Stub the verify step so we don't

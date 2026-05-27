@@ -57,16 +57,23 @@ def test_resolve_mcp_command_for_claude_desktop_reads_configured_command(
 
 
 def test_resolve_mcp_command_default_still_uses_path(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With no --host filter, the resolver keeps the legacy PATH-first
     behaviour — this is the existing contract every other host depends on.
+
+    The mocked ``which`` result is sourced from ``tmp_path`` so that the
+    resolver's ``Path(...).resolve()`` is a no-op on every platform; a
+    hardcoded POSIX path gets a drive prefix prepended on Windows and the
+    assertion would compare ``D:\\usr\\...`` to ``/usr/...``.
     """
-    monkeypatch.setattr(doctor.shutil, "which", lambda _name: "/usr/local/bin/sumo-qa")
+    path_command = str(tmp_path / "sumo-qa")
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: path_command)
 
     cmd = doctor._resolve_mcp_command()
 
-    assert cmd.command == "/usr/local/bin/sumo-qa"
+    assert cmd.command == path_command
     assert cmd.args == []
 
 
@@ -79,11 +86,15 @@ def test_resolve_mcp_command_for_claude_desktop_falls_back_to_path_when_config_m
     """
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setattr(doctor.shutil, "which", lambda _name: "/usr/local/bin/sumo-qa")
+    # Source the mocked ``which`` result from ``tmp_path`` so the resolver's
+    # ``Path(...).resolve()`` is a no-op on every platform (see comment on
+    # ``test_resolve_mcp_command_default_still_uses_path``).
+    path_command = str(tmp_path / "sumo-qa")
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: path_command)
 
     cmd = doctor._resolve_mcp_command(host="claude-desktop", system="Darwin", home=home)
 
-    assert cmd.command == "/usr/local/bin/sumo-qa"
+    assert cmd.command == path_command
 
 
 @pytest.mark.parametrize(
@@ -113,11 +124,15 @@ def test_resolve_mcp_command_falls_back_when_config_is_malformed(
     config_dir.mkdir(parents=True)
     (config_dir / "claude_desktop_config.json").write_text(config_text, encoding="utf-8")
 
-    monkeypatch.setattr(doctor.shutil, "which", lambda _name: "/usr/local/bin/sumo-qa")
+    # Source the mocked ``which`` result from ``tmp_path`` so the resolver's
+    # ``Path(...).resolve()`` is a no-op on every platform (see comment on
+    # ``test_resolve_mcp_command_default_still_uses_path``).
+    path_command = str(tmp_path / "sumo-qa")
+    monkeypatch.setattr(doctor.shutil, "which", lambda _name: path_command)
 
     cmd = doctor._resolve_mcp_command(host="claude-desktop", system="Darwin", home=home)
 
-    assert cmd.command == "/usr/local/bin/sumo-qa"
+    assert cmd.command == path_command
 
 
 # ---------------------------------------------------------------------------
