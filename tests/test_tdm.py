@@ -54,6 +54,166 @@ def test_explain_test_data_requirements_falls_back_to_general_when_domain_omitte
     assert result["domain"] == "general"
 
 
+# ---------------------------------------------------------------------------
+# Scenario-aware enrichment of _requirements_for() — issue #78.
+#
+# Discipline: enrichment is DETERMINISTIC (keyword/phrase match on the
+# question text), ADDITIVE (the universal QA skeleton stays — these tests
+# pin its presence too), and SCHEMA-STABLE (no new fields, only existing
+# list fields get more items). The signal must NOT re-introduce phrase-
+# based domain guessing — `_detect_domain()` still returns "general" when
+# the caller omits `domain`.
+# ---------------------------------------------------------------------------
+
+
+def _all_list_values(result: dict) -> str:
+    """Flatten every list-valued enrichment field into one lowercase blob,
+    so a scenario-specific phrase can be located without pinning a single
+    field (where the phrase lands is an implementation detail; that it
+    surfaces somewhere in the requirements is the contract)."""
+    fields = (
+        "required_entity_characteristics",
+        "resource_state_conditions",
+        "scenario_preconditions",
+        "downstream_dependencies",
+        "edge_case_recommendations",
+        "what_not_to_use",
+        "assumptions",
+    )
+    chunks: list[str] = []
+    for field in fields:
+        chunks.extend(result.get(field, []))
+    return " | ".join(chunks).lower()
+
+
+def test_explain_requirements_enriches_auth_locked_account_scenario() -> None:
+    """Auth/account-state surfaces (locked account, MFA, expired token,
+    token replay) should pull scenario-specific items into the existing
+    list fields, beyond the universal skeleton."""
+    result = service().qa_explain_test_data_requirements(
+        "What data do I need to test the locked-account rejection flow when MFA is enforced?",
+        environment="integration",
+        domain="auth",
+    )
+
+    blob = _all_list_values(result)
+    assert "locked" in blob, (
+        "auth locked-account scenario must enrich requirements with a locked-state signal"
+    )
+    # Universal skeleton remains (additivity, not replacement).
+    assert result["required_entity_characteristics"], (
+        "skeleton entity-characteristics still present"
+    )
+    assert result["resource_state_conditions"], "skeleton resource-state still present"
+    assert result["edge_case_recommendations"], "skeleton edge-cases still present"
+    assert result["what_not_to_use"], "skeleton what-not-to-use still present"
+    # Deterministic reasoning, no live validation implied.
+    assert result["validation_source"] == "requirements-heuristic"
+    assert result["domain"] == "auth"
+
+
+def test_explain_requirements_enriches_billing_refund_scenario() -> None:
+    """Billing/payments surfaces (refund eligibility, paid invoice,
+    duplicate payment, currency rounding) enrich the existing list fields
+    with payment-specific scenario state."""
+    result = service().qa_explain_test_data_requirements(
+        "What data do I need to test partial refund eligibility on a paid invoice?",
+        environment="integration",
+        domain="billing",
+    )
+
+    blob = _all_list_values(result)
+    assert "refund" in blob, "billing refund scenario must enrich with refund-state signal"
+    # Universal skeleton remains.
+    assert result["required_entity_characteristics"]
+    assert result["resource_state_conditions"]
+    assert result["scenario_preconditions"]
+    # Deterministic reasoning, no live validation.
+    assert result["validation_source"] == "requirements-heuristic"
+    assert result["domain"] == "billing"
+
+
+def test_explain_requirements_enriches_inventory_product_scenario() -> None:
+    """Inventory/product surfaces (SKU, stock state, discontinued product,
+    backorder) enrich the existing list fields with inventory-specific
+    scenario state."""
+    result = service().qa_explain_test_data_requirements(
+        "What data do I need to test the discontinued-SKU fallback when stock is zero?",
+        environment="integration",
+        domain="inventory",
+    )
+
+    blob = _all_list_values(result)
+    assert "discontinued" in blob, (
+        "inventory discontinued-product scenario must enrich with a discontinued-state signal"
+    )
+    # Universal skeleton remains.
+    assert result["required_entity_characteristics"]
+    assert result["resource_state_conditions"]
+    assert result["what_not_to_use"]
+    assert result["validation_source"] == "requirements-heuristic"
+    assert result["domain"] == "inventory"
+
+
+def test_explain_requirements_enriches_boundary_and_degraded_state_scenarios() -> None:
+    """Boundary/degraded-state surfaces (due-date boundary, max/min input,
+    unavailable upstream, stale upstream record) sharpen the generic
+    'boundary values' / 'unavailable dependency' edges with the specific
+    boundary or degraded signal named in the question.
+
+    Discriminator: `"due-date"` and `"stale"` are NOT present in the
+    universal skeleton's edge-case strings (verified at issue-78
+    implementation time), so broken impl (generic-only) fails this
+    assertion; correct impl injects the specific signal and passes.
+    """
+    # Boundary side — also asserts domain-omission still resolves to
+    # "general" (the enrichment must not re-introduce phrase-based
+    # domain guessing per the issue's non-goals).
+    boundary = service().qa_explain_test_data_requirements(
+        "What data do I need to test the due-date boundary on a pending invoice?",
+        environment="integration",
+    )
+    boundary_blob = _all_list_values(boundary)
+    assert "due-date" in boundary_blob or "due date" in boundary_blob, (
+        "boundary-value scenario must enrich edges with the specific due-date signal"
+    )
+    assert boundary["domain"] == "general", (
+        "boundary-keyword question without explicit domain must still resolve to 'general' — "
+        "enrichment is NOT phrase-based domain detection"
+    )
+    assert boundary["validation_source"] == "requirements-heuristic"
+
+    # Degraded-dependency side.
+    degraded = service().qa_explain_test_data_requirements(
+        "What data do I need when the upstream rate-card service returns a stale record?",
+        environment="integration",
+        domain="billing",
+    )
+    degraded_blob = _all_list_values(degraded)
+    assert "stale" in degraded_blob, (
+        "degraded-dependency scenario must enrich edges with a stale/upstream-specific signal"
+    )
+    assert degraded["validation_source"] == "requirements-heuristic"
+
+
+def test_explain_requirements_keeps_general_baseline_clean_with_no_scenario_signals() -> None:
+    """Invariant: a question with NO scenario keywords and NO explicit
+    domain produces the universal skeleton alone — no scenario-specific
+    items leak in. Guards against false positives in the keyword matcher."""
+    result = service().qa_explain_test_data_requirements(
+        "What data do I need to verify the happy path on this feature?",
+        environment="integration",
+    )
+    blob = _all_list_values(result)
+    # None of the scenario-specific signals from R1–R4 should appear.
+    for forbidden in ("locked", "refund", "discontinued", "due-date", "stale"):
+        assert forbidden not in blob, (
+            f"signal-free question must NOT trigger enrichment, but '{forbidden}' leaked"
+        )
+    assert result["domain"] == "general"
+    assert result["validation_source"] == "requirements-heuristic"
+
+
 def test_find_test_data_explains_when_no_results() -> None:
     result = service().qa_find_test_data(
         environment="integration",
