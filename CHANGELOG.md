@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.6](https://github.com/sumithr/sumo-qa/compare/v0.15.5...v0.15.6) (2026-05-27)
+
+
+### Continuous Integration
+
+* add least-privilege permissions to test and release workflows ([#209](https://github.com/sumithr/sumo-qa/issues/209)) ([cc333ff](https://github.com/sumithr/sumo-qa/commit/cc333ff6098d140ddf3a5443532322ced85c37fd))
+
 ## [0.15.5](https://github.com/sumithr/sumo-qa/compare/v0.15.4...v0.15.5) (2026-05-27)
 
 
