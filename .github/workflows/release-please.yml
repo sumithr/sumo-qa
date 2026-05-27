@@ -49,7 +49,7 @@ jobs:
       # and push the regen as a follow-up commit on the same branch.
       - name: Checkout release PR branch
         if: ${{ steps.release.outputs.pr }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ (steps.release.outputs.pr && fromJSON(steps.release.outputs.pr).headBranchName) || '' }}
           # PAT so the follow-up push triggers required status checks
