@@ -58,7 +58,7 @@ Manage the local known-good test data catalogue under `knowledge/test_data/`. Fi
 
 | Tool | Purpose |
 |---|---|
-| `sumo_qa_explain_test_data_requirements(question, environment, domain)` | Returns the data requirements as text |
+| `sumo_qa_explain_test_data_requirements(question, environment, domain)` | Returns deterministic test-data requirements (entity / state / preconditions / edges / what-not); enriches existing fields with scenario-specific items when the question contains obvious signals (`locked`, `refund`, `discontinued`, `due-date`, `stale`, …) |
 | `sumo_qa_find_test_data(question, environment, domain, criteria)` | Looks up matching catalogue entries |
 | `sumo_qa_validate_test_data(path)` | Checks a known-good entry against its source system |
 | `sumo_qa_register_known_good_test_data(...)` | Writes a new known-good entry |

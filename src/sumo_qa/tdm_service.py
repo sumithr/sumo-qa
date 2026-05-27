@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -149,6 +150,16 @@ def _requirements_for(question: str, domain: str, environment: str | None) -> Te
     inference, retail fulfilment, infrastructure, etc.) is the AI's job —
     the AI is grounded in ISTQB risk-based testing and reads the question
     verbatim via MCP sampling.
+
+    A lightweight, *deterministic* scenario-signal pass (see
+    ``_SCENARIO_RULES``) enriches the existing list fields when obvious
+    keywords appear in the question — e.g. ``locked``, ``refund``,
+    ``discontinued``, ``due-date``, ``stale``. The enrichment is purely
+    additive (the universal skeleton stays) and never widens the schema.
+    It does NOT re-introduce phrase-based domain guessing — ``_detect_domain()``
+    still returns ``"general"`` when the caller omits ``domain``. Issue #78
+    motivated this; the rules are local, keyword-based, and free of network
+    calls or live validation.
     """
     entity_characteristics = [
         "stable identifier for the entity under test",
@@ -172,6 +183,18 @@ def _requirements_for(question: str, domain: str, environment: str | None) -> Te
         "data with unknown owner",
         "entries not validated against the target environment",
     ]
+
+    # Scenario-aware enrichment. Each matched rule contributes items to
+    # whichever existing list field is the natural home for its scenario;
+    # _dedupe() collapses any overlap between rule families and the
+    # universal skeleton.
+    for rule in _scenario_rules(question):
+        entity_characteristics.extend(rule.get("required_entity_characteristics", []))
+        resource_state_conditions.extend(rule.get("resource_state_conditions", []))
+        scenario_preconditions.extend(rule.get("scenario_preconditions", []))
+        dependencies.extend(rule.get("downstream_dependencies", []))
+        edges.extend(rule.get("edge_case_recommendations", []))
+        what_not.extend(rule.get("what_not_to_use", []))
 
     return TestDataRequirements(
         summary=(
@@ -359,8 +382,164 @@ def _detect_domain(question: str) -> str:
     produces generic requirements; pass `domain=...` to scope to whichever
     domain folder the catalogue uses (e.g. 'auth', 'billing', 'payments',
     'inventory' — whatever the team's `knowledge/test_data/` layout
-    declares)."""
+    declares).
+
+    Note: _SCENARIO_RULES enriches the requirement *lists* with scenario-
+    specific items when the question contains an obvious keyword, but it
+    deliberately does NOT touch `domain` — phrase-based domain inference
+    was removed for a reason (PR history; issue #78 keeps it out)."""
     return "general"
+
+
+# Scenario-signal rules consumed by `_requirements_for()` via
+# `_scenario_rules()`. Each rule is a `keywords` tuple + items keyed by
+# the matching field on `TestDataRequirements`; matching is lightweight
+# case-insensitive substring detection on the question text. Add a rule
+# by appending a dict — no schema change, no LLM, no network. Rule
+# families intentionally cover the issue-#78 scenarios (auth/account,
+# billing/payments, inventory/product, boundary/degraded-state).
+_SCENARIO_RULES: tuple[dict[str, Any], ...] = (
+    # --- Auth / account state ------------------------------------------------
+    {
+        "keywords": ("locked", "lockout", "lock out"),
+        "required_entity_characteristics": [
+            "user-account record with a stable identifier and a 'locked' status field",
+        ],
+        "resource_state_conditions": [
+            "account is in the locked state in the target environment per the auth provider's policy",
+        ],
+        "scenario_preconditions": [
+            "account has been locked by the configured policy (consecutive failed logins, manual lock, or admin action)",
+        ],
+        "what_not_to_use": [
+            "active accounts repurposed as 'locked' via ad-hoc flag flips — state reverts and breaks the next run",
+        ],
+    },
+    {
+        "keywords": ("mfa", "two-factor", "two factor"),
+        "required_entity_characteristics": [
+            "user account with a known MFA enrolment state and the configured second-factor channel",
+        ],
+        "resource_state_conditions": [
+            "MFA enrolment record matches the scenario (enrolled / not enrolled / partially enrolled)",
+        ],
+        "scenario_preconditions": [
+            "second-factor delivery channel is reachable in the target environment",
+        ],
+    },
+    {
+        "keywords": ("token replay", "expired token", "replay attack"),
+        "required_entity_characteristics": [
+            "auth token with a known issued-at and expiry, and the replay-detection state at that point in time",
+        ],
+        "resource_state_conditions": [
+            "replay-detection cache reflects the expected prior-use state for the token",
+        ],
+        "edge_case_recommendations": [
+            "token presented at, immediately before, and immediately after its expiry boundary",
+        ],
+    },
+    # --- Billing / payments --------------------------------------------------
+    {
+        "keywords": ("refund",),
+        "required_entity_characteristics": [
+            "invoice or payment record with a stable id, a paid state, and a known issue date",
+        ],
+        "resource_state_conditions": [
+            "invoice is in paid state and within the refund-eligibility window",
+        ],
+        "scenario_preconditions": [
+            "refund window for the invoice has not expired per the configured policy",
+        ],
+    },
+    {
+        "keywords": ("paid invoice",),
+        "resource_state_conditions": [
+            "invoice is in paid state in the target environment with the original payment record intact",
+        ],
+    },
+    {
+        "keywords": ("duplicate payment",),
+        "edge_case_recommendations": [
+            "second payment submitted within the duplicate-detection window for the same invoice",
+        ],
+    },
+    {
+        "keywords": ("currency", "rounding"),
+        "edge_case_recommendations": [
+            "amounts at the minor-unit rounding boundary in the configured currency",
+        ],
+    },
+    # --- Inventory / product -------------------------------------------------
+    {
+        "keywords": ("sku",),
+        "required_entity_characteristics": [
+            "product record with a stable SKU and a known stock state",
+        ],
+    },
+    {
+        "keywords": ("stock",),
+        "resource_state_conditions": [
+            "stock level for the SKU is in the expected state (in stock / low / zero) in the target environment",
+        ],
+    },
+    {
+        "keywords": ("discontinued",),
+        "required_entity_characteristics": [
+            "product record flagged as discontinued, with the documented replacement SKU when one exists",
+        ],
+        "what_not_to_use": [
+            "discontinued SKUs without a documented replacement — the fallback path becomes ambiguous",
+        ],
+    },
+    {
+        "keywords": ("backorder", "back order"),
+        "resource_state_conditions": [
+            "SKU is in backorder state with a known expected-restock date",
+        ],
+    },
+    {
+        "keywords": ("product id",),
+        "required_entity_characteristics": [
+            "stable product id distinct from the SKU, persisted in the target environment",
+        ],
+    },
+    # --- Boundary / degraded-state ------------------------------------------
+    {
+        "keywords": ("due-date", "due date"),
+        "edge_case_recommendations": [
+            "due-date value at, immediately before, and immediately after the boundary",
+        ],
+    },
+    {
+        "keywords": ("stale",),
+        "edge_case_recommendations": [
+            "upstream returns a stale record older than the configured freshness window",
+        ],
+    },
+)
+
+
+def _scenario_rules(question: str) -> list[dict[str, Any]]:
+    """Return scenario enrichment rules whose keywords appear in the
+    question text. Case-insensitive WORD-BOUNDARY match — deterministic,
+    no LLM, no network. Multiple rules can match a single question; each
+    contributes items to whichever existing list field on
+    :class:`TestDataRequirements` is the natural home for its scenario.
+
+    Word-boundary anchoring (``\\b``) prevents short keywords from
+    misfiring on incidental substrings: ``locked`` no longer matches
+    ``unlocked``; ``currency`` no longer matches ``concurrency``;
+    ``stock`` no longer matches ``stockholm``. Multi-word keywords
+    (``token replay``, ``paid invoice``) still match exactly because
+    ``re.escape`` escapes the space and ``\\b`` straddles the
+    non-word characters at each end."""
+    text = question.lower()
+    return [
+        rule
+        for rule in _SCENARIO_RULES
+        if any(re.search(rf"\b{re.escape(kw)}\b", text) for kw in rule["keywords"])
+    ]
 
 
 def _clean(value: str | None) -> str | None:
