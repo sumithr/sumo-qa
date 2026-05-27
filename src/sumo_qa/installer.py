@@ -306,6 +306,38 @@ def main() -> int:
 
     workspace = args.workspace.resolve() if args.workspace else Path.cwd()
 
+    # Claude Desktop on macOS launches from a sandbox that cannot read
+    # source-checkout venv paths (issue #181). Resolve a host-safe command
+    # for it BEFORE writing any host configs: if no safe candidate exists
+    # the installer refuses to mutate claude_desktop_config.json and exits
+    # non-zero, even if other hosts would have succeeded.
+    cd_cmd: McpCommand | None = None
+    cd_refusal: str | None = None
+    if do_claude_desktop and system == "Darwin":
+        safe_cd = _select_safe_command_for_claude_desktop(system)
+        if safe_cd is None:
+            # Distinguish "no sumo-qa at all on PATH" from "only project-
+            # checkout venvs": the user's next step differs (install vs.
+            # reinstall-from-a-different-shell).
+            if _iter_sumo_qa_on_path():
+                cd_refusal = (
+                    "Only project-checkout venv sumo-qa installations were "
+                    "found on PATH. macOS Claude Desktop cannot read "
+                    "source-checkout .venv paths from its sandbox. Install a "
+                    "stable sumo-qa first (`pipx install sumo-qa`, a "
+                    "pyenv/asdf-managed install, or via Homebrew), then re-run "
+                    "`sumo-qa-install --claude-desktop`."
+                )
+            else:
+                cd_refusal = (
+                    "No sumo-qa installation was found on PATH for Claude "
+                    "Desktop. Install one first (`pipx install sumo-qa`, a "
+                    "pyenv/asdf-managed install, or via Homebrew), then "
+                    "re-run `sumo-qa-install --claude-desktop`."
+                )
+        else:
+            cd_cmd = safe_cd
+
     results: list[HostResult] = []
     if do_claude:
         results.append(_setup_claude_code(mcp_cmd, system))
@@ -314,27 +346,115 @@ def main() -> int:
     if do_jetbrains:
         results.append(_setup_intellij(mcp_cmd, system))
     if do_claude_desktop:
-        results.append(_setup_claude_desktop(mcp_cmd, system))
+        if cd_refusal is not None:
+            refusal = HostResult("Claude Desktop")
+            refusal.detected = True
+            refusal.message = f"skipped (unsafe install context): {cd_refusal}"
+            results.append(refusal)
+        else:
+            results.append(_setup_claude_desktop(cd_cmd or mcp_cmd, system))
 
     print("Host setup:")
     for r in results:
         print(r.render())
 
     print()
-    ok = _verify_mcp_responds(mcp_cmd)
+    if cd_refusal is not None:
+        # Skip the verify subprocess entirely on the refusal path so we
+        # never spawn the unsafe binary, even with the verifier's own
+        # timeout guard — the install context is already known-broken.
+        print("ERROR: refused to configure Claude Desktop.")
+        print(cd_refusal)
+        return 1
+    # When ``cd_cmd`` was selected past an unsafe shadowing binary on
+    # PATH, probe the binary Claude Desktop will actually launch — not
+    # the first ``shutil.which`` result, which is exactly the unsafe
+    # path we steered around. ``cd_cmd`` is a sumo-qa binary too, so
+    # verifying it covers the runtime path the other hosts use as well.
+    verify_cmd = cd_cmd if cd_cmd is not None else mcp_cmd
+    ok = _verify_mcp_responds(verify_cmd)
     print()
     if ok:
         print("Installation complete. Restart any host you just configured.")
         return 0
     print("Installation finished but the MCP did not respond cleanly to a")
     print("JSON-RPC initialize ping. Check that the command is healthy:")
-    print(f"  {mcp_cmd.display()}")
+    print(f"  {verify_cmd.display()}")
     return 2
 
 
 # ----------------------------------------------------------------------
 # MCP binary
 # ----------------------------------------------------------------------
+
+
+# Directory-name segments that indicate a Python venv layout local to a
+# source checkout: the host that wins PATH resolution lives inside the
+# user's project. Claude Desktop on macOS launches from a sandbox that
+# cannot read these locations (Desktop / Documents / Downloads / iCloud
+# / repo .venv all hit the same Privacy & Security gate). Segment-match,
+# not substring-match: ``environment``/``venvs`` are legitimate names that
+# must NOT be flagged.
+_UNSAFE_VENV_SEGMENTS: frozenset[str] = frozenset({".venv", "venv", "env", ".tox", ".nox"})
+
+
+def _is_unsafe_for_claude_desktop(path: str, system: str) -> bool:
+    """Whether ``path`` is a sumo-qa command the Claude Desktop sandbox
+    cannot launch on macOS.
+
+    macOS-scoped per issue #181: the Privacy & Security folder-access
+    restriction only fires for the bundled .app launch context. Other OSes
+    don't have this restriction, so the predicate is a no-op (returns
+    ``False``) off Darwin — the installer keeps the fast path there.
+    """
+    if system != "Darwin":
+        return False
+    return any(p in _UNSAFE_VENV_SEGMENTS for p in Path(path).parts)
+
+
+def _iter_sumo_qa_on_path() -> list[str]:
+    """Walk ``$PATH`` and return every directory's ``sumo-qa`` executable.
+
+    ``shutil.which`` only returns the first match, but the issue's
+    central failure mode is "the source-checkout venv comes first; the
+    safe install comes second". We need to look past the first hit to
+    find the safe one, so this is a manual walk in PATH order.
+
+    Returns absolute, resolved paths; de-dupes by resolved path so a
+    symlinked directory on PATH doesn't double-count the same binary.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for dirname in os.environ.get("PATH", "").split(os.pathsep):
+        if not dirname:
+            continue
+        candidate = Path(dirname) / "sumo-qa"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            resolved = str(candidate.resolve())
+            if resolved not in seen:
+                seen.add(resolved)
+                out.append(resolved)
+    return out
+
+
+def _select_safe_command_for_claude_desktop(system: str) -> McpCommand | None:
+    """Pick the first ``sumo-qa`` on ``$PATH`` that the macOS Claude Desktop
+    sandbox can launch.
+
+    - On Darwin: skip past any candidate matching the source-checkout venv
+      layout (``_is_unsafe_for_claude_desktop``); return the first
+      remaining one, or ``None`` if every candidate is unsafe (the caller
+      then refuses to mutate ``claude_desktop_config.json``).
+    - Off Darwin: the restriction doesn't apply — return the first
+      candidate, matching ``_install_mcp_binary``'s fast-path behaviour.
+
+    ``None`` distinguishes "no safe candidate" from "no candidate at all";
+    both block writing the config but the caller's error message differs.
+    """
+    for candidate in _iter_sumo_qa_on_path():
+        if not _is_unsafe_for_claude_desktop(candidate, system):
+            return McpCommand(command=candidate, args=[])
+    return None
 
 
 def _install_mcp_binary() -> McpCommand:
