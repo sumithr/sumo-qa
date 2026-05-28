@@ -10,7 +10,22 @@
       "prerelease": false,
       "include-component-in-tag": false,
       "extra-files": [
-        "README.md"
+        "README.md",
+        {
+          "type": "json",
+          "path": ".claude-plugin/plugin.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": ".codex-plugin/plugin.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "src/sumo_qa/_data/plugin_metadata.json",
+          "jsonpath": "$.version"
+        }
       ],
       "changelog-sections": [
         {
