@@ -105,7 +105,11 @@ def test_ignores_foreign_artifact_and_scans_live(tool, tmp_path):
     out = tool(root=str(tmp_path), changed_files=["src/a.py"])
     assert out.used_live_scan is True
     assert out.artifact_path is None
-    assert out.warning_count >= 1
+    # Exactly one warning: the foreign-artifact rejection. The generic
+    # "scanned live" warning is suppressed in this path, so a count of 1
+    # proves the foreign-artifact warning specifically fired (it would be 0
+    # if that append were removed).
+    assert out.warning_count == 1
 
 
 def test_base_ref_derives_changed_files(tool, tmp_path):

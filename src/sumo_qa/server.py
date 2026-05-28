@@ -603,9 +603,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         edits", "analyse the impact of the changes against main".
 
         ``root`` is the repository. Supply ``changed_files`` (repo-relative
-        paths) OR ``base_ref`` (any git ref; changed files are derived from
-        ``git diff --name-only <base_ref>``). The repo-map is read from
-        ``artifact_path`` when present and falls back to a live scan otherwise.
+        paths) OR ``base_ref`` (any git ref; changed files are the diff against
+        the merge-base of ``base_ref`` and HEAD, so changes that landed on the
+        base after the branch diverged don't leak in). The repo-map is read
+        from ``artifact_path`` when present and falls back to a live scan
+        otherwise; an artifact for a different project root is ignored.
         ``write_overlay`` writes ``.sumo-qa/diff-impact.json`` under ``root``.
         """
         from sumo_qa.repo_map_impact import analyze_diff_impact, changed_files_from_git
@@ -669,7 +671,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             impact = analyze_diff_impact(repo_map, resolved)
             if foreign_artifact_warning is not None:
                 impact.warnings.append(foreign_artifact_warning)
-            if used_live_scan:
+            elif used_live_scan:
+                # Only the genuine no-artifact case gets this message; a
+                # rejected foreign artifact already has its own warning above.
                 impact.warnings.append(
                     RepoMapWarning(
                         kind="other",
