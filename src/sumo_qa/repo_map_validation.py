@@ -10,7 +10,15 @@ rather than parsing free-form messages.
 Categorisation prefers an actionable, specific ``kind`` over Pydantic's
 verbatim error type — ``schema_version_mismatch`` is surfaced before
 Pydantic sees the payload so a stale artifact doesn't masquerade as a
-generic literal-type error.
+generic literal-type error, and ``vocab_error`` distinguishes
+out-of-catalogue enum values (a node type typo) from a wrong-type-entirely
+mistake (a string where a list was expected).
+
+``exc.path`` is JSON-pointer-ish — it joins Pydantic's loc segments with
+``/`` but does NOT escape ``~`` or ``/`` per RFC 6901. Strict JSON Pointer
+escaping is deferred to a later slice; the first-slice fields and the
+``extra="forbid"`` constraint mean neither character can appear inside a
+field name today.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ ValidationErrorKind = Literal[
     "schema_version_mismatch",
     "missing_field",
     "unknown_field",
+    "vocab_error",
     "type_error",
     "io_error",
 ]
@@ -80,9 +89,13 @@ def load_repo_map(source: Path | str | dict) -> RepoMap:
 
 
 def _validate(data: object, *, source_label: str | None) -> RepoMap:
+    # Pre-check schema_version only when it's a string so we give a clear
+    # "your artifact says 2.0, this build is 1.0" message for the common
+    # drift case. Non-string values (null, numbers, lists) fall through to
+    # Pydantic's literal-mismatch handler, which categorises as vocab_error.
     if isinstance(data, dict):
         version = data.get("schema_version")
-        if version is not None and version != SCHEMA_VERSION:
+        if isinstance(version, str) and version != SCHEMA_VERSION:
             raise RepoMapValidationError(
                 kind="schema_version_mismatch",
                 message=(
@@ -109,4 +122,6 @@ def _classify_pydantic_error(error_type: str) -> ValidationErrorKind:
         return "missing_field"
     if error_type == "extra_forbidden":
         return "unknown_field"
+    if error_type == "literal_error":
+        return "vocab_error"
     return "type_error"

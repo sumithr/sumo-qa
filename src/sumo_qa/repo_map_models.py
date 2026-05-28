@@ -14,10 +14,11 @@ ahead of generator availability.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SCHEMA_VERSION: Final[Literal["1.0"]] = "1.0"
 
@@ -33,11 +34,14 @@ NodeType = Literal[
     "infrastructure",
 ]
 
+# `command_runs` is deliberately omitted from the slice-1 vocabulary: commands
+# have no stable id field yet, so any edge addressing one would invent its own
+# endpoint convention. The follow-up generator slice defines command ids; the
+# edge type returns then.
 EdgeType = Literal[
     "likely_tests",
     "imports",
     "configured_by",
-    "command_runs",
 ]
 
 EdgeConfidence = Literal["low", "medium", "high"]
@@ -52,6 +56,11 @@ WarningKind = Literal[
     "other",
 ]
 
+# Slice 1 enforces SHA-256 fingerprints only. Adding another hash algorithm is
+# a schema-version bump, not a soft extension — consumers can rely on the
+# format until the version changes.
+_FINGERPRINT_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
 
 class RepoMapProject(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -61,6 +70,16 @@ class RepoMapProject(BaseModel):
     git_commit: str | None = None
     generated_at: datetime
     generator_version: str
+
+    @field_validator("generated_at")
+    @classmethod
+    def _require_aware_datetime(cls, value: datetime) -> datetime:
+        # Freshness math (`age_days`, stale-after-N-days) is meaningless on a
+        # naive datetime — the absent timezone hides the real elapsed time.
+        # Pydantic accepts naive datetimes by default, so we tighten here.
+        if value.tzinfo is None:
+            raise ValueError("generated_at must be timezone-aware")
+        return value
 
 
 class RepoMapNode(BaseModel):
@@ -73,6 +92,13 @@ class RepoMapNode(BaseModel):
     category: str | None = None
     tags: list[str] = Field(default_factory=list)
     fingerprint: str | None = None
+
+    @field_validator("fingerprint")
+    @classmethod
+    def _check_fingerprint_shape(cls, value: str | None) -> str | None:
+        if value is not None and not _FINGERPRINT_RE.match(value):
+            raise ValueError("fingerprint must match 'sha256:<64 lowercase hex>'")
+        return value
 
 
 class RepoMapEdge(BaseModel):
@@ -111,3 +137,15 @@ class RepoMap(BaseModel):
     edges: list[RepoMapEdge] = Field(default_factory=list)
     commands: list[RepoMapCommand] = Field(default_factory=list)
     warnings: list[RepoMapWarning] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_unique_node_ids(self) -> RepoMap:
+        # Node ids are the lookup key downstream consumers (#156 diff-impact,
+        # #157 report) build keyed structures on. Duplicates would silently
+        # collapse two nodes into one.
+        seen: set[str] = set()
+        for node in self.nodes:
+            if node.id in seen:
+                raise ValueError(f"duplicate node id: {node.id!r}")
+            seen.add(node.id)
+        return self

@@ -66,14 +66,28 @@ extension:
 | Field | Values |
 |---|---|
 | `nodes[].type` | `source_file`, `test_file`, `docs`, `config`, `ci_workflow`, `manifest`, `fixture`, `migration_schema`, `infrastructure` |
-| `edges[].type` | `likely_tests`, `imports`, `configured_by`, `command_runs` |
+| `edges[].type` | `likely_tests`, `imports`, `configured_by` |
 | `edges[].confidence` | `low`, `medium`, `high` |
 | `commands[].kind` | `test`, `build`, `lint`, `format`, `ci_job`, `other` |
 | `warnings[].kind` | `skipped_file`, `unsupported_language`, `stale`, `schema_drift`, `other` |
 
 Unknown fields and unknown enum values are rejected — Pydantic's
 `extra="forbid"` plus literal types means downstream consumers can trust the
-vocabulary without defensive shimming.
+vocabulary without defensive shimming. Additional schema invariants enforced
+in slice 1:
+
+- `project.generated_at` must be timezone-aware; naive datetimes are
+  rejected so freshness math stays meaningful.
+- `nodes[].fingerprint`, when present, must match `sha256:<64 lowercase
+  hex>`. Other hash algorithms are a schema-version bump, not a soft
+  extension.
+- `nodes[].id` values are unique within the artifact; duplicates would
+  silently collapse downstream lookups.
+
+Edge `source`/`target` endpoints are NOT yet checked for node-membership —
+the follow-up generator slice defines id conventions for external
+references (e.g. third-party imports). Until then, a producer can emit an
+edge pointing at any string id.
 
 ## Loading + validation
 
@@ -110,8 +124,10 @@ fields let consumers detect staleness. Most teams should add the
 
 Teams that *want* shared lookup tables (e.g. CI compares the committed map
 against the regenerated one to flag silently-renamed files) can commit it
-instead — the file is deterministic on the same repo state, so noisy diffs
-shouldn't surface in normal workflow.
+instead — `nodes`, `edges`, `commands`, and `warnings` are deterministic on
+the same repo state, so the structural diff stays clean. `generated_at`
+churns on every run; CI use-cases should diff with that field masked, or
+regenerate locally before comparison.
 
 ## Scope of this slice
 

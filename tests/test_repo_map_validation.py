@@ -98,9 +98,17 @@ def test_load_unknown_field_raises_unknown_field_error():
     assert "rogue" in excinfo.value.path
 
 
-def test_load_type_error_raises_type_error_kind():
+def test_load_out_of_catalogue_node_type_raises_vocab_error():
     payload = _valid_payload()
     payload["nodes"][0]["type"] = "not_in_catalogue"
+    with pytest.raises(RepoMapValidationError) as excinfo:
+        load_repo_map(payload)
+    assert excinfo.value.kind == "vocab_error"
+
+
+def test_load_wrong_collection_type_raises_type_error():
+    payload = _valid_payload()
+    payload["nodes"] = {"this": "should be a list"}
     with pytest.raises(RepoMapValidationError) as excinfo:
         load_repo_map(payload)
     assert excinfo.value.kind == "type_error"
@@ -112,6 +120,55 @@ def test_load_non_object_root_raises_type_error(tmp_path: Path):
     with pytest.raises(RepoMapValidationError) as excinfo:
         load_repo_map(path)
     assert excinfo.value.kind == "type_error"
+
+
+def test_load_numeric_schema_version_does_not_short_circuit_as_mismatch():
+    # Numeric 1.0 is a type problem, not a version-drift problem — the
+    # pre-check is restricted to strings so Pydantic categorises this clearly.
+    payload = _valid_payload()
+    payload["schema_version"] = 1.0
+    with pytest.raises(RepoMapValidationError) as excinfo:
+        load_repo_map(payload)
+    assert excinfo.value.kind != "schema_version_mismatch"
+
+
+def test_load_null_schema_version_falls_through_to_pydantic():
+    payload = _valid_payload()
+    payload["schema_version"] = None
+    with pytest.raises(RepoMapValidationError) as excinfo:
+        load_repo_map(payload)
+    assert excinfo.value.kind != "schema_version_mismatch"
+
+
+def test_load_naive_datetime_in_generated_at_raises_type_error():
+    payload = _valid_payload()
+    payload["project"]["generated_at"] = "2026-05-28T00:00:00"
+    with pytest.raises(RepoMapValidationError) as excinfo:
+        load_repo_map(payload)
+    # Custom validators surface as Pydantic's value_error, which we category
+    # as type_error to keep the slice-1 kind taxonomy compact.
+    assert excinfo.value.kind == "type_error"
+    assert "/project/generated_at" in excinfo.value.path
+
+
+def test_load_malformed_fingerprint_raises_type_error():
+    payload = _valid_payload()
+    payload["nodes"][0]["fingerprint"] = "md5:nope"
+    with pytest.raises(RepoMapValidationError) as excinfo:
+        load_repo_map(payload)
+    assert excinfo.value.kind == "type_error"
+    assert "fingerprint" in excinfo.value.path
+
+
+def test_load_duplicate_node_id_raises_type_error():
+    payload = _valid_payload()
+    payload["nodes"].append(
+        {"id": payload["nodes"][0]["id"], "type": "source_file", "path": "dup.py"}
+    )
+    with pytest.raises(RepoMapValidationError) as excinfo:
+        load_repo_map(payload)
+    assert excinfo.value.kind == "type_error"
+    assert "duplicate node id" in str(excinfo.value)
 
 
 def test_fixture_artifact_round_trips():

@@ -138,7 +138,7 @@ def test_node_rejects_unknown_field():
 
 @pytest.mark.parametrize(
     "edge_type",
-    ["likely_tests", "imports", "configured_by", "command_runs"],
+    ["likely_tests", "imports", "configured_by"],
 )
 def test_edge_accepts_first_slice_types(edge_type: str):
     RepoMapEdge(source="a", target="b", type=edge_type, confidence="low", reason="r")
@@ -150,6 +150,18 @@ def test_edge_rejects_out_of_catalogue_type():
             source="a",
             target="b",
             type="some_other_link",  # type: ignore[arg-type]
+            confidence="low",
+            reason="r",
+        )
+
+
+def test_edge_rejects_deferred_command_runs_type():
+    # command_runs is deliberately deferred to slice 2 — see EdgeType definition.
+    with pytest.raises(ValidationError):
+        RepoMapEdge(
+            source="a",
+            target="b",
+            type="command_runs",  # type: ignore[arg-type]
             confidence="low",
             reason="r",
         )
@@ -204,3 +216,68 @@ def test_warning_rejects_unknown_kind():
 def test_warning_optional_path_round_trips():
     w = RepoMapWarning(kind="skipped_file", message="binary", path="bin/x")
     assert w.path == "bin/x"
+
+
+def test_project_rejects_naive_datetime():
+    with pytest.raises(ValidationError) as excinfo:
+        RepoMapProject(
+            root="/repo",
+            generated_at=datetime(2026, 5, 28),
+            generator_version="x",
+        )
+    assert "timezone-aware" in str(excinfo.value)
+
+
+def test_project_accepts_non_utc_aware_datetime():
+    from datetime import timedelta
+
+    bst = timezone(timedelta(hours=1))
+    project = RepoMapProject(
+        root="/repo",
+        generated_at=datetime(2026, 5, 28, 10, 0, 0, tzinfo=bst),
+        generator_version="x",
+    )
+    assert project.generated_at.tzinfo is not None
+
+
+def test_node_accepts_canonical_sha256_fingerprint():
+    node = RepoMapNode(
+        id="file:x",
+        type="source_file",
+        path="x",
+        fingerprint="sha256:" + "0" * 64,
+    )
+    assert node.fingerprint is not None
+
+
+def test_node_accepts_none_fingerprint():
+    node = RepoMapNode(id="file:x", type="source_file", path="x", fingerprint=None)
+    assert node.fingerprint is None
+
+
+@pytest.mark.parametrize(
+    "bad_fingerprint",
+    [
+        "md5:" + "a" * 32,
+        "sha256:short",
+        "sha256:" + "Z" * 64,
+        "sha256:" + "0" * 63,
+        "sha256:" + "0" * 65,
+        "0" * 64,
+    ],
+)
+def test_node_rejects_malformed_fingerprint(bad_fingerprint: str):
+    with pytest.raises(ValidationError):
+        RepoMapNode(id="file:x", type="source_file", path="x", fingerprint=bad_fingerprint)
+
+
+def test_repo_map_rejects_duplicate_node_ids(project: RepoMapProject):
+    with pytest.raises(ValidationError) as excinfo:
+        RepoMap(
+            project=project,
+            nodes=[
+                RepoMapNode(id="file:dup", type="source_file", path="a"),
+                RepoMapNode(id="file:dup", type="source_file", path="b"),
+            ],
+        )
+    assert "duplicate node id" in str(excinfo.value)
