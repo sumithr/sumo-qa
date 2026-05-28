@@ -3,18 +3,18 @@
 ## One line, any host
 
 ```bash
-python -m pip install sumo-qa && python -m sumo_qa.installer --claude-code
+pip install sumo-qa && sumo-qa-install
 ```
 
-Swap `--claude-code` for `--vscode --workspace <path-to-repo>` (VS Code + Copilot), `--jetbrains` (JetBrains AI Assistant), or drop the flag entirely to configure every host detected on this machine. This module-entry command works on Windows, macOS, and Linux, including shells where pip's script directory is not on PATH yet.
+`sumo-qa-install` with no flag configures every host detected on this machine. Target a single host with `--claude-code`, `--vscode --workspace <path-to-repo>` (VS Code + Copilot), or `--jetbrains` (JetBrains AI Assistant).
 
-On Windows PowerShell, use:
+On Windows PowerShell, use (`&&` isn't a valid separator in Windows PowerShell, and pip's script directory is often off PATH, so use the module form):
 
 ```powershell
-py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
+py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 ```
 
-`pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator that wires it into your host). The `python -m sumo_qa.installer` form runs the same configurator without depending on the script directory being on PATH. It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` / `.vscode/mcp.json`, or prints JetBrains UI steps depending on the flag.
+`pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator that wires it into your host). It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` / `.vscode/mcp.json`, or prints JetBrains UI steps depending on the flag. If `sumo-qa-install` isn't on your PATH (e.g. `pip install --user`, or Microsoft-Store Python on Windows), the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer` — the same configurator run through the interpreter directly.
 
 Restart your host (or open a fresh chat) once it's done.
 
@@ -197,8 +197,8 @@ python -m sumo_qa.installer --vscode --skip-mcp-install   # skip MCP binary look
 ## Updating
 
 ```bash
-python -m pip install --upgrade sumo-qa     # refresh server + bundled skills/knowledge
-python -m sumo_qa.installer                 # refresh symlinks + host configs (Claude Code, VS Code, ...)
+pip install --upgrade sumo-qa     # refresh server + bundled skills/knowledge
+sumo-qa-install                   # refresh symlinks + host configs (Claude Code, VS Code, ...)
 # Restart Claude Code / open a fresh chat — the SessionStart hook re-injects new content.
 ```
 
@@ -207,10 +207,64 @@ What each step refreshes:
 | What changed in the new version | What picks it up |
 |---|---|
 | `sumo-qa` binary, MCP tools, bundled standards/knowledge/skills in site-packages | `pip install --upgrade` |
-| Symlinks in `~/.claude/skills/`, `claude_desktop_config.json`, `.vscode/mcp.json` | re-running `python -m sumo_qa.installer` |
+| Symlinks in `~/.claude/skills/`, `claude_desktop_config.json`, `.vscode/mcp.json` | re-running `sumo-qa-install` |
 | Skill content the agent reads each turn | next chat session (the SessionStart hook re-fires) |
 
-You only strictly need to re-run `python -m sumo_qa.installer` when **new** skills are added or a host's MCP config schema changes; routine content updates flow through the existing symlinks automatically.
+You only strictly need to re-run `sumo-qa-install` when **new** skills are added or a host's MCP config schema changes; routine content updates flow through the existing symlinks automatically.
+
+## Uninstall
+
+There's no automated uninstall yet — a `sumo-qa-install --uninstall` (and a one-command wrapper) is on the roadmap. Until it ships, remove sumo-qa manually: run the package step, plus the steps for whichever hosts you configured.
+
+**Package (all hosts):**
+
+```bash
+pip uninstall sumo-qa
+```
+
+Removes the package and its console scripts (`sumo-qa`, `sumo-qa-install`, `sumo-qa-doctor`, `sumo-qa-validate`, `sumo-qa-ingest`).
+
+**Claude Code:**
+
+```bash
+# De-register the MCP server
+claude mcp remove sumo-qa -s user
+
+# Remove the sumo-qa skills from ~/.claude/skills — symlinks on macOS/Linux,
+# or real directories on Windows where the installer fell back to copying.
+# Every sumo-qa skill name contains "sumo-qa", so this matches all of them
+# and nothing else.
+rm -rf ~/.claude/skills/*sumo-qa*
+```
+
+On Windows PowerShell (covers both the symlink and the copied-directory fallback):
+
+```powershell
+claude mcp remove sumo-qa -s user
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$HOME\.claude\skills\*sumo-qa*"
+```
+
+Then delete the `"sumo-qa"` key under `mcpServers` in `~/.config/claude/claude_desktop_config.json` (leave any other servers in place).
+
+**Claude Desktop:**
+
+Delete the `"sumo-qa"` key under `mcpServers` in the app's config (keep other servers):
+
+| OS | Config file |
+|---|---|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
+
+**VS Code + Copilot:**
+
+In each workspace you configured, delete the `"sumo-qa"` key under `servers` in `<workspace>/.vscode/mcp.json`.
+
+**JetBrains AI Assistant + Junie:**
+
+`sumo-qa-install` only printed setup steps for JetBrains (it never wrote config), so remove it through the UI: **Settings → Tools → AI Assistant → Model Context Protocol**, select `sumo-qa`, remove. For Junie, delete `~/.junie/mcp/sumo-qa.json` if you created it.
+
+Restart any host you changed.
 
 ## Per-host detail
 

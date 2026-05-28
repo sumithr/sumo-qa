@@ -35,16 +35,18 @@ The discipline lives in 14 [skill files](skills/) (1 router + 13 sub-skills). Th
 ## Install
 
 ```bash
-python -m pip install sumo-qa && python -m sumo_qa.installer --claude-code
+pip install sumo-qa && sumo-qa-install
 ```
 
-Other hosts: swap `--claude-code` for `--vscode --workspace <path-to-repo>`, `--jetbrains`, or drop the flag to configure every host on the machine. The `python -m sumo_qa.installer` form works even when the pip script directory is not on PATH yet.
+`sumo-qa-install` with no flag configures every host it detects. Target a single host with `--claude-code`, `--vscode --workspace <path-to-repo>`, or `--jetbrains`.
 
-On Windows PowerShell, use:
+On Windows PowerShell, use (`&&` isn't a valid separator in Windows PowerShell, and pip's script directory is often off PATH, so use the module form):
 
 ```powershell
-py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer --claude-code }
+py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 ```
+
+If `sumo-qa-install` isn't on your PATH (e.g. `pip install --user` without `~/.local/bin` exported), use the PATH-proof module form: `python -m pip install sumo-qa && python -m sumo_qa.installer`.
 
 Restart your host or open a fresh chat afterwards.
 
@@ -104,7 +106,7 @@ You should get 10 names back: api_contract_change, business_logic_change, securi
 ### Update
 
 ```bash
-python -m pip install --upgrade sumo-qa && python -m sumo_qa.installer
+pip install --upgrade sumo-qa && sumo-qa-install
 ```
 
 Restart the host. The SessionStart hook re-injects the latest content; skills and knowledge refresh from the upgraded package.
@@ -161,14 +163,14 @@ flowchart LR
 
 Every host calls the same MCP server and reads the same SKILL.md files. What differs is how each host exposes them — that's a host-API difference, not a sumo-qa choice.
 
-These hosts are verified end-to-end with `python -m sumo_qa.installer`:
+These hosts are verified end-to-end with `sumo-qa-install`:
 
 | Host | Slash | Setup |
 |---|---|---|
-| **Claude Code** | `/sumo-qa-deciding-approach` (hyphens) | `python -m sumo_qa.installer --claude-code` |
-| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language | `python -m sumo_qa.installer --vscode --workspace <repo>` writes `.vscode/mcp.json` |
-| **JetBrains AI Assistant** | `/sumo_qa_deciding_approach` (underscores) | One-time UI setup; `python -m sumo_qa.installer --jetbrains` prints the fields to paste |
-| **JetBrains Junie** | Natural language | Drop the JSON `python -m sumo_qa.installer --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) |
+| **Claude Code** | `/sumo-qa-deciding-approach` (hyphens) | `sumo-qa-install --claude-code` |
+| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language | `sumo-qa-install --vscode --workspace <repo>` writes `.vscode/mcp.json` |
+| **JetBrains AI Assistant** | `/sumo_qa_deciding_approach` (underscores) | One-time UI setup; `sumo-qa-install --jetbrains` prints the fields to paste |
+| **JetBrains Junie** | Natural language | Drop the JSON `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) |
 
 In Claude Code, type `/` then `sumo-qa-` to see all 14 skills as hyphenated entries (symlinked into `~/.claude/skills/`). The same skills are also registered through MCP with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`); both routes call the same SKILL.md.
 
