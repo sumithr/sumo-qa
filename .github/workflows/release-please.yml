@@ -36,13 +36,10 @@ jobs:
           # blocked by branch protection.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
-      # When release-please bumps [project].version in pyproject.toml,
-      # four other committed files embed that version literal:
-      #   .claude-plugin/plugin.json, .codex-plugin/plugin.json,
-      #   src/sumo_qa/_data/plugin_metadata.json, and the SHA256 sidecar
-      #   at plugin_packaging/generated/manifest.json.
-      # Without regeneration the plugin-packaging drift check and the
-      # snapshot-version test fail on the release PR and block auto-merge.
+      # release-please-config.json updates the version-bearing generated
+      # JSON snapshots in the first release PR commit. The generator still
+      # runs here to refresh the SHA256 sidecar and catch any other
+      # generated drift before auto-merge.
       #
       # We check out the release branch via actions/checkout (which sets
       # up git auth correctly for the later push), run the generator,

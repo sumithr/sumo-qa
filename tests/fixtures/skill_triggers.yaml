@@ -1,0 +1,144 @@
+# Trigger-routing fixture for tests/test_skill_triggering.py.
+#
+# Each `triggers` row pins a natural-language user prompt to the sumo-qa skill
+# tool that should route on it, plus the substring phrases that MUST appear
+# (case-insensitive, at least one) in that skill's MCP tool description for the
+# host LLM to pick the right tool by description alone.
+#
+# Each `non_triggers` row pins a prompt that should NOT cause the host to
+# route into the named skill — used as a sanity guard against accidental
+# keyword overlap.
+#
+# Edit this file (not the test) to add coverage for a new prompt or skill.
+# The test asserts every registered skill tool has at least one trigger row.
+#
+# Phrases are partitioned per skill in the spirit of equivalence partitioning:
+# the prompts in each partition stand in for the broader user-intent class
+# that should route to that skill.
+
+triggers:
+  - prompt: "review my changes — is this safe to merge"
+    expected_skill: sumo_qa_reviewing_before_merge
+    expected_phrases:
+      - "review my changes"
+      - "safe to merge"
+    note: "Core review prompt — both phrases land in this skill's description."
+
+  - prompt: "is this safe to merge?"
+    expected_skill: sumo_qa_reviewing_before_merge
+    expected_phrases:
+      - "safe to merge"
+    note: "Shorter merge-readiness prompt."
+
+  - prompt: "write a regression test for this bug"
+    expected_skill: sumo_qa_implementing_with_tdd
+    expected_phrases:
+      - "regression test"
+      - "write a regression"
+    note: "Regression-first TDD prompt — 'regression test' is the user-natural phrasing of the 'regression-first' approach."
+
+  - prompt: "scaffold the failing tests first — TDD"
+    expected_skill: sumo_qa_implementing_with_tdd
+    expected_phrases:
+      - "tdd-scaffold"
+      - "red → hand off → green"
+      - "failing test"
+    note: "TDD-scaffold prompt; multi-word phrases pinned so a stray 'red' or 'tdd' elsewhere can't false-pass the assertion."
+
+  - prompt: "plan QA for this story before coding starts"
+    expected_skill: sumo_qa_preparing_for_work
+    expected_phrases:
+      - "plan qa for a story"
+      - "before coding starts"
+    note: "Lightweight pre-work planning — distinct from the formal-test-plan skill."
+
+  - prompt: "create a formal test plan with entry and exit criteria"
+    expected_skill: sumo_qa_creating_test_plan
+    expected_phrases:
+      - "formal test plan"
+      - "entry/exit criteria"
+    note: "Heavyweight planning prompt with explicit gates."
+
+  - prompt: "what test data do I need to test partial refunds?"
+    expected_skill: sumo_qa_finding_test_data
+    expected_phrases:
+      - "test data"
+      - "what data to test"
+    note: "Test-data routing entry; sub-routes (explain/find/validate/register) live below this skill."
+
+  - prompt: "audit our test coverage and design our QA strategy"
+    expected_skill: sumo_qa_strategising
+    expected_phrases:
+      - "audit our test coverage"
+      - "design our qa strategy"
+    note: "Repo-wide strategy ask, not a per-change shape."
+
+  - prompt: "kill this surviving mutant in the calculator module"
+    expected_skill: sumo_qa_strengthening_tests
+    expected_phrases:
+      - "mutation"
+      - "survivor"
+      - "weak assertion"
+    note: "Mutation-testing follow-up; description must advertise the survivor + strengthening loop."
+
+  - prompt: "how do I test a service that re-orders user feeds?"
+    expected_skill: sumo_qa_answering_testing_question
+    expected_phrases:
+      - "how do i test this"
+      - "generic testing question"
+    note: "Catch-all generic testing question — inline answer, no full plan."
+
+  - prompt: "find me an external skill for Playwright E2E testing"
+    expected_skill: sumo_qa_suggesting_external_skill
+    expected_phrases:
+      - "external skill"
+      - "no native sumo-qa"
+    note: "Non-canonical surface — fallback into external-skill discovery."
+
+  - prompt: "help me QA this new function"
+    expected_skill: using_sumo_qa
+    expected_phrases:
+      - "anything qa-shaped"
+      - "entry router for all sumo-qa work"
+    note: "Router invocation; phrases are the description's own multi-word signposts for the catch-all-QA-intent surface, not single-word jargon."
+
+  - prompt: "pick the QA approach for this change"
+    expected_skill: sumo_qa_deciding_approach
+    expected_phrases:
+      - "first step on any qa intent"
+      - "canonical approach"
+    note: "Explicit approach-deciding intent — the iron-law gate before any QA output."
+
+  - prompt: "turn this strategy phase into a bite-sized rollout plan"
+    expected_skill: sumo_qa_planning_qa_rollout
+    expected_phrases:
+      - "bite-sized"
+      - "independently-executable"
+    note: "Multi-task planning; produces docs/qa/plans/*.md for dispatch."
+
+  - prompt: "run my QA plan task-by-task across fresh subagents"
+    expected_skill: sumo_qa_executing_qa_rollout
+    expected_phrases:
+      - "task-by-task"
+      - "fresh subagent"
+    note: "Plan executor; chains into finishing-qa-work on completion."
+
+  - prompt: "wrap up the rollout — I need a PR summary"
+    expected_skill: sumo_qa_finishing_qa_work
+    expected_phrases:
+      - "pr-ready summary"
+      - "capture evidence"
+    note: "Evidence-capture + PR-summary writer; iron-law gate on fresh suite run."
+
+non_triggers:
+  - prompt: "how do I install Python 3.14 on macOS?"
+    must_not_match_skill: sumo_qa_reviewing_before_merge
+    note: "Non-QA infra question — must not look like a review intent."
+
+  - prompt: "format this JSON blob"
+    must_not_match_skill: sumo_qa_implementing_with_tdd
+    note: "Formatting ask — no TDD signal."
+
+  - prompt: "what's the weather in London?"
+    must_not_match_skill: sumo_qa_strategising
+    note: "Off-topic prompt — strategising must not over-match on 'what's'."

@@ -232,4 +232,7 @@ A scenario passes the *selection* check if the host LLM invokes the named skill 
 
 ## How to validate these scenarios
 
-See [`LLM-EVALS.md`](LLM-EVALS.md) for the LLM-as-judge harness design that turns these scenario specs into automatable evals.
+Two complementary paths:
+
+1. **Deterministic trigger-routing harness (CI gate):** [`tests/test_skill_triggering.py`](../test_skill_triggering.py) reads [`tests/fixtures/skill_triggers.yaml`](../fixtures/skill_triggers.yaml) and asserts every skill tool is registered and that its description contains at least one of the natural-language phrases pinned for the prompts that should route to it. No live LLM. This is a **necessary, not sufficient** check for the 14 skill tools: phrase presence in the description is required for the host LLM to even consider this tool, but the LLM's actual selection is judged by the optional evals in path 2. The 16 atomic non-skill tools above are scenario-led rather than fixture-pinned — their description contracts are tested by the existing `tests/test_server.py` suite.
+2. **LLM-as-judge evals (optional):** see [`LLM-EVALS.md`](LLM-EVALS.md) for the rubric design and [`tests/evals/promptfoo/`](../evals/promptfoo/) for the runnable implementation. These judge *behaviour* on top of selection; they need `OPENAI_API_KEY` and are not part of required CI.

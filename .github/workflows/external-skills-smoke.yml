@@ -1,0 +1,144 @@
+name: external-skills-smoke
+
+# Opt-in scheduled + manual smoke for the real external Skills CLI integration.
+#
+# Why this lives OUTSIDE required PR CI:
+#   The production code path (sumo_qa.external_skills.search_external_skills)
+#   shells out to `npx skills find` — a real Node CLI subprocess that hits
+#   a remote registry. Wiring that into required PR CI would couple every
+#   PR to npm availability, network reachability, and upstream Skills CLI
+#   uptime. The mocked coverage in tests/test_external_skills.py runs in
+#   test.yml on every PR; THIS workflow exercises the real CLI on a low
+#   cadence so format drift in the upstream Skills CLI surfaces without
+#   destabilising day-to-day CI.
+#
+# Triggers are workflow_dispatch + schedule only — no `push` or
+# `pull_request` triggers — so this workflow never becomes a required
+# PR check.
+#
+# Interpreting the run (also in docs/DEVELOPMENT.md):
+#   - GREEN with `1 passed`         → CLI reachable, MCP shape contract held.
+#   - RED in `Fail if smoke was     → the test self-skipped. With npx verified
+#     skipped`                        present (see step below), the only path
+#                                     to a skip is ExternalSkillCLIError —
+#                                     either a CLI timeout or nonzero exit.
+#                                     Both signals we want surfaced, not
+#                                     buried as a neutral green-with-skip.
+#                                     Read -rs output to see the skip reason;
+#                                     a timeout is likely transient (re-run),
+#                                     a nonzero exit is likely real upstream
+#                                     drift (investigate the CLI invocation).
+#   - RED elsewhere                 → genuine MCP-shape regression (keys
+#                                     missing, raw_output empty, ANSI bleed)
+#                                     OR a workflow-setup regression (Node
+#                                     install failed, pip install failed).
+#                                     Read the failing step name to tell
+#                                     them apart.
+#
+# The smoke test itself
+# (tests/test_external_skills.py::test_search_external_skills_real_cli_smoke)
+# only asserts on MCP-owned shape contracts — keys present, raw_output
+# non-empty, ANSI stripped. It deliberately does NOT pin the upstream CLI's
+# output format, so a cosmetic upstream prose change won't false-positive
+# this workflow.
+
+on:
+  schedule:
+    # Weekly Monday 06:00 UTC. Matches tdm-freshness so the upstream-drift
+    # checks land on the same day; cheap (one short pytest run).
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# Minimum-required token scope. The job only checks out the repo and runs
+# pytest; it does not open issues or post comments. Satisfies CodeQL's
+# "workflow does not contain permissions" lint.
+permissions:
+  contents: read
+
+# Manual dispatches can be spammed during incident investigation; cancel
+# in-flight runs when a newer dispatch lands so we always observe the
+# latest state. Scheduled runs are weekly so concurrency contention is
+# theoretical, but the group is cheap.
+concurrency:
+  group: external-skills-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: external Skills CLI smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          # Pin a single Python version — this is a smoke test of the
+          # real-CLI vector, not a Python-compatibility matrix. test.yml
+          # covers 3.10–3.14 on every PR.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Set up Node
+        # Required: without Node/npx on PATH the smoke test self-skips
+        # (the test guard is `shutil.which("npx") is None`) and the
+        # workflow would produce no signal at all — the opposite of
+        # what scheduling this is for. Node 20 is the current LTS.
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        # Mirrors test.yml / tdm-freshness.yml install line. `-e` so the
+        # checkout source is what's exercised (the smoke test imports
+        # `sumo_qa.external_skills` directly).
+        run: python -m pip install -e ".[dev,vertex]"
+
+      - name: Verify npx is on PATH
+        # Fast-fail with a clear error if setup-node regressed — clearer
+        # than a downstream "1 test skipped" line buried in the pytest
+        # output. The test will self-skip on missing npx, so without
+        # this guard a Node-install regression would silently turn the
+        # workflow into a no-op.
+        run: command -v npx
+
+      - name: Run external Skills CLI smoke
+        # --no-cov:        bypasses --cov-fail-under=100 (single-test run).
+        # -rs:             surface skip reasons in the log so the next step's
+        #                  failure is interpretable without re-reading source.
+        # --junit-xml:     the next step inspects this to elevate skips to
+        #                  failures; without it we'd be parsing colourised
+        #                  pytest stdout, which is brittle.
+        run: |
+          python -m pytest \
+            --no-cov \
+            -rs \
+            --junit-xml=smoke-results.xml \
+            tests/test_external_skills.py::test_search_external_skills_real_cli_smoke
+
+      - name: Fail if smoke was skipped
+        # The whole point of this scheduled workflow is to surface upstream
+        # Skills CLI drift. The test's runtime try/except converts both
+        # NodeNotFoundError AND ExternalSkillCLIError into pytest.skip — but
+        # the `Verify npx is on PATH` step above already eliminates
+        # NodeNotFoundError as a possible cause in CI. So the ONLY ways the
+        # test can skip here are (a) the CLI timed out, or (b) the CLI
+        # exited nonzero. Both are exactly the signals this workflow exists
+        # to surface, and leaving them as a green "1 skipped" defeats its
+        # purpose (a permanent silent skip from a renamed/removed CLI
+        # command would never get investigated).
+        #
+        # `if: always()` runs this even if pytest itself failed — a pytest
+        # crash plus a skipped result is still useful diagnostic, and the
+        # extra red on an already-red run is harmless.
+        if: always()
+        run: |
+          if [ ! -f smoke-results.xml ]; then
+            echo "::warning::smoke-results.xml not produced (pytest crashed before writing); skip-check inconclusive."
+            exit 0
+          fi
+          if grep -q '<skipped' smoke-results.xml; then
+            echo "::error::Smoke test was skipped. With npx verified present, this means the Skills CLI timed out or exited nonzero — failing the workflow so the drift signal is not silently lost."
+            exit 1
+          fi

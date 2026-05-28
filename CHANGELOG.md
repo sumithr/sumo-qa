@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.16.1](https://github.com/sumithr/sumo-qa/compare/v0.16.0...v0.16.1) (2026-05-28)
+
+
+### Documentation
+
+* simplify canonical install command and add manual uninstall ([#231](https://github.com/sumithr/sumo-qa/issues/231)) ([d20cf60](https://github.com/sumithr/sumo-qa/commit/d20cf606720003e0c223a5cfe1123b5375cd6144))
+
+## [0.16.0](https://github.com/sumithr/sumo-qa/compare/v0.15.7...v0.16.0) (2026-05-28)
+
+
+### Features
+
+* add docs_change and test_change rule entries ([#217](https://github.com/sumithr/sumo-qa/issues/217)) ([18d9deb](https://github.com/sumithr/sumo-qa/commit/18d9deb909325c50e4f4b635afbe040f93b6ff44))
+
+
+### Continuous Integration
+
+* add scheduled smoke for external Skills CLI integration ([#226](https://github.com/sumithr/sumo-qa/issues/226)) ([af6304a](https://github.com/sumithr/sumo-qa/commit/af6304a67ff585289db282b186896b7b79aac2d6))
+
+## [0.15.7](https://github.com/sumithr/sumo-qa/compare/v0.15.6...v0.15.7) (2026-05-28)
+
+
+### Tests
+
+* add deterministic trigger-routing harness for the 14 skill tools ([#219](https://github.com/sumithr/sumo-qa/issues/219)) ([eca72ca](https://github.com/sumithr/sumo-qa/commit/eca72ca8cee84f37e42ce5fe530bac77334dd656))
+
 ## [0.15.6](https://github.com/sumithr/sumo-qa/compare/v0.15.5...v0.15.6) (2026-05-27)
 
 

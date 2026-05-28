@@ -33,7 +33,7 @@ Output is three sections:
 OK:
   - knowledge/classifications.md: 54 non-blank lines
   - standards/packs/qa_shift_left_v1.yml: valid YAML
-  - standards/rules/change_rules.yaml: 10 change rules
+  - standards/rules/change_rules.yaml: 12 change rules
   - knowledge/test_data: 4 test-data entries
 WARN:
   - standards/packs/istqb_v1.yml: no 'applies_to_classifications' / 'classifications' key — pack will always load regardless of change type

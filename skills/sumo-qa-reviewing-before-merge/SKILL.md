@@ -60,6 +60,8 @@ You MUST work through these in order. Steps 1–4 are AI-only homework (no user 
    - BAD: *"Covered by `test_does_not_mark_failed_charge_paid`."* — it asserts one failed charge isn't marked paid; it never re-invokes `complete_checkout` after a partial failure, so it cannot prove retry idempotency.
    - GOOD: *"UNCOVERED. No fresh test re-invokes `complete_checkout` after a partial failure or asserts charge-at-most-once across retries. SAFE-blocker."*
 
+   **Documented-inventory drift rule (pinned).** When the diff changes a documented count, inventory, public-surface name, or schema field — the `docs_change` rule's inventory-drift probe — the obvious doc the diff touches is rarely the only stale spot. Before the verdict, search the supplied ground-truth context (any `rg`/grep listing, "Other repo state" section, etc.) for the OLD value; each path it surfaces is a separate UNCOVERED anchor that needs its own ledger row (format in Verdict-format discipline item 2a). Generic guidance, anchoring only on the obvious doc, or naming one stale path is UNCOVERED. If the ground-truth context names zero stale paths, say so explicitly; do NOT silently default to "covered".
+
 ### Verdict-format discipline
 
 The verdict line is the LAST line. For a **runtime change** (any `app/`/`src/`/`lib/` file in the diff), before the verdict you MUST emit, in order:
@@ -70,6 +72,9 @@ The verdict line is the LAST line. For a **runtime change** (any `app/`/`src/`/`
    - Risks whose name/anchor/failure-mode contains **Retry, Duplicate, or Idempotency** require an assertion showing the operation invoked MORE THAN ONCE (two calls, a loop, a call-count or idempotency-token assertion across attempts). **Concurrent, Race, or Lock** require overlapping execution (threading / `asyncio.gather` / `concurrent.futures`, or an explicit interleave). A single non-overlapping invocation — even one that raises — proves none of these; mark UNPROVEN.
    - `Fresh matching tests: NONE` → Coverage UNCOVERED; never cite non-matching tests as indirect evidence.
    - `COVERED BY VERIFICATION` is reserved for docs/config-only anchors (below); runtime anchors MUST NOT use it.
+   - **2a. Inventory-drift extension.** For an inventory-drift risk (see step 9), the risk row above is not sufficient. Emit ONE additional ledger row per stale path the supplied ground-truth context names — never crammed into one row or shoved into the risk row's `Required update:` field. Each row uses this exact shape (the `<old> → <new>` value pair must appear inline):
+     `Inventory drift anchor: <path>:<line> (<old> → <new>) | Required update: this file | Diff updated it: <YES if the diff touches this exact path; NO otherwise> | Coverage: <COVERED if the diff updates this exact file; UNCOVERED if it does not>`
+     Each UNCOVERED row is a SAFE-blocker. The verdict line must name every UNCOVERED stale path explicitly — not "documentation needs updating". Zero stale paths supplied → emit `Inventory drift anchor: NONE supplied | Coverage: N/A` rather than silently defaulting to covered.
 3. `Touched files:` citing every diff path verbatim (e.g. `app/auth/session.py, tests/billing/test_checkout.py`).
 4. `Change shape:` one phrase anchored to the touched files (e.g. `auth predicate + billing checkout ordering, both runtime`).
 5. The verification command, quoted verbatim.

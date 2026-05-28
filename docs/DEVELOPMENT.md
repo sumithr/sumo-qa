@@ -138,6 +138,7 @@ The full suite covers:
 - `test_phase3_e2e_skill_path.py` — end-to-end smoke through the new surface
 - `test_token_weight_regression.py` — per-call and per-flow token budgets (the IntelliJ-SSE regression test)
 - `test_server.py` — tool registration
+- `test_skill_triggering.py` — deterministic, host-neutral assertion that every skill tool is registered AND that its MCP description contains at least one of the natural-language trigger phrases pinned for the prompts that should route to it (fixture: `tests/fixtures/skill_triggers.yaml`). Phrase presence is a necessary (not sufficient) condition for the host LLM to pick the right tool by description alone; the harness catches the silent regression where a description rewording drops a trigger phrase. Behavioural quality is judged by the optional LLM evals under `tests/evals/promptfoo/`
 - `test_tdm.py` — test-data tools
 - `test_tools.py` — service factory
 - `test_standards.py`, `test_rules.py` — file loading
@@ -186,6 +187,7 @@ Adding a new technique, classification, or specialty tool = editing one file.
 2. `register_skills_as_prompts` (server startup) picks it up automatically.
 3. Conformance tests parametrise over `skills/*/SKILL.md` — they run on the new skill too.
 4. If the skill is meant to auto-trigger in Claude Code, the frontmatter `description` is what the host LLM uses to route.
+5. Add a trigger row to [`tests/fixtures/skill_triggers.yaml`](../tests/fixtures/skill_triggers.yaml) pinning at least one natural-language prompt to the new skill — [`tests/test_skill_triggering.py`](../tests/test_skill_triggering.py) fails on any registered skill tool that lacks a fixture row, and on any pinned phrase that doesn't appear in the skill's description. Edit the fixture, not the test.
 
 ## Editing plugin packaging (host adapters)
 
@@ -212,6 +214,28 @@ The `plugin-packaging` CI workflow runs both gates on every PR. If `pyproject.to
 4. If the host publishes a JSON Schema, vendor it under `plugin_packaging/schemas/` and add a `validate_<host>` call to `plugin_packaging/validate_plugins.py`. Otherwise extend the `plugin-dir-handshake` matrix in `.github/workflows/install-smoke.yml`.
 
 See [host-adapters.md](host-adapters.md) for the full architecture rationale.
+
+## Scheduled CI workflows (opt-in, off the PR critical path)
+
+Two workflows run on a weekly schedule (Monday 06:00 UTC) and on
+`workflow_dispatch`, but never on `push` or `pull_request` — so they
+exercise external surfaces without becoming required PR checks:
+
+- [`.github/workflows/tdm-freshness.yml`](../.github/workflows/tdm-freshness.yml) — checks every known-good test-data URL still returns 2xx. Opens a `tdm-freshness` issue on failure.
+- [`.github/workflows/external-skills-smoke.yml`](../.github/workflows/external-skills-smoke.yml) — runs `tests/test_external_skills.py::test_search_external_skills_real_cli_smoke` against the real upstream Skills CLI (`npx skills find`). The mocked coverage in `tests/test_external_skills.py` runs on every PR via `test.yml`; this workflow exists so format drift in the upstream Skills CLI surfaces on a low cadence without coupling required CI to npm / network / upstream uptime.
+
+### Interpreting an external-skills-smoke run
+
+| Outcome | Meaning | Action |
+|---|---|---|
+| GREEN, pytest reports `1 passed` | Upstream CLI reachable; the MCP-owned shape contract (keys present, non-empty `raw_output`, ANSI stripped) still holds. | None. |
+| RED in the `Verify npx is on PATH` step | `actions/setup-node` regressed or its cache is corrupt. | Bump the action version or pin a different `node-version`. Not an `external_skills.py` bug. |
+| RED in the `Run external Skills CLI smoke` step | Genuine MCP-shape regression: the CLI returned, but the wrapper in `sumo_qa.external_skills` dropped a key, leaked an ANSI sequence into `raw_output`, or returned empty text. | Fix in `src/sumo_qa/external_skills.py`; the failing assertions in the test name the broken contract. Do **not** loosen the assertions — they're the only thing standing between us and silent upstream-format coupling. |
+| RED in the `Fail if smoke was skipped` step | The test self-skipped via `pytest.skip(...)`. Because the workflow's earlier `Verify npx is on PATH` step rules out `NodeNotFoundError`, the only paths to a skip here are the CLI timing out or the CLI exiting nonzero — both surfaced as `ExternalSkillCLIError`. Skips are deliberately elevated to failures so a permanent silent skip (e.g. the upstream `skills find` command renamed) cannot defeat the workflow's purpose. | Read the `SKIPPED` line in the pytest log (the `-rs` flag prints the reason). A `timed out after Ns` reason is likely transient — re-run the workflow. A `skills CLI exited N` reason is real upstream drift — inspect `npx skills find mypy` locally and adjust `src/sumo_qa/external_skills.py` if the CLI's contract changed. |
+
+To trigger the workflow on demand (e.g. before bumping the
+`sumo_qa.external_skills` wrapper): GitHub → Actions →
+`external-skills-smoke` → **Run workflow**.
 
 ## Reinstalling locally
 
