@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/sumithr/sumo-qa/compare/v0.16.1...v0.17.0) (2026-05-28)
+
+
+### Features
+
+* add repo-map schema models + validation envelope ([#222](https://github.com/sumithr/sumo-qa/issues/222)) ([6ad5964](https://github.com/sumithr/sumo-qa/commit/6ad596408edf095afaeb092832fa015c0e4373d5))
+
 ## [0.16.1](https://github.com/sumithr/sumo-qa/compare/v0.16.0...v0.16.1) (2026-05-28)
 
 
