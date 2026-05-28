@@ -227,13 +227,21 @@ Removes the package and its console scripts (`sumo-qa`, `sumo-qa-install`, `sumo
 **Claude Code:**
 
 ```bash
-# 1. De-register the MCP server
+# De-register the MCP server
 claude mcp remove sumo-qa -s user
 
-# 2. Remove the skill symlinks (only those pointing into the sumo-qa install)
-for l in ~/.claude/skills/*; do
-  [ -L "$l" ] && readlink "$l" | grep -qE 'sumo[-_]qa' && rm "$l"
-done
+# Remove the sumo-qa skills from ~/.claude/skills — symlinks on macOS/Linux,
+# or real directories on Windows where the installer fell back to copying.
+# Every sumo-qa skill name contains "sumo-qa", so this matches all of them
+# and nothing else.
+rm -rf ~/.claude/skills/*sumo-qa*
+```
+
+On Windows PowerShell (covers both the symlink and the copied-directory fallback):
+
+```powershell
+claude mcp remove sumo-qa -s user
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$HOME\.claude\skills\*sumo-qa*"
 ```
 
 Then delete the `"sumo-qa"` key under `mcpServers` in `~/.config/claude/claude_desktop_config.json` (leave any other servers in place).
