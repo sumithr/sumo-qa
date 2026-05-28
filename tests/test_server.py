@@ -30,6 +30,7 @@ _CAPABILITIES_TOOL_NAMES = {
 # the full artifact is only returned via the optional `write_to` path.
 _REPO_MAP_TOOL_NAMES = {
     "sumo_qa_scan_repo",
+    "sumo_qa_analyze_diff_impact",
 }
 
 _KNOWLEDGE_LOADER_TOOL_NAMES = {

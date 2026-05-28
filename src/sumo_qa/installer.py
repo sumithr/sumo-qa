@@ -104,6 +104,8 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_capabilities",
     # Repo-map scanner (#155 slice 3)
     "sumo_qa_scan_repo",
+    # Repo-map diff-impact (#156 slice 4)
+    "sumo_qa_analyze_diff_impact",
     # Ingestion
     "sumo_qa_ingest_knowledge_pack",
     # External skills

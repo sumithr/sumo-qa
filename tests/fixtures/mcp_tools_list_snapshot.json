@@ -1,5 +1,6 @@
 {
   "required_tools": [
+    "sumo_qa_analyze_diff_impact",
     "sumo_qa_answering_testing_question",
     "sumo_qa_capabilities",
     "sumo_qa_check_external_skill_installed",
@@ -33,6 +34,326 @@
     "using_sumo_qa"
   ],
   "schemas": {
+    "sumo_qa_analyze_diff_impact": {
+      "inputSchema": {
+        "properties": {
+          "artifact_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": ".sumo-qa/repo-map.json",
+            "title": "Artifact Path"
+          },
+          "base_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Ref"
+          },
+          "changed_files": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Changed Files"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "write_overlay": {
+            "default": false,
+            "title": "Write Overlay",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "root"
+        ],
+        "title": "sumo_qa_analyze_diff_impactArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "DiffImpactOutput": {
+            "additionalProperties": false,
+            "description": "Compact result of ``sumo_qa_analyze_diff_impact``.\n\nBounded by the size of the changeset, not the repo \u2014 safe to return inline.",
+            "properties": {
+              "affected_nodes": {
+                "description": "One-hop neighbours of the changed nodes.",
+                "items": {
+                  "$ref": "#/$defs/_ImpactNodeSummary"
+                },
+                "title": "Affected Nodes",
+                "type": "array"
+              },
+              "artifact_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Resolved path of the loaded repo-map artifact, when used.",
+                "title": "Artifact Path"
+              },
+              "base_ref": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Git base ref used to derive changed files, when given.",
+                "title": "Base Ref"
+              },
+              "changed_file_count": {
+                "description": "Number of input changed paths considered.",
+                "title": "Changed File Count",
+                "type": "integer"
+              },
+              "changed_nodes": {
+                "description": "Changed paths that resolved to a repo-map node.",
+                "items": {
+                  "$ref": "#/$defs/_ImpactNodeSummary"
+                },
+                "title": "Changed Nodes",
+                "type": "array"
+              },
+              "is_stale": {
+                "description": "True when the map's git_commit differs from current HEAD.",
+                "title": "Is Stale",
+                "type": "boolean"
+              },
+              "overlay_bytes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Size of the written overlay in bytes, when requested.",
+                "title": "Overlay Bytes"
+              },
+              "overlay_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Path the diff-impact overlay was written to, when requested.",
+                "title": "Overlay Path"
+              },
+              "related_tests": {
+                "description": "Paths of tests that likely exercise the changes.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Related Tests",
+                "type": "array"
+              },
+              "risk_surface": {
+                "description": "Changed source paths with no mapped test (the QA gap).",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Risk Surface",
+                "type": "array"
+              },
+              "root": {
+                "description": "Resolved root path analysed.",
+                "title": "Root",
+                "type": "string"
+              },
+              "suggested_inspections": {
+                "description": "Paths the host LLM should open to inspect.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Suggested Inspections",
+                "type": "array"
+              },
+              "tool": {
+                "const": "sumo_qa_analyze_diff_impact",
+                "default": "sumo_qa_analyze_diff_impact",
+                "description": "Tool discriminator; always the literal tool name.",
+                "title": "Tool",
+                "type": "string"
+              },
+              "unmapped_files": {
+                "description": "Changed paths with no node in the map.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Unmapped Files",
+                "type": "array"
+              },
+              "used_live_scan": {
+                "description": "True when no artifact was found and the map was scanned live.",
+                "title": "Used Live Scan",
+                "type": "boolean"
+              },
+              "warning_count": {
+                "description": "Number of warnings (stale, live-scan fallback, etc.).",
+                "title": "Warning Count",
+                "type": "integer"
+              },
+              "warnings_by_kind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "description": "Per-kind warning counts.",
+                "title": "Warnings By Kind",
+                "type": "object"
+              }
+            },
+            "required": [
+              "root",
+              "changed_file_count",
+              "warning_count",
+              "is_stale",
+              "used_live_scan"
+            ],
+            "title": "DiffImpactOutput",
+            "type": "object"
+          },
+          "ErrorEnvelope": {
+            "additionalProperties": false,
+            "description": "The MCP tool error envelope returned by ``sumo_qa.server._error_envelope``.\n\nUsed as the typed alternative to a bare ``dict`` in every tool's return\nannotation. Without this, FastMCP would emit an unconstrained\n``additionalProperties: true`` schema arm, allowing any shape through and\ndefeating the outputSchema contract.\n\n``isError`` is ``Literal[True]`` so Pydantic + FastMCP treat it as a\ndiscriminator, routing between each tool's success model and this\nenvelope in the emitted ``anyOf``/``oneOf`` schema.",
+            "properties": {
+              "error": {
+                "$ref": "#/$defs/_ErrorDetail",
+                "description": "Structured error payload with type, message, and actionable_hint."
+              },
+              "isError": {
+                "const": true,
+                "description": "Marks the response as an error per the MCP error-shape convention.",
+                "title": "Iserror",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "isError",
+              "error"
+            ],
+            "title": "ErrorEnvelope",
+            "type": "object"
+          },
+          "_ErrorDetail": {
+            "additionalProperties": false,
+            "description": "Inner payload of the MCP tool error envelope.",
+            "properties": {
+              "actionable_hint": {
+                "description": "One-line hint the host surfaces to the user with a concrete next step.",
+                "title": "Actionable Hint",
+                "type": "string"
+              },
+              "message": {
+                "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
+                "title": "Message",
+                "type": "string"
+              },
+              "type": {
+                "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message",
+              "actionable_hint"
+            ],
+            "title": "_ErrorDetail",
+            "type": "object"
+          },
+          "_ImpactNodeSummary": {
+            "additionalProperties": false,
+            "description": "Compact node projection inside :class:`DiffImpactOutput`.",
+            "properties": {
+              "has_mapped_tests": {
+                "description": "True when at least one likely_tests edge targets this node.",
+                "title": "Has Mapped Tests",
+                "type": "boolean"
+              },
+              "id": {
+                "description": "Node id, e.g. 'file:src/app.py'.",
+                "title": "Id",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repo-relative path.",
+                "title": "Path",
+                "type": "string"
+              },
+              "type": {
+                "description": "Node type from the repo-map vocabulary.",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "path",
+              "has_mapped_tests"
+            ],
+            "title": "_ImpactNodeSummary",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DiffImpactOutput"
+              },
+              {
+                "$ref": "#/$defs/ErrorEnvelope"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "sumo_qa_analyze_diff_impactOutput",
+        "type": "object"
+      }
+    },
     "sumo_qa_answering_testing_question": {
       "inputSchema": {
         "properties": {},
