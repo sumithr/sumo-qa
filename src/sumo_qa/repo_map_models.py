@@ -77,7 +77,9 @@ class RepoMapProject(BaseModel):
         # Freshness math (`age_days`, stale-after-N-days) is meaningless on a
         # naive datetime — the absent timezone hides the real elapsed time.
         # Pydantic accepts naive datetimes by default, so we tighten here.
-        if value.tzinfo is None:
+        # A tzinfo whose utcoffset() returns None still counts as naive in
+        # Python; check both surfaces.
+        if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("generated_at must be timezone-aware")
         return value
 

@@ -249,6 +249,31 @@ def test_project_accepts_non_utc_aware_datetime():
     assert project.generated_at.tzinfo is not None
 
 
+def test_project_rejects_tzinfo_whose_utcoffset_is_none():
+    # A tzinfo subclass whose utcoffset() returns None makes the datetime
+    # effectively naive even though `tzinfo is not None`. The validator
+    # must reject this rather than rely on the tzinfo identity check alone.
+    from datetime import tzinfo as _tzinfo
+
+    class _NoneOffsetTZ(_tzinfo):
+        def utcoffset(self, dt):  # type: ignore[override]
+            return None
+
+        def dst(self, dt):  # type: ignore[override]
+            return None
+
+        def tzname(self, dt):  # type: ignore[override]
+            return None
+
+    with pytest.raises(ValidationError) as excinfo:
+        RepoMapProject(
+            root="/repo",
+            generated_at=datetime(2026, 5, 28, tzinfo=_NoneOffsetTZ()),
+            generator_version="x",
+        )
+    assert "timezone-aware" in str(excinfo.value)
+
+
 def test_node_accepts_canonical_sha256_fingerprint():
     node = RepoMapNode(
         id="file:x",
