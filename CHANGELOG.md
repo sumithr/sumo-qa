@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.7](https://github.com/sumithr/sumo-qa/compare/v0.15.6...v0.15.7) (2026-05-28)
+
+
+### Tests
+
+* add deterministic trigger-routing harness for the 14 skill tools ([#219](https://github.com/sumithr/sumo-qa/issues/219)) ([eca72ca](https://github.com/sumithr/sumo-qa/commit/eca72ca8cee84f37e42ce5fe530bac77334dd656))
+
 ## [0.15.6](https://github.com/sumithr/sumo-qa/compare/v0.15.5...v0.15.6) (2026-05-27)
 
 
