@@ -35,7 +35,7 @@ ship in follow-up slices (#155 slice 2, #156, #160, #157).
       "language": "python",
       "category": "app",
       "tags": ["mcp"],
-      "fingerprint": "sha256:..."
+      "fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     }
   ],
   "edges": [
@@ -101,7 +101,8 @@ try:
     repo_map = load_repo_map(artifact)
 except RepoMapValidationError as exc:
     # exc.kind: "malformed_json" | "schema_version_mismatch" |
-    #           "missing_field" | "unknown_field" | "type_error" | "io_error"
+    #           "missing_field" | "unknown_field" | "vocab_error" |
+    #           "type_error" | "io_error"
     # exc.path: JSON-pointer-ish path into the artifact ("/project/generated_at")
     # exc.source: the file path, if one was provided
     ...

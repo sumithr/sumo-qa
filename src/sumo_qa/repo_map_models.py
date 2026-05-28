@@ -96,7 +96,7 @@ class RepoMapNode(BaseModel):
     @field_validator("fingerprint")
     @classmethod
     def _check_fingerprint_shape(cls, value: str | None) -> str | None:
-        if value is not None and not _FINGERPRINT_RE.match(value):
+        if value is not None and not _FINGERPRINT_RE.fullmatch(value):
             raise ValueError("fingerprint must match 'sha256:<64 lowercase hex>'")
         return value
 
@@ -131,7 +131,10 @@ class RepoMapWarning(BaseModel):
 class RepoMap(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    # `schema_version` is required, not defaulted: a versioned artifact must
+    # carry its version explicitly so a producer that forgot to stamp the
+    # field can't sneak past validation. Python callers pass SCHEMA_VERSION.
+    schema_version: Literal["1.0"]
     project: RepoMapProject
     nodes: list[RepoMapNode] = Field(default_factory=list)
     edges: list[RepoMapEdge] = Field(default_factory=list)

@@ -36,6 +36,7 @@ def test_schema_version_constant_is_one_dot_zero():
 
 def test_repo_map_round_trip_preserves_fields(project: RepoMapProject):
     original = RepoMap(
+        schema_version=SCHEMA_VERSION,
         project=project,
         nodes=[
             RepoMapNode(id="file:src/app.py", type="source_file", path="src/app.py"),
@@ -58,11 +59,19 @@ def test_repo_map_round_trip_preserves_fields(project: RepoMapProject):
 
 
 def test_repo_map_defaults_collections_to_empty(project: RepoMapProject):
-    minimal = RepoMap(project=project)
+    minimal = RepoMap(schema_version=SCHEMA_VERSION, project=project)
     assert minimal.nodes == []
     assert minimal.edges == []
     assert minimal.commands == []
     assert minimal.warnings == []
+
+
+def test_repo_map_requires_explicit_schema_version(project: RepoMapProject):
+    # Missing schema_version on a JSON payload must NOT silently default —
+    # a versioned artifact has to carry its version stamp explicitly so
+    # producers that forgot to stamp the field can't sneak past validation.
+    with pytest.raises(ValidationError):
+        RepoMap.model_validate({"project": project.model_dump(mode="json")})
 
 
 def test_repo_map_rejects_unknown_top_level_field(project: RepoMapProject):
@@ -274,6 +283,7 @@ def test_node_rejects_malformed_fingerprint(bad_fingerprint: str):
 def test_repo_map_rejects_duplicate_node_ids(project: RepoMapProject):
     with pytest.raises(ValidationError) as excinfo:
         RepoMap(
+            schema_version=SCHEMA_VERSION,
             project=project,
             nodes=[
                 RepoMapNode(id="file:dup", type="source_file", path="a"),
@@ -281,3 +291,14 @@ def test_repo_map_rejects_duplicate_node_ids(project: RepoMapProject):
             ],
         )
     assert "duplicate node id" in str(excinfo.value)
+
+
+def test_node_rejects_fingerprint_with_trailing_newline():
+    # re.match with `$` would accept the newline; fullmatch closes the gap.
+    with pytest.raises(ValidationError):
+        RepoMapNode(
+            id="file:x",
+            type="source_file",
+            path="x",
+            fingerprint="sha256:" + "0" * 64 + "\n",
+        )

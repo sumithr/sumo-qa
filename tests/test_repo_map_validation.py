@@ -89,6 +89,15 @@ def test_load_missing_required_field_raises_field_named_error():
     assert "generated_at" in excinfo.value.path
 
 
+def test_load_missing_schema_version_raises_missing_field():
+    payload = _valid_payload()
+    del payload["schema_version"]
+    with pytest.raises(RepoMapValidationError) as excinfo:
+        load_repo_map(payload)
+    assert excinfo.value.kind == "missing_field"
+    assert "schema_version" in excinfo.value.path
+
+
 def test_load_unknown_field_raises_unknown_field_error():
     payload = _valid_payload()
     payload["project"]["rogue"] = "x"
