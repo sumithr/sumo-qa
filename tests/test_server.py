@@ -25,6 +25,13 @@ _CAPABILITIES_TOOL_NAMES = {
     "sumo_qa_capabilities",
 }
 
+# Repo-map artifact tools (issue #155 slice 3 — host-callable wrapper around
+# the slice-2 deterministic scanner). Compact-summary response by design;
+# the full artifact is only returned via the optional `write_to` path.
+_REPO_MAP_TOOL_NAMES = {
+    "sumo_qa_scan_repo",
+}
+
 _KNOWLEDGE_LOADER_TOOL_NAMES = {
     "sumo_qa_load_classifications",
     "sumo_qa_load_approaches",
@@ -94,6 +101,7 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
         _TEST_DATA_TOOL_NAMES
         | _KNOWLEDGE_LOADER_TOOL_NAMES
         | _CAPABILITIES_TOOL_NAMES
+        | _REPO_MAP_TOOL_NAMES
         | _INGESTION_TOOL_NAMES
         | _EXTERNAL_SKILL_TOOL_NAMES
         | _SKILL_TOOL_NAMES
