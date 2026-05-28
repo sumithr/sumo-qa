@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "project": {
+    "root": "/repo",
+    "name": "example-repo",
+    "git_commit": "abc123def456",
+    "generated_at": "2026-05-28T00:00:00+00:00",
+    "generator_version": "sumo-qa 0.16.0"
+  },
+  "nodes": [
+    {
+      "id": "file:src/app.py",
+      "type": "source_file",
+      "path": "src/app.py",
+      "language": "python",
+      "category": "app",
+      "tags": ["api"],
+      "fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "id": "file:tests/test_app.py",
+      "type": "test_file",
+      "path": "tests/test_app.py",
+      "language": "python"
+    },
+    {
+      "id": "file:pyproject.toml",
+      "type": "manifest",
+      "path": "pyproject.toml"
+    },
+    {
+      "id": "file:.github/workflows/ci.yml",
+      "type": "ci_workflow",
+      "path": ".github/workflows/ci.yml"
+    },
+    {
+      "id": "file:README.md",
+      "type": "docs",
+      "path": "README.md"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:tests/test_app.py",
+      "target": "file:src/app.py",
+      "type": "likely_tests",
+      "confidence": "medium",
+      "reason": "path/name convention"
+    }
+  ],
+  "commands": [
+    {
+      "name": "pytest",
+      "kind": "test",
+      "source": "pyproject.toml",
+      "raw": "pytest -q"
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "unsupported_language",
+      "message": "skipped 2 .rs files; rust not in first-slice languages"
+    }
+  ]
+}

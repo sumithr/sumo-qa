@@ -266,4 +266,5 @@ Filing a clear issue gets it fixed faster. Pick the template that matches the pr
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
+- [docs/REPO-MAP.md](docs/REPO-MAP.md) — QA-native repo-map artifact schema under `.sumo-qa/` (first slice, issue #155)
 - [docs/PERSONA.md](docs/PERSONA.md) — optional Sumo-sensei voice (off by default)
