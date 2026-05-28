@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -14,21 +15,40 @@ from sumo_qa.repo_map_scanner import scan_repo
 from sumo_qa.repo_map_validation import load_repo_map
 
 
+def _clean_git_env() -> dict[str, str]:
+    """Strip GIT_* from env so a parent process's GIT_DIR / GIT_WORK_TREE
+    (e.g. pre-commit's stash mechanism on `git push`) can't override the
+    subprocess's `cwd` and silently target the wrong repo."""
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
 def _git_init(path: Path) -> None:
-    """Create a minimal git repo so scan_repo's git-ls-files path is exercised."""
-    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
-    subprocess.run(["git", "config", "user.email", "t@t"], cwd=path, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=path, check=True)
+    """Create a minimal git repo so scan_repo's git-ls-files path is exercised.
+
+    Uses `_clean_git_env()` so a parent pre-commit stash can't redirect git;
+    `--no-verify` and `core.hooksPath=/dev/null` insulate the test from any
+    pre-commit hook scripts installed on the host (running pre-commit on a
+    throwaway tmp_path commit would fail looking for `.pre-commit-config.yaml`).
+    """
+    env = _clean_git_env()
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True, env=env)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=path, check=True, env=env)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=path, check=True, env=env)
+    subprocess.run(["git", "config", "core.hooksPath", "/dev/null"], cwd=path, check=True, env=env)
 
 
 def _git_add_and_commit(path: Path) -> str:
-    subprocess.run(["git", "add", "-A"], cwd=path, check=True)
+    env = _clean_git_env()
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True, env=env)
     subprocess.run(
-        ["git", "commit", "-q", "-m", "init", "--no-gpg-sign"],
+        ["git", "commit", "--no-verify", "-q", "-m", "init", "--no-gpg-sign"],
         cwd=path,
         check=True,
+        env=env,
     )
-    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, capture_output=True, check=True)
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=path, capture_output=True, check=True, env=env
+    )
     return result.stdout.decode().strip()
 
 
