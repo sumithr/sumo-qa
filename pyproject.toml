@@ -47,6 +47,11 @@ dependencies = [
   # built wheel and protects pip/Poetry installers too, not only uv resolution.
   # Drop once `mcp` requires a safe starlette floor itself.
   "starlette>=1.0.1",
+  # TOML reader for the slice-2 repo-map scanner's pyproject.toml parsing.
+  # tomllib is stdlib on 3.11+; 3.10 (still supported per requires-python)
+  # needs the tomli backport. dev extras already pull tomli for plugin_packaging,
+  # but the scanner ships in the wheel, so the floor has to live here too.
+  "tomli>=2,<3; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -54,10 +59,13 @@ dev = [
   "hypothesis>=6,<7",
   "jsonschema>=4,<5",
   # tomllib is stdlib on 3.11+; 3.10 needs the backport. Used by the
-  # plugin_packaging canonical loader (build-time / maintainer-time) and
-  # by tests/test_plugin_metadata.py — both are dev-only surfaces, so
-  # the backport stays out of main dependencies.
-  "tomli>=2,<3; python_version < '3.11'",
+  # plugin_packaging canonical loader (build-time / maintainer-time),
+  # tests/test_plugin_metadata.py, AND mypy when type-checking the
+  # repo-map scanner's 3.10-branch `import tomli as tomllib`. Mypy is
+  # pinned to python_version="3.10", so the 3.10 branch resolves on every
+  # dev host regardless of the interpreter version — hence unconditional
+  # here, while the wheel keeps the conditional runtime declaration above.
+  "tomli>=2,<3",
   "mutmut>=3,<4",
   # NOTE: CVE-2025-71176 (local tmpdir symlink, fixed in pytest 9.0.3) cannot be
   # remediated by upgrading while pytest-check-links is a dev dep — its latest

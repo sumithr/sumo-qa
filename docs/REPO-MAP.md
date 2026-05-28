@@ -11,9 +11,9 @@ deterministically rather than re-walking the repo each session:
 - what tests or checks appear to exercise it
 - what evidence is stale, missing, or unmapped
 
-This page describes the first-slice schema (issue #155). The deterministic
-local generator, MCP/CLI surfaces, diff-impact extension, and report renderer
-ship in follow-up slices (#155 slice 2, #156, #160, #157).
+This page describes the first-slice schema and the slice-2 scanner that
+populates it (issue #155). MCP/CLI surfaces, diff-impact extension, and
+report renderer ship in follow-up slices (#156, #160, #157).
 
 ## Shape
 
@@ -89,6 +89,63 @@ the follow-up generator slice defines id conventions for external
 references (e.g. third-party imports). Until then, a producer can emit an
 edge pointing at any string id.
 
+## Generating the artifact
+
+```python
+from pathlib import Path
+
+from sumo_qa.repo_map_scanner import scan_repo
+
+repo_map = scan_repo(Path("."), generator_version="sumo-qa 0.16.0")
+# repo_map.nodes / .edges / .commands / .warnings populated
+```
+
+`scan_repo(root, *, generator_version)` walks the repo deterministically and
+returns a validated `RepoMap`. It prefers `git ls-files` (respects
+`.gitignore`, picks up only tracked files); outside a git repo, it falls back
+to a manual walk that skips known cache and vendored directories
+(`.git`, `node_modules`, `__pycache__`, `.venv`, `dist`, `build`,
+`.tox`, `mutants`, `.sumo-qa`, etc).
+
+What the slice-2 scanner produces:
+
+- **Nodes** for the full first-slice vocabulary. Each carries its detected
+  language, a SHA-256 fingerprint of the file content, and the relative path.
+- **Edges** of type `likely_tests` only — inferred by name convention
+  (`tests/test_X.py` → `*/X.py`, also handling `X_test.py` and `.test`/
+  `.spec` suffixes). `confidence` is `high` for a unique source match,
+  `medium` when multiple sources share the stem. `imports` and
+  `configured_by` are deferred; they need #156's diff-impact context to
+  be worth computing.
+- **Commands** extracted from `pyproject.toml` (`[project.scripts]`) and
+  `package.json` (`scripts`). For `package.json`, the script `kind`
+  (`test`/`lint`/`format`/`build`/`other`) is guessed from the script
+  name. `pyproject.toml` scripts are categorised as `other` until a
+  follow-up adds smarter detection.
+- **Warnings** for files that didn't classify (`unsupported_language`)
+  or were intentionally skipped (`skipped_file` — e.g. images, archives,
+  compiled binaries).
+
+Determinism: nodes are sorted by path; edges by `(source, target)`;
+commands by `(source, name)`. Fingerprints are content-hashed, so only
+files that actually changed get a new fingerprint. `project.generated_at`
+is the only field that churns on each run.
+
+Persisting the artifact is optional — the scanner returns a `RepoMap`
+in-process. To write it to disk where downstream tooling will look:
+
+```python
+import json
+from pathlib import Path
+
+out = Path(".sumo-qa") / "repo-map.json"
+out.parent.mkdir(exist_ok=True)
+out.write_text(
+    json.dumps(repo_map.model_dump(mode="json"), indent=2),
+    encoding="utf-8",
+)
+```
+
 ## Loading + validation
 
 ```python
@@ -130,14 +187,16 @@ the same repo state, so the structural diff stays clean. `generated_at`
 churns on every run; CI use-cases should diff with that field masked, or
 regenerate locally before comparison.
 
-## Scope of this slice
+## Scope by slice
 
-The slice 1 PR adds:
+| Slice | Lands |
+|---|---|
+| 1 | Schema models, validation envelope, golden fixture |
+| 2 (this PR) | `sumo_qa.repo_map_scanner.scan_repo` — deterministic local walker; `likely_tests` edge inference; command extraction from `pyproject.toml` / `package.json` |
+| 3 (follow-up) | MCP/CLI surface — host-callable tools and `sumo-qa analyze`-style commands |
+| 4 (follow-up) | Diff-impact extension, full docs/examples, README narrative |
 
-- Pydantic models (`sumo_qa.repo_map_models`) for the shape above
-- A load + validation envelope (`sumo_qa.repo_map_validation.load_repo_map`)
-  returning a typed model or a categorised `RepoMapValidationError`
-- A round-trip-tested fixture under `tests/fixtures/repo_map/`
-
-The deterministic scanner, the MCP/CLI surface, the diff-impact artifact,
-and the static report all live in follow-up slices.
+`imports`, `configured_by`, and `command_runs` edges are deferred. The
+slice-2 scanner produces only `likely_tests` — enough for #156's diff-impact
+to map a changed source file to its candidate tests, which is the first
+downstream consumer.
