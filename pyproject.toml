@@ -210,6 +210,14 @@ also_copy = [
   # [tool.hatch.build.targets.wheel.force-include], so this entry is
   # mutmut-local-only.
   ".claude/",
+  # tests/test_release_please_config.py (added in #225) resolves
+  # `Path(__file__).resolve().parents[1] / "release-please-config.json"`,
+  # which under mutmut becomes `mutants/release-please-config.json`. Without
+  # this entry the test FileNotFoundErrors during collection, mutmut's `-x`
+  # aborts stats collection, and the pre-push mutmut hook fails on every
+  # push whose delta touches any test file (the hook's regex matches all
+  # of `tests/*.py`). Same root-level-resource pattern as `.claude/`.
+  "release-please-config.json",
 ]
 
 # ---------------------------------------------------------------------------
