@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/sumithr/sumo-qa/compare/v0.16.0...v0.16.1) (2026-05-28)
+
+
+### Documentation
+
+* simplify canonical install command and add manual uninstall ([#231](https://github.com/sumithr/sumo-qa/issues/231)) ([d20cf60](https://github.com/sumithr/sumo-qa/commit/d20cf606720003e0c223a5cfe1123b5375cd6144))
+
 ## [0.16.0](https://github.com/sumithr/sumo-qa/compare/v0.15.7...v0.16.0) (2026-05-28)
 
 
