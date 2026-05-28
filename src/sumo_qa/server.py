@@ -619,17 +619,32 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             if not root_path.is_dir():
                 raise ValueError(f"root must be a directory: {root_path!s}")
 
-            # 1. Load the map (artifact preferred, live-scan fallback).
+            # 1. Load the map (artifact preferred, live-scan fallback). A
+            #    foreign artifact (its project.root != this root) is ignored
+            #    and we scan live instead — its node paths would be measured
+            #    against a different tree and yield silently wrong results.
             repo_map = None
             artifact_used: str | None = None
             used_live_scan = False
+            foreign_artifact_warning: RepoMapWarning | None = None
             if artifact_path is not None:
                 cand = Path(artifact_path)
                 if not cand.is_absolute():
                     cand = root_path / cand
                 if cand.is_file():
-                    repo_map = load_repo_map(cand)
-                    artifact_used = str(cand.resolve())
+                    loaded = load_repo_map(cand)
+                    if Path(loaded.project.root).resolve() == root_path.resolve():
+                        repo_map = loaded
+                        artifact_used = str(cand.resolve())
+                    else:
+                        foreign_artifact_warning = RepoMapWarning(
+                            kind="other",
+                            message=(
+                                f"ignored repo-map at {cand!s}: its project.root "
+                                f"{loaded.project.root!r} does not match scan root "
+                                f"{root_path.resolve()!s}"
+                            ),
+                        )
             if repo_map is None:
                 repo_map = scan_repo(root_path, generator_version=_package_version())
                 used_live_scan = True
@@ -652,6 +667,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
             # 4. Analyse + attach wrapper-level warnings.
             impact = analyze_diff_impact(repo_map, resolved)
+            if foreign_artifact_warning is not None:
+                impact.warnings.append(foreign_artifact_warning)
             if used_live_scan:
                 impact.warnings.append(
                     RepoMapWarning(

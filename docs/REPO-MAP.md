@@ -191,12 +191,16 @@ It reports:
   stale map).
 - **`is_stale`** — true when the map's `git_commit` differs from current HEAD.
 
-Changed files come from either an explicit list or a git base ref
-(`git diff --name-only <base_ref>`, base-ref-vs-working-tree). The map is read
+Changed files come from either an explicit list or a git base ref. For a base
+ref the diff is taken against the **merge-base** of the ref and `HEAD` (the
+fork point — the same set GitHub's "Files changed" shows), so changes that
+landed on the base after the branch diverged don't leak in; committed and
+uncommitted tracked changes on the branch are both included. The map is read
 from `.sumo-qa/repo-map.json` when present and falls back to a live scan
-otherwise, so the tool works before any artifact is written. With
-`write_overlay=true` it also writes a `diff-impact.json` overlay under
-`.sumo-qa/`.
+otherwise, so the tool works before any artifact is written. An artifact whose
+`project.root` does not match the scan root is ignored (with a warning) in
+favour of a live scan. With `write_overlay=true` it also writes a
+`diff-impact.json` overlay under `.sumo-qa/`.
 
 The pure analysis lives in `src/sumo_qa/repo_map_impact.py`
 (`analyze_diff_impact`); the MCP tool in `src/sumo_qa/server.py` is a thin

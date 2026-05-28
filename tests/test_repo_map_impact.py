@@ -184,3 +184,23 @@ def test_changed_files_from_git_rejects_non_toplevel(tmp_path: Path):
     sub.mkdir()
     with pytest.raises(ValueError, match="not a git repository toplevel"):
         changed_files_from_git(sub, "HEAD")
+
+
+def test_changed_files_from_git_uses_merge_base_not_base_tip(tmp_path: Path):
+    # A base branch that advanced after the fork point must NOT leak its own
+    # changes into this branch's diff — diffing the merge-base, not base tip.
+    _init_repo(tmp_path)
+    (tmp_path / "a.py").write_text("x = 1\n")
+    (tmp_path / "y.py").write_text("y = 1\n")
+    _git(["add", "-A"], tmp_path)
+    _git(["commit", "-q", "-m", "A", "--no-verify"], tmp_path)
+    # 'base' advances with a change to y.py the working tree never sees.
+    _git(["checkout", "-q", "-b", "base"], tmp_path)
+    (tmp_path / "y.py").write_text("y = 2\n")
+    _git(["add", "-A"], tmp_path)
+    _git(["commit", "-q", "-m", "B", "--no-verify"], tmp_path)
+    # Back at the fork point; make an uncommitted change to a.py only.
+    _git(["checkout", "-q", "-"], tmp_path)
+    (tmp_path / "a.py").write_text("x = 2\n")
+    changed = changed_files_from_git(tmp_path, "base")
+    assert changed == ["a.py"]

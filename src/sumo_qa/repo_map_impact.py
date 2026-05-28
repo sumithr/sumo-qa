@@ -26,6 +26,10 @@ from sumo_qa.repo_map_models import DiffImpact, ImpactNode, RepoMap
 def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> DiffImpact:
     """Map ``changed_files`` onto ``repo_map``. Pure; output lists are sorted."""
     changed = sorted(set(changed_files))
+    # Path -> node. Safe against collisions: a RepoMap enforces unique node ids
+    # (RepoMap._check_unique_node_ids) and the scanner derives id as
+    # ``file:{path}``, so one path maps to exactly one node for any
+    # scanner-produced map.
     node_by_path = {n.path: n for n in repo_map.nodes}
     node_by_id = {n.id: n for n in repo_map.nodes}
 
@@ -97,12 +101,15 @@ def _git_env() -> dict[str, str]:
 
 
 def changed_files_from_git(root: Path | str, base_ref: str) -> list[str]:
-    """Repo-relative paths changed between ``base_ref`` and the working tree.
+    """Repo-relative paths this branch changed relative to ``base_ref``.
 
-    Includes committed and uncommitted tracked changes (``git diff
-    --name-only <base_ref>``). Raises ``ValueError`` if ``root`` is not the
-    toplevel of a git repo (the scanner's cross-check, so an ancestor repo
-    can't leak)."""
+    Diffs the working tree against ``merge-base(base_ref, HEAD)`` — the fork
+    point — so files changed *on the base* after the branch diverged don't
+    leak in as false positives (the same semantics GitHub's "Files changed"
+    uses), while committed AND uncommitted tracked changes on this branch are
+    both included. ``-z`` keeps non-ASCII / spaced paths intact (git quotes
+    them otherwise). Raises ``ValueError`` if ``root`` is not the toplevel of a
+    git repo (the scanner's cross-check, so an ancestor repo can't leak)."""
     root_path = Path(root).resolve()
     git_env = _git_env()
     toplevel = subprocess.run(
@@ -114,10 +121,17 @@ def changed_files_from_git(root: Path | str, base_ref: str) -> list[str]:
     repo_root = Path(toplevel.stdout.decode("utf-8").strip()).resolve()
     if repo_root != root_path:
         raise ValueError(f"{root_path!s} is not a git repository toplevel")
-    result = subprocess.run(
-        ["git", "-C", str(root_path), "diff", "--name-only", base_ref],
+    merge_base = subprocess.run(
+        ["git", "-C", str(root_path), "merge-base", base_ref, "HEAD"],
         capture_output=True,
         check=True,
         env=git_env,
     )
-    return sorted(p for p in result.stdout.decode("utf-8").splitlines() if p)
+    fork_point = merge_base.stdout.decode("utf-8").strip()
+    result = subprocess.run(
+        ["git", "-C", str(root_path), "diff", "--name-only", "-z", fork_point],
+        capture_output=True,
+        check=True,
+        env=git_env,
+    )
+    return sorted(p.decode("utf-8") for p in result.stdout.split(b"\0") if p)

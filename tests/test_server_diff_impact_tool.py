@@ -92,6 +92,22 @@ def test_loads_persisted_artifact_when_present(tool, tmp_path):
     assert out.artifact_path == str(artifact.resolve())
 
 
+def test_ignores_foreign_artifact_and_scans_live(tool, tmp_path):
+    _seed_repo(tmp_path)
+    from sumo_qa.repo_map_scanner import scan_repo
+
+    rm = scan_repo(tmp_path, generator_version="t")
+    data = rm.model_dump(mode="json")
+    data["project"]["root"] = "/some/other/repo"
+    artifact = tmp_path / ".sumo-qa" / "repo-map.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(json.dumps(data), encoding="utf-8")
+    out = tool(root=str(tmp_path), changed_files=["src/a.py"])
+    assert out.used_live_scan is True
+    assert out.artifact_path is None
+    assert out.warning_count >= 1
+
+
 def test_base_ref_derives_changed_files(tool, tmp_path):
     _init_repo(tmp_path)
     _seed_repo(tmp_path)
