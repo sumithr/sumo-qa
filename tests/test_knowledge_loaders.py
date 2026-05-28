@@ -606,3 +606,99 @@ def test_rules_path_prefers_project_pack(tmp_path, monkeypatch):
     f = rules / "change_rules.yaml"
     f.write_text("{}\n", encoding="utf-8")
     assert knowledge_loaders._rules_path() == f
+
+
+# ---------------------------------------------------------------------------
+# Issue #99 — docs_change and test_change rule entries (+ #176 fold-in)
+#
+# `classifications.md` lists docs_change and test_change as canonical
+# classifications, but `change_rules.yaml` previously carried no concrete
+# rule entries for them. These tests pin the entry shape:
+#   - direct-hit filtering returns docs/test-specific guidance,
+#   - multi-classification filtering returns docs/test entries WITH the
+#     existing aliased entries for config/infrastructure (the AC),
+#   - the docs entry carries the inventory-drift probe (#176 fold-in):
+#     a diff that changes a documented count / inventory / public-surface
+#     name / schema field must trigger a repo-wide search for stale
+#     occurrences of the old value.
+# ---------------------------------------------------------------------------
+
+
+def test_load_rules_returns_docs_focused_entry_for_docs_change():
+    """`sumo_qa_load_rules('docs_change')` returns a docs-specific entry."""
+    result = sumo_qa_load_rules(classification="docs_change")
+
+    assert "docs_change:" in result
+    text = result.lower()
+    assert "broken links" in text or "stale commands" in text
+    assert "ui_only_change" not in result  # not an accidental alias hit
+
+
+def test_load_rules_returns_test_focused_entry_for_test_change():
+    """`sumo_qa_load_rules('test_change')` returns a test-specific entry."""
+    result = sumo_qa_load_rules(classification="test_change")
+
+    assert "test_change:" in result
+    text = result.lower()
+    assert "tautological" in text or "fails on the intended" in text
+
+
+def test_docs_change_carries_inventory_drift_probe():
+    """#176 fold-in: when a diff changes a documented count, inventory,
+    public-surface name, or schema field, the docs_change entry must instruct
+    a repo-wide search for stale occurrences of the old value — not just the
+    obvious doc."""
+    result = sumo_qa_load_rules(classification="docs_change")
+
+    text = result.lower()
+    assert "stale occurrences" in text or "repo-wide" in text, (
+        "docs_change must carry the inventory-drift probe text"
+    )
+    # The probe must name what's being searched for, not just say 'search the repo'.
+    assert any(
+        marker in text for marker in ("documented count", "inventory", "public-surface", "schema")
+    ), "docs_change drift probe must enumerate count / inventory / public surface / schema"
+
+
+def test_load_rules_multi_filter_docs_plus_aliased_config(tmp_path, monkeypatch):
+    """Multi-classification filter: docs_change (direct hit) alongside
+    config_change (resolved via the existing alias to configuration_change).
+    Uses an in-test rules doc so the assertion is independent of unrelated
+    drift in the real file."""
+    import yaml as _yaml
+
+    rules_doc = {
+        "docs_change": {"must_consider": ["accuracy"]},
+        "test_change": {"must_consider": ["tautology"]},
+        "configuration_change": {"must_consider": ["env override"]},
+    }
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(_yaml.safe_dump(rules_doc, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("QA_RULES_PATH", str(rules_file))
+
+    result = _yaml.safe_load(sumo_qa_load_rules(classification="docs_change, config_change"))
+
+    assert set(result.keys()) == {"docs_change", "config_change"}
+    assert result["config_change"] == {"must_consider": ["env override"]}
+
+
+def test_load_rules_multi_filter_test_plus_aliased_infrastructure(tmp_path, monkeypatch):
+    """Multi-classification filter: test_change (direct hit) alongside
+    infrastructure_change (resolved via the existing alias to
+    configuration_change)."""
+    import yaml as _yaml
+
+    rules_doc = {
+        "test_change": {"must_consider": ["tautology"]},
+        "configuration_change": {"must_consider": ["deploy rollback"]},
+    }
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(_yaml.safe_dump(rules_doc, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("QA_RULES_PATH", str(rules_file))
+
+    result = _yaml.safe_load(
+        sumo_qa_load_rules(classification="test_change, infrastructure_change")
+    )
+
+    assert set(result.keys()) == {"test_change", "infrastructure_change"}
+    assert result["infrastructure_change"] == {"must_consider": ["deploy rollback"]}

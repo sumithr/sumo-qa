@@ -1,0 +1,200 @@
+description: >
+  Issue #99 (consolidating #176) — proves the docs_change inventory-drift probe
+  appears in a SKILL workflow, not just the raw catalogue. A diff bumps a
+  documented inventory count in code, but a stale doc somewhere else in the
+  repo still carries the OLD count. The candidate loads the enriched
+  change_rules.yaml; the judge grades that the reviewer flags the stale doc
+  as a merge blocker, not just shrugs at green tests.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+    expected_shape: >-
+      Evidence-led final-turn merge verdict that explicitly flags the stale
+      documented count in the second file (the one that still names the OLD
+      value) as a merge blocker. The verdict gates SAFE TO MERGE on docs
+      being updated to match the code, not just on green tests. Cites the
+      stale file by name and the specific old-vs-new value. Quotes the
+      passing-test summary from the fresh test run to acknowledge the
+      behavioural change is sound, while still refusing safe-to-merge until
+      the inventory drift is resolved. Ends without a confirmation question.
+    anti_patterns:
+      - Declares SAFE TO MERGE while a documented count or inventory in the
+        repo still names the old value contradicted by the diff.
+      - Treats the green test suite as sufficient evidence to merge while
+        ignoring the doc drift visible in the supplied repo state.
+      - Notices only the obvious doc and misses that the OTHER file in the
+        supplied repo state still carries the stale value.
+      - Asking another confirmation question instead of delivering the verdict.
+      - Surfacing literal taxonomy labels such as `docs_change`.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the docs-drift QA shape AND avoids the named anti-patterns.
+      Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate loaded these change rules; the docs_change entry carries
+      the tech-agnostic inventory-drift probe that the response should
+      surface ("searched repo-wide for stale occurrences of the old value"):
+
+
+      --- LOADED RULES ---
+
+      {{loaded_rules}}
+
+      --- END LOADED RULES ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response flag the stale documented count in the
+         second file as a merge blocker, cite the stale file by name and the
+         old-vs-new value, gate SAFE TO MERGE on docs being updated (not
+         only on green tests), and end without a confirmation question?
+
+      B. GROUNDING - the response must visibly use the supplied repo state:
+         it must name the file holding the stale count and quote the
+         passing-test summary from the fresh test run. Narrating without
+         using the supplied context -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical change classifications:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    ...and the team's change rules (keyed by classification):
+
+    --- LOADED RULES ---
+    {{loaded_rules}}
+    --- END LOADED RULES ---
+
+    Repository diff, prior review gates, supplied repo state, and fresh
+    verification evidence for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill to this scenario. This is the final verdict turn:
+    no confirmation gate, deliver the verdict. Keep the response concise and
+    evidence-led.
+tests:
+  - description: stale documented count in a second doc, while the obvious README is updated
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns in this session (NOT shown above): you have read the diff,
+        named the risks, the user has confirmed them, and you have run the test
+        suite. This is the FINAL TURN of the review — produce the safe-to-merge
+        verdict citing the named risks + the fresh test evidence + the supplied
+        repo state. No more confirmation gates.
+
+        Scope gate: completed. Developer confirmed the change is intended to
+        register a new MCP tool (`sumo_qa_load_taxonomy`), bringing the total
+        from 28 to 29.
+
+        Risk gate: completed. Named risks include tool-registration regression
+        AND documented-inventory drift across the repo.
+
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/server.py b/src/sumo_qa/server.py
+        @@ src/sumo_qa/server.py:312-318 @@
+         312 mcp.tool()(sumo_qa_load_techniques)
+         313 mcp.tool()(sumo_qa_load_rules)
+        +314 mcp.tool()(sumo_qa_load_taxonomy)
+         315 mcp.tool()(sumo_qa_load_standards)
+
+        diff --git a/README.md b/README.md
+        @@ README.md:42-46 @@
+        -42 sumo-qa ships 28 MCP tools that …
+        +42 sumo-qa ships 29 MCP tools that …
+        ```
+
+        ## Other repo state the operator should know about
+        ```text
+        $ rg -n "28 (MCP )?tools" .
+        docs/INSTALL.md:17: "After installation you'll have 28 MCP tools registered with Claude Code."
+        .github/ISSUE_TEMPLATE/qa_output_quality.yml:22: description: "One of the 28 sumo-qa MCP tools"
+        ```
+        Neither `docs/INSTALL.md` nor `.github/ISSUE_TEMPLATE/qa_output_quality.yml`
+        was touched by this diff — they still carry the old "28" value.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_tools.py tests/test_tools_list_contract.py -q
+        tests/test_tools.py::test_all_tools_registered PASSED
+        tests/test_tools.py::test_sumo_qa_load_taxonomy_registered PASSED
+        tests/test_tools_list_contract.py::test_tools_list_contract PASSED
+        45 passed, 0 skipped in 2.81s
+        ```
