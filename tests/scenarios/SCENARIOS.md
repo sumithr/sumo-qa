@@ -333,10 +333,12 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 ## How to validate these scenarios
 
-Two complementary paths:
+Three complementary paths:
 
 **1. Static review of the skills (free, ongoing):** for each scenario above, open the matching skill under `skills/<name>/SKILL.md` and check that its checklist, HARD-GATE, examples, and red-flag rows would produce the "Expected interaction shape" and prevent the "Anti-patterns". The skills are written so this static check is meaningful — they enforce structure, not just describe it.
 
 **2. Live agent role-play (one-shot, captured under `worked-examples/`):** an agent reads the relevant skill, role-plays the scenario, and produces the first-turn response. These are captured as worked examples and serve as the visible "what good looks like" reference. They're not re-run on every commit (would cost API credits each time); they're a point-in-time validation that the skill works on a real scenario.
 
-**Not validated by:** pytest assertions against agent output. The static skill review + the worked examples are the validation; pytest is reserved for code-level correctness (the 148 tests in `tests/`).
+**3. Deterministic trigger-routing harness (CI gate, every commit):** [`tests/test_skill_triggering.py`](../test_skill_triggering.py) reads [`tests/fixtures/skill_triggers.yaml`](../fixtures/skill_triggers.yaml) — a machine-readable prompt → expected-skill matrix — and asserts every skill tool is (a) registered and (b) triggerable by at least one user-natural phrase pinned in the fixture. No live LLM; runs in the standard pytest suite. Add a row to the fixture, not the test, when adding coverage for a new prompt or skill. Catches the silent-mis-routing failure mode where a description rewording drops the trigger phrase the host LLM was relying on. Complements (does not replace) the LLM-judged routing evals under [`tests/evals/promptfoo/`](../evals/promptfoo/), which remain optional and need `OPENAI_API_KEY`.
+
+The behavioural-shape and anti-pattern checks above are NOT asserted by the deterministic harness — those are LLM-quality questions and live in static review + role-play + the optional promptfoo evals.

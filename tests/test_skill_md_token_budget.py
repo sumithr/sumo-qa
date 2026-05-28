@@ -35,7 +35,7 @@ SKILL_TOKEN_BUDGETS = {
     "sumo-qa-executing-qa-rollout": 1960,  # post-cut 1863 (was 2109, -11.7%)
     "sumo-qa-finding-test-data": 1580,  # post-cut 1508 (was 1754, -14.0%)
     "sumo-qa-finishing-qa-work": 1920,  # post-cut 1829 (was 2039, -10.3%)
-    "sumo-qa-implementing-with-tdd": 2840,  # post-cut 2708 (was 3385, -20%)
+    "sumo-qa-implementing-with-tdd": 3200,  # +#85 expected-value derivation check — post-cut 2708 → ~3177 after adding the third discriminator-check axis to step 3 (assertion expected-value vs input+domain rule, complementing the existing tautology + setup-discriminator checks), matching Red-Flags row, and Bad/contrast example for recalled-vs-derived expected values. Closes the leap-year boundary eval FAIL → PASS (delta +1/-1 on the implementing-with-tdd promptfoo baseline). Cushion ~0.7%.
     "sumo-qa-planning-qa-rollout": 2680,  # post-cut 2555 (was 2801, -8.8%)
     "sumo-qa-preparing-for-work": 2420,  # +#98 surface-signal rule (post-cut 2032 -> ~2301); cushion ~5%
     "sumo-qa-reviewing-before-merge": 3030,  # post-cut 2888 (was 4586, -37%)
