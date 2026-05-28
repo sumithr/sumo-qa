@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
-from sumo_qa.repo_map_impact import analyze_diff_impact
+from sumo_qa.repo_map_impact import analyze_diff_impact, changed_files_from_git
 from sumo_qa.repo_map_models import (
     SCHEMA_VERSION,
     DiffImpact,
@@ -131,3 +135,52 @@ def test_result_is_deterministic_and_sorted():
     second = analyze_diff_impact(rm, ["src/a.py", "src/b.py"])
     assert first.model_dump() == second.model_dump()
     assert [n.path for n in first.changed_nodes] == ["src/a.py", "src/b.py"]
+
+
+def _clean_git_env():
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return env
+
+
+def _git(args, cwd):
+    subprocess.run(
+        ["git", "-C", str(cwd), *args], check=True, capture_output=True, env=_clean_git_env()
+    )
+
+
+def _init_repo(root: Path):
+    _git(["init", "-q"], root)
+    _git(["config", "user.email", "t@example.com"], root)
+    _git(["config", "user.name", "t"], root)
+    _git(["config", "core.hooksPath", "/dev/null"], root)
+
+
+def test_changed_files_from_git_lists_diff_against_base(tmp_path: Path):
+    _init_repo(tmp_path)
+    (tmp_path / "a.py").write_text("x = 1\n")
+    _git(["add", "-A"], tmp_path)
+    _git(["commit", "-q", "-m", "base", "--no-verify"], tmp_path)
+    base = (
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            env=_clean_git_env(),
+        )
+        .stdout.decode()
+        .strip()
+    )
+    (tmp_path / "a.py").write_text("x = 2\n")
+    (tmp_path / "b.py").write_text("y = 1\n")
+    _git(["add", "-A"], tmp_path)
+    changed = changed_files_from_git(tmp_path, base)
+    assert changed == ["a.py", "b.py"]
+
+
+def test_changed_files_from_git_rejects_non_toplevel(tmp_path: Path):
+    _init_repo(tmp_path)
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    with pytest.raises(ValueError, match="not a git repository toplevel"):
+        changed_files_from_git(sub, "HEAD")
