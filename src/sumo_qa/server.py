@@ -481,7 +481,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         using-sumo-qa entry router or sumo_qa_deciding_approach."""
         return build_capabilities()
 
-    @mcp.tool(annotations=_read_only_local)
+    @mcp.tool(annotations=_writer_local)
     def sumo_qa_scan_repo(
         root: str,
         generator_version: str | None = None,
