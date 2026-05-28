@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -178,17 +179,36 @@ def scan_repo(root: Path | str, *, generator_version: str) -> RepoMap:
 
 def _list_files(root: Path) -> list[str]:
     """Repo-relative paths in sorted order. Prefers ``git ls-files``; falls
-    back to a manual walk that excludes known cache/vendored directories."""
+    back to a manual walk that excludes known cache/vendored directories.
+
+    Two safety nets prevent leaking an outer git repo's tracked files when
+    ``root`` happens to sit beneath one (the classic case: a temp dir under
+    ``/var/folders/...`` while the parent process inherits ``GIT_DIR`` from
+    something like pre-commit's stash). First, every git invocation strips
+    ``GIT_*`` from the env so an inherited ``GIT_DIR``/``GIT_WORK_TREE``
+    can't override ``--git-dir``/``cwd``. Second, ``rev-parse
+    --show-toplevel`` must resolve to ``root`` itself — if git's discovery
+    walks up and finds an ancestor repo, the toplevel won't match and we
+    fall back to the manual walk."""
+    git_env = _git_env()
     try:
-        result = subprocess.run(
-            ["git", "ls-files", "-z"],
-            cwd=root,
+        toplevel = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
             capture_output=True,
             check=True,
+            env=git_env,
         )
-        tracked = [p.decode("utf-8") for p in result.stdout.split(b"\0") if p]
-        if tracked:
-            return sorted(tracked)
+        repo_root = Path(toplevel.stdout.decode("utf-8").strip()).resolve()
+        if repo_root == root.resolve():
+            result = subprocess.run(
+                ["git", "-C", str(root), "ls-files", "-z"],
+                capture_output=True,
+                check=True,
+                env=git_env,
+            )
+            tracked = [p.decode("utf-8") for p in result.stdout.split(b"\0") if p]
+            if tracked:
+                return sorted(tracked)
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 
@@ -381,13 +401,31 @@ def _guess_command_kind(name: str) -> CommandKind:
 
 
 def _detect_git_commit(root: Path) -> str | None:
+    git_env = _git_env()
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=root,
+        toplevel = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
             capture_output=True,
             check=True,
+            env=git_env,
+        )
+        repo_root = Path(toplevel.stdout.decode("utf-8").strip()).resolve()
+        if repo_root != root.resolve():
+            return None
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            check=True,
+            env=git_env,
         )
         return result.stdout.decode("utf-8").strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
+
+
+def _git_env() -> dict[str, str]:
+    """Return os.environ stripped of ``GIT_*`` vars. Inherited ``GIT_DIR``/
+    ``GIT_WORK_TREE`` from a parent process (notably pre-commit's stash
+    mechanism) otherwise overrides ``--git-dir`` and ``cwd``, making
+    ``git ls-files`` from a temp dir leak the outer repo's tracked files."""
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}

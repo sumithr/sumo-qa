@@ -125,6 +125,53 @@ def test_scan_repo_falls_back_to_walk_outside_git(tmp_path: Path):
     assert repo_map.project.git_commit is None
 
 
+def test_scan_subdir_of_git_repo_does_not_inherit_outer_commit(tmp_path: Path):
+    """If root is INSIDE a git repo but isn't its toplevel, the scanner must
+    not attribute the outer repo's commit + tracked files to root."""
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    _git_init(outer)
+    _make_file(outer, "outer_tracked.py", "x\n")
+    _git_add_and_commit(outer)
+
+    subdir = outer / "subdir"
+    subdir.mkdir()
+    _make_file(subdir, "inner.py", "x\n")
+
+    repo_map = scan_repo(subdir, generator_version="t")
+    paths = {n.path for n in repo_map.nodes}
+    assert "inner.py" in paths
+    assert "outer_tracked.py" not in paths
+    assert repo_map.project.git_commit is None
+
+
+def test_inherited_git_dir_does_not_leak_outer_repo(tmp_path: Path, monkeypatch):
+    """Pre-commit's stash mechanism (and similar tooling) sets ``GIT_DIR`` in
+    the parent process environment. Without env scrubbing + a toplevel
+    cross-check, ``git ls-files`` from a temp dir would return the OUTER
+    repo's tracked files instead of falling back to the manual walk."""
+    # Set up an outer git repo with some tracked files.
+    outer = tmp_path / "outer-repo"
+    outer.mkdir()
+    _git_init(outer)
+    _make_file(outer, "outer_only.py", "x\n")
+    _git_add_and_commit(outer)
+
+    # Now scan an unrelated dir. The outer repo's GIT_DIR is "leaked" into
+    # the env, simulating pre-commit's stash behavior.
+    scan_target = tmp_path / "unrelated"
+    scan_target.mkdir()
+    _make_file(scan_target, "inner.py", "x\n")
+    monkeypatch.setenv("GIT_DIR", str(outer / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(outer))
+
+    repo_map = scan_repo(scan_target, generator_version="t")
+    paths = {n.path for n in repo_map.nodes}
+    assert "inner.py" in paths
+    assert "outer_only.py" not in paths
+    assert repo_map.project.git_commit is None
+
+
 def test_fallback_walk_skips_known_caches(tmp_path: Path):
     _make_file(tmp_path, "src/app.py", "x\n")
     _make_file(tmp_path, "__pycache__/cache.pyc", "x\n")
