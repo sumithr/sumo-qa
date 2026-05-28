@@ -17,21 +17,25 @@ defaultTest:
     loaded_classifications: file://../../../knowledge/classifications.md
     loaded_rules: file://../../../standards/rules/change_rules.yaml
     expected_shape: >-
-      Evidence-led final-turn merge verdict that explicitly flags the stale
-      documented count in the second file (the one that still names the OLD
-      value) as a merge blocker. The verdict gates SAFE TO MERGE on docs
-      being updated to match the code, not just on green tests. Cites the
-      stale file by name and the specific old-vs-new value. Quotes the
-      passing-test summary from the fresh test run to acknowledge the
-      behavioural change is sound, while still refusing safe-to-merge until
-      the inventory drift is resolved. Ends without a confirmation question.
+      Evidence-led final-turn merge verdict that explicitly flags EVERY stale
+      documented count surfaced in the supplied repo state — BOTH
+      `docs/INSTALL.md` AND `.github/ISSUE_TEMPLATE/qa_output_quality.yml`,
+      by name — as merge blockers. The verdict gates SAFE TO MERGE on every
+      stale doc being updated to match the code, not just on green tests.
+      Cites each stale file by name and the specific old-vs-new value
+      (28 → 29). Quotes the passing-test summary from the fresh test run to
+      acknowledge the behavioural change is sound, while still refusing
+      safe-to-merge until the inventory drift is fully resolved. Ends
+      without a confirmation question.
     anti_patterns:
-      - Declares SAFE TO MERGE while a documented count or inventory in the
+      - Declares SAFE TO MERGE while any documented count or inventory in the
         repo still names the old value contradicted by the diff.
       - Treats the green test suite as sufficient evidence to merge while
         ignoring the doc drift visible in the supplied repo state.
-      - Notices only the obvious doc and misses that the OTHER file in the
-        supplied repo state still carries the stale value.
+      - Cites only one of the two stale files surfaced in the supplied repo
+        state. Both `docs/INSTALL.md` and
+        `.github/ISSUE_TEMPLATE/qa_output_quality.yml` carry the stale "28"
+        and must be named explicitly.
       - Asking another confirmation question instead of delivering the verdict.
       - Surfacing literal taxonomy labels such as `docs_change`.
   assert:
@@ -87,15 +91,18 @@ defaultTest:
       Evaluate THREE axes independently:
 
 
-      A. SHAPE - does the response flag the stale documented count in the
-         second file as a merge blocker, cite the stale file by name and the
-         old-vs-new value, gate SAFE TO MERGE on docs being updated (not
-         only on green tests), and end without a confirmation question?
+      A. SHAPE - does the response flag the stale documented count as a
+         merge blocker, name BOTH stale files (`docs/INSTALL.md` AND
+         `.github/ISSUE_TEMPLATE/qa_output_quality.yml`) by name with the
+         specific old-vs-new value (28 → 29), gate SAFE TO MERGE on every
+         stale doc being updated (not only on green tests), and end without
+         a confirmation question? Missing either filename is a SHAPE FAIL.
 
       B. GROUNDING - the response must visibly use the supplied repo state:
-         it must name the file holding the stale count and quote the
+         it must name BOTH files holding the stale count and quote the
          passing-test summary from the fresh test run. Narrating without
-         using the supplied context -> GROUNDING FAIL.
+         using the supplied context, or naming only one of the two stale
+         files, -> GROUNDING FAIL.
 
       C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
          ABSENT or PRESENT. PRESENT = the response actually exhibits it.

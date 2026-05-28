@@ -702,3 +702,42 @@ def test_load_rules_multi_filter_test_plus_aliased_infrastructure(tmp_path, monk
 
     assert set(result.keys()) == {"test_change", "infrastructure_change"}
     assert result["infrastructure_change"] == {"must_consider": ["deploy rollback"]}
+
+
+def test_load_rules_multi_filter_all_four_in_one_call(tmp_path, monkeypatch):
+    """Codex review follow-up: a real review may classify a change as carrying
+    several concerns at once. The earlier mixed tests only paired one new
+    direct-hit (docs/test) with one alias (config/infrastructure); a regression
+    that silently drops an entry inside the dedup/alias loop would pass them
+    all. Exercise the FULL four-classification call in one go so the result
+    must contain all four entries non-empty and correctly keyed."""
+    import yaml as _yaml
+
+    rules_doc = {
+        "docs_change": {"must_consider": ["doc accuracy"]},
+        "test_change": {"must_consider": ["tautology"]},
+        "configuration_change": {"must_consider": ["env override"]},
+    }
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(_yaml.safe_dump(rules_doc, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("QA_RULES_PATH", str(rules_file))
+
+    result = _yaml.safe_load(
+        sumo_qa_load_rules(
+            classification="docs_change, test_change, config_change, infrastructure_change"
+        )
+    )
+
+    assert set(result.keys()) == {
+        "docs_change",
+        "test_change",
+        "config_change",
+        "infrastructure_change",
+    }
+    # Direct hits keep their own payloads; aliases (config/infrastructure) both
+    # resolve through configuration_change, so they share its payload — the
+    # alias mechanism must reach the same source for both.
+    assert result["docs_change"] == {"must_consider": ["doc accuracy"]}
+    assert result["test_change"] == {"must_consider": ["tautology"]}
+    assert result["config_change"] == {"must_consider": ["env override"]}
+    assert result["infrastructure_change"] == {"must_consider": ["env override"]}
