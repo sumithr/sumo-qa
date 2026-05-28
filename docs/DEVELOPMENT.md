@@ -138,6 +138,7 @@ The full suite covers:
 - `test_phase3_e2e_skill_path.py` — end-to-end smoke through the new surface
 - `test_token_weight_regression.py` — per-call and per-flow token budgets (the IntelliJ-SSE regression test)
 - `test_server.py` — tool registration
+- `test_skill_triggering.py` — deterministic, host-neutral assertion that every skill tool is registered AND that its MCP description contains at least one of the natural-language trigger phrases pinned for the prompts that should route to it (fixture: `tests/fixtures/skill_triggers.yaml`). Phrase presence is a necessary (not sufficient) condition for the host LLM to pick the right tool by description alone; the harness catches the silent regression where a description rewording drops a trigger phrase. Behavioural quality is judged by the optional LLM evals under `tests/evals/promptfoo/`
 - `test_tdm.py` — test-data tools
 - `test_tools.py` — service factory
 - `test_standards.py`, `test_rules.py` — file loading
@@ -186,6 +187,7 @@ Adding a new technique, classification, or specialty tool = editing one file.
 2. `register_skills_as_prompts` (server startup) picks it up automatically.
 3. Conformance tests parametrise over `skills/*/SKILL.md` — they run on the new skill too.
 4. If the skill is meant to auto-trigger in Claude Code, the frontmatter `description` is what the host LLM uses to route.
+5. Add a trigger row to [`tests/fixtures/skill_triggers.yaml`](../tests/fixtures/skill_triggers.yaml) pinning at least one natural-language prompt to the new skill — [`tests/test_skill_triggering.py`](../tests/test_skill_triggering.py) fails on any registered skill tool that lacks a fixture row, and on any pinned phrase that doesn't appear in the skill's description. Edit the fixture, not the test.
 
 ## Editing plugin packaging (host adapters)
 
