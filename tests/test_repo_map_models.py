@@ -249,6 +249,30 @@ def test_project_accepts_non_utc_aware_datetime():
     assert project.generated_at.tzinfo is not None
 
 
+def test_project_rejects_tzinfo_whose_utcoffset_raises():
+    # A malformed tzinfo subclass that raises from utcoffset() must surface
+    # as a Pydantic validation failure, not a raw TypeError to the caller.
+    from datetime import tzinfo as _tzinfo
+
+    class _RaisingTZ(_tzinfo):
+        def utcoffset(self, dt):  # type: ignore[override]
+            raise TypeError("broken tzinfo")
+
+        def dst(self, dt):  # type: ignore[override]
+            return None
+
+        def tzname(self, dt):  # type: ignore[override]
+            return None
+
+    with pytest.raises(ValidationError) as excinfo:
+        RepoMapProject(
+            root="/repo",
+            generated_at=datetime(2026, 5, 28, tzinfo=_RaisingTZ()),
+            generator_version="x",
+        )
+    assert "malformed" in str(excinfo.value)
+
+
 def test_project_rejects_tzinfo_whose_utcoffset_is_none():
     # A tzinfo subclass whose utcoffset() returns None makes the datetime
     # effectively naive even though `tzinfo is not None`. The validator

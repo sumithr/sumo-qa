@@ -78,8 +78,14 @@ class RepoMapProject(BaseModel):
         # naive datetime — the absent timezone hides the real elapsed time.
         # Pydantic accepts naive datetimes by default, so we tighten here.
         # A tzinfo whose utcoffset() returns None still counts as naive in
-        # Python; check both surfaces.
-        if value.tzinfo is None or value.utcoffset() is None:
+        # Python; a tzinfo whose utcoffset() raises (malformed subclass) gets
+        # rejected as a validation failure rather than surfacing a raw
+        # RuntimeError/TypeError to the caller.
+        try:
+            offset = value.utcoffset()
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"generated_at tzinfo is malformed: {exc}") from exc
+        if value.tzinfo is None or offset is None:
             raise ValueError("generated_at must be timezone-aware")
         return value
 
