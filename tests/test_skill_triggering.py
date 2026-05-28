@@ -59,12 +59,30 @@ def _registered_tools() -> dict[str, Any]:
     return server._tool_manager._tools
 
 
+def _ascii_id(prompt: str) -> str:
+    """ASCII-sanitise a prompt for use as a pytest parametrize ID.
+
+    Pytest's `_idval` represents non-ASCII characters in collected node IDs
+    as `\\u…` escape sequences, but its own CLI nodeid lookup matches against
+    the original parametrize ID — the two no longer line up, so selecting a
+    test by its full nodeid (as mutmut's stats-collection does via
+    `pytest_runtest_logstart` → `pytest.main(...)`) fails with exit code 4
+    (CLI usage error / "not found"). Stripping non-ASCII at ID-build time
+    keeps the fixture prompts unchanged (they're still the assertion target)
+    while making every parametrize ID round-trip cleanly through pytest's
+    selector. Em-dash / en-dash collapse to ASCII hyphen so the IDs read
+    naturally; anything else non-ASCII is dropped.
+    """
+    table = str.maketrans({"—": "-", "–": "-"})
+    return prompt.translate(table).encode("ascii", "ignore").decode("ascii")
+
+
 def _trigger_id(row: dict[str, Any]) -> str:
-    return f"{row['expected_skill']}::{row['prompt'][:40]}"
+    return f"{row['expected_skill']}::{_ascii_id(row['prompt'])[:40]}"
 
 
 def _non_trigger_id(row: dict[str, Any]) -> str:
-    return f"{row['must_not_match_skill']}::{row['prompt'][:40]}"
+    return f"{row['must_not_match_skill']}::{_ascii_id(row['prompt'])[:40]}"
 
 
 @pytest.mark.parametrize(

@@ -253,3 +253,55 @@ caching_change:
     - performance_efficiency_time_behaviour
     - reliability_maturity
     - functional_correctness
+
+docs_change:
+  must_consider:
+    - accuracy against current behavior
+    - broken links and stale commands
+    - install or update path correctness
+    - code-block and file-path validity
+    - avoid over-testing a pure prose or typo change
+    # Inventory / surface drift probe (#176 fold-in): a documented count,
+    # list, public-surface name, or schema field that changes in one place
+    # often lingers stale in another doc, template, or test comment. Force
+    # the reviewer to search the WHOLE repo for the old value, not just the
+    # obvious doc — partial updates ship stale references unnoticed.
+    - "A diff that changes a documented count, inventory, public-surface name, or schema field has been searched repo-wide for stale occurrences of the old value, not just the obvious doc"
+  suggested_test_types:
+    - nonfunctional
+  avoid_testing:
+    - exhaustive functional regression on a pure prose or typo change
+  risk_templates:
+    - Documented counts, names, or inventories drift from code when changed in one file but left stale in another.
+    - Install or update commands shipped in docs can be silently broken if not run against a clean target.
+  test_design_techniques:
+    - exploratory testing charters for doc accuracy against current behaviour
+    - checklist-based testing of links, commands, file paths, and counted inventories
+    - error guessing on documented counts, lists, and command examples that drift first
+  quality_characteristics:
+    - usability_appropriateness_recognisability
+    - usability_user_error_protection
+    - functional_appropriateness
+
+test_change:
+  must_consider:
+    - the test actually fails on the intended broken behavior
+    - assertion observability (no tautological re-statement of the production expression)
+    - fixture realism and isolation from other tests
+    - no production behavior change hidden inside a test-only diff
+    - targeted suite evidence (the changed test module ran and passed for the right reason)
+  suggested_test_types:
+    - unit
+  avoid_testing:
+    - re-running unrelated end-to-end suites for a test-only diff
+  risk_templates:
+    - A new test that passes on first run without ever going red has not proven it catches the bug it claims to.
+    - A test-only diff that quietly changes production behavior hidden inside the patch hides the real change from review.
+  test_design_techniques:
+    - mutation testing to surface tautological assertions
+    - review (walkthrough / inspection) of the new test against the broken-state contract
+    - error guessing on common test-code defects (mock leakage, order-dependent state, brittle stubs)
+  quality_characteristics:
+    - maintainability_testability
+    - maintainability_modifiability
+    - functional_correctness

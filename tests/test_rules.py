@@ -172,6 +172,13 @@ SURFACE_PROBE_MARKERS = {
     "configuration_change": ("missing or empty", "precedence", "in flight"),
     # async / retry / idempotency surface
     "async_flow_change": ("double-apply", "poison", "out-of-order"),
+    # docs surface (#99): broken links / stale commands plus the #176 fold-in
+    # inventory-drift probe — a documented count, list, public-surface name,
+    # or schema field that changed in one place but lingers stale elsewhere.
+    "docs_change": ("broken links", "stale occurrences", "documented count"),
+    # test surface (#99): tautological assertions, prod-change hidden in a
+    # test-only diff, and the no-real-red-phase failure mode.
+    "test_change": ("tautological", "fails on the intended", "hidden inside"),
 }
 
 # Host-neutrality BACKSTOP — a deliberately small, NON-EXHAUSTIVE tripwire, not a
@@ -238,4 +245,36 @@ def test_surface_probes_stay_host_neutral(classification: str) -> None:
     assert not leaked, (
         f"{classification} probes name specific technologies {leaked}; probes "
         f"must describe the risk pattern, not a library/protocol/framework"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #99 — engine.evaluate must surface non-empty fields for the new
+# docs_change and test_change rule entries (the AC's load-bearing assertion).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("classification", ["docs_change", "test_change"])
+def test_evaluate_surfaces_non_empty_fields_for_docs_and_test_change(
+    classification: str,
+) -> None:
+    """`StandardsRulesEngine.evaluate(['docs_change'])` and (['test_change'])
+    must surface non-empty rule fields — these classifications previously had
+    no rule entry, so evaluate returned the empty-engine shape and the
+    reviewer skill had nothing concrete to apply."""
+    engine = StandardsRulesEngine.from_file(ROOT / "standards" / "rules" / "change_rules.yaml")
+
+    ev = engine.evaluate([classification])
+
+    assert classification in ev["matched_rules"], (
+        f"{classification} must be in matched_rules; missing means change_rules.yaml "
+        f"has no entry for it"
+    )
+    assert ev["must_consider"], f"{classification}.must_consider must be non-empty"
+    assert ev["suggested_test_types"], f"{classification}.suggested_test_types must be non-empty"
+    assert ev["test_design_techniques"], (
+        f"{classification}.test_design_techniques must be non-empty"
+    )
+    assert ev["quality_characteristics"], (
+        f"{classification}.quality_characteristics must be non-empty"
     )
