@@ -134,6 +134,7 @@ The full suite covers:
 
 - `test_knowledge_loaders.py` — 7 catalogue loaders return canonical entries
 - `test_skill_conformance.py` — every `skills/*/SKILL.md` has the required structure
+- `test_skill_md_description_vs_body.py` — every `skills/*/SKILL.md` frontmatter `description` that names a catalogue (classifications, approaches, principles, techniques, standards, rules) must back it with a `sumo_qa_load_<catalogue>` call in the body — catches description-vs-body drift (the #188 `sumo-qa-deciding-approach` over-claim of `rules` + `standards`). Matches the prefixed call form, not bare `load_<catalogue>` prose mentions of other skills' loads
 - `test_skill_prompts.py` — every skill registers as an MCP tool (function name is historical; tools, not prompts)
 - `test_phase3_e2e_skill_path.py` — end-to-end smoke through the new surface
 - `test_token_weight_regression.py` — per-call and per-flow token budgets (the IntelliJ-SSE regression test)
