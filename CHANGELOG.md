@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/sumithr/sumo-qa/compare/v0.19.0...v0.20.0) (2026-05-29)
+
+
+### Features
+
+* add sumo_qa_query_repo_map and wire repo-map evidence into QA skills ([#241](https://github.com/sumithr/sumo-qa/issues/241)) ([5fd54b3](https://github.com/sumithr/sumo-qa/commit/5fd54b31c6eac56c58e42731d7d836dd54aa57ad))
+
 ## [0.19.0](https://github.com/sumithr/sumo-qa/compare/v0.18.1...v0.19.0) (2026-05-29)
 
 
