@@ -345,18 +345,63 @@ jobs:
           PY
 
       - name: Post-upgrade entry points still work
-        # AC: sumo-qa --help, sumo-qa-install --help, sumo-qa-doctor --help
-        # still work after upgrade. Run from the source venv so we exercise the
-        # upgraded console-script wrappers, not the previous version's.
+        # AC: every console-script wrapper declared in pyproject's
+        # [project.scripts] still resolves AND its entry point imports after the
+        # upgrade. The list is DERIVED from pyproject (not hardcoded) so a newly
+        # added script is covered automatically and a dropped wrapper is caught —
+        # the documented "dropped console-script wrappers are caught" failure
+        # mode. We don't `--help` each one: the CLIs aren't uniform (e.g.
+        # sumo-qa-validate takes a positional path, not --help), so a per-script
+        # --help list would be both incomplete and brittle. Instead, for each
+        # declared script we assert (1) the wrapper resolves into the UPGRADED
+        # venv (a dropped/stale wrapper fails here) and (2) its `module:func`
+        # target imports and is callable (a broken entry point fails here).
+        #
+        # Run from the source venv so we inspect the UPGRADED wrappers.
         #
         # No untrusted GitHub event inputs are interpolated in this step.
         shell: bash
         run: |
           # shellcheck disable=SC1091
           source "$RUNNER_TEMP/venv-src/bin/activate"
-          sumo-qa --help >/dev/null
-          sumo-qa-install --help >/dev/null
-          sumo-qa-doctor --help >/dev/null
+          python - <<'PY'
+          import importlib
+          import shutil
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          scripts = tomllib.load(open("pyproject.toml", "rb"))["project"]["scripts"]
+          venv = Path(sys.prefix).resolve()  # the activated venv-src
+
+          failures: list[str] = []
+          for name, target in scripts.items():
+              # 1. Wrapper installed by the upgrade and resolving into venv-src?
+              #    A dropped wrapper -> which() is None; a stale one pointing
+              #    outside the upgraded venv -> not relative to venv.
+              which = shutil.which(name)
+              if which is None:
+                  failures.append(f"{name}: console-script wrapper not found on PATH after upgrade")
+                  continue
+              if venv not in Path(which).resolve().parents:
+                  failures.append(
+                      f"{name}: wrapper resolves outside the upgraded venv ({which}) -- stale/not refreshed"
+                  )
+              # 2. Entry-point target imports and is callable?
+              mod_name, _, func_name = target.partition(":")
+              try:
+                  mod = importlib.import_module(mod_name)
+              except Exception as exc:  # noqa: BLE001
+                  failures.append(f"{name}: entry-point module {mod_name!r} failed to import: {exc!r}")
+                  continue
+              func = getattr(mod, func_name, None)
+              if not callable(func):
+                  failures.append(f"{name}: entry-point {target} is not callable")
+
+          if failures:
+              raise SystemExit("ENTRY-POINT FAILURES:\n  - " + "\n  - ".join(failures))
+          print(f"all {len(scripts)} console scripts present + entry points resolve: {sorted(scripts)}")
+          PY
           deactivate
 
       - name: Post-upgrade tools/list superset contract (upgraded config)
