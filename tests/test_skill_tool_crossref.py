@@ -80,14 +80,12 @@ def test_no_dead_skill_to_tool_refs() -> None:
 _STANDALONE_UTILITY_TOOLS = {
     "sumo_qa_ingest_knowledge_pack",
     "sumo_qa_capabilities",
-    # #155 slice 3 — host-callable wrapper around the repo-map scanner;
-    # not referenced from any SKILL.md body yet (a SKILL update for the
-    # repo-walk recipe lands in a follow-up slice).
-    "sumo_qa_scan_repo",
-    # #156 slice 4 — host-callable diff-impact tool; SKILL wiring lands in a
-    # follow-up slice, so it's not referenced from any SKILL.md body yet.
-    "sumo_qa_analyze_diff_impact",
 }
+# #156 wired the repo-map tools into the skill chain: `sumo_qa_analyze_diff_impact`
+# and `sumo_qa_query_repo_map` are referenced from `sumo-qa-reviewing-before-merge`,
+# `sumo_qa_query_repo_map` also from `sumo-qa-preparing-for-work`, and
+# `sumo_qa_scan_repo` + `sumo_qa_query_repo_map` from `sumo-qa-strategising`, so
+# none of the three sit in the standalone-utility whitelist any more.
 
 
 def test_no_orphan_registered_tools() -> None:

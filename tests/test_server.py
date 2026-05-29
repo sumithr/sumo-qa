@@ -9,7 +9,7 @@ from sumo_qa.server import build_mcp_server
 # Task 8: sumo-qa-suggesting-external-skill added.
 # External-skill lifecycle restored as thin MCP tools; Node installer helpers remain deleted.
 # Task 72: sumo_qa_load_specialty_tools removed (catalogue → discovery rule).
-# Total registered tools: 16 atomic + 14 skill = 30.
+# Total registered tools: 19 atomic + 14 skill = 33.
 _TEST_DATA_TOOL_NAMES = {
     "sumo_qa_explain_test_data_requirements",
     "sumo_qa_find_test_data",
@@ -31,6 +31,7 @@ _CAPABILITIES_TOOL_NAMES = {
 _REPO_MAP_TOOL_NAMES = {
     "sumo_qa_scan_repo",
     "sumo_qa_analyze_diff_impact",
+    "sumo_qa_query_repo_map",
 }
 
 _KNOWLEDGE_LOADER_TOOL_NAMES = {

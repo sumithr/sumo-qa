@@ -37,9 +37,9 @@ SKILL_TOKEN_BUDGETS = {
     "sumo-qa-finishing-qa-work": 1920,  # post-cut 1829 (was 2039, -10.3%)
     "sumo-qa-implementing-with-tdd": 3200,  # +#85 expected-value derivation check — post-cut 2708 → ~3177 after adding the third discriminator-check axis to step 3 (assertion expected-value vs input+domain rule, complementing the existing tautology + setup-discriminator checks), matching Red-Flags row, and Bad/contrast example for recalled-vs-derived expected values. Closes the leap-year boundary eval FAIL → PASS (delta +1/-1 on the implementing-with-tdd promptfoo baseline). Cushion ~0.7%.
     "sumo-qa-planning-qa-rollout": 2680,  # post-cut 2555 (was 2801, -8.8%)
-    "sumo-qa-preparing-for-work": 2420,  # +#98 surface-signal rule (post-cut 2032 -> ~2301); cushion ~5%
-    "sumo-qa-reviewing-before-merge": 3300,  # +#99/#176 inventory-drift absorption (step 9 pinned rule + verdict-format 2a per-stale-path ledger rows). Measured ~3273 post-#99; cushion ~0.8%. Net addition ~243 tokens for the docs_change rule consumption that makes the doc-drift eval scenario pass 1/1.
-    "sumo-qa-strategising": 2500,  # post-cut 2380 (was 2626, -9.4%)
+    "sumo-qa-preparing-for-work": 2480,  # +#156 repo-map query wiring in step 3 (prefer .sumo-qa/repo-map.json via sumo_qa_query_repo_map, fall back to reading files). Measured ~2432; cushion ~2%.
+    "sumo-qa-reviewing-before-merge": 3780,  # +#156 repo-map wiring: step-1 accelerator (sumo_qa_analyze_diff_impact as input aid, NOT coverage evidence), step-9 query re-anchor (sumo_qa_query_repo_map), and the 2a inventory-drift worked contrast that restores the doc-drift eval to 1/1 after the wiring diluted its salience. Measured ~3707; cushion ~2%. (was 3300 post-#99/#176.)
+    "sumo-qa-strategising": 2730,  # +#156 repo-map wiring: step-1 accelerator (sumo_qa_scan_repo / sumo_qa_query_repo_map as inventory aid) + step-9 final-turn output guard that restores the strategising eval to 1/1 after the wiring diluted the output-economy rule's salience. Measured ~2679; cushion ~2%. (was 2500.)
     "sumo-qa-strengthening-tests": 2630,  # post-cut 2501 (was 2747, -9.0%)
     "sumo-qa-suggesting-external-skill": 2580,  # post-cut 2459 (was 3085, -20%)
     "using-sumo-qa": 2910,  # post-cut 2778 (was 3477, -20%)

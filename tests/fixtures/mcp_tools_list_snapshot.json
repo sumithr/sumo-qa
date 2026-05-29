@@ -23,6 +23,7 @@
     "sumo_qa_load_techniques",
     "sumo_qa_planning_qa_rollout",
     "sumo_qa_preparing_for_work",
+    "sumo_qa_query_repo_map",
     "sumo_qa_register_known_good_test_data",
     "sumo_qa_reviewing_before_merge",
     "sumo_qa_scan_repo",
@@ -2103,6 +2104,322 @@
           "result"
         ],
         "title": "sumo_qa_preparing_for_workOutput",
+        "type": "object"
+      }
+    },
+    "sumo_qa_query_repo_map": {
+      "inputSchema": {
+        "properties": {
+          "artifact_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": ".sumo-qa/repo-map.json",
+            "title": "Artifact Path"
+          },
+          "limit": {
+            "default": 10,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Types"
+          }
+        },
+        "required": [
+          "root",
+          "query"
+        ],
+        "title": "sumo_qa_query_repo_mapArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "ErrorEnvelope": {
+            "additionalProperties": false,
+            "description": "The MCP tool error envelope returned by ``sumo_qa.server._error_envelope``.\n\nUsed as the typed alternative to a bare ``dict`` in every tool's return\nannotation. Without this, FastMCP would emit an unconstrained\n``additionalProperties: true`` schema arm, allowing any shape through and\ndefeating the outputSchema contract.\n\n``isError`` is ``Literal[True]`` so Pydantic + FastMCP treat it as a\ndiscriminator, routing between each tool's success model and this\nenvelope in the emitted ``anyOf``/``oneOf`` schema.",
+            "properties": {
+              "error": {
+                "$ref": "#/$defs/_ErrorDetail",
+                "description": "Structured error payload with type, message, and actionable_hint."
+              },
+              "isError": {
+                "const": true,
+                "description": "Marks the response as an error per the MCP error-shape convention.",
+                "title": "Iserror",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "isError",
+              "error"
+            ],
+            "title": "ErrorEnvelope",
+            "type": "object"
+          },
+          "RepoMapQueryOutput": {
+            "additionalProperties": false,
+            "description": "Compact result of ``sumo_qa_query_repo_map``.\n\nBounded by ``limit``, never the full artifact. Carries a freshness summary\n(``generated_at`` / ``git_commit`` / ``is_stale`` / ``used_live_scan``) so\nthe host can judge how much to trust the map without a second call.",
+            "properties": {
+              "artifact_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Resolved path of the loaded repo-map artifact, when used.",
+                "title": "Artifact Path"
+              },
+              "generated_at": {
+                "description": "UTC timestamp the queried map was generated.",
+                "format": "date-time",
+                "title": "Generated At",
+                "type": "string"
+              },
+              "generator_version": {
+                "description": "Generator version recorded in the map.",
+                "title": "Generator Version",
+                "type": "string"
+              },
+              "git_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "git_commit recorded in the map, when present.",
+                "title": "Git Commit"
+              },
+              "is_stale": {
+                "description": "True when the map's git_commit differs from current HEAD.",
+                "title": "Is Stale",
+                "type": "boolean"
+              },
+              "limit": {
+                "description": "Maximum number of matches returned.",
+                "title": "Limit",
+                "type": "integer"
+              },
+              "matches": {
+                "description": "Top-ranked matches, highest score first.",
+                "items": {
+                  "$ref": "#/$defs/_QueryMatchSummary"
+                },
+                "title": "Matches",
+                "type": "array"
+              },
+              "query": {
+                "description": "Echo of the query string the caller supplied.",
+                "title": "Query",
+                "type": "string"
+              },
+              "root": {
+                "description": "Resolved root path whose map was queried.",
+                "title": "Root",
+                "type": "string"
+              },
+              "schema_version": {
+                "description": "Schema version of the queried map (currently '1.0').",
+                "title": "Schema Version",
+                "type": "string"
+              },
+              "tool": {
+                "const": "sumo_qa_query_repo_map",
+                "default": "sumo_qa_query_repo_map",
+                "description": "Tool discriminator; always the literal tool name.",
+                "title": "Tool",
+                "type": "string"
+              },
+              "total_matches": {
+                "description": "Total matches before the limit was applied (so the host knows if truncated).",
+                "title": "Total Matches",
+                "type": "integer"
+              },
+              "truncated": {
+                "description": "True when total_matches exceeded the limit.",
+                "title": "Truncated",
+                "type": "boolean"
+              },
+              "types_filter": {
+                "description": "Node types / 'command' the search was restricted to, if any.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Types Filter",
+                "type": "array"
+              },
+              "used_live_scan": {
+                "description": "True when no artifact was found and the map was scanned live.",
+                "title": "Used Live Scan",
+                "type": "boolean"
+              },
+              "warning_count": {
+                "description": "Number of warnings (stale, live-scan fallback, etc.).",
+                "title": "Warning Count",
+                "type": "integer"
+              },
+              "warnings_by_kind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "description": "Per-kind warning counts.",
+                "title": "Warnings By Kind",
+                "type": "object"
+              }
+            },
+            "required": [
+              "root",
+              "query",
+              "limit",
+              "total_matches",
+              "truncated",
+              "schema_version",
+              "generator_version",
+              "generated_at",
+              "is_stale",
+              "used_live_scan",
+              "warning_count"
+            ],
+            "title": "RepoMapQueryOutput",
+            "type": "object"
+          },
+          "_ErrorDetail": {
+            "additionalProperties": false,
+            "description": "Inner payload of the MCP tool error envelope.",
+            "properties": {
+              "actionable_hint": {
+                "description": "One-line hint the host surfaces to the user with a concrete next step.",
+                "title": "Actionable Hint",
+                "type": "string"
+              },
+              "message": {
+                "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
+                "title": "Message",
+                "type": "string"
+              },
+              "type": {
+                "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message",
+              "actionable_hint"
+            ],
+            "title": "_ErrorDetail",
+            "type": "object"
+          },
+          "_QueryMatchSummary": {
+            "additionalProperties": false,
+            "description": "One bounded match inside :class:`RepoMapQueryOutput`.",
+            "properties": {
+              "id": {
+                "description": "Node id (e.g. 'file:src/app.py') or 'command:<name>'.",
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "description": "Whether the match is a repo-map node or an extracted command.",
+                "enum": [
+                  "node",
+                  "command"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "match_reason": {
+                "description": "Why this entity matched (dimension + matched value), for relevance judging.",
+                "title": "Match Reason",
+                "type": "string"
+              },
+              "path": {
+                "description": "Repo-relative path for a node, or the command's source file for a command.",
+                "title": "Path",
+                "type": "string"
+              },
+              "score": {
+                "description": "Internal rank; higher is a stronger match.",
+                "title": "Score",
+                "type": "integer"
+              },
+              "tags": {
+                "description": "Node tags; empty for a command match.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Tags",
+                "type": "array"
+              },
+              "type": {
+                "description": "Node type for a node match, or command kind for a command match.",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "type",
+              "path",
+              "match_reason",
+              "score"
+            ],
+            "title": "_QueryMatchSummary",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RepoMapQueryOutput"
+              },
+              {
+                "$ref": "#/$defs/ErrorEnvelope"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "sumo_qa_query_repo_mapOutput",
         "type": "object"
       }
     },

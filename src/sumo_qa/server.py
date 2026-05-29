@@ -49,6 +49,7 @@ from sumo_qa.server_schemas import (
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
     InstallExternalSkillOutput,
+    RepoMapQueryOutput,
     RepoMapScanOutput,
     SearchExternalSkillsOutput,
     TestDataFindOutput,
@@ -83,6 +84,11 @@ _HINT_DIFF_IMPACT = (
     "Pass an existing repo directory plus either changed_files=[...] or "
     "base_ref='<git ref>'. The repo-map artifact is optional — without it the "
     "tool scans live."
+)
+_HINT_QUERY_REPO_MAP = (
+    "Pass an existing repo directory plus a non-blank query. Optional: "
+    "types=['test_file', ...] to restrict, limit>=0 to bound results. The "
+    "repo-map artifact is optional — without it the tool scans live."
 )
 
 
@@ -190,6 +196,105 @@ def _build_impact_summary(
         artifact_path=artifact_path,
         overlay_path=overlay_path,
         overlay_bytes=overlay_bytes,
+    )
+
+
+def _load_map_with_fallback(
+    root_path: Path, artifact_path: str | None
+) -> tuple[Any, str | None, bool, Any]:
+    """Load a repo-map for ``root_path``: persisted artifact preferred, live-scan fallback.
+
+    Returns ``(repo_map, artifact_used, used_live_scan, foreign_warning)``. A
+    foreign artifact (its ``project.root`` != ``root_path``) is ignored — its
+    node paths would be measured against a different tree — and the live scan
+    runs instead, with ``foreign_warning`` set so the caller can surface why.
+    Shared by ``sumo_qa_analyze_diff_impact`` and ``sumo_qa_query_repo_map``.
+    """
+    from sumo_qa.repo_map_models import RepoMapWarning
+    from sumo_qa.repo_map_scanner import scan_repo
+    from sumo_qa.repo_map_validation import load_repo_map
+
+    repo_map = None
+    artifact_used: str | None = None
+    foreign_warning: Any = None
+    if artifact_path is not None:
+        cand = Path(artifact_path)
+        if not cand.is_absolute():
+            cand = root_path / cand
+        if cand.is_file():
+            loaded = load_repo_map(cand)
+            if Path(loaded.project.root).resolve() == root_path.resolve():
+                repo_map = loaded
+                artifact_used = str(cand.resolve())
+            else:
+                foreign_warning = RepoMapWarning(
+                    kind="other",
+                    message=(
+                        f"ignored repo-map at {cand!s}: its project.root "
+                        f"{loaded.project.root!r} does not match scan root "
+                        f"{root_path.resolve()!s}"
+                    ),
+                )
+    used_live_scan = False
+    if repo_map is None:
+        repo_map = scan_repo(root_path, generator_version=_package_version())
+        used_live_scan = True
+    return repo_map, artifact_used, used_live_scan, foreign_warning
+
+
+def _detect_staleness(root_path: Path, repo_map: Any) -> tuple[bool, str | None]:
+    """Return ``(is_stale, current_head)``: stale when the map's recorded
+    git_commit differs from current HEAD.
+
+    Never blocks — a missing HEAD or a map without a git_commit is simply not
+    stale (the comparison needs both sides). ``current_head`` is returned so a
+    caller can name the differing sha in a warning."""
+    from sumo_qa.repo_map_scanner import _detect_git_commit
+
+    current = _detect_git_commit(root_path)
+    is_stale = (
+        current is not None
+        and repo_map.project.git_commit is not None
+        and current != repo_map.project.git_commit
+    )
+    return is_stale, current
+
+
+def _build_query_summary(
+    result: Any,
+    *,
+    root: str,
+    repo_map: Any,
+    is_stale: bool,
+    used_live_scan: bool,
+    artifact_path: str | None,
+    warnings: list,
+) -> RepoMapQueryOutput:
+    """Collapse a :class:`RepoMapQueryResult` + freshness into :class:`RepoMapQueryOutput`.
+
+    ``limit`` is taken from ``result.limit`` (the effective, clamped value), so
+    the output reflects the limit actually applied rather than the raw request.
+    """
+    from collections import Counter
+
+    warnings_by_kind = Counter(w.kind for w in warnings)
+    return RepoMapQueryOutput(
+        root=root,
+        query=result.query,
+        limit=result.limit,
+        types_filter=result.types_filter,
+        matches=[m.model_dump() for m in result.matches],
+        total_matches=result.total_matches,
+        truncated=result.truncated,
+        schema_version=repo_map.schema_version,
+        generator_version=repo_map.project.generator_version,
+        generated_at=repo_map.project.generated_at,
+        git_commit=repo_map.project.git_commit,
+        is_stale=is_stale,
+        used_live_scan=used_live_scan,
+        artifact_path=artifact_path,
+        warning_count=len(warnings),
+        warnings_by_kind=dict(warnings_by_kind),
     )
 
 
@@ -612,8 +717,6 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         """
         from sumo_qa.repo_map_impact import analyze_diff_impact, changed_files_from_git
         from sumo_qa.repo_map_models import RepoMapWarning
-        from sumo_qa.repo_map_scanner import _detect_git_commit, scan_repo
-        from sumo_qa.repo_map_validation import load_repo_map
 
         output: DiffImpactOutput | dict[str, Any]
         try:
@@ -621,35 +724,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             if not root_path.is_dir():
                 raise ValueError(f"root must be a directory: {root_path!s}")
 
-            # 1. Load the map (artifact preferred, live-scan fallback). A
-            #    foreign artifact (its project.root != this root) is ignored
-            #    and we scan live instead — its node paths would be measured
-            #    against a different tree and yield silently wrong results.
-            repo_map = None
-            artifact_used: str | None = None
-            used_live_scan = False
-            foreign_artifact_warning: RepoMapWarning | None = None
-            if artifact_path is not None:
-                cand = Path(artifact_path)
-                if not cand.is_absolute():
-                    cand = root_path / cand
-                if cand.is_file():
-                    loaded = load_repo_map(cand)
-                    if Path(loaded.project.root).resolve() == root_path.resolve():
-                        repo_map = loaded
-                        artifact_used = str(cand.resolve())
-                    else:
-                        foreign_artifact_warning = RepoMapWarning(
-                            kind="other",
-                            message=(
-                                f"ignored repo-map at {cand!s}: its project.root "
-                                f"{loaded.project.root!r} does not match scan root "
-                                f"{root_path.resolve()!s}"
-                            ),
-                        )
-            if repo_map is None:
-                repo_map = scan_repo(root_path, generator_version=_package_version())
-                used_live_scan = True
+            # 1. Load the map (artifact preferred, live-scan fallback; foreign
+            #    artifact ignored — see _load_map_with_fallback).
+            repo_map, artifact_used, used_live_scan, foreign_artifact_warning = (
+                _load_map_with_fallback(root_path, artifact_path)
+            )
 
             # 2. Resolve changed files.
             if changed_files is not None:
@@ -660,12 +739,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 raise ValueError("provide changed_files or base_ref")
 
             # 3. Staleness (never blocks).
-            current = _detect_git_commit(root_path)
-            is_stale = (
-                current is not None
-                and repo_map.project.git_commit is not None
-                and current != repo_map.project.git_commit
-            )
+            is_stale, current = _detect_staleness(root_path, repo_map)
 
             # 4. Analyse + attach wrapper-level warnings.
             impact = analyze_diff_impact(repo_map, resolved)
@@ -723,6 +797,97 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "changed_files": changed_files,
                 "artifact_path": artifact_path,
                 "write_overlay": write_overlay,
+            },
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_read_only_local)
+    def sumo_qa_query_repo_map(
+        root: str,
+        query: str,
+        limit: int = 10,
+        types: list[str] | None = None,
+        artifact_path: str | None = ".sumo-qa/repo-map.json",
+    ) -> RepoMapQueryOutput | ErrorEnvelope:
+        """Search the repo-map for the components, tests, CI checks, configs, or
+        commands that match a query, returning a bounded, ranked list with
+        enough metadata (id, path, type, tags, match reason) to open the files
+        directly — never the full artifact.
+
+        Common natural-language phrasings that map to this tool:
+        "find the repo-map node for X", "which tests are mapped to the billing
+        module", "list the CI workflows in the map", "what commands does the
+        repo-map know about", "search the map for files tagged mcp".
+
+        ``root`` is the repository. ``query`` matches case-insensitively across
+        node id, path, file name, type, category, and tags, and across command
+        names and kinds; results rank exact identity above substring hits.
+        ``limit`` caps the returned matches (``total_matches`` still reports the
+        full count). ``types`` restricts the search to given node types and/or
+        the literal ``"command"``. The repo-map is read from ``artifact_path``
+        when present and falls back to a live scan otherwise; an artifact for a
+        different project root is ignored.
+        """
+        from sumo_qa.repo_map_models import RepoMapWarning
+        from sumo_qa.repo_map_query import query_repo_map as _query_repo_map
+
+        output: RepoMapQueryOutput | dict[str, Any]
+        try:
+            root_path = Path(root)
+            if not root_path.is_dir():
+                raise ValueError(f"root must be a directory: {root_path!s}")
+
+            # Load the map (artifact preferred, live-scan fallback; foreign
+            # artifact ignored), then judge staleness vs HEAD. Shared with the
+            # diff-impact tool so both surfaces behave identically.
+            repo_map, artifact_used, used_live_scan, foreign_warning = _load_map_with_fallback(
+                root_path, artifact_path
+            )
+            is_stale, current = _detect_staleness(root_path, repo_map)
+
+            result = _query_repo_map(repo_map, query, limit=limit, types=types)
+
+            # Mirror diff-impact's warning surface: foreign-artifact rejection,
+            # live-scan fallback, and staleness. The query never blocks on any
+            # of them — they ride along as warnings so the host can fall back to
+            # direct repo inspection when the map is missing or stale.
+            warnings: list[RepoMapWarning] = []
+            if foreign_warning is not None:
+                warnings.append(foreign_warning)
+            elif used_live_scan:
+                warnings.append(
+                    RepoMapWarning(kind="other", message="no repo-map artifact found; scanned live")
+                )
+            if is_stale:
+                warnings.append(
+                    RepoMapWarning(
+                        kind="stale",
+                        message=(
+                            f"repo-map git_commit {repo_map.project.git_commit} "
+                            f"differs from HEAD {current}"
+                        ),
+                    )
+                )
+
+            output = _build_query_summary(
+                result,
+                root=str(root_path.resolve()),
+                repo_map=repo_map,
+                is_stale=bool(is_stale),
+                used_live_scan=used_live_scan,
+                artifact_path=artifact_used,
+                warnings=warnings,
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_QUERY_REPO_MAP)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_query_repo_map",
+            args={
+                "root": root,
+                "query": query,
+                "limit": limit,
+                "types": types,
+                "artifact_path": artifact_path,
             },
             output=output,  # type: ignore[arg-type]
         )

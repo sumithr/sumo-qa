@@ -33,6 +33,8 @@ You MUST work through these in order. Steps 1–4 are AI-only homework (no user 
 
 1. **Read the diff via the host's git tools** *(no user question)* — `git diff`, `git diff --staged`, or `git diff <base>...HEAD` depending on intent. Capture file list + line counts.
 
+   **Repo-map accelerator (optional).** When `.sumo-qa/repo-map.json` exists, `sumo_qa_analyze_diff_impact` gives a head-start: changed/affected nodes, the tests that *likely* exercise the change, and the risk surface (changed sources with no mapped test). Absent or stale → read the diff and files directly; it never blocks the review. **It points at what to inspect and run; it is NOT coverage evidence** — `related_tests` are candidates to run, `risk_surface` candidate UNCOVERED anchors, never proof. The Iron Law's fresh-run requirement is unchanged.
+
 2. **Read the actual changed files** *(no user question)* — not just the diff hunks. Surrounding code matters for risk analysis. For each changed file: identify the public surface that moved.
 
 3. **Classify and load applicable standards** *(no user question)* — call `sumo_qa_load_classifications()`, infer the classification(s), then `sumo_qa_load_standards(...)` and `sumo_qa_load_rules(...)`. Note which loaded rules apply.
@@ -52,7 +54,7 @@ You MUST work through these in order. Steps 1–4 are AI-only homework (no user 
 
 9. **Map risk coverage** — for each named risk, cite the fresh test that demonstrably exercises that exact failure path (file + fully-qualified test + the verbatim assertion/condition), or mark it UNPROVEN / UNCOVERED. Never infer coverage from a shared name or domain. A risk with no covering test is a SAFE-blocker.
 
-   **Re-anchor first.** If risks arrive as bare names (*"Auth Session Bypass, Duplicate Charge on Retry"*), locate each one's anchor file in the diff before mapping — *Auth Session Bypass* → `app/auth/session.py:33`, *Duplicate Charge on Retry* → `app/billing/checkout.py`. Without an anchor you cannot apply the module-match rule and will hallucinate coverage.
+   **Re-anchor first.** If risks arrive as bare names (*"Auth Session Bypass, Duplicate Charge on Retry"*), locate each one's anchor file in the diff before mapping — *Auth Session Bypass* → `app/auth/session.py:33`, *Duplicate Charge on Retry* → `app/billing/checkout.py`. Without an anchor you cannot apply the module-match rule and will hallucinate coverage. When a repo-map is loaded, `sumo_qa_query_repo_map` helps locate a RUNTIME risk's anchor file or a candidate test by path/name — but a test counts only once it's in THIS turn's fresh run with a verbatim assertion. It does NOT consolidate inventory drift: each stale path still gets its own 2a row with its own `(<old> → <new>)` pair (below).
 
    **Module-match rule (pinned):** a risk anchored under `app/auth/` requires a covering test under `tests/auth/`; `app/billing/` requires `tests/billing/`. A `tests/billing/` test cannot cover an `auth/session.py` risk via *"indirectly validates"* / *"implicitly covers"* — forbidden hallucinated bridges; mark UNCOVERED when paths don't match. If the fresh run loaded no test for a changed file's module, every risk anchored there is UNCOVERED, however green the rest is. **Integration/e2e exception:** tests under `tests/integration/` or `tests/e2e/` MAY cover any module risk, but only if the cited assertion verbatim invokes (or asserts a property of) the risk's anchor function; "the integration suite passed" without naming that assertion is the same hallucinated bridge.
 
@@ -75,6 +77,12 @@ The verdict line is the LAST line. For a **runtime change** (any `app/`/`src/`/`
    - **2a. Inventory-drift extension.** For an inventory-drift risk (see step 9), the risk row above is not sufficient. Emit ONE additional ledger row per stale path the supplied ground-truth context names — never crammed into one row or shoved into the risk row's `Required update:` field. Each row uses this exact shape (the `<old> → <new>` value pair must appear inline):
      `Inventory drift anchor: <path>:<line> (<old> → <new>) | Required update: this file | Diff updated it: <YES if the diff touches this exact path; NO otherwise> | Coverage: <COVERED if the diff updates this exact file; UNCOVERED if it does not>`
      Each UNCOVERED row is a SAFE-blocker. The verdict line must name every UNCOVERED stale path explicitly — not "documentation needs updating". Zero stale paths supplied → emit `Inventory drift anchor: NONE supplied | Coverage: N/A` rather than silently defaulting to covered.
+
+     **Worked contrast (one row per stale path, value pair inline).** Two stale paths surfaced (`docs/INSTALL.md:17`, `.github/ISSUE_TEMPLATE/qa_output_quality.yml:22`), old `28` → new `29`:
+     - BAD (single crammed row, no value pair): `Risk: Documented-inventory drift | Anchor: README.md:42 | Required update: docs/INSTALL.md, .github/ISSUE_TEMPLATE/qa_output_quality.yml | Coverage: UNCOVERED` — collapses both paths into one row, anchors on the obvious doc, omits `(28 → 29)`. SHAPE FAIL.
+     - GOOD (one row per stale path, value pair inline):
+       `Inventory drift anchor: docs/INSTALL.md:17 (28 → 29) | Required update: this file | Diff updated it: NO | Coverage: UNCOVERED`
+       `Inventory drift anchor: .github/ISSUE_TEMPLATE/qa_output_quality.yml:22 (28 → 29) | Required update: this file | Diff updated it: NO | Coverage: UNCOVERED`
 3. `Touched files:` citing every diff path verbatim (e.g. `app/auth/session.py, tests/billing/test_checkout.py`).
 4. `Change shape:` one phrase anchored to the touched files (e.g. `auth predicate + billing checkout ordering, both runtime`).
 5. The verification command, quoted verbatim.

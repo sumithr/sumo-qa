@@ -11,9 +11,10 @@ deterministically rather than re-walking the repo each session:
 - what tests or checks appear to exercise it
 - what evidence is stale, missing, or unmapped
 
-This page describes the first-slice schema and the slice-2 scanner that
-populates it (issue #155). MCP/CLI surfaces, diff-impact extension, and
-report renderer ship in follow-up slices (#156, #160, #157).
+This page describes the schema (issue #155), the scanner that populates it,
+and the consumers built on it: the `sumo_qa_scan_repo`, `sumo_qa_analyze_diff_impact`,
+and `sumo_qa_query_repo_map` MCP tools (#156). The report renderer ships in a
+follow-up slice (#157).
 
 ## Shape
 
@@ -207,6 +208,43 @@ The pure analysis lives in `src/sumo_qa/repo_map_impact.py`
 wrapper that loads the map, resolves the diff, detects staleness, and writes
 the optional overlay.
 
+## Query
+
+`sumo_qa_query_repo_map(root, query, limit=10, types=None)` is a bounded,
+read-only search over the map. It answers "where is the component / test / CI
+check / config / command that matches X?" without returning the full artifact —
+the host gets just enough metadata (node id, path, type, tags, a match reason)
+to open the files directly.
+
+- The `query` matches case-insensitively across node id, path, file name,
+  type, category, and tags, and across command names and kinds. Results rank
+  **exact identity** (a node id, a command name) above evidence-type / tag /
+  category hits, above bare substring hits; ties break on id for determinism.
+- `limit` caps the returned matches; `total_matches` always reports the full
+  count and `truncated` flags when the limit hid some — so the host knows when
+  to narrow the query rather than assuming it saw everything.
+- `types` restricts the search to given node types (`test_file`, `ci_workflow`,
+  …) and/or the literal `"command"`.
+- Like diff-impact, the map is read from `.sumo-qa/repo-map.json` when present
+  and falls back to a live scan otherwise; a foreign-root artifact is ignored,
+  and the response carries a freshness summary (`generated_at`, `git_commit`,
+  `is_stale`, `used_live_scan`) plus the same staleness / live-scan warnings.
+  Missing or stale state never blocks — it rides along as a warning so the host
+  can fall back to direct repo inspection.
+
+The pure ranking lives in `src/sumo_qa/repo_map_query.py` (`query_repo_map`);
+the MCP tool in `src/sumo_qa/server.py` is the thin wrapper that loads the map,
+detects staleness, and attaches the freshness summary.
+
+### Skill consumption
+
+The review, preparing-for-work, and strategising skills prefer repo-map
+evidence when `.sumo-qa/repo-map.json` is present and fall back to a repo walk
+when it is absent. The map is an **input accelerator, never a verdict**:
+`sumo-qa-reviewing-before-merge` still refuses a safe-to-merge claim without
+fresh test evidence — `related_tests` are candidates to run and `risk_surface`
+entries are candidate uncovered anchors, neither is proof of coverage.
+
 ## Commit vs cache
 
 The artifact is a **local cache** by default — the deterministic generator
@@ -228,7 +266,8 @@ regenerate locally before comparison.
 | 1 | Schema models, validation envelope, golden fixture |
 | 2 | `sumo_qa.repo_map_scanner.scan_repo` — deterministic local walker; `likely_tests` edge inference; command extraction from `pyproject.toml` / `package.json` |
 | 3 | `sumo_qa_scan_repo` MCP tool — host-callable wrapper that returns a compact summary and optionally writes the artifact |
-| 4 (this PR) | `sumo_qa_analyze_diff_impact` — first consumer of the map (diff → related tests + risk surface) |
+| 4 | `sumo_qa_analyze_diff_impact` — first consumer of the map (diff → related tests + risk surface) |
+| 5 (this PR) | `sumo_qa_query_repo_map` — bounded ranked search over the map; wiring of `sumo-qa-reviewing-before-merge`, `sumo-qa-preparing-for-work`, and `sumo-qa-strategising` to prefer the map when present and fall back to a repo walk when absent |
 
 `imports`, `configured_by`, and `command_runs` edges are deferred. The
 scanner produces only `likely_tests` — enough for the slice-4 diff-impact
