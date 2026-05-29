@@ -1,0 +1,443 @@
+disableVarExpansion: true
+description: >
+  Issue #236 — A/B/C discovery-lift measurement for the adversarial
+  review-recall corpus. Unlike skill-reviewing-before-merge.ab.yaml (which
+  measures FINAL-VERDICT formatting after risks are pre-supplied), this file
+  measures INDEPENDENT DISCOVERY from a raw diff: does the full skill (B) find
+  the seeded Codex-class defect that no-skill (A0) and catalogues-only (A1)
+  baselines miss? Hypothesis: B beats A0/A1 in aggregate because the
+  adversarial discovery pass forces a signal->defect-class sweep before the
+  risk list; A0/A1 lack that pass and declare green-tested diffs safe. Uses a
+  representative 6-seed spread (easy->hard discovery families + a docs-only
+  negative control) from skill-reviewing-before-merge-adversarial.yaml. Candidate
+  is gpt-5-mini (a cheap reasoning model), NOT the estate's gpt-4o-mini: a
+  discovery eval needs a candidate that can reason over a raw diff, and
+  gpt-4o-mini proved too noisy to measure it (its full-corpus baseline-vs-postcut
+  inverted run-to-run). On gpt-5-mini this is a clean, same-run controlled
+  result — B (full skill) 6/6 vs A0 (no skill) / A1 (catalogues only) only
+  ~1-4/6: the discovery pass takes B to a perfect score on the hard families
+  A0/A1 miss. A0/A1 flicker run-to-run; B is stable. Read the B-over-A0
+  ordering as the signal.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    classifications: file://../../../knowledge/classifications.md
+    approaches: file://../../../knowledge/approaches.md
+    principles: file://../../../knowledge/principles.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate
+      INDEPENDENTLY DISCOVERED the seeded defect from a raw diff (no risks were
+      pre-supplied) AND avoided the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - the candidate was NOT handed the risks; it must name the
+         specific defect class described in the expected shape (not a generic
+         "edge cases might exist"), anchor it to the file + line/symbol that
+         carries the defect (a changed path in the diff, or — for
+         drift/generated-artifact seeds — the stale repo-state artifact named in
+         the supplied context), and deliver the verdict the expected shape
+         requires. Naming only generic/unrelated risks, missing the seeded
+         defect, or the wrong verdict direction is a SHAPE FAIL.
+
+      B. GROUNDING - the response must cite the specific file +
+         symbol/line/construct that carries the defect — normally a changed
+         path in the diff, but for drift/generated-artifact seeds the
+         actionable anchor may be a stale repo-state artifact named in the
+         supplied "repo state" block (citing that is valid grounding). A
+         plausible risk not anchored to any supplied file -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed, mark ABSENT or PRESENT.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - label: 'A0 - no skill, no catalogues'
+    raw: |
+      You are a senior QA reviewer in an IDE chat session.
+
+      Raw repository diff and fresh verification evidence for this turn. The
+      risks have NOT been named for you — discover them yourself from the raw
+      diff. The developer has waived the section-by-section confirmation gates
+      and asked for a single-pass review. You have just read the diff and run
+      the tests shown below.
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Deliver your merge-review response. Name the concrete risks you find and
+      deliver the verdict. Keep the response concise and evidence-led.
+  - label: 'A1 - catalogues only, no skill'
+    raw: |
+      You are a senior QA reviewer in an IDE chat session. You have loaded the
+      canonical catalogues:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      --- LOADED APPROACHES ---
+      {{approaches}}
+      --- END LOADED APPROACHES ---
+
+      --- LOADED PRINCIPLES ---
+      {{principles}}
+      --- END LOADED PRINCIPLES ---
+
+      Raw repository diff and fresh verification evidence for this turn. The
+      risks have NOT been named for you — discover them yourself from the raw
+      diff. The developer has waived the section-by-section confirmation gates
+      and asked for a single-pass review. You have just read the diff and run
+      the tests shown below.
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Deliver your merge-review response. Name the concrete risks you find and
+      deliver the verdict. Keep the response concise and evidence-led.
+  - label: 'B - full skill (current)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content}}
+      --- END SKILL ---
+
+      You have also loaded the canonical catalogues:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      --- LOADED APPROACHES ---
+      {{approaches}}
+      --- END LOADED APPROACHES ---
+
+      --- LOADED PRINCIPLES ---
+      {{principles}}
+      --- END LOADED PRINCIPLES ---
+
+      Raw repository diff and fresh verification evidence for this turn. The
+      risks have NOT been named for you — discover them yourself from the raw
+      diff. The developer has waived the section-by-section confirmation gates
+      and asked for a single-pass review. You have just read the diff and run
+      the tests shown below.
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill. Run the adversarial discovery pass against the raw
+      diff, name the concrete risks you discover (anchored to file:line), then
+      deliver the verdict. Single-pass review — no confirmation question. Keep
+      the response concise and evidence-led.
+tests:
+  - description: generated-artifact-drift — version bump not propagated to the generated manifest (PR #194)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:3 @@
+        -version = "0.18.0"
+        +version = "0.18.1"
+
+        diff --git a/CHANGELOG.md b/CHANGELOG.md
+        @@ CHANGELOG.md:1-5 @@
+        +## 0.18.1 (2026-05-29)
+        +- fix: installer copytree fallback on Windows
+        ```
+
+        ## Repo state the operator should know about
+        ```text
+        $ head -3 .claude-plugin/plugin.json
+        {
+          "name": "sumo-qa",
+          "version": "0.18.0"
+
+        $ grep -rn "do not hand-edit" .claude-plugin/plugin.json
+        .claude-plugin/plugin.json:2: // GENERATED by plugin_packaging.plugin_generator — do not hand-edit
+        ```
+        `.claude-plugin/plugin.json` is generated from pyproject by
+        `python -m plugin_packaging.plugin_generator sync`. The diff bumped the
+        source version but did NOT re-run the generator, so the committed
+        sidecar still carries 0.18.0.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_release.py -q
+        tests/test_release.py::test_changelog_has_entry PASSED
+        12 passed, 0 skipped in 1.84s
+        ```
+        (The drift-and-schemas job comparing pyproject vs the sidecar was not
+        part of this run.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the generated-artifact
+        drift: the version bump was not propagated to the committed generated
+        sidecar `.claude-plugin/plugin.json`, which still reads 0.18.0. Anchors
+        to `.claude-plugin/plugin.json`, notes the generator must be re-run and
+        the output committed, and delivers NOT SAFE TO MERGE.
+      anti_patterns:
+        - Declares SAFE TO MERGE because the test suite is green, ignoring the stale generated sidecar version.
+        - Misses that `.claude-plugin/plugin.json` still carries the old 0.18.0 version.
+        - Only names generic release risks without anchoring to the stale generated file.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: weak-assertion — test diff weakens a conformance assertion to a substring (PR #170)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/tests/test_skill_conformance.py b/tests/test_skill_conformance.py
+        @@ tests/test_skill_conformance.py:60-68 @@
+         60 def test_using_sumo_qa_declares_output_economy_contract():
+         61     text = (SKILLS_DIR / "using-sumo-qa" / "SKILL.md").read_text()
+        -62     assert "## Output economy (mandatory)" in text
+        -63     assert "No preamble or self-narration" in text
+        -64     assert "One question per turn" in text
+        +62     assert "economy" in text.lower()
+        ```
+        Context: this test is the only automated guard that the output-economy
+        contract section still exists in using-sumo-qa.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_skill_conformance.py -q
+        tests/test_skill_conformance.py::test_using_sumo_qa_declares_output_economy_contract PASSED
+        31 passed, 0 skipped in 0.52s
+        ```
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the weakened assertion:
+        the test now asserts only the substring `"economy" in text.lower()`,
+        which would still pass if the whole output-economy contract section
+        were deleted. Anchors to
+        `tests/test_skill_conformance.py:test_using_sumo_qa_declares_output_economy_contract`
+        and delivers NOT SAFE TO MERGE or NEEDS WORK.
+      anti_patterns:
+        - Declares SAFE because the conformance test passes, missing that the assertion was hollowed out.
+        - Treats the substring assertion as equivalent coverage to the removed exact-clause assertions.
+        - Only names generic test-refactor risks without anchoring to the weakened assertion.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: schema-contract-weakening — bare dict error union widens a constrained outputSchema (PR #112)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/tools/find_test_data.py b/src/sumo_qa/tools/find_test_data.py
+        @@ src/sumo_qa/tools/find_test_data.py:22-30 @@
+        -22 def find_test_data(query: str) -> TestDataMatch:
+        +22 def find_test_data(query: str) -> TestDataMatch | dict:
+         23     hits = _search(query)
+         24     if not hits:
+        -25         raise NoMatchError(query)
+        +25         return {"error": "no match", "query": query}
+         26     return TestDataMatch(record=hits[0], confidence=hits[0].score)
+        ```
+        Context: `find_test_data` is registered as an MCP tool. FastMCP derives
+        the tool's `outputSchema` from the return annotation. `TestDataMatch`
+        is a constrained Pydantic model; a bare `dict` return type erases that
+        constraint.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/tools/test_find_test_data.py -q
+        tests/tools/test_find_test_data.py::test_returns_match PASSED
+        tests/tools/test_find_test_data.py::test_returns_error_dict_on_no_match PASSED
+        11 passed, 0 skipped in 0.93s
+        ```
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY identifies the schema-contract
+        weakening and delivers NOT SAFE TO MERGE. SHAPE passes if it names that
+        widening the return annotation to `TestDataMatch | dict` weakens the
+        tool's structured/derived contract into an unconstrained branch (any
+        shape validates, consumers lose the typed contract), anchors to
+        `src/sumo_qa/tools/find_test_data.py` return annotation, and gives the
+        NOT SAFE verdict.
+      anti_patterns:
+        - Declares SAFE because both return-path tests pass, missing the outputSchema weakening.
+        - Treats `TestDataMatch | dict` as an acceptable contract without noticing the unconstrained branch.
+        - Only names generic typing risks without anchoring to the contract losing its constraint.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: platform-install-mismatch — Windows uninstall removes only symlinks, leaving copytree dirs (PR #231)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/install/uninstall.py b/src/sumo_qa/install/uninstall.py
+        @@ src/sumo_qa/install/uninstall.py:38-46 @@
+        +38 def uninstall_skills(target: Path) -> None:
+        +39     """Remove installed sumo-qa skill dirs from the host."""
+        +40     for entry in target.glob("sumo-qa-*"):
+        +41         if entry.is_symlink():
+        +42             entry.unlink()
+        ```
+        Context: this diff ADDS the uninstaller. The installer
+        (`install_skills`, unchanged) creates each skill dir as a symlink where
+        possible but falls back to `shutil.copytree` on Windows when the process
+        lacks symlink-create privilege. The new `uninstall_skills` only handles
+        the symlink branch — it never removes the copied directories left by the
+        copytree fallback.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/install/test_uninstall.py -q
+        tests/install/test_uninstall.py::test_removes_symlinked_skills PASSED
+        6 passed, 0 skipped in 0.55s
+        ```
+        (The fixture creates symlinks; it never exercises the copytree fallback
+        used on Windows.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the platform-specific
+        uninstall mismatch: uninstall only removes the symlink branch, so on
+        Windows (where install falls back to `copytree`) the copied skill
+        directories are left behind. Anchors to
+        `src/sumo_qa/install/uninstall.py:uninstall_skills` and delivers NOT
+        SAFE TO MERGE or NEEDS WORK.
+      anti_patterns:
+        - Declares SAFE because the uninstall test passes, missing the Windows copytree-leftover case.
+        - Treats symlink removal as covering the copied-directory fallback path.
+        - Only names generic uninstall risks without anchoring to the platform-branch asymmetry.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: path-root-cwd-bypass — protected-path guard anchored to cwd not repo root (PR #100)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/hooks/block_generated_paths.py b/hooks/block_generated_paths.py
+        @@ hooks/block_generated_paths.py:18-30 @@
+         18 def is_protected(target: str) -> bool:
+        -19     repo_root = _find_repo_root(Path(target))
+        -20     protected = repo_root / "docs" / "generated"
+        +19     protected = Path.cwd() / "docs" / "generated"
+         21     try:
+         22         return Path(target).resolve().is_relative_to(protected.resolve())
+         23     except ValueError:
+         24         return False
+        ```
+        Context: this hook blocks edits to generated files; it runs for every
+        edit and the agent's cwd can be any subdirectory of the repo.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/hooks/test_block_generated_paths.py -q
+        tests/hooks/test_block_generated_paths.py::test_blocks_edit_under_docs_generated PASSED
+        tests/hooks/test_block_generated_paths.py::test_allows_edit_to_source PASSED
+        7 passed, 0 skipped in 0.40s
+        ```
+        (The tests run with cwd set to the repo root.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the path-root/cwd bypass:
+        the guard anchors the protected directory to `Path.cwd()` instead of
+        the resolved repo root, so when cwd is a subdirectory the `protected`
+        path is wrong and a generated file can be edited without being blocked.
+        Anchors to `hooks/block_generated_paths.py:is_protected` and delivers
+        NOT SAFE TO MERGE.
+      anti_patterns:
+        - Declares SAFE because the hook tests pass, missing the subdirectory cwd bypass.
+        - Treats cwd-relative and repo-root-relative anchoring as equivalent.
+        - Only names generic path-handling risks without anchoring to the cwd-vs-repo-root regression.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: NEGATIVE CONTROL docs-only typo — B must stay lightweight, no invented runtime risk
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/docs/INSTALL.md b/docs/INSTALL.md
+        @@ docs/INSTALL.md:14 @@
+        -Run the install commmand before restarting the host.
+        +Run the install command before restarting the host.
+        ```
+        Context: a single typo fix in prose. No documented count, inventory,
+        public-surface name, schema field, or command changed.
+
+        ## Fresh test run
+        ```text
+        $ markdownlint docs/INSTALL.md && pytest -q
+        docs/INSTALL.md: OK
+        128 passed, 0 skipped in 11.0s
+        ```
+      expected_shape: >-
+        Concise docs-only verdict. Recognises a prose typo fix with no runtime
+        behaviour change, cites markdownlint OK plus 128 passed, 0 skipped, and
+        delivers SAFE TO MERGE WITHOUT inventing auth, data, schema, rollback,
+        CI, or other runtime risks.
+      anti_patterns:
+        - Invents runtime risk (auth, data loss, schema, CI, rollback, concurrency) for a one-word typo fix.
+        - Declares NOT SAFE / NEEDS WORK for a pure prose typo with green build and lint.
+        - Applies the full runtime risk-ledger walk to a trivial docs-only change.
+        - Asking another confirmation question instead of delivering the verdict.

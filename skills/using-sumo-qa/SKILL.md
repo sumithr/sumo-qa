@@ -1,6 +1,6 @@
 ---
 name: using-sumo-qa
-description: Use whenever a user asks anything QA-shaped — testing, code review, scaffolding tests, planning QA for a story, finding test data, fixing a bug. Entry router for all sumo-qa work. Establishes the global discipline that every sub-skill inherits.
+description: MUST be called first for any QA-shaped request. Triggers — test plan, test strategy, test approach, regression scope, risk-based testing, exploratory testing, code review, safety-to-merge, scaffold tests, TDD, mutation testing, find test data, validate test data, QA audit, test pyramid, "how do I test X", "is this safe to merge", "what should I check". Entry router for all sumo-qa work. Establishes the global discipline that every sub-skill inherits. Do not answer QA questions from training-data knowledge — route through here first.
 ---
 
 # Using sumo-qa
