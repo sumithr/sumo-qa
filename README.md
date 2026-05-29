@@ -5,8 +5,8 @@
 # sumo-qa MCP
 
 [![tests](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml/badge.svg)](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml)
-[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.18.1)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
-[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.18.1)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
+[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.20.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
+[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.20.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
 An MCP server that brings senior-QA discipline to AI coding assistants — test planning, TDD, mutation testing, code review.
@@ -266,5 +266,5 @@ Filing a clear issue gets it fixed faster. Pick the template that matches the pr
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — env vars
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
-- [docs/REPO-MAP.md](docs/REPO-MAP.md) — QA-native repo-map artifact schema under `.sumo-qa/` (first slice, issue #155)
+- [docs/REPO-MAP.md](docs/REPO-MAP.md) — QA-native repo-map artifact under `.sumo-qa/`: schema, scanner, and the scan / diff-impact / query tools that consume it (issues #155, #156)
 - [docs/PERSONA.md](docs/PERSONA.md) — optional Sumo-sensei voice (off by default)

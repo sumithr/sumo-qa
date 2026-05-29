@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.20.0](https://github.com/sumithr/sumo-qa/compare/v0.19.0...v0.20.0) (2026-05-29)
+
+
+### Features
+
+* add sumo_qa_query_repo_map and wire repo-map evidence into QA skills ([#241](https://github.com/sumithr/sumo-qa/issues/241)) ([5fd54b3](https://github.com/sumithr/sumo-qa/commit/5fd54b31c6eac56c58e42731d7d836dd54aa57ad))
+
+## [0.19.0](https://github.com/sumithr/sumo-qa/compare/v0.18.1...v0.19.0) (2026-05-29)
+
+
+### Features
+
+* add adversarial review-recall discovery pass + Codex-seeded eval corpus ([#236](https://github.com/sumithr/sumo-qa/issues/236)) ([#244](https://github.com/sumithr/sumo-qa/issues/244)) ([6b29e39](https://github.com/sumithr/sumo-qa/commit/6b29e396f63ff778755fd0374ecaabfa6e345973))
+* enforce sumo-qa routing for QA-shaped requests on copilot ([#240](https://github.com/sumithr/sumo-qa/issues/240)) ([5d81db2](https://github.com/sumithr/sumo-qa/commit/5d81db2aa2b1a7d8e542b3d6af51c233123865e7))
+
+
+### Continuous Integration
+
+* fix release auto-merge race on required-check registration ([#250](https://github.com/sumithr/sumo-qa/issues/250)) ([44886a2](https://github.com/sumithr/sumo-qa/commit/44886a2ce622da24e40ee98b66de569a5dbfb710))
+
 ## [0.18.1](https://github.com/sumithr/sumo-qa/compare/v0.18.0...v0.18.1) (2026-05-29)
 
 

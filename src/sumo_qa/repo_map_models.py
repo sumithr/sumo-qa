@@ -193,3 +193,49 @@ class DiffImpact(BaseModel):
     risk_surface: list[str] = Field(default_factory=list)
     suggested_inspections: list[str] = Field(default_factory=list)
     warnings: list[RepoMapWarning] = Field(default_factory=list)
+
+
+class RepoMapQueryMatch(BaseModel):
+    """One bounded match from querying a :class:`RepoMap` (#156 query tool).
+
+    ``kind`` discriminates a node match from a command match — both project
+    into this single compact shape so the host gets a uniform result list.
+    For a node, ``id``/``type``/``path``/``tags`` come straight off the
+    :class:`RepoMapNode`; for a command, ``id`` is ``command:<name>``,
+    ``type`` is the command kind, ``path`` is the command's source file, and
+    ``tags`` is empty. ``match_reason`` says WHY it matched (the dimension +
+    the matched value) so the host can judge relevance without the full
+    artifact. ``score`` is the internal rank (higher first); it is surfaced so
+    a caller can see the ranking gradient, not just the order.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["node", "command"]
+    id: str
+    type: str
+    path: str
+    tags: list[str] = Field(default_factory=list)
+    match_reason: str
+    score: int
+
+
+class RepoMapQueryResult(BaseModel):
+    """Result of a bounded query over a :class:`RepoMap` (#156 query tool).
+
+    Compact by design — only the top ``limit`` matches travel, never the full
+    artifact. ``total_matches`` is the count of ALL matches before the limit
+    was applied, so the host knows whether it is seeing everything;
+    ``truncated`` is true when ``total_matches`` exceeded the limit.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str
+    matches: list[RepoMapQueryMatch] = Field(default_factory=list)
+    total_matches: int
+    types_filter: list[str] = Field(default_factory=list)
+    truncated: bool
+    # The limit actually applied (the requested limit clamped to the tool's
+    # hard ceiling), so a caller can tell when its requested limit was capped.
+    limit: int

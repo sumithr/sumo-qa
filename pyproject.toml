@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.18.1"
+version = "0.20.0"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
@@ -226,6 +226,16 @@ also_copy = [
   # push whose delta touches any test file (the hook's regex matches all
   # of `tests/*.py`). Same root-level-resource pattern as `.claude/`.
   "release-please-config.json",
+  # tests/test_server.py::test_copilot_instructions_enforce_qa_routing (added
+  # in #240) resolves `Path(__file__).resolve().parent.parent / ".github" /
+  # "copilot-instructions.md"`, which under mutmut becomes
+  # `mutants/.github/copilot-instructions.md`. Without this entry the test
+  # FileNotFoundErrors during collection, mutmut's `-x` aborts stats
+  # collection, and the pre-push mutmut hook fails on every push whose delta
+  # touches any test file. The whole dir is copied (not just the one file)
+  # because mutmut copies dir entries verbatim but does not create parent
+  # dirs for a nested-file entry. Same dir-copy pattern as `.claude/`.
+  ".github/",
 ]
 
 # ---------------------------------------------------------------------------
