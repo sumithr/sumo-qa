@@ -11,7 +11,7 @@ Help the user decide whether a change is safe to ship by walking the review one 
 
 ## Output discipline (mandatory)
 
-Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.
+Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*; this includes the raw keys of any loaded change-rules file — cite the rule in plain English, e.g. *"the documented-inventory rule"*, never by echoing its YAML key), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.
 
 <HARD-GATE>
 Do NOT deliver a verdict before running tests in this turn. "CI was green earlier" is not fresh evidence. The Iron Law's only verdict source is the suite running RIGHT NOW against THIS diff, with the actual pass/fail counts surfaced.
@@ -37,7 +37,23 @@ You MUST work through these in order. Steps 1–4 are AI-only homework (no user 
 
 3. **Classify and load applicable standards** *(no user question)* — call `sumo_qa_load_classifications()`, infer the classification(s), then `sumo_qa_load_standards(...)` and `sumo_qa_load_rules(...)`. Note which loaded rules apply.
 
-4. **Identify named risks anchored to file:line** *(no user question)* — 3–7 risks, each citing a specific file + line + the domain meaning. NOT generic ("edge cases", "untested paths"). Use the words from the user's intent + the actual code.
+4. **Adversarial discovery pass → named risks anchored to file:line** *(no user question)* — Codex-class defects ship past green suites because nobody swept the diff for them. BEFORE naming risks, run this discovery sweep over the diff; each hit becomes a named risk anchored to file:line. The probes map a code-shape signal to the defect class to suspect:
+
+   - **Reordered statements in a write/persist path** → an intermediate state is now observable or persisted; on partial failure it can leave invalid/partial state (rollback / data-loss).
+   - **A removed, loosened, or inverted guard/conditional** → the path it blocked is now reachable; name what that exposes.
+   - **A rollback / cleanup / undo path** → does it RESTORE overwritten or pre-existing state, or does it `unlink`/clobber it? Deleting a destination that pre-existed is data loss, not rollback.
+   - **A documented count/name/inventory, a version bump, or a generated artifact (manifest, lockfile, sidecar)** → search the supplied repo state repo-wide for stale copies of the old value; for generated files, was the generator re-run and the output committed? (the documented-inventory / generated-artifact drift probe — see step 9).
+   - **A file/path enumeration (`git ls-files`, glob, walk)** → does it include entries it must not — tracked-but-deleted, ignored, suffix-variant, hidden?
+   - **A path check compared against `cwd` or a relative root** → should it anchor to the repo/project root? cwd-relative checks are bypassable from a subdirectory (security boundary).
+   - **A platform/OS branch (`sys.platform`, symlink-vs-copy, path separators, spaces in paths)** → is every branch's inverse/cleanup symmetric, and is each branch actually exercised?
+   - **A widened type/schema (bare `dict`/`Any`/`object`, new optional union, relaxed validation)** → does it weaken a previously-constrained contract or a published/derived schema into an unconstrained branch?
+   - **A retry / async / timeout / teardown / shutdown path** → idempotency across retries, poison-message parking, and teardown-after-assert that can raise and error a logically-passing test (cleanup flakiness).
+   - **A CI / merge-gate change (required checks, admin-merge, wait conditions)** → does it wait on ALL required checks (the full matrix), or can it proceed before some finish?
+   - **A weakened test assertion (substring/presence-only replacing exact/structural)** → would it still pass if the contract under test were removed? (tautology — a test-only-change SAFE-blocker).
+
+   **Discovery → verdict (pinned).** A defect this sweep surfaces that the fresh tests do not cover is a NAMED RISK, mapped through the coverage ledger (step 9) as UNCOVERED. It is a SAFE-blocker → NOT SAFE TO MERGE. Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict, and do NOT call it covered because a green test runs nearby — a green run that uses a happy fixture, ingests into an empty target, runs from the repo root, or hits only one platform/matrix leg does NOT cover the overwrite / deleted-entry / subdirectory / other-OS path. Treating it as coverage is the bypass that ships these defects; this demotion is the exact failure this pass exists to prevent.
+
+   The sweep produces 3–7 named risks, each citing a specific file + line + the domain meaning — NOT generic ("edge cases", "untested paths"). **Skip the sweep only for the trivial-change exemption below** (docs-only / tool-only config — formatter/linter ignore lists, editor config — with no runtime consumer); running it there manufactures phantom runtime risk, the negative-control failure mode.
 
 5. **Confirm scope, only for the AMBIGUOUS parts** — present a short paragraph naming the files, line counts, and what the change does in domain terms. Then ask ONE focused question for what the diff couldn't reveal (e.g. *"is this consumer external — do we need to coordinate the contract bump?"*). If nothing's ambiguous, skip the question.
 
@@ -60,7 +76,7 @@ You MUST work through these in order. Steps 1–4 are AI-only homework (no user 
    - BAD: *"Covered by `test_does_not_mark_failed_charge_paid`."* — it asserts one failed charge isn't marked paid; it never re-invokes `complete_checkout` after a partial failure, so it cannot prove retry idempotency.
    - GOOD: *"UNCOVERED. No fresh test re-invokes `complete_checkout` after a partial failure or asserts charge-at-most-once across retries. SAFE-blocker."*
 
-   **Documented-inventory drift rule (pinned).** When the diff changes a documented count, inventory, public-surface name, or schema field — the `docs_change` rule's inventory-drift probe — the obvious doc the diff touches is rarely the only stale spot. Before the verdict, search the supplied ground-truth context (any `rg`/grep listing, "Other repo state" section, etc.) for the OLD value; each path it surfaces is a separate UNCOVERED anchor that needs its own ledger row (format in Verdict-format discipline item 2a). Generic guidance, anchoring only on the obvious doc, or naming one stale path is UNCOVERED. If the ground-truth context names zero stale paths, say so explicitly; do NOT silently default to "covered".
+   **Documented-inventory drift rule (pinned).** When the diff changes a documented count, inventory, public-surface name, or schema field — the documented-inventory-drift probe — the obvious doc the diff touches is rarely the only stale spot. Before the verdict, search the supplied ground-truth context (any `rg`/grep listing, "Other repo state" section, etc.) for the OLD value; each path it surfaces is a separate UNCOVERED anchor that needs its own ledger row (format in Verdict-format discipline item 2a). Generic guidance, anchoring only on the obvious doc, or naming one stale path is UNCOVERED. If the ground-truth context names zero stale paths, say so explicitly; do NOT silently default to "covered".
 
 ### Verdict-format discipline
 
@@ -98,6 +114,8 @@ See the Checklist above — that's the flow.
 | "Trivial change, no need to walk through sections" | The Iron Law doesn't have a trivial-change exemption. Walk through; the review can be short, but every section gets confirmation. |
 | "I'll skip running tests — they're slow" | Then you can't claim safe-to-merge. Slow tests are still the verdict source. |
 | "All tests pass, so SAFE" | Necessary, not sufficient. Each named risk must also have a covering test. |
+| "I spotted a latent issue but tests are green — SAFE, with a residual note" | The discovery sweep's hits are NAMED RISKS, not residual notes. A discovered defect the fresh tests don't exercise is UNCOVERED = NOT SAFE. Demoting it to a residual concern is the gap step 4 closes. |
+| "I'll skip the discovery sweep — looks like a clean refactor" | The sweep is mandatory for any runtime diff. Codex-class defects (cwd bypass, rollback data-loss, schema widening, partial CI gate) hide in clean-looking diffs and pass green suites. Only docs-only / tool-only config is exempt. |
 | "No standards apply to this change" | Re-classify. Every change has at least one applicable classification with loaded rules. |
 | "I'll list the risks AND deliver the verdict in one message" | Gate. The user's correction on the risks is what shapes the verdict. |
 | "I'll ask the user which test framework / where tests live" | Read the repo. The framework and test layout are answered by sibling files. |

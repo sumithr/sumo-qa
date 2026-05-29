@@ -1,0 +1,625 @@
+description: >
+  Issue #236 — adversarial review-recall corpus seeded from resolved Codex
+  Review findings on closed PRs. Unlike skill-reviewing-before-merge.yaml,
+  the ground-truth context does NOT pre-supply named risks: each scenario
+  hands the candidate a RAW diff plus a GREEN-but-non-covering test run, and
+  the candidate must INDEPENDENTLY discover the concrete defect class, anchor
+  it to the changed file:line, and deliver the correct unsafe/needs-work
+  verdict. Proves the skill's adversarial discovery pass finds the subtle
+  defects Codex Review catches from raw diff context, while the docs-only /
+  config-only negative controls prove it does not invent runtime risk.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate
+      INDEPENDENTLY DISCOVERED the seeded defect from a raw diff (no risks were
+      pre-supplied) AND avoided the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         The candidate was NOT handed the risks; it must name the specific
+         defect class described in the expected shape (not a generic "edge
+         cases might exist"), anchor it to the file + line/symbol that carries
+         the defect (a changed path in the diff, or — for drift/generated-artifact
+         seeds — the stale repo-state artifact named in the supplied context),
+         and deliver the verdict the expected shape requires (NOT SAFE / NEEDS
+         WORK for a real defect; SAFE for a negative control). Naming only
+         generic or unrelated risks, or missing the seeded defect entirely, is
+         a SHAPE FAIL. Delivering the wrong verdict direction is a SHAPE FAIL.
+
+      B. GROUNDING - does the response visibly use the supplied context? It
+         must cite the specific file + symbol/line/construct that carries the
+         defect — normally a changed path in the diff, but for
+         drift/generated-artifact seeds the actionable anchor may be a stale
+         repo-state artifact named in the supplied "repo state" block (e.g. a
+         generated sidecar that was not regenerated); citing that stale
+         artifact is valid grounding. Narrating a plausible risk without
+         anchoring it to any supplied file -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical change classifications:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    ...and the team's change rules (keyed by classification):
+
+    --- LOADED RULES ---
+    {{loaded_rules}}
+    --- END LOADED RULES ---
+
+    Raw repository diff and fresh verification evidence for this turn. The risks
+    have NOT been named or confirmed for you — you must discover them yourself
+    from the raw diff. You have just read the diff and run the tests shown below.
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass review: run the adversarial
+    discovery pass yourself against the raw diff, name the concrete risks you
+    discover (anchored to file:line), and deliver the verdict in this one turn —
+    no confirmation question. Keep the response concise and evidence-led.
+tests:
+  - description: FAMILY generated-artifact-drift — version bump not propagated to the committed generated manifest (PR #194/#210)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:3 @@
+        -version = "0.18.0"
+        +version = "0.18.1"
+
+        diff --git a/CHANGELOG.md b/CHANGELOG.md
+        @@ CHANGELOG.md:1-5 @@
+        +## 0.18.1 (2026-05-29)
+        +- fix: installer copytree fallback on Windows
+        ```
+
+        ## Repo state the operator should know about
+        ```text
+        $ head -3 .claude-plugin/plugin.json
+        {
+          "name": "sumo-qa",
+          "version": "0.18.0"
+
+        $ grep -rn "Generated file\|do not hand-edit" .claude-plugin/plugin.json
+        .claude-plugin/plugin.json:2: // GENERATED by plugin_packaging.plugin_generator — do not hand-edit
+        ```
+        `.claude-plugin/plugin.json` is a generated sidecar produced from
+        pyproject by `python -m plugin_packaging.plugin_generator sync`. The
+        diff bumped the source version but did NOT re-run the generator, so the
+        committed sidecar still carries 0.18.0.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_release.py -q
+        tests/test_release.py::test_changelog_has_entry PASSED
+        12 passed, 0 skipped in 1.84s
+        ```
+        (The drift-and-schemas job that compares pyproject vs the generated
+        sidecar version was not part of this run.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the generated-artifact
+        drift: the version bump in pyproject.toml/CHANGELOG was not propagated
+        to the committed generated sidecar `.claude-plugin/plugin.json`, which
+        still reads 0.18.0. Anchors to `.claude-plugin/plugin.json` and notes
+        the generator (plugin_generator sync) must be re-run and the regenerated
+        file committed. Notes the green pytest run did not include the
+        version-parity / drift check, so green tests are not sufficient.
+        Delivers NOT SAFE TO MERGE. Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE TO MERGE because the test suite is green, ignoring the stale generated sidecar version.
+        - Misses that `.claude-plugin/plugin.json` still carries the old 0.18.0 version.
+        - Only names generic release risks without anchoring to the stale generated file.
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as `docs_change` or `config_change`.
+  - description: FAMILY stale-deleted-file — git ls-files scan includes tracked-but-deleted paths (PR #229)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/repomap/scanner.py b/src/sumo_qa/repomap/scanner.py
+        @@ src/sumo_qa/repomap/scanner.py:40-46 @@
+        +40 def list_tracked_files(repo_root: Path) -> list[Path]:
+        +41     """Every tracked file, as an absolute path — one repo-map node each."""
+        +42     out = subprocess.run(["git", "ls-files"], cwd=repo_root,
+        +43                          capture_output=True, text=True, check=True)
+        +44     return [repo_root / line for line in out.stdout.splitlines() if line]
+        ```
+        Context: this diff ADDS the repo-map's file enumeration. The returned
+        list is fed straight to the node builder; every path becomes a node in
+        the scan output.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/repomap/test_scanner.py -q
+        tests/repomap/test_scanner.py::test_lists_tracked_python_files PASSED
+        tests/repomap/test_scanner.py::test_skips_blank_lines PASSED
+        9 passed, 0 skipped in 0.71s
+        ```
+        (The fixture repo in these tests has no tracked-but-deleted files.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags that `git ls-files` lists
+        files that are tracked but deleted in the working tree (removed on disk,
+        not yet committed), so `list_tracked_files` returns paths that no longer
+        exist and the scan emits stale repo-map nodes for them. Anchors to
+        `src/sumo_qa/repomap/scanner.py` and notes the fix must exclude deleted
+        entries (e.g. `git ls-files --deleted` subtraction or an existence /
+        `path.exists()` check). Notes the green tests use a fixture with no
+        deleted files so they cannot catch this. Delivers NOT SAFE TO MERGE.
+        Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE because the scanner tests are green, missing the tracked-but-deleted-file case.
+        - Treats the added `if line` blank-line guard as the only relevant change and overlooks deleted-file inclusion.
+        - Only names generic file-IO risks without anchoring to git ls-files behaviour.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: FAMILY weak-assertion — reviewing a test diff that weakens a conformance assertion to a substring (PR #170)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/tests/test_skill_conformance.py b/tests/test_skill_conformance.py
+        @@ tests/test_skill_conformance.py:60-68 @@
+         60 def test_using_sumo_qa_declares_output_economy_contract():
+         61     text = (SKILLS_DIR / "using-sumo-qa" / "SKILL.md").read_text()
+        -62     assert "## Output economy (mandatory)" in text
+        -63     assert "No preamble or self-narration" in text
+        -64     assert "One question per turn" in text
+        +62     assert "economy" in text.lower()
+        ```
+        Context: this test is the only automated guard that the
+        output-economy contract section still exists in using-sumo-qa.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_skill_conformance.py -q
+        tests/test_skill_conformance.py::test_using_sumo_qa_declares_output_economy_contract PASSED
+        31 passed, 0 skipped in 0.52s
+        ```
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the weakened assertion:
+        the test now asserts only the substring `"economy" in text.lower()`,
+        which would still pass if the entire output-economy contract section
+        (and its required clauses) were deleted, since the word "economy"
+        appears elsewhere. Anchors to
+        `tests/test_skill_conformance.py:test_using_sumo_qa_declares_output_economy_contract`
+        and notes the assertion no longer guards the contract it claims to —
+        a green run proves nothing. Delivers NOT SAFE TO MERGE or NEEDS WORK.
+        Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE because the conformance test passes, missing that the assertion was hollowed out.
+        - Treats the substring assertion as equivalent coverage to the removed exact-clause assertions.
+        - Only names generic test-refactor risks without anchoring to the weakened assertion.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: FAMILY rollback-data-loss — ingest rollback deletes pre-existing user content instead of restoring it (PR #164)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/ingest/writer.py b/src/sumo_qa/ingest/writer.py
+        @@ src/sumo_qa/ingest/writer.py:70-92 @@
+         70 def ingest_pack(files: list[Path], dest_dir: Path) -> None:
+         71     written: list[Path] = []
+         72     try:
+         73         for src in files:
+         74             dest = dest_dir / src.name
+        +74a            # overwrite whatever is already at dest
+         75             shutil.copyfile(src, dest)
+         76             written.append(dest)
+         77     except Exception:
+         78         # roll back everything we touched
+         79         for dest in written:
+        -80             if dest.exists():
+        -81                 dest.unlink()
+        +80             dest.unlink(missing_ok=True)
+         82         raise
+        ```
+        Context: ingest may overwrite files the user already had at `dest`.
+        `written` records every destination the loop copied to.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/ingest/test_writer.py -q
+        tests/ingest/test_writer.py::test_ingests_new_pack PASSED
+        tests/ingest/test_writer.py::test_rollback_removes_written_files PASSED
+        14 passed, 0 skipped in 1.10s
+        ```
+        (Both tests ingest into an EMPTY destination — no pre-existing file is
+        overwritten in either fixture.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY identifies risk to the user's
+        pre-existing / overwritten files on this ingest+rollback path and
+        delivers NOT SAFE TO MERGE. SHAPE passes if the response flags that a
+        pre-existing destination file can be lost — overwritten on ingest
+        and/or `unlink`ed on rollback rather than restored — anchors to
+        `src/sumo_qa/ingest/writer.py`, and gives the NOT SAFE verdict.
+        Verbatim restatement of the backup/restore mechanism is NOT required;
+        naming the data-loss-to-pre-existing-files risk with the right anchor
+        and verdict is sufficient. Ideally notes the green tests ingest into an empty
+        destination so they never exercise the overwrite-then-rollback path.
+        Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE because the rollback test passes, missing the overwrite-then-rollback data-loss path.
+        - Treats `dest.unlink(missing_ok=True)` as a safe rollback without noticing it destroys pre-existing user files.
+        - Only names generic error-handling risks without anchoring to the rollback deleting overwritten originals.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: FAMILY ci-required-check-blind-spot — admin-merge waits on only part of the test matrix (PR #199)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+        @@ .github/workflows/release.yml:48-66 @@
+         48   admin-merge:
+         49     needs: [release-please]
+         50     runs-on: ubuntu-latest
+         51     steps:
+         52       - name: Wait for required checks
+        -53         run: gh pr checks "$PR" --watch --required
+        +53         run: gh run watch "$(gh run list --workflow pytest-ubuntu.yml -L1 --json databaseId -q '.[0].databaseId')"
+         54       - name: Admin merge
+         55         run: gh pr merge "$PR" --squash --admin
+        ```
+        Context: branch protection requires three checks before merge:
+        `pytest (ubuntu-latest)`, `pytest (macos-latest)`, and
+        `pytest (windows-latest)`. The `--admin` merge bypasses the
+        up-to-date / approval gate but NOT the maintainer's intent to let all
+        required jobs finish.
+
+        ## Fresh test run
+        ```text
+        $ actionlint .github/workflows/release.yml
+        (no errors)
+        ```
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY identifies the CI
+        required-check blind spot and delivers NOT SAFE TO MERGE. SHAPE passes
+        if the response names that the admin merge can proceed before all
+        required checks finish (e.g. the wait now watches only the ubuntu
+        pytest run while the required macos/windows jobs may still be running,
+        and `--admin` bypasses the gate), anchors to
+        `.github/workflows/release.yml` admin-merge/wait step, and gives the
+        NOT SAFE verdict — naming the partial-gate class with the right anchor
+        is sufficient; enumerating every matrix leg verbatim is not required.
+        Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE because actionlint is clean, missing that only one of three required jobs is awaited.
+        - Treats `--admin` as harmless without noticing it can merge before macOS/Windows jobs complete.
+        - Only names generic CI risks without anchoring to the partial-matrix wait.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: FAMILY path-root-cwd-bypass — protected-path guard anchored to cwd instead of repo root (PR #100)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/hooks/block_generated_paths.py b/hooks/block_generated_paths.py
+        @@ hooks/block_generated_paths.py:18-30 @@
+         18 def is_protected(target: str) -> bool:
+        -19     repo_root = _find_repo_root(Path(target))
+        -20     protected = repo_root / "docs" / "generated"
+        +19     protected = Path.cwd() / "docs" / "generated"
+         21     try:
+         22         return Path(target).resolve().is_relative_to(protected.resolve())
+         23     except ValueError:
+         24         return False
+        ```
+        Context: this hook blocks edits to generated files. It is invoked for
+        every edit; the agent's working directory (cwd) can be any subdirectory
+        of the repo, not necessarily the repo root.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/hooks/test_block_generated_paths.py -q
+        tests/hooks/test_block_generated_paths.py::test_blocks_edit_under_docs_generated PASSED
+        tests/hooks/test_block_generated_paths.py::test_allows_edit_to_source PASSED
+        7 passed, 0 skipped in 0.40s
+        ```
+        (The tests run with cwd set to the repo root.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the path-root/cwd bypass:
+        the guard now anchors the protected directory to `Path.cwd()` instead
+        of the resolved repo root, so when the agent's cwd is a subdirectory
+        the computed `protected` path is wrong and a protected generated file
+        can be edited without being blocked. Anchors to
+        `hooks/block_generated_paths.py:is_protected` and notes the check must
+        be anchored to the repo root (the removed `_find_repo_root`), not the
+        session cwd. Notes the green tests run from the repo root so they never
+        exercise the subdirectory bypass. Delivers NOT SAFE TO MERGE. Ends
+        without a confirmation question.
+      anti_patterns:
+        - Declares SAFE because the hook tests pass, missing the subdirectory cwd bypass.
+        - Treats cwd-relative and repo-root-relative anchoring as equivalent.
+        - Only names generic path-handling risks without anchoring to the cwd-vs-repo-root regression.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: FAMILY schema-contract-weakening — bare dict error union widens a constrained outputSchema (PR #112)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/tools/find_test_data.py b/src/sumo_qa/tools/find_test_data.py
+        @@ src/sumo_qa/tools/find_test_data.py:22-30 @@
+        -22 def find_test_data(query: str) -> TestDataMatch:
+        +22 def find_test_data(query: str) -> TestDataMatch | dict:
+         23     hits = _search(query)
+         24     if not hits:
+        -25         raise NoMatchError(query)
+        +25         return {"error": "no match", "query": query}
+         26     return TestDataMatch(record=hits[0], confidence=hits[0].score)
+        ```
+        Context: `find_test_data` is registered as an MCP tool. FastMCP derives
+        the tool's `outputSchema` from the return annotation. `TestDataMatch`
+        is a constrained Pydantic model; a bare `dict` return type erases that
+        constraint.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/tools/test_find_test_data.py -q
+        tests/tools/test_find_test_data.py::test_returns_match PASSED
+        tests/tools/test_find_test_data.py::test_returns_error_dict_on_no_match PASSED
+        11 passed, 0 skipped in 0.93s
+        ```
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY identifies the schema-contract
+        weakening and delivers NOT SAFE TO MERGE. SHAPE passes if the response
+        names that widening the return annotation to `TestDataMatch | dict`
+        weakens the tool's structured/derived contract into an unconstrained
+        branch (e.g. the bare `dict` erases the Pydantic/outputSchema
+        constraint so any shape validates and consumers lose the typed
+        contract), anchors to `src/sumo_qa/tools/find_test_data.py` return
+        annotation, and gives the NOT SAFE verdict — naming the
+        contract-weakening class with the right anchor is sufficient; precise
+        outputSchema-derivation wording is not required. Ends without a
+        confirmation question.
+      anti_patterns:
+        - Declares SAFE because both return-path tests pass, missing the outputSchema weakening.
+        - Treats `TestDataMatch | dict` as an acceptable contract without noticing the unconstrained object branch.
+        - Only names generic typing risks without anchoring to the derived outputSchema losing its constraint.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: FAMILY protocol-timeout-cleanup — teardown can raise on shutdown timeout after assertions passed (PR #121)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/tests/test_tools_list_contract.py b/tests/test_tools_list_contract.py
+        @@ tests/test_tools_list_contract.py:30-48 @@
+         30 def test_tools_list_contract():
+         31     proc = start_mcp_server()
+         32     resp = rpc(proc, {"id": 1, "method": "tools/list"})
+         33     assert resp["result"]["tools"]
+        +34     proc.stdin.close()
+        +35     proc.wait(timeout=5)
+        ```
+        Context: `start_mcp_server` spawns a stdio subprocess. On some CI
+        runners shutdown after stdin close can take longer than 5s; `wait`
+        raises `subprocess.TimeoutExpired` if it does. There is no
+        try/finally and no kill fallback.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_tools_list_contract.py -q
+        tests/test_tools_list_contract.py::test_tools_list_contract PASSED
+        1 passed, 0 skipped in 2.31s
+        ```
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY identifies the cleanup-time
+        flakiness defect class and delivers NEEDS WORK or NOT SAFE TO MERGE.
+        SHAPE passes if the response names that the post-assertion teardown can
+        fail on shutdown (e.g. `proc.wait(timeout=5)` can raise
+        `TimeoutExpired` on a slow shutdown with no kill/terminate fallback,
+        turning a logically-passing test into an error), anchors to
+        `tests/test_tools_list_contract.py` teardown, and gives the needs-work
+        verdict — naming the cleanup/timeout-flake class with the right anchor
+        is sufficient. Ideally notes the single green run does not prove
+        shutdown stays under 5s on slower runners. Ends without a confirmation
+        question.
+      anti_patterns:
+        - Declares SAFE because the test passed once, missing the timeout-on-shutdown flake.
+        - Treats the post-assertion teardown as risk-free without noticing it can error the test.
+        - Only names generic subprocess risks without anchoring to the unguarded wait(timeout=5).
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: FAMILY platform-install-mismatch — Windows uninstall removes only symlinks, leaving copytree-copied dirs (PR #231)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/install/uninstall.py b/src/sumo_qa/install/uninstall.py
+        @@ src/sumo_qa/install/uninstall.py:38-46 @@
+        +38 def uninstall_skills(target: Path) -> None:
+        +39     """Remove installed sumo-qa skill dirs from the host."""
+        +40     for entry in target.glob("sumo-qa-*"):
+        +41         if entry.is_symlink():
+        +42             entry.unlink()
+        ```
+        Context: this diff ADDS the uninstaller. The installer
+        (`install_skills`, unchanged) creates each skill dir as a symlink where
+        possible but falls back to `shutil.copytree` on Windows when the process
+        lacks symlink-create privilege. The new `uninstall_skills` only handles
+        the symlink branch — it never removes the copied directories left by the
+        copytree fallback.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/install/test_uninstall.py -q
+        tests/install/test_uninstall.py::test_removes_symlinked_skills PASSED
+        6 passed, 0 skipped in 0.55s
+        ```
+        (The test fixture creates symlinks; it never exercises the copytree
+        fallback path used on Windows.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the platform-specific
+        uninstall mismatch: uninstall only removes the symlink branch, so on
+        Windows (where install falls back to `copytree`) the copied skill
+        directories are left behind after uninstall. Anchors to
+        `src/sumo_qa/install/uninstall.py:uninstall_skills` and notes it must
+        also remove copied directories (`shutil.rmtree` for the non-symlink
+        case) to match the installer's copytree fallback. Notes the green test
+        only creates symlinks, so it cannot catch the Windows copytree path.
+        Delivers NOT SAFE TO MERGE or NEEDS WORK. Ends without a confirmation
+        question.
+      anti_patterns:
+        - Declares SAFE because the uninstall test passes, missing the Windows copytree-leftover case.
+        - Treats symlink removal as covering the copied-directory fallback path.
+        - Only names generic uninstall risks without anchoring to the platform-branch asymmetry.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: NEGATIVE CONTROL docs-only typo — must stay lightweight, no invented runtime risk
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/docs/INSTALL.md b/docs/INSTALL.md
+        @@ docs/INSTALL.md:14 @@
+        -Run the install commmand before restarting the host.
+        +Run the install command before restarting the host.
+        ```
+        Context: a single typo fix in prose. No documented count, inventory,
+        public-surface name, schema field, or command changed — only the
+        spelling of "command".
+
+        ## Fresh test run
+        ```text
+        $ markdownlint docs/INSTALL.md && pytest -q
+        docs/INSTALL.md: OK
+        128 passed, 0 skipped in 11.0s
+        ```
+      expected_shape: >-
+        Concise docs-only verdict. Recognises this is a prose typo fix with no
+        runtime behaviour change, cites the markdownlint OK plus the
+        128 passed, 0 skipped run as the coverage, and delivers SAFE TO MERGE
+        WITHOUT inventing auth, data, schema, rollback, CI, or other runtime
+        risks and without forcing the full runtime risk ledger onto a typo.
+        Ends without a confirmation question.
+      anti_patterns:
+        - Invents runtime risk (auth, data loss, schema, CI, rollback, concurrency) for a one-word typo fix.
+        - Declares NOT SAFE / NEEDS WORK for a pure prose typo with green build and lint.
+        - Applies the full runtime risk-ledger walk to a trivial docs-only change.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: NEGATIVE CONTROL config-only benign — formatter ignore-list addition, no runtime consumer
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/.prettierignore b/.prettierignore
+        @@ .prettierignore:5 @@
+         dist/
+         coverage/
+        +**/*.snap
+        ```
+        Context: `.prettierignore` is consumed only by the Prettier formatter
+        to skip files. It is not read by any runtime code path; the added line
+        tells Prettier to stop reformatting Jest snapshot files.
+
+        ## Fresh test run
+        ```text
+        $ npx prettier --check . && npm test
+        All matched files use Prettier code style!
+        212 passing
+        ```
+      expected_shape: >-
+        Concise config-only verdict. Recognises `.prettierignore` is a
+        formatter-only ignore list with no runtime consumer, cites the green
+        prettier --check and 212 passing run, and delivers SAFE TO MERGE
+        WITHOUT inventing runtime, security, data, or behaviour-drift risks for
+        a tool-only ignore entry. May note the only residual is that the
+        ignored snapshots are no longer style-checked. Ends without a
+        confirmation question.
+      anti_patterns:
+        - Invents runtime, security, or data-drift risk for a formatter ignore-list entry with no runtime consumer.
+        - Declares NOT SAFE / NEEDS WORK for a benign tool-only config line with green checks.
+        - Applies the full runtime risk-ledger walk to a formatter-only change.
+        - Asking another confirmation question instead of delivering the verdict.
