@@ -105,6 +105,23 @@ def test_scan_repo_writes_artifact_when_write_to_provided(tool, tmp_path: Path):
     load_repo_map(artifact)
 
 
+def test_scan_repo_relative_write_to_resolves_under_root(tool, tmp_path: Path, monkeypatch):
+    # A relative write_to (the conventional ".sumo-qa/repo-map.json") must land
+    # under the SCANNED root, not the server cwd — even when cwd is elsewhere.
+    _make_file(tmp_path, "src/app.py", "x = 1\n")
+    elsewhere = tmp_path / "server_cwd"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    output = tool(root=str(tmp_path), write_to=".sumo-qa/repo-map.json")
+
+    expected = tmp_path / ".sumo-qa" / "repo-map.json"
+    assert output.artifact_path == str(expected.resolve())
+    assert expected.is_file()
+    # NOT under the server cwd
+    assert not (elsewhere / ".sumo-qa" / "repo-map.json").exists()
+
+
 def test_scan_repo_skips_disk_write_when_write_to_omitted(tool, tmp_path: Path):
     _make_file(tmp_path, "src/app.py", "x = 1\n")
     output = tool(root=str(tmp_path))

@@ -513,7 +513,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             artifact_path: str | None = None
             artifact_bytes: int | None = None
             if write_to is not None:
+                # Resolve a relative write_to against the SCANNED root, not the
+                # MCP server's cwd — the conventional `.sumo-qa/repo-map.json`
+                # must land under the repo being mapped so downstream consumers
+                # find it, even when root != server cwd.
                 target = Path(write_to)
+                if not target.is_absolute():
+                    target = Path(root) / target
                 target.parent.mkdir(parents=True, exist_ok=True)
                 payload = json.dumps(repo_map.model_dump(mode="json"), indent=2)
                 target.write_text(payload, encoding="utf-8")
