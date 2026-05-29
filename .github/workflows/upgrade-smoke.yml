@@ -308,12 +308,28 @@ jobs:
 
           # AC: skill-pack drift check reports removed/renamed skills as a
           # deliberate release-note item (informational, not a failure — a
-          # removed skill is a legitimate release decision, but it MUST be
-          # visible so it can't ship silently).
+          # PARTIAL removed skill is a legitimate release decision, but it MUST
+          # be visible so it can't ship silently).
+          #
+          # A TOTAL skill-wipe is NOT drift — it is the exact regression this
+          # workflow exists to catch, so it is a HARD failure, not a warning:
+          #   * an empty post-upgrade skills dir (nothing installed at all), or
+          #   * every pre-upgrade skill having disappeared (full set removed)
+          # while the pre-upgrade set was non-empty.
           pre_skills = json.loads((root / "pre_skills.json").read_text(encoding="utf-8"))
           removed = sorted(set(pre_skills) - set(post_skills))
           added = sorted(set(post_skills) - set(pre_skills))
           print(f"post-upgrade skills ({len(post_skills)}): {post_skills}")
+          if not post_skills:
+              failures.append(
+                  f"total skill-wipe after upgrade: {skills_dir} is empty "
+                  "(no skills installed at all)"
+              )
+          if pre_skills and set(pre_skills) - set(post_skills) == set(pre_skills):
+              failures.append(
+                  "total skill-wipe after upgrade: every pre-upgrade skill "
+                  f"disappeared (pre={pre_skills}, post={post_skills})"
+              )
           if removed:
               print(
                   "::warning title=Skill-pack drift::"
@@ -343,22 +359,132 @@ jobs:
           sumo-qa-doctor --help >/dev/null
           deactivate
 
-      - name: Post-upgrade tools/list superset contract
+      - name: Post-upgrade tools/list superset contract (upgraded config)
         # AC: tools/list remains a superset of the committed snapshot after
-        # upgrade. Reuses the same contract test install-smoke / test.yml rely
-        # on, but against the upgraded-over-existing-HOME install — proving the
-        # upgrade didn't drop a tool the snapshot pins.
+        # upgrade. Unlike tests/test_tools_list_contract.py — which forces
+        # PYTHONPATH to the checkout src/ and runs `python -m sumo_qa`, thereby
+        # validating SOURCE rather than what was actually installed — this step
+        # validates the MCP command ACTUALLY WRITTEN into the upgraded Claude
+        # Code host config. It reads command + args from
+        # ~/.config/claude/claude_desktop_config.json -> mcpServers["sumo-qa"],
+        # launches that exact invocation as an MCP stdio server, performs an
+        # initialize + tools/list JSON-RPC handshake, and asserts the returned
+        # tool names are a SUPERSET of the committed snapshot's required_tools
+        # (reused from tests/fixtures/mcp_tools_list_snapshot.json — never
+        # hardcoded).
         #
         # No untrusted GitHub event inputs are interpolated in this step.
         shell: bash
         run: |
-          # shellcheck disable=SC1091
-          source "$RUNNER_TEMP/venv-src/bin/activate"
-          # pyproject's [tool.pytest.ini_options] addopts injects --cov flags,
-          # and the `--no-cov` override below is a pytest-cov-provided option --
-          # so pytest-cov MUST be installed for the bare `pip install .` venv
-          # (dev extras aren't installed here) or pytest errors on an unknown
-          # argument before the contract test runs.
-          python -m pip install --quiet --disable-pip-version-check pytest pytest-cov >/dev/null
-          python -m pytest tests/test_tools_list_contract.py -q --no-header --no-cov -p no:cacheprovider
-          deactivate
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          repo_root = Path.cwd()
+          snapshot = json.loads(
+              (repo_root / "tests" / "fixtures" / "mcp_tools_list_snapshot.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          required = set(snapshot["required_tools"])
+
+          # Read the MCP command/args the installer WROTE into the upgraded
+          # Claude Code host config -- this is what a real client would launch,
+          # so this is what we validate (not the checkout source).
+          root = Path(os.environ["RUNNER_TEMP"]) / "upgrade-home"
+          home = root / "home"
+          cc_config = home / ".config" / "claude" / "claude_desktop_config.json"
+          cc = json.loads(cc_config.read_text(encoding="utf-8"))
+          entry = cc["mcpServers"]["sumo-qa"]
+          command = entry["command"]
+          args = list(entry.get("args", []))
+          # The installer may pin the interpreter/cwd via env; honour it so the
+          # spawned server resolves its package exactly as a real client would.
+          server_env = {**os.environ, **(entry.get("env") or {})}
+          cwd = entry.get("cwd")
+
+          print(f"launching upgraded MCP server: {command} {args}")
+          proc = subprocess.Popen(
+              [command, *args],
+              stdin=subprocess.PIPE,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+              cwd=cwd,
+              env=server_env,
+              text=True,
+          )
+
+          def send(obj):
+              proc.stdin.write(json.dumps(obj) + "\n")
+              proc.stdin.flush()
+
+          def read_id(target_id):
+              # Read framed JSON-RPC lines until we see the response matching
+              # target_id. CRITICAL: the MCP stdio server cancels in-flight
+              # handlers on stdin EOF, so stdin MUST stay OPEN until this read
+              # completes -- do NOT close stdin before tools/list returns
+              # (known sumo-qa flake source).
+              while True:
+                  line = proc.stdout.readline()
+                  if not line:
+                      err = proc.stderr.read()
+                      raise SystemExit(
+                          f"MCP server closed stdout before id={target_id} "
+                          f"(exit={proc.poll()}); stderr:\n{err}"
+                      )
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      msg = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue  # skip any non-JSON banner lines
+                  if msg.get("id") == target_id:
+                      return msg
+
+          try:
+              send(
+                  {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "initialize",
+                      "params": {
+                          "protocolVersion": "2024-11-05",
+                          "capabilities": {},
+                          "clientInfo": {"name": "upgrade-smoke", "version": "0"},
+                      },
+                  }
+              )
+              read_id(1)
+              send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+              send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+              # stdin stays open across this read -- only closed in finally.
+              resp = read_id(2)
+          finally:
+              # tools/list response is in hand; now it is safe to EOF stdin.
+              try:
+                  proc.stdin.close()
+              except Exception:  # noqa: BLE001
+                  pass
+              proc.terminate()
+              try:
+                  proc.wait(timeout=5)
+              except subprocess.TimeoutExpired:
+                  proc.kill()
+                  proc.wait(timeout=5)
+
+          live_names = {t["name"] for t in resp["result"]["tools"]}
+          missing = sorted(required - live_names)
+          if missing:
+              raise SystemExit(
+                  "upgraded MCP tools/list is NOT a superset of the committed "
+                  f"snapshot -- missing: {missing}\n"
+                  f"live tools: {sorted(live_names)}"
+              )
+          print(
+              f"upgraded MCP tools/list superset OK "
+              f"({len(required)} required, {len(live_names)} live)"
+          )
+          PY
