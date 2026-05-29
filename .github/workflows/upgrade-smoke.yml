@@ -1,0 +1,364 @@
+name: upgrade-smoke
+
+# Upgrade-path smoke for the install pipeline (issue #106).
+#
+# install-smoke.yml only ever installs into a FRESH temp HOME — it proves a
+# clean install works, but it can never see an upgrade-only regression: a
+# second `sumo-qa-install` run over an ALREADY-configured host directory that
+# leaves a duplicate MCP entry, a stale removed-skill symlink, or a broken
+# symlink pointing into the previous version's site-packages.
+#
+# This workflow models the state transition install-smoke can't:
+#
+#     no-install  ->  version-N installed + configured  ->  upgraded to source
+#
+# by reusing the SAME temp HOME / workspace across the pre-upgrade and
+# post-upgrade install, then asserting the post-upgrade host config is
+# duplicate-free, every skill symlink resolves, and the entry points still run.
+#
+# Scheduled (weekly) + workflow_dispatch only — never on push / pull_request,
+# so it exercises a real PyPI download without becoming a required PR check
+# (mirrors tdm-freshness.yml / external-skills-smoke.yml — see
+# docs/DEVELOPMENT.md "Scheduled CI workflows").
+
+on:
+  schedule:
+    # Mondays 06:30 UTC — staggered after tdm-freshness / external-skills-smoke
+    # (06:00) so a shared runner-pool hiccup doesn't fail all three at once.
+    - cron: "30 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      previous_version:
+        description: >-
+          PyPI version to install BEFORE upgrading to source. Must be a
+          release strictly older than the current source version, otherwise
+          the upgrade exercises no delta. Default is the latest published
+          release before current source.
+        required: false
+        type: string
+        default: "0.16.1"
+
+# Minimum-required token scope: every job only checks out the repo and runs
+# scripts against a temp HOME. No write actions, no PR comments, no checks API.
+permissions:
+  contents: read
+
+concurrency:
+  group: upgrade-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upgrade-pip:
+    name: upgrade ${{ inputs.previous_version || '0.16.1' }} -> source (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux + macOS first matrix. Windows is a deliberate omission for the
+        # first cut: the installer's Windows branches (copytree symlink
+        # fallback, APPDATA config dir) are already exercised by
+        # install-smoke.yml's full os matrix, and the upgrade-specific risk
+        # this workflow targets — stale entries surviving a re-install over an
+        # existing HOME — is OS-independent in installer.py (the cleanup logic
+        # in _install_claude_code_skills_per_dir / _setup_vscode_copilot runs
+        # the same path on every platform). Add windows-latest here if an
+        # upgrade-only Windows regression is ever observed.
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          # Single pinned version — this is a smoke of the upgrade vector, not
+          # a compatibility matrix. test.yml covers 3.10-3.14.
+          python-version: "3.12"
+
+      - name: Resolve previous version
+        # workflow_dispatch carries inputs.previous_version; the scheduled
+        # trigger does not, so fall back to the same default the input
+        # declares. Asserting the resolved value is strictly older than the
+        # current source version turns "the upgrade exercised no delta"
+        # (previous == source, the trap the issue's AC wording would hit when
+        # the latest PyPI release equals source on a release-tagged commit)
+        # into a hard, visible failure instead of a silent green.
+        shell: bash
+        # PREVIOUS_VERSION_INPUT comes in via env (not inline ${{ }}
+        # interpolation) so a hostile workflow_dispatch input lands as a quoted
+        # shell string, never as inline shell. It's then parsed by
+        # packaging.version.Version below, which rejects anything that isn't a
+        # PEP 440 version before it reaches `pip install`.
+        env:
+          PREVIOUS_VERSION_INPUT: ${{ inputs.previous_version }}
+        run: |
+          prev="${PREVIOUS_VERSION_INPUT:-0.16.1}"
+          src="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          # `packaging` is not a runtime dependency of sumo-qa, so don't rely on
+          # ambient runner state -- install it explicitly before importing.
+          python -m pip install --quiet --disable-pip-version-check packaging
+          # Validate FIRST (PEP 440 parse + strict-older-than-source), and only
+          # write to $GITHUB_ENV after the value is proven well-formed -- so a
+          # hostile / malformed workflow_dispatch input never reaches a later
+          # step via the environment file.
+          python - "$prev" "$src" <<'PY'
+          import sys
+          from packaging.version import Version
+
+          prev, src = Version(sys.argv[1]), Version(sys.argv[2])
+          assert prev < src, (
+              f"previous_version {prev} is not strictly older than source {src} "
+              f"-- the upgrade would exercise no delta. Pass an older "
+              f"previous_version via workflow_dispatch."
+          )
+          PY
+          echo "PREVIOUS_VERSION=$prev" >> "$GITHUB_ENV"
+          echo "SOURCE_VERSION=$src" >> "$GITHUB_ENV"
+          echo "previous=$prev  source=$src"
+
+      - name: Pre-upgrade install (published ${{ env.PREVIOUS_VERSION }})
+        # Install the previous PUBLISHED release and wire it into a temp HOME
+        # for both Claude Code and VS Code. Captures the pre-upgrade state
+        # (skill symlink set, MCP entry count) so the post-upgrade assertions
+        # can prove the re-install over an existing HOME stayed clean.
+        #
+        # No untrusted GitHub event inputs are interpolated in this step
+        # (PREVIOUS_VERSION is validated above as a PEP 440 version).
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/venv-prev"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-prev/bin/activate"
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install "sumo-qa==$PREVIOUS_VERSION"
+          deactivate
+
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          # Single shared HOME + workspace reused by the post-upgrade install.
+          root = Path(os.environ["RUNNER_TEMP"]) / "upgrade-home"
+          home = root / "home"
+          workspace = root / "workspace"
+          (home / ".claude").mkdir(parents=True)
+          workspace.mkdir(parents=True)
+          (workspace / "pyproject.toml").write_text(
+              "[project]\nname = 'smoke'\n", encoding="utf-8"
+          )
+
+          install = Path(os.environ["RUNNER_TEMP"]) / "venv-prev" / "bin" / "sumo-qa-install"
+          env = os.environ.copy()
+          env["HOME"] = str(home)
+          env["USERPROFILE"] = str(home)
+
+          subprocess.run([str(install), "--claude-code"], check=True, env=env)
+          subprocess.run(
+              [str(install), "--vscode", "--workspace", str(workspace)],
+              check=True,
+              env=env,
+          )
+
+          skills_dir = home / ".claude" / "skills"
+          pre_skills = sorted(p.name for p in skills_dir.iterdir())
+          assert pre_skills, f"no skills installed pre-upgrade under {skills_dir}"
+
+          # Record the pre-upgrade skill set so the post-upgrade drift check can
+          # report removed/renamed skills as a deliberate release-note item.
+          (root / "pre_skills.json").write_text(json.dumps(pre_skills), encoding="utf-8")
+          print(f"pre-upgrade skills ({len(pre_skills)}): {pre_skills}")
+          PY
+
+      - name: Post-upgrade install (current source over the SAME HOME)
+        # Upgrade to THIS checkout's source in a fresh venv, then re-run the
+        # installer against the SAME temp HOME / workspace the previous version
+        # configured. This is the transition install-smoke can't reach.
+        #
+        # No untrusted GitHub event inputs are interpolated in this step.
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/venv-src"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-src/bin/activate"
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install .
+          deactivate
+
+          # Delete the PREVIOUS version's venv BEFORE re-running the installer.
+          # This is what makes "no dangling symlink" a real assertion rather
+          # than a vacuous one: if the upgrade fails to refresh a skill symlink,
+          # it still points into venv-prev's now-deleted site-packages and
+          # becomes a DANGLING link the broken-symlink check below catches.
+          # Without this, a stale link into the old release would still resolve
+          # (venv-prev intact) and the regression would pass silently. Same
+          # logic guards the MCP-command-freshness assertion: a stale command
+          # still pointing at venv-prev's interpreter is now detectable.
+          rm -rf "$RUNNER_TEMP/venv-prev"
+
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "upgrade-home"
+          home = root / "home"
+          workspace = root / "workspace"
+          venv_src = Path(os.environ["RUNNER_TEMP"]) / "venv-src"
+          venv_prev = Path(os.environ["RUNNER_TEMP"]) / "venv-prev"
+
+          install = Path(os.environ["RUNNER_TEMP"]) / "venv-src" / "bin" / "sumo-qa-install"
+          env = os.environ.copy()
+          env["HOME"] = str(home)
+          env["USERPROFILE"] = str(home)
+
+          subprocess.run([str(install), "--claude-code"], check=True, env=env)
+          subprocess.run(
+              [str(install), "--vscode", "--workspace", str(workspace)],
+              check=True,
+              env=env,
+          )
+
+          failures: list[str] = []
+
+          # AC: Claude Code config has exactly one sumo-qa MCP entry after upgrade.
+          cc_config = home / ".config" / "claude" / "claude_desktop_config.json"
+          cc = json.loads(cc_config.read_text(encoding="utf-8"))
+          servers = cc.get("mcpServers", {})
+          # JSON objects can't carry duplicate keys, so count occurrences in the
+          # raw text too — a duplicate-write bug would surface as the same key
+          # twice in the serialized file even though json.loads collapses it.
+          raw = cc_config.read_text(encoding="utf-8")
+          if "sumo-qa" not in servers:
+              failures.append(f"Claude Code config missing sumo-qa entry: {servers}")
+          if raw.count('"sumo-qa"') != 1:
+              failures.append(
+                  f"Claude Code config has {raw.count(chr(34) + 'sumo-qa' + chr(34))} "
+                  f"'sumo-qa' occurrences, expected exactly 1"
+              )
+          # The single entry must have been REFRESHED to the upgraded build:
+          # a stale entry still pointing at the (now-deleted) venv-prev would
+          # pass the count check above yet be a dead invocation. Two robust
+          # checks, neither PATH-dependent:
+          #   1. The entry must NOT reference venv-prev (deleted above) -- the
+          #      exact stale-entry regression this smoke targets.
+          #   2. The entry's `command` must still resolve to an existing
+          #      executable / interpreter -- a refreshed entry points at the
+          #      live venv-src; a stale one points into the deleted venv-prev
+          #      and the path no longer exists.
+          # We deliberately do NOT require the literal venv-src path: the
+          # installer resolves the command via `shutil.which("sumo-qa")` first
+          # (PATH-dependent on the runner), falling back to the venv-src
+          # interpreter in module form -- both are valid refreshes, so pinning
+          # the exact string would false-fail.
+          cc_entry = servers.get("sumo-qa", {})
+          if str(venv_prev) in json.dumps(cc_entry):
+              failures.append(f"Claude Code MCP entry still references venv-prev: {cc_entry}")
+          cc_cmd = cc_entry.get("command", "")
+          if not (cc_cmd and Path(cc_cmd).exists()):
+              failures.append(f"Claude Code MCP command does not resolve to a live path: {cc_entry}")
+
+          # AC: VS Code .vscode/mcp.json has exactly one sumo-qa server after upgrade.
+          vs_config = workspace / ".vscode" / "mcp.json"
+          vs = json.loads(vs_config.read_text(encoding="utf-8"))
+          vs_servers = vs.get("servers", {})
+          vs_raw = vs_config.read_text(encoding="utf-8")
+          if list(vs_servers) != ["sumo-qa"]:
+              failures.append(f"VS Code servers != ['sumo-qa']: {list(vs_servers)}")
+          if "mcpServers" in vs:
+              failures.append(f"VS Code config leaked legacy mcpServers key: {vs}")
+          if vs_raw.count('"sumo-qa"') != 1:
+              failures.append(
+                  f"VS Code config has {vs_raw.count(chr(34) + 'sumo-qa' + chr(34))} "
+                  f"'sumo-qa' occurrences, expected exactly 1"
+              )
+          vs_entry = vs_servers.get("sumo-qa", {})
+          if str(venv_prev) in json.dumps(vs_entry):
+              failures.append(f"VS Code MCP entry still references venv-prev: {vs_entry}")
+          vs_cmd = vs_entry.get("command", "")
+          if not (vs_cmd and Path(vs_cmd).exists()):
+              failures.append(f"VS Code MCP command does not resolve to a live path: {vs_entry}")
+
+          # AC: skill symlinks refreshed, no stale removed-skill / broken symlink remains.
+          # With venv-prev deleted above, any symlink NOT refreshed to the new
+          # source tree is now dangling -- so this is a real check, not vacuous.
+          skills_dir = home / ".claude" / "skills"
+          post_skills = sorted(p.name for p in skills_dir.iterdir())
+          broken = sorted(
+              p.name
+              for p in skills_dir.iterdir()
+              if p.is_symlink() and not p.exists()
+          )
+          if broken:
+              failures.append(f"broken (dangling) skill symlinks after upgrade: {broken}")
+          # Positive freshness: every resolved skill symlink must now point into
+          # the upgraded source's site-packages (venv-src), never the deleted
+          # venv-prev. A link resolving outside venv-src means the upgrade
+          # didn't repoint it.
+          stale_target = sorted(
+              p.name
+              for p in skills_dir.iterdir()
+              if p.is_symlink() and p.exists() and str(venv_src) not in str(p.resolve())
+          )
+          if stale_target:
+              failures.append(
+                  f"skill symlinks not repointed into venv-src after upgrade: {stale_target}"
+              )
+
+          # AC: skill-pack drift check reports removed/renamed skills as a
+          # deliberate release-note item (informational, not a failure — a
+          # removed skill is a legitimate release decision, but it MUST be
+          # visible so it can't ship silently).
+          pre_skills = json.loads((root / "pre_skills.json").read_text(encoding="utf-8"))
+          removed = sorted(set(pre_skills) - set(post_skills))
+          added = sorted(set(post_skills) - set(pre_skills))
+          print(f"post-upgrade skills ({len(post_skills)}): {post_skills}")
+          if removed:
+              print(
+                  "::warning title=Skill-pack drift::"
+                  f"skills removed/renamed across upgrade {os.environ.get('PREVIOUS_VERSION', '?')} "
+                  f"-> source: {removed}. Confirm this is a deliberate release-note item."
+              )
+          if added:
+              print(f"skills added across upgrade: {added}")
+
+          if failures:
+              raise SystemExit("UPGRADE SMOKE FAILURES:\n  - " + "\n  - ".join(failures))
+          print("upgrade install assertions passed")
+          PY
+
+      - name: Post-upgrade entry points still work
+        # AC: sumo-qa --help, sumo-qa-install --help, sumo-qa-doctor --help
+        # still work after upgrade. Run from the source venv so we exercise the
+        # upgraded console-script wrappers, not the previous version's.
+        #
+        # No untrusted GitHub event inputs are interpolated in this step.
+        shell: bash
+        run: |
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-src/bin/activate"
+          sumo-qa --help >/dev/null
+          sumo-qa-install --help >/dev/null
+          sumo-qa-doctor --help >/dev/null
+          deactivate
+
+      - name: Post-upgrade tools/list superset contract
+        # AC: tools/list remains a superset of the committed snapshot after
+        # upgrade. Reuses the same contract test install-smoke / test.yml rely
+        # on, but against the upgraded-over-existing-HOME install — proving the
+        # upgrade didn't drop a tool the snapshot pins.
+        #
+        # No untrusted GitHub event inputs are interpolated in this step.
+        shell: bash
+        run: |
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-src/bin/activate"
+          # pyproject's [tool.pytest.ini_options] addopts injects --cov flags,
+          # and the `--no-cov` override below is a pytest-cov-provided option --
+          # so pytest-cov MUST be installed for the bare `pip install .` venv
+          # (dev extras aren't installed here) or pytest errors on an unknown
+          # argument before the contract test runs.
+          python -m pip install --quiet --disable-pip-version-check pytest pytest-cov >/dev/null
+          python -m pytest tests/test_tools_list_contract.py -q --no-header --no-cov -p no:cacheprovider
+          deactivate
