@@ -1,5 +1,15 @@
 # QA tasks via sumo-qa MCP
 
+**Hard rule:** for any QA-shaped request — testing, test plan, test strategy,
+test approach, regression scope, risk-based testing, exploratory testing,
+code review for safety-to-merge, scaffolding tests, TDD, mutation testing,
+finding or validating test data, QA audit, test pyramid design — you MUST
+call `sumo_qa_using_sumo_qa` (the entry router) before answering. Do not
+produce QA advice from general training-data knowledge. When citing
+principles, techniques, classifications, or approaches, load them first
+via the `sumo_qa_load_*` tools and cite the loaded catalogue verbatim;
+say "not in the catalogue" rather than supplementing from memory.
+
 For QA-shaped requests in this repo (test plans, code review, scaffolding
 tests, finding test data, deciding QA approach), fetch the relevant prompt
 from the `sumo-qa` MCP and follow its checklist.
