@@ -41,6 +41,48 @@ it belongs on a separate scheduled runner with explicit billing approval.
 | Quarterly | Full sweep + `aggregate.py` variance report | Drift baseline |
 | You're iterating on a rubric | Single skill with `--no-cache` | Tight feedback loop |
 
+## Adversarial discovery corpus (review-recall, issue #236)
+
+Most skill evals (including `skill-reviewing-before-merge.yaml`) hand the
+candidate the named risks in prior-turn context and grade the final **verdict
+shape**. `skill-reviewing-before-merge-adversarial.yaml` measures something
+different: **independent discovery from a raw diff**. Each scenario supplies
+only a raw diff plus a green-but-non-covering test run — no pre-named risks —
+seeded from real resolved Codex Review findings on closed PRs (generated-artifact
+drift, stale/deleted-file handling, weak assertions, rollback data-loss, partial
+CI gates, cwd/path-root bypass, schema-contract weakening, protocol/timeout
+cleanup, platform-install mismatch). The candidate must name the concrete defect
+class, anchor it to the changed file:line, and reach the correct unsafe/needs-work
+verdict. Two docs-only / config-only **negative controls** verify the workflow
+does not invent runtime risk on trivial diffs.
+
+**Candidate is `gpt-5-mini`, not the estate's `gpt-4o-mini`.** A discovery eval
+needs a candidate that can reason over a raw diff; `gpt-4o-mini` proved too noisy
+to measure it (its full-corpus baseline-vs-postcut *inverted* between runs).
+`gpt-5-mini` is a cheap reasoning model that gives a stable signal. The two YAMLs
+pin `gpt-5-mini` for the candidate (the judge stays `gpt-5.5`).
+
+```bash
+source ~/.config/promptfoo-keys.env
+# discovery corpus (B = full skill)
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-adversarial.yaml --no-cache
+# discovery LIFT: A0 (no skill) vs A1 (catalogues only) vs B (full skill)
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-adversarial.ab.yaml --no-cache
+```
+
+This is a **high-bar stress test, not a 100%-green gate.** Adding the skill's
+adversarial discovery pass lifts the full corpus from baseline 7/11 → postcut
+10/11 (occasionally 11/11), and the `.ab` to **B 6/6** vs A0/A1 (no-skill /
+catalogues-only) only ~1-4/6 (the discovery pass perfect-scores the hard
+families A0/A1 miss). Both negative controls pass. One *hard* seed flickers
+run-to-run on reasoning-model variance — the niche `git ls-files`
+deleted-entry-semantics case the candidate doesn't always surface. (A separate
+flicker — the candidate echoing a loaded change-rule key into its verdict — was
+a real output-discipline leak and is fixed by tightening the SKILL.md
+output-discipline, not by loosening the rubric.) Read the **delta** (baseline →
+postcut, B over A0) and the negative-control passes as the signal — never chase
+a fixed number by loosening the rubric or trivialising seeds.
+
 ## How to run
 
 ### One-time setup
@@ -135,6 +177,9 @@ OpenAI pricing as of 2026-05:
 - Candidate (`gpt-4o-mini`): ~$0.001 per scenario
 - Judge (`gpt-5.5`): ~$0.005 per scenario
 - Full sweep of 14 skills: ~$0.10 per run with `seed: 42` determinism
+- The `reviewing-before-merge-adversarial` corpus pins a `gpt-5-mini` candidate
+  (reasoning tokens → a few cents per full run, still negligible) — see
+  "Adversarial discovery corpus" above for why.
 
 Running a single skill: pennies. Running all 14 skills with `--repeat 5`:
 ~$0.30 — still negligible, but worth tracking if you iterate frequently.
@@ -222,6 +267,7 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | File | Purpose |
 |---|---|
 | `skill-<name>.yaml` (×14) | One config per skill, all covered |
+| `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
@@ -241,4 +287,4 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 
 ## A/B value-measurement (experimental)
 
-This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the full SKILL.md. The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. Scope is prototype on deciding-approach only, not rolled across the estate.
+This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the full SKILL.md. The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` files exist for `deciding-approach`, `reviewing-before-merge`, and the `reviewing-before-merge-adversarial` discovery corpus (issue #236, see above); it is not rolled across the whole estate.
