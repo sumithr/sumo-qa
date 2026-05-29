@@ -217,12 +217,13 @@ See [host-adapters.md](host-adapters.md) for the full architecture rationale.
 
 ## Scheduled CI workflows (opt-in, off the PR critical path)
 
-Two workflows run on a weekly schedule (Monday 06:00 UTC) and on
+Three workflows run on a weekly schedule (Monday mornings UTC) and on
 `workflow_dispatch`, but never on `push` or `pull_request` — so they
 exercise external surfaces without becoming required PR checks:
 
-- [`.github/workflows/tdm-freshness.yml`](../.github/workflows/tdm-freshness.yml) — checks every known-good test-data URL still returns 2xx. Opens a `tdm-freshness` issue on failure.
-- [`.github/workflows/external-skills-smoke.yml`](../.github/workflows/external-skills-smoke.yml) — runs `tests/test_external_skills.py::test_search_external_skills_real_cli_smoke` against the real upstream Skills CLI (`npx skills find`). The mocked coverage in `tests/test_external_skills.py` runs on every PR via `test.yml`; this workflow exists so format drift in the upstream Skills CLI surfaces on a low cadence without coupling required CI to npm / network / upstream uptime.
+- [`.github/workflows/tdm-freshness.yml`](../.github/workflows/tdm-freshness.yml) — checks every known-good test-data URL still returns 2xx. Opens a `tdm-freshness` issue on failure. (06:00 UTC.)
+- [`.github/workflows/external-skills-smoke.yml`](../.github/workflows/external-skills-smoke.yml) — runs `tests/test_external_skills.py::test_search_external_skills_real_cli_smoke` against the real upstream Skills CLI (`npx skills find`). The mocked coverage in `tests/test_external_skills.py` runs on every PR via `test.yml`; this workflow exists so format drift in the upstream Skills CLI surfaces on a low cadence without coupling required CI to npm / network / upstream uptime. (06:00 UTC.)
+- [`.github/workflows/upgrade-smoke.yml`](../.github/workflows/upgrade-smoke.yml) — installs **whatever sumo-qa is currently published on PyPI** into a temp HOME, configures Claude Code + VS Code, then upgrades to **this checkout's source** and re-runs the installer against the **same** HOME. This rehearses the real deployment path — *current live release → the build we're about to ship* — so that when this source is eventually published, upgrading onto an existing install is proven not to break. Asserts the re-install-over-existing-state stayed clean: exactly one `sumo-qa` MCP entry per host, no dangling skill symlinks, all five console-script entry points present, and `tools/list` (from the upgraded host config) is still a superset of the committed snapshot. This is the upgrade transition [`install-smoke.yml`](../.github/workflows/install-smoke.yml) can't see — that workflow always starts from a fresh, empty HOME. The baseline defaults to the current latest PyPI release (resolved at runtime); a `workflow_dispatch` input can override it with a specific published version to rehearse a particular upgrade path. There is **no** version-ordering check — the local checkout has no real version until release-please assigns one, so the delta under test is the code, not a version number. First matrix is Linux + macOS (the upgrade-cleanup logic in `installer.py` is OS-independent; Windows clean-install paths are already covered by `install-smoke.yml`). (06:30 UTC.)
 
 ### Interpreting an external-skills-smoke run
 
@@ -236,6 +237,22 @@ exercise external surfaces without becoming required PR checks:
 To trigger the workflow on demand (e.g. before bumping the
 `sumo_qa.external_skills` wrapper): GitHub → Actions →
 `external-skills-smoke` → **Run workflow**.
+
+### Interpreting an upgrade-smoke run
+
+| Outcome | Meaning | Action |
+|---|---|---|
+| GREEN | A real PyPI release installed cleanly into a temp HOME, the source build upgraded over the same HOME, and the post-upgrade host config is duplicate-free with no dangling skill symlinks. | None. |
+| RED in `Resolve published baseline` | PyPI was unreachable, or a `workflow_dispatch` `previous_version` override named a version that isn't a published release. | Re-run if PyPI was transiently down; if overriding, pass a version that exists on PyPI (omit the input to use the current latest automatically). |
+| RED in `Pre-upgrade install` | The currently-published release no longer installs cleanly on the runner Python (e.g. a dependency it pinned has yanked a compatible wheel). | This is published-release rot in the live version, not a source regression — usually transient or a dependency-pin issue worth a follow-up; it does not block the source under test. |
+| RED in `Post-upgrade install` with a duplicate-entry / dangling-symlink failure | A genuine upgrade regression: re-running the installer over an existing HOME left a duplicate `sumo-qa` MCP entry, leaked the legacy `mcpServers` key into VS Code, or left a broken skill symlink. Clean-install CI can't catch this. | Fix the cleanup logic in `installer.py` (`_install_claude_code_skills_per_dir` for symlinks, `_setup_claude_code` / `_setup_vscode_copilot` for the single-entry write). The failure message names the broken assertion. Add a unit case to `tests/test_installer_idempotency.py`. |
+| RED in `Post-upgrade entry points` or `tools/list superset contract` | The upgraded build dropped a console-script wrapper or a pinned tool. | Same root cause as the equivalent `install-smoke.yml` failures — fix `pyproject.toml` entry points / the tool registration, regenerate the snapshot with `scripts/regen_tools_list_snapshot.py` only if the removal is deliberate. |
+| `::warning` "Skill-pack drift" annotation (still GREEN) | A skill present in the previous release is absent (removed/renamed) in source. Not a failure — a legitimate release decision — but surfaced so it can't ship silently. | Confirm the removal is intended and call it out in the release notes. |
+
+To trigger on demand (e.g. before a release, or to validate an
+installer change): GitHub → Actions → `upgrade-smoke` → **Run workflow**.
+By default it upgrades from the current latest PyPI release; optionally set
+`previous_version` to rehearse the upgrade from a specific published version.
 
 ## Reinstalling locally
 

@@ -1,0 +1,606 @@
+name: upgrade-smoke
+
+# Upgrade-path smoke for the install pipeline (issue #106).
+#
+# install-smoke.yml only ever installs into a FRESH temp HOME — it proves a
+# clean install works, but it can never see an upgrade-only regression: a
+# second `sumo-qa-install` run over an ALREADY-configured host directory that
+# leaves a duplicate MCP entry, a stale removed-skill symlink, or a broken
+# symlink pointing into the previous version's site-packages.
+#
+# This workflow models the state transition install-smoke can't:
+#
+#     no-install  ->  version-N installed + configured  ->  upgraded to source
+#
+# by reusing the SAME temp HOME / workspace across the pre-upgrade and
+# post-upgrade install, then asserting the post-upgrade host config is
+# duplicate-free, every skill symlink resolves, and the entry points still run.
+#
+# Scheduled (weekly) + workflow_dispatch only — never on push / pull_request,
+# so it exercises a real PyPI download without becoming a required PR check
+# (mirrors tdm-freshness.yml / external-skills-smoke.yml — see
+# docs/DEVELOPMENT.md "Scheduled CI workflows").
+
+on:
+  schedule:
+    # Mondays 06:30 UTC — staggered after tdm-freshness / external-skills-smoke
+    # (06:00) so a shared runner-pool hiccup doesn't fail all three at once.
+    - cron: "30 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      previous_version:
+        description: >-
+          Optional: a specific PUBLISHED PyPI version to use as the upgrade
+          baseline. Leave blank (default) to use whatever sumo-qa is currently
+          published as on PyPI — the version a real user upgrades FROM. Any
+          value given must be an existing published release.
+        required: false
+        type: string
+        default: ""
+
+# Minimum-required token scope: every job only checks out the repo and runs
+# scripts against a temp HOME. No write actions, no PR comments, no checks API.
+permissions:
+  contents: read
+
+concurrency:
+  group: upgrade-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upgrade-pip:
+    name: upgrade published -> source (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux + macOS first matrix. Windows is a deliberate omission for the
+        # first cut: the installer's Windows branches (copytree symlink
+        # fallback, APPDATA config dir) are already exercised by
+        # install-smoke.yml's full os matrix, and the upgrade-specific risk
+        # this workflow targets — stale entries surviving a re-install over an
+        # existing HOME — is OS-independent in installer.py (the cleanup logic
+        # in _install_claude_code_skills_per_dir / _setup_vscode_copilot runs
+        # the same path on every platform). Add windows-latest here if an
+        # upgrade-only Windows regression is ever observed.
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          # Single pinned version — this is a smoke of the upgrade vector, not
+          # a compatibility matrix. test.yml covers 3.10-3.14.
+          python-version: "3.12"
+
+      - name: Resolve published baseline
+        # The baseline is whatever sumo-qa is published as RIGHT NOW — the
+        # version a real user would be upgrading FROM. We install that, then
+        # upgrade to THIS checkout's source, so that whenever this source is
+        # eventually published, upgrading onto an existing install is proven not
+        # to break. There is deliberately NO version comparison against source:
+        # the local checkout has no real version until release-please assigns one
+        # at release time, so "source vs published" is meaningless — the delta
+        # under test is the CODE, which is always present on a branch.
+        #
+        # Default: the current latest release on PyPI, resolved at runtime.
+        # workflow_dispatch may override with a specific PUBLISHED version to
+        # rehearse a particular upgrade path. The override arrives via env (never
+        # inline ${{ }}) and is checked against the PyPI release list before it
+        # can reach `pip install`.
+        shell: bash
+        env:
+          PREVIOUS_VERSION_INPUT: ${{ inputs.previous_version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          with urllib.request.urlopen(
+              "https://pypi.org/pypi/sumo-qa/json", timeout=30
+          ) as resp:
+              data = json.load(resp)
+
+          override = os.environ.get("PREVIOUS_VERSION_INPUT", "").strip()
+          if override:
+              # Validating against the published release list also rejects any
+              # malformed / hostile string before it reaches ``pip install``.
+              if override not in data["releases"]:
+                  raise SystemExit(
+                      f"previous_version {override!r} is not a published sumo-qa "
+                      f"release -- pass a version that exists on PyPI."
+                  )
+              baseline = override
+          else:
+              baseline = data["info"]["version"]  # current latest published
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"PUBLISHED_VERSION={baseline}\n")
+          print(f"published baseline = {baseline} (upgrading this checkout's source over it)")
+          PY
+
+      - name: Pre-upgrade install (published ${{ env.PUBLISHED_VERSION }})
+        # Install the previous PUBLISHED release and wire it into a temp HOME
+        # for both Claude Code and VS Code. Captures the pre-upgrade state
+        # (skill symlink set, MCP entry count) so the post-upgrade assertions
+        # can prove the re-install over an existing HOME stayed clean.
+        #
+        # No untrusted GitHub event inputs are interpolated in this step
+        # (PUBLISHED_VERSION was resolved + validated against the PyPI release
+        # list above, so it's a known-published version, never raw user input.)
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/venv-prev"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-prev/bin/activate"
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install "sumo-qa==$PUBLISHED_VERSION"
+          deactivate
+
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          # Single shared HOME + workspace reused by the post-upgrade install.
+          root = Path(os.environ["RUNNER_TEMP"]) / "upgrade-home"
+          home = root / "home"
+          workspace = root / "workspace"
+          (home / ".claude").mkdir(parents=True)
+          workspace.mkdir(parents=True)
+          (workspace / "pyproject.toml").write_text(
+              "[project]\nname = 'smoke'\n", encoding="utf-8"
+          )
+
+          install = Path(os.environ["RUNNER_TEMP"]) / "venv-prev" / "bin" / "sumo-qa-install"
+          env = os.environ.copy()
+          env["HOME"] = str(home)
+          env["USERPROFILE"] = str(home)
+
+          subprocess.run([str(install), "--claude-code"], check=True, env=env)
+          subprocess.run(
+              [str(install), "--vscode", "--workspace", str(workspace)],
+              check=True,
+              env=env,
+          )
+
+          skills_dir = home / ".claude" / "skills"
+          pre_skills = sorted(p.name for p in skills_dir.iterdir())
+          assert pre_skills, f"no skills installed pre-upgrade under {skills_dir}"
+
+          # Record the pre-upgrade skill set so the post-upgrade drift check can
+          # report removed/renamed skills as a deliberate release-note item.
+          (root / "pre_skills.json").write_text(json.dumps(pre_skills), encoding="utf-8")
+          print(f"pre-upgrade skills ({len(pre_skills)}): {pre_skills}")
+          PY
+
+      - name: Post-upgrade install (current source over the SAME HOME)
+        # Upgrade to THIS checkout's source in a fresh venv, then re-run the
+        # installer against the SAME temp HOME / workspace the previous version
+        # configured. This is the transition install-smoke can't reach.
+        #
+        # No untrusted GitHub event inputs are interpolated in this step.
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/venv-src"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-src/bin/activate"
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install .
+          deactivate
+
+          # Delete the PREVIOUS version's venv BEFORE re-running the installer.
+          # This is what makes "no dangling symlink" a real assertion rather
+          # than a vacuous one: if the upgrade fails to refresh a skill symlink,
+          # it still points into venv-prev's now-deleted site-packages and
+          # becomes a DANGLING link the broken-symlink check below catches.
+          # Without this, a stale link into the old release would still resolve
+          # (venv-prev intact) and the regression would pass silently. Same
+          # logic guards the MCP-command-freshness assertion: a stale command
+          # still pointing at venv-prev's interpreter is now detectable.
+          rm -rf "$RUNNER_TEMP/venv-prev"
+
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "upgrade-home"
+          home = root / "home"
+          workspace = root / "workspace"
+          venv_src = Path(os.environ["RUNNER_TEMP"]) / "venv-src"
+          venv_prev = Path(os.environ["RUNNER_TEMP"]) / "venv-prev"
+
+          install = Path(os.environ["RUNNER_TEMP"]) / "venv-src" / "bin" / "sumo-qa-install"
+          env = os.environ.copy()
+          env["HOME"] = str(home)
+          env["USERPROFILE"] = str(home)
+
+          subprocess.run([str(install), "--claude-code"], check=True, env=env)
+          subprocess.run(
+              [str(install), "--vscode", "--workspace", str(workspace)],
+              check=True,
+              env=env,
+          )
+
+          failures: list[str] = []
+
+          # AC: Claude Code config has exactly one sumo-qa MCP entry after upgrade.
+          cc_config = home / ".config" / "claude" / "claude_desktop_config.json"
+          cc = json.loads(cc_config.read_text(encoding="utf-8"))
+          servers = cc.get("mcpServers", {})
+          # JSON objects can't carry duplicate keys, so count occurrences in the
+          # raw text too — a duplicate-write bug would surface as the same key
+          # twice in the serialized file even though json.loads collapses it.
+          raw = cc_config.read_text(encoding="utf-8")
+          if "sumo-qa" not in servers:
+              failures.append(f"Claude Code config missing sumo-qa entry: {servers}")
+          if raw.count('"sumo-qa"') != 1:
+              failures.append(
+                  f"Claude Code config has {raw.count(chr(34) + 'sumo-qa' + chr(34))} "
+                  f"'sumo-qa' occurrences, expected exactly 1"
+              )
+          # The single entry must have been REFRESHED to the upgraded build:
+          # a stale entry still pointing at the (now-deleted) venv-prev would
+          # pass the count check above yet be a dead invocation. Two robust
+          # checks, neither PATH-dependent:
+          #   1. The entry must NOT reference venv-prev (deleted above) -- the
+          #      exact stale-entry regression this smoke targets.
+          #   2. The entry's `command` must still resolve to an existing
+          #      executable / interpreter -- a refreshed entry points at the
+          #      live venv-src; a stale one points into the deleted venv-prev
+          #      and the path no longer exists.
+          # We deliberately do NOT require the literal venv-src path: the
+          # installer resolves the command via `shutil.which("sumo-qa")` first
+          # (PATH-dependent on the runner), falling back to the venv-src
+          # interpreter in module form -- both are valid refreshes, so pinning
+          # the exact string would false-fail.
+          cc_entry = servers.get("sumo-qa", {})
+          if str(venv_prev) in json.dumps(cc_entry):
+              failures.append(f"Claude Code MCP entry still references venv-prev: {cc_entry}")
+          cc_cmd = cc_entry.get("command", "")
+          if not (cc_cmd and Path(cc_cmd).exists()):
+              failures.append(f"Claude Code MCP command does not resolve to a live path: {cc_entry}")
+
+          # AC: VS Code .vscode/mcp.json has exactly one sumo-qa server after upgrade.
+          vs_config = workspace / ".vscode" / "mcp.json"
+          vs = json.loads(vs_config.read_text(encoding="utf-8"))
+          vs_servers = vs.get("servers", {})
+          vs_raw = vs_config.read_text(encoding="utf-8")
+          if list(vs_servers) != ["sumo-qa"]:
+              failures.append(f"VS Code servers != ['sumo-qa']: {list(vs_servers)}")
+          if "mcpServers" in vs:
+              failures.append(f"VS Code config leaked legacy mcpServers key: {vs}")
+          if vs_raw.count('"sumo-qa"') != 1:
+              failures.append(
+                  f"VS Code config has {vs_raw.count(chr(34) + 'sumo-qa' + chr(34))} "
+                  f"'sumo-qa' occurrences, expected exactly 1"
+              )
+          vs_entry = vs_servers.get("sumo-qa", {})
+          if str(venv_prev) in json.dumps(vs_entry):
+              failures.append(f"VS Code MCP entry still references venv-prev: {vs_entry}")
+          vs_cmd = vs_entry.get("command", "")
+          if not (vs_cmd and Path(vs_cmd).exists()):
+              failures.append(f"VS Code MCP command does not resolve to a live path: {vs_entry}")
+
+          # AC: skill symlinks refreshed, no stale removed-skill / broken symlink remains.
+          # With venv-prev deleted above, any symlink NOT refreshed to the new
+          # source tree is now dangling -- so this is a real check, not vacuous.
+          skills_dir = home / ".claude" / "skills"
+          post_skills = sorted(p.name for p in skills_dir.iterdir())
+          broken = sorted(
+              p.name
+              for p in skills_dir.iterdir()
+              if p.is_symlink() and not p.exists()
+          )
+          if broken:
+              failures.append(f"broken (dangling) skill symlinks after upgrade: {broken}")
+          # Positive freshness: every resolved skill symlink must now point into
+          # the upgraded source's site-packages (venv-src), never the deleted
+          # venv-prev. A link resolving outside venv-src means the upgrade
+          # didn't repoint it.
+          stale_target = sorted(
+              p.name
+              for p in skills_dir.iterdir()
+              if p.is_symlink() and p.exists() and str(venv_src) not in str(p.resolve())
+          )
+          if stale_target:
+              failures.append(
+                  f"skill symlinks not repointed into venv-src after upgrade: {stale_target}"
+              )
+
+          # AC: skill-pack drift check reports removed/renamed skills as a
+          # deliberate release-note item (informational, not a failure — a
+          # PARTIAL removed skill is a legitimate release decision, but it MUST
+          # be visible so it can't ship silently).
+          #
+          # A TOTAL skill-wipe is NOT drift — it is the exact regression this
+          # workflow exists to catch, so it is a HARD failure, not a warning:
+          #   * an empty post-upgrade skills dir (nothing installed at all), or
+          #   * every pre-upgrade skill having disappeared (full set removed)
+          # while the pre-upgrade set was non-empty.
+          pre_skills = json.loads((root / "pre_skills.json").read_text(encoding="utf-8"))
+          removed = sorted(set(pre_skills) - set(post_skills))
+          added = sorted(set(post_skills) - set(pre_skills))
+          print(f"post-upgrade skills ({len(post_skills)}): {post_skills}")
+          if not post_skills:
+              failures.append(
+                  f"total skill-wipe after upgrade: {skills_dir} is empty "
+                  "(no skills installed at all)"
+              )
+          if pre_skills and set(pre_skills) - set(post_skills) == set(pre_skills):
+              failures.append(
+                  "total skill-wipe after upgrade: every pre-upgrade skill "
+                  f"disappeared (pre={pre_skills}, post={post_skills})"
+              )
+          if removed:
+              print(
+                  "::warning title=Skill-pack drift::"
+                  f"skills removed/renamed across upgrade {os.environ.get('PUBLISHED_VERSION', '?')} "
+                  f"-> source: {removed}. Confirm this is a deliberate release-note item."
+              )
+          if added:
+              print(f"skills added across upgrade: {added}")
+
+          if failures:
+              raise SystemExit("UPGRADE SMOKE FAILURES:\n  - " + "\n  - ".join(failures))
+          print("upgrade install assertions passed")
+          PY
+
+      - name: Post-upgrade entry points still work
+        # AC: every console-script wrapper declared in pyproject's
+        # [project.scripts] still resolves AND its entry point imports after the
+        # upgrade. The list is DERIVED from pyproject (not hardcoded) so a newly
+        # added script is covered automatically and a dropped wrapper is caught —
+        # the documented "dropped console-script wrappers are caught" failure
+        # mode. We don't `--help` each one: the CLIs aren't uniform (e.g.
+        # sumo-qa-validate takes a positional path, not --help), so a per-script
+        # --help list would be both incomplete and brittle. Instead, for each
+        # declared script we assert (1) the wrapper resolves into the UPGRADED
+        # venv (a dropped/stale wrapper fails here) and (2) its `module:func`
+        # target imports and is callable (a broken entry point fails here).
+        #
+        # Run from the source venv so we inspect the UPGRADED wrappers.
+        #
+        # No untrusted GitHub event inputs are interpolated in this step.
+        shell: bash
+        run: |
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-src/bin/activate"
+          python - <<'PY'
+          import importlib
+          import shutil
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          scripts = tomllib.load(open("pyproject.toml", "rb"))["project"]["scripts"]
+          venv = Path(sys.prefix).resolve()  # the activated venv-src
+
+          failures: list[str] = []
+          for name, target in scripts.items():
+              # 1. Wrapper installed by the upgrade and resolving into venv-src?
+              #    A dropped wrapper -> which() is None; a stale one pointing
+              #    outside the upgraded venv -> not relative to venv.
+              which = shutil.which(name)
+              if which is None:
+                  failures.append(f"{name}: console-script wrapper not found on PATH after upgrade")
+                  continue
+              if venv not in Path(which).resolve().parents:
+                  failures.append(
+                      f"{name}: wrapper resolves outside the upgraded venv ({which}) -- stale/not refreshed"
+                  )
+              # 2. Entry-point target imports and is callable?
+              mod_name, _, func_name = target.partition(":")
+              try:
+                  mod = importlib.import_module(mod_name)
+              except Exception as exc:  # noqa: BLE001
+                  failures.append(f"{name}: entry-point module {mod_name!r} failed to import: {exc!r}")
+                  continue
+              func = getattr(mod, func_name, None)
+              if not callable(func):
+                  failures.append(f"{name}: entry-point {target} is not callable")
+
+          if failures:
+              raise SystemExit("ENTRY-POINT FAILURES:\n  - " + "\n  - ".join(failures))
+          print(f"all {len(scripts)} console scripts present + entry points resolve: {sorted(scripts)}")
+          PY
+          deactivate
+
+      - name: Post-upgrade tools/list superset contract (upgraded config)
+        # AC: tools/list remains a superset of the committed snapshot after
+        # upgrade. Unlike tests/test_tools_list_contract.py — which forces
+        # PYTHONPATH to the checkout src/ and runs `python -m sumo_qa`, thereby
+        # validating SOURCE rather than what was actually installed — this step
+        # validates the MCP command ACTUALLY WRITTEN into the upgraded Claude
+        # Code host config. It reads command + args from
+        # ~/.config/claude/claude_desktop_config.json -> mcpServers["sumo-qa"],
+        # launches that exact invocation as an MCP stdio server, performs an
+        # initialize + tools/list JSON-RPC handshake, and asserts the returned
+        # tool names are a SUPERSET of the committed snapshot's required_tools
+        # (reused from tests/fixtures/mcp_tools_list_snapshot.json — never
+        # hardcoded).
+        #
+        # No untrusted GitHub event inputs are interpolated in this step.
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import queue
+          import subprocess
+          import threading
+          import time
+          from pathlib import Path
+
+          # Hard overall budget for the whole handshake. A stalled or slow MCP
+          # child must NOT hang the CI step indefinitely, so every stdout read
+          # below is bounded by ``queue.get(timeout=...)`` against this deadline
+          # (mirrors installer._verify_mcp_responds: reader thread + queue +
+          # monotonic deadline, no unbounded ``proc.stdout.readline()``).
+          VERIFY_TIMEOUT_SECONDS = 30
+
+          repo_root = Path.cwd()
+          snapshot = json.loads(
+              (repo_root / "tests" / "fixtures" / "mcp_tools_list_snapshot.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          required = set(snapshot["required_tools"])
+
+          # Read the MCP command/args the installer WROTE into the upgraded
+          # Claude Code host config -- this is what a real client would launch,
+          # so this is what we validate (not the checkout source).
+          root = Path(os.environ["RUNNER_TEMP"]) / "upgrade-home"
+          home = root / "home"
+          cc_config = home / ".config" / "claude" / "claude_desktop_config.json"
+          cc = json.loads(cc_config.read_text(encoding="utf-8"))
+          entry = cc["mcpServers"]["sumo-qa"]
+          command = entry["command"]
+          args = list(entry.get("args", []))
+          # The installer may pin the interpreter/cwd via env; honour it so the
+          # spawned server resolves its package exactly as a real client would.
+          server_env = {**os.environ, **(entry.get("env") or {})}
+          cwd = entry.get("cwd")
+
+          print(f"launching upgraded MCP server: {command} {args}")
+          # stderr is MERGED into stdout (subprocess.STDOUT): the parent only
+          # ever blocks on one stream, so the child can never deadlock by
+          # filling an undrained stderr pipe while the parent waits on stdout.
+          # Any server banner / traceback lands in the same line stream and is
+          # surfaced (as non-JSON noise) in the failure dump below.
+          proc = subprocess.Popen(
+              [command, *args],
+              stdin=subprocess.PIPE,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.STDOUT,
+              cwd=cwd,
+              env=server_env,
+              text=True,
+          )
+
+          # Reader thread pumps each stdout line onto a queue; the main thread
+          # consumes with ``queue.get(timeout=...)``. On EOF the thread pushes a
+          # None sentinel so the consumer distinguishes "server exited" (None)
+          # from "server stalled" (queue.Empty -> timeout). Daemon so a forgotten
+          # drain never blocks interpreter exit.
+          line_queue: queue.Queue = queue.Queue()
+
+          def _pump():
+              try:
+                  for line in iter(proc.stdout.readline, ""):
+                      line_queue.put(line)
+              finally:
+                  line_queue.put(None)
+
+          reader = threading.Thread(target=_pump, daemon=True)
+          reader.start()
+
+          deadline = time.monotonic() + VERIFY_TIMEOUT_SECONDS
+          collected_noise: list[str] = []
+
+          def _terminate():
+              try:
+                  if proc.stdin and not proc.stdin.closed:
+                      proc.stdin.close()
+              except Exception:  # noqa: BLE001
+                  pass
+              proc.terminate()
+              try:
+                  proc.wait(timeout=5)
+              except subprocess.TimeoutExpired:
+                  proc.kill()
+                  proc.wait(timeout=5)
+
+          def send(obj):
+              proc.stdin.write(json.dumps(obj) + "\n")
+              proc.stdin.flush()
+
+          def read_id(target_id):
+              # Read framed JSON-RPC lines until we see the response matching
+              # target_id, bounded by the overall deadline via
+              # ``queue.get(timeout=...)``. CRITICAL: the MCP stdio server
+              # cancels in-flight handlers on stdin EOF, so stdin MUST stay OPEN
+              # until this read completes -- do NOT close stdin before tools/list
+              # returns (known sumo-qa flake source).
+              while True:
+                  remaining = deadline - time.monotonic()
+                  if remaining <= 0:
+                      _terminate()
+                      raise SystemExit(
+                          f"MCP server did not return id={target_id} within "
+                          f"{VERIFY_TIMEOUT_SECONDS}s (timeout); terminated child. "
+                          f"stdout/stderr seen:\n" + "".join(collected_noise)
+                      )
+                  try:
+                      line = line_queue.get(timeout=remaining)
+                  except queue.Empty:
+                      _terminate()
+                      raise SystemExit(
+                          f"MCP server did not return id={target_id} within "
+                          f"{VERIFY_TIMEOUT_SECONDS}s (timeout); terminated child. "
+                          f"stdout/stderr seen:\n" + "".join(collected_noise)
+                      ) from None
+                  if line is None:
+                      # EOF sentinel -- server closed stdout (merged stderr) before
+                      # the expected response. Re-push so any later read also
+                      # short-circuits, then fail with what we captured.
+                      line_queue.put(None)
+                      _terminate()
+                      raise SystemExit(
+                          f"MCP server closed stdout before id={target_id} "
+                          f"(exit={proc.poll()}); stdout/stderr seen:\n"
+                          + "".join(collected_noise)
+                      )
+                  stripped = line.strip()
+                  if not stripped:
+                      continue
+                  try:
+                      msg = json.loads(stripped)
+                  except json.JSONDecodeError:
+                      collected_noise.append(line)  # non-JSON banner / log line
+                      continue
+                  if isinstance(msg, dict) and msg.get("id") == target_id:
+                      return msg
+                  collected_noise.append(line)  # other JSON-RPC message; keep for dump
+
+          try:
+              send(
+                  {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "initialize",
+                      "params": {
+                          "protocolVersion": "2024-11-05",
+                          "capabilities": {},
+                          "clientInfo": {"name": "upgrade-smoke", "version": "0"},
+                      },
+                  }
+              )
+              read_id(1)
+              send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+              send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+              # stdin stays open across this read -- only closed in finally.
+              resp = read_id(2)
+          finally:
+              # tools/list response is in hand (or we already terminated on a
+              # failure path); now it is safe to EOF stdin and reap the child.
+              _terminate()
+
+          live_names = {t["name"] for t in resp["result"]["tools"]}
+          missing = sorted(required - live_names)
+          if missing:
+              raise SystemExit(
+                  "upgraded MCP tools/list is NOT a superset of the committed "
+                  f"snapshot -- missing: {missing}\n"
+                  f"live tools: {sorted(live_names)}"
+              )
+          print(
+              f"upgraded MCP tools/list superset OK "
+              f"({len(required)} required, {len(live_names)} live)"
+          )
+          PY
