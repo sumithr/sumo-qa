@@ -101,17 +101,26 @@ jobs:
           RELEASE_PR_JSON: ${{ steps.release.outputs.pr }}
         run: |
           PR_NUMBER=$(echo "$RELEASE_PR_JSON" | jq -r '.number')
-          HEAD_SHA=$(git rev-parse HEAD)
-          # The regen push above creates a fresh commit; GitHub needs a moment
-          # to create its check runs. We can't gate on `gh pr checks` here: it
-          # lists the required *contexts* as pending even when zero runs exist,
-          # so calling `--watch` too early aborts with "no checks reported".
-          # Poll the commit's actual check-runs instead, then watch.
+          # The release PR's head commit needs a moment for GitHub to register
+          # its required check runs. Two traps to avoid:
+          #   1. `git rev-parse HEAD` is *main's* HEAD (this workflow's checkout),
+          #      NOT the release PR's head — polling its check-runs breaks
+          #      instantly (main already has runs) while the PR's are unregistered.
+          #   2. `gh pr checks --required` aborts with "no required checks
+          #      reported" until the required contexts exist on the PR head.
+          # So poll the PR directly and treat ONLY the "not reported" message as
+          # the not-yet-registered signal; anything else (pending/failing/passing)
+          # means the contexts exist — hand off to --watch.
           for attempt in $(seq 1 60); do
-            COUNT=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" --jq '.total_count' 2>/dev/null || echo 0)
-            [ "${COUNT}" -gt 0 ] && break
-            [ "${attempt}" -eq 60 ] && { echo "no check runs appeared on ${HEAD_SHA}" >&2; exit 1; }
-            sleep 10
+            if OUT=$(gh pr checks "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --required 2>&1); then
+              break  # exit 0 = required checks already all green
+            fi
+            case "$OUT" in
+              *"no required checks reported"*|*"no checks reported"*)
+                [ "${attempt}" -eq 60 ] && { echo "required checks never registered on PR ${PR_NUMBER}" >&2; exit 1; }
+                sleep 10 ;;
+              *) break ;;  # registered but pending/failing — let --watch resolve it
+            esac
           done
           # --required watches the full required set (read from the ruleset) to
           # completion and fails fast on the first unsuccessful check.
