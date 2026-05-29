@@ -27,6 +27,13 @@ uv.lock
 # Per-machine; regenerated on each `mutmut run`. Do not commit.
 mutants/
 
+# Repo-map artifact written by sumo_qa.repo_map_scanner.scan_repo. Local cache
+# regenerated from the working tree on demand; deterministic on the same repo
+# state EXCEPT for project.generated_at, which churns every run. Teams that
+# want shared lookup tables can negate this line, but for sumo-qa's own repo
+# the artifact is generator output, not source. See docs/REPO-MAP.md.
+.sumo-qa/repo-map.json
+
 # Per-machine MCP config written by sumo-qa-install
 .vscode/mcp.json
 
