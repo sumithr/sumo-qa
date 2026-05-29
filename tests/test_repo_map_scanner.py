@@ -55,7 +55,11 @@ def _git_add_and_commit(path: Path) -> str:
 def _make_file(root: Path, rel: str, content: str = "x") -> Path:
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
+    # newline="" disables newline translation: "\n" stays a single byte on
+    # Windows too. The scanner fingerprints raw bytes, so a CRLF-translated
+    # write would make test_fingerprint_is_canonical_sha256's hash drift on
+    # win32.
+    p.write_text(content, encoding="utf-8", newline="")
     return p
 
 

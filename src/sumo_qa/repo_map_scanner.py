@@ -28,9 +28,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover -- 3.10 backport; the 3.10 CI matrix covers this.
+if sys.version_info >= (3, 11):  # pragma: no cover -- version-gated import: only one
+    import tomllib  # branch runs per interpreter, so exclude both from the src cov gate
+else:  # pragma: no cover -- 3.10 backport path
     import tomli as tomllib
 
 from sumo_qa.repo_map_models import (
