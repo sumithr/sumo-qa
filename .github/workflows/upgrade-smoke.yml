@@ -379,8 +379,18 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import queue
           import subprocess
+          import threading
+          import time
           from pathlib import Path
+
+          # Hard overall budget for the whole handshake. A stalled or slow MCP
+          # child must NOT hang the CI step indefinitely, so every stdout read
+          # below is bounded by ``queue.get(timeout=...)`` against this deadline
+          # (mirrors installer._verify_mcp_responds: reader thread + queue +
+          # monotonic deadline, no unbounded ``proc.stdout.readline()``).
+          VERIFY_TIMEOUT_SECONDS = 30
 
           repo_root = Path.cwd()
           snapshot = json.loads(
@@ -406,15 +416,53 @@ jobs:
           cwd = entry.get("cwd")
 
           print(f"launching upgraded MCP server: {command} {args}")
+          # stderr is MERGED into stdout (subprocess.STDOUT): the parent only
+          # ever blocks on one stream, so the child can never deadlock by
+          # filling an undrained stderr pipe while the parent waits on stdout.
+          # Any server banner / traceback lands in the same line stream and is
+          # surfaced (as non-JSON noise) in the failure dump below.
           proc = subprocess.Popen(
               [command, *args],
               stdin=subprocess.PIPE,
               stdout=subprocess.PIPE,
-              stderr=subprocess.PIPE,
+              stderr=subprocess.STDOUT,
               cwd=cwd,
               env=server_env,
               text=True,
           )
+
+          # Reader thread pumps each stdout line onto a queue; the main thread
+          # consumes with ``queue.get(timeout=...)``. On EOF the thread pushes a
+          # None sentinel so the consumer distinguishes "server exited" (None)
+          # from "server stalled" (queue.Empty -> timeout). Daemon so a forgotten
+          # drain never blocks interpreter exit.
+          line_queue: queue.Queue = queue.Queue()
+
+          def _pump():
+              try:
+                  for line in iter(proc.stdout.readline, ""):
+                      line_queue.put(line)
+              finally:
+                  line_queue.put(None)
+
+          reader = threading.Thread(target=_pump, daemon=True)
+          reader.start()
+
+          deadline = time.monotonic() + VERIFY_TIMEOUT_SECONDS
+          collected_noise: list[str] = []
+
+          def _terminate():
+              try:
+                  if proc.stdin and not proc.stdin.closed:
+                      proc.stdin.close()
+              except Exception:  # noqa: BLE001
+                  pass
+              proc.terminate()
+              try:
+                  proc.wait(timeout=5)
+              except subprocess.TimeoutExpired:
+                  proc.kill()
+                  proc.wait(timeout=5)
 
           def send(obj):
               proc.stdin.write(json.dumps(obj) + "\n")
@@ -422,27 +470,51 @@ jobs:
 
           def read_id(target_id):
               # Read framed JSON-RPC lines until we see the response matching
-              # target_id. CRITICAL: the MCP stdio server cancels in-flight
-              # handlers on stdin EOF, so stdin MUST stay OPEN until this read
-              # completes -- do NOT close stdin before tools/list returns
-              # (known sumo-qa flake source).
+              # target_id, bounded by the overall deadline via
+              # ``queue.get(timeout=...)``. CRITICAL: the MCP stdio server
+              # cancels in-flight handlers on stdin EOF, so stdin MUST stay OPEN
+              # until this read completes -- do NOT close stdin before tools/list
+              # returns (known sumo-qa flake source).
               while True:
-                  line = proc.stdout.readline()
-                  if not line:
-                      err = proc.stderr.read()
+                  remaining = deadline - time.monotonic()
+                  if remaining <= 0:
+                      _terminate()
+                      raise SystemExit(
+                          f"MCP server did not return id={target_id} within "
+                          f"{VERIFY_TIMEOUT_SECONDS}s (timeout); terminated child. "
+                          f"stdout/stderr seen:\n" + "".join(collected_noise)
+                      )
+                  try:
+                      line = line_queue.get(timeout=remaining)
+                  except queue.Empty:
+                      _terminate()
+                      raise SystemExit(
+                          f"MCP server did not return id={target_id} within "
+                          f"{VERIFY_TIMEOUT_SECONDS}s (timeout); terminated child. "
+                          f"stdout/stderr seen:\n" + "".join(collected_noise)
+                      ) from None
+                  if line is None:
+                      # EOF sentinel -- server closed stdout (merged stderr) before
+                      # the expected response. Re-push so any later read also
+                      # short-circuits, then fail with what we captured.
+                      line_queue.put(None)
+                      _terminate()
                       raise SystemExit(
                           f"MCP server closed stdout before id={target_id} "
-                          f"(exit={proc.poll()}); stderr:\n{err}"
+                          f"(exit={proc.poll()}); stdout/stderr seen:\n"
+                          + "".join(collected_noise)
                       )
-                  line = line.strip()
-                  if not line:
+                  stripped = line.strip()
+                  if not stripped:
                       continue
                   try:
-                      msg = json.loads(line)
+                      msg = json.loads(stripped)
                   except json.JSONDecodeError:
-                      continue  # skip any non-JSON banner lines
-                  if msg.get("id") == target_id:
+                      collected_noise.append(line)  # non-JSON banner / log line
+                      continue
+                  if isinstance(msg, dict) and msg.get("id") == target_id:
                       return msg
+                  collected_noise.append(line)  # other JSON-RPC message; keep for dump
 
           try:
               send(
@@ -463,17 +535,9 @@ jobs:
               # stdin stays open across this read -- only closed in finally.
               resp = read_id(2)
           finally:
-              # tools/list response is in hand; now it is safe to EOF stdin.
-              try:
-                  proc.stdin.close()
-              except Exception:  # noqa: BLE001
-                  pass
-              proc.terminate()
-              try:
-                  proc.wait(timeout=5)
-              except subprocess.TimeoutExpired:
-                  proc.kill()
-                  proc.wait(timeout=5)
+              # tools/list response is in hand (or we already terminated on a
+              # failure path); now it is safe to EOF stdin and reap the child.
+              _terminate()
 
           live_names = {t["name"] for t in resp["result"]["tools"]}
           missing = sorted(required - live_names)
