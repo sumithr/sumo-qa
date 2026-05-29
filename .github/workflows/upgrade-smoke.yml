@@ -30,13 +30,13 @@ on:
     inputs:
       previous_version:
         description: >-
-          PyPI version to install BEFORE upgrading to source. Must be a
-          release strictly older than the current source version, otherwise
-          the upgrade exercises no delta. Default is the latest published
-          release before current source.
+          Optional: a specific PUBLISHED PyPI version to use as the upgrade
+          baseline. Leave blank (default) to use whatever sumo-qa is currently
+          published as on PyPI — the version a real user upgrades FROM. Any
+          value given must be an existing published release.
         required: false
         type: string
-        default: "0.16.1"
+        default: ""
 
 # Minimum-required token scope: every job only checks out the repo and runs
 # scripts against a temp HOME. No write actions, no PR comments, no checks API.
@@ -49,7 +49,7 @@ concurrency:
 
 jobs:
   upgrade-pip:
-    name: upgrade ${{ inputs.previous_version || '0.16.1' }} -> source (${{ matrix.os }})
+    name: upgrade published -> source (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -73,62 +73,69 @@ jobs:
           # a compatibility matrix. test.yml covers 3.10-3.14.
           python-version: "3.12"
 
-      - name: Resolve previous version
-        # workflow_dispatch carries inputs.previous_version; the scheduled
-        # trigger does not, so fall back to the same default the input
-        # declares. Asserting the resolved value is strictly older than the
-        # current source version turns "the upgrade exercised no delta"
-        # (previous == source, the trap the issue's AC wording would hit when
-        # the latest PyPI release equals source on a release-tagged commit)
-        # into a hard, visible failure instead of a silent green.
+      - name: Resolve published baseline
+        # The baseline is whatever sumo-qa is published as RIGHT NOW — the
+        # version a real user would be upgrading FROM. We install that, then
+        # upgrade to THIS checkout's source, so that whenever this source is
+        # eventually published, upgrading onto an existing install is proven not
+        # to break. There is deliberately NO version comparison against source:
+        # the local checkout has no real version until release-please assigns one
+        # at release time, so "source vs published" is meaningless — the delta
+        # under test is the CODE, which is always present on a branch.
+        #
+        # Default: the current latest release on PyPI, resolved at runtime.
+        # workflow_dispatch may override with a specific PUBLISHED version to
+        # rehearse a particular upgrade path. The override arrives via env (never
+        # inline ${{ }}) and is checked against the PyPI release list before it
+        # can reach `pip install`.
         shell: bash
-        # PREVIOUS_VERSION_INPUT comes in via env (not inline ${{ }}
-        # interpolation) so a hostile workflow_dispatch input lands as a quoted
-        # shell string, never as inline shell. It's then parsed by
-        # packaging.version.Version below, which rejects anything that isn't a
-        # PEP 440 version before it reaches `pip install`.
         env:
           PREVIOUS_VERSION_INPUT: ${{ inputs.previous_version }}
         run: |
-          prev="${PREVIOUS_VERSION_INPUT:-0.16.1}"
-          src="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
-          # `packaging` is not a runtime dependency of sumo-qa, so don't rely on
-          # ambient runner state -- install it explicitly before importing.
-          python -m pip install --quiet --disable-pip-version-check packaging
-          # Validate FIRST (PEP 440 parse + strict-older-than-source), and only
-          # write to $GITHUB_ENV after the value is proven well-formed -- so a
-          # hostile / malformed workflow_dispatch input never reaches a later
-          # step via the environment file.
-          python - "$prev" "$src" <<'PY'
-          import sys
-          from packaging.version import Version
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
 
-          prev, src = Version(sys.argv[1]), Version(sys.argv[2])
-          assert prev < src, (
-              f"previous_version {prev} is not strictly older than source {src} "
-              f"-- the upgrade would exercise no delta. Pass an older "
-              f"previous_version via workflow_dispatch."
-          )
+          with urllib.request.urlopen(
+              "https://pypi.org/pypi/sumo-qa/json", timeout=30
+          ) as resp:
+              data = json.load(resp)
+
+          override = os.environ.get("PREVIOUS_VERSION_INPUT", "").strip()
+          if override:
+              # Validating against the published release list also rejects any
+              # malformed / hostile string before it reaches ``pip install``.
+              if override not in data["releases"]:
+                  raise SystemExit(
+                      f"previous_version {override!r} is not a published sumo-qa "
+                      f"release -- pass a version that exists on PyPI."
+                  )
+              baseline = override
+          else:
+              baseline = data["info"]["version"]  # current latest published
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"PUBLISHED_VERSION={baseline}\n")
+          print(f"published baseline = {baseline} (upgrading this checkout's source over it)")
           PY
-          echo "PREVIOUS_VERSION=$prev" >> "$GITHUB_ENV"
-          echo "SOURCE_VERSION=$src" >> "$GITHUB_ENV"
-          echo "previous=$prev  source=$src"
 
-      - name: Pre-upgrade install (published ${{ env.PREVIOUS_VERSION }})
+      - name: Pre-upgrade install (published ${{ env.PUBLISHED_VERSION }})
         # Install the previous PUBLISHED release and wire it into a temp HOME
         # for both Claude Code and VS Code. Captures the pre-upgrade state
         # (skill symlink set, MCP entry count) so the post-upgrade assertions
         # can prove the re-install over an existing HOME stayed clean.
         #
         # No untrusted GitHub event inputs are interpolated in this step
-        # (PREVIOUS_VERSION is validated above as a PEP 440 version).
+        # (PUBLISHED_VERSION was resolved + validated against the PyPI release
+        # list above, so it's a known-published version, never raw user input.)
         shell: bash
         run: |
           python -m venv "$RUNNER_TEMP/venv-prev"
           # shellcheck disable=SC1091
           source "$RUNNER_TEMP/venv-prev/bin/activate"
           python -m pip install --upgrade pip >/dev/null
-          python -m pip install "sumo-qa==$PREVIOUS_VERSION"
+          python -m pip install "sumo-qa==$PUBLISHED_VERSION"
           deactivate
 
           python - <<'PY'
@@ -333,7 +340,7 @@ jobs:
           if removed:
               print(
                   "::warning title=Skill-pack drift::"
-                  f"skills removed/renamed across upgrade {os.environ.get('PREVIOUS_VERSION', '?')} "
+                  f"skills removed/renamed across upgrade {os.environ.get('PUBLISHED_VERSION', '?')} "
                   f"-> source: {removed}. Confirm this is a deliberate release-note item."
               )
           if added:
