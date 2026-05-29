@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.0](https://github.com/sumithr/sumo-qa/compare/v0.17.0...v0.18.0) (2026-05-29)
+
+
+### Features
+
+* add deterministic repo-map scanner ([#155](https://github.com/sumithr/sumo-qa/issues/155) slice 2) ([#229](https://github.com/sumithr/sumo-qa/issues/229)) ([4415e73](https://github.com/sumithr/sumo-qa/commit/4415e73f25567d32c522233986c487d92d26b0f5))
+* add sumo_qa_analyze_diff_impact diff-impact tool ([#156](https://github.com/sumithr/sumo-qa/issues/156) slice 4) ([#233](https://github.com/sumithr/sumo-qa/issues/233)) ([8ff6c9d](https://github.com/sumithr/sumo-qa/commit/8ff6c9d850aa2a0fd608d0e08bef92a18bd83e56))
+
 ## [0.17.0](https://github.com/sumithr/sumo-qa/compare/v0.16.1...v0.17.0) (2026-05-28)
 
 
