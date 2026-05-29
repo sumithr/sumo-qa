@@ -395,3 +395,65 @@ class CapabilitiesOutput(_StrictBase):
     workflows: list[CapabilityWorkflow] = Field(
         description="Core QA workflows, each with a sample prompt and the skill it routes to."
     )
+
+
+class RepoMapScanOutput(_StrictBase):
+    """Compact summary of a ``sumo_qa_scan_repo`` invocation.
+
+    Deliberately omits the full ``nodes`` / ``edges`` arrays — those can be
+    tens of thousands of entries on a large repo and would blow past the
+    host's per-tool token budget. Callers that need the full artifact pass
+    a ``write_to`` path and read it from disk, or use the
+    ``sumo_qa.repo_map_scanner.scan_repo`` Python API directly.
+    """
+
+    tool: Literal["sumo_qa_scan_repo"] = Field(
+        default="sumo_qa_scan_repo",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    root: str = Field(description="Absolute, resolved root path that was scanned.")
+    name: str | None = Field(
+        default=None,
+        description="Project name (resolved from the root directory's basename).",
+    )
+    git_commit: str | None = Field(
+        default=None,
+        description="HEAD commit SHA when root IS a git toplevel; null otherwise.",
+    )
+    schema_version: str = Field(
+        description="Schema version of the underlying RepoMap artifact (currently '1.0')."
+    )
+    generator_version: str = Field(description="Generator version string passed by the caller.")
+    generated_at: datetime = Field(description="UTC timestamp when this scan ran.")
+    node_count: int = Field(description="Total number of nodes in the produced artifact.")
+    nodes_by_type: dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-type counts (e.g. {'source_file': 46, 'test_file': 101}).",
+    )
+    edge_count: int = Field(description="Total number of edges in the produced artifact.")
+    edges_by_type: dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-type counts (e.g. {'likely_tests': 20}).",
+    )
+    edges_by_confidence: dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-confidence counts (e.g. {'high': 18, 'medium': 2}).",
+    )
+    command_count: int = Field(description="Total number of commands extracted.")
+    commands_by_kind: dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-kind counts (e.g. {'test': 1, 'lint': 1, 'other': 7}).",
+    )
+    warning_count: int = Field(description="Total number of warnings emitted by the scan.")
+    warnings_by_kind: dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-kind counts (e.g. {'unsupported_language': 11, 'skipped_file': 1}).",
+    )
+    artifact_path: str | None = Field(
+        default=None,
+        description="Absolute path the full artifact was written to, when write_to was provided.",
+    )
+    artifact_bytes: int | None = Field(
+        default=None,
+        description="Size of the written artifact in bytes, when write_to was provided.",
+    )

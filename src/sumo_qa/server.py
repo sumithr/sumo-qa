@@ -1,4 +1,5 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import json
 import os
 from pathlib import Path
 from typing import Annotated, Any
@@ -47,6 +48,7 @@ from sumo_qa.server_schemas import (
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
     InstallExternalSkillOutput,
+    RepoMapScanOutput,
     SearchExternalSkillsOutput,
     TestDataFindOutput,
     TestDataRegisterOutput,
@@ -72,6 +74,10 @@ _HINT_INGEST = (
     "approaches.md, a standards-pack *.yaml, or change_rules.yaml). Convert other "
     "formats (PDF/PPTX/URL) to markdown first via the sumo-qa-suggesting-external-skill flow."
 )
+_HINT_SCAN_REPO = (
+    "Pass an existing directory path. Use an absolute path or one relative to the "
+    "MCP server's working directory."
+)
 
 
 def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
@@ -88,6 +94,61 @@ def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
             "actionable_hint": actionable_hint,
         },
     }
+
+
+def _package_version() -> str:
+    """Return the installed sumo-qa version string for use as a default
+    ``generator_version`` on repo-map scans. Uses importlib.metadata so the
+    string matches whatever the wheel / editable install actually advertises."""
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            return f"sumo-qa {version('sumo-qa')}"
+        except PackageNotFoundError:  # pragma: no cover -- dev source-tree fallback
+            return "sumo-qa (unreleased)"
+    except ImportError:  # pragma: no cover -- importlib.metadata stdlib on 3.10+
+        return "sumo-qa (unknown)"
+
+
+def _build_scan_summary(
+    repo_map: Any,
+    artifact_path: str | None = None,
+    artifact_bytes: int | None = None,
+) -> RepoMapScanOutput:
+    """Collapse a :class:`RepoMap` into the compact :class:`RepoMapScanOutput`.
+
+    The host gets per-type counts, not the full node/edge arrays — a real
+    scan against this repo produces 240 nodes and an 83KB JSON; collapsing
+    to counts keeps the per-tool response inside any reasonable host budget
+    while still surfacing the shape the caller needs to decide next steps.
+    """
+    from collections import Counter
+
+    nodes_by_type = Counter(n.type for n in repo_map.nodes)
+    edges_by_type = Counter(e.type for e in repo_map.edges)
+    edges_by_confidence = Counter(e.confidence for e in repo_map.edges)
+    commands_by_kind = Counter(c.kind for c in repo_map.commands)
+    warnings_by_kind = Counter(w.kind for w in repo_map.warnings)
+    return RepoMapScanOutput(
+        root=repo_map.project.root,
+        name=repo_map.project.name,
+        git_commit=repo_map.project.git_commit,
+        schema_version=repo_map.schema_version,
+        generator_version=repo_map.project.generator_version,
+        generated_at=repo_map.project.generated_at,
+        node_count=len(repo_map.nodes),
+        nodes_by_type=dict(nodes_by_type),
+        edge_count=len(repo_map.edges),
+        edges_by_type=dict(edges_by_type),
+        edges_by_confidence=dict(edges_by_confidence),
+        command_count=len(repo_map.commands),
+        commands_by_kind=dict(commands_by_kind),
+        warning_count=len(repo_map.warnings),
+        warnings_by_kind=dict(warnings_by_kind),
+        artifact_path=artifact_path,
+        artifact_bytes=artifact_bytes,
+    )
 
 
 def build_service() -> QAShiftLeftService:
@@ -419,6 +480,67 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         discovery aid for "what can sumo-qa do?"; does NOT replace the
         using-sumo-qa entry router or sumo_qa_deciding_approach."""
         return build_capabilities()
+
+    @mcp.tool(annotations=_writer_local)
+    def sumo_qa_scan_repo(
+        root: str,
+        generator_version: str | None = None,
+        write_to: str | None = None,
+    ) -> RepoMapScanOutput | ErrorEnvelope:
+        """Walk a repository and return a compact summary of its QA-relevant
+        shape: per-type node counts, likely_tests edge counts by confidence,
+        command counts by kind, warning counts by kind. Optionally writes the
+        full schema-validated ``.sumo-qa/repo-map.json`` artifact to disk via
+        ``write_to``.
+
+        Common natural-language phrasings that map to this tool:
+        "map this repo", "scan the repo and tell me what's here", "give me a
+        QA-shaped inventory of this project", "what tests exercise what
+        sources in this repo", "generate the repo-map artifact for X".
+
+        ``root`` is the repository to scan (absolute or relative to the MCP
+        server's working directory). ``generator_version`` defaults to the
+        installed sumo-qa version. ``write_to`` is optional — when set, the
+        full artifact is written to that JSON path, deterministic on the
+        same repo state except for ``project.generated_at``.
+        """
+        from sumo_qa.repo_map_scanner import scan_repo as _scan_repo
+
+        output: RepoMapScanOutput | dict[str, Any]
+        try:
+            resolved_version = generator_version or _package_version()
+            repo_map = _scan_repo(root, generator_version=resolved_version)
+            artifact_path: str | None = None
+            artifact_bytes: int | None = None
+            if write_to is not None:
+                # Resolve a relative write_to against the SCANNED root, not the
+                # MCP server's cwd — the conventional `.sumo-qa/repo-map.json`
+                # must land under the repo being mapped so downstream consumers
+                # find it, even when root != server cwd.
+                target = Path(write_to)
+                if not target.is_absolute():
+                    target = Path(root) / target
+                target.parent.mkdir(parents=True, exist_ok=True)
+                payload = json.dumps(repo_map.model_dump(mode="json"), indent=2)
+                target.write_text(payload, encoding="utf-8")
+                artifact_path = str(target.resolve())
+                artifact_bytes = target.stat().st_size
+            output = _build_scan_summary(
+                repo_map,
+                artifact_path=artifact_path,
+                artifact_bytes=artifact_bytes,
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_SCAN_REPO)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_scan_repo",
+            args={
+                "root": root,
+                "generator_version": generator_version,
+                "write_to": write_to,
+            },
+            output=output,  # type: ignore[arg-type]
+        )
 
     @mcp.tool(annotations=_read_only_external)
     def sumo_qa_search_external_skills(query: str) -> SearchExternalSkillsOutput | ErrorEnvelope:

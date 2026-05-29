@@ -102,6 +102,8 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_load_rules",
     # Capabilities discovery
     "sumo_qa_capabilities",
+    # Repo-map scanner (#155 slice 3)
+    "sumo_qa_scan_repo",
     # Ingestion
     "sumo_qa_ingest_knowledge_pack",
     # External skills

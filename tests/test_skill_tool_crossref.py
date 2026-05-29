@@ -77,7 +77,14 @@ def test_no_dead_skill_to_tool_refs() -> None:
 # QA intent, so it is deliberately not the target of any SKILL body. The agent
 # discovers and calls both from their tool descriptions, so neither needs a
 # SKILL.md cross-reference.
-_STANDALONE_UTILITY_TOOLS = {"sumo_qa_ingest_knowledge_pack", "sumo_qa_capabilities"}
+_STANDALONE_UTILITY_TOOLS = {
+    "sumo_qa_ingest_knowledge_pack",
+    "sumo_qa_capabilities",
+    # #155 slice 3 — host-callable wrapper around the repo-map scanner;
+    # not referenced from any SKILL.md body yet (a SKILL update for the
+    # repo-walk recipe lands in a follow-up slice).
+    "sumo_qa_scan_repo",
+}
 
 
 def test_no_orphan_registered_tools() -> None:

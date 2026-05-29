@@ -24,6 +24,7 @@
     "sumo_qa_preparing_for_work",
     "sumo_qa_register_known_good_test_data",
     "sumo_qa_reviewing_before_merge",
+    "sumo_qa_scan_repo",
     "sumo_qa_search_external_skills",
     "sumo_qa_strategising",
     "sumo_qa_strengthening_tests",
@@ -2211,6 +2212,275 @@
           "result"
         ],
         "title": "sumo_qa_reviewing_before_mergeOutput",
+        "type": "object"
+      }
+    },
+    "sumo_qa_scan_repo": {
+      "inputSchema": {
+        "properties": {
+          "generator_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Generator Version"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          },
+          "write_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Write To"
+          }
+        },
+        "required": [
+          "root"
+        ],
+        "title": "sumo_qa_scan_repoArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "ErrorEnvelope": {
+            "additionalProperties": false,
+            "description": "The MCP tool error envelope returned by ``sumo_qa.server._error_envelope``.\n\nUsed as the typed alternative to a bare ``dict`` in every tool's return\nannotation. Without this, FastMCP would emit an unconstrained\n``additionalProperties: true`` schema arm, allowing any shape through and\ndefeating the outputSchema contract.\n\n``isError`` is ``Literal[True]`` so Pydantic + FastMCP treat it as a\ndiscriminator, routing between each tool's success model and this\nenvelope in the emitted ``anyOf``/``oneOf`` schema.",
+            "properties": {
+              "error": {
+                "$ref": "#/$defs/_ErrorDetail",
+                "description": "Structured error payload with type, message, and actionable_hint."
+              },
+              "isError": {
+                "const": true,
+                "description": "Marks the response as an error per the MCP error-shape convention.",
+                "title": "Iserror",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "isError",
+              "error"
+            ],
+            "title": "ErrorEnvelope",
+            "type": "object"
+          },
+          "RepoMapScanOutput": {
+            "additionalProperties": false,
+            "description": "Compact summary of a ``sumo_qa_scan_repo`` invocation.\n\nDeliberately omits the full ``nodes`` / ``edges`` arrays \u2014 those can be\ntens of thousands of entries on a large repo and would blow past the\nhost's per-tool token budget. Callers that need the full artifact pass\na ``write_to`` path and read it from disk, or use the\n``sumo_qa.repo_map_scanner.scan_repo`` Python API directly.",
+            "properties": {
+              "artifact_bytes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Size of the written artifact in bytes, when write_to was provided.",
+                "title": "Artifact Bytes"
+              },
+              "artifact_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Absolute path the full artifact was written to, when write_to was provided.",
+                "title": "Artifact Path"
+              },
+              "command_count": {
+                "description": "Total number of commands extracted.",
+                "title": "Command Count",
+                "type": "integer"
+              },
+              "commands_by_kind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "description": "Per-kind counts (e.g. {'test': 1, 'lint': 1, 'other': 7}).",
+                "title": "Commands By Kind",
+                "type": "object"
+              },
+              "edge_count": {
+                "description": "Total number of edges in the produced artifact.",
+                "title": "Edge Count",
+                "type": "integer"
+              },
+              "edges_by_confidence": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "description": "Per-confidence counts (e.g. {'high': 18, 'medium': 2}).",
+                "title": "Edges By Confidence",
+                "type": "object"
+              },
+              "edges_by_type": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "description": "Per-type counts (e.g. {'likely_tests': 20}).",
+                "title": "Edges By Type",
+                "type": "object"
+              },
+              "generated_at": {
+                "description": "UTC timestamp when this scan ran.",
+                "format": "date-time",
+                "title": "Generated At",
+                "type": "string"
+              },
+              "generator_version": {
+                "description": "Generator version string passed by the caller.",
+                "title": "Generator Version",
+                "type": "string"
+              },
+              "git_commit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "HEAD commit SHA when root IS a git toplevel; null otherwise.",
+                "title": "Git Commit"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Project name (resolved from the root directory's basename).",
+                "title": "Name"
+              },
+              "node_count": {
+                "description": "Total number of nodes in the produced artifact.",
+                "title": "Node Count",
+                "type": "integer"
+              },
+              "nodes_by_type": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "description": "Per-type counts (e.g. {'source_file': 46, 'test_file': 101}).",
+                "title": "Nodes By Type",
+                "type": "object"
+              },
+              "root": {
+                "description": "Absolute, resolved root path that was scanned.",
+                "title": "Root",
+                "type": "string"
+              },
+              "schema_version": {
+                "description": "Schema version of the underlying RepoMap artifact (currently '1.0').",
+                "title": "Schema Version",
+                "type": "string"
+              },
+              "tool": {
+                "const": "sumo_qa_scan_repo",
+                "default": "sumo_qa_scan_repo",
+                "description": "Tool discriminator; always the literal tool name.",
+                "title": "Tool",
+                "type": "string"
+              },
+              "warning_count": {
+                "description": "Total number of warnings emitted by the scan.",
+                "title": "Warning Count",
+                "type": "integer"
+              },
+              "warnings_by_kind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "description": "Per-kind counts (e.g. {'unsupported_language': 11, 'skipped_file': 1}).",
+                "title": "Warnings By Kind",
+                "type": "object"
+              }
+            },
+            "required": [
+              "root",
+              "schema_version",
+              "generator_version",
+              "generated_at",
+              "node_count",
+              "edge_count",
+              "command_count",
+              "warning_count"
+            ],
+            "title": "RepoMapScanOutput",
+            "type": "object"
+          },
+          "_ErrorDetail": {
+            "additionalProperties": false,
+            "description": "Inner payload of the MCP tool error envelope.",
+            "properties": {
+              "actionable_hint": {
+                "description": "One-line hint the host surfaces to the user with a concrete next step.",
+                "title": "Actionable Hint",
+                "type": "string"
+              },
+              "message": {
+                "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
+                "title": "Message",
+                "type": "string"
+              },
+              "type": {
+                "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message",
+              "actionable_hint"
+            ],
+            "title": "_ErrorDetail",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RepoMapScanOutput"
+              },
+              {
+                "$ref": "#/$defs/ErrorEnvelope"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "sumo_qa_scan_repoOutput",
         "type": "object"
       }
     },
