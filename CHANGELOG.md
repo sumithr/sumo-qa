@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/sumithr/sumo-qa/compare/v0.18.0...v0.18.1) (2026-05-29)
+
+
+### Continuous Integration
+
+* add upgrade-path smoke for the install pipeline ([#237](https://github.com/sumithr/sumo-qa/issues/237)) ([6601311](https://github.com/sumithr/sumo-qa/commit/66013112a4a6bf5c85dfecd1aab1c114e317820d))
+
 ## [0.18.0](https://github.com/sumithr/sumo-qa/compare/v0.17.0...v0.18.0) (2026-05-29)
 
 
