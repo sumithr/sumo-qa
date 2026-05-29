@@ -411,3 +411,54 @@ def test_build_mcp_server_raises_when_mcp_not_installed() -> None:
 
         with pytest.raises((RuntimeError, ImportError)):
             build_mcp_server()
+
+def test_server_instructions_enforce_qa_routing() -> None:
+    """FastMCP `instructions=` must carry the routing directive so hosts
+    that surface server-level instructions (not just repo files) see the
+    rule at session start."""
+    server = build_mcp_server()
+    text = getattr(server, "instructions", "") or ""
+    assert "ROUTING DIRECTIVE" in text, (
+        "FastMCP instructions lost the ROUTING DIRECTIVE header (#238)."
+    )
+    assert "sumo_qa_using_sumo_qa" in text, (
+        "FastMCP instructions must name the entry router `sumo_qa_using_sumo_qa`."
+    )
+    # Forbids silent supplementation from training data.
+    assert "sumo_qa_load_" in text, (
+        "FastMCP instructions must require `sumo_qa_load_*` for citing "
+        "principles/techniques/classifications/approaches."
+
+    )
+
+
+def test_copilot_instructions_enforce_qa_routing() -> None:
+    """`.github/copilot-instructions.md` must carry the Hard rule so VS Code
+    + Copilot honours the routing directive without depending on the MCP
+    server being loaded first."""
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    text = (repo_root / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
+    assert "Hard rule" in text, "copilot-instructions.md lost the Hard rule header."
+    assert "sumo_qa_using_sumo_qa" in text, (
+        "copilot-instructions.md must name the entry router `sumo_qa_using_sumo_qa`."
+    )
+    assert "sumo_qa_load_" in text, (
+        "copilot-instructions.md must require `sumo_qa_load_*` for citations."
+    )
+
+
+def test_using_sumo_qa_skill_carries_iron_law() -> None:
+    """The entry-router skill body must keep the Iron Law verbatim — every
+    sub-skill inherits its discipline from this anchor."""
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    text = (repo_root / "skills" / "using-sumo-qa" / "SKILL.md").read_text(encoding="utf-8")
+    assert "NO QA WORK WITHOUT FIRST DECIDING THE APPROACH" in text, (
+        "using-sumo-qa SKILL.md lost the Iron Law (#238)."
+    )
+    assert "sumo-qa-deciding-approach" in text, (
+        "using-sumo-qa SKILL.md must still route to `sumo-qa-deciding-approach` (#238)."
+    )
