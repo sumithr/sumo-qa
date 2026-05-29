@@ -46,6 +46,8 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 1. **Walk the repo** *(no user question)* — use the host's file tools. Inventory: services / top-level modules / test directories / CI config / coverage reports. Note languages, frameworks, seams (HTTP routes, message handlers, scheduled jobs, UI, DB migrations). Use the recipe in `knowledge/repo_walk.md` for the exact commands and data shape to gather, so successive strategy runs produce consistent inventory data on the same repo state.
 
+   **Repo-map accelerator (optional).** If `.sumo-qa/repo-map.json` exists — or you generate one with `sumo_qa_scan_repo` — prefer it for the inventory: deterministic per-type node counts, the tests likely exercising each source, the extracted commands. `sumo_qa_query_repo_map` locates evidence per area (by path, tag, category, `test_file`). Absent or stale → fall back to the `knowledge/repo_walk.md` walk. It accelerates the inventory; the per-area risk reasoning and the Iron Law (walk and cite real paths) are unchanged.
+
 2. **Load the catalogues** *(no user question)* — call `sumo_qa_load_principles()` and `sumo_qa_load_classifications()`. Internal only; don't dump them raw.
 
 3. **Per-area provisional analysis** *(no user question)* — for each major area: classify it, estimate the existing coverage shape (unit-heavy / integration-heavy / e2e-heavy / no tests), provisionally name 2–3 risks anchored to file paths or framework constructs.
@@ -61,6 +63,10 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 8. **Design target pyramid shape, confirm** — propose the rough mix per area: unit / component / integration / contract / e2e / performance / security / a11y. Scaled to actual risk surface, not uniform.
 
 9. **Propose phased rollout, confirm** — propose 2–4 phases, each with area scope, deliverables, "minimum viable" QA setup, gates at the end of each phase. Each phase MUST carry observable entry criteria (e.g. "coverage gate above 70% on touched files", "mutation-survivor count below 5") AND exit criteria (e.g. "all P1 risks have green covering tests", "CI mutation report at 100% killed"). Phases without measurable gates are calendar entries, not strategy. NOT a calendar — a sequence with named gates.
+
+   **Final-turn output (pinned).** When the user has endorsed the prior sections and wants the rollout inline, emit ONLY the phased rollout and the residual risks list, with the residual risks as the LAST block. No summary sentence (*"This concludes the phased rollout strategy."*), no *"would you like me to document this in a file?"* offer, no trailing confirmation question — those violate the output-economy rule above. The file-write offer belongs to step 11, and ONLY when you are assembling the full multi-section document, not when the user asked for the rollout inline.
+   - BAD final line: *"This concludes the phased rollout strategy. Would you like me to document this in a file?"*
+   - GOOD: the response ends on the last residual-risk bullet.
 
 10. **Residual risks accepted, confirm** — name 2–4 risks NOT being addressed and why (out of scope, accepted cost, mitigated elsewhere, deferred). Ask: *"is this honest?"*
 

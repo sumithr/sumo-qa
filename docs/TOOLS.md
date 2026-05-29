@@ -1,6 +1,6 @@
 # MCP Tools
 
-The sumo-qa MCP exposes **30 entry points**: 14 skill tools + 6 knowledge loaders + 1 capabilities-discovery tool + 4 test-data tools + 1 ingestion tool + 4 external-skill lifecycle tools. All are thin — each is file IO, small deterministic logic, or a Skills CLI subprocess. No inference, no host-LLM sampling. The host LLM reasons over what they return.
+The sumo-qa MCP exposes **33 entry points**: 14 skill tools + 6 knowledge loaders + 1 capabilities-discovery tool + 3 repo-map tools + 4 test-data tools + 1 ingestion tool + 4 external-skill lifecycle tools. All are thin — each is file IO, small deterministic logic, or a Skills CLI subprocess. No inference, no host-LLM sampling. The host LLM reasons over what they return.
 
 ## Skill tools (14)
 
@@ -51,6 +51,16 @@ A compact, read-only "what can sumo-qa do?" map: the core QA workflows, each wit
 | Tool | What it returns |
 |---|---|
 | `sumo_qa_capabilities()` | The eight core QA workflows (review changes, regression-first fix, QA prep, formal test plan, mutation strengthening, test-data discovery, repo strategy, external-skill discovery), each as `{workflow, sample_prompt, target_skill, outcome}` routing to an existing skill |
+
+## Repo-map tools (3)
+
+A QA-native map of the repo (`.sumo-qa/repo-map.json`) plus the consumers that turn it into review/planning/strategy signal. All return compact, typed summaries — never the full artifact. See [REPO-MAP.md](REPO-MAP.md) for the schema and the diff vs live-scan semantics. The review / preparing-for-work / strategising skills prefer the map when present and fall back to a repo walk when absent.
+
+| Tool | What it returns |
+|---|---|
+| `sumo_qa_scan_repo(root, generator_version=None, write_to=None)` | Compact per-type node / edge / command / warning counts for the repo; optionally writes the full `.sumo-qa/repo-map.json` artifact (`RepoMapScanOutput`). Writer; read-only when `write_to` is omitted. |
+| `sumo_qa_analyze_diff_impact(root, base_ref=None, changed_files=None, ...)` | Maps changed files onto the map: changed/affected nodes, likely related tests, the risk surface (changed sources with no mapped test), unmapped files, and staleness vs HEAD (`DiffImpactOutput`). Read-only unless `write_overlay=True`. |
+| `sumo_qa_query_repo_map(root, query, limit=10, types=None, ...)` | Bounded, ranked search of the map by path / node id / component / tag / category / evidence type / command, each match carrying id, path, type, tags, and a match reason plus an artifact freshness summary (`RepoMapQueryOutput`). Read-only. |
 
 ## Test-data tools (4)
 

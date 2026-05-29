@@ -1,0 +1,219 @@
+description: >
+  Issue #156 — proves the repo-map wiring in sumo-qa-reviewing-before-merge is
+  used correctly: when a `.sumo-qa/repo-map.json` is present and the host has
+  run `sumo_qa_analyze_diff_impact`, the candidate treats its `related_tests`
+  and `risk_surface` as LEADS to verify against the fresh run — never as proof
+  of coverage. The diff-impact output here is a trap: its `related_tests` entry
+  passes in the fresh run but does NOT exercise the changed branch, and its
+  `risk_surface` flags a changed source with no test at all. A reviewer that
+  rubber-stamps SAFE on the map's leads fails; the Iron Law (fresh evidence)
+  must still gate the verdict.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+    expected_shape: >-
+      NOT SAFE TO MERGE, reached by treating the repo-map / diff-impact output
+      as starting leads but gating the verdict on the FRESH test run. The
+      response must: (1) flag `src/auth/session.py` as UNCOVERED — the map's
+      risk_surface named it and the fresh run contains no test that exercises
+      it; (2) NOT mark `tests/billing/test_refund.py` as COVERED for the
+      refund-amount change — UNPROVEN or UNCOVERED is the correct label,
+      because the map only listed it under related_tests and the fresh run does
+      not demonstrably exercise the changed refund branch (an explicit prose
+      explanation is welcome but a correct UNPROVEN/UNCOVERED label suffices);
+      (3) quote the fresh test counts; (4) end without a confirmation question.
+      The map accelerates finding what to inspect; it never substitutes for the
+      fresh evidence.
+    anti_patterns:
+      - Declares SAFE TO MERGE by leaning on the repo-map's related_tests as
+        proof of coverage instead of the fresh run.
+      - Treats the diff-impact risk_surface / related_tests as a verdict rather
+        than leads to verify against the fresh run.
+      - Counts `tests/billing/test_refund.py` as covering the refund change
+        without checking that its fresh-run assertion actually exercises the
+        changed path.
+      - Fails to flag `src/auth/session.py` as UNCOVERED despite no test
+        exercising it in the fresh run.
+      - Asking another confirmation question instead of delivering the verdict.
+      - Surfacing literal taxonomy labels such as `business_logic_change`.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      uses the supplied repo-map / diff-impact evidence CORRECTLY — as leads to
+      verify, never as proof of coverage — and still gates the verdict on the
+      fresh test run. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - is the verdict NOT SAFE TO MERGE, with `src/auth/session.py`
+         flagged UNCOVERED, AND `tests/billing/test_refund.py` NOT marked
+         COVERED for the refund change? Marking it UNPROVEN or UNCOVERED is
+         correct (the map's related_tests entry is a lead, not proof); a prose
+         explanation of why is welcome but not required. Marking the refund
+         test COVERED, omitting the session.py gap, or a SAFE verdict, is a
+         SHAPE FAIL.
+
+      B. GROUNDING - the response must visibly use BOTH the supplied diff-impact
+         output (related_tests / risk_surface) AND the fresh test run: it cites
+         the map's leads and then checks them against the fresh evidence, and
+         quotes the fresh test counts. Narrating without using the supplied
+         context -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical change classifications:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    ...and the team's change rules (keyed by classification):
+
+    --- LOADED RULES ---
+    {{loaded_rules}}
+    --- END LOADED RULES ---
+
+    Repository diff, prior review gates, supplied repo state (including the
+    repo-map diff-impact output), and fresh verification evidence for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill to this scenario. This is the final verdict turn:
+    no confirmation gate, deliver the verdict. Keep the response concise and
+    evidence-led.
+tests:
+  - description: repo-map present — its related_tests/risk_surface are leads, the fresh run is the gate
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns in this session (NOT shown above): you have read the diff,
+        named the risks, the user has confirmed them, and you have run the test
+        suite. This is the FINAL TURN of the review — produce the safe-to-merge
+        verdict citing the named risks + the fresh test evidence + the supplied
+        repo state. No more confirmation gates.
+
+        Scope gate: completed. Two runtime changes: a refund-amount calculation
+        change in `src/billing/refund.py` and a session-expiry check change in
+        `src/auth/session.py`.
+
+        Risk gate: completed. Named risks: (R1) refund amount miscalculated for
+        partial refunds; (R2) session-expiry check lets an expired session
+        through.
+
+        ## git diff
+        ```diff
+        diff --git a/src/billing/refund.py b/src/billing/refund.py
+        @@ src/billing/refund.py:40-48 @@
+        -40 def refund_amount(order, requested):
+        -41     return min(requested, order.total)
+        +40 def refund_amount(order, requested):
+        +41     already = sum(r.amount for r in order.refunds)
+        +42     return min(requested, order.total - already)
+
+        diff --git a/src/auth/session.py b/src/auth/session.py
+        @@ src/auth/session.py:18-22 @@
+        -18 def is_active(session, now):
+        -19     return session.expires_at > now
+        +18 def is_active(session, now):
+        +19     return session.expires_at >= now
+        ```
+
+        ## Repo-map evidence (`.sumo-qa/repo-map.json` is present)
+        You ran `sumo_qa_analyze_diff_impact` against the committed diff. It
+        returned (summarised):
+        ```json
+        {
+          "changed_nodes": [
+            {"id": "file:src/billing/refund.py", "type": "source_file", "has_mapped_tests": true},
+            {"id": "file:src/auth/session.py", "type": "source_file", "has_mapped_tests": false}
+          ],
+          "related_tests": ["tests/billing/test_refund.py"],
+          "risk_surface": ["src/auth/session.py"],
+          "is_stale": false,
+          "used_live_scan": false
+        }
+        ```
+
+        ## Fresh test run (this turn)
+        ```text
+        $ pytest tests/billing/test_refund.py -v
+        tests/billing/test_refund.py::test_refund_amount_caps_at_order_total PASSED
+        1 passed in 0.12s
+        ```
+        The body of the one test that executed this turn:
+        ```python
+        def test_refund_amount_caps_at_order_total():
+            order = Order(total=100, refunds=[])
+            assert refund_amount(order, 999) == 100
+        ```
+        That is the complete set of tests run this turn.

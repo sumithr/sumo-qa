@@ -521,3 +521,70 @@ class DiffImpactOutput(_StrictBase):
     overlay_bytes: int | None = Field(
         default=None, description="Size of the written overlay in bytes, when requested."
     )
+
+
+class _QueryMatchSummary(_StrictBase):
+    """One bounded match inside :class:`RepoMapQueryOutput`."""
+
+    kind: Literal["node", "command"] = Field(
+        description="Whether the match is a repo-map node or an extracted command."
+    )
+    id: str = Field(description="Node id (e.g. 'file:src/app.py') or 'command:<name>'.")
+    type: str = Field(
+        description="Node type for a node match, or command kind for a command match."
+    )
+    path: str = Field(
+        description="Repo-relative path for a node, or the command's source file for a command."
+    )
+    tags: list[str] = Field(
+        default_factory=list, description="Node tags; empty for a command match."
+    )
+    match_reason: str = Field(
+        description="Why this entity matched (dimension + matched value), for relevance judging."
+    )
+    score: int = Field(description="Internal rank; higher is a stronger match.")
+
+
+class RepoMapQueryOutput(_StrictBase):
+    """Compact result of ``sumo_qa_query_repo_map``.
+
+    Bounded by ``limit``, never the full artifact. Carries a freshness summary
+    (``generated_at`` / ``git_commit`` / ``is_stale`` / ``used_live_scan``) so
+    the host can judge how much to trust the map without a second call.
+    """
+
+    tool: Literal["sumo_qa_query_repo_map"] = Field(
+        default="sumo_qa_query_repo_map",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    root: str = Field(description="Resolved root path whose map was queried.")
+    query: str = Field(description="Echo of the query string the caller supplied.")
+    limit: int = Field(description="Maximum number of matches returned.")
+    types_filter: list[str] = Field(
+        default_factory=list,
+        description="Node types / 'command' the search was restricted to, if any.",
+    )
+    matches: list[_QueryMatchSummary] = Field(
+        default_factory=list, description="Top-ranked matches, highest score first."
+    )
+    total_matches: int = Field(
+        description="Total matches before the limit was applied (so the host knows if truncated)."
+    )
+    truncated: bool = Field(description="True when total_matches exceeded the limit.")
+    schema_version: str = Field(description="Schema version of the queried map (currently '1.0').")
+    generator_version: str = Field(description="Generator version recorded in the map.")
+    generated_at: datetime = Field(description="UTC timestamp the queried map was generated.")
+    git_commit: str | None = Field(
+        default=None, description="git_commit recorded in the map, when present."
+    )
+    is_stale: bool = Field(description="True when the map's git_commit differs from current HEAD.")
+    used_live_scan: bool = Field(
+        description="True when no artifact was found and the map was scanned live."
+    )
+    artifact_path: str | None = Field(
+        default=None, description="Resolved path of the loaded repo-map artifact, when used."
+    )
+    warning_count: int = Field(description="Number of warnings (stale, live-scan fallback, etc.).")
+    warnings_by_kind: dict[str, int] = Field(
+        default_factory=dict, description="Per-kind warning counts."
+    )

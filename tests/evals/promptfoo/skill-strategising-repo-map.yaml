@@ -1,0 +1,177 @@
+description: >
+  Issue #156 — proves the repo-map wiring in sumo-qa-strategising is used
+  correctly on the INVENTORY turn (steps 1 + 3). A `.sumo-qa/repo-map.json` is
+  present; the host ran `sumo_qa_scan_repo` (compact per-type counts) and
+  `sumo_qa_query_repo_map` per area (real module + test paths). This turn the
+  ONLY source of repo paths is that map output — so a candidate that ignores it
+  and reasons generically cannot cite real paths and fails. The candidate must
+  build a repo-anchored inventory + provisional per-area risks from the scan /
+  query result, without dumping raw tool counts or surfacing internal labels.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-strategising/SKILL.md
+    expected_shape: >-
+      Repo-anchored inventory + provisional per-area risk read, built from the
+      supplied repo-map scan / query output. Names each area by its REAL module
+      path from the map (the test directory is a plus, not required), states
+      each area's coverage shape (e.g. unit-heavy / sparse / none) using the
+      mapped tests, and gives 1-2 provisional risks per area anchored to a real
+      file path. Uses the scan as the inventory source rather than re-asking to
+      walk the repo or reasoning generically. Does not yet produce the full
+      phased strategy (that is a later turn).
+    anti_patterns:
+      - Generic inventory or risks with no real module/file paths even though
+        the scan / query output supplies them.
+      - Asking to walk the repo manually or claiming it cannot see the codebase
+        when the repo-map output is supplied.
+      - Dumping the raw scan counts or internal field names (node id, nodes_by_type,
+        edges, match_reason) as the inventory instead of a QA-shaped reading.
+      - Surfacing literal taxonomy labels such as api_contract_change or performance_change.
+      - Jumping to a full phased rollout with entry/exit criteria this turn.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response deliver a repo-anchored INVENTORY plus
+         provisional per-area risks (NOT yet a full phased rollout)? Each area
+         must be named by its real module path from the supplied map, with a
+         coverage-shape read (e.g. unit+integration / sparse / none) and 1-2
+         provisional risks anchored to a real file path. Generic areas, or risks
+         with no real path, FAIL. Naming the test directory is a plus but not
+         required; the coverage-shape read is.
+
+      B. GROUNDING - the inventory must visibly use the supplied repo-map scan /
+         query output. Evidence of use includes citing the real source paths
+         (e.g. `services/billing/refunds.py`, `packages/contracts/openapi.yaml`)
+         AND at least one map-derived observation (e.g. billing has only one
+         mapped test, contracts has no mapped tests/contract check). Citing the
+         real paths from the supplied map IS using it. Output with generic or
+         invented paths not in the map -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repo-map output already gathered for this repo (the host ran the repo-map
+    tools for you):
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is the INVENTORY turn of the strategy walk (skill steps 1 and 3 only).
+    Produce a repo-anchored inventory and a provisional per-area risk read built
+    from the supplied repo-map output — do NOT produce the full phased rollout
+    or entry/exit criteria yet. No confirmation question, no closing pleasantry,
+    no internal taxonomy labels.
+
+    Produce EXACTLY one bullet per area, in this format:
+
+    - **<area module path from the map>** — coverage: <one phrase using the
+      mapped tests, e.g. "unit+integration present", "sparse: only test_pricing.py",
+      "none mapped">. Risks: (1) <risk> (`<real file path from the map>`);
+      (2) <risk> (`<real file path from the map>`).
+
+    STRICT: EVERY provisional risk MUST end with a real file path from the
+    supplied map in backticks. A risk with no `path` — or a path not present in
+    the supplied map — is forbidden and fails. Cover all four areas
+    (`services/auth`, `services/billing`, `apps/admin-web`, `packages/contracts`).
+tests:
+  - description: inventory turn — repo-map present, build the inventory from the scan/query output
+    vars:
+      user_prompt: >-
+        Design our QA strategy for the customer-platform monorepo — start by
+        inventorying what's here.
+      ground_truth_context: |
+        ## `sumo_qa_scan_repo` summary (`.sumo-qa/repo-map.json` is present)
+        ```json
+        {
+          "node_count": 214,
+          "nodes_by_type": {"source_file": 96, "test_file": 41, "ci_workflow": 3,
+                            "manifest": 5, "config": 22, "docs": 47},
+          "edges_by_type": {"likely_tests": 33},
+          "commands_by_kind": {"test": 2, "lint": 1, "build": 1},
+          "is_stale": false
+        }
+        ```
+
+        ## `sumo_qa_query_repo_map` results per area (real paths)
+        ```json
+        {
+          "services/auth":    {"sources": ["services/auth/routes.py", "services/auth/policies.py"],
+                                "tests": ["services/auth/tests/unit/", "services/auth/tests/integration/"]},
+          "services/billing": {"sources": ["services/billing/pricing.py", "services/billing/refunds.py"],
+                                "tests": ["services/billing/tests/test_pricing.py"]},
+          "apps/admin-web":   {"sources": ["apps/admin-web/src/features/bulk-approve/index.tsx"],
+                                "tests": ["apps/admin-web/src/features/bulk-approve/index.test.tsx"]},
+          "packages/contracts": {"sources": ["packages/contracts/openapi.yaml"], "tests": []}
+        }
+        ```
+        Notes from the map: `services/billing` has 2 source files but only
+        `test_pricing.py` is mapped (no test maps to `refunds.py`).
+        `packages/contracts/openapi.yaml` has no mapped tests and no
+        provider/consumer contract check among the 3 CI workflows.
