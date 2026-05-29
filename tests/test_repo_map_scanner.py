@@ -449,3 +449,34 @@ def test_commands_are_sorted_deterministically(tmp_path: Path):
     repo_map = scan_repo(tmp_path, generator_version="t")
     names = [c.name for c in repo_map.commands]
     assert names == sorted(names)
+
+
+# ---------- Codex review fixes (#229) ----------
+
+
+def test_infers_likely_tests_for_js_test_and_spec_suffixes(tmp_path: Path):
+    # foo.test.ts / bar.spec.ts: Path.stem leaves "foo.test" / "bar.spec";
+    # the matcher must strip the .test/.spec suffix to reach the source stem.
+    _make_file(tmp_path, "src/foo.ts", "export const x = 1;\n")
+    _make_file(tmp_path, "src/foo.test.ts", "import { x } from './foo';\n")
+    _make_file(tmp_path, "src/bar.ts", "export const y = 1;\n")
+    _make_file(tmp_path, "tests/bar.spec.ts", "import { y } from '../src/bar';\n")
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    edges = {(e.source, e.target) for e in repo_map.edges if e.type == "likely_tests"}
+    assert ("file:src/foo.test.ts", "file:src/foo.ts") in edges
+    assert ("file:tests/bar.spec.ts", "file:src/bar.ts") in edges
+
+
+def test_excludes_tracked_but_deleted_files(tmp_path: Path):
+    # git ls-files keeps a tracked path after it's deleted in the working tree
+    # (pre-commit). The repo-map describes the current tree, so the deleted
+    # file must not become a node.
+    _make_file(tmp_path, "src/keep.py", "x = 1\n")
+    _make_file(tmp_path, "src/gone.py", "y = 1\n")
+    _git_init(tmp_path)
+    _git_add_and_commit(tmp_path)
+    (tmp_path / "src" / "gone.py").unlink()
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    paths = {n.path for n in repo_map.nodes}
+    assert "src/keep.py" in paths
+    assert "src/gone.py" not in paths

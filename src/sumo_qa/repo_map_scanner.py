@@ -206,7 +206,18 @@ def _list_files(root: Path) -> list[str]:
                 check=True,
                 env=git_env,
             )
-            tracked = [p.decode("utf-8") for p in result.stdout.split(b"\0") if p]
+            # `git ls-files` lists tracked paths even after they're deleted in
+            # the working tree (before the deletion is committed). The repo-map
+            # describes the CURRENT tree, so drop entries that no longer exist
+            # on disk — otherwise they'd become nodes with fingerprint=None and
+            # point consumers at stale files.
+            tracked = [
+                rel
+                for raw in result.stdout.split(b"\0")
+                if raw
+                for rel in (raw.decode("utf-8"),)
+                if (root / rel).is_file()
+            ]
             if tracked:
                 return sorted(tracked)
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -327,7 +338,16 @@ def _infer_likely_tests_edges(nodes: list[RepoMapNode]) -> list[RepoMapEdge]:
             continue
         test_stem = Path(node.path).stem
         target_stem = test_stem
-        if target_stem.startswith("test_"):
+        # JS/TS tests are `foo.test.ts` / `foo.spec.ts`; Path.stem strips only
+        # the last suffix, leaving `foo.test` / `foo.spec`. Strip those first
+        # (they're checked before the py-style test_/_test conventions) so the
+        # stem matches the `foo` source. Without this the docs' .test/.spec
+        # claim produced no likely_tests edge.
+        if target_stem.endswith(".test"):
+            target_stem = target_stem.removesuffix(".test")
+        elif target_stem.endswith(".spec"):
+            target_stem = target_stem.removesuffix(".spec")
+        elif target_stem.startswith("test_"):
             target_stem = target_stem.removeprefix("test_")
         elif target_stem.endswith("_test"):
             target_stem = target_stem.removesuffix("_test")
