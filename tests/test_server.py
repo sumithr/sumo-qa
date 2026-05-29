@@ -412,6 +412,7 @@ def test_build_mcp_server_raises_when_mcp_not_installed() -> None:
         with pytest.raises((RuntimeError, ImportError)):
             build_mcp_server()
 
+
 def test_server_instructions_enforce_qa_routing() -> None:
     """FastMCP `instructions=` must carry the routing directive so hosts
     that surface server-level instructions (not just repo files) see the
@@ -428,7 +429,6 @@ def test_server_instructions_enforce_qa_routing() -> None:
     assert "sumo_qa_load_" in text, (
         "FastMCP instructions must require `sumo_qa_load_*` for citing "
         "principles/techniques/classifications/approaches."
-
     )
 
 
