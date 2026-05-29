@@ -84,6 +84,9 @@ _STANDALONE_UTILITY_TOOLS = {
     # not referenced from any SKILL.md body yet (a SKILL update for the
     # repo-walk recipe lands in a follow-up slice).
     "sumo_qa_scan_repo",
+    # #156 slice 4 — host-callable diff-impact tool; SKILL wiring lands in a
+    # follow-up slice, so it's not referenced from any SKILL.md body yet.
+    "sumo_qa_analyze_diff_impact",
 }
 
 

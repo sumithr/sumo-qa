@@ -45,6 +45,7 @@ from sumo_qa.knowledge_loaders import (
 from sumo_qa.server_schemas import (
     CapabilitiesOutput,
     CheckExternalSkillInstalledOutput,
+    DiffImpactOutput,
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
     InstallExternalSkillOutput,
@@ -77,6 +78,11 @@ _HINT_INGEST = (
 _HINT_SCAN_REPO = (
     "Pass an existing directory path. Use an absolute path or one relative to the "
     "MCP server's working directory."
+)
+_HINT_DIFF_IMPACT = (
+    "Pass an existing repo directory plus either changed_files=[...] or "
+    "base_ref='<git ref>'. The repo-map artifact is optional — without it the "
+    "tool scans live."
 )
 
 
@@ -148,6 +154,42 @@ def _build_scan_summary(
         warnings_by_kind=dict(warnings_by_kind),
         artifact_path=artifact_path,
         artifact_bytes=artifact_bytes,
+    )
+
+
+def _build_impact_summary(
+    impact: Any,
+    *,
+    root: str,
+    base_ref: str | None,
+    is_stale: bool,
+    used_live_scan: bool,
+    artifact_path: str | None,
+    overlay_path: str | None,
+    overlay_bytes: int | None,
+    changed_file_count: int,
+) -> DiffImpactOutput:
+    """Collapse a :class:`DiffImpact` into the compact :class:`DiffImpactOutput`."""
+    from collections import Counter
+
+    warnings_by_kind = Counter(w.kind for w in impact.warnings)
+    return DiffImpactOutput(
+        root=root,
+        base_ref=base_ref,
+        changed_file_count=changed_file_count,
+        changed_nodes=[n.model_dump() for n in impact.changed_nodes],
+        affected_nodes=[n.model_dump() for n in impact.affected_nodes],
+        related_tests=impact.related_tests,
+        unmapped_files=impact.unmapped_files,
+        risk_surface=impact.risk_surface,
+        suggested_inspections=impact.suggested_inspections,
+        warning_count=len(impact.warnings),
+        warnings_by_kind=dict(warnings_by_kind),
+        is_stale=is_stale,
+        used_live_scan=used_live_scan,
+        artifact_path=artifact_path,
+        overlay_path=overlay_path,
+        overlay_bytes=overlay_bytes,
     )
 
 
@@ -538,6 +580,149 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "root": root,
                 "generator_version": generator_version,
                 "write_to": write_to,
+            },
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_writer_local)
+    def sumo_qa_analyze_diff_impact(
+        root: str,
+        base_ref: str | None = None,
+        changed_files: list[str] | None = None,
+        artifact_path: str | None = ".sumo-qa/repo-map.json",
+        write_overlay: bool = False,
+    ) -> DiffImpactOutput | ErrorEnvelope:
+        """Map a set of changed files onto the repo-map to report which tests
+        likely exercise them, which changed sources have no mapped test (the
+        risk surface), one-hop affected nodes, unmapped files, and whether the
+        map is stale relative to HEAD.
+
+        Common natural-language phrasings that map to this tool:
+        "what does this diff affect", "which tests cover my changes", "what's
+        the risk surface of this branch", "what should I re-test after these
+        edits", "analyse the impact of the changes against main".
+
+        ``root`` is the repository. Supply ``changed_files`` (repo-relative
+        paths) OR ``base_ref`` (any git ref; changed files are the diff against
+        the merge-base of ``base_ref`` and HEAD, so changes that landed on the
+        base after the branch diverged don't leak in). The repo-map is read
+        from ``artifact_path`` when present and falls back to a live scan
+        otherwise; an artifact for a different project root is ignored.
+        ``write_overlay`` writes ``.sumo-qa/diff-impact.json`` under ``root``.
+        """
+        from sumo_qa.repo_map_impact import analyze_diff_impact, changed_files_from_git
+        from sumo_qa.repo_map_models import RepoMapWarning
+        from sumo_qa.repo_map_scanner import _detect_git_commit, scan_repo
+        from sumo_qa.repo_map_validation import load_repo_map
+
+        output: DiffImpactOutput | dict[str, Any]
+        try:
+            root_path = Path(root)
+            if not root_path.is_dir():
+                raise ValueError(f"root must be a directory: {root_path!s}")
+
+            # 1. Load the map (artifact preferred, live-scan fallback). A
+            #    foreign artifact (its project.root != this root) is ignored
+            #    and we scan live instead — its node paths would be measured
+            #    against a different tree and yield silently wrong results.
+            repo_map = None
+            artifact_used: str | None = None
+            used_live_scan = False
+            foreign_artifact_warning: RepoMapWarning | None = None
+            if artifact_path is not None:
+                cand = Path(artifact_path)
+                if not cand.is_absolute():
+                    cand = root_path / cand
+                if cand.is_file():
+                    loaded = load_repo_map(cand)
+                    if Path(loaded.project.root).resolve() == root_path.resolve():
+                        repo_map = loaded
+                        artifact_used = str(cand.resolve())
+                    else:
+                        foreign_artifact_warning = RepoMapWarning(
+                            kind="other",
+                            message=(
+                                f"ignored repo-map at {cand!s}: its project.root "
+                                f"{loaded.project.root!r} does not match scan root "
+                                f"{root_path.resolve()!s}"
+                            ),
+                        )
+            if repo_map is None:
+                repo_map = scan_repo(root_path, generator_version=_package_version())
+                used_live_scan = True
+
+            # 2. Resolve changed files.
+            if changed_files is not None:
+                resolved = sorted(set(changed_files))
+            elif base_ref is not None:
+                resolved = changed_files_from_git(root_path, base_ref)
+            else:
+                raise ValueError("provide changed_files or base_ref")
+
+            # 3. Staleness (never blocks).
+            current = _detect_git_commit(root_path)
+            is_stale = (
+                current is not None
+                and repo_map.project.git_commit is not None
+                and current != repo_map.project.git_commit
+            )
+
+            # 4. Analyse + attach wrapper-level warnings.
+            impact = analyze_diff_impact(repo_map, resolved)
+            if foreign_artifact_warning is not None:
+                impact.warnings.append(foreign_artifact_warning)
+            elif used_live_scan:
+                # Only the genuine no-artifact case gets this message; a
+                # rejected foreign artifact already has its own warning above.
+                impact.warnings.append(
+                    RepoMapWarning(
+                        kind="other",
+                        message="no repo-map artifact found; scanned live",
+                    )
+                )
+            if is_stale:
+                impact.warnings.append(
+                    RepoMapWarning(
+                        kind="stale",
+                        message=(
+                            f"repo-map git_commit {repo_map.project.git_commit} "
+                            f"differs from HEAD {current}"
+                        ),
+                    )
+                )
+
+            # 5. Overlay.
+            overlay_path: str | None = None
+            overlay_bytes: int | None = None
+            if write_overlay:
+                target = root_path / ".sumo-qa" / "diff-impact.json"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                payload = json.dumps(impact.model_dump(mode="json"), indent=2)
+                target.write_text(payload, encoding="utf-8")
+                overlay_path = str(target.resolve())
+                overlay_bytes = target.stat().st_size
+
+            output = _build_impact_summary(
+                impact,
+                root=str(root_path.resolve()),
+                base_ref=base_ref,
+                is_stale=bool(is_stale),
+                used_live_scan=used_live_scan,
+                artifact_path=artifact_used,
+                overlay_path=overlay_path,
+                overlay_bytes=overlay_bytes,
+                changed_file_count=len(resolved),
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_DIFF_IMPACT)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_analyze_diff_impact",
+            args={
+                "root": root,
+                "base_ref": base_ref,
+                "changed_files": changed_files,
+                "artifact_path": artifact_path,
+                "write_overlay": write_overlay,
             },
             output=output,  # type: ignore[arg-type]
         )

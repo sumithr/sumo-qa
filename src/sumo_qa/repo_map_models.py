@@ -160,3 +160,36 @@ class RepoMap(BaseModel):
                 raise ValueError(f"duplicate node id: {node.id!r}")
             seen.add(node.id)
         return self
+
+
+class ImpactNode(BaseModel):
+    """A node projected into a diff-impact result.
+
+    A minimal view of a :class:`RepoMapNode` (#156 diff-impact). ``has_mapped_tests``
+    is true when at least one ``likely_tests`` edge targets this node.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: NodeType
+    path: str
+    has_mapped_tests: bool
+
+
+class DiffImpact(BaseModel):
+    """Result of mapping a set of changed files onto a :class:`RepoMap`.
+
+    Compact by design — no full node/edge arrays. ``risk_surface`` lists
+    changed ``source_file`` paths with no mapped test (the QA-relevant gap).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    changed_nodes: list[ImpactNode] = Field(default_factory=list)
+    affected_nodes: list[ImpactNode] = Field(default_factory=list)
+    related_tests: list[str] = Field(default_factory=list)
+    unmapped_files: list[str] = Field(default_factory=list)
+    risk_surface: list[str] = Field(default_factory=list)
+    suggested_inspections: list[str] = Field(default_factory=list)
+    warnings: list[RepoMapWarning] = Field(default_factory=list)

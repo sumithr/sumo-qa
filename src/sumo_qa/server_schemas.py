@@ -457,3 +457,67 @@ class RepoMapScanOutput(_StrictBase):
         default=None,
         description="Size of the written artifact in bytes, when write_to was provided.",
     )
+
+
+class _ImpactNodeSummary(_StrictBase):
+    """Compact node projection inside :class:`DiffImpactOutput`."""
+
+    id: str = Field(description="Node id, e.g. 'file:src/app.py'.")
+    type: str = Field(description="Node type from the repo-map vocabulary.")
+    path: str = Field(description="Repo-relative path.")
+    has_mapped_tests: bool = Field(
+        description="True when at least one likely_tests edge targets this node."
+    )
+
+
+class DiffImpactOutput(_StrictBase):
+    """Compact result of ``sumo_qa_analyze_diff_impact``.
+
+    Bounded by the size of the changeset, not the repo — safe to return inline.
+    """
+
+    tool: Literal["sumo_qa_analyze_diff_impact"] = Field(
+        default="sumo_qa_analyze_diff_impact",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    root: str = Field(description="Resolved root path analysed.")
+    base_ref: str | None = Field(
+        default=None, description="Git base ref used to derive changed files, when given."
+    )
+    changed_file_count: int = Field(description="Number of input changed paths considered.")
+    changed_nodes: list[_ImpactNodeSummary] = Field(
+        default_factory=list, description="Changed paths that resolved to a repo-map node."
+    )
+    affected_nodes: list[_ImpactNodeSummary] = Field(
+        default_factory=list, description="One-hop neighbours of the changed nodes."
+    )
+    related_tests: list[str] = Field(
+        default_factory=list, description="Paths of tests that likely exercise the changes."
+    )
+    unmapped_files: list[str] = Field(
+        default_factory=list, description="Changed paths with no node in the map."
+    )
+    risk_surface: list[str] = Field(
+        default_factory=list,
+        description="Changed source paths with no mapped test (the QA gap).",
+    )
+    suggested_inspections: list[str] = Field(
+        default_factory=list, description="Paths the host LLM should open to inspect."
+    )
+    warning_count: int = Field(description="Number of warnings (stale, live-scan fallback, etc.).")
+    warnings_by_kind: dict[str, int] = Field(
+        default_factory=dict, description="Per-kind warning counts."
+    )
+    is_stale: bool = Field(description="True when the map's git_commit differs from current HEAD.")
+    used_live_scan: bool = Field(
+        description="True when no artifact was found and the map was scanned live."
+    )
+    artifact_path: str | None = Field(
+        default=None, description="Resolved path of the loaded repo-map artifact, when used."
+    )
+    overlay_path: str | None = Field(
+        default=None, description="Path the diff-impact overlay was written to, when requested."
+    )
+    overlay_bytes: int | None = Field(
+        default=None, description="Size of the written overlay in bytes, when requested."
+    )

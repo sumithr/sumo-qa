@@ -173,6 +173,40 @@ can branch on the category rather than parsing free-form messages.
 artifact (e.g. generated against a 2.x build) doesn't masquerade as a generic
 literal-type error.
 
+## Diff-impact analysis
+
+`sumo_qa_analyze_diff_impact` is the first consumer of the map. Given a set of
+changed files it answers the QA-native question "what does this change touch,
+and where is the test evidence missing?" — without re-reasoning about the repo
+from scratch.
+
+It reports:
+
+- **`related_tests`** — tests that likely exercise the changed files (walked
+  from `likely_tests` edges).
+- **`risk_surface`** — changed `source_file` paths with **no** mapped test.
+  This is the gap a reviewer cares about most.
+- **`affected_nodes`** — one-hop neighbours of the changed nodes.
+- **`unmapped_files`** — changed paths absent from the map (new files, or a
+  stale map).
+- **`is_stale`** — true when the map's `git_commit` differs from current HEAD.
+
+Changed files come from either an explicit list or a git base ref. For a base
+ref the diff is taken against the **merge-base** of the ref and `HEAD` (the
+fork point — the same set GitHub's "Files changed" shows), so changes that
+landed on the base after the branch diverged don't leak in; committed and
+uncommitted tracked changes on the branch are both included. The map is read
+from `.sumo-qa/repo-map.json` when present and falls back to a live scan
+otherwise, so the tool works before any artifact is written. An artifact whose
+`project.root` does not match the scan root is ignored (with a warning) in
+favour of a live scan. With `write_overlay=true` it also writes a
+`diff-impact.json` overlay under `.sumo-qa/`.
+
+The pure analysis lives in `src/sumo_qa/repo_map_impact.py`
+(`analyze_diff_impact`); the MCP tool in `src/sumo_qa/server.py` is a thin
+wrapper that loads the map, resolves the diff, detects staleness, and writes
+the optional overlay.
+
 ## Commit vs cache
 
 The artifact is a **local cache** by default — the deterministic generator
@@ -192,11 +226,11 @@ regenerate locally before comparison.
 | Slice | Lands |
 |---|---|
 | 1 | Schema models, validation envelope, golden fixture |
-| 2 (this PR) | `sumo_qa.repo_map_scanner.scan_repo` — deterministic local walker; `likely_tests` edge inference; command extraction from `pyproject.toml` / `package.json` |
-| 3 (follow-up) | MCP/CLI surface — host-callable tools and `sumo-qa analyze`-style commands |
-| 4 (follow-up) | Diff-impact extension, full docs/examples, README narrative |
+| 2 | `sumo_qa.repo_map_scanner.scan_repo` — deterministic local walker; `likely_tests` edge inference; command extraction from `pyproject.toml` / `package.json` |
+| 3 | `sumo_qa_scan_repo` MCP tool — host-callable wrapper that returns a compact summary and optionally writes the artifact |
+| 4 (this PR) | `sumo_qa_analyze_diff_impact` — first consumer of the map (diff → related tests + risk surface) |
 
 `imports`, `configured_by`, and `command_runs` edges are deferred. The
-slice-2 scanner produces only `likely_tests` — enough for #156's diff-impact
-to map a changed source file to its candidate tests, which is the first
+scanner produces only `likely_tests` — enough for the slice-4 diff-impact
+tool to map a changed source file to its candidate tests, which is the first
 downstream consumer.
