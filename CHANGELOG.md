@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.3](https://github.com/sumithr/sumo-qa/compare/v0.20.2...v0.20.3) (2026-05-30)
+
+
+### Documentation
+
+* de-specify repo docs to capability altitude ([#256](https://github.com/sumithr/sumo-qa/issues/256)) ([20b3ae9](https://github.com/sumithr/sumo-qa/commit/20b3ae938f029358ea08ce968eddf82c22059166))
+
 ## [0.20.2](https://github.com/sumithr/sumo-qa/compare/v0.20.1...v0.20.2) (2026-05-30)
 
 
