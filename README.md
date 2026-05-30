@@ -30,7 +30,7 @@ sumo-qa makes the agent work the way a senior QA does:
 - Keeps production code locked while strengthening tests against mutation survivors
 - Won't ship a plan without measurable entry and exit criteria
 
-The discipline lives in 14 [skill files](skills/) (1 router + 13 sub-skills). The host LLM follows them literally, and each one has an Iron Law and a HARD-GATE callout the LLM can't talk past. Skills route automatically from natural-language prompts; you don't need to remember to invoke them.
+The discipline lives in a library of [skill files](skills/), each followed literally — every one has an Iron Law and a HARD-GATE callout the LLM can't talk past. Skills route automatically from natural-language prompts; you don't need to remember to invoke them.
 
 ## Install
 
@@ -101,7 +101,7 @@ In any host, ask:
 
 > load the QA classifications
 
-You should get 10 names back: api_contract_change, business_logic_change, security_change, performance_change, frontend_change, infrastructure_change, test_change, docs_change, config_change, data_migration. If you do, you're wired.
+You should get the canonical change-classification names back. If you do, you're wired.
 
 ### Update
 
@@ -155,9 +155,9 @@ flowchart LR
 
 | Layer | What |
 |---|---|
-| **14 skills** ([`skills/`](skills/)) | Iron-Law procedures: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, finding test data, answering testing questions, repo strategy — plus the planning → parallel subagent execution → finishing chain. |
-| **30 MCP entry points** | 14 skill tools, 6 knowledge loaders, 1 capabilities-discovery tool, 4 test-data tools, 1 ingestion tool, 4 external-skill lifecycle tools. Thin operations, no inference. |
-| **4 knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques. The agent picks from these instead of recalling from training data. Editable as plain markdown. Specialty-tool picks are deliberately not catalogued — the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
+| **Skills** ([`skills/`](skills/)) | Iron-Law procedures across the QA lifecycle: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, finding test data, answering testing questions, repo strategy — plus the planning → parallel subagent execution → finishing chain. |
+| **MCP entry points** | A thin tool surface — skill tools, knowledge loaders, a capabilities-discovery tool, repo-map tools, test-data tools, an ingestion tool, and external-skill lifecycle tools. Each is file IO or small deterministic logic; no inference. |
+| **Knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques. The agent picks from these instead of recalling from training data. Editable as plain markdown. Specialty-tool picks are deliberately not catalogued — the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
 
 ## Host support
 
@@ -172,7 +172,7 @@ These hosts are verified end-to-end with `sumo-qa-install`:
 | **JetBrains AI Assistant** | `/sumo_qa_deciding_approach` (underscores) | One-time UI setup; `sumo-qa-install --jetbrains` prints the fields to paste |
 | **JetBrains Junie** | Natural language | Drop the JSON `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) |
 
-In Claude Code, type `/` then `sumo-qa-` to see all 14 skills as hyphenated entries (symlinked into `~/.claude/skills/`). The same skills are also registered through MCP with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`); both routes call the same SKILL.md.
+In Claude Code, type `/` then `sumo-qa-` to see the skills as hyphenated entries (symlinked into `~/.claude/skills/`). The same skills are also registered through MCP with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`); both routes call the same SKILL.md.
 
 Natural language works everywhere. *"Review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths produce the same result.
 
