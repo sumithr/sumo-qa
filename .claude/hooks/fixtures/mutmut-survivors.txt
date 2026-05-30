@@ -1,0 +1,13 @@
+2/2  🎉 0 🫥 0  ⏰ 0  🤔 0  🙁 3  🔇 0
+
+Survived 🙁 (3)
+
+src.sumo_qa.server.x_mutmut_1
+src.sumo_qa.server.x_mutmut_4
+src.sumo_qa.scan.x_mutmut_9
+
+To apply a mutant on disk:
+    mutmut apply <id>
+
+To show a mutant:
+    mutmut show <id>

@@ -6,9 +6,10 @@ Project-shared automations for contributors using Claude Code in this repo. Pers
 
 | Path | Type | Triggers | Purpose |
 |---|---|---|---|
-| `settings.json` | Config | Loaded at session start | Wires the two hooks below |
+| `settings.json` | Config | Loaded at session start | Wires the hooks below |
 | `hooks/block-generated-paths.py` | PreToolUse hook | Before any `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | Denies edits to generated / cached / captured paths (see "Protected paths" below) |
 | `hooks/validate-on-content-edit.py` | PostToolUse hook | After `Edit`, `Write`, `MultiEdit` under `knowledge/` or `standards/` | Runs `sumo-qa-validate` and surfaces schema failures in-loop |
+| `hooks/route-qa-runners.py` | PostToolUse hook | After a `Bash` `mutmut run` with survivors, or a `promptfoo` / `npm run eval` run that reports a FAIL | Injects a non-blocking reminder to route through the `mutation-survivor-triage` / `eval-failure-diagnoser` agent (see "Route QA runners" below) |
 | `agents/mutation-survivor-triage.md` | Subagent | Manually invoked by Claude when classifying mutmut survivors | Classifies survivors as equivalent / tautology-killable / genuine-gap / infrastructure-noise; produces a per-module report. Read-only. |
 | `agents/eval-failure-diagnoser.md` | Subagent | Manually invoked by Claude after a failing `npm run eval` | Locates the failing promptfoo assertion and recommends a SKILL.md strengthening. Never proposes loosening the rubric. Read-only. |
 | `skills/scaffold-sumo-qa-skill/SKILL.md` | User-invocable skill | `/scaffold-sumo-qa-skill` | Scaffolds a new `sumo-qa-<name>` skill: SKILL.md skeleton, matching promptfoo eval YAML stub, and a new `## <approach-tag>` block appended to `knowledge/approaches.md`. The routing line for `skills/sumo-qa-deciding-approach/SKILL.md` is printed as a manual step the contributor adds by hand — the deciding-approach routing table is context-sensitive and resists mechanical patching. Enforces the `sumo-qa-` prefix. |
@@ -32,6 +33,15 @@ If you legitimately need to override a deny (e.g. you're regenerating a fixture 
 
 When Claude edits anything under `knowledge/` or `standards/`, `hooks/validate-on-content-edit.py` runs `sumo-qa-validate` automatically. On a clean repo it's silent; on a schema break it exits non-zero and Claude sees the failure in the next turn. This mirrors the `.pre-commit-config.yaml:122` hook but fires during the edit loop instead of waiting for `git commit`.
 
+## Route QA runners (PostToolUse)
+
+When a `Bash` command finishes, `hooks/route-qa-runners.py` inspects the command and its output and injects a reminder (never a block) when a QA runner produced findings:
+
+- a `mutmut run` whose output reports `survived` / `timeout` / `suspicious` survivors → reminds Claude to route through the `mutation-survivor-triage` agent;
+- a `promptfoo eval`, `npm run eval`, or `npm run eval:all` whose output carries a `[FAIL]` (or a non-zero `Failures:` summary) → reminds Claude to route through the `eval-failure-diagnoser` agent.
+
+Detection requires *both* the matching command *and* the marker, so a `cat log.txt | grep survived` does not trip it. `eval:generate` and `eval:view` are explicitly ignored, generic pytest failures are not routed, and the hook always exits 0 — it never blocks the underlying Bash result.
+
 ## Personal vs project-shared
 
 The `.gitignore` rule under `.claude/*` works as a denylist with explicit re-includes:
@@ -47,7 +57,7 @@ After cloning, no setup is required for the hooks — they activate automaticall
 
 ```bash
 # In a fresh Claude Code session for this repo:
-ls .claude/hooks/                       # both .py files should be executable
+ls .claude/hooks/                       # the .py hook files should be executable
 # Ask Claude to edit a fixture file — it should be denied with a reason.
 ```
 
@@ -66,7 +76,7 @@ To use the skills:
 
 ## Adding new automations
 
-- **New hook** — drop a script in `hooks/`, wire it in `settings.json` under the matching event. Use the existing two as templates. PreToolUse hooks return JSON to deny; PostToolUse hooks exit non-zero with stderr to surface failures.
+- **New hook** — drop a script in `hooks/`, wire it in `settings.json` under the matching event. Use the existing hooks as templates. PreToolUse hooks return JSON to deny; PostToolUse hooks either exit non-zero with stderr to surface a failure in-loop (`validate-on-content-edit.py`), or emit `hookSpecificOutput.additionalContext` JSON to inject a non-blocking reminder while still exiting 0 (`route-qa-runners.py`).
 - **New subagent** — add a markdown file under `agents/` with YAML frontmatter (`name`, `description`, `tools`). Subagents are read by Claude when it decides to dispatch one — write the description as the trigger condition, then the body as the system prompt.
 - **New skill** — use `/scaffold-sumo-qa-skill` if it's a sumo-qa sub-skill (it'll handle the catalogue registration). For repo-local helper skills not tied to the sumo-qa estate, create `skills/<name>/SKILL.md` directly and add a `!.claude/skills/<name>/` line to `.gitignore`.
 

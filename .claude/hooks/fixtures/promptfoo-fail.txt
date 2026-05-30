@@ -1,0 +1,16 @@
+Running 6 evals...
+
+[████████████████████████████████████████] 100% | 6/6 | skill-implementing-with-tdd.yaml
+
+┌──────────────────────────┬──────────────────────────┐
+│ scenario                 │ assert                   │
+├──────────────────────────┼──────────────────────────┤
+│ red-phase-first          │ [PASS] grounding         │
+│ tautology-rejected       │ [FAIL] anti-pattern      │
+└──────────────────────────┴──────────────────────────┘
+
+Successes: 5
+Failures: 1
+Pass Rate: 83.33%
+
+Done.
