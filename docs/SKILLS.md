@@ -1,6 +1,6 @@
 # Skills
 
-The sumo-qa MCP ships 14 skills under [`skills/`](../skills/). Each is a single
+The sumo-qa MCP ships a library of skills under [`skills/`](../skills/). Each is a single
 `SKILL.md` file the host LLM follows literally: YAML frontmatter, an Iron Law, a
 checklist, a Process Flow section, a Red Flags table, examples.
 
@@ -16,7 +16,7 @@ Slash-menu conventions differ per host:
 
 All paths invoke the same SKILL.md body.
 
-## The 14 skills
+## The skills
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -27,64 +27,23 @@ All paths invoke the same SKILL.md body.
 }}}%%
 flowchart LR
     Root{{"<b>using-sumo-qa</b><br/><i>entry router</i>"}} ==> Decide["<b>deciding-approach</b>"]
-
-    subgraph PerChange ["per-change"]
-        direction TB
-        Prep["preparing-for-work"]
-        Plan["creating-test-plan"]
-        TDD["implementing-with-tdd"]
-        Review["reviewing-before-merge"]
-        Strength["strengthening-tests"]
-    end
-
-    subgraph CrossCut ["cross-cutting"]
-        direction TB
-        Data["finding-test-data"]
-        Answer["answering-testing-question"]
-        Strat["strategising"]
-    end
-
-    subgraph Rollout ["rollout chain"]
-        direction TB
-        Pln2["planning-qa-rollout"] --> Exec["executing-qa-rollout"] --> Fin["finishing-qa-work"]
-    end
-
-    NoFit["<b>suggesting-external-skill</b><br/><i>no native fit</i>"]
-
-    Decide --> PerChange
-    Decide --> CrossCut
-    Decide --> Rollout
-    Decide --> NoFit
+    Decide --> PerChange["per-change skills"]
+    Decide --> CrossCut["cross-cutting skills"]
+    Decide --> Rollout["plan → execute → finish chain"]
+    Decide --> NoFit["<b>external-skill fallback</b><br/><i>no native fit</i>"]
 
     classDef router fill:#7A1F1F,stroke:#1B1B1B,stroke-width:2px,color:#FAF7F2
     classDef step fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
     classDef leaf fill:#FAF7F2,stroke:#1B1B1B,stroke-width:1.5px,color:#1B1B1B
     classDef fallback fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
-    classDef group fill:none,stroke:#8A7B5C,stroke-width:1px,color:#5C4D00,stroke-dasharray: 4 4
 
     class Root router
     class Decide step
-    class Prep,Plan,TDD,Review,Strength,Data,Answer,Strat,Pln2,Exec,Fin leaf
+    class PerChange,CrossCut,Rollout leaf
     class NoFit fallback
-    class PerChange,CrossCut,Rollout group
 ```
 
-| Skill | When to use | Iron Law |
-|---|---|---|
-| [using-sumo-qa](../skills/using-sumo-qa/SKILL.md) | Entry router on every QA intent | NO QA WORK WITHOUT FIRST DECIDING THE APPROACH. |
-| [sumo-qa-deciding-approach](../skills/sumo-qa-deciding-approach/SKILL.md) | First step on every QA intent — picks the canonical approach | SHAPE FIRST. |
-| [sumo-qa-preparing-for-work](../skills/sumo-qa-preparing-for-work/SKILL.md) | Plan QA for a story before coding starts | NO TEST IDEA WITHOUT A NAMED RISK. |
-| [sumo-qa-creating-test-plan](../skills/sumo-qa-creating-test-plan/SKILL.md) | Formal test plan with entry/exit criteria | NO PLAN WITHOUT EXPLICIT ENTRY AND EXIT CRITERIA. |
-| [sumo-qa-implementing-with-tdd](../skills/sumo-qa-implementing-with-tdd/SKILL.md) | Plan → red → user implements → green → review | RED PHASE FIRST. NO PRODUCTION CODE BEFORE A FAILING TEST. |
-| [sumo-qa-reviewing-before-merge](../skills/sumo-qa-reviewing-before-merge/SKILL.md) | "Review my changes / is this safe to merge" | NEVER CLAIM SAFE-TO-MERGE WITHOUT FRESH VERIFICATION EVIDENCE. |
-| [sumo-qa-strengthening-tests](../skills/sumo-qa-strengthening-tests/SKILL.md) | Mutation-testing follow-up | PRODUCTION CODE STAYS UNCHANGED. |
-| [sumo-qa-finding-test-data](../skills/sumo-qa-finding-test-data/SKILL.md) | Test data discovery / validation / registration | STALE IS A DEFECT. NEVER INVENT ENTRIES NOT IN THE CATALOGUE. |
-| [sumo-qa-answering-testing-question](../skills/sumo-qa-answering-testing-question/SKILL.md) | Generic "how do I test this?" / "what should I check for X?" | NO ANSWER WITHOUT A CITED PRINCIPLE AND TECHNIQUE. |
-| [sumo-qa-strategising](../skills/sumo-qa-strategising/SKILL.md) | Repo-wide QA strategy / audit / pyramid design | WALK THE REPO FIRST. |
-| [sumo-qa-planning-qa-rollout](../skills/sumo-qa-planning-qa-rollout/SKILL.md) | Turn a QA chunk (story, PR, strategy phase) into a written plan with bite-sized, parallel-dispatchable tasks | NO EXECUTION FROM THE PLANNER. THE PLAN IS THE DELIVERABLE. |
-| [sumo-qa-executing-qa-rollout](../skills/sumo-qa-executing-qa-rollout/SKILL.md) | Dispatch a signed-off plan task-by-task to fresh subagents with two-stage review | ONE FRESH SUBAGENT PER TASK. TWO-STAGE REVIEW. CONTINUOUS EXECUTION. |
-| [sumo-qa-finishing-qa-work](../skills/sumo-qa-finishing-qa-work/SKILL.md) | Close the loop on a multi-task QA rollout — fresh suite run + risk-to-test map + PR-ready summary | NO FINISH WITHOUT FRESH EVIDENCE + WRITTEN SUMMARY. |
-| [sumo-qa-suggesting-external-skill](../skills/sumo-qa-suggesting-external-skill/SKILL.md) | Fallback when no native sumo-qa sub-skill fits the user's intent — finds, installs, executes external skills through sumo-qa MCP tools | THE SUMO-QA MCP SERVER OWNS EXTERNAL-SKILL LIFECYCLE. |
+Each skill is a single `SKILL.md` under [`skills/`](../skills/), carrying its own Iron Law and HARD-GATE. Browse that directory for the current set and per-skill detail — it is the source of truth, so this page deliberately does not re-list them.
 
 ## Global discipline (declared in using-sumo-qa, inherited by all sub-skills)
 
