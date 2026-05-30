@@ -114,12 +114,12 @@ def _read(name: str) -> str:
 
 
 def sumo_qa_load_classifications() -> str:
-    """Return the catalogue of 10 canonical change classifications as text."""
+    """Return the catalogue of canonical change classifications as text."""
     return _read("classifications.md")
 
 
 def sumo_qa_load_approaches() -> str:
-    """Return the catalogue of 8 canonical QA approaches as text."""
+    """Return the catalogue of canonical QA approaches as text."""
     return _read("approaches.md")
 
 

@@ -594,13 +594,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_load_classifications() -> str:
-            """Return the 10 canonical change classifications as plain text. The
+            """Return the canonical change classifications as plain text. The
             host LLM picks which apply to a given change."""
             return _load_classifications()
 
         @mcp.tool(annotations=_read_only_local)
         def sumo_qa_load_approaches() -> str:
-            """Return the 8 canonical QA approaches as plain text. The host LLM
+            """Return the canonical QA approaches as plain text. The host LLM
             picks which approach fits a given piece of work."""
             return _load_approaches()
 
