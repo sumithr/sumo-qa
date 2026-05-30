@@ -1,42 +1,27 @@
 # MCP Tools
 
-The sumo-qa MCP exposes **33 entry points**: 14 skill tools + 6 knowledge loaders + 1 capabilities-discovery tool + 3 repo-map tools + 4 test-data tools + 1 ingestion tool + 4 external-skill lifecycle tools. All are thin — each is file IO, small deterministic logic, or a Skills CLI subprocess. No inference, no host-LLM sampling. The host LLM reasons over what they return.
+The sumo-qa MCP exposes a small, thin tool surface: skill tools, knowledge loaders, a capabilities-discovery tool, repo-map tools, test-data tools, an ingestion tool, and external-skill lifecycle tools. Each is file IO, small deterministic logic, or a Skills CLI subprocess — no inference, no host-LLM sampling. The host LLM reasons over what they return. For the live, exact set, call `sumo_qa_capabilities` or browse [`skills/`](../skills/).
 
-## Skill tools (14)
+## Skill tools
 
 Each returns the full body of a `skills/<name>/SKILL.md` file. The host LLM treats the returned markdown as the procedure to follow (Iron Law + checklist + flowchart + Red Flags + examples).
 
 The skill bodies are host-neutral: they declare capability obligations (ordered work tracker, structured user-choice prompt, fresh delegated worker — see `using-sumo-qa` → *Shared vocabulary*) rather than naming any one host's specific tools. Adapters surface the same bodies through host-specific UIs (Claude Code slash commands, JetBrains MCP slash commands, Copilot agentic-mode tool selection, etc.).
 
-| Tool | Returns SKILL.md for |
-|---|---|
-| `using_sumo_qa` | Entry router — Iron Law: NO QA WORK WITHOUT FIRST DECIDING THE APPROACH |
-| `sumo_qa_deciding_approach` | Pick the canonical approach for the work |
-| `sumo_qa_preparing_for_work` | Lightweight QA prep brief |
-| `sumo_qa_creating_test_plan` | Formal phased test plan with entry / exit criteria |
-| `sumo_qa_implementing_with_tdd` | Red → green → review walk |
-| `sumo_qa_reviewing_before_merge` | Review local diff, run tests, surface verdict |
-| `sumo_qa_strengthening_tests` | Mutation testing follow-up |
-| `sumo_qa_finding_test_data` | Test-data discovery / validation / registration |
-| `sumo_qa_answering_testing_question` | Generic "how do I test this?" |
-| `sumo_qa_strategising` | Repo-wide QA strategy / audit |
-| `sumo_qa_planning_qa_rollout` | Turn a chunk of QA work into a bite-sized dispatchable plan |
-| `sumo_qa_executing_qa_rollout` | Dispatch a written QA plan task-by-task via subagents |
-| `sumo_qa_finishing_qa_work` | Capture evidence, produce PR-ready summary, close the loop |
-| `sumo_qa_suggesting_external_skill` | Drive external-skill search / install / execution when no native fit exists |
+Each skill registers as a tool named after its directory with hyphens turned to underscores (`using-sumo-qa` → `using_sumo_qa`, `sumo-qa-deciding-approach` → `sumo_qa_deciding_approach`).
 
 In JetBrains AI Assistant these are slash commands (`/sumo_qa_deciding_approach`). In Claude Code the equivalent slash commands come from the native skill files (`/sumo-qa-deciding-approach`, hyphens) — the MCP tools are still callable but only via natural language ("decide the QA approach for this refactor"). VS Code Copilot and Junie pick them by description in Agent / agentic mode.
 
 See [SKILLS.md](SKILLS.md) for the Iron Law per skill.
 
-## Knowledge loaders (6)
+## Knowledge loaders
 
 Each returns a markdown catalogue as plain text. The host LLM reasons over the returned content. The classification-filter tools (`load_standards`, `load_rules`) accept a single classification or comma-separated classifications. Standards filtering is metadata-based from pack frontmatter; rules filtering returns matching entries. No keyword matching.
 
 | Tool | Returns |
 |---|---|
-| `sumo_qa_load_classifications()` | The 10 canonical change classifications (api_contract_change, business_logic_change, …, data_migration) |
-| `sumo_qa_load_approaches()` | The 9 canonical QA approaches (tdd-scaffold, regression-first, …, spike-first-then-tests) |
+| `sumo_qa_load_classifications()` | The canonical change classifications |
+| `sumo_qa_load_approaches()` | The canonical QA approaches |
 | `sumo_qa_load_principles()` | ISTQB Foundation principles, Advanced certifications, ISO/IEC 25010 quality characteristics |
 | `sumo_qa_load_techniques()` | Test design techniques (black-box, white-box, experience-based, static, property-based, mutation) |
 | `sumo_qa_load_standards(classification?)` | Team's loaded standards packs; optional metadata-based filter by one or more classifications |
@@ -44,15 +29,15 @@ Each returns a markdown catalogue as plain text. The host LLM reasons over the r
 
 Specialty-tool picks are intentionally NOT catalogued — the discipline (in `using-sumo-qa`) is to observe the risk surface, web-search current options for the user's stack, and cite when naming a tool. A static catalogue would anchor toward yesterday's brands and create a false floor where novel surfaces never trigger discovery.
 
-## Capabilities discovery (1)
+## Capabilities discovery
 
 A compact, read-only "what can sumo-qa do?" map: the core QA workflows, each with a sample prompt, the skill it routes to, and a one-line outcome. Typed output (`CapabilitiesOutput`), under 500 approximate tokens. Discovery only — it does **not** replace the `using-sumo-qa` entry router or `sumo_qa_deciding_approach`, and carries no internal classification labels.
 
 | Tool | What it returns |
 |---|---|
-| `sumo_qa_capabilities()` | The eight core QA workflows (review changes, regression-first fix, QA prep, formal test plan, mutation strengthening, test-data discovery, repo strategy, external-skill discovery), each as `{workflow, sample_prompt, target_skill, outcome}` routing to an existing skill |
+| `sumo_qa_capabilities()` | The core QA workflows, each as `{workflow, sample_prompt, target_skill, outcome}` routing to an existing skill |
 
-## Repo-map tools (3)
+## Repo-map tools
 
 A QA-native map of the repo (`.sumo-qa/repo-map.json`) plus the consumers that turn it into review/planning/strategy signal. All return compact, typed summaries — never the full artifact. See [REPO-MAP.md](REPO-MAP.md) for the schema and the diff vs live-scan semantics. The review / preparing-for-work / strategising skills prefer the map when present and fall back to a repo walk when absent.
 
@@ -62,7 +47,7 @@ A QA-native map of the repo (`.sumo-qa/repo-map.json`) plus the consumers that t
 | `sumo_qa_analyze_diff_impact(root, base_ref=None, changed_files=None, ...)` | Maps changed files onto the map: changed/affected nodes, likely related tests, the risk surface (changed sources with no mapped test), unmapped files, and staleness vs HEAD (`DiffImpactOutput`). Read-only unless `write_overlay=True`. |
 | `sumo_qa_query_repo_map(root, query, limit=10, types=None, ...)` | Bounded, ranked search of the map by path / node id / component / tag / category / evidence type / command, each match carrying id, path, type, tags, and a match reason plus an artifact freshness summary (`RepoMapQueryOutput`). Read-only. |
 
-## Test-data tools (4)
+## Test-data tools
 
 Manage the local known-good test data catalogue under `knowledge/test_data/`. File IO + validation against source systems where applicable.
 
@@ -73,7 +58,7 @@ Manage the local known-good test data catalogue under `knowledge/test_data/`. Fi
 | `sumo_qa_validate_test_data(path)` | Checks a known-good entry against its source system |
 | `sumo_qa_register_known_good_test_data(...)` | Writes a new known-good entry |
 
-## Ingestion (1)
+## Ingestion
 
 Add or replace team QA knowledge/standards/rules at runtime, without cloning the repo. Validates native files and writes a normalized copy into a user-writable pack (`project` = `<cwd>/.sumo-qa`, `global` = XDG data dir). Loader precedence: explicit env var > project > global > bundled > repo. See [CONFIGURATION.md](CONFIGURATION.md#adding-custom-knowledge-without-cloning-the-repo). Also exposed as the `sumo-qa-ingest` console script.
 
