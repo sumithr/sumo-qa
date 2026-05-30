@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.2](https://github.com/sumithr/sumo-qa/compare/v0.20.1...v0.20.2) (2026-05-30)
+
+
+### Continuous Integration
+
+* fix release PR auto-merge to reliably bypass-merge ([#258](https://github.com/sumithr/sumo-qa/issues/258)) ([c90bdef](https://github.com/sumithr/sumo-qa/commit/c90bdef841f90aae12d10ecc01efa1e8990bc2e7))
+
 ## [0.20.1](https://github.com/sumithr/sumo-qa/compare/v0.20.0...v0.20.1) (2026-05-30)
 
 
