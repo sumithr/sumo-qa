@@ -284,6 +284,73 @@ class TestPromptfooBranch:
             "must stay excluded."
         )
 
+    def test_does_not_route_on_quoted_promptfoo_eval_log_grep(self) -> None:
+        """Re-review regression guard: the accepted-runner lookahead must exclude
+        `.` `-` `/` as well as word-chars and `:`. `cat "promptfoo eval.log" | grep
+        "[FAIL]"` reads a log file named `promptfoo eval.log` — it is NOT a
+        `promptfoo eval` invocation, so the trailing `.log` must block the match."""
+        result = _run_hook(
+            _payload(
+                'cat "promptfoo eval.log" | grep "[FAIL]"',
+                stdout="[FAIL] assertion failed\n",
+                exit_code=1,
+            )
+        )
+
+        assert result.returncode == 0
+        assert _additional_context(result) is None, (
+            'hook routed on `cat "promptfoo eval.log" | grep "[FAIL]"` — a false '
+            "positive. The promptfoo matcher lookahead must exclude `.` so "
+            "`eval.log` is not read as a `promptfoo eval` invocation."
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "npm run eval-watch",
+            "npm run eval.view",
+            "npm run eval/generate",
+        ],
+    )
+    def test_does_not_route_on_eval_prefixed_npm_scripts(self, command: str) -> None:
+        """Re-review regression guard: `eval`-prefixed npm script names that are
+        delimited by `-` `.` `/` (not `:`) are distinct runners, not `npm run eval`.
+        The widened lookahead `(?![\\w:./-])` must block them even with FAIL output."""
+        result = _run_hook(
+            _payload(command, stdout="[FAIL] assertion failed\n", exit_code=1)
+        )
+
+        assert result.returncode == 0
+        assert _additional_context(result) is None, (
+            f"hook routed on {command!r}; an `eval`-prefixed script delimited by "
+            "`.` `-` `/` is not `npm run eval` and must stay silent."
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "npm run eval",
+            "npm run eval:all",
+            "promptfoo eval",
+        ],
+    )
+    def test_accepted_eval_runners_still_route(self, command: str) -> None:
+        """Re-review regression guard: widening the lookahead to exclude `.` `-` `/`
+        must NOT break the genuine accepted runners. `npm run eval:all` in particular
+        must still route — the optional `(?::all)?` group matches `:all` BEFORE the
+        lookahead, so the lookahead sees the end-of-token and admits the match."""
+        result = _run_hook(
+            _payload(command, stdout=_read_fixture("promptfoo-fail.txt"), exit_code=100)
+        )
+
+        assert result.returncode == 0, f"hook crashed: {result.stderr!r}"
+        ctx = _additional_context(result)
+        assert ctx is not None, (
+            f"widened lookahead broke an accepted runner: {command!r} stayed silent "
+            "on a FAIL but must route."
+        )
+        assert "eval-failure-diagnoser" in ctx
+
 
 class TestNonTriggeringPaths:
     """Exit-code contract and the regression guards for non-runner Bash results."""

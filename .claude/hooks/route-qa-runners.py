@@ -68,13 +68,14 @@ def is_eval_run(command: str) -> bool:
     scoped so it only suppresses a command whose eval invocation is SOLELY an
     excluded subcommand — a compound command like
     `npm run eval && npm run eval:view` still routes because `npm run eval` ran.
-    The accepted matchers use a negative lookahead `(?![\\w:])` so they require a
-    standalone `eval` (or `eval:all`) token and do not themselves fire on
-    `eval:view` / `eval:generate`.
+    The accepted matchers use a negative lookahead `(?![\\w:./-])` so they require
+    a standalone `eval` (or `eval:all`) token and do not themselves fire on
+    `eval:view` / `eval:generate` (the `:` stays excluded) or on `eval`-prefixed
+    shapes like `eval.log`, `eval-watch`, `eval/generate`.
     """
     accepted = (
-        re.search(r"\bpromptfoo\s+eval(?![\w:])", command) is not None
-        or re.search(r"\bnpm\s+run\s+eval(?::all)?(?![\w:])", command) is not None
+        re.search(r"\bpromptfoo\s+eval(?![\w:./-])", command) is not None
+        or re.search(r"\bnpm\s+run\s+eval(?::all)?(?![\w:./-])", command) is not None
     )
     if accepted:
         return True
