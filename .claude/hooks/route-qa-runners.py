@@ -48,12 +48,16 @@ def is_mutmut_run(command: str) -> bool:
 
     Tightened over a bare ``\\bmutmut\\s+run\\b``: ``mutmut`` must sit at the
     start of the command or be preceded by whitespace (so a quote-prefixed path
-    like ``"mutmut run.log"`` is rejected), and ``run`` must not be followed by a
-    filename-continuation char (``\\w`` / ``.`` / ``/`` / ``-``) so ``run.log``
-    is not mistaken for the ``run`` subcommand. A trailing shell separator
-    (space, ``;``, ``&``, ``|``, end-of-string) still counts as a real call.
+    like ``"mutmut run.log"`` is rejected), and ``run`` must be followed by a
+    POSITIVE boundary — whitespace, end-of-string, or a shell separator
+    (``;`` ``&`` ``|`` ``)`` ``<`` ``>`` backtick). Anything else after ``run``
+    (a ``.``, ``-``, ``/``, ``@``, ``+``, ``=`` … or another word char) is a
+    filename / different token, so ``run.log`` and ``run-foo`` are rejected.
+    A positive anchor closes the open-ended-lookahead hole: an exclusion class
+    can never enumerate every non-boundary char, but an allowlist of boundaries
+    does.
     """
-    return re.search(r"(?:^|\s)mutmut\s+run(?![\w./-])", command) is not None
+    return re.search(r"(?:^|\s)mutmut\s+run(?=\s|$|[;&|)<>`])", command) is not None
 
 
 def is_eval_run(command: str) -> bool:
@@ -68,14 +72,19 @@ def is_eval_run(command: str) -> bool:
     scoped so it only suppresses a command whose eval invocation is SOLELY an
     excluded subcommand — a compound command like
     `npm run eval && npm run eval:view` still routes because `npm run eval` ran.
-    The accepted matchers use a negative lookahead `(?![\\w:./-])` so they require
-    a standalone `eval` (or `eval:all`) token and do not themselves fire on
-    `eval:view` / `eval:generate` (the `:` stays excluded) or on `eval`-prefixed
-    shapes like `eval.log`, `eval-watch`, `eval/generate`.
+    The accepted matchers use a POSITIVE boundary lookahead
+    `(?=\\s|$|[;&|)<>` + backtick + `])` so the runner token must be followed by
+    whitespace, end-of-string, or a shell separator. For npm the optional
+    `(?::all)?` consumes a trailing `:all` BEFORE the boundary, so
+    `npm run eval:all` routes while `eval:view` / `eval:generate` / `eval.log` /
+    `eval-watch` / `eval/generate` / `eval+foo` / `eval@x` / `eval=y` are all
+    rejected — the char after `eval` is not a boundary. A positive anchor closes
+    the open-ended-lookahead hole: a negative class can never enumerate every
+    non-boundary char (`+`, `@`, `=`, `?`, `#`, …), but a boundary allowlist can.
     """
     accepted = (
-        re.search(r"\bpromptfoo\s+eval(?![\w:./-])", command) is not None
-        or re.search(r"\bnpm\s+run\s+eval(?::all)?(?![\w:./-])", command) is not None
+        re.search(r"\bpromptfoo\s+eval(?=\s|$|[;&|)<>`])", command) is not None
+        or re.search(r"\bnpm\s+run\s+eval(?::all)?(?=\s|$|[;&|)<>`])", command) is not None
     )
     if accepted:
         return True

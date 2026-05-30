@@ -171,6 +171,35 @@ class TestMutmutBranch:
         assert ctx is not None, f"hook stayed silent on a real mutmut invocation {command!r}."
         assert "mutation-survivor-triage" in ctx
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "mutmut run",
+            "uv run mutmut run",
+            "python -m mutmut run",
+            "mutmut run --paths-to-mutate src/",
+            "mutmut run;",
+            "mutmut run && echo done",
+        ],
+    )
+    def test_positive_boundary_real_mutmut_invocations_route(self, command: str) -> None:
+        """Positive-boundary fix: a real `mutmut run` followed by whitespace,
+        end-of-string, or a shell separator (`;`, `&`) must route on a survivor.
+
+        Guards the boundary allowlist `(?=\\s|$|[;&|)<>` backtick `])` against
+        regressing the genuine invocation shapes — flags, a trailing `;`, and an
+        `&& echo done` chain all keep `mutmut run` as a standalone runner token.
+        """
+        result = _run_hook(_payload(command, stdout=_read_fixture("mutmut-survivors.txt")))
+
+        assert result.returncode == 0, f"hook crashed: {result.stderr!r}"
+        ctx = _additional_context(result)
+        assert ctx is not None, (
+            f"positive-boundary fix broke a real mutmut invocation: {command!r} stayed "
+            "silent on a survivor but must route."
+        )
+        assert "mutation-survivor-triage" in ctx
+
 
 class TestPromptfooBranch:
     """promptfoo / npm-run-eval x FAIL markers route to eval-failure-diagnoser."""
@@ -350,6 +379,74 @@ class TestPromptfooBranch:
             "on a FAIL but must route."
         )
         assert "eval-failure-diagnoser" in ctx
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "npm run eval",
+            "npm run eval:all",
+            "npm run eval -- --filter x",
+            "promptfoo eval",
+            "promptfoo eval -c config.yaml",
+            "npm run eval && deploy",
+        ],
+    )
+    def test_positive_boundary_accepted_eval_runners_route(self, command: str) -> None:
+        """Positive-boundary fix: a real eval runner followed by whitespace,
+        end-of-string, or a shell separator must route on a FAIL.
+
+        The boundary allowlist must admit `eval` / `eval:all` when followed by a
+        space (flags, `--`, `-c`), end-of-string, or `&&`. `npm run eval:all` in
+        particular relies on the optional `(?::all)?` consuming `:all` BEFORE the
+        boundary so the lookahead then sees a valid boundary.
+        """
+        result = _run_hook(
+            _payload(command, stdout=_read_fixture("promptfoo-fail.txt"), exit_code=100)
+        )
+
+        assert result.returncode == 0, f"hook crashed: {result.stderr!r}"
+        ctx = _additional_context(result)
+        assert ctx is not None, (
+            f"positive-boundary fix broke an accepted runner: {command!r} stayed silent "
+            "on a FAIL but must route."
+        )
+        assert "eval-failure-diagnoser" in ctx
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "npm run eval:view",
+            "npm run eval:generate",
+            "npm run eval-watch",
+            "npm run eval.view",
+            "npm run eval/generate",
+            "npm run eval+generate",
+            "npm run eval@foo",
+            "npm run eval=x",
+            "promptfoo eval+foo",
+        ],
+    )
+    def test_positive_boundary_rejects_non_runner_eval_tokens(self, command: str) -> None:
+        """Root-cause guard: any char that is NOT a boundary after the runner
+        token must block the match.
+
+        This is the case the open-ended negative lookahead `(?![\\w:./-])` could
+        never cover — `+`, `@`, `=` (and `?`, `#`, …) are outside the exclusion
+        set, so `eval+generate` / `eval@foo` / `eval=x` / `promptfoo eval+foo`
+        wrongly slipped through. The positive boundary allowlist rejects every
+        non-boundary suffix, including the `:`-, `.`-, `-`-, `/`-delimited
+        sibling scripts, with FAIL output present.
+        """
+        result = _run_hook(
+            _payload(command, stdout="[FAIL] assertion failed\n", exit_code=1)
+        )
+
+        assert result.returncode == 0
+        assert _additional_context(result) is None, (
+            f"hook routed on {command!r}; a non-boundary char after the runner token "
+            "means it is a different script / token, not the eval runner — it must "
+            "stay silent."
+        )
 
 
 class TestNonTriggeringPaths:
