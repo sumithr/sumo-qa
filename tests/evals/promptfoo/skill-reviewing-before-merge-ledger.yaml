@@ -1,0 +1,164 @@
+description: >
+  Ledger-traceability eval for sumo-qa-reviewing-before-merge (issue #144).
+  Measures that the review, when asked for the structured risk-to-test ledger,
+  appends it BELOW the markdown verdict, marks an uncovered high-risk row as a
+  blocker, and refuses safe-to-merge while that blocker stands — i.e. the ledger
+  improves traceability without replacing the prose verdict.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    expected_shape: >-
+      Final-turn merge-review verdict that LEADS with the prose answer (named
+      risks + fresh test evidence + a NOT SAFE TO MERGE call), then appends a
+      structured risk-to-test ledger BELOW it as a table. The ledger has one row
+      per named risk with an evidence-status drawn from the
+      planned/passing/failing/stale/accepted_residual vocabulary and a residual
+      decision. At least one high-risk row (the idempotency-on-retry risk, which
+      has no fresh covering test) is an uncovered blocker — evidence_status
+      planned (or failing) with residual blocker — and the verdict is NOT SAFE TO
+      MERGE because of it. The ledger is an appendix, never a replacement for the
+      verdict.
+    anti_patterns:
+      - Replaces the prose verdict with only a table (markdown-first verdict lost).
+      - Declares SAFE TO MERGE despite an uncovered high-risk ledger row.
+      - Invents an evidence-status outside planned/passing/failing/stale/accepted_residual.
+      - Marks the uncovered idempotency-on-retry risk as passing or covered.
+      - Surfacing literal taxonomy labels such as business_logic_change.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response LEAD with a prose verdict (named risks + fresh
+         test evidence + a SAFE / NOT SAFE call) and THEN append a structured
+         risk-to-test ledger table below it? The ledger must have one row per
+         named risk using only the evidence-status vocabulary
+         planned/passing/failing/stale/accepted_residual plus a residual
+         decision. The verdict must be NOT SAFE TO MERGE, and the
+         idempotency-on-retry risk must appear as an uncovered blocker (not
+         passing/covered). Prose verdict replaced by a bare table -> SHAPE FAIL.
+
+      B. GROUNDING - the ledger rows and verdict must use the supplied prior
+         named risks and fresh test output (exact test names / counts). The
+         uncovered risk must be the one with no covering test in the supplied
+         evidence.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, prior review gates, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. This is the final verdict turn: deliver the prose
+    verdict citing the named risks + fresh test evidence, THEN — because the
+    developer asked for it — append the structured risk-to-test ledger below the
+    verdict. No confirmation gate.
+tests:
+  - description: SEED - refund change, idempotency-on-retry risk uncovered, ledger requested
+    vars:
+      user_prompt: >-
+        Is this safe to merge? And give me the risk-to-test ledger I can paste
+        into the PR.
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns (NOT shown above): you read the diff, named the risks, the
+        user confirmed them, and you ran the suite. This is the FINAL TURN.
+
+        Risk gate: completed. Confirmed risks are (R1) the new invalid-amount
+        path returns 422 where it previously returned 500, and (R2) the
+        idempotency key derivation moved into the domain object, so a retry of a
+        partially-completed refund can derive a different key and double-refund.
+
+        ## git diff
+        ```diff
+        diff --git a/services/billing/refund.py b/services/billing/refund.py
+        @@ services/billing/refund.py:40-52 @@
+        -47     raise RefundError("invalid amount")  # fell through to 500
+        +47     raise RefundAmountInvalid(amount)     # returns 422
+        diff --git a/domain/Refund.kt b/domain/Refund.kt
+        @@ domain/Refund.kt:14-20 @@
+        -18     val idempotencyKey = request.idempotencyKey
+        +18     val idempotencyKey = deriveKey(this.lastModifiedAt, this.amount)
+        diff --git a/tests/billing/test_refund_api.py b/tests/billing/test_refund_api.py
+        @@ tests/billing/test_refund_api.py:30-40 @@
+        +33 def test_invalid_amount_returns_422():
+        +34     assert refund(amount=-1).status == 422
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/billing/test_refund_api.py -q
+        tests/billing/test_refund_api.py::test_partial_refund_happy_path PASSED
+        tests/billing/test_refund_api.py::test_invalid_amount_returns_422 PASSED
+        2 passed in 0.41s
+        ```
+        Note: no fresh test re-invokes the refund path twice after a partial
+        failure, so R2 (idempotency-on-retry double refund) has NO covering test.

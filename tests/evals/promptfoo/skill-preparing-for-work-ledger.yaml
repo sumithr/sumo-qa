@@ -1,0 +1,168 @@
+description: >
+  Planning-only ledger eval for sumo-qa-preparing-for-work (issue #144).
+  Measures that a QA-prep turn can output a structured risk-to-test ledger with
+  NO code change and NO test run — every row planned — as an appendix to the
+  prose brief, proving the ledger improves traceability for planning workflows
+  without requiring execution.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-preparing-for-work/SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    expected_shape: >-
+      A risk-shaped prep brief (named risks anchored to the supplied snippet +
+      a smallest useful test set tied to each risk), FOLLOWED by a structured
+      risk-to-test ledger appendix. Because no code has been written and no test
+      has run, EVERY ledger row has evidence_status planned and residual open;
+      each row's test field is a planned check (a "planned: ..." phrase or a
+      test path to write), and source_anchor cites a line/behaviour from the
+      snippet. The ledger is an appendix to the prose brief, not a replacement,
+      and the workflow needs no code change or test execution to emit it.
+    anti_patterns:
+      - Marks any planning ledger row as passing or failing (nothing has run).
+      - Replaces the prose prep brief with only a table.
+      - Claims tests were executed or code was changed to fill the ledger.
+      - Invents an evidence-status outside planned/passing/failing/stale/accepted_residual.
+      - Surfacing literal taxonomy labels such as business_logic_change or frontend_change.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate has loaded the canonical classifications catalogue below
+      for your verification:
+
+
+      --- LOADED CLASSIFICATIONS ---
+
+      {{loaded_classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response produce a prose prep brief (named risks
+         anchored to the snippet + a test set tied to each risk) AND THEN a
+         structured risk-to-test ledger appendix where EVERY row has
+         evidence_status planned and residual open (because nothing has been
+         written or run)? A row marked passing/failing, or a bare table with no
+         prose brief, is SHAPE FAIL.
+
+      B. GROUNDING - the risks and ledger rows must visibly use the supplied
+         snippet (line refs / behaviours). Narrating without using the supplied
+         context -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical change classifications:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    Repository state and product sketch for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is a QA-prep turn (no code written yet, no tests run). Produce the
+    prose prep brief — named risks anchored to the snippet, a smallest useful
+    test set tied to each risk — and THEN, because the developer asked for it,
+    append a structured risk-to-test ledger as a traceability table. No
+    confirmation question.
+tests:
+  - description: SEED - promo-code discount prep with planning-only ledger requested
+    vars:
+      user_prompt: >-
+        I'm about to add a promo-code discount to the checkout CartSummary
+        component; help me prep QA and give me a risk-to-test ledger I can paste
+        into the ticket.
+      ground_truth_context: |
+        ## src/checkout/CartSummary.tsx
+        ```tsx
+         1 export function CartSummary({ cart, onSubmit }) {
+         2   const subtotal = cart.items.reduce((sum, item) => sum + item.price * item.qty, 0);
+         3   const tax = subtotal * 0.0825;
+         4   const shipping = subtotal >= 50 ? 0 : 6.99;
+         5   const total = subtotal + tax + shipping;
+         6
+         7   return (
+         8     <section aria-label="Cart summary">
+         9       <p data-testid="item-count">{cart.items.length} items</p>
+        10       <p data-testid="subtotal">${subtotal.toFixed(2)}</p>
+        11       <p data-testid="total">${total.toFixed(2)}</p>
+        12       <button disabled={cart.items.length === 0} onClick={onSubmit}>
+        13         Checkout
+        14       </button>
+        15     </section>
+        16   );
+        17 }
+        ```
+
+        ## Feature sketch
+        Add a `promo_code` input field. If the code is valid, subtract the
+        discount from total. If the code is invalid, show an error banner.

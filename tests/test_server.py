@@ -9,7 +9,8 @@ from sumo_qa.server import build_mcp_server
 # Task 8: sumo-qa-suggesting-external-skill added.
 # External-skill lifecycle restored as thin MCP tools; Node installer helpers remain deleted.
 # Task 72: sumo_qa_load_specialty_tools removed (catalogue → discovery rule).
-# Total registered tools: 19 atomic + 14 skill = 33.
+# Issue #144: sumo_qa_format_risk_ledger added (risk-to-test ledger formatter).
+# Total registered tools: 20 atomic + 14 skill = 34.
 _TEST_DATA_TOOL_NAMES = {
     "sumo_qa_explain_test_data_requirements",
     "sumo_qa_find_test_data",
@@ -32,6 +33,13 @@ _REPO_MAP_TOOL_NAMES = {
     "sumo_qa_scan_repo",
     "sumo_qa_analyze_diff_impact",
     "sumo_qa_query_repo_map",
+}
+
+# Risk-to-test traceability ledger formatter (issue #144). File/format plumbing
+# only — validates host-supplied risk rows and renders the markdown appendix; it
+# performs no risk inference.
+_LEDGER_TOOL_NAMES = {
+    "sumo_qa_format_risk_ledger",
 }
 
 _KNOWLEDGE_LOADER_TOOL_NAMES = {
@@ -104,6 +112,7 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
         | _KNOWLEDGE_LOADER_TOOL_NAMES
         | _CAPABILITIES_TOOL_NAMES
         | _REPO_MAP_TOOL_NAMES
+        | _LEDGER_TOOL_NAMES
         | _INGESTION_TOOL_NAMES
         | _EXTERNAL_SKILL_TOOL_NAMES
         | _SKILL_TOOL_NAMES

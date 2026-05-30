@@ -12,6 +12,7 @@
     "sumo_qa_find_test_data",
     "sumo_qa_finding_test_data",
     "sumo_qa_finishing_qa_work",
+    "sumo_qa_format_risk_ledger",
     "sumo_qa_implementing_with_tdd",
     "sumo_qa_ingest_knowledge_pack",
     "sumo_qa_install_external_skill",
@@ -1645,6 +1646,149 @@
           "result"
         ],
         "title": "sumo_qa_finishing_qa_workOutput",
+        "type": "object"
+      }
+    },
+    "sumo_qa_format_risk_ledger": {
+      "inputSchema": {
+        "properties": {
+          "max_rows": {
+            "default": 25,
+            "title": "Max Rows",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "sumo_qa_format_risk_ledgerArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "ErrorEnvelope": {
+            "additionalProperties": false,
+            "description": "The MCP tool error envelope returned by ``sumo_qa.server._error_envelope``.\n\nUsed as the typed alternative to a bare ``dict`` in every tool's return\nannotation. Without this, FastMCP would emit an unconstrained\n``additionalProperties: true`` schema arm, allowing any shape through and\ndefeating the outputSchema contract.\n\n``isError`` is ``Literal[True]`` so Pydantic + FastMCP treat it as a\ndiscriminator, routing between each tool's success model and this\nenvelope in the emitted ``anyOf``/``oneOf`` schema.",
+            "properties": {
+              "error": {
+                "$ref": "#/$defs/_ErrorDetail",
+                "description": "Structured error payload with type, message, and actionable_hint."
+              },
+              "isError": {
+                "const": true,
+                "description": "Marks the response as an error per the MCP error-shape convention.",
+                "title": "Iserror",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "isError",
+              "error"
+            ],
+            "title": "ErrorEnvelope",
+            "type": "object"
+          },
+          "FormatRiskLedgerOutput": {
+            "additionalProperties": false,
+            "description": "Compact result of ``sumo_qa_format_risk_ledger``.\n\nPure file/format plumbing \u2014 the host supplies already-identified risk rows,\nthis tool validates them and renders the structured markdown appendix plus a\none-line roll-up. It performs NO risk inference. ``markdown`` is bounded by\n``max_rows`` (truncated with a ``+N more`` notice) so a large ledger can't\nblow the host token budget.",
+            "properties": {
+              "compact_summary": {
+                "description": "One-line roll-up of the ledger's evidence state.",
+                "title": "Compact Summary",
+                "type": "string"
+              },
+              "markdown": {
+                "description": "The rendered risk-ledger markdown table (the structured verdict appendix).",
+                "title": "Markdown",
+                "type": "string"
+              },
+              "row_count": {
+                "description": "Number of risk rows in the validated ledger.",
+                "title": "Row Count",
+                "type": "integer"
+              },
+              "tool": {
+                "const": "sumo_qa_format_risk_ledger",
+                "default": "sumo_qa_format_risk_ledger",
+                "description": "Tool discriminator; always the literal tool name.",
+                "title": "Tool",
+                "type": "string"
+              },
+              "truncated": {
+                "description": "True when the rendered table omitted rows past max_rows.",
+                "title": "Truncated",
+                "type": "boolean"
+              },
+              "uncovered_blocker_count": {
+                "description": "Rows that are high-risk gaps (not passing, not accepted; residual=blocker).",
+                "title": "Uncovered Blocker Count",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "row_count",
+              "uncovered_blocker_count",
+              "markdown",
+              "compact_summary",
+              "truncated"
+            ],
+            "title": "FormatRiskLedgerOutput",
+            "type": "object"
+          },
+          "_ErrorDetail": {
+            "additionalProperties": false,
+            "description": "Inner payload of the MCP tool error envelope.",
+            "properties": {
+              "actionable_hint": {
+                "description": "One-line hint the host surfaces to the user with a concrete next step.",
+                "title": "Actionable Hint",
+                "type": "string"
+              },
+              "message": {
+                "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
+                "title": "Message",
+                "type": "string"
+              },
+              "type": {
+                "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message",
+              "actionable_hint"
+            ],
+            "title": "_ErrorDetail",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FormatRiskLedgerOutput"
+              },
+              {
+                "$ref": "#/$defs/ErrorEnvelope"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "sumo_qa_format_risk_ledgerOutput",
         "type": "object"
       }
     },
