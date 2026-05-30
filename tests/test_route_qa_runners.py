@@ -36,7 +36,7 @@ HOOK = HOOKS_DIR / "route-qa-runners.py"
 
 
 def _read_fixture(name: str) -> str:
-    return (FIXTURES_DIR / name).read_text()
+    return (FIXTURES_DIR / name).read_text(encoding="utf-8")
 
 
 def _run_hook(payload: dict) -> subprocess.CompletedProcess:
@@ -148,7 +148,7 @@ class TestMutmutBranch:
 
         assert result.returncode == 0
         assert _additional_context(result) is None, (
-            "hook routed on `cat \"mutmut run.log\" | grep survived` — a false "
+            'hook routed on `cat "mutmut run.log" | grep survived` — a false '
             "positive. A quoted/embedded `mutmut run.log` is not an invocation."
         )
 
@@ -345,9 +345,7 @@ class TestPromptfooBranch:
         """Re-review regression guard: `eval`-prefixed npm script names that are
         delimited by `-` `.` `/` (not `:`) are distinct runners, not `npm run eval`.
         The widened lookahead `(?![\\w:./-])` must block them even with FAIL output."""
-        result = _run_hook(
-            _payload(command, stdout="[FAIL] assertion failed\n", exit_code=1)
-        )
+        result = _run_hook(_payload(command, stdout="[FAIL] assertion failed\n", exit_code=1))
 
         assert result.returncode == 0
         assert _additional_context(result) is None, (
@@ -437,9 +435,7 @@ class TestPromptfooBranch:
         non-boundary suffix, including the `:`-, `.`-, `-`-, `/`-delimited
         sibling scripts, with FAIL output present.
         """
-        result = _run_hook(
-            _payload(command, stdout="[FAIL] assertion failed\n", exit_code=1)
-        )
+        result = _run_hook(_payload(command, stdout="[FAIL] assertion failed\n", exit_code=1))
 
         assert result.returncode == 0
         assert _additional_context(result) is None, (
