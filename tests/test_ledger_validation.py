@@ -80,12 +80,21 @@ def test_duplicate_risk_id_categorised():
     assert "duplicate" in excinfo.value.message
 
 
-def test_non_string_schema_version_falls_through_to_pydantic():
-    # A null/number schema_version is NOT the friendly "your artifact says 2.0"
-    # case — it falls through to Pydantic's literal handler (vocab_error).
+def test_null_schema_version_falls_through_to_pydantic():
+    # A null (missing) schema_version is NOT the friendly "your artifact says
+    # 2.0" case — it falls through to Pydantic's literal handler (vocab_error).
     with pytest.raises(LedgerValidationError) as excinfo:
         load_ledger(_payload(schema_version=None))
     assert excinfo.value.kind == "vocab_error"
+
+
+def test_non_string_mismatched_schema_version_is_version_mismatch():
+    # An int (or any non-string) schema_version that doesn't match must surface
+    # as a clear schema_version_mismatch, not a confusing literal/vocab error.
+    with pytest.raises(LedgerValidationError) as excinfo:
+        load_ledger({"schema_version": 2, "rows": []})
+    assert excinfo.value.kind == "schema_version_mismatch"
+    assert "2" in excinfo.value.message
 
 
 def test_error_str_includes_kind_and_path():

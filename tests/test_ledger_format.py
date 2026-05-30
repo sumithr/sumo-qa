@@ -69,6 +69,36 @@ def test_markdown_escapes_pipe_in_field_so_table_is_not_broken():
     assert "a \\| b split" in out
 
 
+def test_markdown_neutralises_newline_in_cell_so_row_is_not_split():
+    # A newline in a cell would otherwise break the table row and let arbitrary
+    # markdown be injected on a fresh line outside the row. It must collapse to a
+    # single space, and any pipe in the same value must still be escaped.
+    out = format_ledger_markdown(_ledger(_row(risk="line one\nline two | with pipe")))
+    data_rows = [line for line in out.splitlines() if line.startswith("| R1 ")]
+    assert len(data_rows) == 1
+    row_line = data_rows[0]
+    assert "\n" not in row_line.rstrip("\n")
+    assert "line one line two \\| with pipe" in row_line
+    # No stray non-table line leaked out of the row.
+    assert "line two" not in out.replace(row_line, "")
+
+
+def test_markdown_neutralises_carriage_return_in_cell():
+    out = format_ledger_markdown(_ledger(_row(risk="a\r\nb\rc")))
+    data_rows = [line for line in out.splitlines() if line.startswith("| R1 ")]
+    assert len(data_rows) == 1
+    assert "a b c" in data_rows[0]
+
+
+def test_negative_max_rows_renders_zero_rows_and_truncates_all():
+    # A negative cap must clamp to 0 — never become a Python negative slice
+    # (max_rows=-1 would otherwise keep all-but-the-last row).
+    rows = [_row(risk_id=f"R{i}") for i in range(1, 4)]
+    out = format_ledger_markdown(_ledger(*rows), max_rows=-1)
+    assert "R1" not in out and "R2" not in out and "R3" not in out
+    assert "3 more" in out  # all 3 rows truncated
+
+
 def test_markdown_renders_repo_map_node_id_when_present():
     out = format_ledger_markdown(_ledger(_row(repo_map_node_id="file:refund.py")))
     assert "file:refund.py" in out

@@ -51,7 +51,12 @@ class LedgerValidationError(ValueError):
 def load_ledger(data: dict) -> RiskLedger:
     """Load and validate a risk-to-test ledger from a parsed dict."""
     version = data.get("schema_version")
-    if isinstance(version, str) and version != LEDGER_SCHEMA_VERSION:
+    # Any present-but-non-matching schema_version — string OR not (e.g. an int
+    # 2) — is a version mismatch. Routing a non-string through Pydantic would
+    # surface a confusing literal/vocab error instead of the clear "your
+    # artifact says X, this build expects Y" signal. A missing schema_version
+    # (None) still falls through so Pydantic reports it as a missing field.
+    if version is not None and version != LEDGER_SCHEMA_VERSION:
         raise LedgerValidationError(
             kind="schema_version_mismatch",
             message=(

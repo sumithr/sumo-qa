@@ -85,6 +85,19 @@ def test_truncation_flag_and_notice(tool):
     assert out.row_count == 5
 
 
+def test_negative_max_rows_renders_zero_rows_and_truncates(tool):
+    # A negative cap must clamp to 0 (no negative-slice exposure): zero data
+    # rows rendered, truncated reported True, full row_count preserved.
+    rows = [_row(risk_id=f"R{i}") for i in range(1, 4)]
+    out = tool(rows=rows, max_rows=-1)
+    assert out.truncated is True
+    assert out.row_count == 3
+    assert "R1" not in out.markdown
+    assert "R2" not in out.markdown
+    assert "R3" not in out.markdown
+    assert "3 more" in out.markdown
+
+
 def test_empty_rows_returns_placeholder(tool):
     out = tool(rows=[])
     assert out.row_count == 0
