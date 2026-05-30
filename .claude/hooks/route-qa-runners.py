@@ -42,11 +42,18 @@ EVAL_REMINDER = (
 def is_mutmut_run(command: str) -> bool:
     """True only for an actual `mutmut run` invocation.
 
-    Matches `mutmut run` as a whole-word command token so `uv run mutmut run`
-    and `python -m mutmut run` count, but `cat log | grep mutmut` or a path
-    containing the substring does not.
+    Matches `mutmut run` as a real command token so `uv run mutmut run`,
+    `python -m mutmut run`, and a leading `mutmut run` count, but a quoted /
+    embedded occurrence like `cat "mutmut run.log" | grep survived` does not.
+
+    Tightened over a bare ``\\bmutmut\\s+run\\b``: ``mutmut`` must sit at the
+    start of the command or be preceded by whitespace (so a quote-prefixed path
+    like ``"mutmut run.log"`` is rejected), and ``run`` must not be followed by a
+    filename-continuation char (``\\w`` / ``.`` / ``/`` / ``-``) so ``run.log``
+    is not mistaken for the ``run`` subcommand. A trailing shell separator
+    (space, ``;``, ``&``, ``|``, end-of-string) still counts as a real call.
     """
-    return re.search(r"\bmutmut\s+run\b", command) is not None
+    return re.search(r"(?:^|\s)mutmut\s+run(?![\w./-])", command) is not None
 
 
 def is_eval_run(command: str) -> bool:
@@ -55,16 +62,25 @@ def is_eval_run(command: str) -> bool:
 
     Accepted: `promptfoo eval`, `npm run eval`, `npm run eval:all`.
     Excluded: `eval:generate`, `eval:view` (and any other `eval:` subcommand
-    that is not `eval:all`). The exclusion is checked first so the broad
-    `npm run eval` match cannot swallow `npm run eval:generate`.
+    that is not `eval:all`).
+
+    A genuinely-present accepted runner wins. The excluded-subcommand check is
+    scoped so it only suppresses a command whose eval invocation is SOLELY an
+    excluded subcommand — a compound command like
+    `npm run eval && npm run eval:view` still routes because `npm run eval` ran.
+    The accepted matchers use a negative lookahead `(?![\\w:])` so they require a
+    standalone `eval` (or `eval:all`) token and do not themselves fire on
+    `eval:view` / `eval:generate`.
     """
-    # Explicitly ignored eval subcommands.
+    accepted = (
+        re.search(r"\bpromptfoo\s+eval(?![\w:])", command) is not None
+        or re.search(r"\bnpm\s+run\s+eval(?::all)?(?![\w:])", command) is not None
+    )
+    if accepted:
+        return True
+    # No accepted runner present: an excluded `eval:` subcommand stays silent.
     if re.search(r"\beval:(?!all\b)\w+", command):
         return False
-    if re.search(r"\bpromptfoo\s+eval\b", command):
-        return True
-    if re.search(r"\bnpm\s+run\s+eval(:all)?\b", command):
-        return True
     return False
 
 
@@ -78,13 +94,15 @@ def has_eval_failure(output: str) -> bool:
 
     Detects the per-assert `[FAIL]` token or a non-zero `Failures:` summary
     line (`Failures: 1` and above; `Failures: 0` is a pass).
+
+    Scans ALL `Failures:` summary lines, not just the first: `npm run eval:all`
+    runs multiple eval files and emits one summary each, so output like
+    `Failures: 0\\nFailures: 2` carries a real failure in a later block. Any
+    count > 0 is a failure.
     """
     if "[FAIL]" in output:
         return True
-    match = re.search(r"Failures:\s*(\d+)", output)
-    if match and int(match.group(1)) > 0:
-        return True
-    return False
+    return any(int(count) > 0 for count in re.findall(r"Failures:\s*(\d+)", output))
 
 
 def emit(reminder: str) -> None:

@@ -128,6 +128,49 @@ class TestMutmutBranch:
             "branch must require the `mutmut run` command."
         )
 
+    def test_does_not_route_on_quoted_mutmut_run_log_grep(self) -> None:
+        """Fix 3 regression guard: `cat "mutmut run.log" | grep survived` embeds
+        the substring `mutmut run` inside a quoted filename and the output carries
+        the survivor word, but it is the prohibited log-grep class, NOT a real
+        invocation.
+
+        A bare `\\bmutmut\\s+run\\b` false-positives here (the `\\b` matches before
+        `.log` and a quote prefix is a word boundary). is_mutmut_run must require
+        `mutmut` at start-or-whitespace and `run` not followed by a
+        filename-continuation char.
+        """
+        result = _run_hook(
+            _payload(
+                'cat "mutmut run.log" | grep survived',
+                stdout="mutant survived\n",
+            )
+        )
+
+        assert result.returncode == 0
+        assert _additional_context(result) is None, (
+            "hook routed on `cat \"mutmut run.log\" | grep survived` — a false "
+            "positive. A quoted/embedded `mutmut run.log` is not an invocation."
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "uv run mutmut run",
+            "python -m mutmut run",
+            "mutmut run",
+        ],
+    )
+    def test_real_mutmut_invocations_still_route(self, command: str) -> None:
+        """Fix 3 must not weaken real detection: the canonical invocation shapes
+        (uv-run, python -m, and a bare leading `mutmut run`) must still route on a
+        survivor."""
+        result = _run_hook(_payload(command, stdout=_read_fixture("mutmut-survivors.txt")))
+
+        assert result.returncode == 0, f"hook crashed: {result.stderr!r}"
+        ctx = _additional_context(result)
+        assert ctx is not None, f"hook stayed silent on a real mutmut invocation {command!r}."
+        assert "mutation-survivor-triage" in ctx
+
 
 class TestPromptfooBranch:
     """promptfoo / npm-run-eval x FAIL markers route to eval-failure-diagnoser."""
@@ -181,6 +224,64 @@ class TestPromptfooBranch:
         assert _additional_context(result) is None, (
             f"hook routed on an excluded command {command!r}; eval:generate and "
             "eval:view must never trigger the diagnoser reminder."
+        )
+
+    def test_routes_on_later_nonzero_failures_summary(self) -> None:
+        """Fix 1 regression guard: `npm run eval:all` runs multiple eval files and
+        emits a `Failures:` summary per file. Output `Failures: 0` then
+        `Failures: 2` (no `[FAIL]` token) carries a real failure in a LATER block.
+
+        A `re.search` that inspects only the FIRST summary stays silent here;
+        has_eval_failure must scan ALL `Failures:` matches and route if any > 0.
+        """
+        output = "eval-a\nFailures: 0\nPasses: 5\n\neval-b\nFailures: 2\nPasses: 3\n"
+        assert "[FAIL]" not in output, "fixture must isolate the Failures-summary path"
+        result = _run_hook(_payload("npm run eval:all", stdout=output, exit_code=100))
+
+        assert result.returncode == 0, f"hook crashed: {result.stderr!r}"
+        ctx = _additional_context(result)
+        assert ctx is not None, (
+            "hook stayed silent on a later `Failures: 2` summary; it must scan all "
+            "`Failures:` lines, not just the first."
+        )
+        assert "eval-failure-diagnoser" in ctx
+
+    def test_compound_eval_with_excluded_subcommand_still_routes(self) -> None:
+        """Fix 2 regression guard (a): `npm run eval && npm run eval:view` genuinely
+        ran `npm run eval`. A co-present excluded subcommand (`eval:view`) must NOT
+        suppress the whole command.
+
+        The old `\\beval:(?!all)\\w+` scanned the WHOLE command string and returned
+        early, swallowing the genuine `npm run eval` run."""
+        result = _run_hook(
+            _payload(
+                "npm run eval && npm run eval:view",
+                stdout=_read_fixture("promptfoo-fail.txt"),
+                exit_code=100,
+            )
+        )
+
+        assert result.returncode == 0, f"hook crashed: {result.stderr!r}"
+        ctx = _additional_context(result)
+        assert ctx is not None, (
+            "hook stayed silent on `npm run eval && npm run eval:view`; the genuine "
+            "`npm run eval` run must still route despite the co-present eval:view."
+        )
+        assert "eval-failure-diagnoser" in ctx
+
+    @pytest.mark.parametrize("command", ["npm run eval:view", "npm run eval:generate"])
+    def test_bare_excluded_subcommand_still_excluded(self, command: str) -> None:
+        """Fix 2 regression guard (b/c): a BARE excluded subcommand with no genuine
+        accepted runner present must still be excluded — the Fix 2 scoping must not
+        accidentally let `eval:view` / `eval:generate` route on their own."""
+        result = _run_hook(
+            _payload(command, stdout=_read_fixture("promptfoo-fail.txt"), exit_code=1)
+        )
+
+        assert result.returncode == 0
+        assert _additional_context(result) is None, (
+            f"hook routed on bare {command!r}; with no accepted runner present it "
+            "must stay excluded."
         )
 
 
