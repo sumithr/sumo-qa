@@ -45,6 +45,21 @@ _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # different tool like `sumo_qa_load_rules_v2` does not count as a `rules` load.
 _LOAD_RE = re.compile(r"sumo_qa_load_(" + "|".join(CATALOGUES) + r")\b")
 
+# A description "names" a catalogue if it uses the catalogue word — plural OR
+# singular ("cites a principle or technique from the catalogue" names principles
+# + techniques). EXCEPTION: `approaches` is matched plural-only — the singular
+# "approach" is a ubiquitous generic word (the `deciding-approach` skill name,
+# "phased QA approach", "test approach") and matching it would false-flag 5
+# shipped skills that never load the approaches catalogue.
+_CLAIM_TERMS = {
+    "classifications": ("classifications", "classification"),
+    "approaches": ("approaches",),
+    "principles": ("principles", "principle"),
+    "techniques": ("techniques", "technique"),
+    "standards": ("standards", "standard"),
+    "rules": ("rules", "rule"),
+}
+
 
 def _split_frontmatter(skill_md_text: str) -> tuple[str, str]:
     """Return ``(frontmatter_text, body_text)``. With no frontmatter, the whole
@@ -62,7 +77,11 @@ def _described_catalogues(skill_md_text: str) -> set[str]:
     frontmatter, _ = _split_frontmatter(skill_md_text)
     data = yaml.safe_load(frontmatter) if frontmatter else None
     description = data.get("description", "") if isinstance(data, dict) else ""
-    return {cat for cat in CATALOGUES if re.search(rf"\b{cat}\b", description, re.IGNORECASE)}
+    return {
+        cat
+        for cat, terms in _CLAIM_TERMS.items()
+        if any(re.search(rf"\b{t}\b", description, re.IGNORECASE) for t in terms)
+    }
 
 
 def _loaded_catalogues(skill_md_text: str) -> set[str]:
@@ -122,11 +141,39 @@ def test_partial_load_token_is_not_counted():
     assert _description_body_drift(text) == {"rules"}
 
 
+def test_singular_catalogue_claim_is_detected():
+    """A description naming a catalogue in the SINGULAR ("a principle or
+    technique from the catalogue") still counts as naming it, so a body that
+    loads neither is flagged (codex review on PR #254)."""
+    text = (
+        "---\n"
+        "name: x\n"
+        "description: Cites a principle or technique from the loaded catalogue.\n"
+        "---\n\n"
+        "The body loads nothing.\n"
+    )
+    assert _description_body_drift(text) == {"principles", "techniques"}
+
+
+def test_generic_approach_word_is_not_a_catalogue_claim():
+    """The singular "approach" is a ubiquitous generic word (the
+    deciding-approach skill name, "phased QA approach") — matching it would
+    false-flag shipped skills, so `approaches` is matched plural-only."""
+    text = (
+        "---\n"
+        "name: x\n"
+        "description: Use after sumo-qa-deciding-approach picks a phased QA approach.\n"
+        "---\n\n"
+        "The body loads nothing.\n"
+    )
+    assert _description_body_drift(text) == set()
+
+
 @pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
 def test_shipped_skill_description_matches_body_loads(skill_path: Path):
     """Every shipped skill's description must not over-claim a catalogue its
     body never loads."""
-    drift = _description_body_drift(skill_path.read_text())
+    drift = _description_body_drift(skill_path.read_text(encoding="utf-8"))
     assert not drift, (
         f"{skill_path.parent.name}/SKILL.md description names catalogue(s) "
         f"{sorted(drift)} that the body never loads "
