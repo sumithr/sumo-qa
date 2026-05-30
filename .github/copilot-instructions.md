@@ -27,11 +27,20 @@ hyphens replaced by underscores):
 - `sumo_qa_finding_test_data` — known-good test data discovery and validation
 - `sumo_qa_answering_testing_question` — generic "how do I test this?"
 - `sumo_qa_strategising` — repo-wide QA strategy
+- `sumo_qa_planning_qa_rollout` — turn a QA chunk into a written plan of bite-sized tasks
+- `sumo_qa_executing_qa_rollout` — dispatch a signed-off plan task-by-task to fresh subagents
+- `sumo_qa_finishing_qa_work` — capture evidence and write a PR-ready summary
+- `sumo_qa_suggesting_external_skill` — fallback when no native skill fits the intent
 
 The skills carry the senior-QA discipline (Iron Laws, checklists, Red Flags).
 Knowledge catalogues are accessed via the `sumo_qa_load_*` tools — use them
 for principles, techniques, classifications, approaches, and specialty tool
 fits before relying on training-data knowledge.
+
+Repo-map accelerators: when a `.sumo-qa/repo-map.json` artifact is present,
+`sumo_qa_scan_repo`, `sumo_qa_analyze_diff_impact`, and `sumo_qa_query_repo_map`
+provide fast, deterministic evidence over the codebase (inventory, changed-file
+impact, ranked search) for the review, strategy, and prepare-for-work skills.
 
 When creating GitHub issues, use the closest template in `.github/ISSUE_TEMPLATE/`
 and include every required field in the issue body. For implementation tasks

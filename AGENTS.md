@@ -94,7 +94,7 @@ In any host, ask in chat:
 load the QA classifications
 ```
 
-You should get 10 canonical names back: api_contract_change, business_logic_change, security_change, performance_change, frontend_change, infrastructure_change, test_change, docs_change, config_change, data_migration. If yes, the MCP is wired correctly.
+You should get the canonical change-classification names back. If yes, the MCP is wired correctly.
 
 ## After install
 

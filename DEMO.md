@@ -169,5 +169,5 @@ Watching parallel subagents write tests against different risks at once, each re
 
 - [tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md) — every scenario sumo-qa handles, with expected shape and anti-patterns
 - [tests/scenarios/worked-examples/](tests/scenarios/worked-examples/) — full multi-turn transcripts for each scenario
-- [skills/](skills/) — the 14 skills (1 router + 13 sub-skills) with Iron Laws and HARD-GATEs
+- [skills/](skills/) — the skills (a router plus sub-skills) with Iron Laws and HARD-GATEs
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the layers fit together
