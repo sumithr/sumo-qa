@@ -42,6 +42,7 @@ A change is ready when ruff, pytest, and mypy are all green.
 - Branch off `main`; keep each PR focused on one logical change.
 - **PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/)** (e.g. `fix:`, `feat:`, `docs:`, `ci:`, `chore:`). Releases are automated from PR titles via release-please, so a non-conforming title is silently dropped from the changelog — use a single valid type, not combined prefixes like `docs+test:`.
 - Update the relevant docs in the same PR as the code change.
+- Docs describe **capabilities, not inventory** — no skill/tool counts or exhaustive name-lists. Point to [`skills/`](../skills) and `sumo_qa_capabilities` for the live set.
 - Fill in the pull request template and link the issue your change addresses.
 - New skills must use the `sumo-qa-` prefix and pass the conformance tests; see [`docs/DEVELOPMENT.md`](../docs/DEVELOPMENT.md#adding-a-new-skill).
 

@@ -189,6 +189,7 @@ Adding a new technique, classification, or specialty tool = editing one file.
 3. Conformance tests parametrise over `skills/*/SKILL.md` — they run on the new skill too.
 4. If the skill is meant to auto-trigger in Claude Code, the frontmatter `description` is what the host LLM uses to route.
 5. Add a trigger row to [`tests/fixtures/skill_triggers.yaml`](../tests/fixtures/skill_triggers.yaml) pinning at least one natural-language prompt to the new skill — [`tests/test_skill_triggering.py`](../tests/test_skill_triggering.py) fails on any registered skill tool that lacks a fixture row, and on any pinned phrase that doesn't appear in the skill's description. Edit the fixture, not the test.
+6. **Don't add the skill to a list in the docs** — there isn't one. The docs are kept at capability-altitude (no skill/tool counts or name-lists); `README.md`, `docs/SKILLS.md`, and `docs/TOOLS.md` point to `skills/` and `sumo_qa_capabilities` for the live set. Only a genuine *capability* change (a new kind of workflow, a changed contract) warrants a docs edit.
 
 ## Editing plugin packaging (host adapters)
 
