@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.20.1](https://github.com/sumithr/sumo-qa/compare/v0.20.0...v0.20.1) (2026-05-30)
+
+
+### Tests
+
+* add SKILL.md description-vs-body drift contract test ([#254](https://github.com/sumithr/sumo-qa/issues/254)) ([a09835d](https://github.com/sumithr/sumo-qa/commit/a09835d4c1b4008f08ebadf904ad8361a7c3cc51))
+
+
+### Build System
+
+* **deps:** bump axios and ibm-cloud-sdk-core ([#251](https://github.com/sumithr/sumo-qa/issues/251)) ([3acd924](https://github.com/sumithr/sumo-qa/commit/3acd924c146a7d7e4ea7d20172f0e444ddde1ea1))
+
 ## [0.20.0](https://github.com/sumithr/sumo-qa/compare/v0.19.0...v0.20.0) (2026-05-29)
 
 
