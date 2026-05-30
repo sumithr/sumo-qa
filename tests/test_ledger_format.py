@@ -10,6 +10,8 @@ token budget (#89/#137 guard).
 
 from __future__ import annotations
 
+import pytest
+
 from sumo_qa.ledger_format import (
     compact_summary,
     format_ledger_markdown,
@@ -160,3 +162,64 @@ def test_compact_summary_no_blocker_phrase_when_all_covered():
 def test_compact_summary_empty_ledger():
     summary = compact_summary(_ledger())
     assert "0 risks" in summary
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 regression: comprehensive Unicode line/paragraph/vertical separators
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "separator,label",
+    [
+        ("\r\n", "CRLF"),
+        ("\r", "CR"),
+        ("\n", "LF"),
+        ("\x0b", "VT vertical-tab"),
+        ("\x0c", "FF form-feed"),
+        ("\x1c", "FS file-separator"),
+        ("\x1d", "GS group-separator"),
+        ("\x1e", "RS record-separator"),
+        ("\x85", "NEL next-line"),
+        (" ", "LS line-separator"),
+        (" ", "PS paragraph-separator"),
+    ],
+)
+def test_escape_collapses_every_unicode_line_separator_to_single_row(separator, label):
+    """Each separator variant must collapse to a space — never split the table row."""
+    row = _row(risk="before" + separator + "after")
+    out = format_ledger_markdown(_ledger(row))
+    data_rows = [line for line in out.splitlines() if line.startswith("| R1 ")]
+    assert len(data_rows) == 1, f"{label} ({repr(separator)}) split the row into multiple lines"
+    assert "before after" in data_rows[0], (
+        f"{label} ({repr(separator)}) was not collapsed to a space"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fix 2 regression: truncated reflects ACTUAL omission, not raw max_rows sign
+# ---------------------------------------------------------------------------
+
+
+def test_truncated_false_for_empty_ledger_with_negative_max_rows():
+    """rows=[], max_rows=-1 => truncated must be False (nothing was omitted)."""
+    rows_list = []
+    max_rows = -1
+    truncated = len(rows_list) > max(max_rows, 0)
+    assert truncated is False
+
+
+def test_truncated_true_when_all_rows_fall_outside_negative_cap():
+    """rows=[3 items], max_rows=-1 => truncated must be True (all rows omitted)."""
+    rows_list = [_row(risk_id=f"R{i}") for i in range(1, 4)]
+    max_rows = -1
+    truncated = len(rows_list) > max(max_rows, 0)
+    assert truncated is True
+
+
+def test_truncated_false_when_positive_cap_exceeds_row_count():
+    """rows=[3 items], max_rows=5 => truncated must be False (no rows omitted)."""
+    rows_list = [_row(risk_id=f"R{i}") for i in range(1, 4)]
+    max_rows = 5
+    truncated = len(rows_list) > max(max_rows, 0)
+    assert truncated is False

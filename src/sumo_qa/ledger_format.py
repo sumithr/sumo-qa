@@ -15,6 +15,8 @@ possible.
 
 from __future__ import annotations
 
+import re
+
 from sumo_qa.ledger_models import RiskLedger, RiskLedgerRow
 
 #: Default cap on rendered rows. A ledger larger than this is truncated with an
@@ -24,11 +26,15 @@ DEFAULT_MAX_ROWS = 25
 
 def _escape(value: str) -> str:
     # A literal pipe in a field would create a phantom table column; escape it
-    # so the markdown table stays well-formed. A newline (or carriage return)
-    # would break the row entirely and let arbitrary markdown be injected on a
-    # fresh line outside the table, so collapse every line break to a single
-    # space before escaping pipes — the row stays a single, well-formed row.
-    flattened = value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    # so the markdown table stays well-formed. Any Unicode line/paragraph/vertical
+    # separator would break the row entirely and let arbitrary markdown be injected
+    # on a fresh line outside the table. Collapse the full class — not just the
+    # common ASCII trio — to a single space before escaping pipes so the row stays
+    # a single, well-formed row regardless of the separator used.
+    #
+    # Covered: CR+LF, CR, LF, VT (\x0b), FF (\x0c), FS/GS/RS (\x1c-\x1e),
+    # NEL (\x85), LS (U+2028), PS (U+2029).
+    flattened = re.sub(r"[\r\n\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]+", " ", value)
     return flattened.replace("|", "\\|")
 
 

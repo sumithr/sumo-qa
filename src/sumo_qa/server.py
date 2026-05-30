@@ -949,7 +949,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 uncovered_blocker_count=blockers,
                 markdown=format_ledger_markdown(ledger, max_rows=max_rows),
                 compact_summary=compact_summary(ledger),
-                truncated=len(ledger.rows) > max_rows,
+                truncated=len(ledger.rows) > max(max_rows, 0),
             )
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_FORMAT_LEDGER)
