@@ -83,14 +83,14 @@ jobs:
           git commit -m "chore(packaging): regenerate plugin adapters for version bump"
           git push origin "HEAD:${HEAD_BRANCH}"
 
-      # The release PR is merged automatically. RELEASE_PLEASE_TOKEN is the
-      # repo owner's PAT, an always-bypass actor on the "Protect main"
-      # ruleset — but a *plain* merge does NOT auto-bypass; GitHub still
-      # blocks it on the unmet required-approval rule. `--admin` is what
-      # invokes the bypass to merge past that rule with no human review.
-      # --admin also bypasses the ruleset's required status checks, so it
-      # would happily merge a red release — that's why we explicitly wait
-      # for those checks to pass below before calling it.
+      # Auto-merge the release PR. release-please authors it as the repo owner
+      # (RELEASE_PLEASE_TOKEN). The "Protect main" ruleset requires a code-owner
+      # approval, which the owner cannot give their own PR — so the normal merge
+      # path is permanently "approval required". The PAT is an always-bypass
+      # actor on that ruleset, so `--admin` merges past it. --admin ALSO bypasses
+      # required status checks, so we wait for those to pass first to avoid
+      # shipping a red release. Collaborators' PRs are untouched and still need
+      # the owner's review.
       - name: Merge the release PR once required checks pass
         if: ${{ steps.release.outputs.pr }}
         timeout-minutes: 60
@@ -100,31 +100,37 @@ jobs:
           # in run: blocks (workflow-injection-safe pattern).
           RELEASE_PR_JSON: ${{ steps.release.outputs.pr }}
         run: |
-          PR_NUMBER=$(echo "$RELEASE_PR_JSON" | jq -r '.number')
-          # The release PR's head commit needs a moment for GitHub to register
-          # its required check runs. Two traps to avoid:
-          #   1. `git rev-parse HEAD` is *main's* HEAD (this workflow's checkout),
-          #      NOT the release PR's head — polling its check-runs breaks
-          #      instantly (main already has runs) while the PR's are unregistered.
-          #   2. `gh pr checks --required` aborts with "no required checks
-          #      reported" until the required contexts exist on the PR head.
-          # So poll the PR directly and treat ONLY the "not reported" message as
-          # the not-yet-registered signal; anything else (pending/failing/passing)
-          # means the contexts exist — hand off to --watch.
-          for attempt in $(seq 1 60); do
-            if OUT=$(gh pr checks "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --required 2>&1); then
-              break  # exit 0 = required checks already all green
+          set -uo pipefail
+          PR=$(jq -r '.number' <<<"$RELEASE_PR_JSON")
+          [ -n "$PR" ] && [ "$PR" != "null" ] || { echo "::error::could not read release PR number"; exit 1; }
+
+          # Wait for the release PR's REQUIRED checks to finish, then merge.
+          # `gh pr checks --required --watch --fail-fast` blocks until every
+          # required check completes and exits non-zero on the first failure.
+          # Its one quirk: in the seconds right after release-please (and the
+          # regen step) push the PR head, no check runs exist yet, so it exits
+          # immediately printing "no checks reported". Retry ONLY that transient
+          # case — doing the watch in one call (not a separate registration
+          # poll) closes the race where the head changes between two calls.
+          # Any other non-zero exit is a genuine check failure and stops here.
+          checks_green=""
+          for attempt in $(seq 1 30); do
+            if out=$(gh pr checks "$PR" --repo "$GITHUB_REPOSITORY" \
+                       --required --watch --fail-fast --interval 30 2>&1); then
+              echo "$out"
+              checks_green=1
+              break
             fi
-            case "$OUT" in
-              *"no required checks reported"*|*"no checks reported"*)
-                [ "${attempt}" -eq 60 ] && { echo "required checks never registered on PR ${PR_NUMBER}" >&2; exit 1; }
-                sleep 10 ;;
-              *) break ;;  # registered but pending/failing — let --watch resolve it
-            esac
+            if grep -qiE "no (required )?checks reported" <<<"$out"; then
+              echo "Required checks not registered on PR #$PR yet (attempt ${attempt}/30) — waiting…"
+              sleep 15
+              continue
+            fi
+            echo "$out" >&2
+            echo "::error::A required check failed on release PR #$PR — not merging."
+            exit 1
           done
-          # --required watches the full required set (read from the ruleset) to
-          # completion and fails fast on the first unsuccessful check.
-          gh pr checks "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
-            --required --watch --fail-fast --interval 30
-          gh pr merge --squash --admin --delete-branch \
-            --repo "${GITHUB_REPOSITORY}" "${PR_NUMBER}"
+          [ "$checks_green" = 1 ] || { echo "::error::required checks never registered on release PR #$PR"; exit 1; }
+
+          # All required checks are green — bypass-merge as the owner PAT.
+          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --squash --admin --delete-branch
