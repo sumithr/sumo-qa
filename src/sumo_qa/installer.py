@@ -108,6 +108,8 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_analyze_diff_impact",
     # Repo-map query (#156)
     "sumo_qa_query_repo_map",
+    # Risk-to-test ledger formatter (#144)
+    "sumo_qa_format_risk_ledger",
     # Ingestion
     "sumo_qa_ingest_knowledge_pack",
     # External skills

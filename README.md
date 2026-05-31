@@ -267,4 +267,5 @@ Filing a clear issue gets it fixed faster. Pick the template that matches the pr
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
 - [docs/REPO-MAP.md](docs/REPO-MAP.md) — QA-native repo-map artifact under `.sumo-qa/`: schema, scanner, and the scan / diff-impact / query tools that consume it (issues #155, #156)
+- [docs/RISK-LEDGER.md](docs/RISK-LEDGER.md) — risk-to-test traceability ledger: the structured appendix to the markdown-first verdict, its row schema and evidence-status vocabulary, and when not to use it (issue #144)
 - [docs/PERSONA.md](docs/PERSONA.md) — optional Sumo-sensei voice (off by default)

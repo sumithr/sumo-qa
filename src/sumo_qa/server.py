@@ -48,6 +48,7 @@ from sumo_qa.server_schemas import (
     DiffImpactOutput,
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
+    FormatRiskLedgerOutput,
     InstallExternalSkillOutput,
     RepoMapQueryOutput,
     RepoMapScanOutput,
@@ -89,6 +90,12 @@ _HINT_QUERY_REPO_MAP = (
     "Pass an existing repo directory plus a non-blank query. Optional: "
     "types=['test_file', ...] to restrict, limit>=0 to bound results. The "
     "repo-map artifact is optional — without it the tool scans live."
+)
+_HINT_FORMAT_LEDGER = (
+    "Pass rows=[{risk_id, risk, source_anchor, test, evidence_status, residual}, ...]. "
+    "evidence_status is one of planned/passing/failing/stale/accepted_residual; "
+    "residual is one of open/accepted/mitigated/blocker. Identify the risks "
+    "yourself — this tool only validates and formats them, it never infers risk."
 )
 
 
@@ -903,6 +910,52 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "types": types,
                 "artifact_path": artifact_path,
             },
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_read_only_local)
+    def sumo_qa_format_risk_ledger(
+        rows: list[dict[str, Any]],
+        max_rows: int = 25,
+    ) -> FormatRiskLedgerOutput | ErrorEnvelope:
+        """Validate and render a risk-to-test traceability ledger as a markdown
+        appendix (issue #144). FILE/FORMAT PLUMBING ONLY — the host LLM identifies
+        the risks; this tool never infers them.
+
+        Each row is a dict with: ``risk_id`` (stable within this response),
+        ``risk`` (the statement), ``source_anchor`` (file:line or domain term),
+        ``test`` (a test id OR a 'planned: …' check), ``evidence_status`` (one of
+        planned / passing / failing / stale / accepted_residual), ``residual``
+        (one of open / accepted / mitigated / blocker), and an optional
+        ``repo_map_node_id`` linking to a ``.sumo-qa/repo-map.json`` node.
+
+        Returns the rendered markdown table (the structured appendix the
+        markdown-first verdict carries), a one-line compact summary, the row
+        count, and the count of uncovered blockers (rows that are not passing,
+        not accepted, and marked residual=blocker — the signal the review
+        workflow uses to refuse safe-to-merge). The table is bounded by
+        ``max_rows`` so a large ledger stays inside the host token budget.
+        """
+        from sumo_qa.ledger_format import compact_summary, format_ledger_markdown
+        from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION
+        from sumo_qa.ledger_validation import load_ledger
+
+        output: FormatRiskLedgerOutput | dict[str, Any]
+        try:
+            ledger = load_ledger({"schema_version": LEDGER_SCHEMA_VERSION, "rows": rows})
+            blockers = sum(1 for row in ledger.rows if row.is_uncovered_blocker())
+            output = FormatRiskLedgerOutput(
+                row_count=len(ledger.rows),
+                uncovered_blocker_count=blockers,
+                markdown=format_ledger_markdown(ledger, max_rows=max_rows),
+                compact_summary=compact_summary(ledger),
+                truncated=len(ledger.rows) > max(max_rows, 0),
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_FORMAT_LEDGER)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_format_risk_ledger",
+            args={"rows": rows, "max_rows": max_rows},
             output=output,  # type: ignore[arg-type]
         )
 

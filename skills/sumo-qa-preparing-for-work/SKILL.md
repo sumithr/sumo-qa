@@ -45,6 +45,8 @@ Track these as an ordered work list (use the host's task primitive if available,
 7. Produce a smallest useful test set: 3-7 tests, each tied to a named risk. No generic *"test happy path"*. **Concreteness rule (pinned):** if the change-shape supplies a numeric reproduction, a worked example, or specific inputs/outputs (e.g. *"qty 2+3 currently shows 2, must show 5"*), the corresponding test idea MUST reuse those exact numbers. Restating the risk in test-shape (*"verify that the item count displays the correct total"*) is not a test idea — it's the risk again. A test idea names inputs and the observable outcome.
 8. Output: conversational prose, sectioned (risks, tests, techniques, specialty tools, open assumptions). No JSON blob.
 
+   **Risk-to-test ledger appendix (optional, structured).** The prose brief is the deliverable. When the user wants a paste-into-ticket artifact (*"give me the ledger"*, *"track these as a traceability table"*), project the SAME named risks + proposed tests into the structured ledger via `sumo_qa_format_risk_ledger` and append it below the prose — never instead of it. A planning ledger needs NO code change and NO test run: every row is `evidence_status: planned` with `test` holding the proposed check (a `planned: …` phrase or a test path you'd write), `source_anchor` the risk's file/domain anchor, and `residual: open`. The tool only validates and formats — YOU name the risks (step 4). Skip it when the user just wants the prep brief.
+
 ## Process Flow
 
 See the Checklist above — that's the flow.

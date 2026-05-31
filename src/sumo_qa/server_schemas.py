@@ -588,3 +588,28 @@ class RepoMapQueryOutput(_StrictBase):
     warnings_by_kind: dict[str, int] = Field(
         default_factory=dict, description="Per-kind warning counts."
     )
+
+
+class FormatRiskLedgerOutput(_StrictBase):
+    """Compact result of ``sumo_qa_format_risk_ledger``.
+
+    Pure file/format plumbing — the host supplies already-identified risk rows,
+    this tool validates them and renders the structured markdown appendix plus a
+    one-line roll-up. It performs NO risk inference. ``markdown`` is bounded by
+    ``max_rows`` (truncated with a ``+N more`` notice) so a large ledger can't
+    blow the host token budget.
+    """
+
+    tool: Literal["sumo_qa_format_risk_ledger"] = Field(
+        default="sumo_qa_format_risk_ledger",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    row_count: int = Field(description="Number of risk rows in the validated ledger.")
+    uncovered_blocker_count: int = Field(
+        description="Rows that are high-risk gaps (not passing, not accepted; residual=blocker)."
+    )
+    markdown: str = Field(
+        description="The rendered risk-ledger markdown table (the structured verdict appendix)."
+    )
+    compact_summary: str = Field(description="One-line roll-up of the ledger's evidence state.")
+    truncated: bool = Field(description="True when the rendered table omitted rows past max_rows.")

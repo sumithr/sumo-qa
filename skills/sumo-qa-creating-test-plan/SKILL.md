@@ -58,7 +58,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 11. **Residual risks accepted at exit** — name 1–3 risks you're NOT covering and why (out of scope, accepted cost, mitigated elsewhere).
 
-12. **Final plan** — assemble the confirmed sections into one document. Offer to write to a file (e.g. `docs/qa-plans/<topic>.md`) or surface inline. Confirm before writing.
+12. **Final plan** — assemble the confirmed sections into one document. Offer to write to a file (e.g. `docs/qa-plans/<topic>.md`) or surface inline. Confirm before writing. **Optionally** append a structured risk-to-test ledger: project the confirmed risk→technique table into `sumo_qa_format_risk_ledger` (one row per risk, `evidence_status: planned`, `residual: open` for risks the plan covers and `accepted` for the residual risks named in step 11). It is a traceable appendix to the markdown plan, not a replacement; the plan emits with no code change or test run.
 
 ## Process Flow
 
