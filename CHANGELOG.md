@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/sumithr/sumo-qa/compare/v0.20.3...v0.21.0) (2026-05-31)
+
+
+### Features
+
+* add risk-to-test traceability ledger ([#262](https://github.com/sumithr/sumo-qa/issues/262)) ([031abe7](https://github.com/sumithr/sumo-qa/commit/031abe70293e8dd80e8d4526f2f7a7a1c01c653d))
+
 ## [0.20.3](https://github.com/sumithr/sumo-qa/compare/v0.20.2...v0.20.3) (2026-05-30)
 
 
