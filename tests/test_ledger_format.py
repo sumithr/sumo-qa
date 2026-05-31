@@ -10,6 +10,8 @@ token budget (#89/#137 guard).
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from sumo_qa.ledger_format import (
@@ -123,21 +125,35 @@ def test_repo_map_column_keeps_table_well_formed():
     # BOTH the header and the rule, so header / rule / every data row expose the
     # same cell count. Substring presence (the assertions above) can't catch a
     # missing delimiter that merges 'Residual' and 'Repo-map node' into one
-    # header cell while each data row still emits its own 7th cell. The test row
-    # values carry no literal pipe, so splitting on '|' counts cells faithfully.
+    # header cell while each data row still emits its own 7th cell.
+    #
+    # R3 carries a literal pipe in its statement AND a repo-map node id, so the
+    # escape path (| -> \|) and the new column delimiter are exercised together:
+    # an escaped \| inside a value must NOT be miscounted as a column break, or a
+    # real raggedness regression could hide behind a phantom cell.
     out = format_ledger_markdown(
-        _ledger(_row(), _row(risk_id="R2", repo_map_node_id="file:refund.py"))
+        _ledger(
+            _row(),
+            _row(risk_id="R2", repo_map_node_id="file:refund.py"),
+            _row(risk_id="R3", risk="a | b split", repo_map_node_id="file:x.py"),
+        )
     )
     table = [line for line in out.splitlines() if line.startswith("|")]
 
     def cell_count(line: str) -> int:
-        return len(line.strip().strip("|").split("|"))
+        # Count column delimiters only: a '|' escaped as '\|' inside a cell value
+        # is content, not a column break. Every rendered line is wrapped in
+        # '| ... |', so slice off the outer pipes before splitting on unescaped
+        # delimiters.
+        inner = line.strip()[1:-1]
+        return len(re.split(r"(?<!\\)\|", inner))
 
     counts = [cell_count(line) for line in table]
     # 6 base columns + 1 optional Repo-map node column = 7, identical for the
-    # header, the delimiter rule, and both data rows (the node-less row gets a
-    # '—' placeholder cell).
-    assert counts == [7, 7, 7, 7], f"ragged table — per-line cell counts: {counts}"
+    # header, the delimiter rule, and all three data rows (the node-less row gets
+    # a '—' placeholder; the pipe-bearing row stays at 7 because the escaped pipe
+    # is not a delimiter).
+    assert counts == [7, 7, 7, 7, 7], f"ragged table — per-line cell counts: {counts}"
 
 
 def test_truncation_caps_rows_and_announces_the_cut():
