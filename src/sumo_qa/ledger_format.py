@@ -59,8 +59,13 @@ def format_ledger_markdown(ledger: RiskLedger, *, max_rows: int = DEFAULT_MAX_RO
     header = "| Risk | Statement | Source | Test / check | Evidence | Residual |"
     rule = "|---|---|---|---|---|---|"
     if show_node_id:
-        header = header[:-1] + " Repo-map node |"
-        rule = rule[:-1] + "---|"
+        # Re-add the column delimiter the slice stripped before appending the
+        # optional column. Without the leading pipe, 'Residual' and 'Repo-map
+        # node' merge into one header cell (6-col header + rule) while each data
+        # row still emits its own 7th cell — a ragged, malformed table on the
+        # documented repo-map path.
+        header = header[:-1] + "| Repo-map node |"
+        rule = rule[:-1] + "|---|"
 
     lines = ["**Risk ledger**", "", header, rule]
     for row in shown:

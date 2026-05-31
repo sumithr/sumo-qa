@@ -118,6 +118,28 @@ def test_markdown_includes_node_id_column_when_any_row_has_one():
     assert "Repo-map node" in out
 
 
+def test_repo_map_column_keeps_table_well_formed():
+    # Regression: the optional Repo-map node column must add a real delimiter to
+    # BOTH the header and the rule, so header / rule / every data row expose the
+    # same cell count. Substring presence (the assertions above) can't catch a
+    # missing delimiter that merges 'Residual' and 'Repo-map node' into one
+    # header cell while each data row still emits its own 7th cell. The test row
+    # values carry no literal pipe, so splitting on '|' counts cells faithfully.
+    out = format_ledger_markdown(
+        _ledger(_row(), _row(risk_id="R2", repo_map_node_id="file:refund.py"))
+    )
+    table = [line for line in out.splitlines() if line.startswith("|")]
+
+    def cell_count(line: str) -> int:
+        return len(line.strip().strip("|").split("|"))
+
+    counts = [cell_count(line) for line in table]
+    # 6 base columns + 1 optional Repo-map node column = 7, identical for the
+    # header, the delimiter rule, and both data rows (the node-less row gets a
+    # '—' placeholder cell).
+    assert counts == [7, 7, 7, 7], f"ragged table — per-line cell counts: {counts}"
+
+
 def test_truncation_caps_rows_and_announces_the_cut():
     rows = [_row(risk_id=f"R{i}") for i in range(1, 11)]
     out = format_ledger_markdown(_ledger(*rows), max_rows=3)

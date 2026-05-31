@@ -63,9 +63,9 @@ the skill.
 
 ## 2. MCP tools (Python) — atomic knowledge providers
 
-34 tools, all thin. Fourteen skill tools (one per SKILL.md), six knowledge loaders (`sumo_qa_load_*`)
-return markdown catalogues as text. One capabilities-discovery tool (`sumo_qa_capabilities`) returns a compact, typed map of the core QA workflows. Three repo-map tools (`sumo_qa_scan_repo`, `sumo_qa_analyze_diff_impact`, `sumo_qa_query_repo_map`) build and consume the QA-native `.sumo-qa/repo-map.json` artifact, each returning a compact typed summary rather than the full map. One risk-to-test ledger formatter (`sumo_qa_format_risk_ledger`) validates host-supplied risk rows and renders the structured verdict appendix — no inference, file/format plumbing only. Four test-data tools read/write the local
-known-good catalogue under `knowledge/test_data/`. One ingestion tool materialises runtime knowledge packs into a user-writable location. Four external-skill lifecycle tools search, install, locate, and load external skills through the Skills CLI while preserving the skill-level confirmation gate. The search tool returns ANSI-stripped CLI output verbatim — no structured parsing — so Skills CLI format drift doesn't break the flow.
+The tools are all thin. Skill tools (one per SKILL.md) and knowledge loaders (`sumo_qa_load_*`)
+return markdown catalogues as text. A capabilities-discovery tool (`sumo_qa_capabilities`) returns a compact, typed map of the core QA workflows. Repo-map tools build and consume the QA-native `.sumo-qa/repo-map.json` artifact, each returning a compact typed summary rather than the full map. A risk-to-test ledger formatter (`sumo_qa_format_risk_ledger`) validates host-supplied risk rows and renders the structured verdict appendix — no inference, file/format plumbing only. Test-data tools read/write the local
+known-good catalogue under `knowledge/test_data/`. An ingestion tool materialises runtime knowledge packs into a user-writable location. External-skill lifecycle tools search, install, locate, and load external skills through the Skills CLI while preserving the skill-level confirmation gate. The search tool returns ANSI-stripped CLI output verbatim — no structured parsing — so Skills CLI format drift doesn't break the flow.
 
 See [TOOLS.md](TOOLS.md) for the full list.
 

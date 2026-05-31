@@ -362,7 +362,7 @@ After install:
 1. **Cmd+Shift+P → Developer: Reload Window** (VS Code caches the MCP server list at startup)
 2. In Copilot Chat: switch to **Agent mode** (not Ask, not Edit)
 3. Switch model to **Claude Sonnet 4.5** or **GPT-5 full** (mini models can't reliably call MCP tools)
-4. Click the **tools / hammer icon** — `sumo-qa` should be listed with the 25 tools underneath
+4. Click the **tools / hammer icon** — `sumo-qa` should be listed with its tools underneath
 
 Invocation: natural language only — Copilot's slash menu doesn't route to MCP tools. Ask *"load the QA classifications"* and Copilot will call the right tool by description.
 
