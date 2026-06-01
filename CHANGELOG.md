@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/sumithr/sumo-qa/compare/v0.24.0...v0.25.0) (2026-06-01)
+
+
+### Features
+
+* **skills:** enforce repo-level / CI-reproducible tool setup ([#269](https://github.com/sumithr/sumo-qa/issues/269)) ([61ec92b](https://github.com/sumithr/sumo-qa/commit/61ec92b877c823ffb7f870307276a5068852c719))
+
 ## [0.24.0](https://github.com/sumithr/sumo-qa/compare/v0.23.0...v0.24.0) (2026-06-01)
 
 
