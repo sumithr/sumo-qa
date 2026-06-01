@@ -1,0 +1,214 @@
+description: >
+  Issue #266 — REGRESSION GUARD for the mapping-gap narration discipline in
+  sumo-qa-reviewing-before-merge. When `sumo_qa_analyze_diff_impact` reports
+  `probable_mapping_gap` true (test files exist but the live scan produced no
+  likely_tests edges, e.g. a CamelCase/Kotlin layout) AND it scanned live +
+  persisted a repo-map, the candidate must NOT narrate the bare risk surface as
+  zero coverage NOR blame "no repo-map / wasn't scanned": it verifies real
+  coverage against the fresh run (which shows `MoneyTest.kt` exercising the
+  changed rounding branch) and does not flag `Money.kt` as UNCOVERED on the
+  risk_surface alone. NOTE: a capable candidate (gpt-5-mini) already holds this
+  discipline with or without the step-1 guidance, so this locks the behaviour
+  in against future drift rather than discriminating the #266 skill edit; the
+  mechanics are validated in tests/test_repo_map_*.py.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+    expected_shape: >-
+      A verdict that does NOT flag `Money.kt` as UNCOVERED / zero coverage on
+      the strength of the diff-impact `risk_surface` alone, and does NOT
+      attribute the risk surface to a missing or never-run repo-map. The
+      response treats the risk surface as a lead, verifies it against the FRESH
+      run (which shows `MoneyTest.kt` exercising the changed rounding branch and
+      passing), and concludes the change IS covered. It quotes the fresh test
+      counts and ends without a confirmation question. (Naming the situation a
+      probable test↔source mapping gap is welcome but not required — what AC #5
+      demands is that the bare risk surface is not misread as zero coverage and
+      not blamed on the tooling. Reciting internal tool field names is NOT
+      required and would violate output discipline.)
+    anti_patterns:
+      - Flags `src/main/kotlin/Money.kt` as UNCOVERED / zero coverage on the
+        diff-impact risk_surface alone, despite MoneyTest.kt exercising the
+        changed branch in the fresh run.
+      - Attributes the risk surface to "no repo-map" / "the repo wasn't scanned"
+        / a tooling gap rather than reading it as a lead to verify.
+      - Treats the diff-impact risk_surface as the coverage verdict instead of a
+        lead checked against the fresh run.
+      - Asking another confirmation question instead of delivering the verdict.
+      - Surfacing literal taxonomy labels such as `business_logic_change`.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      narrates the diff-impact output CORRECTLY when `probable_mapping_gap` is
+      true: as a missed test↔source MAPPING gap to verify against the fresh run,
+      never as zero coverage, and never blamed on "no repo-map / not scanned"
+      (the map WAS scanned live and persisted this run). Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response decline to flag `Money.kt` as UNCOVERED /
+         zero coverage on the risk_surface alone (given the fresh run exercises
+         it), AND avoid blaming the risk surface on a missing/never-run
+         repo-map / tooling gap, concluding instead that the change IS covered?
+         Flagging Money.kt UNCOVERED on the risk_surface alone, narrating zero
+         coverage, or blaming "no repo-map / wasn't scanned" is a SHAPE FAIL.
+
+      B. GROUNDING - the response must visibly use BOTH the supplied diff-impact
+         risk_surface (it acknowledges the flagged source) AND the fresh test
+         run (it names MoneyTest.kt and quotes the fresh test counts). Do NOT
+         require reciting internal tool field names. Narrating without using the
+         supplied context -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical change classifications:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    ...and the team's change rules (keyed by classification):
+
+    --- LOADED RULES ---
+    {{loaded_rules}}
+    --- END LOADED RULES ---
+
+    Repository diff, prior review gates, supplied repo state (including the
+    repo-map diff-impact output), and fresh verification evidence for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill to this scenario. This is the final verdict turn:
+    no confirmation gate, deliver the verdict. Keep the response concise and
+    evidence-led.
+tests:
+  - description: probable_mapping_gap true — read risk surface as a mapping gap, verify via fresh run, don't blame "no repo-map"
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns in this session (NOT shown above): you have read the diff,
+        named the risk, the user has confirmed it, and you have run the test
+        suite. This is the FINAL TURN of the review — produce the safe-to-merge
+        verdict citing the named risk + the fresh test evidence + the supplied
+        repo state. No more confirmation gates.
+
+        Scope gate: completed. One runtime change: a rounding fix in the money
+        formatting logic in `src/main/kotlin/Money.kt` (Kotlin project; sources
+        under `src/main`, tests under `src/test`).
+
+        Risk gate: completed. Named risk: (R1) money rounds the wrong way for
+        half-cent amounts.
+
+        ## git diff
+        ```diff
+        diff --git a/src/main/kotlin/Money.kt b/src/main/kotlin/Money.kt
+        @@ src/main/kotlin/Money.kt:20-24 @@
+        -20 fun round(amount: BigDecimal): BigDecimal =
+        -21     amount.setScale(2, RoundingMode.HALF_UP)
+        +20 fun round(amount: BigDecimal): BigDecimal =
+        +21     amount.setScale(2, RoundingMode.HALF_EVEN)
+        ```
+
+        ## Repo-map evidence (no prior `.sumo-qa/repo-map.json`)
+        You ran `sumo_qa_analyze_diff_impact` against the committed diff. There
+        was no artifact, so it scanned live and persisted one. It returned
+        (summarised):
+        ```json
+        {
+          "changed_nodes": [
+            {"id": "file:src/main/kotlin/Money.kt", "type": "source_file", "has_mapped_tests": false}
+          ],
+          "related_tests": [],
+          "risk_surface": ["src/main/kotlin/Money.kt"],
+          "probable_mapping_gap": true,
+          "is_stale": false,
+          "used_live_scan": true,
+          "persisted_map_path": "/repo/.sumo-qa/repo-map.json",
+          "warnings_by_kind": {"other": 1}
+        }
+        ```
+
+        ## Fresh test run (this turn)
+        ```text
+        $ ./gradlew test --tests MoneyTest
+        MoneyTest > rounds half-cent amounts to even PASSED
+        1 test, 1 passed
+        ```
+        The body of the one test that executed this turn
+        (`src/test/kotlin/MoneyTest.kt`):
+        ```kotlin
+        @Test fun `rounds half-cent amounts to even`() {
+            assertEquals(BigDecimal("2.34"), Money.round(BigDecimal("2.345")))
+        }
+        ```
+        That is the complete set of tests run this turn.

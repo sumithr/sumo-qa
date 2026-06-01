@@ -20,7 +20,7 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
-from sumo_qa.repo_map_models import DiffImpact, ImpactNode, RepoMap
+from sumo_qa.repo_map_models import DiffImpact, ImpactNode, RepoMap, RepoMapWarning
 
 
 def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> DiffImpact:
@@ -82,6 +82,33 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
 
     suggested = sorted(set(unmapped_files) | {n.path for n in affected_nodes})
 
+    # Probable mapping gap (#266): the repo HAS test files, yet the map carries
+    # zero `likely_tests` edges, so every changed source reads as risk surface.
+    # That signature is a convention the mapper missed (the Kotlin
+    # false-positive), not true zero coverage — flag it so a consumer doesn't
+    # narrate "no tests". A map WITH some edges and a single uncovered file is
+    # real partial coverage, not a gap.
+    warnings: list[RepoMapWarning] = []
+    test_files_present = any(n.type == "test_file" for n in repo_map.nodes)
+    # Use the dangling-filtered `edges`, not repo_map.edges: a likely_tests edge
+    # whose endpoints don't both resolve is not a usable mapping, so it must not
+    # mask a probable mapping gap.
+    no_likely_edges = not any(e.type == "likely_tests" for e in edges)
+    probable_mapping_gap = bool(risk_surface) and test_files_present and no_likely_edges
+    if probable_mapping_gap:
+        warnings.append(
+            RepoMapWarning(
+                kind="other",
+                message=(
+                    "probable mapping gap, not zero coverage: test files are present but "
+                    "the repo-map has no likely_tests edges, so all changed sources appear "
+                    "as risk surface — the test-to-source mapping likely missed this repo's "
+                    "conventions. Inspect the test tree directly before treating these as "
+                    "uncovered."
+                ),
+            )
+        )
+
     return DiffImpact(
         changed_nodes=sorted(changed_nodes, key=lambda n: n.path),
         affected_nodes=sorted(affected_nodes, key=lambda n: n.path),
@@ -89,7 +116,8 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
         unmapped_files=sorted(unmapped_files),
         risk_surface=sorted(risk_surface),
         suggested_inspections=suggested,
-        warnings=[],
+        warnings=warnings,
+        probable_mapping_gap=probable_mapping_gap,
     )
 
 

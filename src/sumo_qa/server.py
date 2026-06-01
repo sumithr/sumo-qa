@@ -188,6 +188,7 @@ def _build_impact_summary(
     is_stale: bool,
     used_live_scan: bool,
     artifact_path: str | None,
+    persisted_map_path: str | None,
     overlay_path: str | None,
     overlay_bytes: int | None,
     changed_file_count: int,
@@ -205,12 +206,14 @@ def _build_impact_summary(
         related_tests=impact.related_tests,
         unmapped_files=impact.unmapped_files,
         risk_surface=impact.risk_surface,
+        probable_mapping_gap=impact.probable_mapping_gap,
         suggested_inspections=impact.suggested_inspections,
         warning_count=len(impact.warnings),
         warnings_by_kind=dict(warnings_by_kind),
         is_stale=is_stale,
         used_live_scan=used_live_scan,
         artifact_path=artifact_path,
+        persisted_map_path=persisted_map_path,
         overlay_path=overlay_path,
         overlay_bytes=overlay_bytes,
     )
@@ -743,8 +746,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         the merge-base of ``base_ref`` and HEAD, so changes that landed on the
         base after the branch diverged don't leak in). The repo-map is read
         from ``artifact_path`` when present and falls back to a live scan
-        otherwise; an artifact for a different project root is ignored.
-        ``write_overlay`` writes ``.sumo-qa/diff-impact.json`` under ``root``.
+        otherwise; an artifact for a different project root is ignored. On the
+        first run of an unmapped repo the live scan is persisted to
+        ``artifact_path`` (reported as ``persisted_map_path``) unless
+        ``artifact_path`` is ``None``. ``write_overlay`` writes
+        ``.sumo-qa/diff-impact.json`` under ``root``. When test files exist but
+        the map has no likely_tests edges, ``probable_mapping_gap`` flags the
+        risk surface as a missed-convention gap rather than true zero coverage.
         """
         from sumo_qa.repo_map_impact import analyze_diff_impact, changed_files_from_git
         from sumo_qa.repo_map_models import RepoMapWarning
@@ -760,6 +768,23 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             repo_map, artifact_used, used_live_scan, foreign_artifact_warning = (
                 _load_map_with_fallback(root_path, artifact_path)
             )
+
+            # 1b. Auto-persist on the FIRST run of an unmapped repo (#266): the
+            #     genuine no-artifact live scan is written out so the run leaves
+            #     a discoverable artifact instead of re-scanning every call. A
+            #     rejected FOREIGN artifact is left untouched (don't clobber the
+            #     user's file), and artifact_path=None means the caller opted
+            #     out of artifact use entirely.
+            persisted_map_path: str | None = None
+            if used_live_scan and foreign_artifact_warning is None and artifact_path is not None:
+                cand = Path(artifact_path)
+                if not cand.is_absolute():
+                    cand = root_path / cand
+                cand.parent.mkdir(parents=True, exist_ok=True)
+                cand.write_text(
+                    json.dumps(repo_map.model_dump(mode="json"), indent=2), encoding="utf-8"
+                )
+                persisted_map_path = str(cand.resolve())
 
             # 2. Resolve changed files.
             if changed_files is not None:
@@ -779,12 +804,19 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             elif used_live_scan:
                 # Only the genuine no-artifact case gets this message; a
                 # rejected foreign artifact already has its own warning above.
-                impact.warnings.append(
-                    RepoMapWarning(
-                        kind="other",
-                        message="no repo-map artifact found; scanned live",
+                # When we persisted the scan, name the artifact so the warning
+                # is actionable instead of a dead end (#266).
+                if persisted_map_path is not None:
+                    message = (
+                        f"no repo-map artifact found; scanned live and persisted one to "
+                        f"{persisted_map_path} for future runs"
                     )
-                )
+                else:
+                    message = (
+                        "no repo-map artifact found; scanned live — run sumo_qa_scan_repo with "
+                        "write_to to persist a repo-map for future runs"
+                    )
+                impact.warnings.append(RepoMapWarning(kind="other", message=message))
             if is_stale:
                 impact.warnings.append(
                     RepoMapWarning(
@@ -814,6 +846,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 is_stale=bool(is_stale),
                 used_live_scan=used_live_scan,
                 artifact_path=artifact_used,
+                persisted_map_path=persisted_map_path,
                 overlay_path=overlay_path,
                 overlay_bytes=overlay_bytes,
                 changed_file_count=len(resolved),

@@ -501,6 +501,13 @@ class DiffImpactOutput(_StrictBase):
         default_factory=list,
         description="Changed source paths with no mapped test (the QA gap).",
     )
+    probable_mapping_gap: bool = Field(
+        default=False,
+        description=(
+            "True when test files exist but the map has no likely_tests edges, so the risk "
+            "surface is a probable mapping gap (a missed convention), not true zero coverage."
+        ),
+    )
     suggested_inspections: list[str] = Field(
         default_factory=list, description="Paths the host LLM should open to inspect."
     )
@@ -514,6 +521,13 @@ class DiffImpactOutput(_StrictBase):
     )
     artifact_path: str | None = Field(
         default=None, description="Resolved path of the loaded repo-map artifact, when used."
+    )
+    persisted_map_path: str | None = Field(
+        default=None,
+        description=(
+            "Resolved path of a repo-map persisted on this run — set only on the first run "
+            "of an unmapped repo, when the live scan is written out for future runs."
+        ),
     )
     overlay_path: str | None = Field(
         default=None, description="Path the diff-impact overlay was written to, when requested."

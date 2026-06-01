@@ -480,3 +480,156 @@ def test_excludes_tracked_but_deleted_files(tmp_path: Path):
     paths = {n.path for n in repo_map.nodes}
     assert "src/keep.py" in paths
     assert "src/gone.py" not in paths
+
+
+# ---------- Language-agnostic mapping: CamelCase + usage references (#266) ----------
+
+
+@pytest.mark.parametrize(
+    "test_rel",
+    [
+        "src/test/kotlin/FooTest.kt",
+        "src/test/kotlin/FooTests.kt",
+        "src/test/scala/FooSpec.scala",
+        "src/test/java/FooIT.java",
+        "src/test/java/FooITCase.java",
+    ],
+)
+def test_camelcase_test_maps_to_camelcase_source(tmp_path: Path, test_rel: str):
+    # equivalence partitioning: CamelCase test-naming families
+    # (FooTest/FooTests/FooSpec/FooIT/FooITCase) are a convention class the
+    # snake_case/.spec-only matcher never covered. Kotlin/Java/Scala sources
+    # therefore produced ZERO likely_tests edges and the whole source tree fell
+    # into risk surface (#266). The source stem must be recovered from the
+    # CamelCase test stem.
+    _make_file(tmp_path, "src/main/kotlin/Foo.kt", "class Foo\n")
+    _make_file(tmp_path, test_rel, "class T\n")
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    edges = [e for e in repo_map.edges if e.type == "likely_tests"]
+    assert any(e.target == "file:src/main/kotlin/Foo.kt" for e in edges), (
+        f"{test_rel} produced no likely_tests edge to Foo.kt; edges={edges}"
+    )
+
+
+@pytest.mark.parametrize("name", ["ExperimentTest", "ExperimentSpec", "ExperimentIT"])
+def test_camelcase_name_outside_test_dir_is_not_classified_as_test(tmp_path: Path, name: str):
+    # A CamelCase *Test/*Spec/*IT name OUTSIDE a test directory must NOT be
+    # classified as a test on the name alone: a production class like
+    # ExperimentTest.kt under src/main would otherwise be dropped from the
+    # source risk surface (codex review, PR #277). Tests are recognised by the
+    # src/test path convention, not the bare suffix.
+    rel = f"src/main/kotlin/{name}.kt"
+    _make_file(tmp_path, rel, f"class {name}\n")
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    node = next(n for n in repo_map.nodes if n.path == rel)
+    assert node.type == "source_file"
+
+
+def test_non_test_camelcase_word_is_not_classified_as_test(tmp_path: Path):
+    # boundary value analysis: a source whose stem merely ends in lowercase
+    # "it" (Commit) or is an unrelated word (Manifest) must NOT be mistaken for
+    # an IT/Test convention file.
+    _make_file(tmp_path, "src/Commit.kt", "class Commit\n")
+    _make_file(tmp_path, "src/Manifest.kt", "class Manifest\n")
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    by_path = {n.path: n.type for n in repo_map.nodes}
+    assert by_path["src/Commit.kt"] == "source_file"
+    assert by_path["src/Manifest.kt"] == "source_file"
+
+
+def test_camelcase_test_base_rejects_acronym_and_maps_real_prefix():
+    # _camelcase_test_base maps a real CamelCase test stem to its source stem but
+    # rejects an all-caps acronym base (HTTP ends uppercase) so the normaliser
+    # doesn't fabricate a bogus mapping target.
+    from sumo_qa.repo_map_scanner import _camelcase_test_base
+
+    assert _camelcase_test_base("FooIT") == "Foo"
+    assert _camelcase_test_base("MyServiceSpec") == "MyService"
+    assert _camelcase_test_base("HTTPIT") is None  # base 'HTTP' ends uppercase
+    assert _camelcase_test_base("Plain") is None  # no test suffix
+
+
+def test_usage_signal_ignores_incidental_non_import_tokens(tmp_path: Path):
+    # A common-word source stem (`config`) appearing only in a comment / local
+    # variable in an UNRELATED test must NOT fabricate a likely_tests edge —
+    # that would silently clear a genuinely-uncovered source off risk_surface,
+    # the false-negative worse than the false risk surface #266 set out to fix.
+    # The usage signal only counts references on import-style lines.
+    _make_file(tmp_path, "src/config.py", "VALUE = 1\n")
+    _make_file(
+        tmp_path,
+        "tests/test_login.py",
+        "def test_login():\n    config = {'a': 1}  # config for the order\n"
+        "    assert config['a'] == 1\n",
+    )
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    edges = [e for e in repo_map.edges if e.type == "likely_tests"]
+    assert edges == [], f"incidental token created a spurious usage edge: {edges}"
+
+
+def test_usage_signal_counts_camelcase_import_reference(tmp_path: Path):
+    # A Kotlin-style import of a CamelCase source class is a real usage
+    # reference and SHOULD map, even with no filename-convention link.
+    _make_file(tmp_path, "src/main/kotlin/Money.kt", "class Money\n")
+    _make_file(
+        tmp_path,
+        "src/test/kotlin/RoundingScenarios.kt",
+        "import com.example.Money\n\nclass RoundingScenarios { fun t() { Money() } }\n",
+    )
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    edges = {(e.source, e.target) for e in repo_map.edges if e.type == "likely_tests"}
+    assert ("file:src/test/kotlin/RoundingScenarios.kt", "file:src/main/kotlin/Money.kt") in edges
+
+
+def test_referenced_source_stems_returns_empty_on_read_error(tmp_path: Path):
+    # An unreadable test file must yield no usage references, not raise — keeps
+    # edge inference robust against ls-files/read races.
+    from sumo_qa.repo_map_scanner import _referenced_source_stems
+
+    assert _referenced_source_stems(tmp_path / "vanished.py", frozenset({"inventory"})) == set()
+
+
+def test_usage_reference_maps_test_to_source_without_name_convention(tmp_path: Path):
+    # equivalence partitioning: the "no naming-convention link, but the test
+    # imports/uses the source" partition — the robust signal the issue's
+    # refinement comment makes primary. scenario_smoke has no test_/Test/.spec
+    # link to checkout_flow, but its content references the source stem.
+    _make_file(tmp_path, "src/checkout_flow.py", "def run():\n    return 1\n")
+    _make_file(
+        tmp_path,
+        "tests/scenario_smoke.py",
+        "from src.checkout_flow import run\n\n\ndef test_it():\n    assert run()\n",
+    )
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    edges = {(e.source, e.target) for e in repo_map.edges if e.type == "likely_tests"}
+    assert ("file:tests/scenario_smoke.py", "file:src/checkout_flow.py") in edges
+
+
+def test_usage_only_edge_is_medium_confidence(tmp_path: Path):
+    # A usage-only link (no corroborating name convention) is medium confidence;
+    # the reason names the usage signal.
+    _make_file(tmp_path, "src/inventory.py", "def total():\n    return 0\n")
+    _make_file(
+        tmp_path,
+        "tests/check_things.py",
+        "from src.inventory import total\n\n\ndef test_t():\n    assert total() == 0\n",
+    )
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    edge = next(e for e in repo_map.edges if e.type == "likely_tests")
+    assert edge.target == "file:src/inventory.py"
+    assert edge.confidence == "medium"
+    assert "usage" in edge.reason
+
+
+def test_short_source_stem_does_not_create_usage_noise(tmp_path: Path):
+    # boundary value analysis: a 1-2 char source stem (a, b) is too common to be
+    # a reliable usage token, so usage matching must not link an unrelated test
+    # that merely contains the letter. Only the genuine name-convention edge
+    # (test_a -> a) survives.
+    _make_file(tmp_path, "src/a.py", "x = 1\n")
+    _make_file(tmp_path, "tests/test_a.py", "a = 0\nassert a == 0\n")
+    _make_file(tmp_path, "tests/unrelated.py", "a = 1\nb = 2\nassert a + b == 3\n")
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    edges = {(e.source, e.target) for e in repo_map.edges if e.type == "likely_tests"}
+    assert ("file:tests/test_a.py", "file:src/a.py") in edges
+    assert ("file:tests/unrelated.py", "file:src/a.py") not in edges
