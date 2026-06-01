@@ -256,6 +256,68 @@ installer change): GitHub → Actions → `upgrade-smoke` → **Run workflow**.
 By default it upgrades from the current latest PyPI release; optionally set
 `previous_version` to rehearse the upgrade from a specific published version.
 
+## Test-publishing a candidate to TestPyPI
+
+Before a production release, a candidate build can be published to **TestPyPI**
+(a non-production index) so it can be `pip install`-ed and smoke-tested with the
+exact artifact shape end-users consume — entry points, dependency metadata, the
+MCP `initialize`/`tools/list` handshake — without burning a real version on
+production PyPI. This is the [`.github/workflows/testpypi-publish.yml`](../.github/workflows/testpypi-publish.yml)
+workflow.
+
+### How it stays fork-PR-safe
+
+- **Trigger is `workflow_dispatch` only.** There is deliberately no
+  `pull_request`, `pull_request_target`, or `push` trigger, so untrusted
+  fork-PR code can never start it, and the ref it builds is always one a
+  maintainer (write access required to dispatch) selected.
+- **Publishing runs in the `testpypi` GitHub Environment.** Deployment
+  protection rules (required reviewers / allowed branches) are configured in
+  repo settings, not in the workflow file.
+- **No stored token.** Upload uses OIDC trusted publishing
+  (`id-token: write`), scoped to TestPyPI for this repo.
+- **The target is hard-pinned to `https://test.pypi.org/legacy/`** — the
+  workflow cannot upload to production PyPI.
+
+### One-time maintainer setup (cannot be done from a PR branch)
+
+These are GitHub-side settings an admin configures once; the workflow assumes
+they exist:
+
+1. **Create a TestPyPI account** and register the `sumo-qa` project there (the
+   first upload can also be bootstrapped with a one-off token if preferred).
+2. **Configure TestPyPI trusted publishing** for this repo: on
+   test.pypi.org → the project → *Publishing*, add a GitHub publisher with
+   owner `sumithr`, repo `sumo-qa`, workflow `testpypi-publish.yml`, and
+   environment `testpypi`.
+3. **Create the `testpypi` Environment** in GitHub repo settings
+   (Settings → Environments) and add deployment protection — required
+   reviewers and/or an allowed-branches rule — so a dispatch still gates on a
+   human before it uploads.
+
+### Triggering it and verifying the upload
+
+1. GitHub → **Actions** → `testpypi-publish` → **Run workflow**. Optionally set
+   the `ref` input to a branch, tag, or SHA (defaults to the dispatch ref).
+2. The build job rewrites the static `pyproject.toml` version to a unique
+   `<version>.dev<run_number>` PEP 440 dev release so TestPyPI never rejects
+   the upload as a version-reuse collision (TestPyPI permanently burns a
+   filename even after deletion).
+3. The run summary prints the package name, the published version, the
+   TestPyPI project URL, and the exact install command, e.g.:
+
+   ```bash
+   pip install --index-url https://test.pypi.org/simple/ \
+     --extra-index-url https://pypi.org/simple/ \
+     sumo-qa==<version>.dev<run_number>
+   ```
+
+   The `--extra-index-url` lets dependencies resolve from production PyPI while
+   sumo-qa itself comes from TestPyPI.
+4. In a clean virtualenv, run that install command, then verify the artifact:
+   `sumo-qa-doctor`, and an MCP `initialize` + `tools/list` round-trip
+   (see [docs/INSTALL.md](INSTALL.md)).
+
 ## Reinstalling locally
 
 ```bash
