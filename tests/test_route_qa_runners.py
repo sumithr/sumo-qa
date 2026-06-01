@@ -274,6 +274,62 @@ class TestExcludedEvalCommands:
         assert _additional_context(result) == ""
 
 
+class TestCodexAdversarialFindings:
+    """Regressions for the codex adversarial-review pass on this branch — each
+    test pins a precision/recall hole codex surfaced in the command-shape gate.
+    """
+
+    def test_echo_promptfoo_eval_does_not_route(self) -> None:
+        """P1 false positive: `echo promptfoo eval [FAIL]` merely PRINTS the
+        words 'promptfoo eval' and '[FAIL]'; promptfoo is not the command word.
+        The gate must require promptfoo at the command position, not anywhere
+        in argv.
+        """
+        result = _run_hook(
+            _post_tool_use("echo promptfoo eval '[FAIL]'", stdout="promptfoo eval [FAIL]\n")
+        )
+        assert _additional_context(result) == "", (
+            "hook fired on `echo promptfoo eval` — a command-shape false positive. "
+            "promptfoo must be the command word, not a printed argument."
+        )
+
+    def test_excluded_segment_before_real_eval_still_routes(self) -> None:
+        """P1 false negative: a compound command whose FIRST segment is an
+        excluded promptfoo subcommand must not suppress routing for a real eval
+        in a LATER segment.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(
+            _post_tool_use("promptfoo view; promptfoo eval -c x.yaml", stdout=out, exit_code=100)
+        )
+        assert "eval-failure-diagnoser" in _additional_context(result), (
+            "hook missed the real `promptfoo eval` because an earlier "
+            "`promptfoo view` segment short-circuited the scan."
+        )
+
+    def test_npm_run_with_interposed_flag_routes(self) -> None:
+        """P2 false negative: `npm run --silent eval` is still an eval run — the
+        script-name lookup must skip flags interposed after `run`.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use("npm run --silent eval", stdout=out, exit_code=100))
+        assert "eval-failure-diagnoser" in _additional_context(result)
+
+    def test_emoji_glued_to_digit_in_path_does_not_route(self) -> None:
+        """P2 false positive: an emoji glued to a digit with NO space (a path
+        like `tests/🙁1_case.py`) must not read as a survivor count. Real mutmut
+        counts are always `🙁 <space> <digit>`. Here every real stats counter is
+        zero, so only the glued path could (wrongly) trigger.
+        """
+        clean = _fixture("mutmut_clean.stdout.txt")
+        poisoned = "wrote tests/🙁1_case.py\n" + clean
+        result = _run_hook(_post_tool_use("mutmut run", stdout=poisoned, exit_code=0))
+        assert _additional_context(result) == "", (
+            "hook read `🙁1` (no space, inside a path) as a survivor count. The "
+            "counter pattern must require a space between the emoji and the digit."
+        )
+
+
 # --------------------------------------------------------------------------- #
 # hook contract — robustness                                                   #
 # --------------------------------------------------------------------------- #

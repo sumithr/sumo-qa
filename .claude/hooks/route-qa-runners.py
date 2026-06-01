@@ -101,64 +101,77 @@ def _is_mutmut_run(command: str) -> bool:
     return False
 
 
-def _pm_script(eff: list[str]) -> str | None:
-    """The npm/pnpm/yarn/bun script name being run, if any."""
-    if "run" in eff:
-        idx = eff.index("run")
-        return eff[idx + 1] if idx + 1 < len(eff) else None
-    # `yarn eval` / `bun eval` shorthand (no explicit `run`).
-    if os.path.basename(eff[0]) in ("yarn", "bun") and len(eff) >= 2 and not eff[1].startswith("-"):
-        return eff[1]
-    return None
-
-
-def _promptfoo_subcommand(eff: list[str]) -> str | None:
-    """The first non-flag token after a `promptfoo` token (handles `npx`,
-    `promptfoo@1.2.3`, and absolute paths)."""
-    idx = None
-    for j, token in enumerate(eff):
-        base = os.path.basename(token)
-        if base == "promptfoo" or base.startswith("promptfoo@"):
-            idx = j
-            break
-    if idx is None:
-        return None
-    for token in eff[idx + 1 :]:
+def _first_non_flag(tokens: list[str]) -> str | None:
+    """The first token that is not a `-`/`--` flag."""
+    for token in tokens:
         if token.startswith("-"):
             continue
         return token
     return None
 
 
-def _promptfoo_eval_kind(command: str) -> str | None:
-    """Classify the command's promptfoo intent: 'run' (an eval run we watch),
-    'excluded' (generate/view — explicitly ignored), or None (not promptfoo)."""
-    for segment in _segments(command):
-        eff = _effective_argv(_tokens(segment))
-        if not eff:
-            continue
-        base0 = os.path.basename(eff[0])
-        if base0 in ("npm", "pnpm", "yarn", "bun"):
-            script = _pm_script(eff)
-            if script is None:
-                continue
-            if script in ("eval", "eval:all"):
-                return "run"
-            if script.startswith("eval"):  # eval:generate, eval:view, …
-                return "excluded"
-            continue
-        sub = _promptfoo_subcommand(eff)
-        if sub == "eval":
-            return "run"
-        if sub in ("generate", "view"):
-            return "excluded"
+def _pm_script(eff: list[str]) -> str | None:
+    """The npm/pnpm/yarn/bun script name being run, if any. Skips any flags
+    interposed after `run` (`npm run --silent eval` -> `eval`)."""
+    if "run" in eff:
+        return _first_non_flag(eff[eff.index("run") + 1 :])
+    # `yarn eval` / `bun eval` shorthand (no explicit `run`).
+    if os.path.basename(eff[0]) in ("yarn", "bun") and len(eff) >= 2 and not eff[1].startswith("-"):
+        return eff[1]
     return None
 
 
+def _promptfoo_argv(eff: list[str]) -> list[str] | None:
+    """Return the argv beginning at the `promptfoo` token IFF promptfoo is the
+    actual command word — eff[0] (`promptfoo eval`, `promptfoo@1.2.3 eval`, an
+    absolute path) or the package an npx-style launcher runs (`npx promptfoo
+    eval`). A `promptfoo` token buried mid-argv (`echo promptfoo eval`) is NOT
+    a promptfoo invocation and returns None."""
+    base0 = os.path.basename(eff[0])
+    if base0 == "promptfoo" or base0.startswith("promptfoo@"):
+        return eff
+    if base0 in ("npx", "bunx"):
+        rest = eff[1:]
+        while rest and rest[0].startswith("-"):
+            rest = rest[1:]
+        if rest:
+            base = os.path.basename(rest[0])
+            if base == "promptfoo" or base.startswith("promptfoo@"):
+                return rest
+    return None
+
+
+def _segment_is_promptfoo_eval(eff: list[str]) -> bool:
+    """Is this single command segment an actual promptfoo eval RUN (not
+    generate/view, not a script merely named eval-something)?"""
+    if not eff:
+        return False
+    if os.path.basename(eff[0]) in ("npm", "pnpm", "yarn", "bun"):
+        return _pm_script(eff) in ("eval", "eval:all")
+    pf = _promptfoo_argv(eff)
+    return pf is not None and _first_non_flag(pf[1:]) == "eval"
+
+
+def _is_promptfoo_eval_run(command: str) -> bool:
+    """True if ANY segment of the command is a promptfoo eval run. Scanning
+    every segment (not stopping at the first promptfoo-ish one) is what lets a
+    real eval after an excluded segment still route — `promptfoo view; promptfoo
+    eval` must fire on the second segment."""
+    return any(
+        _segment_is_promptfoo_eval(_effective_argv(_tokens(seg))) for seg in _segments(command)
+    )
+
+
 def _mutmut_has_survivors(output: str) -> bool:
-    """True when a survived / timeout / suspicious emoji counter is non-zero."""
+    """True when a survived / timeout / suspicious emoji counter is non-zero.
+
+    The counter is matched as `<emoji> <digits>` with a REQUIRED space — real
+    mutmut stats lines are `… 🙁 4 …`. Requiring the space stops a stray
+    `🙁1_case.py`-style token from reading as a survivor count, and the
+    per-mutant results lines (`🙁 <module.path>`) never match because a module
+    name does not start with a digit."""
     for emoji in _MUTMUT_STATUS_EMOJI.values():
-        for count in re.findall(re.escape(emoji) + r"\s*([0-9]+)", output):
+        for count in re.findall(re.escape(emoji) + r"\s+([0-9]+)", output):
             if int(count) > 0:
                 return True
     return False
@@ -232,7 +245,7 @@ def main() -> int:
             _emit(_MUTMUT_REMINDER)
             return 0
 
-        if _promptfoo_eval_kind(command) == "run" and _promptfoo_failed(output, exit_code):
+        if _is_promptfoo_eval_run(command) and _promptfoo_failed(output, exit_code):
             _emit(_PROMPTFOO_REMINDER)
             return 0
     except Exception:
