@@ -77,9 +77,16 @@ def test_no_dead_skill_to_tool_refs() -> None:
 # QA intent, so it is deliberately not the target of any SKILL body. The agent
 # discovers and calls both from their tool descriptions, so neither needs a
 # SKILL.md cross-reference.
+#
+# `sumo_qa_list_skill_manifests` and `sumo_qa_load_skill_context` (#285) are
+# read-only progressive-loading tools a host discovers from their descriptions
+# to fetch a slice of a skill instead of the full body. They are NOT routed via
+# the QA-routing skill chain, so they have no SKILL.md cross-reference either.
 _STANDALONE_UTILITY_TOOLS = {
     "sumo_qa_ingest_knowledge_pack",
     "sumo_qa_capabilities",
+    "sumo_qa_list_skill_manifests",
+    "sumo_qa_load_skill_context",
 }
 # #156 wired the repo-map tools into the skill chain: `sumo_qa_analyze_diff_impact`
 # and `sumo_qa_query_repo_map` are referenced from `sumo-qa-reviewing-before-merge`,

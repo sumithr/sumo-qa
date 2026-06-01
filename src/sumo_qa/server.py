@@ -59,6 +59,12 @@ from sumo_qa.server_schemas import (
     TestDataRequirementsOutput,
     TestDataValidateOutput,
 )
+from sumo_qa.skill_manifest import (
+    list_skill_manifests as _list_skill_manifests,
+)
+from sumo_qa.skill_manifest import (
+    load_skill_context as _load_skill_context,
+)
 from sumo_qa.skill_prompts import register_skills_as_prompts
 from sumo_qa.tools import QAShiftLeftService
 
@@ -1153,6 +1159,53 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             tool="sumo_qa_execute_external_skill",
             args={"skill": skill, "intent": intent, "scope": scope},
             output=output,
+        )
+
+    @mcp.tool(annotations=_read_only_local)
+    def sumo_qa_list_skill_manifests() -> str:
+        """Return compact, deterministic metadata for every bundled sumo-qa skill
+        as a JSON string — a routing/index aid, NOT the skill bodies.
+
+        Each entry carries: skill_name, tool_name (the zero-argument skill tool),
+        description (from frontmatter), content_hash (sha256 of the SKILL.md),
+        estimated_tokens_full, sections[] (id, heading, level, estimated_tokens,
+        required) and modules[] (id, path, estimated_tokens). Section ids are
+        stable heading slugs (duplicates get `-2`/`-3` suffixes); required marks
+        the structural sections (frontmatter, Iron Law, Checklist, Flow, Red
+        Flags, HARD-GATE) when present.
+
+        Read-only and local-only: no network, no extraction, no caching. Use it
+        to decide which slice of a skill to fetch via
+        `sumo_qa_load_skill_context`; the existing zero-argument skill tools
+        still return full bodies unchanged."""
+        return json.dumps(_list_skill_manifests(), ensure_ascii=False, indent=2)
+
+    @mcp.tool(annotations=_read_only_local)
+    def sumo_qa_load_skill_context(
+        skill_name: str,
+        mode: str,
+        section: str | None = None,
+        module: str | None = None,
+    ) -> str:
+        """Load just one slice of a skill's context as a JSON string, instead of
+        the whole SKILL.md body.
+
+        `mode`:
+          - "manifest" — routing summary + section list + module list;
+          - "section"  — one section's text (pass `section`, an id from the
+            manifest);
+          - "module"   — one module's text (pass `module`, an id from the
+            manifest);
+          - "full"     — the entire SKILL.md body, byte-for-byte identical to the
+            existing zero-argument skill tool for `skill_name`.
+
+        Never raises: an unknown skill_name/mode/section/module, a missing
+        required arg, or a path-traversal attempt returns a JSON error envelope
+        listing the valid choices. Read-only and local-only."""
+        return json.dumps(
+            _load_skill_context(skill_name, mode, section=section, module=module),
+            ensure_ascii=False,
+            indent=2,
         )
 
     register_skills_as_prompts(mcp)
