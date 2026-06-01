@@ -10,6 +10,8 @@ zero-argument skill tool body.
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from sumo_qa import skill_manifest as sm
@@ -400,3 +402,123 @@ def test_full_mode_is_byte_for_byte_equal_to_skill_tool_body():
         out = sm.load_skill_context(skill_dir.name, "full")
         assert out["mode"] == "full"
         assert out["content"] == expected, f"full-mode drift for {skill_dir.name}"
+
+
+# --------------------------------------------------------------------------
+# Lever 6 (#290): per-slice content_hash + estimated_tokens + change-detection
+# --------------------------------------------------------------------------
+#
+# Technique: decision tables — the response shape is a conjunction of
+# (mode, known_hash supplied?, known_hash matches the slice?). Each row below
+# pins one combination to its exact output, so a partial/heuristic impl that
+# satisfies one row but not the others is caught.
+
+
+def _expected_hash(text: str) -> str:
+    # Derive from the SAME slice text the loader returns, not a recalled
+    # constant — sha256 of the returned content, hex-digested.
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _heaviest_skill_with_real_section():
+    """A real bundled skill name plus the id of its first non-frontmatter
+    section (every bundled skill has at least one heading after frontmatter)."""
+    name = _a_skill_name()
+    manifest = sm.load_skill_context(name, "manifest")
+    section_id = manifest["sections"][1]["id"]
+    return name, section_id
+
+
+def test_full_mode_returns_content_hash_and_estimated_tokens():
+    name = _a_skill_name()
+    out = sm.load_skill_context(name, "full")
+    # Hash is sha256 of EXACTLY the returned content slice (derived, not recalled).
+    assert out["content_hash"] == _expected_hash(out["content"])
+    assert len(out["content_hash"]) == 64
+    # estimated_tokens is len/4 (ceil) of the returned slice — the project estimator.
+    assert out["estimated_tokens"] == (len(out["content"]) + 3) // 4
+
+
+def test_section_mode_returns_content_hash_and_estimated_tokens():
+    name, section_id = _heaviest_skill_with_real_section()
+    out = sm.load_skill_context(name, "section", section=section_id)
+    assert out["content_hash"] == _expected_hash(out["content"])
+    assert out["estimated_tokens"] == (len(out["content"]) + 3) // 4
+
+
+def test_module_mode_returns_content_hash_and_estimated_tokens(monkeypatch, tmp_path):
+    skill_dir = tmp_path / "sumo-qa-fake"
+    (skill_dir / "modules").mkdir(parents=True)
+    skill_dir.joinpath("SKILL.md").write_text(
+        "---\nname: sumo-qa-fake\ndescription: d\n---\n\n# T\n", encoding="utf-8"
+    )
+    skill_dir.joinpath("modules", "alpha.md").write_text("alpha body", encoding="utf-8")
+    monkeypatch.setattr(sm, "_skills_dir", lambda: tmp_path)
+    out = sm.load_skill_context("sumo-qa-fake", "module", module="alpha")
+    assert out["content"] == "alpha body"
+    assert out["content_hash"] == _expected_hash("alpha body")
+    assert out["estimated_tokens"] == (len("alpha body") + 3) // 4
+
+
+def test_slice_hash_is_stable_across_repeated_loads():
+    # Repeated partial loads of the same slice return the identical hash — the
+    # property a caller relies on to skip re-sending unchanged text.
+    name, section_id = _heaviest_skill_with_real_section()
+    first = sm.load_skill_context(name, "section", section=section_id)
+    second = sm.load_skill_context(name, "section", section=section_id)
+    assert first["content_hash"] == second["content_hash"]
+    assert first["content"] == second["content"]
+
+
+def test_change_detection_unchanged_omits_body_and_flags_not_changed():
+    # known_hash matches the current slice → changed=False and the body is
+    # omitted (the token saving). No hidden cache: the answer is derived purely
+    # from re-hashing the live slice and comparing to the caller-supplied hash.
+    name, section_id = _heaviest_skill_with_real_section()
+    current = sm.load_skill_context(name, "section", section=section_id)
+    again = sm.load_skill_context(
+        name, "section", section=section_id, known_hash=current["content_hash"]
+    )
+    assert again["changed"] is False
+    assert again["content_hash"] == current["content_hash"]
+    assert "content" not in again
+
+
+def test_change_detection_changed_returns_body_and_flags_changed():
+    # known_hash does NOT match → changed=True and the full slice text is returned.
+    name, section_id = _heaviest_skill_with_real_section()
+    current = sm.load_skill_context(name, "section", section=section_id)
+    out = sm.load_skill_context(
+        name, "section", section=section_id, known_hash="sha256-that-will-never-match"
+    )
+    assert out["changed"] is True
+    assert out["content"] == current["content"]
+    assert out["content_hash"] == current["content_hash"]
+
+
+def test_change_detection_works_for_full_mode():
+    name = _a_skill_name()
+    current = sm.load_skill_context(name, "full")
+    unchanged = sm.load_skill_context(name, "full", known_hash=current["content_hash"])
+    assert unchanged["changed"] is False
+    assert "content" not in unchanged
+    changed = sm.load_skill_context(name, "full", known_hash="nope")
+    assert changed["changed"] is True
+    assert changed["content"] == current["content"]
+
+
+def test_no_known_hash_default_returns_body_and_no_changed_flag():
+    # The no-cache default: omitting known_hash returns the body unchanged
+    # (backward-compatible) and does NOT add a `changed` flag.
+    name, section_id = _heaviest_skill_with_real_section()
+    out = sm.load_skill_context(name, "section", section=section_id)
+    assert "content" in out
+    assert "changed" not in out
+
+
+def test_manifest_mode_is_unaffected_by_known_hash():
+    # known_hash is a partial-load affordance; manifest mode keeps its shape.
+    name = _a_skill_name()
+    out = sm.load_skill_context(name, "manifest", known_hash="anything")
+    assert out["mode"] == "manifest"
+    assert "sections" in out

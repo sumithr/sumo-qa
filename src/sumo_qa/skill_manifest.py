@@ -270,6 +270,35 @@ def _has_traversal(value: str) -> bool:
     )
 
 
+def _slice_envelope(base: dict[str, Any], text: str, known_hash: str | None) -> dict[str, Any]:
+    """Attach the per-slice digest fields and apply optional change-detection.
+
+    Every partial load (section/module/full) returns ``content_hash`` (sha256
+    of exactly the returned slice) and ``estimated_tokens`` (``len/4`` of that
+    slice) so a caller can cheaply tell whether a re-fetched slice has changed.
+
+    Change-detection (the Lever 6 affordance) is purely derived — there is no
+    hidden cache. When the caller passes ``known_hash``:
+      * it matches the live slice  → ``changed=False`` and the body is omitted
+        (the token saving — the caller already holds identical text);
+      * it differs (or is stale)   → ``changed=True`` and the body is returned.
+    When ``known_hash`` is omitted the body is always returned and no
+    ``changed`` flag is added (backward-compatible no-cache default)."""
+    content_hash = _content_hash(text)
+    envelope = dict(base)
+    envelope["content_hash"] = content_hash
+    envelope["estimated_tokens"] = _approx_tokens(text)
+    if known_hash is None:
+        envelope["content"] = text
+        return envelope
+    if known_hash == content_hash:
+        envelope["changed"] = False
+        return envelope
+    envelope["changed"] = True
+    envelope["content"] = text
+    return envelope
+
+
 def _error(message: str, available: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build an actionable error envelope (does NOT raise).
 
@@ -287,6 +316,7 @@ def load_skill_context(
     mode: str | None = None,
     section: str | None = None,
     module: str | None = None,
+    known_hash: str | None = None,
 ) -> dict[str, Any]:
     """Load a slice of one skill's context.
 
@@ -296,6 +326,14 @@ def load_skill_context(
       * ``"module"``   — one module's text (requires ``module``).
       * ``"full"``     — the entire SKILL.md body, byte-for-byte identical to
         the existing zero-argument skill tool for this skill.
+
+    The partial-load modes (``section``/``module``/``full``) each return a
+    ``content_hash`` (sha256 of exactly the returned slice) and
+    ``estimated_tokens``. Pass ``known_hash`` to ask "has this slice changed
+    since hash X?": a match returns ``changed=False`` with the body omitted (the
+    token saving), a mismatch returns ``changed=True`` with the body. This is
+    derived per-call — there is no hidden cache (``manifest`` mode ignores
+    ``known_hash``).
 
     Never raises: every invalid input returns an error envelope that lists the
     valid choices. ``skill_name`` and ``mode`` are accepted as optional (default
@@ -329,7 +367,9 @@ def load_skill_context(
         )
 
     if mode == "full":
-        return {"skill_name": skill_name, "mode": "full", "content": record["_full"]}
+        return _slice_envelope(
+            {"skill_name": skill_name, "mode": "full"}, record["_full"], known_hash
+        )
 
     if mode == "manifest":
         return {
@@ -361,13 +401,16 @@ def load_skill_context(
                 f"Unknown section {section!r} for skill {skill_name!r}.",
                 {"available_sections": available},
             )
-        return {
-            "skill_name": skill_name,
-            "mode": "section",
-            "section": match["id"],
-            "heading": match["heading"],
-            "content": match["_text"],
-        }
+        return _slice_envelope(
+            {
+                "skill_name": skill_name,
+                "mode": "section",
+                "section": match["id"],
+                "heading": match["heading"],
+            },
+            match["_text"],
+            known_hash,
+        )
 
     # mode == "module"
     modules = record["modules"]
@@ -393,10 +436,13 @@ def load_skill_context(
             f"Unknown module {module!r} for skill {skill_name!r}.",
             {"available_modules": available},
         )
-    return {
-        "skill_name": skill_name,
-        "mode": "module",
-        "module": match["id"],
-        "path": match["path"],
-        "content": match["_text"],
-    }
+    return _slice_envelope(
+        {
+            "skill_name": skill_name,
+            "mode": "module",
+            "module": match["id"],
+            "path": match["path"],
+        },
+        match["_text"],
+        known_hash,
+    )

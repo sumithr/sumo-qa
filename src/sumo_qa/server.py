@@ -1186,6 +1186,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         mode: str | None = None,
         section: str | None = None,
         module: str | None = None,
+        known_hash: str | None = None,
     ) -> str:
         """Load just one slice of a skill's context as a JSON string, instead of
         the whole SKILL.md body.
@@ -1199,11 +1200,20 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
           - "full"     — the entire SKILL.md body, byte-for-byte identical to the
             existing zero-argument skill tool for `skill_name`.
 
+        The section/module/full slices each return `content_hash` (sha256 of the
+        returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this
+        slice changed since hash X?": a match returns `changed=false` with the
+        body omitted (saving the re-send), a mismatch returns `changed=true` with
+        the body. This is derived per call — there is NO hidden session cache, so
+        it is safe across hosts regardless of MCP session identity.
+
         Never raises: an unknown skill_name/mode/section/module, a missing
         required arg, or a path-traversal attempt returns a JSON error envelope
         listing the valid choices. Read-only and local-only."""
         return json.dumps(
-            _load_skill_context(skill_name, mode, section=section, module=module),
+            _load_skill_context(
+                skill_name, mode, section=section, module=module, known_hash=known_hash
+            ),
             ensure_ascii=False,
             indent=2,
         )
