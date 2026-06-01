@@ -25,6 +25,12 @@ from sumo_qa.external_skills import (
 )
 from sumo_qa.ingest import IngestValidationError, ingest_pack
 from sumo_qa.knowledge_loaders import (
+    load_catalogue as _load_catalogue,
+)
+from sumo_qa.knowledge_loaders import (
+    load_catalogue_entry as _load_catalogue_entry,
+)
+from sumo_qa.knowledge_loaders import (
     sumo_qa_load_approaches as _load_approaches,
 )
 from sumo_qa.knowledge_loaders import (
@@ -657,6 +663,40 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             classification filter accepts single or comma-separated values and
             returns matching rule entries; no keyword inference."""
             return _load_rules(classification=classification)
+
+        @mcp.tool(annotations=_read_only_local)
+        def sumo_qa_load_catalogue_entry(
+            catalogue: str,
+            name: str | None = None,
+            format: str = "full",
+        ) -> str:
+            """Load a single catalogue entry, or a whole catalogue in compact
+            form, as a JSON string — a lighter alternative to the full-text
+            loaders for one of the four prose catalogues: `classifications`,
+            `approaches`, `principles`, `techniques`.
+
+            - With `name` set: return one entry. `name` matches the stable slug
+              id (`api_contract_change`, `equivalence-partitioning`) or the
+              verbatim heading text (case-insensitive).
+            - With `name` omitted: return the whole catalogue. `format="full"`
+              (default) returns the verbatim catalogue text; `format="compact"`
+              returns one lead-line summary per entry.
+
+            `format`: `"full"` (default) returns verbatim entry text marked
+            `canonical=true` — safe to cite. `"compact"` returns a truncated
+            summary marked `canonical=false` — a navigation/recall aid, NOT a
+            citation replacement; load the full form (or the zero-argument
+            `sumo_qa_load_*` loader) when exact wording matters.
+
+            Never raises: an unknown catalogue, name, or format returns a JSON
+            error envelope listing the valid choices. The existing
+            zero-argument `sumo_qa_load_*` loaders are unchanged. Read-only and
+            local-only."""
+            if name is None:
+                payload = _load_catalogue(catalogue, format=format)
+            else:
+                payload = _load_catalogue_entry(catalogue, name=name, format=format)
+            return json.dumps(payload, ensure_ascii=False, indent=2)
 
     _register_knowledge_loaders(mcp)
 

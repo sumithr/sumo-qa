@@ -133,6 +133,241 @@ def sumo_qa_load_techniques() -> str:
     return _read("techniques.md")
 
 
+# ---------------------------------------------------------------------------
+# Per-entry / compact catalogue access (issue #287, epic #137 Lever 4).
+#
+# The four prose catalogues above (classifications, approaches, principles,
+# techniques) are markdown with one ATX heading per entry. This block indexes
+# those headings deterministically — no LLM, no network — so a host can fetch a
+# single entry (full verbatim, canonical) or a compact summary (lead line,
+# explicitly NON-canonical) instead of the whole catalogue. The zero-argument
+# full loaders above are unchanged.
+# ---------------------------------------------------------------------------
+
+# catalogue id -> markdown filename. Only the prose catalogues with per-entry
+# headings are addressable here; standards/rules are pack-shaped, not entries.
+_CATALOGUE_FILES = {
+    "classifications": "classifications.md",
+    "approaches": "approaches.md",
+    "principles": "principles.md",
+    "techniques": "techniques.md",
+}
+_CATALOGUE_FORMATS = ("full", "compact")
+
+# Heading line: 1-6 leading '#', a space, then heading text. Matched only on
+# lines OUTSIDE fenced code blocks (mirrors skill_manifest._iter_headings).
+_ENTRY_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+_ENTRY_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+# The first heading in each file is the catalogue's own title (e.g. "# Test
+# design techniques"); it is not an entry. Entry headings start at level 2.
+_ENTRY_MIN_LEVEL = 2
+_NON_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _entry_slugify(heading: str) -> str:
+    """Lowercase heading -> stable hyphen slug. ``api_contract_change`` keeps
+    its shape (underscores collapse to hyphens? no — see below); prose headings
+    like ``equivalence partitioning`` become ``equivalence-partitioning``.
+
+    Classification/approach ids already use underscores/hyphens as their
+    canonical spelling, so we preserve alnum runs and join with a single
+    hyphen — but underscores are alphanumeric-adjacent identifiers and must be
+    kept verbatim so ``api_contract_change`` round-trips."""
+    lowered = heading.lower()
+    # Keep underscores (canonical classification spelling) and alphanumerics;
+    # everything else collapses to a single hyphen.
+    slug = re.sub(r"[^a-z0-9_]+", "-", lowered).strip("-")
+    return slug or "entry"
+
+
+def _iter_entry_headings(body: str) -> list[tuple[int, int, str]]:
+    """Yield (line_index, level, heading_text) for every ATX heading outside a
+    fenced code block. Same fence tracking as skill_manifest."""
+    headings: list[tuple[int, int, str]] = []
+    fence: str | None = None
+    for idx, line in enumerate(body.splitlines()):
+        fence_match = _ENTRY_FENCE_RE.match(line)
+        if fence_match:
+            marker = fence_match.group(1)[0]
+            if fence is None:
+                fence = marker
+            elif marker == fence:
+                fence = None
+            continue
+        if fence is not None:
+            continue
+        heading_match = _ENTRY_HEADING_RE.match(line)
+        if heading_match:
+            headings.append((idx, len(heading_match.group(1)), heading_match.group(2).strip()))
+    return headings
+
+
+def _dedupe_entry(slug: str, seen: dict[str, int]) -> str:
+    count = seen.get(slug, 0) + 1
+    seen[slug] = count
+    return slug if count == 1 else f"{slug}-{count}"
+
+
+def _first_prose_line(entry_text: str) -> str:
+    """First non-empty, non-heading line of an entry body — the deterministic
+    compact summary. Verbatim from the catalogue but truncated, hence the
+    summary is marked non-canonical (it is not the full entry)."""
+    for line in entry_text.splitlines()[1:]:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return stripped
+    return ""
+
+
+def _index_catalogue_entries(text: str) -> list[dict[str, Any]]:
+    """Build the entry index for one catalogue body.
+
+    One entry per ATX heading at level >= 2 (the level-1 line is the catalogue
+    title, not an entry). Each entry's text runs from its heading line to the
+    next heading at any level. Entry ids are stable slugs of the heading;
+    duplicates get deterministic ``-2``/``-3`` suffixes."""
+    entries: list[dict[str, Any]] = []
+    seen: dict[str, int] = {}
+    lines = text.splitlines(keepends=True)
+    headings = _iter_entry_headings(text)
+    for pos, (line_idx, level, heading_text) in enumerate(headings):
+        if level < _ENTRY_MIN_LEVEL:
+            continue
+        end_idx = headings[pos + 1][0] if pos + 1 < len(headings) else len(lines)
+        entry_text = "".join(lines[line_idx:end_idx])
+        entries.append(
+            {
+                "id": _dedupe_entry(_entry_slugify(heading_text), seen),
+                "heading": heading_text,
+                "level": level,
+                "text": entry_text,
+                "summary": _first_prose_line(entry_text),
+            }
+        )
+    return entries
+
+
+def list_catalogue_entries(catalogue: str) -> list[dict[str, Any]]:
+    """Return the entry index (id, heading, level, text, summary) for one of the
+    four prose catalogues. Raises ``KeyError`` for an unknown catalogue id —
+    callers that want an error envelope use ``load_catalogue_entry`` /
+    ``load_catalogue`` instead."""
+    if catalogue not in _CATALOGUE_FILES:
+        raise KeyError(catalogue)
+    return _index_catalogue_entries(_read(_CATALOGUE_FILES[catalogue]))
+
+
+def _catalogue_error(message: str, **available: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {"error": message}
+    payload.update(available)
+    return payload
+
+
+def load_catalogue_entry(
+    catalogue: str,
+    name: str | None = None,
+    format: str = "full",
+) -> dict[str, Any]:
+    """Return one catalogue entry by name.
+
+    ``name`` matches either the stable slug id (``api_contract_change``,
+    ``equivalence-partitioning``) or the verbatim heading text
+    (case-insensitive). ``format="full"`` (default) returns the entry's verbatim
+    markdown with ``canonical=true``; ``format="compact"`` returns just the lead
+    summary line with ``canonical=false`` (not a citation replacement).
+
+    Never raises: an unknown catalogue, missing name, unknown name, or unknown
+    format returns an actionable error envelope listing the valid choices."""
+    if catalogue not in _CATALOGUE_FILES:
+        return _catalogue_error(
+            f"Unknown catalogue {catalogue!r}.",
+            available_catalogues=sorted(_CATALOGUE_FILES),
+        )
+    if format not in _CATALOGUE_FORMATS:
+        return _catalogue_error(
+            f"Unknown format {format!r}.",
+            available_formats=list(_CATALOGUE_FORMATS),
+        )
+    entries = list_catalogue_entries(catalogue)
+    available = [e["id"] for e in entries]
+    if name is None:
+        return _catalogue_error(
+            "name is required.",
+            available_entries=available,
+        )
+    needle = name.strip().lower()
+    match = next(
+        (e for e in entries if e["id"] == needle or e["heading"].lower() == needle),
+        None,
+    )
+    if match is None:
+        return _catalogue_error(
+            f"Unknown entry {name!r} in catalogue {catalogue!r}.",
+            available_entries=available,
+        )
+    if format == "compact":
+        return {
+            "catalogue": catalogue,
+            "id": match["id"],
+            "heading": match["heading"],
+            "format": "compact",
+            "canonical": False,
+            "text": match["summary"],
+        }
+    return {
+        "catalogue": catalogue,
+        "id": match["id"],
+        "heading": match["heading"],
+        "format": "full",
+        "canonical": True,
+        "text": match["text"],
+    }
+
+
+def load_catalogue(catalogue: str, format: str = "full") -> dict[str, Any]:
+    """Return a whole catalogue in ``full`` or ``compact`` form.
+
+    ``format="full"`` (default) returns ``{..., "canonical": true, "text": <the
+    verbatim catalogue>}`` — byte-equal to the zero-argument loader.
+    ``format="compact"`` returns ``{..., "canonical": false, "entries": [{id,
+    heading, summary, canonical=false}, …]}`` — one lead-line summary per entry,
+    explicitly NON-canonical (not a citation replacement).
+
+    Never raises: unknown catalogue or format returns an error envelope."""
+    if catalogue not in _CATALOGUE_FILES:
+        return _catalogue_error(
+            f"Unknown catalogue {catalogue!r}.",
+            available_catalogues=sorted(_CATALOGUE_FILES),
+        )
+    if format not in _CATALOGUE_FORMATS:
+        return _catalogue_error(
+            f"Unknown format {format!r}.",
+            available_formats=list(_CATALOGUE_FORMATS),
+        )
+    if format == "full":
+        return {
+            "catalogue": catalogue,
+            "format": "full",
+            "canonical": True,
+            "text": _read(_CATALOGUE_FILES[catalogue]),
+        }
+    entries = list_catalogue_entries(catalogue)
+    return {
+        "catalogue": catalogue,
+        "format": "compact",
+        "canonical": False,
+        "entries": [
+            {
+                "id": e["id"],
+                "heading": e["heading"],
+                "summary": e["summary"],
+                "canonical": False,
+            }
+            for e in entries
+        ],
+    }
+
+
 def _standards_dir() -> Path:
     """Return the standards directory, honouring QA_STANDARDS_PATH override."""
     override = os.environ.get("QA_STANDARDS_PATH")

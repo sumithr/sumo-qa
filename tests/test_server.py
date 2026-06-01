@@ -61,6 +61,7 @@ _KNOWLEDGE_LOADER_TOOL_NAMES = {
     "sumo_qa_load_techniques",
     "sumo_qa_load_standards",
     "sumo_qa_load_rules",
+    "sumo_qa_load_catalogue_entry",
 }
 
 _EXTERNAL_SKILL_TOOL_NAMES = {
@@ -339,10 +340,22 @@ def test_tool_bodies_are_reachable_via_server_call_tool() -> None:
         # sumo_qa_load_rules (line 318)
         r = await server.call_tool("sumo_qa_load_rules", {})
         results.append(r)
+        # sumo_qa_load_catalogue_entry — whole-catalogue branch (name omitted)
+        r = await server.call_tool(
+            "sumo_qa_load_catalogue_entry",
+            {"catalogue": "classifications", "format": "compact"},
+        )
+        results.append(r)
+        # sumo_qa_load_catalogue_entry — single-entry branch (name set)
+        r = await server.call_tool(
+            "sumo_qa_load_catalogue_entry",
+            {"catalogue": "classifications", "name": "api_contract_change"},
+        )
+        results.append(r)
         return results
 
     results = asyncio.run(run_tools())
-    assert len(results) == 9
+    assert len(results) == 11
 
 
 def test_tool_body_register_known_good_via_server(tmp_path) -> None:
