@@ -307,13 +307,57 @@ class TestCodexAdversarialFindings:
             "`promptfoo view` segment short-circuited the scan."
         )
 
-    def test_npm_run_with_interposed_flag_routes(self) -> None:
-        """P2 false negative: `npm run --silent eval` is still an eval run — the
-        script-name lookup must skip flags interposed after `run`.
+    def test_npm_run_eval_with_trailing_flag_routes(self) -> None:
+        """`npm run eval --silent` (flags AFTER the script name, the common form)
+        is still an eval run — the script is anchored at the token right after
+        `run`, so a trailing flag doesn't hide it.
         """
         out = _fixture("promptfoo_fail.stdout.txt")
-        result = _run_hook(_post_tool_use("npm run --silent eval", stdout=out, exit_code=100))
+        result = _run_hook(_post_tool_use("npm run eval --silent", stdout=out, exit_code=100))
         assert "eval-failure-diagnoser" in _additional_context(result)
+
+    def test_npm_run_workspace_value_does_not_false_route(self) -> None:
+        """P2 false positive (re-review): `npm run --workspace eval build` runs
+        the `build` script with workspace `eval`. Skipping the flag and reading
+        its value `eval` as the script would wrongly route. The script must be
+        the literal token after `run`.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(
+            _post_tool_use("npm run --workspace eval build", stdout=out, exit_code=100)
+        )
+        assert _additional_context(result) == "", (
+            "hook read the `--workspace` value `eval` as the script name. The "
+            "script is the literal token immediately after `run`."
+        )
+
+    def test_promptfoo_flag_value_eval_does_not_false_route(self) -> None:
+        """P2 false positive (re-review): `promptfoo --config eval generate` runs
+        the `generate` subcommand with config `eval`. The subcommand must be the
+        literal token after `promptfoo`, not a flag value.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(
+            _post_tool_use("promptfoo --config eval generate", stdout=out, exit_code=100)
+        )
+        assert _additional_context(result) == "", (
+            "hook read the `--config` value `eval` as the promptfoo subcommand. "
+            "The subcommand is the literal token immediately after `promptfoo`."
+        )
+
+    def test_quoted_embedded_eval_text_does_not_route(self) -> None:
+        """P2 false positive (re-review): a `;`/`|` INSIDE a quoted argument is
+        not a command separator. `printf '[FAIL]\\n' "x; promptfoo eval ; y"`
+        merely prints text containing `promptfoo eval`; it must not be carved
+        into a fake `promptfoo eval` segment.
+        """
+        result = _run_hook(
+            _post_tool_use("printf '[FAIL]\n' \"x; promptfoo eval ; y\"", stdout="[FAIL]\n")
+        )
+        assert _additional_context(result) == "", (
+            "hook split a quoted argument on its embedded `;` and routed printed "
+            "text as a real `promptfoo eval`. Segmentation must respect quoting."
+        )
 
     def test_npm_help_run_eval_does_not_route(self) -> None:
         """P3 false positive (re-review): `npm help run eval` has `run` as an

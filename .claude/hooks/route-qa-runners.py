@@ -56,17 +56,37 @@ _MUTMUT_STATUS_EMOJI = {
 }
 
 
-def _segments(command: str) -> list[str]:
-    """Split a shell command on control operators so a token in one part can't
-    bleed into another (`cat mutmut.log | grep survived` is two segments)."""
-    return re.split(r"\|\||&&|\||;|&", command)
+_CONTROL_OPERATORS = {";", "|", "||", "&&", "&", "\n"}
 
 
-def _tokens(segment: str) -> list[str]:
+def _command_segments(command: str) -> list[list[str]]:
+    """Tokenize the command respecting quotes, then split into per-sub-command
+    token lists on shell control operators.
+
+    Quoting matters: a `;`/`|` INSIDE a quoted argument
+    (`printf "x; promptfoo eval ; y"`) belongs to that argument, not as a command
+    separator — a naive `re.split` on operators would carve a fake `promptfoo
+    eval` segment out of printed text. `shlex` with `punctuation_chars` keeps the
+    quoted run intact and yields unquoted operators as standalone tokens."""
     try:
-        return shlex.split(segment)
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
     except ValueError:
-        return segment.split()
+        # Unbalanced quotes etc. — degrade to a naive operator split rather than
+        # crash; the outer hook still exits 0 regardless.
+        return [part.split() for part in re.split(r"\|\||&&|\||;|&", command)]
+
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in _CONTROL_OPERATORS:
+            segments.append(current)
+            current = []
+        else:
+            current.append(token)
+    segments.append(current)
+    return segments
 
 
 def _effective_argv(tokens: list[str]) -> list[str]:
@@ -94,43 +114,36 @@ def _effective_argv(tokens: list[str]) -> list[str]:
 
 
 def _is_mutmut_run(command: str) -> bool:
-    for segment in _segments(command):
-        eff = _effective_argv(_tokens(segment))
+    for segment in _command_segments(command):
+        eff = _effective_argv(segment)
         if len(eff) >= 2 and os.path.basename(eff[0]) == "mutmut" and eff[1] == "run":
             return True
     return False
 
 
-def _first_non_flag(tokens: list[str]) -> str | None:
-    """The first token that is not a `-`/`--` flag."""
-    for token in tokens:
-        if token.startswith("-"):
-            continue
-        return token
-    return None
-
-
 def _pm_script(eff: list[str]) -> str | None:
     """The npm/pnpm/yarn/bun script name being run, if any.
 
-    `run`/`run-script` must be the SUBCOMMAND — the token immediately after
-    argv[0] — not merely present in argv: `npm help run eval` has `run` as an
-    argument to `help`, not the subcommand, and must NOT match. Flags AFTER the
-    subcommand are skipped (`npm run --silent eval` -> `eval`).
+    Two positions are anchored LITERALLY to avoid the flag-arity ambiguity
+    (without npm's per-flag arity table, a flag's value can't be told from a
+    positional):
 
-    Deliberately NOT supported: a value-taking GLOBAL flag before the subcommand
-    (`npm --prefix ./pkg run eval`). Distinguishing it from a bare subcommand
-    (`npm help run`) needs npm's per-flag arity table — `--silent run` (boolean
-    flag, `run` is the subcommand) and `--prefix ./pkg run` (value flag, `run`
-    is the subcommand) are otherwise indistinguishable. This hook is advisory,
-    so the only cost is a missed reminder on that exotic form (a false negative);
-    anchoring strictly at argv[1] keeps the harmful direction — a false positive
-    — at zero. The repo's real invocations are plain `npm run eval[:all]`."""
+    - `run`/`run-script` must be the SUBCOMMAND at argv[1], not merely present
+      (`npm help run eval` has `run` as an argument to `help` → no match).
+    - the script is the token IMMEDIATELY after the subcommand (argv[2]); a flag
+      there means we don't recognise the script (`npm run --workspace eval build`
+      runs `build`, not `eval` — reading `eval` would be a false positive).
+
+    Deliberately NOT supported (accepted false NEGATIVES on exotic, repo-unused
+    forms): a flag before the script (`npm run --silent eval`) or a value-taking
+    global flag before the subcommand (`npm --prefix ./pkg run eval`). The hook
+    is advisory; anchoring literally keeps the harmful direction — a false
+    positive — at zero. Real repo invocations are plain `npm run eval[:all]`."""
     if len(eff) < 2:
         return None
     sub = eff[1]
     if sub in ("run", "run-script"):
-        return _first_non_flag(eff[2:])
+        return eff[2] if len(eff) >= 3 else None
     # `yarn eval` / `bun eval` shorthand (no explicit `run`).
     if os.path.basename(eff[0]) in ("yarn", "bun") and not sub.startswith("-"):
         return sub
@@ -159,13 +172,18 @@ def _promptfoo_argv(eff: list[str]) -> list[str] | None:
 
 def _segment_is_promptfoo_eval(eff: list[str]) -> bool:
     """Is this single command segment an actual promptfoo eval RUN (not
-    generate/view, not a script merely named eval-something)?"""
+    generate/view, not a script merely named eval-something)?
+
+    The promptfoo subcommand is the token IMMEDIATELY after `promptfoo` (pf[1]) —
+    commander grammar puts the command before its options, so taking it literally
+    avoids reading a flag value as the subcommand (`promptfoo --config eval
+    generate` actually runs `generate`)."""
     if not eff:
         return False
     if os.path.basename(eff[0]) in ("npm", "pnpm", "yarn", "bun"):
         return _pm_script(eff) in ("eval", "eval:all")
     pf = _promptfoo_argv(eff)
-    return pf is not None and _first_non_flag(pf[1:]) == "eval"
+    return pf is not None and len(pf) >= 2 and pf[1] == "eval"
 
 
 def _is_promptfoo_eval_run(command: str) -> bool:
@@ -174,7 +192,7 @@ def _is_promptfoo_eval_run(command: str) -> bool:
     real eval after an excluded segment still route — `promptfoo view; promptfoo
     eval` must fire on the second segment."""
     return any(
-        _segment_is_promptfoo_eval(_effective_argv(_tokens(seg))) for seg in _segments(command)
+        _segment_is_promptfoo_eval(_effective_argv(seg)) for seg in _command_segments(command)
     )
 
 
