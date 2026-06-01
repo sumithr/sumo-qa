@@ -1,21 +1,23 @@
-name: testpypi-publish
+name: staging-publish
 
-# Pre-release test publish to TestPyPI (a non-production index) so a candidate
-# build can be pip-installed and smoke-tested with the *exact* artifact shape
-# users consume, before the production `release.yml` tag pipeline runs.
+# Build the package and publish it as a GitHub Release in the PRIVATE staging
+# repo (sumithr/sumo-qa-staging) so project collaborators can pip-install and
+# smoke-test a pre-prod candidate with the *exact* artifact shape end-users
+# consume — WITHOUT exposing a dev build on public PyPI. Access is limited to
+# collaborators of the private staging repo.
 #
-# SAFETY MODEL — why this can never leak publish credentials to fork PRs:
+# SAFETY MODEL — why this can never leak the cross-repo token to fork PRs:
 #   * Trigger is `workflow_dispatch` ONLY. There is deliberately no
 #     `pull_request` / `pull_request_target` / `push` trigger, so untrusted
-#     fork-PR code can never start this workflow, and the checked-out ref is
-#     always one a maintainer (write access required to dispatch) selected.
-#   * The publish job runs in the `testpypi` GitHub Environment, whose
-#     deployment protection rules (required reviewers / allowed branches) the
-#     maintainer configures in repo settings. No long-lived token is used at
-#     all: publishing is via OIDC trusted publishing (`id-token: write`),
-#     scoped to TestPyPI for this repo.
-#   * The publish target is hard-pinned to `https://test.pypi.org/legacy/`.
-#     It is impossible for this workflow to upload to production PyPI.
+#     fork-PR code can never start this workflow or reach the publish token, and
+#     the checked-out ref is always one a maintainer (write access required to
+#     dispatch) selected.
+#   * The publish job runs in the `staging` GitHub Environment, whose deployment
+#     protection rules (required reviewers / allowed branches) the maintainer
+#     configures in repo settings.
+#   * Cross-repo write uses a NARROW fine-grained PAT (`STAGING_PUBLISH_TOKEN`,
+#     `contents: write` on sumo-qa-staging ONLY) — never the default
+#     `GITHUB_TOKEN` (which cannot write another repo) and never a broad token.
 #
 # CI trigger hygiene matches the repo convention (no `push: ["**"]`, no
 # double-firing) — this one is intentionally manual-only.
@@ -24,18 +26,17 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Branch, tag, or SHA to build and test-publish (defaults to the dispatch ref)."
+        description: "Branch, tag, or SHA to build and stage (defaults to the dispatch ref)."
         required: false
         type: string
 
-# Minimum default token scope. The build job only checks out and builds; the
-# publish job overrides below with the id-token write OIDC trusted publishing
-# needs. Satisfies CodeQL's "workflow does not contain permissions" lint.
+# Minimum default token scope for the build job. The publish job does NOT use
+# the default token at all — it uses the STAGING_PUBLISH_TOKEN secret.
 permissions:
   contents: read
 
 concurrency:
-  group: testpypi-publish-${{ github.workflow }}-${{ github.ref }}
+  group: staging-publish-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -62,10 +63,8 @@ jobs:
         env:
           # `github.run_number` is GitHub-computed (monotonic per workflow),
           # never attacker-supplied — safe to interpolate, and guarantees a
-          # PEP 440 dev release segment unique enough to avoid TestPyPI
-          # version-reuse collisions (TestPyPI permanently burns a filename
-          # even after deletion). No PEP 440 local segment (`+...`) — those
-          # are rejected on upload.
+          # PEP 440 dev release segment unique per run so each staged build
+          # gets its own release tag. No PEP 440 local segment (`+...`).
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
@@ -100,54 +99,53 @@ jobs:
       - name: Upload artefacts
         uses: actions/upload-artifact@v4
         with:
-          name: testpypi-dist
+          name: staging-dist
           path: dist/
 
   publish:
-    name: Publish to TestPyPI
+    name: Publish to private staging repo
     needs: build
     runs-on: ubuntu-latest
     # Deployment protection (required reviewers / allowed branches) is enforced
     # by this Environment — configured in repo settings, NOT in this file.
     environment:
-      name: testpypi
-      url: https://test.pypi.org/project/sumo-qa/${{ needs.build.outputs.version }}/
-    permissions:
-      id-token: write  # OIDC trusted publishing — no stored token
+      name: staging
     steps:
       - name: Download artefacts
         uses: actions/download-artifact@v4
         with:
-          name: testpypi-dist
+          name: staging-dist
           path: dist/
 
-      - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-
-      - name: Summary — package, version, install command
+      - name: Publish release to the private staging repo
         env:
+          # Fine-grained PAT with contents:write on sumo-qa-staging ONLY.
+          # The default GITHUB_TOKEN cannot write a different repo, so a scoped
+          # secret is required — and it is only readable by this protected job.
+          GH_TOKEN: ${{ secrets.STAGING_PUBLISH_TOKEN }}
           VERSION: ${{ needs.build.outputs.version }}
+          STAGING_REPO: sumithr/sumo-qa-staging
         run: |
           set -euo pipefail
+          TAG="v${VERSION}"
+          gh release create "$TAG" dist/* \
+            --repo "$STAGING_REPO" \
+            --title "sumo-qa ${VERSION} (staging)" \
+            --notes "Pre-prod build of sumo-qa ${VERSION}. Collaborator access only — install per docs/DEVELOPMENT.md."
           {
-            echo "## TestPyPI publish"
+            echo "## Staging publish"
             echo ""
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| Package | \`sumo-qa\` |"
             echo "| Version | \`${VERSION}\` |"
-            echo "| Index | TestPyPI (https://test.pypi.org/) |"
-            echo "| Project page | https://test.pypi.org/project/sumo-qa/${VERSION}/ |"
+            echo "| Staging repo | \`${STAGING_REPO}\` (private) |"
+            echo "| Release tag | \`${TAG}\` |"
             echo ""
-            echo "### Install the test artifact"
+            echo "### Install the staged artifact (collaborators only)"
             echo ""
             echo '```bash'
-            echo "pip install --index-url https://test.pypi.org/simple/ \\"
-            echo "  --extra-index-url https://pypi.org/simple/ \\"
-            echo "  sumo-qa==${VERSION}"
+            echo "gh release download ${TAG} --repo ${STAGING_REPO} --pattern '*.whl'"
+            echo "pip install ./sumo_qa-${VERSION}-py3-none-any.whl"
             echo '```'
-            echo ""
-            echo "The \`--extra-index-url\` lets dependencies (mcp, pydantic, PyYAML) resolve from production PyPI while sumo-qa itself comes from TestPyPI."
           } >> "$GITHUB_STEP_SUMMARY"
