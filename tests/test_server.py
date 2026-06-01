@@ -46,6 +46,14 @@ _CONTEXT_BUNDLE_TOOL_NAMES = {
     "sumo_qa_format_context_bundle",
 }
 
+# Progressive skill loading (issue #285) — deterministic, read-only, local-only
+# manifest index + partial skill-context loader. The existing zero-argument
+# skill tools still return full bodies unchanged; these add a slice-loading path.
+_SKILL_LOADING_TOOL_NAMES = {
+    "sumo_qa_list_skill_manifests",
+    "sumo_qa_load_skill_context",
+}
+
 _KNOWLEDGE_LOADER_TOOL_NAMES = {
     "sumo_qa_load_classifications",
     "sumo_qa_load_approaches",
@@ -120,6 +128,7 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
         | _CONTEXT_BUNDLE_TOOL_NAMES
         | _INGESTION_TOOL_NAMES
         | _EXTERNAL_SKILL_TOOL_NAMES
+        | _SKILL_LOADING_TOOL_NAMES
         | _SKILL_TOOL_NAMES
     )
 
@@ -228,6 +237,36 @@ def test_filtered_knowledge_loader_args_are_forwarded_via_server_call_tool() -> 
     assert "config_change:" in rules_text
     assert "ui_only_change:" not in rules_text
     assert "configuration_change:" not in rules_text
+
+
+def test_skill_loading_tools_return_json_via_call_tool() -> None:
+    """The #285 MCP wrappers must JSON-serialise the manifest + loader output."""
+    import asyncio
+    import json
+
+    server = build_mcp_server()
+
+    def _text(result) -> str:
+        # call_tool returns (content_list, structured_result); the JSON string
+        # this tool emits is the text of the first content block.
+        content = result[0] if isinstance(result, tuple) else result
+        return _tool_text(content)
+
+    async def run() -> tuple[str, str]:
+        manifests = await server.call_tool("sumo_qa_list_skill_manifests", {})
+        full = await server.call_tool(
+            "sumo_qa_load_skill_context",
+            {"skill_name": "using-sumo-qa", "mode": "manifest"},
+        )
+        return _text(manifests), _text(full)
+
+    manifests_text, manifest_text = asyncio.run(run())
+
+    manifests = json.loads(manifests_text)
+    assert {m["skill_name"] for m in manifests["skills"]}  # non-empty
+    loaded = json.loads(manifest_text)
+    assert loaded["skill_name"] == "using-sumo-qa"
+    assert loaded["mode"] == "manifest"
 
 
 # ---------------------------------------------------------------------------

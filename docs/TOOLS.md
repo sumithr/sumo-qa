@@ -14,6 +14,17 @@ In JetBrains AI Assistant these are slash commands (`/sumo_qa_deciding_approach`
 
 See [SKILLS.md](SKILLS.md) for the Iron Law per skill.
 
+## Progressive skill loading
+
+A read-only, deterministic, local-only pair of tools that lets a host fetch just the slice of a skill it needs (the routing summary, one section, or one module) instead of the whole `SKILL.md` body. The zero-argument skill tools above are unchanged — `mode="full"` returns the same body byte-for-byte. No extraction, no network, no caching.
+
+| Tool | What it returns |
+|---|---|
+| `sumo_qa_list_skill_manifests()` | A JSON string of compact metadata for every bundled skill: `skill_name`, `tool_name`, `description`, `content_hash` (sha256), `estimated_tokens_full`, `sections[]` (id, heading, level, estimated_tokens, required) and `modules[]` (id, path, estimated_tokens). Section ids are stable heading slugs (duplicates get `-2`/`-3` suffixes); `required` flags the structural sections (frontmatter, Iron Law, Checklist, Flow, Red Flags, HARD-GATE) when present. |
+| `sumo_qa_load_skill_context(skill_name, mode, section=None, module=None)` | A JSON string for one slice. `mode` is `manifest` (routing summary + section/module lists), `section` (one section's text), `module` (one module's text), or `full` (the whole body, identical to the skill tool). Invalid skill/mode/section/module, a missing required arg, or a path-traversal attempt returns a JSON error envelope listing the valid choices — it never raises. |
+
+This is the foundation slice of progressive skill loading; richer guidance on when a host should prefer a partial load is deferred to a follow-up.
+
 ## Knowledge loaders
 
 Each returns a markdown catalogue as plain text. The host LLM reasons over the returned content. The classification-filter tools (`load_standards`, `load_rules`) accept a single classification or comma-separated classifications. Standards filtering is metadata-based from pack frontmatter; rules filtering returns matching entries. No keyword matching.

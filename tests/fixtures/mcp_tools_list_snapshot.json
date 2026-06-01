@@ -12,14 +12,17 @@
     "sumo_qa_find_test_data",
     "sumo_qa_finding_test_data",
     "sumo_qa_finishing_qa_work",
+    "sumo_qa_format_context_bundle",
     "sumo_qa_format_risk_ledger",
     "sumo_qa_implementing_with_tdd",
     "sumo_qa_ingest_knowledge_pack",
     "sumo_qa_install_external_skill",
+    "sumo_qa_list_skill_manifests",
     "sumo_qa_load_approaches",
     "sumo_qa_load_classifications",
     "sumo_qa_load_principles",
     "sumo_qa_load_rules",
+    "sumo_qa_load_skill_context",
     "sumo_qa_load_standards",
     "sumo_qa_load_techniques",
     "sumo_qa_planning_qa_rollout",
@@ -1668,6 +1671,177 @@
         "type": "object"
       }
     },
+    "sumo_qa_format_context_bundle": {
+      "inputSchema": {
+        "properties": {
+          "bundle": {
+            "additionalProperties": true,
+            "title": "Bundle",
+            "type": "object"
+          },
+          "local_head_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Local Head Sha"
+          },
+          "max_files": {
+            "default": 40,
+            "title": "Max Files",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bundle"
+        ],
+        "title": "sumo_qa_format_context_bundleArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "ErrorEnvelope": {
+            "additionalProperties": false,
+            "description": "The MCP tool error envelope returned by ``sumo_qa.server._error_envelope``.\n\nUsed as the typed alternative to a bare ``dict`` in every tool's return\nannotation. Without this, FastMCP would emit an unconstrained\n``additionalProperties: true`` schema arm, allowing any shape through and\ndefeating the outputSchema contract.\n\n``isError`` is ``Literal[True]`` so Pydantic + FastMCP treat it as a\ndiscriminator, routing between each tool's success model and this\nenvelope in the emitted ``anyOf``/``oneOf`` schema.",
+            "properties": {
+              "error": {
+                "$ref": "#/$defs/_ErrorDetail",
+                "description": "Structured error payload with type, message, and actionable_hint."
+              },
+              "isError": {
+                "const": true,
+                "description": "Marks the response as an error per the MCP error-shape convention.",
+                "title": "Iserror",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "isError",
+              "error"
+            ],
+            "title": "ErrorEnvelope",
+            "type": "object"
+          },
+          "FormatContextBundleOutput": {
+            "additionalProperties": false,
+            "description": "Compact result of ``sumo_qa_format_context_bundle`` (issue #149).\n\nPure file/format plumbing \u2014 the host supplies the already-gathered issue/PR/\ndiff/CI/test facts, this tool validates them and renders a host-neutral\nmarkdown brief plus a one-line roll-up. It performs NO inference and makes NO\nnetwork call. ``stale_evidence_fields`` and ``untrustworthy_evidence_fields``\nsurface the safety-honesty signal: a non-empty ``untrustworthy_evidence_fields``\nmeans at least one present CI/test fact is not a fresh pass and MUST NOT back\na safe-to-merge claim. ``conflict`` is set when the bundle's head_sha differs\nfrom a supplied local head \u2014 the consumer calls out the divergence rather than\ntrusting either side.",
+            "properties": {
+              "changed_file_count": {
+                "description": "Number of changed files in the validated bundle.",
+                "title": "Changed File Count",
+                "type": "integer"
+              },
+              "compact_summary": {
+                "description": "One-line roll-up of the bundle's trust state.",
+                "title": "Compact Summary",
+                "type": "string"
+              },
+              "conflict": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Bundle-vs-local-state conflict message when head shas differ, else None.",
+                "title": "Conflict"
+              },
+              "markdown": {
+                "description": "The rendered host-neutral context-bundle brief.",
+                "title": "Markdown",
+                "type": "string"
+              },
+              "stale_evidence_fields": {
+                "description": "Go-stale fields whose evidence is explicitly stale (e.g. ['ci_status']).",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Stale Evidence Fields",
+                "type": "array"
+              },
+              "tool": {
+                "const": "sumo_qa_format_context_bundle",
+                "default": "sumo_qa_format_context_bundle",
+                "description": "Tool discriminator; always the literal tool name.",
+                "title": "Tool",
+                "type": "string"
+              },
+              "untrustworthy_evidence_fields": {
+                "description": "Present go-stale fields that are NOT a fresh pass (stale/unknown/absent/failing/mixed). Non-empty \u21d2 no safety claim may rest on bundle evidence.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Untrustworthy Evidence Fields",
+                "type": "array"
+              }
+            },
+            "required": [
+              "markdown",
+              "compact_summary",
+              "changed_file_count",
+              "stale_evidence_fields",
+              "untrustworthy_evidence_fields"
+            ],
+            "title": "FormatContextBundleOutput",
+            "type": "object"
+          },
+          "_ErrorDetail": {
+            "additionalProperties": false,
+            "description": "Inner payload of the MCP tool error envelope.",
+            "properties": {
+              "actionable_hint": {
+                "description": "One-line hint the host surfaces to the user with a concrete next step.",
+                "title": "Actionable Hint",
+                "type": "string"
+              },
+              "message": {
+                "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
+                "title": "Message",
+                "type": "string"
+              },
+              "type": {
+                "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "message",
+              "actionable_hint"
+            ],
+            "title": "_ErrorDetail",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FormatContextBundleOutput"
+              },
+              {
+                "$ref": "#/$defs/ErrorEnvelope"
+              }
+            ],
+            "title": "Result"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "sumo_qa_format_context_bundleOutput",
+        "type": "object"
+      }
+    },
     "sumo_qa_format_risk_ledger": {
       "inputSchema": {
         "properties": {
@@ -2084,6 +2258,26 @@
         "type": "object"
       }
     },
+    "sumo_qa_list_skill_manifests": {
+      "inputSchema": {
+        "properties": {},
+        "title": "sumo_qa_list_skill_manifestsArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "sumo_qa_list_skill_manifestsOutput",
+        "type": "object"
+      }
+    },
     "sumo_qa_load_approaches": {
       "inputSchema": {
         "properties": {},
@@ -2174,6 +2368,75 @@
           "result"
         ],
         "title": "sumo_qa_load_rulesOutput",
+        "type": "object"
+      }
+    },
+    "sumo_qa_load_skill_context": {
+      "inputSchema": {
+        "properties": {
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mode"
+          },
+          "module": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Module"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Section"
+          },
+          "skill_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Skill Name"
+          }
+        },
+        "title": "sumo_qa_load_skill_contextArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "sumo_qa_load_skill_contextOutput",
         "type": "object"
       }
     },

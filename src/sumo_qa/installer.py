@@ -119,6 +119,9 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_check_external_skill_installed",
     "sumo_qa_install_external_skill",
     "sumo_qa_execute_external_skill",
+    # Progressive skill loading (#285) — skill manifests + partial context loader
+    "sumo_qa_list_skill_manifests",
+    "sumo_qa_load_skill_context",
 )
 
 # Truncate stdout/stderr to keep installer output readable when the MCP
