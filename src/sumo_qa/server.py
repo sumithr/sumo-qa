@@ -48,6 +48,7 @@ from sumo_qa.server_schemas import (
     DiffImpactOutput,
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
+    FormatContextBundleOutput,
     FormatRiskLedgerOutput,
     InstallExternalSkillOutput,
     RepoMapQueryOutput,
@@ -96,6 +97,15 @@ _HINT_FORMAT_LEDGER = (
     "evidence_status is one of planned/passing/failing/stale/accepted_residual; "
     "residual is one of open/accepted/mitigated/blocker. Identify the risks "
     "yourself — this tool only validates and formats them, it never infers risk."
+)
+_HINT_FORMAT_CONTEXT_BUNDLE = (
+    "Pass a bundle dict with optional issue_summary, pr_summary, head_sha, "
+    "changed_files=[{path, change_kind}], test_evidence/ci_status="
+    "{result, freshness, source}, and user_constraints. freshness is one of "
+    "fresh/stale/unknown/absent; result is one of passing/failing/mixed/not_run; "
+    "source is one of manual/local_git/github/ci_provider/other. Everything but "
+    "schema is optional — a partial bundle is fine. Supply local_head_sha to "
+    "detect a bundle-vs-local-state conflict. No network call; gather facts yourself."
 )
 
 
@@ -989,6 +999,65 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_format_risk_ledger",
             args={"rows": rows, "max_rows": max_rows},
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_read_only_local)
+    def sumo_qa_format_context_bundle(
+        bundle: dict[str, Any],
+        local_head_sha: str | None = None,
+        max_files: int = 40,
+    ) -> FormatContextBundleOutput | ErrorEnvelope:
+        """Validate and render a host-neutral issue/PR CONTEXT BUNDLE as a
+        compact markdown brief for QA review/planning (issue #149). FILE/FORMAT
+        PLUMBING ONLY — the host gathers the facts; this tool never inspects a
+        repo, makes a network call, or assumes GitHub. A partial/empty bundle is
+        first-class: when little is supplied, the consuming skill falls back to
+        direct repo inspection.
+
+        Common natural-language phrasings that map to this tool:
+        "build the review context bundle", "format this PR/issue context for
+        review", "render the context bundle with its freshness", "summarise the
+        diff/CI/test facts I gathered".
+
+        ``bundle`` is a dict with optional ``issue_summary``, ``pr_summary``,
+        ``head_sha``, ``changed_files`` (each ``{path, change_kind}``),
+        ``test_evidence`` / ``ci_status`` (each ``{result, freshness, source}``,
+        plus optional ``captured_at`` / ``detail``), and ``user_constraints``.
+        ``freshness`` is one of fresh/stale/unknown/absent; only a FRESH PASS is
+        safety-supporting — a stale, unknown, or absent fact is rendered with an
+        explicit "do not claim safety from it" warning. Supply ``local_head_sha``
+        (the host's live local head) to detect a bundle-vs-local-state conflict;
+        when the shas differ the brief calls out the divergence instead of
+        trusting either side. ``max_files`` bounds the changed-file list.
+        """
+        from sumo_qa.context_bundle_format import (
+            compact_summary as _bundle_summary,
+        )
+        from sumo_qa.context_bundle_format import (
+            format_context_bundle_markdown,
+        )
+        from sumo_qa.context_bundle_models import detect_local_conflict
+        from sumo_qa.context_bundle_validation import load_context_bundle
+
+        output: FormatContextBundleOutput | dict[str, Any]
+        try:
+            validated = load_context_bundle(bundle)
+            output = FormatContextBundleOutput(
+                markdown=format_context_bundle_markdown(
+                    validated, local_head_sha=local_head_sha, max_files=max_files
+                ),
+                compact_summary=_bundle_summary(validated, local_head_sha=local_head_sha),
+                changed_file_count=len(validated.changed_files),
+                stale_evidence_fields=validated.stale_evidence_fields(),
+                untrustworthy_evidence_fields=validated.untrustworthy_evidence_fields(),
+                conflict=detect_local_conflict(validated, local_head_sha),
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_FORMAT_CONTEXT_BUNDLE)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_format_context_bundle",
+            args={"bundle": bundle, "local_head_sha": local_head_sha, "max_files": max_files},
             output=output,  # type: ignore[arg-type]
         )
 

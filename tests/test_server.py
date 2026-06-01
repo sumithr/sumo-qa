@@ -42,6 +42,10 @@ _LEDGER_TOOL_NAMES = {
     "sumo_qa_format_risk_ledger",
 }
 
+_CONTEXT_BUNDLE_TOOL_NAMES = {
+    "sumo_qa_format_context_bundle",
+}
+
 _KNOWLEDGE_LOADER_TOOL_NAMES = {
     "sumo_qa_load_classifications",
     "sumo_qa_load_approaches",
@@ -113,6 +117,7 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
         | _CAPABILITIES_TOOL_NAMES
         | _REPO_MAP_TOOL_NAMES
         | _LEDGER_TOOL_NAMES
+        | _CONTEXT_BUNDLE_TOOL_NAMES
         | _INGESTION_TOOL_NAMES
         | _EXTERNAL_SKILL_TOOL_NAMES
         | _SKILL_TOOL_NAMES
