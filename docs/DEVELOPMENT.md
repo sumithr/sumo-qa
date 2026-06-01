@@ -271,6 +271,15 @@ pip builds the sdist/wheel from that ref the same way the release build does.
 Then verify: `sumo-qa-doctor`, and an MCP `initialize` + `tools/list` round-trip
 (see [docs/INSTALL.md](INSTALL.md)).
 
+pip identifies the package by the version in `pyproject.toml` at that ref, so if
+two candidates carry the same version string (e.g. both `0.21.0`), pip treats it
+as "already installed" and skips the rebuild. Install from distinct **tags**, or
+force the reinstall:
+
+```bash
+pip install --force-reinstall "sumo-qa @ git+https://github.com/sumithr/sumo-qa@<branch-or-tag>"
+```
+
 Note on access: `sumo-qa` is a **public** repo, so a git-ref install isn't
 access-restricted — anyone who knows the ref can install it. It keeps dev builds
 off PyPI, which is the point here. True "only project devs" access would require
