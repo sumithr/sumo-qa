@@ -9,22 +9,37 @@ catalogued, flag it as a gap rather than confabulating.
 ### equivalence partitioning
 Group inputs into classes that share behaviour; pick one representative
 per class. Use when the input space is large but partitions clearly.
+Common failure modes (probe when a risk names this technique): substring /
+token confusion (a value matches because it *contains* a keyword — `unlocked`
+matches `locked`, `concurrency` matches `currency` — not because it belongs
+to the class); overlapping / non-disjoint classes; a missing empty / null /
+whitespace-only class; no negative representative from the adjacent class.
 
 ### boundary value analysis
 Test the values immediately above, at, and below boundaries (off-by-one,
 limits, capacity thresholds). Defects cluster at boundaries.
+Common failure modes: testing only one side (verify BOTH just-inside and
+just-outside on EACH side); confusing `<` with `<=` at the limit; open vs
+closed interval (is the boundary value itself in or out?).
 
 ### decision tables
 Enumerate every combination of input conditions and the expected output.
 Use when business rules are conjunctions of multiple conditions.
+Common failure modes: a missing rule row (an unenumerated combination, so
+its behaviour is undefined); no default / else arm; testing each condition
+in isolation instead of the combination that triggers the defect.
 
 ### state transition testing
 Model the system as a finite state machine; test every legal transition
 and a sample of illegal ones. Use for stateful components.
+Common failure modes: an untested illegal transition the code silently
+allows; state left mutated after a transition that should have rolled back.
 
 ### pairwise / orthogonal arrays
 When a feature has many parameters with many values each, test every pair
 of value combinations rather than the full Cartesian product.
+Common failure modes: a defect that only surfaces on a three-way (not
+pairwise) interaction; a parameter value omitted from the model entirely.
 
 ### classification trees
 Hierarchical refinement of equivalence partitions, useful when partitions
