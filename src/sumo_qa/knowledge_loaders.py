@@ -157,7 +157,12 @@ _CATALOGUE_FORMATS = ("full", "compact")
 # Heading line: 1-6 leading '#', a space, then heading text. Matched only on
 # lines OUTSIDE fenced code blocks (mirrors skill_manifest._iter_headings).
 _ENTRY_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
-_ENTRY_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+# CommonMark fenced code blocks: an opening fence is a run of >=3 backticks or
+# >=3 tildes, indented by AT MOST 3 spaces (>=4 spaces is an indented code
+# block, not a fence). Capture the whole run so we can compare lengths: a
+# closing fence must use the same char with length >= the opener's, so an outer
+# 4-backtick fence is NOT closed by an inner 3-backtick run.
+_ENTRY_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 # The first heading in each file is the catalogue's own title (e.g. "# Test
 # design techniques"); it is not an entry. Entry headings start at level 2.
 _ENTRY_MIN_LEVEL = 2
@@ -184,14 +189,17 @@ def _iter_entry_headings(body: str) -> list[tuple[int, int, str]]:
     """Yield (line_index, level, heading_text) for every ATX heading outside a
     fenced code block. Same fence tracking as skill_manifest."""
     headings: list[tuple[int, int, str]] = []
-    fence: str | None = None
+    # Open fence as (char, length), or None when outside a code block. CommonMark
+    # closes a fence only on a same-char run at least as long as the opener.
+    fence: tuple[str, int] | None = None
     for idx, line in enumerate(body.splitlines()):
         fence_match = _ENTRY_FENCE_RE.match(line)
         if fence_match:
-            marker = fence_match.group(1)[0]
+            run = fence_match.group(1)
+            marker, length = run[0], len(run)
             if fence is None:
-                fence = marker
-            elif marker == fence:
+                fence = (marker, length)
+            elif marker == fence[0] and length >= fence[1]:
                 fence = None
             continue
         if fence is not None:
@@ -290,6 +298,19 @@ def _catalogue_error(message: str, **available: Any) -> dict[str, Any]:
     return payload
 
 
+def _missing_catalogue_error(catalogue: str, exc: OSError) -> dict[str, Any]:
+    """Error envelope for a catalogue whose backing file is missing/unreadable.
+
+    Honours the "never raises" contract of ``load_catalogue`` /
+    ``load_catalogue_entry``: a bad ``QA_KNOWLEDGE_PATH`` or a broken bundle
+    must surface as an actionable envelope (listing the valid catalogues),
+    not leak an ``OSError`` through the MCP tool wrapper."""
+    return _catalogue_error(
+        f"Catalogue {catalogue!r} could not be read: {exc}.",
+        available_catalogues=sorted(_CATALOGUE_FILES),
+    )
+
+
 def load_catalogue_entry(
     catalogue: str,
     name: str | None = None,
@@ -315,7 +336,10 @@ def load_catalogue_entry(
             f"Unknown format {format!r}.",
             available_formats=list(_CATALOGUE_FORMATS),
         )
-    entries = list_catalogue_entries(catalogue)
+    try:
+        entries = list_catalogue_entries(catalogue)
+    except OSError as exc:
+        return _missing_catalogue_error(catalogue, exc)
     available = [e["id"] for e in entries]
     if name is None:
         return _catalogue_error(
@@ -372,13 +396,20 @@ def load_catalogue(catalogue: str, format: str = "full") -> dict[str, Any]:
             available_formats=list(_CATALOGUE_FORMATS),
         )
     if format == "full":
+        try:
+            text = _read(_CATALOGUE_FILES[catalogue])
+        except OSError as exc:
+            return _missing_catalogue_error(catalogue, exc)
         return {
             "catalogue": catalogue,
             "format": "full",
             "canonical": True,
-            "text": _read(_CATALOGUE_FILES[catalogue]),
+            "text": text,
         }
-    entries = list_catalogue_entries(catalogue)
+    try:
+        entries = list_catalogue_entries(catalogue)
+    except OSError as exc:
+        return _missing_catalogue_error(catalogue, exc)
     return {
         "catalogue": catalogue,
         "format": "compact",

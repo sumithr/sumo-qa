@@ -276,6 +276,99 @@ def test_leaf_entry_with_no_prose_body_has_empty_summary(tmp_path, monkeypatch):
     assert summaries == {"first": "Real prose.", "trailing_blank": ""}
 
 
+# --- FIX 1: missing/unreadable catalogue file -> error envelope, never raises -
+
+
+def test_load_catalogue_entry_missing_file_returns_error_envelope(tmp_path, monkeypatch):
+    # Contract: load_catalogue_entry NEVER raises. A QA_KNOWLEDGE_PATH that
+    # points at a directory holding no catalogue file (so the underlying
+    # read_text would raise FileNotFoundError) must surface as an error
+    # envelope, not a leaked FileNotFoundError.
+    missing_dir = tmp_path / "no_such_dir"
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(missing_dir))
+    result = knowledge_loaders.load_catalogue_entry("classifications", name="api_contract_change")
+    assert isinstance(result, dict)
+    assert "error" in result
+    assert "available_catalogues" in result
+    assert set(result["available_catalogues"]) == set(CATALOGUES)
+    assert "text" not in result
+
+
+def test_load_catalogue_full_missing_file_returns_error_envelope(tmp_path, monkeypatch):
+    # The full-format path goes straight through _read(); it must also honour
+    # the never-raises contract when the catalogue file is missing/unreadable.
+    missing_dir = tmp_path / "no_such_dir"
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(missing_dir))
+    result = knowledge_loaders.load_catalogue("classifications", format="full")
+    assert isinstance(result, dict)
+    assert "error" in result
+    assert "available_catalogues" in result
+    assert set(result["available_catalogues"]) == set(CATALOGUES)
+    assert "text" not in result
+
+
+def test_load_catalogue_compact_missing_file_returns_error_envelope(tmp_path, monkeypatch):
+    # The compact-format path goes through list_catalogue_entries() -> _read().
+    missing_dir = tmp_path / "no_such_dir"
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(missing_dir))
+    result = knowledge_loaders.load_catalogue("classifications", format="compact")
+    assert isinstance(result, dict)
+    assert "error" in result
+    assert "available_catalogues" in result
+    assert "entries" not in result
+
+
+# --- FIX 2: CommonMark-correct fence tracking ------------------------------
+
+
+def test_outer_4tick_fence_wrapping_inner_3tick_block_hides_fake_heading(tmp_path, monkeypatch):
+    # A 4-backtick fence may legally contain a 3-backtick run as literal
+    # content. A length-blind fence tracker closes on the inner ``` and then
+    # treats text after it as outside the block — wrongly indexing a fake
+    # heading that lives inside the (still-open) outer code block.
+    cat = tmp_path / "classifications.md"
+    cat.write_text(
+        "# Title\n\n"
+        "## real_entry\n"
+        "Body line.\n\n"
+        "````markdown\n"
+        "```\n"
+        "## Fake heading inside the block\n"
+        "```\n"
+        "````\n\n"
+        "## second_entry\n"
+        "More body.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
+    ids = {e["id"] for e in knowledge_loaders.list_catalogue_entries("classifications")}
+    assert ids == {"real_entry", "second_entry"}
+    assert "fake-heading-inside-the-block" not in ids
+
+
+def test_indented_4space_backticks_are_not_a_fence(tmp_path, monkeypatch):
+    # CommonMark: a line indented >= 4 spaces is an indented code block, not a
+    # fence marker. The indented ``` must NOT open a fence — so the real
+    # heading that follows must still be indexed as an entry.
+    cat = tmp_path / "classifications.md"
+    cat.write_text(
+        "# Title\n\n"
+        "## real_entry\n"
+        "Body line.\n\n"
+        "    ```\n"
+        "    indented code, not a fence\n\n"
+        "## second_entry\n"
+        "More body.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
+    ids = {e["id"] for e in knowledge_loaders.list_catalogue_entries("classifications")}
+    assert "real_entry" in ids
+    assert "second_entry" in ids, (
+        "an indented (>=4 space) ``` must not open a fence that swallows the next heading"
+    )
+
+
 def test_full_loaders_backward_compatible_zero_arg():
     # Regression guard: the existing zero-arg loaders are untouched.
     for fn, marker in [
