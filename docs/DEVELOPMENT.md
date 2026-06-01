@@ -256,72 +256,26 @@ installer change): GitHub → Actions → `upgrade-smoke` → **Run workflow**.
 By default it upgrades from the current latest PyPI release; optionally set
 `previous_version` to rehearse the upgrade from a specific published version.
 
-## Staging a candidate to the private staging repo
+## Testing a pre-release candidate
 
-Before a production release, a candidate build can be published to the
-**private** staging repo [`sumithr/sumo-qa-staging`](https://github.com/sumithr/sumo-qa-staging)
-so project collaborators can `pip install` and smoke-test it with the exact
-artifact shape end-users consume — entry points, dependency metadata, the MCP
-`initialize`/`tools/list` handshake — **without** exposing a dev build on public
-PyPI. Because `sumo-qa` is a public repo, TestPyPI / PyPI / public-repo release
-assets are all world-readable; a separate **private** repo is what restricts the
-candidate to collaborators. This is the
-[`.github/workflows/staging-publish.yml`](../.github/workflows/staging-publish.yml)
-workflow: it builds the wheel + sdist and creates a GitHub Release (carrying
-those artifacts) in the private staging repo.
+To smoke-test a candidate before a production release — with the same artifact
+build path end-users get, but **without** publishing a dev build to public PyPI
+— install it straight from a git ref. No publish pipeline, no extra index, no
+extra repo to maintain:
 
-### How it stays fork-PR-safe
+```bash
+pip install "sumo-qa @ git+https://github.com/sumithr/sumo-qa@<branch-or-tag>"
+```
 
-- **Trigger is `workflow_dispatch` only.** There is deliberately no
-  `pull_request`, `pull_request_target`, or `push` trigger, so untrusted
-  fork-PR code can never start it or reach the publish token, and the ref it
-  builds is always one a maintainer (write access required to dispatch)
-  selected.
-- **Publishing runs in the `staging` GitHub Environment.** Deployment
-  protection rules (required reviewers / allowed branches) are configured in
-  repo settings, not in the workflow file.
-- **Narrow cross-repo token.** The release is created with a fine-grained PAT
-  (`STAGING_PUBLISH_TOKEN`) scoped to `contents: write` on `sumo-qa-staging`
-  ONLY — never the default `GITHUB_TOKEN` (which cannot write another repo) and
-  never a broadly-scoped token. It is only readable by the protected publish
-  job.
+pip builds the sdist/wheel from that ref the same way the release build does.
+Then verify: `sumo-qa-doctor`, and an MCP `initialize` + `tools/list` round-trip
+(see [docs/INSTALL.md](INSTALL.md)).
 
-### One-time maintainer setup (cannot be done from a PR branch)
-
-These are GitHub-side settings an admin configures once; the workflow assumes
-they exist:
-
-1. **The private staging repo** `sumithr/sumo-qa-staging` exists (private).
-   Grant the project's developers **collaborator** access to it — that
-   collaborator list *is* the access-control boundary for staged builds.
-2. **Create a fine-grained PAT** with **Repository access → only
-   `sumo-qa-staging`** and **Contents: Read and write**, then add it to the
-   `sumo-qa` repo as the secret **`STAGING_PUBLISH_TOKEN`** (Settings → Secrets
-   and variables → Actions, scoped to the `staging` environment).
-3. **Create the `staging` Environment** in `sumo-qa` repo settings
-   (Settings → Environments) and add deployment protection — required reviewers
-   and/or an allowed-branches rule — so a dispatch still gates on a human before
-   it publishes.
-
-### Triggering it and installing the staged build
-
-1. GitHub → **Actions** → `staging-publish` → **Run workflow**. Optionally set
-   the `ref` input to a branch, tag, or SHA (defaults to the dispatch ref).
-2. The build job rewrites the static `pyproject.toml` version to a unique
-   `<version>.dev<run_number>` PEP 440 dev release so each staged build gets its
-   own release tag (`v<version>.dev<run_number>`).
-3. The run summary prints the package name, the version, the staging repo, the
-   release tag, and the exact install command. Collaborators install it in a
-   clean virtualenv:
-
-   ```bash
-   gh release download v<version>.dev<run_number> \
-     --repo sumithr/sumo-qa-staging --pattern '*.whl'
-   pip install ./sumo_qa-<version>.dev<run_number>-py3-none-any.whl
-   ```
-
-4. Then verify the artifact: `sumo-qa-doctor`, and an MCP `initialize` +
-   `tools/list` round-trip (see [docs/INSTALL.md](INSTALL.md)).
+Note on access: `sumo-qa` is a **public** repo, so a git-ref install isn't
+access-restricted — anyone who knows the ref can install it. It keeps dev builds
+off PyPI, which is the point here. True "only project devs" access would require
+a private index or a private repo (extra standing infrastructure); that
+trade-off was deliberately declined in favour of zero maintenance.
 
 ## Reinstalling locally
 
