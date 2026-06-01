@@ -43,13 +43,14 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-        # tests/fixtures/ holds byte-for-byte captures of external CLI
-        # output (qaskills.sh CLI). Stripping trailing whitespace there
-        # would diverge our fixtures from reality and silently mask
-        # parser bugs.
-        exclude: ^tests/fixtures/
+        # tests/fixtures/ and .claude/hooks/fixtures/ hold byte-for-byte
+        # captures of external CLI output (qaskills.sh CLI; mutmut / promptfoo
+        # runs). Stripping trailing whitespace or normalising trailing newlines
+        # there would diverge our fixtures from reality and silently mask
+        # parser / matcher bugs.
+        exclude: ^(tests/fixtures|\.claude/hooks/fixtures)/
       - id: end-of-file-fixer
-        exclude: ^tests/fixtures/
+        exclude: ^(tests/fixtures|\.claude/hooks/fixtures)/
       - id: check-yaml
       - id: check-toml
       - id: check-json

@@ -1,0 +1,323 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+"""Regression tests for the .claude/hooks/route-qa-runners.py PostToolUse hook.
+
+The hook injects a reminder to route through `mutation-survivor-triage` (mutmut
+survivors) or `eval-failure-diagnoser` (promptfoo FAILs) when it sees the
+matching runner output on a Bash result. It is advisory only: it must never
+block the underlying Bash result and must exit 0 on every path.
+
+Why subprocess (not importlib + monkeypatch): the hook's contract is "given
+this real PostToolUse stdin, does it emit the right PostToolUse JSON on stdout
+and exit 0?" — directly observable by running it as Claude Code runs it.
+
+THE CENTRAL RISK (issue #127, and the reason an earlier hand-rolled attempt was
+discarded): the marker matcher must be built against REAL runner output, not a
+fabricated fixture. Real `mutmut run` stdout reports survivors with EMOJI
+counters (`🙁 4`), never the literal word "survived" — a hook grepping for
+"survived" never fires on real output yet passes against an invented fixture.
+Every positive fixture under .claude/hooks/fixtures/ is therefore a byte-for-byte
+capture of the real tool:
+  - mutmut_survivors.stdout.txt  — real `mutmut run`, 4 survivors (🙁 4)
+  - mutmut_clean.stdout.txt      — real `mutmut run`, all 461 killed (🙁 0)
+  - mutmut_timeout/suspicious    — the real survivor capture with ONLY the
+                                   integer in the verified-real emoji layout
+                                   substituted (⏰ N / 🤔 N), every other byte
+                                   genuine, to exercise the timeout/suspicious
+                                   trigger statuses the AC requires.
+  - promptfoo_fail.stdout.txt    — real `promptfoo eval` (echo provider), 1
+                                   failed, table cell `[FAIL]`, exit code 100
+  - promptfoo_pass.stdout.txt    — real `promptfoo eval`, 1 passed, exit 0
+
+Technique: equivalence partitioning over (command-shape × output-marker) — the
+substring/token-confusion failure mode this technique warns about IS the bug
+(`grep survived` echoing the word; `eval:generate` containing "eval"); plus
+checklist-based testing for the hook contract (exit 0 all paths, PostToolUse
+JSON shape, agent named verbatim, never blocks).
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+HOOK = REPO_ROOT / ".claude" / "hooks" / "route-qa-runners.py"
+FIXTURES = REPO_ROOT / ".claude" / "hooks" / "fixtures"
+
+
+def _fixture(name: str) -> str:
+    return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+def _run_hook(payload: dict) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(HOOK)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+def _post_tool_use(command: str, stdout: str = "", stderr: str = "", exit_code: int = 0) -> dict:
+    return {
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "tool_response": {"stdout": stdout, "stderr": stderr, "exit_code": exit_code},
+    }
+
+
+def _additional_context(result: subprocess.CompletedProcess) -> str:
+    """Return the hook's injected reminder text, or '' if it stayed silent.
+
+    A non-routing path is allowed to print nothing at all OR valid PostToolUse
+    JSON with no additionalContext; both read as 'no reminder'.
+    """
+    assert result.returncode == 0, f"hook must always exit 0; stderr={result.stderr!r}"
+    if not result.stdout.strip():
+        return ""
+    payload = json.loads(result.stdout)
+    spec = payload["hookSpecificOutput"]
+    assert spec["hookEventName"] == "PostToolUse", f"wrong hookEventName: {spec}"
+    # The hook must never carry a blocking decision on a PostToolUse advisory.
+    assert "permissionDecision" not in spec, (
+        f"advisory hook must not block the Bash result; got {spec}"
+    )
+    return spec.get("additionalContext", "") or ""
+
+
+# --------------------------------------------------------------------------- #
+# mutmut branch — positive (real captured output)                              #
+# --------------------------------------------------------------------------- #
+
+
+class TestMutmutSurvivorsRouteToTriage:
+    def test_real_survivor_output_routes_to_mutation_survivor_triage(self) -> None:
+        """THE regression test. Real `mutmut run` with 4 survivors (🙁 4) and
+        the literal word "survived" appearing ZERO times. A hook that grepped
+        for "survived" would stay silent here (the discarded attempt); the
+        emoji-counter matcher must fire and name `mutation-survivor-triage`.
+        """
+        out = _fixture("mutmut_survivors.stdout.txt")
+        assert "survived" not in out, (
+            "fixture invariant: real mutmut output must NOT contain the word "
+            "'survived' — if it does, the fixture is no longer a real capture "
+            "and the central regression is no longer guarded."
+        )
+        result = _run_hook(_post_tool_use("uv run mutmut run", stdout=out, exit_code=0))
+        context = _additional_context(result)
+        assert "mutation-survivor-triage" in context, (
+            "hook did not route real mutmut survivor output to "
+            f"mutation-survivor-triage. additionalContext={context!r}. The "
+            "matcher must parse the 🙁 emoji counter, not the word 'survived'."
+        )
+
+    def test_exit_zero_with_survivors_still_routes(self) -> None:
+        """`mutmut run` exits 0 EVEN WITH survivors (empirically: both a
+        461-killed run and a 4-survivor run exit 0). The mutmut branch must
+        key off the emoji counts, never the exit code.
+        """
+        out = _fixture("mutmut_survivors.stdout.txt")
+        result = _run_hook(_post_tool_use("mutmut run", stdout=out, exit_code=0))
+        assert "mutation-survivor-triage" in _additional_context(result)
+
+    def test_timeout_status_routes(self) -> None:
+        out = _fixture("mutmut_timeout.stdout.txt")
+        result = _run_hook(_post_tool_use("mutmut run", stdout=out, exit_code=0))
+        assert "mutation-survivor-triage" in _additional_context(result)
+
+    def test_suspicious_status_routes(self) -> None:
+        out = _fixture("mutmut_suspicious.stdout.txt")
+        result = _run_hook(_post_tool_use("mutmut run", stdout=out, exit_code=0))
+        assert "mutation-survivor-triage" in _additional_context(result)
+
+
+# --------------------------------------------------------------------------- #
+# mutmut branch — negative                                                     #
+# --------------------------------------------------------------------------- #
+
+
+class TestMutmutCleanAndFalsePositives:
+    def test_clean_run_does_not_route(self) -> None:
+        """Real `mutmut run`, all 461 mutants killed (🙁 0, ⏰ 0, 🤔 0). No
+        survivor → no reminder.
+        """
+        out = _fixture("mutmut_clean.stdout.txt")
+        result = _run_hook(_post_tool_use("mutmut run", stdout=out, exit_code=0))
+        assert _additional_context(result) == "", (
+            "hook routed a clean mutmut run (zero survivors). It must only fire "
+            "when a survivor/timeout/suspicious count is non-zero."
+        )
+
+    def test_grep_survived_command_does_not_route(self) -> None:
+        """Regression guard from the issue: `cat log.txt | grep survived`
+        echoes the word "survived" in its OUTPUT but is not a mutmut run. The
+        command-shape gate must reject it even though the output says
+        "survived".
+        """
+        grep_output = "12:    survived\n48:    survived\n"
+        result = _run_hook(
+            _post_tool_use("cat log.txt | grep survived", stdout=grep_output, exit_code=0)
+        )
+        assert _additional_context(result) == "", (
+            "hook fired on `grep survived` — a command-shape false positive. "
+            "Only an actual `mutmut run` invocation may trigger the mutmut branch."
+        )
+
+    def test_cat_mutmut_log_does_not_route(self) -> None:
+        """`cat mutmut.log` mentions the string 'mutmut' but is not a run.
+        Reading a mutmut log (even one full of real emoji survivor counts)
+        must not trigger the hook.
+        """
+        out = _fixture("mutmut_survivors.stdout.txt")
+        result = _run_hook(_post_tool_use("cat mutmut.log", stdout=out, exit_code=0))
+        assert _additional_context(result) == "", (
+            "hook fired on `cat mutmut.log` — the command is not `mutmut run`."
+        )
+
+
+# --------------------------------------------------------------------------- #
+# promptfoo branch                                                             #
+# --------------------------------------------------------------------------- #
+
+
+class TestPromptfooFailsRouteToDiagnoser:
+    def test_real_fail_output_routes_to_eval_failure_diagnoser(self) -> None:
+        """Real `promptfoo eval`: 1 failed, table cell `[FAIL]`, exit 100."""
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use("promptfoo eval -c x.yaml", stdout=out, exit_code=100))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" in context, (
+            f"hook did not route promptfoo FAIL to eval-failure-diagnoser. "
+            f"additionalContext={context!r}"
+        )
+
+    def test_npm_run_eval_routes(self) -> None:
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=100))
+        assert "eval-failure-diagnoser" in _additional_context(result)
+
+    def test_npm_run_eval_all_routes(self) -> None:
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use("npm run eval:all", stdout=out, exit_code=100))
+        assert "eval-failure-diagnoser" in _additional_context(result)
+
+    def test_pass_run_does_not_route(self) -> None:
+        """Real `promptfoo eval`, 1 passed, exit 0, no `[FAIL]` cell."""
+        out = _fixture("promptfoo_pass.stdout.txt")
+        result = _run_hook(_post_tool_use("promptfoo eval -c x.yaml", stdout=out, exit_code=0))
+        assert _additional_context(result) == "", (
+            "hook routed a passing promptfoo run. It must only fire on a FAIL "
+            "marker or a non-zero failure exit."
+        )
+
+
+class TestExcludedEvalCommands:
+    """`eval:generate` and `eval:view` must be ignored even if their output or
+    exit code looks failure-shaped — they are not eval RUNS. Boundary value
+    analysis around the 'is this an eval run' decision.
+    """
+
+    def test_eval_generate_is_ignored(self) -> None:
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use("npm run eval:generate", stdout=out, exit_code=100))
+        assert _additional_context(result) == "", (
+            "hook fired on `npm run eval:generate` — an excluded command."
+        )
+
+    def test_eval_view_is_ignored(self) -> None:
+        result = _run_hook(_post_tool_use("npm run eval:view", stdout="", exit_code=1))
+        assert _additional_context(result) == ""
+
+    def test_promptfoo_generate_is_ignored(self) -> None:
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(
+            _post_tool_use("promptfoo generate dataset -c x.yaml", stdout=out, exit_code=100)
+        )
+        assert _additional_context(result) == "", (
+            "hook fired on `promptfoo generate` — only `promptfoo eval` runs route."
+        )
+
+    def test_promptfoo_view_is_ignored(self) -> None:
+        result = _run_hook(_post_tool_use("promptfoo view", stdout="", exit_code=0))
+        assert _additional_context(result) == ""
+
+
+# --------------------------------------------------------------------------- #
+# hook contract — robustness                                                   #
+# --------------------------------------------------------------------------- #
+
+
+class TestHookContract:
+    def test_malformed_stdin_exits_zero(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(HOOK)],
+            input="not json at all {{{",
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, (
+            f"hook must swallow malformed stdin and exit 0; got {result.returncode}, "
+            f"stderr={result.stderr!r}"
+        )
+
+    def test_missing_tool_response_exits_zero(self) -> None:
+        """A PostToolUse payload with no tool_response (or partial fields) must
+        not crash the hook — it exits 0 and stays silent.
+        """
+        result = _run_hook({"tool_name": "Bash", "tool_input": {"command": "mutmut run"}})
+        assert _additional_context(result) == ""
+
+    def test_non_bash_tool_is_ignored(self) -> None:
+        result = _run_hook(
+            {
+                "tool_name": "Edit",
+                "tool_input": {"file_path": "x.py"},
+                "tool_response": {"stdout": _fixture("mutmut_survivors.stdout.txt")},
+            }
+        )
+        assert _additional_context(result) == ""
+
+    def test_generic_pytest_failure_does_not_route(self) -> None:
+        """Regression guard: a plain pytest failure is neither a mutmut survivor
+        nor a promptfoo FAIL. The hook must stay out of the generic test loop.
+        """
+        pytest_output = "FAILED tests/test_x.py::test_y - AssertionError\n1 failed, 3 passed\n"
+        result = _run_hook(_post_tool_use("pytest -q", stdout=pytest_output, exit_code=1))
+        assert _additional_context(result) == ""
+
+
+def test_hook_is_executable() -> None:
+    """Deployment contract: settings.json invokes the hook as a bare command,
+    so it needs the executable bit and a shebang (same as the sibling hooks).
+    """
+    import os
+
+    assert HOOK.exists(), f"hook missing at {HOOK}"
+    if os.name != "nt":  # executable bit is meaningless on Windows
+        assert os.access(HOOK, os.X_OK), (
+            f"{HOOK} is not executable; settings.json runs it as a bare command."
+        )
+    first_line = HOOK.read_text(encoding="utf-8").splitlines()[0]
+    assert first_line.startswith("#!"), f"hook missing shebang: {first_line!r}"
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "mutmut_survivors.stdout.txt",
+        "mutmut_clean.stdout.txt",
+        "promptfoo_fail.stdout.txt",
+        "promptfoo_pass.stdout.txt",
+    ],
+)
+def test_fixtures_exist(fixture_name: str) -> None:
+    assert (FIXTURES / fixture_name).is_file(), (
+        f"missing real-capture fixture {fixture_name}; positive detection cannot "
+        "be verified against invented output."
+    )

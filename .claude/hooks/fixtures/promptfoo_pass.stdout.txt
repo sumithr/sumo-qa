@@ -1,0 +1,24 @@
+Cache is disabled.
+Starting evaluation eval-giu-2026-06-01T22:11:21
+[Evaluation] Starting 1 test cases...
+Running 1 test cases (up to 4 at a time)...
+[Evaluation] ✓ Complete! 1/1 tests in 0s
+
+┌────────────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┐
+│ text                                                       │ [echo] {{text}}                                            │
+├────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────┤
+│ hello                                                      │ [PASS] hello                                               │
+└────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────┘
+✓ Eval complete (ID: eval-giu-2026-06-01T22:11:21)
+
+» View results: promptfoo view
+» Share with your team: https://promptfoo.app
+» Feedback: https://promptfoo.dev/feedback
+
+
+Results:
+  ✓ 1 passed (100%)
+  0 failed (0%)
+  0 errors (0%)
+Duration: 0s (concurrency: 4)
+
