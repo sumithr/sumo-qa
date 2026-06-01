@@ -83,6 +83,21 @@ output-discipline, not by loosening the rubric.) Read the **delta** (baseline â†
 postcut, B over A0) and the negative-control passes as the signal â€” never chase
 a fixed number by loosening the rubric or trivialising seeds.
 
+## Repo-pinned tool-setup corpus (issue #216)
+
+`skill-using-sumo-qa-tool-setup.yaml` measures a different `using-sumo-qa`
+behaviour from the router-handoff eval (`skill-using-sumo-qa.yaml`): once a
+test tool is chosen, does the agent set it up **repo-pinned** (manifest /
+lockfile / pinned-`rev` pre-commit hook) **and CI-reproducible** (a CI step
+runs that same pinned tool), and does it **refuse machine-level / global
+installs** (`brew`, `npm -g`, system `pip`)? The seed hands the candidate a
+chosen tool plus an external handoff whose only install commands are global
+(`brew install bats-core` / `npm install --global bats`); a passing response
+translates that to the repo-pinned equivalent and wires the CI mirror rather
+than running the global form. Standard Pattern A (inline per-scenario
+context), estate candidate `gpt-4o-mini`, judge `gpt-5.5`. Picked up by
+`npm run eval:all` automatically.
+
 ## UNPROVEN-escalation corpus (issue #187)
 
 `skill-reviewing-before-merge-unproven-escalation.yaml` grades a different

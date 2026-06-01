@@ -236,7 +236,7 @@ flowchart LR
 - The host does not run `npx` directly; `sumo_qa_search_external_skills`, `sumo_qa_check_external_skill_installed`, `sumo_qa_install_external_skill`, and `sumo_qa_execute_external_skill` own the lifecycle.
 - Search returns the Skills CLI's text output verbatim (ANSI stripped); the host LLM reads it as the user would. No structured parser to drift out of date.
 - Node.js is required for the Skills CLI. If `npx` is missing, the MCP tool returns an actionable error and stops. It doesn't elevate via sudo.
-- The external skill handles tool-specific setup, while sumo-qa keeps the confirmation gates, test evidence, and risk-to-test mapping.
+- The external skill suggests tool-specific setup, but sumo-qa's setup standard overrides it — any machine-level / global install in the returned skill body is translated to a repo-pinned + CI-reproducible equivalent — while sumo-qa keeps the confirmation gates, test evidence, and risk-to-test mapping.
 
 ## Support
 
