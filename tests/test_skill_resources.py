@@ -39,6 +39,34 @@ def mcp():
     return build_mcp_server()
 
 
+@pytest.fixture
+def module_mcp(monkeypatch, tmp_path):
+    """A server whose skill index is a tmp skills dir with a REAL module file.
+
+    No bundled skill ships a ``modules/`` dir, so the module resource template
+    (``sumoqa://skills/{skill}/modules/{module}``) would otherwise never get
+    exercised at the resource layer. This mirrors the monkeypatch pattern from
+    ``tests/test_skill_manifest.py`` (``sm._skills_dir`` → a ``tmp_path`` skill
+    holding ``modules/<x>.md``): records are read fresh on each loader call, so
+    a server built under the patch reads the fake skill end-to-end.
+
+    Yields ``(server, skill_name, module_id)``.
+    """
+    skill_name = "sumo-qa-fake"
+    module_id = "alpha"
+    skill_dir = tmp_path / skill_name
+    (skill_dir / "modules").mkdir(parents=True)
+    skill_dir.joinpath("SKILL.md").write_text(
+        "---\nname: sumo-qa-fake\ndescription: d\n---\n\n# T\n", encoding="utf-8"
+    )
+    skill_dir.joinpath("modules", f"{module_id}.md").write_text(
+        "alpha module body", encoding="utf-8"
+    )
+    monkeypatch.setattr(sm, "_skills_dir", lambda: tmp_path)
+    server = build_mcp_server()
+    return server, skill_name, module_id
+
+
 def _read(mcp, uri: str) -> str:
     """Read one resource URI through FastMCP and return its text content."""
     contents = list(asyncio.run(mcp.read_resource(uri)))
@@ -52,13 +80,6 @@ def _a_skill_with_sections() -> str:
         if s["sections"]:
             return s["skill_name"]
     raise AssertionError("no skill has sections")
-
-
-def _a_skill_with_modules() -> str | None:
-    for s in sm.list_skill_manifests()["skills"]:
-        if s["modules"]:
-            return s["skill_name"]
-    return None
 
 
 # --------------------------------------------------------------------------
@@ -108,12 +129,11 @@ def test_section_resource_matches_loader(mcp):
     assert json.loads(body) == sm.load_skill_context(skill, "section", section=section_id)
 
 
-def test_module_resource_matches_loader(mcp):
-    skill = _a_skill_with_modules()
-    if skill is None:
-        pytest.skip("no bundled skill has modules yet")
-    module_id = sm.load_skill_context(skill, "manifest")["modules"][0]["id"]
-    body = _read(mcp, f"sumoqa://skills/{skill}/modules/{module_id}")
+def test_module_resource_matches_loader(module_mcp):
+    server, skill, module_id = module_mcp
+    # Sanity: the fake skill really exposes the module via the manifest.
+    assert sm.load_skill_context(skill, "manifest")["modules"][0]["id"] == module_id
+    body = _read(server, f"sumoqa://skills/{skill}/modules/{module_id}")
     assert json.loads(body) == sm.load_skill_context(skill, "module", module=module_id)
 
 
@@ -164,13 +184,13 @@ def test_module_resource_on_skill_without_modules_returns_error_envelope(mcp):
     assert "available_modules" in payload
 
 
-def test_module_path_traversal_is_rejected(mcp):
-    skill = _a_skill_with_modules()
-    if skill is None:
-        # No modules to make a traversal reach the per-module lookup; the
-        # "no modules" guard fires first. Covered by the test above.
-        pytest.skip("no bundled skill has modules yet")
-    body = _read(mcp, f"sumoqa://skills/{skill}/modules/..%2fsecrets")
+def test_module_path_traversal_is_rejected(module_mcp):
+    server, skill, _module_id = module_mcp
+    # The fake skill HAS modules, so the "no modules" guard does not short
+    # circuit — the traversal value reaches the per-module lookup and trips
+    # the loader's traversal guard. FastMCP passes the param through verbatim
+    # (no URL-decoding), so the `..` segment survives to the loader.
+    body = _read(server, f"sumoqa://skills/{skill}/modules/..%2fsecrets")
     payload = json.loads(body)
     assert "error" in payload
     assert "traversal" in payload["error"].lower()
