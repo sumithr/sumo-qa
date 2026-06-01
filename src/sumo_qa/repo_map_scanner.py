@@ -358,10 +358,14 @@ def _looks_like_test(rel: Path) -> bool:
         return True
     if stem.endswith(".test") or stem.endswith(".spec"):
         return True
-    # CamelCase families (FooTest.kt next to Foo.kt in a flat layout, with no
-    # tests/ dir to key on).
-    if _camelcase_test_base(stem) is not None:
-        return True
+    # A CamelCase suffix (FooTest / FooSpec / FooIT) is NOT classified as a test
+    # on the name alone: a production class under src/main whose name happens to
+    # end in Test/Spec/IT (e.g. ExperimentTest.kt in an A/B-testing domain) would
+    # be misclassified, dropping a changed source off the risk surface — a
+    # false-negative worse than a missed test (codex review, PR #277). Kotlin/
+    # Java/Scala tests live under src/test and are caught by the path check
+    # above; the CamelCase→source-stem mapping for those lives in
+    # _normalise_test_stem (edge inference on files already classified as tests).
     return False
 
 

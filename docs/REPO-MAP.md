@@ -117,12 +117,21 @@ What the slice-2 scanner produces:
   **usage** signal (a test file's **import statements** name a source stem —
   robust across languages; only import-style lines are read, so an incidental
   mention of a common word can't fabricate an edge) and a **name-convention**
-  signal covering
-  `tests/test_X.py` → `*/X.py`, `X_test.py`, `.test`/`.spec`, and CamelCase
-  families (`FooTest` / `FooTests` / `FooSpec` / `FooIT` / `FooITCase` for
-  Kotlin/Java/Scala/Swift). `confidence` is `high` for a unique name match or a
-  name+usage corroboration, `medium` for an ambiguous-name-only or usage-only
-  match. A pair found by both signals collapses to one corroborated edge.
+  signal mapping a test's stem to its source stem (`test_X` / `X_test`,
+  `.test`/`.spec`, and CamelCase families `FooTest` / `FooTests` / `FooSpec` /
+  `FooIT` / `FooITCase` → `Foo` for Kotlin/Java/Scala/Swift). `confidence` is
+  `high` for a unique name match or a name+usage corroboration, `medium` for an
+  ambiguous-name-only or usage-only match. A pair found by both signals
+  collapses to one corroborated edge.
+  Note the CamelCase mapping applies to files **already classified as tests**
+  (by the `tests`/`test` directory convention or the unambiguous
+  `test_`/`_test`/`.test`/`.spec` suffixes) — a bare `*Test`/`*Spec`/`*IT` name
+  is NOT treated as a test on its own, so a production class like
+  `src/main/kotlin/ExperimentTest.kt` is not misclassified (and dropped off the
+  risk surface). The cost is that tests in a custom source set outside a test
+  directory (e.g. Gradle's `src/integrationTest`) aren't auto-detected by name —
+  a safe miss (the source stays on the risk surface), and real detection lands
+  with the import graph in #212.
   First-class `imports` and `configured_by` edges (a parsed import graph) are
   deferred to #212; the usage signal here is a lightweight token-reference
   heuristic reading single-line imports only — block/parenthesised import

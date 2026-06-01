@@ -511,14 +511,18 @@ def test_camelcase_test_maps_to_camelcase_source(tmp_path: Path, test_rel: str):
     )
 
 
-def test_camelcase_test_classified_without_test_directory(tmp_path: Path):
-    # A CamelCase test file sitting outside any tests/ dir must still classify
-    # as test_file (the _looks_like_test CamelCase branch), not source_file —
-    # the path-based "tests"/"test" dir check can't catch a flat layout.
-    _make_file(tmp_path, "app/FooTest.kt", "class FooTest\n")
+@pytest.mark.parametrize("name", ["ExperimentTest", "ExperimentSpec", "ExperimentIT"])
+def test_camelcase_name_outside_test_dir_is_not_classified_as_test(tmp_path: Path, name: str):
+    # A CamelCase *Test/*Spec/*IT name OUTSIDE a test directory must NOT be
+    # classified as a test on the name alone: a production class like
+    # ExperimentTest.kt under src/main would otherwise be dropped from the
+    # source risk surface (codex review, PR #277). Tests are recognised by the
+    # src/test path convention, not the bare suffix.
+    rel = f"src/main/kotlin/{name}.kt"
+    _make_file(tmp_path, rel, f"class {name}\n")
     repo_map = scan_repo(tmp_path, generator_version="t")
-    node = next(n for n in repo_map.nodes if n.path == "app/FooTest.kt")
-    assert node.type == "test_file"
+    node = next(n for n in repo_map.nodes if n.path == rel)
+    assert node.type == "source_file"
 
 
 def test_non_test_camelcase_word_is_not_classified_as_test(tmp_path: Path):
@@ -533,14 +537,16 @@ def test_non_test_camelcase_word_is_not_classified_as_test(tmp_path: Path):
     assert by_path["src/Manifest.kt"] == "source_file"
 
 
-def test_camelcase_acronym_base_is_not_a_test(tmp_path: Path):
-    # The suffix matches (…IT) but the base is an all-caps acronym (HTTP ends
-    # uppercase), so it's a source file, not an IT-convention test — guards the
-    # acronym false-positive branch of _camelcase_test_base.
-    _make_file(tmp_path, "src/HTTPIT.kt", "class HTTPIT\n")
-    repo_map = scan_repo(tmp_path, generator_version="t")
-    node = next(n for n in repo_map.nodes if n.path == "src/HTTPIT.kt")
-    assert node.type == "source_file"
+def test_camelcase_test_base_rejects_acronym_and_maps_real_prefix():
+    # _camelcase_test_base maps a real CamelCase test stem to its source stem but
+    # rejects an all-caps acronym base (HTTP ends uppercase) so the normaliser
+    # doesn't fabricate a bogus mapping target.
+    from sumo_qa.repo_map_scanner import _camelcase_test_base
+
+    assert _camelcase_test_base("FooIT") == "Foo"
+    assert _camelcase_test_base("MyServiceSpec") == "MyService"
+    assert _camelcase_test_base("HTTPIT") is None  # base 'HTTP' ends uppercase
+    assert _camelcase_test_base("Plain") is None  # no test suffix
 
 
 def test_usage_signal_ignores_incidental_non_import_tokens(tmp_path: Path):
