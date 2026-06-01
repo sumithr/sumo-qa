@@ -66,6 +66,7 @@ from sumo_qa.skill_manifest import (
     load_skill_context as _load_skill_context,
 )
 from sumo_qa.skill_prompts import register_skills_as_prompts
+from sumo_qa.skill_resources import register_skill_resources
 from sumo_qa.tools import QAShiftLeftService
 
 # Reusable actionable hints for isError envelopes. Hosts surface these to the
@@ -1209,6 +1210,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         )
 
     register_skills_as_prompts(mcp)
+    register_skill_resources(mcp)
     return mcp
 
 

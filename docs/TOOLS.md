@@ -25,6 +25,31 @@ A read-only, deterministic, local-only pair of tools that lets a host fetch just
 
 This is the foundation slice of progressive skill loading; richer guidance on when a host should prefer a partial load is deferred to a follow-up.
 
+### MCP resources (additive)
+
+The same skill index is also exposed as MCP resources/resource-templates, for hosts that let the user (or the application) select context as resources. These are **additive** — the model-callable tools above stay the primary, unchanged path; no tool is removed or renamed, and no per-section/per-module tool is added. Each resource body is byte-for-byte the matching loader output (`application/json`):
+
+| URI | Equivalent loader call |
+|---|---|
+| `sumoqa://skills` | `sumo_qa_list_skill_manifests()` |
+| `sumoqa://skills/{skill_name}/manifest` | `load_skill_context(skill_name, "manifest")` |
+| `sumoqa://skills/{skill_name}/sections/{section_id}` | `load_skill_context(skill_name, "section", section=…)` |
+| `sumoqa://skills/{skill_name}/modules/{module_id}` | `load_skill_context(skill_name, "module", module=…)` |
+| `sumoqa://skills/{skill_name}/full` | `load_skill_context(skill_name, "full")` |
+
+`{skill_name}`, `{section_id}` and `{module_id}` are the stable ids from the manifest. An unknown skill/section/module — or a path-traversal attempt in a template parameter — returns the loader's JSON error envelope as the resource content (never a transport error).
+
+**Host compatibility.** MCP resources are application-driven: the host decides whether and how to surface them, and several clients require the user to explicitly attach a resource before the model can read it. The model-callable tool path is therefore the canonical route in every host; resources are an optional convenience where the client supports them.
+
+| Host | Resource behaviour |
+|---|---|
+| Claude Code | Resources and resource-templates are listed; the user attaches a resource (e.g. via `@`) to bring its content into context. The tool path works with no user step. |
+| Codex plugin | Resource exposure depends on the plugin's MCP client; where resources are unsupported, the tool path is used. |
+| VS Code / Copilot | MCP resources surface where the client implements `resources/list` + `resources/read`; otherwise fall back to the tools. |
+| JetBrains | Resource support tracks the IDE's MCP client; tools remain the reliable path. |
+
+Because support varies and is user-selection-driven, treat resources as additive and keep using the tools as the primary interface.
+
 ## Knowledge loaders
 
 Each returns a markdown catalogue as plain text. The host LLM reasons over the returned content. The classification-filter tools (`load_standards`, `load_rules`) accept a single classification or comma-separated classifications. Standards filtering is metadata-based from pack frontmatter; rules filtering returns matching entries. No keyword matching.
