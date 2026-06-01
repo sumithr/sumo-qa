@@ -57,12 +57,14 @@ See the Checklist above — that's the flow.
 
 ## Model Selection
 
-Match the subagent model to the task shape via the host's worker-delegation primitive (where it exposes a model override):
+Match the subagent model to the task shape via the host's worker-delegation primitive (where it exposes a model override). Express the choice as a capability tier — fast/cheap, standard, capable, most-capable — never as a vendor model name; map the host's available tiers onto these:
 
-- **Test-writing subagents** (clear spec, 1–2 files): fast/cheap (haiku).
-- **Spec-correctness reviewer**: standard (sonnet). Reads code + assesses risk coverage.
-- **Quality reviewer**: capable (sonnet/opus). Tautology + observability judgments.
-- **Final cross-task reviewer**: capable (opus). Guards whole-plan integrity.
+- **Test-writing subagents** (clear spec, 1–2 files): the fast/cheap tier.
+- **Spec-correctness reviewer**: a standard tier. Reads code + assesses risk coverage.
+- **Quality reviewer**: a capable tier. Tautology + observability judgments.
+- **Final cross-task reviewer**: the most-capable tier available. Guards whole-plan integrity.
+
+Where the host exposes no model override, use the strongest reasoning it makes available for the review stages and don't fail — see `using-sumo-qa` → *Reasoning effort*.
 
 ## Red Flags — STOP and rework
 

@@ -136,10 +136,24 @@ def test_skill_description_has_no_host_specific_tool_name(skill_path, phrase):
 # prose, the offending token lands here and the test fails. The skills express a
 # preference for *stronger available reasoning*, never a maintained matrix.
 #
-# Word-boundary matched, case-insensitive, against skill prose with fenced code
-# blocks stripped (a fenced shell/JSON example may legitimately show a model id;
-# normative prose may not). Keep this list focused on tokens that would only
-# appear if someone enumerated vendors/models/controls — not generic English.
+# Matched case-insensitively against skill prose with fenced code blocks stripped
+# (a fenced shell/JSON example may legitimately show a model id; normative prose
+# may not). Two layers:
+#
+#  1. PROVIDER_MODEL_DRIFT_DENYLIST — literal multi-word / unambiguous tokens,
+#     word-boundary matched. Kept focused on strings that would only appear if
+#     someone enumerated vendors/models/controls — not generic English. Bare
+#     English-homograph verbs ("cohere", "grok") are deliberately NOT here: they
+#     are covered by the narrower vendor-context regexes below so the guard
+#     cannot fail on ordinary prose (#161 FIX 3).
+#
+#  2. PROVIDER_MODEL_DRIFT_PATTERNS — compiled regexes for family classes the
+#     literal list cannot express safely: the gpt-N family *including* suffixes
+#     (gpt-4o, gpt-4o-mini, gpt-5.1, …), the o-series reasoning models
+#     (o1/o3/o4 + -mini/-pro) without false-positiving on a standalone "o", the
+#     bare capability-tier model names (haiku/sonnet/opus — now safe to flag
+#     because Model Selection is host-neutral after #161 FIX 1), and the
+#     English-homograph vendors only in a vendor context (#161 FIX 3).
 PROVIDER_MODEL_DRIFT_DENYLIST = (
     # providers / vendors
     "openai",
@@ -147,21 +161,14 @@ PROVIDER_MODEL_DRIFT_DENYLIST = (
     "google deepmind",
     "deepmind",
     "mistral",
-    "cohere",
     "xai",
     "meta ai",
     # model families
-    "gpt-4",
-    "gpt-5",
-    "gpt-3",
     "claude opus",
     "claude sonnet",
     "claude haiku",
     "gemini",
     "llama",
-    "grok",
-    "o1",
-    "o3",
     # host-specific reasoning-control setting names
     "extended thinking",
     "thinking budget",
@@ -170,26 +177,86 @@ PROVIDER_MODEL_DRIFT_DENYLIST = (
     "max reasoning tokens",
 )
 
+# Compiled family-class patterns. Each is case-insensitive and intended to run
+# against prose with fenced code blocks already stripped.
+PROVIDER_MODEL_DRIFT_PATTERNS = (
+    # gpt-N family incl. point and suffixed ids: gpt-3, gpt-4, gpt-4o,
+    # gpt-4o-mini, gpt-5, gpt-5.1, gpt-4-turbo, …
+    re.compile(r"(?<![\w-])gpt-\d[\w.]*(?:-\w+)*", re.IGNORECASE),
+    # o-series reasoning models: o1, o3, o3-mini, o4-mini, o1-pro — the digit is
+    # mandatory so a standalone letter "o" never matches.
+    re.compile(r"(?<![\w-])o[134](?:-(?:mini|pro))?(?![\w-])", re.IGNORECASE),
+    # bare capability-tier model names (safe to flag after #161 FIX 1).
+    re.compile(r"(?<![\w-])(?:haiku|sonnet|opus)(?![\w-])", re.IGNORECASE),
+    # English-homograph vendors, only in a vendor context (#161 FIX 3): require
+    # an adjacent vendor/model cue word so ordinary prose using the verbs
+    # "cohere" / "grok" cannot trip the guard.
+    re.compile(
+        r"(?<![\w-])(?:cohere|grok)(?![\w-])"
+        r"(?=[^.\n]*\b(?:model|models|provider|vendor|api|llm|ai)\b)"
+        r"|"
+        r"\b(?:model|models|provider|vendor|api|llm|ai)\b[^.\n]*"
+        r"(?<![\w-])(?:cohere|grok)(?![\w-])",
+        re.IGNORECASE,
+    ),
+)
+
 _FENCED_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
 
 
+def _provider_model_drift_hit(prose: str):
+    """Return the first denied provider/model/control token found in prose, or
+    None. Shared by the per-skill guard and the focused guard test so both use
+    one matcher (#161). `prose` should already have fenced code blocks stripped."""
+    for token in PROVIDER_MODEL_DRIFT_DENYLIST:
+        pattern = re.compile(rf"(?<![\w-]){re.escape(token)}(?![\w-])", re.IGNORECASE)
+        m = pattern.search(prose)
+        if m:
+            return m.group(0)
+    for pattern in PROVIDER_MODEL_DRIFT_PATTERNS:
+        m = pattern.search(prose)
+        if m:
+            return m.group(0)
+    return None
+
+
 @pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
-@pytest.mark.parametrize("token", PROVIDER_MODEL_DRIFT_DENYLIST)
-def test_skill_body_has_no_provider_or_model_name(skill_path, token):
+def test_skill_body_has_no_provider_or_model_name(skill_path):
     """Reasoning-effort guidance must stay host-neutral — no maintained list of
     providers, models, or host-specific reasoning-control setting names (#161).
     Fenced code blocks are exempt (they may carry a concrete example); normative
     prose may not enumerate vendors/models/controls."""
     text = skill_path.read_text(encoding="utf-8")
     prose = _FENCED_BLOCK_RE.sub("", text)
-    pattern = re.compile(rf"(?<![\w-]){re.escape(token)}(?![\w-])", re.IGNORECASE)
-    assert not pattern.search(prose), (
-        f"{skill_path.relative_to(SKILLS_DIR.parent)} names {token!r} in prose. "
+    hit = _provider_model_drift_hit(prose)
+    assert hit is None, (
+        f"{skill_path.relative_to(SKILLS_DIR.parent)} names {hit!r} in prose. "
         f"sumo-qa expresses a preference for the strongest AVAILABLE reasoning, "
         f"never a maintained provider/model/control list (issue #161). Use the "
         f"host-neutral, capability-based wording — see using-sumo-qa → "
         f"Reasoning effort."
     )
+
+
+def test_provider_model_drift_matcher_flags_and_spares():
+    """Focused positive/negative guard for the #161 drift matcher itself."""
+    # Positive: suffixed model id in prose must be caught.
+    assert _provider_model_drift_hit("use gpt-4o-mini for cheap subagents")
+    # Positive: bare capability-tier model name must be caught.
+    assert _provider_model_drift_hit("switch to opus for the final review")
+    # Positive: o-series reasoning model.
+    assert _provider_model_drift_hit("route hard calls to o3-mini")
+    # Negative: host-neutral capability prose must pass.
+    assert _provider_model_drift_hit("use the strongest available reasoning") is None
+    # Negative: a standalone letter "o" must not false-positive.
+    assert _provider_model_drift_hit("plan o through the rollout") is None
+    # Negative: English-homograph verbs in ordinary prose must pass.
+    assert _provider_model_drift_hit("the findings cohere into one risk") is None
+    assert _provider_model_drift_hit("grok the diff before reviewing") is None
+    # Negative: a fenced code block legitimately containing a model id is exempt
+    # (the per-skill guard strips fences before matching).
+    fenced = "```\nmodel: gpt-4o-mini\n```"
+    assert _provider_model_drift_hit(_FENCED_BLOCK_RE.sub("", fenced)) is None
 
 
 # The same deny-list applies to the three skill-contract docs. Generic scenario
