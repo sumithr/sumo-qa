@@ -1,13 +1,17 @@
+disableVarExpansion: true
 description: >
-  Issue #187 — UNPROVEN-escalation discipline for sumo-qa-reviewing-before-merge.
-  Each scenario hands the candidate a diff whose path is exercised by a GREEN
-  test that does NOT assert the failure mode, so the risk is UNPROVEN (path
-  matches, no verbatim assertion hits the defect). The skill must NOT demote
-  the UNPROVEN risk to a "residual precision trade-off" and ship SAFE; it must
-  prescribe a concrete discriminating input — one input that PASSES a broken
-  impl AND FAILS a correct impl — grounded in the named technique's catalogued
-  failure mode, required in the test gate before SAFE, and deliver NOT SAFE.
-  This is the catch that scales when the adversarial codex pass isn't available.
+  Issue #187 — A0/A1 control for the UNPROVEN-escalation discipline. Proves the
+  new behaviour is LOAD-BEARING: the SAME seeds run against the PRE-EDIT
+  (origin/main) SKILL.md body (A0) and the post-edit body (A1). A0 lacks the
+  step-6 technique-keyed failure-mode hints and the 2b prescribed
+  discriminating-input requirement, so it marks the risk UNPROVEN / NOT SAFE but
+  does NOT prescribe a concrete discriminating input (one value that passes a
+  broken impl AND fails a correct impl) grounded in the named technique's
+  catalogued failure mode — a SHAPE FAIL under the rubric. A1 (the new body)
+  prescribes that input and PASSES. The A0(FAIL) -> A1(PASS) lift is the proof
+  that #187 isolates new behaviour, not pre-existing UNPROVEN handling.
+  A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-187.SKILL.md
+  (= origin/main before the #187 commit); refresh it if the baseline moves.
 providers:
   - id: openai:chat:gpt-5-mini
     label: candidate-gpt-5-mini
@@ -16,7 +20,8 @@ providers:
       seed: 42
 defaultTest:
   vars:
-    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content_old: file://fixtures/reviewing-before-merge-PRE-187.SKILL.md
     loaded_techniques: file://../../../knowledge/techniques.md
   assert:
     - type: llm-rubric
@@ -129,35 +134,66 @@ defaultTest:
 
       {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
 prompts:
-  - |
-    You are a senior QA agent in an IDE chat session. You have loaded this
-    sumo-qa skill and MUST follow its discipline exactly as written:
+  - label: 'A0 - PRE-187 body (control, expected FAIL)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
 
-    --- BEGIN SKILL ---
-    {{skill_content}}
-    --- END SKILL ---
+      --- BEGIN SKILL ---
+      {{skill_content_old}}
+      --- END SKILL ---
 
-    You have also loaded the test design technique catalogue:
+      You have also loaded the test design technique catalogue:
 
-    --- LOADED TECHNIQUES ---
-    {{loaded_techniques}}
-    --- END LOADED TECHNIQUES ---
+      --- LOADED TECHNIQUES ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
 
-    Repository diff, prior named risks, and fresh verification evidence for
-    this turn:
+      Repository diff, prior named risks, and fresh verification evidence for
+      this turn:
 
-    --- GROUND-TRUTH CONTEXT ---
-    {{ground_truth_context}}
-    --- END GROUND-TRUTH CONTEXT ---
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
 
-    The developer just said:
+      The developer just said:
 
-    > {{user_prompt}}
+      > {{user_prompt}}
 
-    Apply the loaded skill. The developer has WAIVED the section-by-section
-    confirmation gates and asked for a single-pass verdict. Map each named
-    risk through the coverage ledger, and deliver the verdict in this one turn
-    — no confirmation question. Keep the response concise and evidence-led.
+      Apply the loaded skill. The developer has WAIVED the section-by-section
+      confirmation gates and asked for a single-pass verdict. Map each named
+      risk through the coverage ledger, and deliver the verdict in this one turn
+      — no confirmation question. Keep the response concise and evidence-led.
+  - label: 'A1 - post-187 body (new, expected PASS)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_new}}
+      --- END SKILL ---
+
+      You have also loaded the test design technique catalogue:
+
+      --- LOADED TECHNIQUES ---
+      {{loaded_techniques}}
+      --- END LOADED TECHNIQUES ---
+
+      Repository diff, prior named risks, and fresh verification evidence for
+      this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill. The developer has WAIVED the section-by-section
+      confirmation gates and asked for a single-pass verdict. Map each named
+      risk through the coverage ledger, and deliver the verdict in this one turn
+      — no confirmation question. Keep the response concise and evidence-led.
 tests:
   - description: SEED unproven-substring — keyword matcher path is green-tested but no assertion hits the substring false positive
     vars:
