@@ -501,6 +501,13 @@ class DiffImpactOutput(_StrictBase):
         default_factory=list,
         description="Changed source paths with no mapped test (the QA gap).",
     )
+    probable_mapping_gap: bool = Field(
+        default=False,
+        description=(
+            "True when test files exist but the map has no likely_tests edges, so the risk "
+            "surface is a probable mapping gap (a missed convention), not true zero coverage."
+        ),
+    )
     suggested_inspections: list[str] = Field(
         default_factory=list, description="Paths the host LLM should open to inspect."
     )
@@ -514,6 +521,13 @@ class DiffImpactOutput(_StrictBase):
     )
     artifact_path: str | None = Field(
         default=None, description="Resolved path of the loaded repo-map artifact, when used."
+    )
+    persisted_map_path: str | None = Field(
+        default=None,
+        description=(
+            "Resolved path of a repo-map persisted on this run — set only on the first run "
+            "of an unmapped repo, when the live scan is written out for future runs."
+        ),
     )
     overlay_path: str | None = Field(
         default=None, description="Path the diff-impact overlay was written to, when requested."
@@ -613,3 +627,39 @@ class FormatRiskLedgerOutput(_StrictBase):
     )
     compact_summary: str = Field(description="One-line roll-up of the ledger's evidence state.")
     truncated: bool = Field(description="True when the rendered table omitted rows past max_rows.")
+
+
+class FormatContextBundleOutput(_StrictBase):
+    """Compact result of ``sumo_qa_format_context_bundle`` (issue #149).
+
+    Pure file/format plumbing — the host supplies the already-gathered issue/PR/
+    diff/CI/test facts, this tool validates them and renders a host-neutral
+    markdown brief plus a one-line roll-up. It performs NO inference and makes NO
+    network call. ``stale_evidence_fields`` and ``untrustworthy_evidence_fields``
+    surface the safety-honesty signal: a non-empty ``untrustworthy_evidence_fields``
+    means at least one present CI/test fact is not a fresh pass and MUST NOT back
+    a safe-to-merge claim. ``conflict`` is set when the bundle's head_sha differs
+    from a supplied local head — the consumer calls out the divergence rather than
+    trusting either side.
+    """
+
+    tool: Literal["sumo_qa_format_context_bundle"] = Field(
+        default="sumo_qa_format_context_bundle",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    markdown: str = Field(description="The rendered host-neutral context-bundle brief.")
+    compact_summary: str = Field(description="One-line roll-up of the bundle's trust state.")
+    changed_file_count: int = Field(description="Number of changed files in the validated bundle.")
+    stale_evidence_fields: list[str] = Field(
+        description="Go-stale fields whose evidence is explicitly stale (e.g. ['ci_status'])."
+    )
+    untrustworthy_evidence_fields: list[str] = Field(
+        description=(
+            "Present go-stale fields that are NOT a fresh pass (stale/unknown/absent/"
+            "failing/mixed). Non-empty ⇒ no safety claim may rest on bundle evidence."
+        )
+    )
+    conflict: str | None = Field(
+        default=None,
+        description="Bundle-vs-local-state conflict message when head shas differ, else None.",
+    )

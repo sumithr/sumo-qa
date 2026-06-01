@@ -45,7 +45,7 @@ follow-up slice (#157).
       "target": "file:src/sumo_qa/server.py",
       "type": "likely_tests",
       "confidence": "medium",
-      "reason": "path/name convention"
+      "reason": "usage: references server"
     }
   ],
   "commands": [],
@@ -112,11 +112,32 @@ What the slice-2 scanner produces:
 
 - **Nodes** for the full first-slice vocabulary. Each carries its detected
   language, a SHA-256 fingerprint of the file content, and the relative path.
-- **Edges** of type `likely_tests` only — inferred by name convention
-  (`tests/test_X.py` → `*/X.py`, also handling `X_test.py` and `.test`/
-  `.spec` suffixes). `confidence` is `high` for a unique source match,
-  `medium` when multiple sources share the stem. `imports` and
-  `configured_by` are deferred; they need #156's diff-impact context to
+- **Edges** of type `likely_tests` only — inferred from two language-agnostic
+  signals so the mapping is not tied to a fixed filename-suffix table: a
+  **usage** signal (a test file's **import statements** name a source stem —
+  robust across languages; only import-style lines are read, so an incidental
+  mention of a common word can't fabricate an edge) and a **name-convention**
+  signal mapping a test's stem to its source stem (`test_X` / `X_test`,
+  `.test`/`.spec`, and CamelCase families `FooTest` / `FooTests` / `FooSpec` /
+  `FooIT` / `FooITCase` → `Foo` for Kotlin/Java/Scala/Swift). `confidence` is
+  `high` for a unique name match or a name+usage corroboration, `medium` for an
+  ambiguous-name-only or usage-only match. A pair found by both signals
+  collapses to one corroborated edge.
+  Note the CamelCase mapping applies to files **already classified as tests**
+  (by the `tests`/`test` directory convention or the unambiguous
+  `test_`/`_test`/`.test`/`.spec` suffixes) — a bare `*Test`/`*Spec`/`*IT` name
+  is NOT treated as a test on its own, so a production class like
+  `src/main/kotlin/ExperimentTest.kt` is not misclassified (and dropped off the
+  risk surface). The cost is that tests in a custom source set outside a test
+  directory (e.g. Gradle's `src/integrationTest`) aren't auto-detected by name —
+  a safe miss (the source stays on the risk surface), and real detection lands
+  with the import graph in #212.
+  First-class `imports` and `configured_by` edges (a parsed import graph) are
+  deferred to #212; the usage signal here is a lightweight token-reference
+  heuristic reading single-line imports only — block/parenthesised import
+  bodies (Go `import (...)`, multi-line `from x import (...)`) and a fully
+  resolved import graph are #212, and a missed reference degrades safely to
+  risk-surface rather than a false clear. They need #156's diff-impact context to
   be worth computing.
 - **Commands** extracted from `pyproject.toml` (`[project.scripts]`) and
   `package.json` (`scripts`). For `package.json`, the script `kind`
@@ -187,6 +208,11 @@ It reports:
   from `likely_tests` edges).
 - **`risk_surface`** — changed `source_file` paths with **no** mapped test.
   This is the gap a reviewer cares about most.
+- **`probable_mapping_gap`** — true when test files exist but the map produced
+  no `likely_tests` edges, so the whole risk surface is a probable missed
+  convention (e.g. an unusual CamelCase layout), not true zero coverage. Lets a
+  consumer distinguish "the mapper couldn't link these" from "these are
+  genuinely untested".
 - **`affected_nodes`** — one-hop neighbours of the changed nodes.
 - **`unmapped_files`** — changed paths absent from the map (new files, or a
   stale map).
@@ -198,9 +224,13 @@ fork point — the same set GitHub's "Files changed" shows), so changes that
 landed on the base after the branch diverged don't leak in; committed and
 uncommitted tracked changes on the branch are both included. The map is read
 from `.sumo-qa/repo-map.json` when present and falls back to a live scan
-otherwise, so the tool works before any artifact is written. An artifact whose
+otherwise, so the tool works before any artifact is written. On the first run
+of an unmapped repo the live scan is **persisted** to that path (reported as
+`persisted_map_path`) so the run leaves a discoverable artifact instead of
+re-scanning every call; pass `artifact_path=None` to opt out. An artifact whose
 `project.root` does not match the scan root is ignored (with a warning) in
-favour of a live scan. With `write_overlay=true` it also writes a
+favour of a live scan, and is left untouched — auto-persist only fires on the
+genuine no-artifact path. With `write_overlay=true` it also writes a
 `diff-impact.json` overlay under `.sumo-qa/`.
 
 The pure analysis lives in `src/sumo_qa/repo_map_impact.py`
@@ -243,7 +273,10 @@ evidence when `.sumo-qa/repo-map.json` is present and fall back to a repo walk
 when it is absent. The map is an **input accelerator, never a verdict**:
 `sumo-qa-reviewing-before-merge` still refuses a safe-to-merge claim without
 fresh test evidence — `related_tests` are candidates to run and `risk_surface`
-entries are candidate uncovered anchors, neither is proof of coverage.
+entries are candidate uncovered anchors, neither is proof of coverage. When
+`probable_mapping_gap` is set the review reads the risk surface as a missed
+test↔source mapping (verify against the test tree) rather than zero coverage,
+and never attributes it to a missing or unscanned repo-map.
 
 ## Commit vs cache
 

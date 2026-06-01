@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.24.0](https://github.com/sumithr/sumo-qa/compare/v0.23.0...v0.24.0) (2026-06-01)
+
+
+### Features
+
+* add host-neutral issue/PR context bundle for QA workflows ([#271](https://github.com/sumithr/sumo-qa/issues/271)) ([811e7e9](https://github.com/sumithr/sumo-qa/commit/811e7e9611ccdf8be683dfa9803ff6005c40603c))
+
+## [0.23.0](https://github.com/sumithr/sumo-qa/compare/v0.22.0...v0.23.0) (2026-06-01)
+
+
+### Features
+
+* make repo-map test↔source mapping language-agnostic and auto-persist on first run ([#277](https://github.com/sumithr/sumo-qa/issues/277)) ([3af65e9](https://github.com/sumithr/sumo-qa/commit/3af65e9e7c299ffbe3ee06f5bd50068323871f62))
+
+## [0.22.0](https://github.com/sumithr/sumo-qa/compare/v0.21.0...v0.22.0) (2026-06-01)
+
+
+### Features
+
+* **reviewing:** escalate UNPROVEN review risks into discriminating-input tests ([#272](https://github.com/sumithr/sumo-qa/issues/272)) ([ae2febb](https://github.com/sumithr/sumo-qa/commit/ae2febb17bf4ca8d822a1f2b5d250ca0136857fb))
+
 ## [0.21.0](https://github.com/sumithr/sumo-qa/compare/v0.20.3...v0.21.0) (2026-05-31)
 
 

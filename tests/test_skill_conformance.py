@@ -164,6 +164,7 @@ PROVIDER_MODEL_DRIFT_DENYLIST = (
     "xai",
     "meta ai",
     # model families
+    "claude",  # bare family reference (e.g. "use Claude for the final review") — not an English word, safe to flag like gemini/llama (#161 codex follow-up, PR #270)
     "claude opus",
     "claude sonnet",
     "claude haiku",
@@ -244,6 +245,8 @@ def test_provider_model_drift_matcher_flags_and_spares():
     assert _provider_model_drift_hit("use gpt-4o-mini for cheap subagents")
     # Positive: bare capability-tier model name must be caught.
     assert _provider_model_drift_hit("switch to opus for the final review")
+    # Positive: bare model-family reference must be caught (#161 codex follow-up).
+    assert _provider_model_drift_hit("use Claude for the final review")
     # Positive: o-series reasoning model.
     assert _provider_model_drift_hit("route hard calls to o3-mini")
     # Negative: host-neutral capability prose must pass.

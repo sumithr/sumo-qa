@@ -48,6 +48,7 @@ from sumo_qa.server_schemas import (
     DiffImpactOutput,
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
+    FormatContextBundleOutput,
     FormatRiskLedgerOutput,
     InstallExternalSkillOutput,
     RepoMapQueryOutput,
@@ -96,6 +97,15 @@ _HINT_FORMAT_LEDGER = (
     "evidence_status is one of planned/passing/failing/stale/accepted_residual; "
     "residual is one of open/accepted/mitigated/blocker. Identify the risks "
     "yourself — this tool only validates and formats them, it never infers risk."
+)
+_HINT_FORMAT_CONTEXT_BUNDLE = (
+    "Pass a bundle dict with optional issue_summary, pr_summary, head_sha, "
+    "changed_files=[{path, change_kind}], test_evidence/ci_status="
+    "{result, freshness, source}, and user_constraints. freshness is one of "
+    "fresh/stale/unknown/absent; result is one of passing/failing/mixed/not_run; "
+    "source is one of manual/local_git/github/ci_provider/other. Everything but "
+    "schema is optional — a partial bundle is fine. Supply local_head_sha to "
+    "detect a bundle-vs-local-state conflict. No network call; gather facts yourself."
 )
 
 
@@ -178,6 +188,7 @@ def _build_impact_summary(
     is_stale: bool,
     used_live_scan: bool,
     artifact_path: str | None,
+    persisted_map_path: str | None,
     overlay_path: str | None,
     overlay_bytes: int | None,
     changed_file_count: int,
@@ -195,12 +206,14 @@ def _build_impact_summary(
         related_tests=impact.related_tests,
         unmapped_files=impact.unmapped_files,
         risk_surface=impact.risk_surface,
+        probable_mapping_gap=impact.probable_mapping_gap,
         suggested_inspections=impact.suggested_inspections,
         warning_count=len(impact.warnings),
         warnings_by_kind=dict(warnings_by_kind),
         is_stale=is_stale,
         used_live_scan=used_live_scan,
         artifact_path=artifact_path,
+        persisted_map_path=persisted_map_path,
         overlay_path=overlay_path,
         overlay_bytes=overlay_bytes,
     )
@@ -733,8 +746,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         the merge-base of ``base_ref`` and HEAD, so changes that landed on the
         base after the branch diverged don't leak in). The repo-map is read
         from ``artifact_path`` when present and falls back to a live scan
-        otherwise; an artifact for a different project root is ignored.
-        ``write_overlay`` writes ``.sumo-qa/diff-impact.json`` under ``root``.
+        otherwise; an artifact for a different project root is ignored. On the
+        first run of an unmapped repo the live scan is persisted to
+        ``artifact_path`` (reported as ``persisted_map_path``) unless
+        ``artifact_path`` is ``None``. ``write_overlay`` writes
+        ``.sumo-qa/diff-impact.json`` under ``root``. When test files exist but
+        the map has no likely_tests edges, ``probable_mapping_gap`` flags the
+        risk surface as a missed-convention gap rather than true zero coverage.
         """
         from sumo_qa.repo_map_impact import analyze_diff_impact, changed_files_from_git
         from sumo_qa.repo_map_models import RepoMapWarning
@@ -750,6 +768,23 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             repo_map, artifact_used, used_live_scan, foreign_artifact_warning = (
                 _load_map_with_fallback(root_path, artifact_path)
             )
+
+            # 1b. Auto-persist on the FIRST run of an unmapped repo (#266): the
+            #     genuine no-artifact live scan is written out so the run leaves
+            #     a discoverable artifact instead of re-scanning every call. A
+            #     rejected FOREIGN artifact is left untouched (don't clobber the
+            #     user's file), and artifact_path=None means the caller opted
+            #     out of artifact use entirely.
+            persisted_map_path: str | None = None
+            if used_live_scan and foreign_artifact_warning is None and artifact_path is not None:
+                cand = Path(artifact_path)
+                if not cand.is_absolute():
+                    cand = root_path / cand
+                cand.parent.mkdir(parents=True, exist_ok=True)
+                cand.write_text(
+                    json.dumps(repo_map.model_dump(mode="json"), indent=2), encoding="utf-8"
+                )
+                persisted_map_path = str(cand.resolve())
 
             # 2. Resolve changed files.
             if changed_files is not None:
@@ -769,12 +804,19 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             elif used_live_scan:
                 # Only the genuine no-artifact case gets this message; a
                 # rejected foreign artifact already has its own warning above.
-                impact.warnings.append(
-                    RepoMapWarning(
-                        kind="other",
-                        message="no repo-map artifact found; scanned live",
+                # When we persisted the scan, name the artifact so the warning
+                # is actionable instead of a dead end (#266).
+                if persisted_map_path is not None:
+                    message = (
+                        f"no repo-map artifact found; scanned live and persisted one to "
+                        f"{persisted_map_path} for future runs"
                     )
-                )
+                else:
+                    message = (
+                        "no repo-map artifact found; scanned live — run sumo_qa_scan_repo with "
+                        "write_to to persist a repo-map for future runs"
+                    )
+                impact.warnings.append(RepoMapWarning(kind="other", message=message))
             if is_stale:
                 impact.warnings.append(
                     RepoMapWarning(
@@ -804,6 +846,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 is_stale=bool(is_stale),
                 used_live_scan=used_live_scan,
                 artifact_path=artifact_used,
+                persisted_map_path=persisted_map_path,
                 overlay_path=overlay_path,
                 overlay_bytes=overlay_bytes,
                 changed_file_count=len(resolved),
@@ -956,6 +999,65 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_format_risk_ledger",
             args={"rows": rows, "max_rows": max_rows},
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_read_only_local)
+    def sumo_qa_format_context_bundle(
+        bundle: dict[str, Any],
+        local_head_sha: str | None = None,
+        max_files: int = 40,
+    ) -> FormatContextBundleOutput | ErrorEnvelope:
+        """Validate and render a host-neutral issue/PR CONTEXT BUNDLE as a
+        compact markdown brief for QA review/planning (issue #149). FILE/FORMAT
+        PLUMBING ONLY — the host gathers the facts; this tool never inspects a
+        repo, makes a network call, or assumes GitHub. A partial/empty bundle is
+        first-class: when little is supplied, the consuming skill falls back to
+        direct repo inspection.
+
+        Common natural-language phrasings that map to this tool:
+        "build the review context bundle", "format this PR/issue context for
+        review", "render the context bundle with its freshness", "summarise the
+        diff/CI/test facts I gathered".
+
+        ``bundle`` is a dict with optional ``issue_summary``, ``pr_summary``,
+        ``head_sha``, ``changed_files`` (each ``{path, change_kind}``),
+        ``test_evidence`` / ``ci_status`` (each ``{result, freshness, source}``,
+        plus optional ``captured_at`` / ``detail``), and ``user_constraints``.
+        ``freshness`` is one of fresh/stale/unknown/absent; only a FRESH PASS is
+        safety-supporting — a stale, unknown, or absent fact is rendered with an
+        explicit "do not claim safety from it" warning. Supply ``local_head_sha``
+        (the host's live local head) to detect a bundle-vs-local-state conflict;
+        when the shas differ the brief calls out the divergence instead of
+        trusting either side. ``max_files`` bounds the changed-file list.
+        """
+        from sumo_qa.context_bundle_format import (
+            compact_summary as _bundle_summary,
+        )
+        from sumo_qa.context_bundle_format import (
+            format_context_bundle_markdown,
+        )
+        from sumo_qa.context_bundle_models import detect_local_conflict
+        from sumo_qa.context_bundle_validation import load_context_bundle
+
+        output: FormatContextBundleOutput | dict[str, Any]
+        try:
+            validated = load_context_bundle(bundle)
+            output = FormatContextBundleOutput(
+                markdown=format_context_bundle_markdown(
+                    validated, local_head_sha=local_head_sha, max_files=max_files
+                ),
+                compact_summary=_bundle_summary(validated, local_head_sha=local_head_sha),
+                changed_file_count=len(validated.changed_files),
+                stale_evidence_fields=validated.stale_evidence_fields(),
+                untrustworthy_evidence_fields=validated.untrustworthy_evidence_fields(),
+                conflict=detect_local_conflict(validated, local_head_sha),
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_FORMAT_CONTEXT_BUNDLE)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_format_context_bundle",
+            args={"bundle": bundle, "local_head_sha": local_head_sha, "max_files": max_files},
             output=output,  # type: ignore[arg-type]
         )
 

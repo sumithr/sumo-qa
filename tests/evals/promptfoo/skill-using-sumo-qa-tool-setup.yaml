@@ -1,0 +1,160 @@
+description: >
+  Tool-setup eval for using-sumo-qa's "Setting up the recommended tool"
+  discipline (issue #216). The approach + tool are already chosen and the
+  external handoff named a NON-reproducible install path (brew / npm -g);
+  the candidate must set the tool up repo-pinned (manifest / lockfile /
+  pinned pre-commit hook) AND CI-reproducible (a CI step runs the same
+  pinned tool), and must NOT recommend brew / `-g` / system installs.
+  See tests/evals/promptfoo/README.md for the regen workflow.
+
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/using-sumo-qa/SKILL.md
+    expected_shape: >-
+      Repo-pinned + CI-reproducible tool setup. The response sets the chosen
+      test tool up so it lands BOTH (a) repo-pinned — recorded with an exact
+      version in the repo's dependency surface: a `--save-dev` manifest +
+      lockfile entry, a `[dev]`/`[test]` extra in `pyproject.toml`, or a
+      pinned-`rev` pre-commit hook — AND (b) CI-reproducible — a CI step/job
+      runs that same pinned tool, added/extended in this change. It confirms
+      before installing. It explicitly REFUSES / does NOT use the
+      machine-level path the context offered, and where the external
+      instruction was global it translates it to the repo-pinned equivalent.
+    anti_patterns:
+      - Recommends or runs a machine-level / global install for the repo test tool (`brew install`, `npm install -g` / `npm i -g`, `pipx install`, system `pip install`, `apt`).
+      - Follows the supplied non-reproducible install path as-is instead of translating it to a repo-pinned equivalent.
+      - Pins the tool in the manifest but never wires a CI step/job that runs it (or vice versa — CI only, no manifest pin).
+      - Leaves the tool installed only in the local shell with no exact-version record in the repo.
+      - Installs with NO confirm-before-install gate at all — no surfaced statement of the install before doing it. (Per the loaded skill's confirmation hierarchy, an inline gate that names the install and ends in an opt-out — *"…installing X; shout if not"* — IS a valid confirm and is NOT this anti-pattern.)
+
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - the response sets the chosen test tool up so it lands BOTH
+         repo-pinned (exact-version manifest / lockfile entry, a `[dev]`/
+         `[test]` extra, or a pinned-`rev` pre-commit hook) AND
+         CI-reproducible (a CI step/job runs that same pinned tool). Both
+         halves must be present. Pinning without CI, or CI without pinning,
+         is SHAPE FAIL.
+
+      B. GROUNDING - the response must REFUSE the machine-level / global
+         install path the supplied context offered, not adopt it. If the
+         response runs or recommends `brew install` / `npm i -g` / system
+         `pip` for the repo test tool, that is GROUNDING FAIL even if it also
+         mentions pinning. Translating a global instruction to its
+         repo-pinned equivalent is GROUNDING PASS.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Tool-setup context for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    The change classification, risk, and tool are already decided (in the
+    context above) — do NOT re-derive them. Produce only how you set the
+    chosen tool up for THIS repo. Follow the loaded skill's
+    "Setting up the recommended tool" discipline exactly. No closing
+    pleasantry.
+
+tests:
+  - description: SEED - external handoff offered brew/global; land it repo-pinned + CI-wired
+    vars:
+      user_prompt: >-
+        Set up the bats test tool so we can cover scripts/check_markdown_links.sh.
+      ground_truth_context: |
+        ## Prior decisions (do not re-derive)
+        - Change: `scripts/check_markdown_links.sh` is a shell script with
+          ShellCheck (static) coverage but no behavioural test.
+        - Chosen tool: bats (Bash Automated Testing System) for the shell
+          behaviour.
+
+        ## Repo facts
+        - This is a git repo with CI. Existing CI workflows live under
+          `.github/workflows/` (e.g. `lint.yml` runs ShellCheck).
+        - The repo already models the reproducible pattern: ShellCheck is
+          pinned via the `shellcheck-py` pre-commit hook in
+          `.pre-commit-config.yaml`, mirrored by a `shellcheck` job in
+          `lint.yml`; promptfoo is pinned to an exact version in
+          `package.json` devDependencies.
+
+        ## External-skill handoff (skill_body excerpt)
+        The external setup skill returned instructions whose install step is:
+          ```
+          # Install bats
+          brew install bats-core
+          # (or, alternatively)
+          npm install --global bats
+          ```
+        These are the ONLY install commands the external skill_body provides.
