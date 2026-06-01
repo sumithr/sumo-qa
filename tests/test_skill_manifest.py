@@ -224,6 +224,22 @@ def test_load_unknown_mode_returns_envelope_with_valid_modes():
     assert out["available_modes"] == ["manifest", "section", "module", "full"]
 
 
+def test_load_missing_skill_name_returns_required_envelope():
+    # A host omitting skill_name must get the documented JSON envelope, not a
+    # schema-level rejection — skill_name defaults to None and is handled here.
+    out = sm.load_skill_context(mode="manifest")
+    assert "error" in out
+    assert "required" in out["error"].lower()
+    assert _a_skill_name() in out["available_skills"]
+
+
+def test_load_missing_mode_returns_required_envelope():
+    out = sm.load_skill_context(_a_skill_name())
+    assert "error" in out
+    assert "required" in out["error"].lower()
+    assert out["available_modes"] == ["manifest", "section", "module", "full"]
+
+
 def test_load_manifest_mode_returns_sections_and_modules():
     name = _a_skill_name()
     out = sm.load_skill_context(name, "manifest")

@@ -1182,8 +1182,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
     @mcp.tool(annotations=_read_only_local)
     def sumo_qa_load_skill_context(
-        skill_name: str,
-        mode: str,
+        skill_name: str | None = None,
+        mode: str | None = None,
         section: str | None = None,
         module: str | None = None,
     ) -> str:

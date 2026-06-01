@@ -283,8 +283,8 @@ def _error(message: str, available: dict[str, Any] | None = None) -> dict[str, A
 
 
 def load_skill_context(
-    skill_name: str,
-    mode: str,
+    skill_name: str | None = None,
+    mode: str | None = None,
     section: str | None = None,
     module: str | None = None,
 ) -> dict[str, Any]:
@@ -298,10 +298,18 @@ def load_skill_context(
         the existing zero-argument skill tool for this skill.
 
     Never raises: every invalid input returns an error envelope that lists the
-    valid choices. Path-traversal in ``section``/``module`` is rejected."""
+    valid choices. ``skill_name`` and ``mode`` are accepted as optional (default
+    ``None``) so that a host omitting a required argument gets the documented
+    error envelope rather than a schema-level rejection before this runs.
+    Path-traversal in ``section``/``module`` is rejected."""
     records = _skill_records()
     valid_modes = ["manifest", "section", "module", "full"]
 
+    if skill_name is None:
+        return _error(
+            "skill_name is required.",
+            {"available_skills": sorted(records)},
+        )
     if skill_name not in records:
         return _error(
             f"Unknown skill_name {skill_name!r}.",
@@ -309,6 +317,11 @@ def load_skill_context(
         )
     record = records[skill_name]
 
+    if mode is None:
+        return _error(
+            "mode is required.",
+            {"available_modes": valid_modes},
+        )
     if mode not in valid_modes:
         return _error(
             f"Unknown mode {mode!r}.",

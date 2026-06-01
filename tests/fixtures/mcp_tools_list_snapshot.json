@@ -2375,8 +2375,16 @@
       "inputSchema": {
         "properties": {
           "mode": {
-            "title": "Mode",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mode"
           },
           "module": {
             "anyOf": [
@@ -2403,14 +2411,18 @@
             "title": "Section"
           },
           "skill_name": {
-            "title": "Skill Name",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Skill Name"
           }
         },
-        "required": [
-          "skill_name",
-          "mode"
-        ],
         "title": "sumo_qa_load_skill_contextArguments",
         "type": "object"
       },
