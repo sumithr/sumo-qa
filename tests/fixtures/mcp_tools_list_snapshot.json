@@ -178,6 +178,25 @@
                 "description": "Path the diff-impact overlay was written to, when requested.",
                 "title": "Overlay Path"
               },
+              "persisted_map_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Resolved path of a repo-map persisted on this run \u2014 set only on the first run of an unmapped repo, when the live scan is written out for future runs.",
+                "title": "Persisted Map Path"
+              },
+              "probable_mapping_gap": {
+                "default": false,
+                "description": "True when test files exist but the map has no likely_tests edges, so the risk surface is a probable mapping gap (a missed convention), not true zero coverage.",
+                "title": "Probable Mapping Gap",
+                "type": "boolean"
+              },
               "related_tests": {
                 "description": "Paths of tests that likely exercise the changes.",
                 "items": {

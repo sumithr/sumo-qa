@@ -5,8 +5,8 @@
 # sumo-qa MCP
 
 [![tests](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml/badge.svg)](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml)
-[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.21.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
-[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.21.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
+[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.23.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
+[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.23.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
 An MCP server that brings senior-QA discipline to AI coding assistants — test planning, TDD, mutation testing, code review.
@@ -236,7 +236,7 @@ flowchart LR
 - The host does not run `npx` directly; `sumo_qa_search_external_skills`, `sumo_qa_check_external_skill_installed`, `sumo_qa_install_external_skill`, and `sumo_qa_execute_external_skill` own the lifecycle.
 - Search returns the Skills CLI's text output verbatim (ANSI stripped); the host LLM reads it as the user would. No structured parser to drift out of date.
 - Node.js is required for the Skills CLI. If `npx` is missing, the MCP tool returns an actionable error and stops. It doesn't elevate via sudo.
-- The external skill handles tool-specific setup, while sumo-qa keeps the confirmation gates, test evidence, and risk-to-test mapping.
+- The external skill suggests tool-specific setup, but sumo-qa's setup standard overrides it — any machine-level / global install in the returned skill body is translated to a repo-pinned + CI-reproducible equivalent — while sumo-qa keeps the confirmation gates, test evidence, and risk-to-test mapping.
 
 ## Support
 
