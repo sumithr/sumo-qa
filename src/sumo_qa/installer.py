@@ -110,6 +110,8 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_query_repo_map",
     # Risk-to-test ledger formatter (#144)
     "sumo_qa_format_risk_ledger",
+    # Context-bundle formatter (#149)
+    "sumo_qa_format_context_bundle",
     # Ingestion
     "sumo_qa_ingest_knowledge_pack",
     # External skills
