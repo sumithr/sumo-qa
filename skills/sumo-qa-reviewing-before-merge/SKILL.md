@@ -33,7 +33,7 @@ You MUST work through these in order. Steps 1–4 are AI-only homework (no user 
 
 1. **Read the diff via the host's git tools** *(no user question)* — `git diff`, `git diff --staged`, or `git diff <base>...HEAD` depending on intent. Capture file list + line counts.
 
-   **Repo-map accelerator (optional).** When `.sumo-qa/repo-map.json` exists, `sumo_qa_analyze_diff_impact` gives a head-start: changed/affected nodes, the tests that *likely* exercise the change, and the risk surface (changed sources with no mapped test). Absent or stale → read the diff and files directly; it never blocks the review. **It points at what to inspect and run; it is NOT coverage evidence** — `related_tests` are candidates to run, `risk_surface` candidate UNCOVERED anchors, never proof. The Iron Law's fresh-run requirement is unchanged.
+   **Repo-map accelerator (optional).** `sumo_qa_analyze_diff_impact` scans live and persists a repo-map (`persisted_map_path`) when none exists, so a risk surface is never just "no repo-map / not scanned". It returns changed/affected nodes, likely tests, and the risk surface (changed sources with no mapped test); never blocks the review. **It is NOT coverage evidence** — `related_tests` are run-candidates, `risk_surface` candidate UNCOVERED anchors, never proof. If `probable_mapping_gap` is true (tests exist but the map found no links — e.g. CamelCase/Kotlin), the risk surface is a *mapping* gap, not zero coverage — confirm via the test tree. The Iron Law's fresh-run requirement is unchanged.
 
 2. **Read the actual changed files** *(no user question)* — not just the diff hunks. Surrounding code matters for risk analysis. For each changed file: identify the public surface that moved.
 
