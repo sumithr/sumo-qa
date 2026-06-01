@@ -328,6 +328,22 @@ class TestCodexAdversarialFindings:
             "`help`, not the npm subcommand."
         )
 
+    def test_global_flag_before_subcommand_is_a_documented_non_route(self) -> None:
+        """DOCUMENTED LIMITATION (not a bug): a value-taking global flag before
+        the subcommand (`npm --prefix ./pkg run eval`) is not recognised, because
+        telling `--prefix ./pkg run` (value flag) from `npm help run` (bare
+        subcommand) needs npm's per-flag arity table. The hook anchors strictly
+        at argv[1] to keep false POSITIVES at zero; the cost is a missed reminder
+        on this exotic form. This test pins that accepted behaviour — if a future
+        change makes it route, that's fine, but flip this assertion deliberately.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use("npm --prefix ./pkg run eval", stdout=out, exit_code=100))
+        assert _additional_context(result) == "", (
+            "accepted limitation changed: a global flag before the subcommand "
+            "now routes. Update the docstring + this test intentionally."
+        )
+
     def test_emoji_glued_to_digit_in_path_does_not_route(self) -> None:
         """P2 false positive: an emoji glued to a digit with NO space (a path
         like `tests/🙁1_case.py`) must not read as a survivor count. Real mutmut

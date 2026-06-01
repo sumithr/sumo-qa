@@ -113,21 +113,26 @@ def _first_non_flag(tokens: list[str]) -> str | None:
 def _pm_script(eff: list[str]) -> str | None:
     """The npm/pnpm/yarn/bun script name being run, if any.
 
-    `run` must be the package-manager SUBCOMMAND — the first non-flag token
-    after argv[0] — not merely present somewhere in argv. Otherwise
-    `npm help run eval` (where `run` is an argument to `help`) would be misread
-    as `npm run eval`. Flags interposed after the subcommand are skipped
-    (`npm run --silent eval` -> `eval`)."""
-    i = 1
-    while i < len(eff) and eff[i].startswith("-"):
-        i += 1
-    if i >= len(eff):
+    `run`/`run-script` must be the SUBCOMMAND — the token immediately after
+    argv[0] — not merely present in argv: `npm help run eval` has `run` as an
+    argument to `help`, not the subcommand, and must NOT match. Flags AFTER the
+    subcommand are skipped (`npm run --silent eval` -> `eval`).
+
+    Deliberately NOT supported: a value-taking GLOBAL flag before the subcommand
+    (`npm --prefix ./pkg run eval`). Distinguishing it from a bare subcommand
+    (`npm help run`) needs npm's per-flag arity table — `--silent run` (boolean
+    flag, `run` is the subcommand) and `--prefix ./pkg run` (value flag, `run`
+    is the subcommand) are otherwise indistinguishable. This hook is advisory,
+    so the only cost is a missed reminder on that exotic form (a false negative);
+    anchoring strictly at argv[1] keeps the harmful direction — a false positive
+    — at zero. The repo's real invocations are plain `npm run eval[:all]`."""
+    if len(eff) < 2:
         return None
-    sub = eff[i]
+    sub = eff[1]
     if sub in ("run", "run-script"):
-        return _first_non_flag(eff[i + 1 :])
+        return _first_non_flag(eff[2:])
     # `yarn eval` / `bun eval` shorthand (no explicit `run`).
-    if os.path.basename(eff[0]) in ("yarn", "bun"):
+    if os.path.basename(eff[0]) in ("yarn", "bun") and not sub.startswith("-"):
         return sub
     return None
 
