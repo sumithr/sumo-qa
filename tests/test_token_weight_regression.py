@@ -44,11 +44,17 @@ PER_CALL_BUDGET = 1500
 # uses only the knowledge_loader catalogues. Measured baseline was ~2432
 # tokens with 8 canonical approaches; adding the 9th canonical approach
 # (`recommend-removal`, established by the removability gate in
-# sumo-qa-deciding-approach) raised the baseline to ~2610. Budget gives a
-# small regression cushion above the current catalogue. For comparison the
-# old heavy single-shot path emitted >10k tokens for one call, which is
-# what broke IntelliJ AI Assistant in the first place.
-PER_FLOW_BUDGET = 2700
+# sumo-qa-deciding-approach) raised the baseline to ~2610. #187 then added
+# technique-keyed failure-mode hints to techniques.md (an optional
+# `failure_modes` note per black-box technique — substring/token confusion,
+# both-sides boundary, missing rule row — that the review skill surfaces when
+# escalating an UNPROVEN risk into a discriminating-input test). The catalogue
+# is still ~1014 approx-tokens, well under PER_CALL_BUDGET (1500); the flow
+# baseline rose to ~2883. Budget gives a small regression cushion above the
+# current catalogue. For comparison the old heavy single-shot path emitted
+# >10k tokens for one call, which is what broke IntelliJ AI Assistant in the
+# first place.
+PER_FLOW_BUDGET = 2940
 
 
 def test_thin_catalogues_stay_under_per_call_budget():

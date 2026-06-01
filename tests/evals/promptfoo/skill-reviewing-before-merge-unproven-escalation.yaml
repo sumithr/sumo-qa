@@ -1,0 +1,228 @@
+description: >
+  Issue #187 — UNPROVEN-escalation discipline for sumo-qa-reviewing-before-merge.
+  Each scenario hands the candidate a diff whose path is exercised by a GREEN
+  test that does NOT assert the failure mode, so the risk is UNPROVEN (path
+  matches, no verbatim assertion hits the defect). The skill must NOT demote
+  the UNPROVEN risk to a "residual precision trade-off" and ship SAFE; it must
+  prescribe a concrete discriminating input — one input that PASSES a broken
+  impl AND FAILS a correct impl — grounded in the named technique's catalogued
+  failure mode, required in the test gate before SAFE, and deliver NOT SAFE.
+  This is the catch that scales when the adversarial codex pass isn't available.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate ESCALATED
+      an UNPROVEN risk into a prescribed discriminating-input test instead of
+      shipping it as a residual trade-off, AND avoided the named anti-patterns.
+      Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         The risk is UNPROVEN (path covered, no assertion hits the failure
+         mode). The candidate must (1) name the technique's catalogued failure
+         mode (e.g. equivalence-partitioning substring/token confusion), (2)
+         PRESCRIBE a concrete discriminating input — a specific value that
+         passes the current broken impl AND fails a correct impl — required in
+         the test gate before SAFE, and (3) deliver NOT SAFE TO MERGE. Shipping
+         the UNPROVEN risk as a SAFE "residual / known precision trade-off", or
+         giving only a vague "add more tests" without a concrete discriminating
+         input, is a SHAPE FAIL.
+
+      B. GROUNDING - does the response visibly use the supplied context? It
+         must cite the changed matcher file + the specific keyword/value pair
+         that triggers the false positive (the discriminating input named in
+         the expected shape, or an equally-valid concrete substring/boundary
+         input), and reference that the green test does not assert it.
+         Narrating a generic risk without a concrete input -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the test design technique catalogue:
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    Repository diff, prior named risks, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass verdict. Map each named
+    risk through the coverage ledger, and deliver the verdict in this one turn
+    — no confirmation question. Keep the response concise and evidence-led.
+tests:
+  - description: SEED unproven-substring — keyword matcher path is green-tested but no assertion hits the substring false positive
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The change enriches incident records by scanning
+        the title for risk keywords (`locked`, `currency`, `auth`) and tagging
+        a matching incident.
+        Risk gate: completed. The developer confirmed the named risk:
+        R1 (precision) — a short keyword can match incidental substrings of an
+        unrelated word, producing a false-positive enrichment tag. Technique in
+        play: equivalence partitioning over the keyword classes.
+
+        ## git diff
+        ```diff
+        diff --git a/app/enrich/keywords.py b/app/enrich/keywords.py
+        @@ app/enrich/keywords.py:8-14 @@
+         8 RISK_KEYWORDS = ["locked", "currency", "auth"]
+        10 def tags_for_title(title: str) -> list[str]:
+        11     lowered = title.lower()
+        -12     return [kw for kw in RISK_KEYWORDS if kw in lowered]
+        ```
+        Context: the matcher uses a bare `kw in lowered` substring test, so any
+        title CONTAINING a keyword as a substring matches — there is no
+        word-boundary check.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/enrich/test_keywords.py -q
+        tests/enrich/test_keywords.py::test_tags_locked_incident PASSED
+        tests/enrich/test_keywords.py::test_tags_currency_incident PASSED
+        12 passed, 0 skipped in 0.44s
+        ```
+        (Both tests pass a title that legitimately contains the whole keyword —
+        "Account locked", "Currency mismatch". No test passes a title where the
+        keyword appears only as an incidental substring of a different word.)
+      expected_shape: >-
+        Evidence-led verdict that ESCALATES the UNPROVEN precision risk instead
+        of shipping it as a residual trade-off. Maps R1 as UNPROVEN (the path is
+        exercised but no fresh assertion hits the substring false-positive
+        failure mode). Names the equivalence-partitioning failure mode
+        (substring / token confusion — a value matches because it CONTAINS the
+        keyword, not because it belongs to the class). PRESCRIBES a concrete
+        discriminating input — e.g. a title like "unlocked door" or "device was
+        unlocked" (contains `locked`) or "concurrency spike" (contains
+        `currency`) — that PASSES the current substring impl (gets wrongly
+        tagged) AND FAILS a correct word-boundary impl (no tag), required in
+        the test gate before SAFE. Delivers NOT SAFE TO MERGE. Ends without a
+        confirmation question.
+      anti_patterns:
+        - Declares SAFE TO MERGE and notes R1 only as a residual / known precision trade-off.
+        - Leaves R1 as a bare UNPROVEN row with no prescribed discriminating input and no acknowledged deferral.
+        - Prescribes only a vague "add more tests" or "improve precision" without a concrete discriminating input value.
+        - Names a discriminating input that a CORRECT impl would also pass (so it does not distinguish broken from fixed).
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: SEED unproven-boundary — limit check is green-tested only on the inside, boundary value left unproven
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The change gates a bulk-export endpoint to at
+        most 1000 rows per request.
+        Risk gate: completed. The developer confirmed the named risk:
+        R1 (boundary) — off-by-one at the 1000-row limit could allow 1001 or
+        reject 1000. Technique in play: boundary value analysis.
+
+        ## git diff
+        ```diff
+        diff --git a/app/export/limit.py b/app/export/limit.py
+        @@ app/export/limit.py:5-9 @@
+         5 MAX_ROWS = 1000
+         7 def within_limit(row_count: int) -> bool:
+        -8     return row_count < MAX_ROWS
+        ```
+        Context: the guard uses `<` (strict), so exactly 1000 rows is REJECTED
+        — but the spec says "at most 1000" should be allowed.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/export/test_limit.py -q
+        tests/export/test_limit.py::test_allows_small_export PASSED
+        tests/export/test_limit.py::test_rejects_huge_export PASSED
+        9 passed, 0 skipped in 0.31s
+        ```
+        (The passing tests use 10 rows and 5000 rows — neither sits at or just
+        beside the 1000-row boundary.)
+      expected_shape: >-
+        Evidence-led verdict that ESCALATES the UNPROVEN boundary risk. Maps R1
+        as UNPROVEN (the limit path runs green but no assertion sits at the
+        boundary). Names the boundary-value failure mode (both sides +
+        just-inside vs just-outside; `<` vs `<=` at the limit). PRESCRIBES a
+        concrete discriminating input — exactly 1000 rows — that PASSES the
+        current `<` impl as REJECTED (the bug) AND FAILS a correct `<=` impl
+        (which would allow 1000), required in the test gate before SAFE; ideally
+        also names 999 and 1001 as the surrounding boundary cases. Delivers NOT
+        SAFE TO MERGE. Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE TO MERGE treating the 10-row / 5000-row tests as covering the boundary.
+        - Leaves R1 as a bare UNPROVEN row with no prescribed boundary input and no acknowledged deferral.
+        - Prescribes only "test the boundary" without naming the exact 1000-row discriminating value.
+        - Asking another confirmation question instead of delivering the verdict.

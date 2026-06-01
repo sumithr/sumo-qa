@@ -83,6 +83,28 @@ output-discipline, not by loosening the rubric.) Read the **delta** (baseline �
 postcut, B over A0) and the negative-control passes as the signal — never chase
 a fixed number by loosening the rubric or trivialising seeds.
 
+## UNPROVEN-escalation corpus (issue #187)
+
+`skill-reviewing-before-merge-unproven-escalation.yaml` grades a different
+move: when a named risk is **UNPROVEN** (the changed path is exercised by a
+green test, but no assertion hits the failure mode), the skill must NOT demote
+it to a "residual precision trade-off" and ship SAFE. It must (1) name the
+technique's catalogued failure mode (`techniques.md` now carries a
+`failure_modes` note per black-box technique — equivalence-partitioning
+substring/token confusion, both-sides boundary, missing rule row), (2)
+**prescribe a concrete discriminating input** — one value that PASSES the
+broken impl AND FAILS a correct impl (e.g. `unlocked` against a `locked`
+substring matcher; exactly `1000` rows against a `< 1000` limit) required in
+the test gate before SAFE — and (3) deliver NOT SAFE TO MERGE. Two seeds cover
+the equivalence-partitioning substring case and the boundary-value case;
+candidate is `gpt-5-mini`, judge `gpt-5.5`. This is the catch that scales when
+the adversarial codex pass isn't available (CI-only runs, limited codex tokens).
+
+```bash
+source ~/.config/promptfoo-keys.env
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-unproven-escalation.yaml --no-cache
+```
+
 ## How to run
 
 ### One-time setup
