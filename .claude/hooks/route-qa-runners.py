@@ -164,10 +164,22 @@ def _mutmut_has_survivors(output: str) -> bool:
     return False
 
 
+def _nonzero_exit(exit_code: object) -> bool:
+    """True for a non-zero exit code, tolerating int OR numeric-string forms
+    (the PostToolUse payload may carry exit_code either way; promptfoo exits 100
+    on failure). A missing / non-numeric code is not treated as a failure."""
+    if isinstance(exit_code, bool):  # bool is an int subclass; never an exit code
+        return False
+    try:
+        return int(exit_code) != 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _promptfoo_failed(output: str, exit_code: object) -> bool:
-    if "[FAIL]" in output:
-        return True
-    return isinstance(exit_code, int) and exit_code != 0
+    # [FAIL] in the results table is the primary signal; a non-zero exit covers
+    # an eval that errored before printing a table.
+    return "[FAIL]" in output or _nonzero_exit(exit_code)
 
 
 _MUTMUT_REMINDER = (

@@ -215,6 +215,33 @@ class TestPromptfooFailsRouteToDiagnoser:
             "marker or a non-zero failure exit."
         )
 
+    def test_string_exit_code_failure_routes(self) -> None:
+        """Defensive: a PostToolUse payload may carry exit_code as a numeric
+        STRING rather than an int. A non-zero string code must still count as a
+        failure (otherwise an early-crash eval slips past).
+        """
+        result = _run_hook(
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": "promptfoo eval -c x.yaml"},
+                "tool_response": {"stdout": "", "stderr": "boom", "exit_code": "100"},
+            }
+        )
+        assert "eval-failure-diagnoser" in _additional_context(result)
+
+    def test_early_error_without_fail_marker_routes_on_exit_code(self) -> None:
+        """An eval that errors before printing a `[FAIL]` table still routes on
+        the non-zero exit alone — the exit code is the fallback signal.
+        """
+        result = _run_hook(
+            _post_tool_use(
+                "promptfoo eval -c x.yaml",
+                stdout="Error: config not found\n",
+                exit_code=1,
+            )
+        )
+        assert "eval-failure-diagnoser" in _additional_context(result)
+
 
 class TestExcludedEvalCommands:
     """`eval:generate` and `eval:view` must be ignored even if their output or
