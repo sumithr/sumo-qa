@@ -138,6 +138,25 @@ def test_stale_test_evidence_field_is_listed():
     assert "`test_evidence` is NOT safety-supporting (stale)" in md
 
 
+def test_sha_mismatched_fresh_fact_emits_stale_warning():
+    # FIX 1 end-to-end: a fresh+passing fact captured against a DIFFERENT commit
+    # than head_sha must surface in the formatter's stale-evidence warning so a
+    # consumer cannot read it as current. Fails if the sha-mismatch gate is gone.
+    bundle = _bundle(
+        head_sha="aaaaaaaa1111",
+        ci_status={
+            "result": "passing",
+            "freshness": "fresh",
+            "source": "ci_provider",
+            "captured_against_sha": "bbbbbbbb2222",
+        },
+    )
+    md = format_context_bundle_markdown(bundle)
+    assert "Stale-evidence warning" in md
+    assert "`ci_status` is NOT safety-supporting (stale)" in md
+    assert "do not claim safety from it" in md
+
+
 def test_compact_summary_clean_bundle_omits_optional_clauses():
     bundle = _bundle(
         test_evidence={"result": "passing", "freshness": "fresh", "source": "local_git"},

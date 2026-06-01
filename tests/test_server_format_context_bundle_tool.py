@@ -122,11 +122,22 @@ def test_invalid_freshness_returns_error_envelope(tool):
     assert out["error"]["actionable_hint"]
 
 
-def test_missing_schema_version_returns_error_envelope(tool):
+def test_unstamped_bundle_is_accepted_and_defaults_version(tool):
+    # An unstamped bundle (no schema_version) now loads cleanly — the
+    # first-class-partial contract — rather than erroring. schema_version
+    # defaults to the current version.
     out = tool(bundle={"issue_summary": "no version"})
+    assert isinstance(out, FormatContextBundleOutput)
+    assert "**Context bundle**" in out.markdown
+
+
+def test_present_mismatched_schema_version_returns_error_envelope(tool):
+    # The explicit-mismatch rejection is kept: a PRESENT but wrong version still
+    # produces a schema_version_mismatch error envelope.
+    out = tool(bundle={"schema_version": "2.0"})
     assert isinstance(out, dict)
     assert out["isError"] is True
-    assert "missing_field" in out["error"]["message"]
+    assert "schema_version_mismatch" in out["error"]["message"]
 
 
 def test_unknown_field_returns_error_envelope(tool):

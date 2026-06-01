@@ -8,11 +8,12 @@
 messages — the same contract the risk-ledger and repo-map validation envelopes
 provide.
 
-A *partial* bundle is NOT an error: every field except ``schema_version`` is
-optional, so an empty-but-stamped bundle loads cleanly. Only genuine shape
-problems (wrong version, unknown field, bad enum value, wrong type) raise. This
-keeps "absent / partial bundle" a first-class, non-failing path — the consuming
-skill falls back to direct repo inspection rather than choking on a thin bundle.
+A *partial* bundle is NOT an error: every field is optional (``schema_version``
+defaults to the current version), so an empty ``{}`` bundle loads cleanly,
+stamped ``"1.0"``. Only genuine shape problems (a PRESENT but wrong version,
+unknown field, bad enum value, wrong type) raise. This keeps "absent / partial
+bundle" a first-class, non-failing path — the consuming skill falls back to
+direct repo inspection rather than choking on a thin bundle.
 
 ``schema_version_mismatch`` is surfaced before Pydantic sees the payload so a
 stale bundle gives a clear "your payload says 2.0, this build expects 1.0"
@@ -63,8 +64,10 @@ def load_context_bundle(data: dict) -> ContextBundle:
     # Any present-but-non-matching schema_version — string OR not (e.g. an int 2)
     # — is a version mismatch. Routing a non-string through Pydantic would surface
     # a confusing literal/vocab error instead of the clear "your artifact says X,
-    # this build expects Y" signal. A missing schema_version (None) still falls
-    # through so Pydantic reports it as a missing field.
+    # this build expects Y" signal. A missing schema_version (None) falls through
+    # to the model, which DEFAULTS it to CONTEXT_BUNDLE_SCHEMA_VERSION — an
+    # unstamped empty/partial bundle loads cleanly (the first-class-partial
+    # contract); only a present mismatch is rejected here.
     if version is not None and version != CONTEXT_BUNDLE_SCHEMA_VERSION:
         raise ContextBundleValidationError(
             kind="schema_version_mismatch",

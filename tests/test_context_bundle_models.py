@@ -90,6 +90,78 @@ def test_absent_evidence_is_not_listed_as_present_fields():
     assert bundle.untrustworthy_evidence_fields() == []
 
 
+# --- sha-mismatch gate: a fresh+passing fact captured against another commit
+# --- is effectively stale and MUST NOT back safety (FIX 1) -------------------
+
+
+def test_fresh_passing_fact_with_mismatched_sha_is_untrustworthy_and_stale():
+    # The load-bearing FIX-1 case: a fact labelled fresh+passing but captured
+    # against a DIFFERENT commit than head_sha must be reported untrustworthy AND
+    # surfaced as stale. This test fails if the sha-mismatch gate is removed.
+    bundle = _bundle(
+        head_sha="aaaaaaaa1111",
+        ci_status={
+            "result": "passing",
+            "freshness": "fresh",
+            "source": "ci_provider",
+            "captured_against_sha": "bbbbbbbb2222",
+        },
+    )
+    assert bundle.untrustworthy_evidence_fields() == ["ci_status"]
+    assert bundle.stale_evidence_fields() == ["ci_status"]
+
+
+def test_fresh_passing_fact_with_matching_sha_is_trustworthy():
+    # Control: a fresh+passing fact whose captured_against_sha matches head_sha
+    # is fully trustworthy — the gate fires ONLY on a genuine mismatch.
+    bundle = _bundle(
+        head_sha="aaaaaaaa1111",
+        ci_status={
+            "result": "passing",
+            "freshness": "fresh",
+            "source": "ci_provider",
+            "captured_against_sha": "aaaaaaaa1111",
+        },
+    )
+    assert bundle.untrustworthy_evidence_fields() == []
+    assert bundle.stale_evidence_fields() == []
+
+
+def test_fresh_passing_fact_abbreviated_matching_sha_is_trustworthy():
+    # Prefix-aware (FIX 3 cross-check): an abbreviated captured_against_sha that
+    # prefixes the full head_sha is the SAME commit — not a mismatch.
+    bundle = _bundle(
+        head_sha="aaaaaaaa1111deadbeef",
+        ci_status={
+            "result": "passing",
+            "freshness": "fresh",
+            "source": "ci_provider",
+            "captured_against_sha": "aaaaaaaa",
+        },
+    )
+    assert bundle.untrustworthy_evidence_fields() == []
+    assert bundle.stale_evidence_fields() == []
+
+
+def test_sha_mismatch_gate_inert_when_head_or_capture_absent():
+    # No head_sha (or no captured_against_sha) ⇒ no sha signal to cross-check, so
+    # the gate stays inert and a fresh pass remains trustworthy.
+    no_head = _bundle(
+        ci_status={
+            "result": "passing",
+            "freshness": "fresh",
+            "source": "ci_provider",
+            "captured_against_sha": "bbbbbbbb2222",
+        },
+    )
+    assert no_head.untrustworthy_evidence_fields() == []
+    no_capture = _bundle(
+        head_sha="aaaaaaaa1111",
+        ci_status={"result": "passing", "freshness": "fresh", "source": "ci_provider"},
+    )
+    assert no_capture.untrustworthy_evidence_fields() == []
+
+
 # --- conflict gate: differing shas conflict, equal/absent do not -------------
 
 
@@ -113,3 +185,46 @@ def test_missing_bundle_sha_no_conflict():
 def test_missing_local_sha_no_conflict():
     bundle = _bundle(head_sha="aaa")
     assert detect_local_conflict(bundle, None) is None
+
+
+# --- conflict gate is prefix-aware (FIX 3) -----------------------------------
+
+
+def test_abbreviated_bundle_sha_prefixing_full_local_no_conflict():
+    # An abbreviated bundle sha that prefixes the full local sha names the SAME
+    # commit — exact-equality would falsely flag a conflict. Prefix-aware ⇒ none.
+    bundle = _bundle(head_sha="abc1234")
+    assert detect_local_conflict(bundle, "abc1234deadbeef0099") is None
+
+
+def test_full_bundle_sha_prefixed_by_abbreviated_local_no_conflict():
+    # Same in the other direction: an abbreviated local sha prefixing the full
+    # bundle sha is no conflict.
+    bundle = _bundle(head_sha="abc1234deadbeef0099")
+    assert detect_local_conflict(bundle, "abc1234") is None
+
+
+def test_case_insensitive_sha_prefix_no_conflict():
+    bundle = _bundle(head_sha="ABC1234")
+    assert detect_local_conflict(bundle, "abc1234deadbeef") is None
+
+
+def test_genuinely_different_shas_still_conflict():
+    bundle = _bundle(head_sha="abc1234")
+    msg = detect_local_conflict(bundle, "def5678abcdef")
+    assert msg is not None
+    assert "abc1234" in msg and "def5678abcdef" in msg
+
+
+def test_short_prefix_below_floor_does_not_falsely_match():
+    # A too-short string ("abc", < 7 chars) must NOT prefix-match an unrelated
+    # full sha — that would be a 3-char false match. It is a genuine conflict.
+    bundle = _bundle(head_sha="abc")
+    assert detect_local_conflict(bundle, "abcdef1234567") is not None
+
+
+def test_whitespace_only_sha_treated_as_conflict():
+    # A whitespace-only sha is not a real commit identifier: after stripping it
+    # is empty, so the two are not equivalent and a conflict is reported.
+    bundle = _bundle(head_sha="   ")
+    assert detect_local_conflict(bundle, "abc1234deadbeef") is not None

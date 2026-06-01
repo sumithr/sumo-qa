@@ -86,6 +86,37 @@ EvidenceResult = Literal[
 #: not safe-supporting. So the ONLY safety-supporting state is ``fresh``.
 NON_TRUSTWORTHY_FRESHNESS: Final[frozenset[str]] = frozenset({"stale", "unknown", "absent"})
 
+#: Minimum length for a sha (or sha prefix) to be treated as a meaningful commit
+#: identifier when comparing prefix-wise. Below this, a short string could
+#: spuriously prefix-match an unrelated full sha (e.g. a 1-char "a"), so we fall
+#: back to exact equality. Seven is git's conventional abbreviated-sha floor.
+MIN_SHA_PREFIX_LEN: Final[int] = 7
+
+
+def _sha_equivalent(a: str | None, b: str | None) -> bool:
+    """True when two shas name the same commit, prefix-aware.
+
+    Compares case-insensitively. An abbreviated sha that is a non-empty prefix
+    of the fuller sha (in either direction) is the SAME commit. To avoid a short
+    string spuriously matching an unrelated sha, prefix-matching only applies
+    when the shorter side is at least :data:`MIN_SHA_PREFIX_LEN` chars; below
+    that, equality is required. When the two are equal length, exact match.
+
+    Absent or whitespace-only on either side ⇒ not equivalent (callers decide
+    what an absent sha means; this helper only answers "do these two present
+    shas match?").
+    """
+    a = (a or "").strip().lower()
+    b = (b or "").strip().lower()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    if len(shorter) < MIN_SHA_PREFIX_LEN:
+        return False
+    return longer.startswith(shorter)
+
 
 class EvidenceFact(BaseModel):
     """A go-stale fact (CI status or test evidence) with source + freshness.
@@ -164,17 +195,21 @@ class ChangedFile(BaseModel):
 class ContextBundle(BaseModel):
     """A host-neutral issue/PR context bundle for QA review/planning.
 
-    Every field is optional EXCEPT ``schema_version`` — an empty bundle is a
-    valid (if minimally useful) bundle, so an absent or partial bundle never
-    fails to load. The consuming skill decides how much to trust based on what
-    is present and on each go-stale fact's freshness.
+    Every field is optional — an empty bundle is a valid (if minimally useful)
+    bundle, so an absent or partial bundle never fails to load. ``schema_version``
+    defaults to :data:`CONTEXT_BUNDLE_SCHEMA_VERSION`, so an unstamped empty/partial
+    bundle loads cleanly stamped ``"1.0"``; a PRESENT but mismatched version is
+    still rejected by ``load_context_bundle`` (schema_version_mismatch). The
+    consuming skill decides how much to trust based on what is present and on each
+    go-stale fact's freshness.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    # Required so a versioned artifact can't sneak past validation unstamped —
-    # mirrors the risk-ledger contract.
-    schema_version: Literal["1.0"]
+    # Defaulted (not required) so an unstamped empty/partial bundle still loads —
+    # the first-class-partial contract. A present-but-mismatched version is still
+    # rejected explicitly in context_bundle_validation.load_context_bundle.
+    schema_version: Literal["1.0"] = CONTEXT_BUNDLE_SCHEMA_VERSION
 
     issue_summary: str | None = Field(
         default=None, description="Plain-text summary of the issue/ticket under review."
@@ -214,31 +249,53 @@ class ContextBundle(BaseModel):
         description="Optional path/hash of a .sumo-qa/diff-impact.json artifact (#156).",
     )
 
-    def stale_evidence_fields(self) -> list[str]:
-        """Names of the go-stale fields whose evidence is explicitly stale.
+    def _fact_sha_mismatched(self, fact: EvidenceFact | None) -> bool:
+        """True when a fact was captured against a DIFFERENT commit than head.
 
-        Returns ``["test_evidence"]``, ``["ci_status"]``, both, or none. Used by
-        the formatter to emit an explicit stale-evidence callout so a consumer
-        cannot silently treat a stale pass as current.
+        A fact may be labelled ``fresh``/``passing`` yet carry a
+        ``captured_against_sha`` that does not match the bundle's ``head_sha`` —
+        it was captured against another commit and is effectively stale, so it
+        must not back safety. Compared PREFIX-AWARE (an abbreviated capture sha
+        that prefixes the full head, or vice-versa, is the SAME commit and is NOT
+        a mismatch). Only a mismatch when BOTH shas are present and they are not
+        prefix-equivalent.
+        """
+        if fact is None or not fact.captured_against_sha or not self.head_sha:
+            return False
+        return not _sha_equivalent(fact.captured_against_sha, self.head_sha)
+
+    def stale_evidence_fields(self) -> list[str]:
+        """Names of the go-stale fields whose evidence is effectively stale.
+
+        Returns ``["test_evidence"]``, ``["ci_status"]``, both, or none. A field
+        is listed when its freshness is explicitly ``stale`` OR when it was
+        captured against a commit other than ``head_sha`` (a sha mismatch — a
+        fresh-labelled pass against another commit is still stale relative to the
+        current state). Used by the formatter to emit an explicit stale-evidence
+        callout so a consumer cannot silently treat a stale pass as current.
         """
         stale: list[str] = []
-        if self.test_evidence is not None and self.test_evidence.is_stale():
-            stale.append("test_evidence")
-        if self.ci_status is not None and self.ci_status.is_stale():
-            stale.append("ci_status")
+        for name, fact in (("test_evidence", self.test_evidence), ("ci_status", self.ci_status)):
+            if fact is not None and (fact.is_stale() or self._fact_sha_mismatched(fact)):
+                stale.append(name)
         return stale
 
     def untrustworthy_evidence_fields(self) -> list[str]:
         """Go-stale fields present but NOT trustworthy for a safety claim.
 
         Wider than ``stale_evidence_fields``: includes unknown-freshness and
-        absent/failing/mixed evidence. A field is listed when it exists but
-        ``is_trustworthy_for_safety()`` is False. Empty ⇒ every present go-stale
-        fact is a fresh pass.
+        absent/failing/mixed evidence. A field is listed when it exists and
+        either ``is_trustworthy_for_safety()`` is False OR it was captured
+        against a commit other than ``head_sha`` (a sha mismatch — even a
+        fresh+passing fact is untrustworthy when it was captured against a
+        different commit). Empty ⇒ every present go-stale fact is a fresh pass
+        captured against the current head.
         """
         untrusted: list[str] = []
         for name, fact in (("test_evidence", self.test_evidence), ("ci_status", self.ci_status)):
-            if fact is not None and not fact.is_trustworthy_for_safety():
+            if fact is not None and (
+                not fact.is_trustworthy_for_safety() or self._fact_sha_mismatched(fact)
+            ):
                 untrusted.append(name)
         return untrusted
 
@@ -253,12 +310,15 @@ def detect_local_conflict(bundle: ContextBundle, local_head_sha: str | None) -> 
 
     Deterministic and conservative: when either sha is absent there is no signal
     to compare, so no conflict is reported (the consumer falls back to direct
-    inspection). The returned message is the actionable signal the skill surfaces
-    verbatim; it never resolves the conflict by trusting one side.
+    inspection). The comparison is PREFIX-AWARE — an abbreviated sha on one side
+    that prefixes the fuller sha on the other names the SAME commit and is NOT a
+    conflict (only a mismatch when neither is a prefix of the other). The
+    returned message is the actionable signal the skill surfaces verbatim; it
+    never resolves the conflict by trusting one side.
     """
     if not bundle.head_sha or not local_head_sha:
         return None
-    if bundle.head_sha == local_head_sha:
+    if _sha_equivalent(bundle.head_sha, local_head_sha):
         return None
     return (
         f"Context bundle describes commit {bundle.head_sha!r} but the local head is "
