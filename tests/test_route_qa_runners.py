@@ -206,6 +206,17 @@ class TestPromptfooFailsRouteToDiagnoser:
         result = _run_hook(_post_tool_use("npm run eval:all", stdout=out, exit_code=100))
         assert "eval-failure-diagnoser" in _additional_context(result)
 
+    def test_npx_yes_promptfoo_eval_routes(self) -> None:
+        """`npx -y promptfoo@<v> eval` (the no-install form, as used to capture
+        the fixtures) must route: -y is a boolean flag, promptfoo is the package,
+        eval is the subcommand.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(
+            _post_tool_use("npx -y promptfoo@0.121.11 eval -c x.yaml", stdout=out, exit_code=100)
+        )
+        assert "eval-failure-diagnoser" in _additional_context(result)
+
     def test_pass_run_does_not_route(self) -> None:
         """Real `promptfoo eval`, 1 passed, exit 0, no `[FAIL]` cell."""
         out = _fixture("promptfoo_pass.stdout.txt")
@@ -357,6 +368,58 @@ class TestCodexAdversarialFindings:
         assert _additional_context(result) == "", (
             "hook split a quoted argument on its embedded `;` and routed printed "
             "text as a real `promptfoo eval`. Segmentation must respect quoting."
+        )
+
+    def test_npx_package_flag_value_does_not_false_route(self) -> None:
+        """BLOCKER (re-review): `npx -p promptfoo eval` runs the `eval` binary
+        with `-p`(ackage) `promptfoo`. The npx value-flag consumes `promptfoo`,
+        so the executable is `eval`, not promptfoo — must NOT route.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use("npx -p promptfoo eval", stdout=out, exit_code=100))
+        assert _additional_context(result) == "", (
+            "hook read the `-p` value `promptfoo` as the executable. npx "
+            "value-flags must consume their following token."
+        )
+
+    def test_pipe_stderr_operator_splits_segments(self) -> None:
+        """`|&` (pipe-stderr) is a real bash operator and a command separator —
+        a real eval after it must still route.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(
+            _post_tool_use("promptfoo view |& promptfoo eval -c x.yaml", stdout=out, exit_code=100)
+        )
+        assert "eval-failure-diagnoser" in _additional_context(result)
+
+    def test_newline_separated_trailing_eval_is_a_documented_non_route(self) -> None:
+        """DOCUMENTED LIMITATION (not a bug): a real `promptfoo eval` on a LATER
+        line of a multi-line command is not detected. An unquoted newline is
+        consumed by the quote-aware lexer as whitespace, so the lines merge into
+        one segment. Splitting on newlines naively would re-break quote-awareness
+        (a `promptfoo eval` line inside a multi-line quoted string would then
+        wrongly route — a false positive). The hook prioritises zero false
+        positives; a first-line eval (the common case) still routes. This pins
+        the accepted trailing-line miss.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(
+            _post_tool_use("promptfoo view\npromptfoo eval -c x.yaml", stdout=out, exit_code=100)
+        )
+        assert _additional_context(result) == "", (
+            "accepted limitation changed: a trailing-line eval now routes. If "
+            "intentional (e.g. a real shell parser was adopted), flip this test."
+        )
+
+    def test_quoted_multiline_eval_text_does_not_route(self) -> None:
+        """The flip side of the limitation above: a `promptfoo eval` line INSIDE
+        a multi-line quoted argument must NOT route (this is exactly why naive
+        newline-splitting was rejected).
+        """
+        result = _run_hook(_post_tool_use('echo "foo\npromptfoo eval\nbar"', stdout="[FAIL]\n"))
+        assert _additional_context(result) == "", (
+            "hook routed a `promptfoo eval` line embedded in a quoted multi-line "
+            "echo argument. Quoted newlines must stay inside the token."
         )
 
     def test_npm_help_run_eval_does_not_route(self) -> None:

@@ -56,7 +56,18 @@ _MUTMUT_STATUS_EMOJI = {
 }
 
 
-_CONTROL_OPERATORS = {";", "|", "||", "&&", "&", "\n"}
+# Shell control operators that separate sub-commands. `|&` (pipe-stderr) is
+# emitted by shlex as a single token. An UNQUOTED newline is consumed by shlex
+# as whitespace (so newline-separated commands merge into one segment — an
+# accepted false negative; splitting them safely would require a full shell
+# parser that also respects multi-line quotes); a QUOTED newline stays inside
+# its token, which is what keeps quoted text from forming a fake command.
+_CONTROL_OPERATORS = {";", "|", "||", "&&", "&", "|&", "\n"}
+
+# npx/bunx flags that consume the FOLLOWING token as their value, so that value
+# is not mistaken for the executable name (`npx -p promptfoo eval` runs `eval`,
+# not `promptfoo`). The `--flag=value` form is a single token and needs no entry.
+_NPX_VALUE_FLAGS = {"-p", "--package", "-c", "--call"}
 
 
 def _command_segments(command: str) -> list[list[str]]:
@@ -162,7 +173,10 @@ def _promptfoo_argv(eff: list[str]) -> list[str] | None:
     if base0 in ("npx", "bunx"):
         rest = eff[1:]
         while rest and rest[0].startswith("-"):
+            value_flag = rest[0] in _NPX_VALUE_FLAGS
             rest = rest[1:]
+            if value_flag and rest:  # also drop the flag's value token
+                rest = rest[1:]
         if rest:
             base = os.path.basename(rest[0])
             if base == "promptfoo" or base.startswith("promptfoo@"):
