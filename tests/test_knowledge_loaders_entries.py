@@ -346,6 +346,31 @@ def test_outer_4tick_fence_wrapping_inner_3tick_block_hides_fake_heading(tmp_pat
     assert "fake-heading-inside-the-block" not in ids
 
 
+def test_closing_fence_with_trailing_info_string_is_not_a_close(tmp_path, monkeypatch):
+    # CommonMark: a CLOSING fence may have only whitespace after the fence run.
+    # A line like ```bash INSIDE a 3-backtick block carries an info string, so
+    # it is content (an attempted opener), NOT a valid close. A length-blind,
+    # trailing-blind tracker closes on it and then wrongly indexes the
+    # following ## line as a real entry.
+    cat = tmp_path / "classifications.md"
+    cat.write_text(
+        "# Title\n\n"
+        "## real_entry\n"
+        "Body line.\n\n"
+        "```\n"
+        "```bash\n"
+        "## Fake heading inside the block\n"
+        "```\n\n"
+        "## second_entry\n"
+        "More body.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
+    ids = {e["id"] for e in knowledge_loaders.list_catalogue_entries("classifications")}
+    assert ids == {"real_entry", "second_entry"}
+    assert "fake-heading-inside-the-block" not in ids
+
+
 def test_indented_4space_backticks_are_not_a_fence(tmp_path, monkeypatch):
     # CommonMark: a line indented >= 4 spaces is an indented code block, not a
     # fence marker. The indented ``` must NOT open a fence — so the real

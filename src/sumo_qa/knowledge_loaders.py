@@ -161,8 +161,10 @@ _ENTRY_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
 # >=3 tildes, indented by AT MOST 3 spaces (>=4 spaces is an indented code
 # block, not a fence). Capture the whole run so we can compare lengths: a
 # closing fence must use the same char with length >= the opener's, so an outer
-# 4-backtick fence is NOT closed by an inner 3-backtick run.
-_ENTRY_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# 4-backtick fence is NOT closed by an inner 3-backtick run. Capture the
+# remainder after the run too: a CLOSING fence may carry only whitespace after
+# it, whereas an OPENING fence may carry an info string (e.g. ```python).
+_ENTRY_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 # The first heading in each file is the catalogue's own title (e.g. "# Test
 # design techniques"); it is not an entry. Entry headings start at level 2.
 _ENTRY_MIN_LEVEL = 2
@@ -196,10 +198,15 @@ def _iter_entry_headings(body: str) -> list[tuple[int, int, str]]:
         fence_match = _ENTRY_FENCE_RE.match(line)
         if fence_match:
             run = fence_match.group(1)
+            remainder = fence_match.group(2)
             marker, length = run[0], len(run)
             if fence is None:
+                # Opening fence: an info string after the run is allowed.
                 fence = (marker, length)
-            elif marker == fence[0] and length >= fence[1]:
+            elif marker == fence[0] and length >= fence[1] and not remainder.strip():
+                # Closing fence: CommonMark requires whitespace-only after the
+                # run. A trailing info string (e.g. ```bash) means this is
+                # content inside the block, not a valid close.
                 fence = None
             continue
         if fence is not None:
