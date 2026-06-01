@@ -127,6 +127,71 @@ def test_skill_description_has_no_host_specific_tool_name(skill_path, phrase):
     )
 
 
+# Provider / model-name drift guard (issue #161). The reasoning-effort guidance
+# is deliberately host-neutral and capability-shaped: it must NOT name a
+# provider, a model family, or a host-specific reasoning-control setting,
+# because any such list rots and creates documentation debt the moment a vendor
+# renames a model or ships a new tier. This denylist is the deterministic guard
+# — if a future edit reaches for a concrete vendor/model/control name in skill
+# prose, the offending token lands here and the test fails. The skills express a
+# preference for *stronger available reasoning*, never a maintained matrix.
+#
+# Word-boundary matched, case-insensitive, against skill prose with fenced code
+# blocks stripped (a fenced shell/JSON example may legitimately show a model id;
+# normative prose may not). Keep this list focused on tokens that would only
+# appear if someone enumerated vendors/models/controls — not generic English.
+PROVIDER_MODEL_DRIFT_DENYLIST = (
+    # providers / vendors
+    "openai",
+    "anthropic",
+    "google deepmind",
+    "deepmind",
+    "mistral",
+    "cohere",
+    "xai",
+    "meta ai",
+    # model families
+    "gpt-4",
+    "gpt-5",
+    "gpt-3",
+    "claude opus",
+    "claude sonnet",
+    "claude haiku",
+    "gemini",
+    "llama",
+    "grok",
+    "o1",
+    "o3",
+    # host-specific reasoning-control setting names
+    "extended thinking",
+    "thinking budget",
+    "reasoning_effort",
+    "reasoning effort control",
+    "max reasoning tokens",
+)
+
+_FENCED_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
+
+
+@pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
+@pytest.mark.parametrize("token", PROVIDER_MODEL_DRIFT_DENYLIST)
+def test_skill_body_has_no_provider_or_model_name(skill_path, token):
+    """Reasoning-effort guidance must stay host-neutral — no maintained list of
+    providers, models, or host-specific reasoning-control setting names (#161).
+    Fenced code blocks are exempt (they may carry a concrete example); normative
+    prose may not enumerate vendors/models/controls."""
+    text = skill_path.read_text(encoding="utf-8")
+    prose = _FENCED_BLOCK_RE.sub("", text)
+    pattern = re.compile(rf"(?<![\w-]){re.escape(token)}(?![\w-])", re.IGNORECASE)
+    assert not pattern.search(prose), (
+        f"{skill_path.relative_to(SKILLS_DIR.parent)} names {token!r} in prose. "
+        f"sumo-qa expresses a preference for the strongest AVAILABLE reasoning, "
+        f"never a maintained provider/model/control list (issue #161). Use the "
+        f"host-neutral, capability-based wording — see using-sumo-qa → "
+        f"Reasoning effort."
+    )
+
+
 # The same deny-list applies to the three skill-contract docs. Generic scenario
 # labels in tests/scenarios/ are intentionally out of scope; deny-lists target
 # normative contract surfaces, not eval labels.

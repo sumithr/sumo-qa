@@ -11,7 +11,7 @@ Help the user turn an amorphous QA ask ("we need test coverage for the new refun
 
 ## Output discipline (mandatory)
 
-Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.
+Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit. Decomposing a rollout into independent, well-shaped tasks is a high-stakes call: use the strongest reasoning the host makes available (highest practical reasoning-effort setting if one is exposed) — see `using-sumo-qa` → *Reasoning effort*. Surface the plan only; never expose hidden reasoning.
 
 <HARD-GATE>
 Do NOT start scaffolding tests or dispatching subagents from this skill. This skill's only output is the written plan document. Execution happens in `sumo-qa-executing-qa-rollout` after the plan is signed off.

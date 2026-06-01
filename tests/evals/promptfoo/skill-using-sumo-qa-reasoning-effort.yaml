@@ -1,0 +1,130 @@
+description: >
+  Reasoning-effort eval for using-sumo-qa (issue #161). The global router's
+  "Reasoning effort" discipline tells the agent to use the strongest reasoning
+  the host makes available for high-stakes QA calls (merge-safety review,
+  repo-wide strategy, rollout planning, ambiguous risk triage) — a capability
+  preference, NOT a maintained list of providers, models, or host-specific
+  reasoning-control setting names. This eval drives a high-stakes intent and
+  grades whether the candidate (A) signals it will apply stronger available
+  reasoning / highest practical reasoning-effort setting, (B) does so without
+  naming any vendor, model family, or host-specific control, and (C) keeps the
+  output evidence/decision-focused without exposing hidden chain-of-thought.
+
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/using-sumo-qa/SKILL.md
+    expected_shape: >-
+      For a high-stakes QA call (repo-wide analysis, merge-safety review,
+      rollout planning, or ambiguous risk triage), the response expresses a
+      preference to use the strongest reasoning the host makes available —
+      e.g. the highest practical reasoning-effort/depth setting IF the host
+      exposes one — framed as a host-neutral capability preference, not a
+      requirement that a specific control exists. It keeps user-facing output
+      focused on evidence, decisions, and verification results, and does not
+      narrate or dump hidden chain-of-thought.
+    anti_patterns:
+      - Names a specific provider or vendor (e.g. an AI lab name).
+      - Names a specific model or model family.
+      - Names a specific host-specific reasoning-control setting (a concrete
+        flag/parameter name) rather than describing the capability generically.
+      - Demands a reasoning-effort control as if it must exist, or errors/refuses
+        when the host exposes none, instead of reasoning as deeply as allowed.
+      - Asks to reveal, or dumps, hidden chain-of-thought / internal reasoning
+        instead of surfacing only evidence, decisions, and results.
+
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: |
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the host-neutral reasoning-effort discipline AND avoids the
+      named anti-patterns. Be strict.
+
+      --- RUBRIC ---
+      {{rubric}}
+      --- END RUBRIC ---
+
+      --- CANDIDATE RESPONSE ---
+      {{output}}
+      --- END CANDIDATE RESPONSE ---
+
+      Evaluate THREE axes independently:
+
+      A. SHAPE - the response, faced with a high-stakes QA call, expresses a
+         preference to use the strongest reasoning the host makes available
+         (highest practical reasoning-effort/depth setting IF one is exposed),
+         framed as a capability preference rather than a hard requirement that
+         a specific control exists.
+      B. HOST-NEUTRALITY - the response names NO specific provider/vendor, NO
+         specific model or model family, and NO specific host-specific
+         reasoning-control setting name. Generic, capability-shaped wording
+         ("the strongest available reasoning", "the highest practical
+         reasoning-effort setting if the host exposes one") is REQUIRED; any
+         concrete vendor/model/control name is a HOST-NEUTRALITY FAIL. This axis
+         is ONLY about reasoning-effort host-neutrality. Naming a sumo-qa skill
+         (e.g. `sumo-qa-deciding-approach`) is REQUIRED router behaviour and is
+         NOT a host/provider/model/control name — never fail B for it.
+      C. ANTI-PATTERNS - for each anti-pattern listed, mark ABSENT or PRESENT.
+
+      Decision table:
+         | A SHAPE | B HOST-NEUTRALITY | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS              | No                        | PASS    |
+         | PASS    | PASS              | Yes                       | FAIL    |
+         | PASS    | FAIL              | *                         | FAIL    |
+         | FAIL    | *                 | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Before you route or act, state — in one or two sentences — how much
+    reasoning effort you will bring to this call and why, following the loaded
+    skill's discipline. Keep it host-neutral and evidence-focused; do not dump
+    internal chain-of-thought.
+
+tests:
+  - description: "SEED - high-stakes merge-safety review reasoning effort"
+    vars:
+      user_prompt: >-
+        This touches our billing and auth services and we ship tonight —
+        review the whole diff and tell me if it's safe to merge.
+  - description: "SEED - repo-wide strategy reasoning effort"
+    vars:
+      user_prompt: >-
+        Audit our test coverage across the monorepo and design where we should
+        invest QA effort next quarter.

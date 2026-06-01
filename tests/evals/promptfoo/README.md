@@ -268,6 +268,7 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 |---|---|
 | `skill-<name>.yaml` (×14) | One config per skill, all covered |
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
+| `skill-using-sumo-qa-reasoning-effort.yaml` | Issue #161 — grades whether the router asks for the strongest AVAILABLE reasoning on high-stakes calls WITHOUT naming any vendor/model/control |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |

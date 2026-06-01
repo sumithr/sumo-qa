@@ -11,7 +11,7 @@ Help the user produce a risk-prioritised, repo-anchored QA strategy by walking t
 
 ## Output discipline (mandatory)
 
-Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.
+Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit. Repo-wide strategy is a high-stakes call: use the strongest reasoning the host makes available (highest practical reasoning-effort setting if one is exposed) — see `using-sumo-qa` → *Reasoning effort*. Surface evidence and decisions only; never expose hidden reasoning.
 
 <HARD-GATE>
 Do NOT emit a strategy in one message. Walk the sections one at a time: inventory → risks → tools → prioritisation → pyramid → rollout → residual. A strategy dumped in one turn is generic consulting; a strategy built collaboratively is implementable.

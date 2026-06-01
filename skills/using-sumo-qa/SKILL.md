@@ -58,6 +58,10 @@ sumo-qa's job is **analysis** — classify the change, name risks, pick the tech
 
 Reason internally with citations (which words in the intent, which file paths, which catalogue entries grounded the inference); the user-facing output is the WORK, not a description of how you arrived at it. **Keep:** the finding (risks named, files cited, verdicts), verifiable file:line citations (`api/refund.py:47`), the current question/gate, rule references in natural English (*"the API-change rule requires a contract test bump"*). **Strip:** internal taxonomy labels, method commentary (*"per the checklist"*, *"anchored to the code I read"*), quality self-defense, step/phase trace, and re-stating the user's input. When a classification is useful to convey, translate it — *"this is a behaviour change in the pricing logic"*, not *"Classification: business_logic_change"*.
 
+### Reasoning effort (host-neutral)
+
+For the hard QA calls — repo-wide analysis, merge-safety review, rollout planning, ambiguous risk triage — use the strongest reasoning the current host makes available, and say so in a sentence before you act: *"This is a high-stakes call, so I'll use the strongest reasoning this host makes available — the highest practical reasoning-effort setting if one is exposed."* Phrase it exactly that way — as a host-neutral capability preference, NOT a setting name: don't assume any particular control exists, don't name a model or provider, and don't fail or refuse when no such control is exposed (reason as deeply as the host allows instead). Low-risk, mechanical asks (loading a catalogue, a one-line answer) don't need it — spend the deeper reasoning where a wrong call is expensive. Never expose hidden reasoning or chain-of-thought as a side effect: the user-facing output stays evidence, decisions, and verification results only (see *Internal reasoning vs user output*).
+
 ### Confirmation discipline
 
 Confirmation gates prevent driving past wrong assumptions, but applying them to every minor call wastes attention. Hierarchy:

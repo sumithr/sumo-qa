@@ -51,6 +51,7 @@ Each skill is a single `SKILL.md` under [`skills/`](../skills/), carrying its ow
 - **Citations live in reasoning, not output:** the LLM thinks in terms of cited evidence (which words in the user's intent, which file paths, which catalogue entries) but the user-facing output omits the citations unless asked.
 - **Specialty + tool fit — discovery, not catalogue.** Sumo-qa intentionally does NOT carry a tool catalogue. When a risk needs specialty tooling, observe the surface, reason from first principles about what shape of testing fits, web-search current options for the user's stack, and cite when naming a tool. "I don't know" is acceptable. A static catalogue would anchor toward yesterday's brands and create a false floor where novel surfaces never trigger discovery.
 - **Set the tool up, don't narrate the setup.** sumo-qa is the analytical layer (classify, name risks, pick approach + technique + tool category). The tool is just the means to coverage. Once chosen, the AI should install and configure it via the shortest path (package manager / framework CLI / config edit / MCP — whichever is fastest for that tool) and scaffold the first tests against the named risks. Confirm before installing dependencies; default to doing the work once confirmed.
+- **Reasoning effort — host-neutral capability preference.** For the high-stakes QA calls (repo-wide analysis, merge-safety review, rollout planning, ambiguous risk triage) the agent uses the strongest reasoning the current host makes available — the highest practical reasoning-effort/depth setting where one is exposed, otherwise reasoning as deeply as the host allows. This is a capability preference, never a maintained list of providers, models, or host-specific control names, and it never causes hidden chain-of-thought to be surfaced: user-facing output stays evidence, decisions, and verification results. The high-risk skills (`sumo-qa-strategising`, `sumo-qa-reviewing-before-merge`, `sumo-qa-planning-qa-rollout`, `sumo-qa-executing-qa-rollout`) carry a one-line local reminder on top of the inherited global wording. A deterministic guard in `tests/test_skill_conformance.py` fails if any skill prose enumerates a provider, model family, or host-specific reasoning-control setting name.
 
 ## Conformance
 
@@ -58,7 +59,9 @@ Every SKILL.md is structurally validated by `tests/test_skill_conformance.py`:
 frontmatter parses with name matching the directory, description ≥30 chars,
 descriptions unique across skills, Iron Law section present, Checklist with ≥4
 numbered items, a Process Flow section, Red Flags table
-present.
+present. The same suite enforces host-neutrality — skill prose may not name a
+host-specific tool, nor (per the reasoning-effort guidance) any provider, model
+family, or host-specific reasoning-control setting name.
 
 ## Editing a skill
 
