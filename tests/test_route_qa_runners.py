@@ -315,6 +315,19 @@ class TestCodexAdversarialFindings:
         result = _run_hook(_post_tool_use("npm run --silent eval", stdout=out, exit_code=100))
         assert "eval-failure-diagnoser" in _additional_context(result)
 
+    def test_npm_help_run_eval_does_not_route(self) -> None:
+        """P3 false positive (re-review): `npm help run eval` has `run` as an
+        ARGUMENT to `help`, not as the npm subcommand. The script lookup must
+        anchor `run` at the subcommand position, not match it anywhere in argv.
+        """
+        result = _run_hook(
+            _post_tool_use("npm help run eval", stdout="usage: npm run\n", exit_code=1)
+        )
+        assert _additional_context(result) == "", (
+            "hook fired on `npm help run eval` — `run` here is an argument to "
+            "`help`, not the npm subcommand."
+        )
+
     def test_emoji_glued_to_digit_in_path_does_not_route(self) -> None:
         """P2 false positive: an emoji glued to a digit with NO space (a path
         like `tests/🙁1_case.py`) must not read as a survivor count. Real mutmut

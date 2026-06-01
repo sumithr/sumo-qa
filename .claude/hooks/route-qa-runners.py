@@ -111,13 +111,24 @@ def _first_non_flag(tokens: list[str]) -> str | None:
 
 
 def _pm_script(eff: list[str]) -> str | None:
-    """The npm/pnpm/yarn/bun script name being run, if any. Skips any flags
-    interposed after `run` (`npm run --silent eval` -> `eval`)."""
-    if "run" in eff:
-        return _first_non_flag(eff[eff.index("run") + 1 :])
+    """The npm/pnpm/yarn/bun script name being run, if any.
+
+    `run` must be the package-manager SUBCOMMAND — the first non-flag token
+    after argv[0] — not merely present somewhere in argv. Otherwise
+    `npm help run eval` (where `run` is an argument to `help`) would be misread
+    as `npm run eval`. Flags interposed after the subcommand are skipped
+    (`npm run --silent eval` -> `eval`)."""
+    i = 1
+    while i < len(eff) and eff[i].startswith("-"):
+        i += 1
+    if i >= len(eff):
+        return None
+    sub = eff[i]
+    if sub in ("run", "run-script"):
+        return _first_non_flag(eff[i + 1 :])
     # `yarn eval` / `bun eval` shorthand (no explicit `run`).
-    if os.path.basename(eff[0]) in ("yarn", "bun") and len(eff) >= 2 and not eff[1].startswith("-"):
-        return eff[1]
+    if os.path.basename(eff[0]) in ("yarn", "bun"):
+        return sub
     return None
 
 
