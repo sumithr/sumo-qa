@@ -164,7 +164,6 @@ PROVIDER_MODEL_DRIFT_DENYLIST = (
     "xai",
     "meta ai",
     # model families
-    "claude",  # bare family reference (e.g. "use Claude for the final review") — not an English word, safe to flag like gemini/llama (#161 codex follow-up, PR #270)
     "claude opus",
     "claude sonnet",
     "claude haiku",
@@ -189,6 +188,18 @@ PROVIDER_MODEL_DRIFT_PATTERNS = (
     re.compile(r"(?<![\w-])o[134](?:-(?:mini|pro))?(?![\w-])", re.IGNORECASE),
     # bare capability-tier model names (safe to flag after #161 FIX 1).
     re.compile(r"(?<![\w-])(?:haiku|sonnet|opus)(?![\w-])", re.IGNORECASE),
+    # Claude model family: bare ("use Claude for the final review") OR a
+    # hyphenated model id ("claude-3-opus", "claude-3-5-sonnet") — the [\w-]
+    # boundary used elsewhere lets a hyphenated id slip past, so match the
+    # optional "-suffix" run explicitly. Spares the host PRODUCTS "Claude Code"
+    # / "Claude Desktop" and a "~/.claude/" path / "claude_desktop_config"
+    # filename (those are host config, not a model-as-reasoning choice; a host
+    # phrase in a body is the separate HOST_SPECIFIC_BODY_DENYLIST's job).
+    # #161 codex follow-up, PR #270.
+    re.compile(
+        r"(?<![\w/.-])claude(?:-[\w.]+)*(?![\w-])(?!\s+(?:code|desktop)\b)",
+        re.IGNORECASE,
+    ),
     # English-homograph vendors, only in a vendor context (#161 FIX 3): require
     # an adjacent vendor/model cue word so ordinary prose using the verbs
     # "cohere" / "grok" cannot trip the guard.
@@ -247,6 +258,16 @@ def test_provider_model_drift_matcher_flags_and_spares():
     assert _provider_model_drift_hit("switch to opus for the final review")
     # Positive: bare model-family reference must be caught (#161 codex follow-up).
     assert _provider_model_drift_hit("use Claude for the final review")
+    # Positive: a hyphenated Claude model id must be caught (#161 codex P1).
+    assert _provider_model_drift_hit("route to claude-3-opus for hard reviews")
+    assert _provider_model_drift_hit("prefer claude-3-5-sonnet here")
+    # Negative: the host PRODUCTS "Claude Code" / "Claude Desktop" and a
+    # ~/.claude path / claude_desktop_config filename are host config, not a
+    # model-as-reasoning choice — the provider/model guard must spare them.
+    assert _provider_model_drift_hit("install the skill for Claude Code") is None
+    assert _provider_model_drift_hit("see Claude Desktop's mcp config") is None
+    assert _provider_model_drift_hit("symlinks land in ~/.claude/skills/") is None
+    assert _provider_model_drift_hit("writes claude_desktop_config.json") is None
     # Positive: o-series reasoning model.
     assert _provider_model_drift_hit("route hard calls to o3-mini")
     # Negative: host-neutral capability prose must pass.
