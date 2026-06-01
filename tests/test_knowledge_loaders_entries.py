@@ -64,6 +64,43 @@ def test_list_catalogue_entries_unknown_catalogue_raises():
         knowledge_loaders.list_catalogue_entries("not_a_catalogue")
 
 
+# --- grouper headings are not hollow addressable entries -------------------
+#
+# techniques.md groups its leaf techniques under level-2 category headings
+# (## Black-box, ## Mutation, …) that are immediately followed by a deeper
+# (###) heading with no prose body between. Such groupers must NOT be indexed
+# as addressable catalogue entries: they would otherwise resolve to a hollow,
+# blank-summary, near-empty-body entry that is still marked canonical (a
+# citable husk). Only the leaf techniques carry real content.
+
+# Decision table: heading-shape -> indexed-as-entry?
+#   level-2 grouper, next heading is deeper, no prose between -> NO
+#   level-3 leaf with prose body                              -> YES
+
+
+def test_techniques_compact_summaries_are_all_non_empty():
+    # Every techniques compact-entry summary must be real prose — a blank
+    # summary is the tell-tale of a hollow grouper leaking into the index.
+    compact = knowledge_loaders.load_catalogue("techniques", format="compact")
+    blank = [e["id"] for e in compact["entries"] if not e["summary"].strip()]
+    assert blank == [], f"techniques compact entries with empty summaries: {blank}"
+
+
+def test_techniques_category_groupers_are_not_hollow_entries():
+    # The category groupers must either be absent from the entry set, or (if a
+    # caller asks for them by name) resolve to the real technique body — never
+    # to a hollow "## Mutation\n\n" husk marked canonical.
+    grouper_names = ["mutation", "black-box", "white-box-structural", "experience-based"]
+    ids = {e["id"] for e in knowledge_loaders.list_catalogue_entries("techniques")}
+    for name in grouper_names:
+        if name in ids:
+            entry = knowledge_loaders.load_catalogue_entry("techniques", name=name)
+            assert entry.get("summary", "").strip() or entry["text"].strip().count("\n"), (
+                f"grouper {name!r} resolved to a hollow entry: {entry!r}"
+            )
+            assert name not in ids, f"grouper {name!r} should not be an addressable hollow entry"
+
+
 # --- single-entry retrieval (full) -----------------------------------------
 
 
@@ -222,6 +259,21 @@ def test_entry_index_ignores_headings_inside_fenced_code_blocks(tmp_path, monkey
     ids = {e["id"] for e in knowledge_loaders.list_catalogue_entries("classifications")}
     assert ids == {"real_entry", "second_entry"}
     assert "not_a_heading_inside_fence" not in ids
+
+
+def test_leaf_entry_with_no_prose_body_has_empty_summary(tmp_path, monkeypatch):
+    # A genuine leaf entry (no deeper heading follows, so NOT a grouper) whose
+    # body holds only blank lines has no prose line — its summary is the empty
+    # string. Exercises the no-prose-found branch of the summary builder.
+    cat = tmp_path / "approaches.md"
+    cat.write_text(
+        "# Title\n\n## first\nReal prose.\n\n## trailing_blank\n\n\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
+    entries = knowledge_loaders.list_catalogue_entries("approaches")
+    summaries = {e["id"]: e["summary"] for e in entries}
+    assert summaries == {"first": "Real prose.", "trailing_blank": ""}
 
 
 def test_full_loaders_backward_compatible_zero_arg():

@@ -219,12 +219,37 @@ def _first_prose_line(entry_text: str) -> str:
     return ""
 
 
+def _is_grouper(headings: list[tuple[int, int, str]], pos: int, lines: list[str]) -> bool:
+    """True when the heading at *pos* is a category grouper, not a leaf entry.
+
+    A grouper is a heading immediately followed by a *deeper* heading with no
+    prose body in between (e.g. ``## Mutation`` directly above
+    ``### mutation testing`` in techniques.md). Such headings have empty
+    summaries and hollow bodies, so indexing them would produce a citable-but-
+    empty entry; the real content lives under the leaf headings. Flat
+    catalogues (classifications/approaches/principles), whose level-2 headings
+    carry their own prose and are never followed by a deeper heading, are
+    unaffected."""
+    line_idx, level, _ = headings[pos]
+    if pos + 1 >= len(headings):
+        return False
+    next_idx, next_level, _ = headings[pos + 1]
+    if next_level <= level:
+        return False
+    # Deeper heading follows — grouper only if nothing but blank lines sits
+    # between this heading line and that next heading line.
+    between = lines[line_idx + 1 : next_idx]
+    return all(not line.strip() for line in between)
+
+
 def _index_catalogue_entries(text: str) -> list[dict[str, Any]]:
     """Build the entry index for one catalogue body.
 
     One entry per ATX heading at level >= 2 (the level-1 line is the catalogue
-    title, not an entry). Each entry's text runs from its heading line to the
-    next heading at any level. Entry ids are stable slugs of the heading;
+    title, not an entry). Category groupers — a heading immediately followed by
+    a deeper heading with no prose between — are skipped so only leaf headings
+    are addressable. Each entry's text runs from its heading line to the next
+    heading at any level. Entry ids are stable slugs of the heading;
     duplicates get deterministic ``-2``/``-3`` suffixes."""
     entries: list[dict[str, Any]] = []
     seen: dict[str, int] = {}
@@ -232,6 +257,8 @@ def _index_catalogue_entries(text: str) -> list[dict[str, Any]]:
     headings = _iter_entry_headings(text)
     for pos, (line_idx, level, heading_text) in enumerate(headings):
         if level < _ENTRY_MIN_LEVEL:
+            continue
+        if _is_grouper(headings, pos, lines):
             continue
         end_idx = headings[pos + 1][0] if pos + 1 < len(headings) else len(lines)
         entry_text = "".join(lines[line_idx:end_idx])
