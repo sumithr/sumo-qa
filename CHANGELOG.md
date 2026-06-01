@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/sumithr/sumo-qa/compare/v0.23.0...v0.24.0) (2026-06-01)
+
+
+### Features
+
+* add host-neutral issue/PR context bundle for QA workflows ([#271](https://github.com/sumithr/sumo-qa/issues/271)) ([811e7e9](https://github.com/sumithr/sumo-qa/commit/811e7e9611ccdf8be683dfa9803ff6005c40603c))
+
 ## [0.23.0](https://github.com/sumithr/sumo-qa/compare/v0.22.0...v0.23.0) (2026-06-01)
 
 
