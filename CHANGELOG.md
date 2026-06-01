@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/sumithr/sumo-qa/compare/v0.25.0...v0.26.0) (2026-06-01)
+
+
+### Features
+
+* **skills:** add skill-manifest index + partial skill-context loader ([#285](https://github.com/sumithr/sumo-qa/issues/285)) ([#292](https://github.com/sumithr/sumo-qa/issues/292)) ([74d895f](https://github.com/sumithr/sumo-qa/commit/74d895fa5beb4b92d348e7799843204d1ff33896))
+
 ## [0.25.0](https://github.com/sumithr/sumo-qa/compare/v0.24.0...v0.25.0) (2026-06-01)
 
 
