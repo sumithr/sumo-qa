@@ -182,6 +182,9 @@ class DiffImpact(BaseModel):
 
     Compact by design — no full node/edge arrays. ``risk_surface`` lists
     changed ``source_file`` paths with no mapped test (the QA-relevant gap).
+    ``probable_mapping_gap`` distinguishes a wholesale mapping failure (test
+    files present but the map has no ``likely_tests`` edges) from honest zero
+    coverage — the former is a convention the mapper missed, not absent tests.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -193,6 +196,7 @@ class DiffImpact(BaseModel):
     risk_surface: list[str] = Field(default_factory=list)
     suggested_inspections: list[str] = Field(default_factory=list)
     warnings: list[RepoMapWarning] = Field(default_factory=list)
+    probable_mapping_gap: bool = False
 
 
 class RepoMapQueryMatch(BaseModel):

@@ -3,9 +3,20 @@
 
 ``scan_repo(root, *, generator_version) -> RepoMap`` walks a repository,
 classifies files into the first-slice node vocabulary, fingerprints with
-SHA-256, infers minimal ``likely_tests`` edges by name convention, extracts
-top-level commands from ``pyproject.toml`` and ``package.json``, and reports
-skipped or unsupported files via warnings.
+SHA-256, infers ``likely_tests`` edges (language-agnostically — see below),
+extracts top-level commands from ``pyproject.toml`` and ``package.json``, and
+reports skipped or unsupported files via warnings.
+
+``likely_tests`` edges come from two signals so the mapping is not tied to a
+fixed filename-suffix table (#266): a usage/import signal (a test file's
+import statements name a source stem — robust across languages and naming
+conventions; only import-style lines are read, so an incidental mention can't
+fabricate an edge), and a name-convention signal covering snake_case
+(``test_x`` / ``x_test``),
+dotted JS/TS (``x.test`` / ``x.spec``), and CamelCase families
+(``FooTest`` / ``FooTests`` / ``FooSpec`` / ``FooIT`` / ``FooITCase`` —
+Kotlin/Java/Scala/Swift). A pair found by both signals is a single
+corroborated edge.
 
 Determinism contract: on the same repo state, the structural fields
 (nodes / edges / commands / warnings) are byte-stable. File order is
@@ -13,8 +24,10 @@ sorted; edges and commands are sorted by stable keys; only
 ``project.generated_at`` varies between runs (that's the documented
 freshness signal, not a determinism gap).
 
-Slice 2 deliberately stays narrow: only ``likely_tests`` edges are inferred.
-``imports`` and ``configured_by`` edges are deferred until #156 needs them.
+Only ``likely_tests`` edges are inferred here. First-class ``imports`` /
+``configured_by`` edges (a full parsed import graph, e.g. via tree-sitter)
+are deferred to #212; the usage signal below is a lightweight token-reference
+heuristic, not a resolved import graph.
 """
 
 from __future__ import annotations
@@ -22,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -140,6 +154,38 @@ _CI_FILENAMES: Final[frozenset[str]] = frozenset(
     {"Jenkinsfile", ".gitlab-ci.yml", "azure-pipelines.yml"}
 )
 
+# CamelCase test-naming families (Kotlin/Java/Scala/Swift): FooTest, FooTests,
+# FooSpec, FooIT, FooITCase. The non-greedy base captures the source stem.
+# ITCase precedes IT so the longer suffix wins at the same anchor.
+_CAMEL_TEST_RE: Final = re.compile(r"^(?P<base>.+?)(Tests?|Spec|ITCase|IT)$")
+
+# Identifier token: what a usage reference looks like in source text.
+_IDENT_RE: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+# The usage signal only reads identifiers off import-style lines, NOT arbitrary
+# code/comments — an incidental mention of a common-word stem (`order`,
+# `config`) in a comment or local variable must not fabricate a test→source
+# edge that would then clear a genuinely-uncovered source off the risk surface.
+# These patterns target real import/require statements across common languages
+# while avoiding prose collisions (bare `use`/`from`/`using` are constrained by
+# a following `::`, an `import` keyword, or a trailing `;`).
+_IMPORT_LINE_RES: Final = (
+    re.compile(r"^\s*import\b"),  # py / js / ts / java / kotlin / scala / go
+    re.compile(r"^\s*from\s+\S+\s+import\b"),  # py: from X import Y
+    re.compile(r"^\s*#\s*include\b"),  # c / c++
+    re.compile(r"^\s*use\s+\S+::"),  # rust: use a::b
+    re.compile(r"^\s*using\s+[A-Za-z_][\w.]*\s*;"),  # c#: using System.X;
+    re.compile(r"\brequire(?:_relative)?\s*\(?\s*['\"]"),  # node/ruby require('x') / require 'x'
+    re.compile(r"\bimport\s*\(\s*['\"]"),  # js dynamic import('x')
+)
+
+# A source stem must be at least this long to be a reliable usage token —
+# single/double-char stems (a, io) are too common and would over-link.
+_MIN_USAGE_STEM_LEN: Final = 3
+
+# Cap per-test-file content read for the usage signal (bounded, deterministic).
+_MAX_TEST_READ_BYTES: Final = 1_000_000
+
 
 def scan_repo(root: Path | str, *, generator_version: str) -> RepoMap:
     """Walk ``root`` and produce a deterministic :class:`RepoMap`."""
@@ -157,7 +203,7 @@ def scan_repo(root: Path | str, *, generator_version: str) -> RepoMap:
         if node is not None:
             nodes.append(node)
 
-    edges = _infer_likely_tests_edges(nodes)
+    edges = _infer_likely_tests_edges(nodes, root_path)
     commands = _extract_commands(root_path)
     git_commit = _detect_git_commit(root_path)
 
@@ -312,7 +358,72 @@ def _looks_like_test(rel: Path) -> bool:
         return True
     if stem.endswith(".test") or stem.endswith(".spec"):
         return True
+    # CamelCase families (FooTest.kt next to Foo.kt in a flat layout, with no
+    # tests/ dir to key on).
+    if _camelcase_test_base(stem) is not None:
+        return True
     return False
+
+
+def _camelcase_test_base(stem: str) -> str | None:
+    """The source stem a CamelCase test stem targets, or None.
+
+    ``FooTest`` / ``FooTests`` / ``FooSpec`` / ``FooIT`` / ``FooITCase`` ->
+    ``Foo``. Guards against acronym / ordinary-word false positives
+    (``HTTP``, ``Commit``, ``Manifest``) by requiring the base to end in a
+    lowercase letter or digit — a real CamelCase prefix does, a bare acronym
+    suffix does not."""
+    match = _CAMEL_TEST_RE.match(stem)
+    if match is None:
+        return None
+    base = match.group("base")
+    if not base or not (base[-1].islower() or base[-1].isdigit()):
+        return None
+    return base
+
+
+def _normalise_test_stem(test_stem: str) -> str | None:
+    """Map a test file's stem to the source stem it conventionally targets, or
+    None when the stem matches no known convention.
+
+    Covers snake_case (``test_x`` / ``x_test``), dotted JS/TS
+    (``x.test`` / ``x.spec``), and CamelCase families. ``Path.stem`` strips only
+    the last suffix, so a JS ``foo.test.ts`` arrives here as ``foo.test``."""
+    if test_stem.endswith(".test"):
+        return test_stem[: -len(".test")] or None
+    if test_stem.endswith(".spec"):
+        return test_stem[: -len(".spec")] or None
+    if test_stem.startswith("test_"):
+        return test_stem[len("test_") :] or None
+    if test_stem.endswith("_test"):
+        return test_stem[: -len("_test")] or None
+    return _camelcase_test_base(test_stem)
+
+
+def _referenced_source_stems(abs_path: Path, source_stems: frozenset[str]) -> set[str]:
+    """Source stems a test file IMPORTS — the language-agnostic usage signal.
+
+    A test that imports a source symbol (``import com.x.Money``,
+    ``from src.checkout_flow import run``) is exercising it regardless of the
+    test's filename. Identifiers are read ONLY from import-style lines
+    (:data:`_IMPORT_LINE_RES`), never arbitrary code/comments: an incidental
+    mention of a common-word stem (``order``, ``config``) in a comment or local
+    must not fabricate an edge that would clear a genuinely-uncovered source off
+    the risk surface. Only stems of at least ``_MIN_USAGE_STEM_LEN`` chars are
+    considered. Reads at most ``_MAX_TEST_READ_BYTES``; an unreadable file
+    yields no references rather than raising."""
+    candidates = {s for s in source_stems if len(s) >= _MIN_USAGE_STEM_LEN}
+    if not candidates:
+        return set()
+    try:
+        text = abs_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return set()
+    tokens: set[str] = set()
+    for line in text[:_MAX_TEST_READ_BYTES].splitlines():
+        if any(pattern.search(line) for pattern in _IMPORT_LINE_RES):
+            tokens.update(_IDENT_RE.findall(line))
+    return candidates & tokens
 
 
 def _fingerprint(abs_path: Path) -> str | None:
@@ -326,45 +437,66 @@ def _fingerprint(abs_path: Path) -> str | None:
     return "sha256:" + h.hexdigest()
 
 
-def _infer_likely_tests_edges(nodes: list[RepoMapNode]) -> list[RepoMapEdge]:
+def _infer_likely_tests_edges(nodes: list[RepoMapNode], root_path: Path) -> list[RepoMapEdge]:
+    """Infer ``likely_tests`` edges from two language-agnostic signals (#266).
+
+    For each test file: a name-convention signal (snake_case / dotted JS-TS /
+    CamelCase, via :func:`_normalise_test_stem`) and a usage signal (the test's
+    content references a source stem, via :func:`_referenced_source_stems`). A
+    pair found by both collapses to one corroborated edge. Confidence is
+    ``high`` for a unique name match or a name+usage corroboration, ``medium``
+    for an ambiguous-name-only or usage-only match. Output is sorted for
+    determinism."""
     sources_by_stem: dict[str, list[RepoMapNode]] = {}
+    source_by_id: dict[str, RepoMapNode] = {}
     for node in nodes:
         if node.type == "source_file":
             sources_by_stem.setdefault(Path(node.path).stem, []).append(node)
+            source_by_id[node.id] = node
+    source_stems = frozenset(sources_by_stem)
 
-    edges: list[RepoMapEdge] = []
+    # (test_id, source_id) -> edge, so a pair found by both signals is one edge.
+    edges_by_pair: dict[tuple[str, str], RepoMapEdge] = {}
+
     for node in nodes:
         if node.type != "test_file":
             continue
         test_stem = Path(node.path).stem
-        target_stem = test_stem
-        # JS/TS tests are `foo.test.ts` / `foo.spec.ts`; Path.stem strips only
-        # the last suffix, leaving `foo.test` / `foo.spec`. Strip those first
-        # (they're checked before the py-style test_/_test conventions) so the
-        # stem matches the `foo` source. Without this the docs' .test/.spec
-        # claim produced no likely_tests edge.
-        if target_stem.endswith(".test"):
-            target_stem = target_stem.removesuffix(".test")
-        elif target_stem.endswith(".spec"):
-            target_stem = target_stem.removesuffix(".spec")
-        elif target_stem.startswith("test_"):
-            target_stem = target_stem.removeprefix("test_")
-        elif target_stem.endswith("_test"):
-            target_stem = target_stem.removesuffix("_test")
 
-        candidates = sources_by_stem.get(target_stem, [])
-        confidence: EdgeConfidence = "high" if len(candidates) == 1 else "medium"
-        for source in candidates:
-            edges.append(
-                RepoMapEdge(
-                    source=node.id,
-                    target=source.id,
-                    type="likely_tests",
-                    confidence=confidence,
-                    reason=f"name convention: {test_stem} -> {target_stem}",
-                )
+        name_target = _normalise_test_stem(test_stem)
+        name_sources = sources_by_stem.get(name_target, []) if name_target else []
+        name_is_unique = len(name_sources) == 1
+        usage_stems = _referenced_source_stems(root_path / node.path, source_stems)
+
+        # source_id -> set of signals ("name", "usage") that found it.
+        signals: dict[str, set[str]] = {}
+        for source in name_sources:
+            signals.setdefault(source.id, set()).add("name")
+        for stem in usage_stems:
+            for source in sources_by_stem.get(stem, []):
+                signals.setdefault(source.id, set()).add("usage")
+
+        for source_id, sigs in signals.items():
+            has_name = "name" in sigs
+            has_usage = "usage" in sigs
+            confidence: EdgeConfidence
+            if has_name and (name_is_unique or has_usage):
+                confidence = "high"
+            else:
+                confidence = "medium"
+            reasons: list[str] = []
+            if has_name:
+                reasons.append(f"name convention: {test_stem} -> {name_target}")
+            if has_usage:
+                reasons.append(f"usage: references {Path(source_by_id[source_id].path).stem}")
+            edges_by_pair[(node.id, source_id)] = RepoMapEdge(
+                source=node.id,
+                target=source_id,
+                type="likely_tests",
+                confidence=confidence,
+                reason="; ".join(reasons),
             )
-    return sorted(edges, key=lambda e: (e.source, e.target))
+    return sorted(edges_by_pair.values(), key=lambda e: (e.source, e.target))
 
 
 def _extract_commands(root: Path) -> list[RepoMapCommand]:

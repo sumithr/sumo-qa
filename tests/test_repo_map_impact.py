@@ -42,6 +42,7 @@ def test_diff_impact_defaults_are_empty_lists():
     assert d.risk_surface == []
     assert d.suggested_inspections == []
     assert d.warnings == []
+    assert d.probable_mapping_gap is False
 
 
 def _project():
@@ -135,6 +136,59 @@ def test_result_is_deterministic_and_sorted():
     second = analyze_diff_impact(rm, ["src/a.py", "src/b.py"])
     assert first.model_dump() == second.model_dump()
     assert [n.path for n in first.changed_nodes] == ["src/a.py", "src/b.py"]
+
+
+# ---------- Probable mapping gap vs true zero coverage (#266) ----------
+
+
+def test_probable_mapping_gap_when_tests_exist_but_no_edges():
+    # decision table — gap signal = test_files_present (T) AND zero likely_tests
+    # edges (T) AND risk_surface non-empty (T). This is the Kotlin false-positive:
+    # FooTest.kt exists but the (pre-fix) mapper produced no edges, so every
+    # source reads as risk surface. Must be flagged as a probable mapping gap,
+    # not true zero coverage.
+    rm = _map(
+        [_src("src/Foo.kt"), _src("src/Bar.kt"), _test("src/test/FooTest.kt")],
+        [],
+    )
+    out = analyze_diff_impact(rm, ["src/Foo.kt", "src/Bar.kt"])
+    assert out.risk_surface == ["src/Bar.kt", "src/Foo.kt"]
+    assert out.probable_mapping_gap is True
+    assert any(w.kind == "other" and "mapping gap" in w.message.lower() for w in out.warnings)
+
+
+def test_no_mapping_gap_when_some_edges_exist():
+    # Edges exist and tests map; a single uncovered file is real partial
+    # coverage, NOT a wholesale mapping gap.
+    rm = _map(
+        [_src("src/a.py"), _src("src/b.py"), _test("tests/test_a.py")],
+        [_likely("tests/test_a.py", "src/a.py")],
+    )
+    out = analyze_diff_impact(rm, ["src/b.py"])
+    assert out.risk_surface == ["src/b.py"]
+    assert out.probable_mapping_gap is False
+    assert not any("mapping gap" in w.message.lower() for w in out.warnings)
+
+
+def test_mapping_gap_ignores_dangling_likely_edge():
+    # A dangling likely_tests edge (target node absent) is not a usable mapping,
+    # so it must not suppress the probable_mapping_gap signal — the gap check
+    # uses the same both-endpoints-resolvable filter as the rest of the analysis.
+    rm = _map(
+        [_src("src/a.py"), _test("tests/t.py")],
+        [_likely("tests/t.py", "src/gone.py")],  # target node missing
+    )
+    out = analyze_diff_impact(rm, ["src/a.py"])
+    assert out.probable_mapping_gap is True
+
+
+def test_no_mapping_gap_when_no_test_files_present():
+    # No test files anywhere -> honest zero coverage, not a mapping gap.
+    rm = _map([_src("src/a.py")], [])
+    out = analyze_diff_impact(rm, ["src/a.py"])
+    assert out.risk_surface == ["src/a.py"]
+    assert out.probable_mapping_gap is False
+    assert not any("mapping gap" in w.message.lower() for w in out.warnings)
 
 
 def _clean_git_env():
