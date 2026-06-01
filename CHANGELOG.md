@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/sumithr/sumo-qa/compare/v0.21.0...v0.22.0) (2026-06-01)
+
+
+### Features
+
+* **reviewing:** escalate UNPROVEN review risks into discriminating-input tests ([#272](https://github.com/sumithr/sumo-qa/issues/272)) ([ae2febb](https://github.com/sumithr/sumo-qa/commit/ae2febb17bf4ca8d822a1f2b5d250ca0136857fb))
+
 ## [0.21.0](https://github.com/sumithr/sumo-qa/compare/v0.20.3...v0.21.0) (2026-05-31)
 
 
