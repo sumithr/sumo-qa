@@ -46,6 +46,61 @@ SKILL_TOKEN_BUDGETS = {
 }
 
 
+# The global root-SKILL.md ceiling (epic #137). A root body may exceed it ONLY
+# with a deliberately documented exception — recorded as a per-skill entry in
+# SKILL_TOKEN_BUDGETS above whose inline comment justifies the size. Skills at
+# or below the global ceiling need no special justification.
+GLOBAL_ROOT_SKILL_TOKEN_BUDGET = 3000
+
+# Roots permitted above the global ceiling, each with the reason it carries
+# more than the budget. Keep this list short and justified — it is the
+# "deliberate exception is documented" escape hatch, not a place to park drift.
+# (Epic #137 also tracks splitting the heaviest of these into lazy modules; until
+# that lands these stay documented exceptions rather than silent overflows.)
+DOCUMENTED_ROOT_BUDGET_EXCEPTIONS = {
+    "sumo-qa-reviewing-before-merge": "heaviest review surface — adversarial discovery + UNPROVEN escalation + coverage ledger; epic #137 tracks splitting deep behaviour into lazy modules.",
+    "using-sumo-qa": "entry router carries the full global discipline every sub-skill inherits (knowledge authority, output economy, shared host-neutral vocabulary).",
+    "sumo-qa-implementing-with-tdd": "carries the full red→green discipline incl. the expected-value derivation discriminator (#85) with worked examples.",
+    "sumo-qa-deciding-approach": "router + removability gate + catalogue lazy-load contract; net runtime context drops because it no longer pre-loads principles.",
+}
+
+
+def test_documented_exceptions_are_the_only_roots_over_the_global_budget():
+    """Every root SKILL.md is at or below the 3000 global ceiling UNLESS it is
+    a documented exception. A new root that drifts above 3000 without an entry
+    in DOCUMENTED_ROOT_BUDGET_EXCEPTIONS fails here, forcing a deliberate
+    decision (compress, split into a lazy module, or document why)."""
+    over = {}
+    for skill_path in SKILL_PATHS:
+        name = skill_path.parent.name
+        tokens = _approx_tokens(skill_path.read_text(encoding="utf-8"))
+        if tokens > GLOBAL_ROOT_SKILL_TOKEN_BUDGET:
+            over[name] = tokens
+    undocumented = {n: t for n, t in over.items() if n not in DOCUMENTED_ROOT_BUDGET_EXCEPTIONS}
+    assert not undocumented, (
+        f"root SKILL.md over the {GLOBAL_ROOT_SKILL_TOKEN_BUDGET}-token global "
+        f"budget without a documented exception: {undocumented}. Compress it, "
+        f"split deep behaviour into a lazy module, or add a justified entry to "
+        f"DOCUMENTED_ROOT_BUDGET_EXCEPTIONS."
+    )
+
+
+def test_documented_exception_list_has_no_stale_entries():
+    """An exception entry whose skill has since dropped under the global
+    ceiling (e.g. after a module split) is stale and must be removed so the
+    list keeps meaning what it says."""
+    stale = []
+    for name, _reason in DOCUMENTED_ROOT_BUDGET_EXCEPTIONS.items():
+        path = SKILLS_DIR / name / "SKILL.md"
+        if not path.is_file():
+            stale.append(f"{name} (no such skill)")
+            continue
+        tokens = _approx_tokens(path.read_text(encoding="utf-8"))
+        if tokens <= GLOBAL_ROOT_SKILL_TOKEN_BUDGET:
+            stale.append(f"{name} (~{tokens} now under {GLOBAL_ROOT_SKILL_TOKEN_BUDGET})")
+    assert not stale, f"documented root-budget exceptions are stale and should be removed: {stale}"
+
+
 @pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
 def test_skill_md_stays_under_token_budget(skill_path):
     name = skill_path.parent.name
