@@ -92,6 +92,33 @@ edge pointing at any string id.
 
 ## Generating the artifact
 
+From a terminal — the memorable product command:
+
+```console
+$ sumo-qa analyze            # scans the current directory
+$ sumo-qa analyze /path/to/repo
+Analyzed /path/to/repo
+  wrote .sumo-qa/repo-map.json (240 nodes, 20 edges, 9 commands)
+  ...
+  next: sumo-qa status
+```
+
+`sumo-qa analyze [path]` walks the repo and writes the schema-validated
+`.sumo-qa/repo-map.json` artifact, then prints a concise per-type summary and
+the next command. `--json` emits a machine-readable document instead (the
+same per-type counts plus the written `artifact_path`). It calls the same
+`scan_repo` service the MCP layer uses, so the artifact is byte-compatible on
+the same repo state.
+
+`sumo-qa status [path]` reports whether the artifact exists, its schema
+version, whether it is stale relative to `HEAD`, and the next command to run;
+`--json` for automation. A missing or stale artifact points back at
+`sumo-qa analyze`. (Bare `sumo-qa` with no subcommand still launches the MCP
+server — the host launch contract is unchanged. Setup diagnostics stay under
+`sumo-qa-doctor`.)
+
+In Python — the underlying service:
+
 ```python
 from pathlib import Path
 
@@ -300,7 +327,8 @@ regenerate locally before comparison.
 | 2 | `sumo_qa.repo_map_scanner.scan_repo` — deterministic local walker; `likely_tests` edge inference; command extraction from `pyproject.toml` / `package.json` |
 | 3 | `sumo_qa_scan_repo` MCP tool — host-callable wrapper that returns a compact summary and optionally writes the artifact |
 | 4 | `sumo_qa_analyze_diff_impact` — first consumer of the map (diff → related tests + risk surface) |
-| 5 (this PR) | `sumo_qa_query_repo_map` — bounded ranked search over the map; wiring of `sumo-qa-reviewing-before-merge`, `sumo-qa-preparing-for-work`, and `sumo-qa-strategising` to prefer the map when present and fall back to a repo walk when absent |
+| 5 | `sumo_qa_query_repo_map` — bounded ranked search over the map; wiring of `sumo-qa-reviewing-before-merge`, `sumo-qa-preparing-for-work`, and `sumo-qa-strategising` to prefer the map when present and fall back to a repo walk when absent |
+| 6 | `sumo-qa analyze` / `sumo-qa status` CLI commands (#160) — terminal-facing wrappers over the same `scan_repo` / load+validate services, with `--json`; bare `sumo-qa` still launches the MCP server |
 
 `imports`, `configured_by`, and `command_runs` edges are deferred. The
 scanner produces only `likely_tests` — enough for the slice-4 diff-impact

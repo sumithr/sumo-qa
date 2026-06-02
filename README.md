@@ -103,6 +103,17 @@ In any host, ask:
 
 You should get the canonical change-classification names back. If you do, you're wired.
 
+### Run it from the terminal
+
+Beyond the host integration, sumo-qa ships memorable commands for the QA-native repo loop:
+
+```bash
+sumo-qa analyze            # map the current repo into .sumo-qa/repo-map.json
+sumo-qa status             # is the map present, current, and fresh? what next?
+```
+
+`analyze [path]` writes the schema-validated `.sumo-qa/repo-map.json` artifact and prints a concise summary; `status [path]` reports the artifact's presence, schema version, freshness against `HEAD`, and the next command to run. Both take `--json` for automation. (Bare `sumo-qa` launches the MCP server for hosts; `sumo-qa-doctor` runs setup diagnostics.)
+
 ### Update
 
 ```bash

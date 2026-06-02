@@ -1,0 +1,301 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+"""sumo-qa — the product-grade command surface (issue #160, first slice).
+
+Two subcommands wrap the same deterministic #155 services the MCP tools use,
+so a user can run the QA-native repo-understanding loop from a terminal:
+
+- ``sumo-qa analyze [path]`` — walk the repo via
+  :func:`sumo_qa.repo_map_scanner.scan_repo` and write the schema-validated
+  ``.sumo-qa/repo-map.json`` artifact, the same writer ``sumo_qa_scan_repo``
+  drives. Prints a concise per-type summary and the next command.
+- ``sumo-qa status [path]`` — report whether the artifact exists, its schema
+  version, freshness (recorded ``git_commit`` vs current HEAD), and the next
+  recommended command.
+
+Both take ``--json`` for automation; the JSON shape is INTERNAL until
+sumo-qa 1.0 but its keys are kept stable within the 1.x line so scripts can
+rely on them.
+
+``sumo-qa-doctor`` stays the diagnostics command (issue #160 keeps it as-is).
+The MCP ``sumo_qa_scan_repo`` tool is unchanged; this CLI calls the same
+service functions rather than duplicating any of their logic, so the artifact
+the CLI writes and the artifact the MCP tool writes are byte-compatible on the
+same repo state.
+
+The command output never names a specific host or implies a host-specific
+plugin is installed (issue #160 AC: host-neutral).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json as _json
+import sys as _sys
+from pathlib import Path
+from typing import Any
+
+# Shared #155 service layer — the SAME functions the MCP tools call. The CLI
+# adds no parsing/scanning logic of its own; it composes these.
+from sumo_qa.repo_map_scanner import _detect_git_commit, scan_repo
+from sumo_qa.repo_map_validation import RepoMapValidationError, load_repo_map
+from sumo_qa.server import _build_scan_summary, _package_version
+
+# The conventional artifact location under a scanned repo. Mirrors the
+# ``.sumo-qa/repo-map.json`` default the MCP scan / diff-impact tools use.
+REPO_MAP_RELPATH = ".sumo-qa/repo-map.json"
+
+# The product subcommands this CLI owns. Anything else on the ``sumo-qa``
+# binary (notably the no-argument invocation hosts use to launch the stdio
+# MCP server) is delegated to ``sumo_qa.server.main`` so the long-standing
+# "bare ``sumo-qa`` == MCP server" launch contract stays backward-compatible.
+_PRODUCT_SUBCOMMANDS = frozenset({"analyze", "status"})
+
+# Memorable next-step commands surfaced in human + JSON output.
+_NEXT_AFTER_ANALYZE = "sumo-qa status"
+_NEXT_RUN_ANALYZE = "sumo-qa analyze"
+
+
+def _resolve_root(path: str | None) -> Path:
+    """Resolve the target repo path (defaults to the current directory)."""
+    return Path(path).resolve() if path else Path.cwd().resolve()
+
+
+def _emit(payload: dict[str, Any], *, as_json: bool, human: str) -> None:
+    """Write either the JSON document or the human-readable text to stdout."""
+    if as_json:
+        _sys.stdout.write(_json.dumps(payload, indent=2) + "\n")
+    else:
+        _sys.stdout.write(human if human.endswith("\n") else human + "\n")
+
+
+def _cmd_analyze(root: Path, *, as_json: bool) -> int:
+    """Generate ``.sumo-qa/repo-map.json`` via the #155 scanner and report.
+
+    Returns 0 on success, 2 when ``root`` is not a directory (the actionable
+    error case). The summary is built with the SAME ``_build_scan_summary`` the
+    MCP ``sumo_qa_scan_repo`` tool uses, so the reported shape matches.
+    """
+    if not root.is_dir():
+        _sys.stderr.write(
+            f"sumo-qa analyze: {root} is not a directory. "
+            f"Pass an existing repository path (or omit it to use the current directory).\n"
+        )
+        return 2
+
+    repo_map = scan_repo(root, generator_version=_package_version())
+    artifact = root / REPO_MAP_RELPATH
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(
+        _json.dumps(repo_map.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+    summary = _build_scan_summary(
+        repo_map,
+        artifact_path=str(artifact),
+        artifact_bytes=artifact.stat().st_size,
+    )
+
+    payload: dict[str, Any] = {"command": "analyze", **summary.model_dump(mode="json")}
+    payload["next_command"] = _NEXT_AFTER_ANALYZE
+
+    nodes_by_type = ", ".join(f"{k}={v}" for k, v in sorted(summary.nodes_by_type.items()))
+    human = (
+        f"Analyzed {summary.root}\n"
+        f"  wrote {REPO_MAP_RELPATH} ({summary.node_count} nodes, "
+        f"{summary.edge_count} edges, {summary.command_count} commands)\n"
+        f"  {nodes_by_type or 'no classified nodes'}\n"
+        f"  next: {_NEXT_AFTER_ANALYZE}"
+    )
+    _emit(payload, as_json=as_json, human=human)
+    return 0
+
+
+def _status_payload(root: Path) -> dict[str, Any]:
+    """Build the status document for ``root`` (shared by human + JSON paths).
+
+    Reads the artifact through the #155 validator and compares its recorded
+    ``git_commit`` against current HEAD via the scanner's ``_detect_git_commit``
+    — the same staleness signal the MCP tools use.
+    """
+    artifact = root / REPO_MAP_RELPATH
+    base: dict[str, Any] = {
+        "command": "status",
+        "root": str(root),
+        "artifact_path": str(artifact),
+        "artifact_present": False,
+        "schema_version": None,
+        "generator_version": None,
+        "generated_at": None,
+        "git_commit": None,
+        "current_commit": _detect_git_commit(root),
+        "is_stale": False,
+        "validation_error": None,
+        "next_command": f"{_NEXT_RUN_ANALYZE} {root}",
+        "summary": (
+            f"No repo-map artifact at {REPO_MAP_RELPATH}. Run `{_NEXT_RUN_ANALYZE}` to generate it."
+        ),
+    }
+
+    if not artifact.is_file():
+        return base
+
+    base["artifact_present"] = True
+    try:
+        repo_map = load_repo_map(artifact)
+    except RepoMapValidationError as exc:
+        # A present-but-unreadable artifact: report it, point at re-analyze.
+        base["validation_error"] = exc.kind
+        base["summary"] = (
+            f"Found {REPO_MAP_RELPATH} but could not read it ({exc.kind}). "
+            f"Run `{_NEXT_RUN_ANALYZE}` to regenerate it."
+        )
+        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root}"
+        return base
+
+    current = base["current_commit"]
+    recorded = repo_map.project.git_commit
+    is_stale = current is not None and recorded is not None and current != recorded
+
+    base["schema_version"] = repo_map.schema_version
+    base["generator_version"] = repo_map.project.generator_version
+    base["generated_at"] = repo_map.project.generated_at.isoformat()
+    base["git_commit"] = recorded
+    base["is_stale"] = is_stale
+
+    if is_stale:
+        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root}"
+        base["summary"] = (
+            f"Repo-map is STALE: recorded commit {recorded[:8]} differs from "
+            f"current HEAD {current[:8]}. Run `{_NEXT_RUN_ANALYZE}` to refresh it."
+        )
+    else:
+        # Fresh, or freshness unknown (no git on either side) — either way the
+        # artifact is usable; the natural next step is impact analysis, but that
+        # lands in a later slice, so we simply confirm freshness here.
+        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root}"
+        base["summary"] = (
+            f"Repo-map present and fresh (schema {repo_map.schema_version}, "
+            f"generated {base['generated_at']})."
+        )
+    return base
+
+
+def _cmd_status(root: Path, *, as_json: bool) -> int:
+    """Report artifact presence / schema version / freshness / next command."""
+    payload = _status_payload(root)
+
+    if as_json:
+        _emit(payload, as_json=True, human="")
+        return 0
+
+    lines = [f"Status for {payload['root']}", f"  {payload['summary']}"]
+    if payload["artifact_present"] and payload["validation_error"] is None:
+        freshness = "stale" if payload["is_stale"] else "fresh"
+        lines.append(
+            f"  artifact: {REPO_MAP_RELPATH} | schema {payload['schema_version']} | {freshness}"
+        )
+    lines.append(f"  next: {payload['next_command']}")
+    _emit(payload, as_json=False, human="\n".join(lines))
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="sumo-qa",
+        description=(
+            "sumo-qa product commands. Analyze a repository into a QA-native "
+            "repo-map artifact and inspect its freshness. Run `sumo-qa-doctor` "
+            "for install diagnostics."
+        ),
+    )
+    sub = parser.add_subparsers(dest="command", metavar="{analyze,status}")
+
+    p_analyze = sub.add_parser(
+        "analyze",
+        help="Scan a repo and write .sumo-qa/repo-map.json.",
+        description=(
+            "Walk the repository and write the schema-validated "
+            ".sumo-qa/repo-map.json artifact, then print a concise summary."
+        ),
+    )
+    p_analyze.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Repository path to analyze (defaults to the current directory).",
+    )
+    p_analyze.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a JSON document instead of human-readable text.",
+    )
+
+    p_status = sub.add_parser(
+        "status",
+        help="Report repo-map artifact presence, schema version, and freshness.",
+        description=(
+            "Report whether .sumo-qa/repo-map.json exists, its schema version, "
+            "whether it is stale relative to HEAD, and the next command to run."
+        ),
+    )
+    p_status.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Repository path to inspect (defaults to the current directory).",
+    )
+    p_status.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a JSON document instead of human-readable text.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Entry point for the ``sumo-qa`` product CLI.
+
+    Exit codes: 0 on success, 2 on a usage error (no subcommand) or a missing
+    target directory. ``status`` treats a missing artifact as a reportable
+    state (exit 0), not an error — the message points at ``sumo-qa analyze``.
+    """
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command is None:
+        parser.print_help(_sys.stderr)
+        return 2
+
+    root = _resolve_root(args.path)
+    if args.command == "analyze":
+        return _cmd_analyze(root, as_json=args.json)
+    # argparse restricts ``command`` to the registered subparsers, so the only
+    # remaining value here is "status".
+    return _cmd_status(root, as_json=args.json)
+
+
+def console_main() -> None:
+    """Entry point for the ``sumo-qa`` console script.
+
+    Dispatches between the product CLI and the MCP stdio server so a single
+    memorable binary serves both:
+
+    - ``sumo-qa analyze ...`` / ``sumo-qa status ...`` → the product CLI here.
+    - bare ``sumo-qa`` (and any non-product argv) → ``sumo_qa.server.main``,
+      preserving the launch contract every host config and ``sumo-qa-doctor``
+      probe depends on (the MCP server is started by invoking ``sumo-qa`` with
+      no arguments over stdio).
+    """
+    argv = _sys.argv[1:]
+    if argv and argv[0] in _PRODUCT_SUBCOMMANDS:
+        _sys.exit(main(argv))
+    # Bare invocation (or anything that isn't a product subcommand) launches
+    # the MCP server, unchanged. Imported lazily so the product CLI path never
+    # pays for the FastMCP import.
+    from sumo_qa.server import main as _server_main
+
+    _server_main()
+
+
+if __name__ == "__main__":  # pragma: no cover -- main guard for `python -m sumo_qa.cli`
+    _sys.exit(main())
