@@ -138,6 +138,31 @@ class TestBlockGeneratedPathsHook:
         assert spec["permissionDecision"] == "deny", f"expected deny, got {output}"
         assert ".claude/hooks/fixtures/" in spec["permissionDecisionReason"]
 
+    def test_allows_editing_the_hook_source_under_claude_hooks(self) -> None:
+        """The deny must be scoped to `.claude/hooks/fixtures/`, NOT all of
+        `.claude/hooks/`. The hook scripts themselves must stay editable — a
+        too-broad `.claude/hooks/**` pattern would pass the deny test above but
+        wrongly block editing `route-qa-runners.py`. This is the negative
+        control pinning that scoping.
+        """
+        result = _run_subprocess_hook(
+            "block-generated-paths.py",
+            {
+                "tool_name": "Edit",
+                "tool_input": {
+                    "file_path": str(REPO_ROOT / ".claude" / "hooks" / "route-qa-runners.py"),
+                },
+                "cwd": str(REPO_ROOT),
+            },
+        )
+
+        assert result.returncode == 0
+        assert result.stdout.strip() == "", (
+            "hook denied an edit to its own source under .claude/hooks/; the "
+            "deny must be scoped to .claude/hooks/fixtures/, not all of "
+            f".claude/hooks/. Got: {result.stdout!r}"
+        )
+
     def test_allows_non_protected_path_when_cwd_is_subdir(self) -> None:
         """Same equivalence class shape, opposite axis: confirm fix didn't
         introduce a false-positive that denies legitimate source edits.
