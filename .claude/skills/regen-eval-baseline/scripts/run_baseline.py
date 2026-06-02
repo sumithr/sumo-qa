@@ -171,7 +171,27 @@ def parse_snapshot_slug(name: str) -> str | None:
     return m.group("slug")
 
 
-def _legacy_snapshot_matches_slug(name: str, slug: str) -> bool:
+LEGACY_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-skill-(?P<region>[a-z0-9-]+)\.json$")
+
+
+def known_config_slugs(promptfoo_dir: Path) -> frozenset[str]:
+    """The snapshot slugs the wrapper can actually resolve, from the configs dir.
+
+    A snapshot slug is whatever ``config_to_slug`` derives from a resolvable
+    ``skill-*.yaml`` config (base, suffixed scenario, or ``.ab.yaml`` control)
+    — the SAME transform the live capture path applies. This is the set the
+    legacy fallback disambiguates against (see ``_legacy_snapshot_matches_slug``):
+    a legacy filename is only attributed to a slug that the wrapper could have
+    produced, never to an arbitrary prefix peeled off a multi-hyphen name.
+    """
+    if not promptfoo_dir.is_dir():
+        return frozenset()
+    return frozenset(config_to_slug(p) for p in promptfoo_dir.glob("skill-*.yaml"))
+
+
+def _legacy_snapshot_matches_slug(
+    name: str, slug: str, known_slugs: frozenset[str] | None = None
+) -> bool:
     """Does a pre-``__`` (single-hyphen) snapshot name belong to ``slug``?
 
     Before this PR introduced the ``__`` slug/label separator, snapshots were
@@ -181,38 +201,68 @@ def _legacy_snapshot_matches_slug(name: str, slug: str) -> bool:
     would parse to None and be filtered out — the run would report "No prior
     baseline" instead of a before/after delta against it.
 
-    This fallback is slug-DIRECTED on purpose: it never tries to recover the
-    slug from a legacy name in the abstract (that is the ambiguity the ``__``
-    separator was introduced to kill). Given a target ``slug``, we split on the
-    LAST hyphen-group only and accept the name solely when the part after
-    ``skill-`` is exactly ``<slug>-<label>`` with ``<label>`` a SINGLE kebab
-    segment (no internal hyphens): the leading part must equal the target slug
-    EXACTLY. A single-segment label is the bounded-token discipline that keeps
-    the legacy parse safe — peeling more than the final segment would re-open
-    the very multi-hyphen ambiguity the ``__`` separator exists to remove.
+    The legacy ``<slug>-<label>`` form is genuinely ambiguous when the label is
+    itself multi-hyphen (the very ambiguity the ``__`` separator kills going
+    forward, and which legacy labels DID allow — see ``--label`` / SKILL.md).
+    A legacy name ``…-skill-reviewing-before-merge-removability-gate.json`` could
+    be slug ``reviewing-before-merge`` + label ``removability-gate`` OR slug
+    ``reviewing-before-merge-removability`` + label ``gate``. We resolve this by
+    consulting the set of KNOWN config slugs the wrapper can actually produce.
 
-    Why a single-segment label is safe AND sufficient here:
+    With ``known_slugs`` provided, a legacy name is attributed to ``slug`` ONLY
+    when ``slug`` is the SHORTEST known slug whose ``<slug>-`` prefix explains
+    the name's region. If a STRICTLY SHORTER known slug ALSO explains the same
+    region (via a longer, multi-hyphen label), the name is AMBIGUOUS for the
+    longer target and must NOT be matched to it — losing that delta is
+    acceptable; a WRONG prior-baseline match is not. This keeps the fallback
+    best-effort and never wrong-matching:
 
-    - Safe: target ``reviewing-before-merge`` matches legacy
-      ``…-skill-reviewing-before-merge-baseline.json`` (leading part exactly the
-      target, label ``baseline``) but NOT the longer suffixed sibling
-      ``…-skill-reviewing-before-merge-adversarial-baseline.json`` — peeling its
-      final segment ``baseline`` leaves the leading part
-      ``reviewing-before-merge-adversarial``, which is NOT the target. No
-      cross-match.
-    - Sufficient: legacy snapshots were produced by the OLD writer, which
-      defaulted the label to ``baseline`` (and used short single-token labels
-      like ``postcut`` / ``greenfix``); a multi-hyphen legacy label could not be
-      split back unambiguously anyway, which is precisely why this PR moved to
-      ``__``. We only need to recover the unambiguous single-token legacy case.
+    - ``…-skill-reviewing-before-merge-removability-gate.json`` is attributed to
+      ``reviewing-before-merge`` (no shorter known slug explains it), NOT to
+      ``reviewing-before-merge-removability`` (the shorter ``reviewing-before-merge``
+      also explains the region → ambiguous → skip).
+    - The base/suffixed cross-match guard is preserved: target
+      ``reviewing-before-merge`` never matches the longer suffixed sibling
+      ``…-reviewing-before-merge-adversarial-baseline.json`` — its region is not
+      prefixed by ``reviewing-before-merge-`` followed by a label that leaves the
+      target as the explaining slug.
+
+    With ``known_slugs`` omitted (None), this falls back to the round-1
+    behaviour: accept ``<slug>-<label>`` only when ``<label>`` is a SINGLE kebab
+    segment and the leading part equals the target slug EXACTLY. That preserves
+    the unambiguous single-token legacy case for callers that cannot supply the
+    config-slug set.
     """
-    legacy_re = re.compile(
-        rf"^\d{{4}}-\d{{2}}-\d{{2}}-skill-{re.escape(slug)}-(?P<label>[a-z0-9]+)\.json$"
-    )
-    return legacy_re.match(name) is not None
+    if known_slugs is None:
+        legacy_re = re.compile(
+            rf"^\d{{4}}-\d{{2}}-\d{{2}}-skill-{re.escape(slug)}-(?P<label>[a-z0-9]+)\.json$"
+        )
+        return legacy_re.match(name) is not None
+
+    m = LEGACY_NAME_RE.match(name)
+    if m is None:
+        return False
+    region = m.group("region")
+
+    def explains(s: str) -> bool:
+        # ``s`` is a candidate slug; the region must be ``<s>-<label>`` with a
+        # non-empty label (so ``s`` alone, with no trailing label, never counts).
+        return region.startswith(f"{s}-") and len(region) > len(s) + 1
+
+    if not explains(slug):
+        return False
+    # Ambiguous for ``slug`` if any STRICTLY SHORTER known slug also explains the
+    # region (it would own the name via a longer, multi-hyphen label). Only the
+    # shortest known slug explaining the region is attributed the name.
+    return not any(s != slug and len(s) < len(slug) and explains(s) for s in known_slugs)
 
 
-def find_prior_baseline(baselines_dir: Path, slug: str, current: Path) -> Path | None:
+def find_prior_baseline(
+    baselines_dir: Path,
+    slug: str,
+    current: Path,
+    known_slugs: frozenset[str] | None = None,
+) -> Path | None:
     """Most recent prior snapshot for this EXACT slug, by date-prefix order.
 
     Selection matches the slug as a bounded token (parsed out of the
@@ -230,9 +280,14 @@ def find_prior_baseline(baselines_dir: Path, slug: str, current: Path) -> Path |
     Legacy fallback: a pre-``__`` snapshot (single-hyphen
     ``<date>-skill-<slug>-<label>.json``) is also matched, so the first run
     after upgrading still computes a delta against an existing local snapshot
-    instead of reporting "No prior baseline". The legacy match is slug-directed
-    (see ``_legacy_snapshot_matches_slug``) and keeps the same bounded-token
-    discipline — it does NOT cross-match a longer suffixed sibling.
+    instead of reporting "No prior baseline". The legacy ``<slug>-<label>`` form
+    is ambiguous for multi-hyphen labels; ``known_slugs`` (the set of slugs the
+    wrapper can actually resolve — pass ``known_config_slugs(promptfoo_dir)``)
+    disambiguates it so the fallback attributes a legacy name only to the
+    shortest known slug that explains it and NEVER wrong-matches a longer target
+    against a multi-hyphen-labelled name (see ``_legacy_snapshot_matches_slug``).
+    When ``known_slugs`` is omitted the fallback uses the bounded single-token
+    rule.
     """
     if not baselines_dir.is_dir():
         return None
@@ -240,7 +295,10 @@ def find_prior_baseline(baselines_dir: Path, slug: str, current: Path) -> Path |
         p
         for p in baselines_dir.glob("*-skill-*.json")
         if p != current
-        and (parse_snapshot_slug(p.name) == slug or _legacy_snapshot_matches_slug(p.name, slug))
+        and (
+            parse_snapshot_slug(p.name) == slug
+            or _legacy_snapshot_matches_slug(p.name, slug, known_slugs)
+        )
     )
     return candidates[-1] if candidates else None
 
@@ -405,7 +463,12 @@ def main() -> int:
     print(f"  {passed} passed, {failed} failed")
 
     if not args.no_diff:
-        prior = find_prior_baseline(baselines_dir, snapshot_slug, output_path)
+        prior = find_prior_baseline(
+            baselines_dir,
+            snapshot_slug,
+            output_path,
+            known_slugs=known_config_slugs(promptfoo_dir),
+        )
         if prior:
             print("\nDelta vs prior baseline:")
             print_delta(prior, output_path)

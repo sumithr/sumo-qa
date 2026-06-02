@@ -985,6 +985,105 @@ class TestRunBaselineLegacySnapshotFallback:
         ), f"suffixed slug did not recover its own legacy snapshot: {prior}"
 
 
+class TestRunBaselineLegacyFallbackMultiHyphenDisambiguation:
+    """Issue #273 (review P2, round 2): the round-1 legacy fallback peeled the
+    FINAL hyphen segment as the label and accepted any name whose leading part
+    equalled the target slug EXACTLY. That re-opens a cross-match the PR exists
+    to kill: legacy labels CAN be multi-hyphen (``removability-gate`` — see
+    ``--label`` / SKILL.md:23), so a real legacy snapshot of the BASE slug
+    ``reviewing-before-merge`` labelled ``removability-gate`` —
+    ``…-skill-reviewing-before-merge-removability-gate.json`` — is WRONGLY
+    attributed to the longer known slug ``reviewing-before-merge-removability``
+    (peeling the final ``-gate`` segment). A wrong prior-baseline match is worse
+    than a missed delta.
+
+    Fix: disambiguate against the KNOWN config-slug set (the slugs the wrapper
+    can actually resolve). A legacy name is attributed only to the SHORTEST
+    known slug that explains it; if a strictly shorter known slug also explains
+    the region via a multi-hyphen label, the name is ambiguous for the longer
+    target and is skipped.
+
+    Technique: equivalence partitioning over the (target-slug × legacy-name)
+    space, with the discriminating partition being a multi-hyphen legacy label
+    whose region is ALSO explainable by a longer known slug. The round-1
+    single-token-label fallback and the known-slug-disambiguated fallback
+    diverge on exactly this partition.
+    """
+
+    @staticmethod
+    def _seed(tmp_path: Path) -> Path:
+        baselines = tmp_path / "docs" / "qa" / "runs" / "eval-baselines"
+        baselines.mkdir(parents=True)
+        # A real legacy snapshot of the BASE slug `reviewing-before-merge` with a
+        # MULTI-HYPHEN label `removability-gate`. Under the round-1 fallback this
+        # is mis-attributed to the longer known slug `reviewing-before-merge-
+        # removability` (label `gate`).
+        (baselines / "2026-05-30-skill-reviewing-before-merge-removability-gate.json").write_text(
+            json.dumps({"results": {"stats": {"successes": 7, "failures": 2}}})
+        )
+        return baselines
+
+    # The two known config slugs that make the legacy name ambiguous: the base
+    # `reviewing-before-merge` AND the longer `reviewing-before-merge-removability`.
+    _KNOWN = frozenset({"reviewing-before-merge", "reviewing-before-merge-removability"})
+
+    def test_longer_known_slug_does_not_wrong_match_multi_hyphen_legacy(
+        self, tmp_path: Path
+    ) -> None:
+        """Target ``reviewing-before-merge-removability`` must NOT be matched to
+        ``…-skill-reviewing-before-merge-removability-gate.json``: the shorter
+        known slug ``reviewing-before-merge`` also explains the region (label
+        ``removability-gate``), so the name is AMBIGUOUS for the longer target →
+        skip. Skipping (no prior) is acceptable; wrong-matching is not.
+
+        Fails on the round-1 code: its single-token-label fallback peels ``-gate``
+        and accepts the name for ``reviewing-before-merge-removability`` (leading
+        part equals the target exactly) — a WRONG prior-baseline match.
+        """
+        baselines = self._seed(tmp_path)
+        mod = _import_run_baseline()
+        current = baselines / "2026-06-02-skill-reviewing-before-merge-removability__baseline.json"
+
+        prior = mod.find_prior_baseline(
+            baselines,
+            "reviewing-before-merge-removability",
+            current,
+            known_slugs=self._KNOWN,
+        )
+
+        assert prior is None, (
+            "legacy fallback wrong-matched a multi-hyphen-labelled BASE snapshot to "
+            f"the longer known slug: {prior}. With both `reviewing-before-merge` and "
+            "`reviewing-before-merge-removability` known, the name is ambiguous for "
+            "the longer target and must be skipped, not cross-matched."
+        )
+
+    def test_base_known_slug_is_attributed_the_multi_hyphen_legacy_name(
+        self, tmp_path: Path
+    ) -> None:
+        """Target ``reviewing-before-merge`` IS matched to the multi-hyphen
+        legacy name (label ``removability-gate``): it is the shortest known slug
+        explaining the region, so it owns the name and the first post-upgrade run
+        gets its before/after delta."""
+        baselines = self._seed(tmp_path)
+        mod = _import_run_baseline()
+        current = baselines / "2026-06-02-skill-reviewing-before-merge__baseline.json"
+
+        prior = mod.find_prior_baseline(
+            baselines,
+            "reviewing-before-merge",
+            current,
+            known_slugs=self._KNOWN,
+        )
+
+        assert (
+            prior == baselines / "2026-05-30-skill-reviewing-before-merge-removability-gate.json"
+        ), (
+            "base known slug did not recover its own multi-hyphen-labelled legacy "
+            f"snapshot: {prior} — it is the shortest known slug explaining the name."
+        )
+
+
 class TestRunBaselineConfigToSlug:
     """config_to_slug: the .ab double-suffix and ``skill-`` prefix handling
     are distinct logic worth pinning — they are what makes a base config and
