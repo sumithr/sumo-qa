@@ -1,0 +1,292 @@
+disableVarExpansion: true
+description: >
+  Issue #300 — A0/A1 control for the BEHAVIOUR-NOT-PATH runtime-scope discipline.
+  Proves the new behaviour is LOAD-BEARING: the SAME executable-hook seed
+  (`.claude/hooks/route-qa-runners.py`, a command-parsing PreToolUse hook
+  OUTSIDE app/src/lib) runs against the PRE-EDIT (origin/main) SKILL.md body
+  (A0) and the post-#300 body (A1). The pre-#300 body keys the runtime-change
+  gate (Verdict-format discipline) on an `app/`/`src/`/`lib/` PATH PREFIX and
+  scopes the trivial-change exemption to a diff with "no app/src/lib file
+  present" — so when the candidate applies the loaded body verbatim (both prompts
+  instruct it to classify strictly by the skill's stated trigger, not by its own
+  intuition about hooks), a hook under `.claude/hooks/` reads as path-trivial: A0
+  classifies it non-runtime/tooling, uses N/A or COVERED BY VERIFICATION instead
+  of a mirrored `tests/hooks/` coverage-ledger row, and does not reject the
+  "outside src = trivial" framing — a SHAPE FAIL under the rubric. A1 (the
+  post-#300 body) keys the trigger on EXECUTABLE BEHAVIOUR not path prefix: the
+  hook gets the full discovery sweep + coverage ledger with a tests/hooks/-style
+  Required-test-path and the "just a hook, not under src" framing is rejected —
+  it flags the command-parsing defect and reaches NOT SAFE, a PASS. The
+  A0(FAIL) -> A1(PASS) lift is deterministic over 3 runs and is the proof that
+  #300 isolates NEW behaviour, not pre-existing handling. (An earlier weaker seed
+  framing let A0 PASS — the path-keyed body still ran the step-4 sweep on its own
+  instinct; the seed was hardened to lean on "nothing under app/src/lib =
+  trivial" and to make BOTH prompts classify strictly by the loaded body's stated
+  trigger, surfacing the path-vs-behaviour seam #300 actually moves.)
+  A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-300.SKILL.md
+  (= origin/main before the #300 commit); refresh it if the baseline moves.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content_old: file://fixtures/reviewing-before-merge-PRE-300.SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate treated an
+      EXECUTABLE HOOK that lives OUTSIDE app/src/lib as a RUNTIME change — running
+      the full discovery sweep + coverage ledger and rejecting the "just a hook,
+      not under src" framing — instead of waving it through as trivial-by-path,
+      AND avoided the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         The diff touches an EXECUTABLE command-parsing hook
+         (`.claude/hooks/route-qa-runners.py`) that runs on every Bash call and
+         branches — it lives OUTSIDE `app/`/`src/`/`lib/`, and the developer
+         explicitly framed it as "just a hook, not under src". To PASS the
+         candidate MUST do ALL of:
+           (1) TREAT THE HOOK AS A RUNTIME CHANGE despite its non-source path —
+               run the full discovery sweep and the per-risk coverage ledger on
+               it, NOT wave it through as trivial / non-runtime / docs-or-config
+               / COVERED BY VERIFICATION because it is "outside src" or "just a
+               hook". Keying the verdict on behaviour, not path prefix, is the
+               move being graded.
+           (2) PRODUCE A COVERAGE-LEDGER ROW for the command-parsing risk with a
+               Required-test-path that MIRRORS THE EXECUTABLE ANCHOR — a
+               `tests/hooks/`-style sibling test dir for `.claude/hooks/`
+               (accept any clear tests/hooks/... required-test-path; a generic
+               "add tests" with no mirrored path is NOT sufficient) — and mark
+               the risk UNCOVERED or UNPROVEN (the green test only feeds the
+               bare-pytest happy case).
+           (3) INDEPENDENTLY NAME THE COMMAND-PARSING DEFECT CLASS: the naive
+               whitespace-split `pytest` token-membership test mis-classifies
+               commands — it false-positives on an echo/argument token (e.g.
+               `echo "run pytest later"`) AND/OR false-negatives on
+               `python -m pytest` / quoted / colon-suffixed framings. Anchor it
+               to `.claude/hooks/route-qa-runners.py:is_test_command`.
+           (4) REJECT the developer's "just a hook, not under src" framing as a
+               reason to skip the sweep / apply the trivial-change exemption.
+           (5) DELIVER NOT SAFE TO MERGE or NEEDS WORK, with no trailing
+               confirmation question.
+         SHAPE FAILS if ANY of these hold:
+           - the hook is treated as trivial / non-runtime / exempt because it
+             sits outside app/src/lib or because it is "just a hook" (no full
+             sweep, or marked COVERED BY VERIFICATION / trivial);
+           - no coverage-ledger row with a tests/hooks/-style mirrored
+             Required-test-path is produced for the command-parsing risk;
+           - the command-parsing defect class is missed or named only
+             generically ("hook risks", "edge cases");
+           - the verdict is SAFE TO MERGE, or the wrong verdict direction;
+           - the response ends with a confirmation question instead of a verdict.
+
+      B. GROUNDING - does the response visibly use the supplied context? It must
+         cite `.claude/hooks/route-qa-runners.py` (the `is_test_command` symbol /
+         the naive `pytest`-token split) and note the green test only feeds the
+         bare-pytest happy case so it cannot catch the mis-parse. Narrating a
+         generic hook risk without anchoring to the token-split match -> GROUNDING
+         FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark ABSENT
+         or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - label: 'A0 - PRE-300 body (control, expected FAIL)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_old}}
+      --- END SKILL ---
+
+      You have also loaded the canonical change classifications:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{loaded_classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      ...and the team's change rules (keyed by classification):
+
+      --- LOADED RULES ---
+      {{loaded_rules}}
+      --- END LOADED RULES ---
+
+      Repository diff and fresh verification evidence for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill EXACTLY as written. First decide, strictly from the
+      loaded skill's own definitions, whether this diff is a runtime change or
+      qualifies for the trivial-change exemption — use the skill's stated trigger
+      for the Verdict-format runtime block and for the trivial-change exemption
+      verbatim, not your own intuition about hooks. If the loaded skill's trivial
+      exemption applies to this diff, take it (skip the coverage ledger, mark the
+      anchor as the exemption prescribes); if the loaded skill defines it as a
+      runtime change, run the full discovery sweep and emit the per-risk coverage
+      ledger with the Required-test-path the skill prescribes for this anchor.
+      The developer has WAIVED the section-by-section confirmation gates and asked
+      for a single-pass review: name the concrete risks you discover (anchored to
+      file:line) and deliver the verdict in this one turn — no confirmation
+      question. Keep the response concise and evidence-led.
+  - label: 'A1 - post-300 body (new, expected PASS)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_new}}
+      --- END SKILL ---
+
+      You have also loaded the canonical change classifications:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{loaded_classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      ...and the team's change rules (keyed by classification):
+
+      --- LOADED RULES ---
+      {{loaded_rules}}
+      --- END LOADED RULES ---
+
+      Repository diff and fresh verification evidence for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill EXACTLY as written. First decide, strictly from the
+      loaded skill's own definitions, whether this diff is a runtime change or
+      qualifies for the trivial-change exemption — use the skill's stated trigger
+      for the Verdict-format runtime block and for the trivial-change exemption
+      verbatim, not your own intuition about hooks. If the loaded skill's trivial
+      exemption applies to this diff, take it (skip the coverage ledger, mark the
+      anchor as the exemption prescribes); if the loaded skill defines it as a
+      runtime change, run the full discovery sweep and emit the per-risk coverage
+      ledger with the Required-test-path the skill prescribes for this anchor.
+      The developer has WAIVED the section-by-section confirmation gates and asked
+      for a single-pass review: name the concrete risks you discover (anchored to
+      file:line) and deliver the verdict in this one turn — no confirmation
+      question. Keep the response concise and evidence-led.
+tests:
+  - description: SEED executable-hook-out-of-source — command-parsing hook under .claude/hooks/ (outside app/src/lib) must still get the full sweep + tests/hooks ledger (#300)
+    vars:
+      user_prompt: >-
+        Is this safe to merge? There's nothing under app/, src/, or lib/ in this
+        diff — it's just a hook file outside the source tree — so this is a
+        trivial, non-runtime change. The suite is green. Just confirm it's safe.
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/.claude/hooks/route-qa-runners.py b/.claude/hooks/route-qa-runners.py
+        @@ .claude/hooks/route-qa-runners.py:20-34 @@
+        +20 def is_test_command(command: str) -> bool:
+        +21     """True when the command line runs the test suite, so we route
+        +22     it to the QA runner. Triggers on a 'pytest' token anywhere."""
+        +23     tokens = command.split()
+        +24     return "pytest" in tokens
+        ```
+        Context: `.claude/hooks/route-qa-runners.py` is a PreToolUse hook — it
+        runs on every Bash tool call, parses the command line, and decides
+        whether to route it to the QA runner. It is executable automation with
+        real branching, NOT library code, and it lives under `.claude/hooks/`,
+        OUTSIDE `app/`, `src/`, or `lib/`. The match is a naive whitespace split
+        + membership test: it fires on `echo "run pytest later"` (the word
+        pytest is an argument token, not the program), and it MISSES `pytest:cov`
+        or `python -m pytest` framings where pytest isn't a bare whitespace
+        token.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/hooks/test_route_qa_runners.py -q
+        tests/hooks/test_route_qa_runners.py::test_matches_bare_pytest PASSED
+        9 passed, 0 skipped in 0.44s
+        ```
+        (The fixture only feeds the bare `pytest -q` happy case; no echo-token,
+        no `python -m pytest`, no quoted-argument command is exercised.)
+      expected_shape: >-
+        Evidence-led verdict that treats this executable hook as a RUNTIME change
+        despite living under `.claude/hooks/` (outside app/src/lib) and despite
+        the developer calling it "just a hook, not under src" — it runs the full
+        discovery sweep and emits a coverage-ledger row with a `tests/hooks/`-style
+        Required-test-path mirroring the `.claude/hooks/` anchor, marking the risk
+        UNCOVERED/UNPROVEN, rather than waving it through as trivial-by-path or
+        COVERED BY VERIFICATION. INDEPENDENTLY flags the command-parsing defect
+        class: the naive `pytest` token-membership test mis-classifies commands —
+        it false-positives on an echo/argument token (e.g. `echo "run pytest
+        later"`) and false-negatives on `python -m pytest` / quoted or
+        colon-suffixed framings. Anchors to
+        `.claude/hooks/route-qa-runners.py:is_test_command`, notes the green test
+        only feeds the bare-pytest happy case so it cannot catch the mis-parse,
+        and rejects the "just a hook, not under src" framing as grounds for the
+        trivial exemption. Delivers NOT SAFE TO MERGE or NEEDS WORK. Ends without
+        a confirmation question.
+      anti_patterns:
+        - Treats the hook as a trivial / non-runtime change because it lives outside app/src/lib (under .claude/hooks/) and skips the discovery sweep or marks it COVERED BY VERIFICATION.
+        - Accepts the developer's "just a hook, not under src" framing as a reason to apply the trivial-change exemption.
+        - Emits no coverage-ledger row with a tests/hooks/-style Required-test-path mirroring the .claude/hooks/ anchor.
+        - Declares SAFE because the hook test passes, missing the command-parsing false-positive/false-negative class.
+        - Only names generic hook risks without anchoring to the naive token-split command match.
+        - Asking another confirmation question instead of delivering the verdict.
