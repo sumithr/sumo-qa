@@ -106,6 +106,63 @@ class TestBlockGeneratedPathsHook:
         )
         assert "tests/fixtures/" in spec["permissionDecisionReason"]
 
+    def test_denies_claude_hooks_fixtures_path(self) -> None:
+        """`.claude/hooks/fixtures/` holds byte-for-byte mutmut/promptfoo
+        captures that the route-qa-runners matcher tests depend on (same kind of
+        artefact as tests/fixtures/, and excluded from the eof/whitespace
+        pre-commit hooks for the same reason). A hand-edit via Edit/MultiEdit
+        would silently diverge them from real tool output and mask matcher bugs,
+        so the PreToolUse denylist must block them too.
+        """
+        result = _run_subprocess_hook(
+            "block-generated-paths.py",
+            {
+                "tool_name": "Edit",
+                "tool_input": {
+                    "file_path": str(
+                        REPO_ROOT / ".claude" / "hooks" / "fixtures" / "mutmut_clean.stdout.txt"
+                    ),
+                },
+                "cwd": str(REPO_ROOT),
+            },
+        )
+
+        assert result.returncode == 0, f"hook crashed: stderr={result.stderr!r}"
+        assert result.stdout.strip(), (
+            "hook produced empty stdout (silent allow) for a "
+            ".claude/hooks/fixtures/ capture. These real captures must be "
+            "deny-protected like tests/fixtures/."
+        )
+        output = json.loads(result.stdout)
+        spec = output["hookSpecificOutput"]
+        assert spec["permissionDecision"] == "deny", f"expected deny, got {output}"
+        assert ".claude/hooks/fixtures/" in spec["permissionDecisionReason"]
+
+    def test_allows_editing_the_hook_source_under_claude_hooks(self) -> None:
+        """The deny must be scoped to `.claude/hooks/fixtures/`, NOT all of
+        `.claude/hooks/`. The hook scripts themselves must stay editable — a
+        too-broad `.claude/hooks/**` pattern would pass the deny test above but
+        wrongly block editing `route-qa-runners.py`. This is the negative
+        control pinning that scoping.
+        """
+        result = _run_subprocess_hook(
+            "block-generated-paths.py",
+            {
+                "tool_name": "Edit",
+                "tool_input": {
+                    "file_path": str(REPO_ROOT / ".claude" / "hooks" / "route-qa-runners.py"),
+                },
+                "cwd": str(REPO_ROOT),
+            },
+        )
+
+        assert result.returncode == 0
+        assert result.stdout.strip() == "", (
+            "hook denied an edit to its own source under .claude/hooks/; the "
+            "deny must be scoped to .claude/hooks/fixtures/, not all of "
+            f".claude/hooks/. Got: {result.stdout!r}"
+        )
+
     def test_allows_non_protected_path_when_cwd_is_subdir(self) -> None:
         """Same equivalence class shape, opposite axis: confirm fix didn't
         introduce a false-positive that denies legitimate source edits.

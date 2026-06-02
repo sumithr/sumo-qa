@@ -1,0 +1,11 @@
+⠋ Generating mutants⠙ Generating mutants⠹ Generating mutants⠸ Generating mutants⠼ Generating mutants⠴ Generating mutants⠦ Generating mutants⠧ Generating mutants⠇ Generating mutants⠏ Generating mutants⠋ Generating mutants⠙ Generating mutants⠹ Generating mutants⠸ Generating mutants⠼ Generating mutants⠴ Generating mutants⠦ Generating mutants⠧ Generating mutants⠇ Generating mutants⠏ Generating mutants⠋ Generating mutants⠙ Generating mutants⠹ Generating mutants⠸ Generating mutants⠼ Generating mutants⠴ Generating mutants⠦ Generating mutants⠧ Generating mutants⠇ Generating mutants⠏ Generating mutants⠋ Generating mutants
+    done in 59ms (1 files mutated, 0 ignored, 0 unmodified)
+⠏ Running stats     ⠋ Running stats⠙ Running stats⠹ Running stats⠸ Running stats⠼ Running stats
+    done
+⠴ Running clean tests⠦ Running clean tests⠧ Running clean tests⠇ Running clean tests⠏ Running clean tests⠋ Running clean tests
+    done
+⠙ Running forced fail test⠹ Running forced fail test⠸ Running forced fail test⠼ Running forced fail test⠴ Running forced fail test⠦ Running forced fail test⠧ Running forced fail test⠇ Running forced fail test⠏ Running forced fail test⠋ Running forced fail test⠙ Running forced fail test⠹ Running forced fail test⠸ Running forced fail test⠼ Running forced fail test⠴ Running forced fail test⠦ Running forced fail test
+    done
+Running mutation testing
+⠧ 0/6  🎉 0 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0⠇ 0/6  🎉 0 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0⠏ 0/6  🎉 0 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0⠋ 0/6  🎉 0 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0⠙ 0/6  🎉 0 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0⠹ 0/6  🎉 0 🫥 0  ⏰ 0  🤔 0  🙁 0  🔇 0  🧙 0⠸ 6/6  🎉 2 🫥 0  ⏰ 0  🤔 0  🙁 4  🔇 0  🧙 0
+76.43 mutations/second

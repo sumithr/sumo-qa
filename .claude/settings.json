@@ -21,6 +21,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-on-content-edit.py"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/route-qa-runners.py"
+          }
+        ]
       }
     ]
   }
