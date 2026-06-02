@@ -14,7 +14,7 @@ On Windows PowerShell, use (`&&` isn't a valid separator in Windows PowerShell, 
 py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 ```
 
-`pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator that wires it into your host). It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` / `.vscode/mcp.json`, or prints JetBrains UI steps depending on the flag. If `sumo-qa-install` isn't on your PATH (e.g. `pip install --user`, or Microsoft-Store Python on Windows), the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer` — the same configurator run through the interpreter directly.
+`pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server when run with no arguments; also the home of the product commands `sumo-qa analyze` / `sumo-qa status`) and `sumo-qa-install` (the configurator that wires it into your host). It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` / `.vscode/mcp.json`, or prints JetBrains UI steps depending on the flag. If `sumo-qa-install` isn't on your PATH (e.g. `pip install --user`, or Microsoft-Store Python on Windows), the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer` — the same configurator run through the interpreter directly.
 
 Restart your host (or open a fresh chat) once it's done.
 

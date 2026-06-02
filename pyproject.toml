@@ -104,7 +104,7 @@ Repository = "https://github.com/sumithr/sumo-qa"
 Issues = "https://github.com/sumithr/sumo-qa/issues"
 
 [project.scripts]
-sumo-qa = "sumo_qa.server:main"
+sumo-qa = "sumo_qa.cli:console_main"
 sumo-qa-install = "sumo_qa.installer:main"
 sumo-qa-doctor = "sumo_qa.doctor:main"
 sumo-qa-validate = "sumo_qa.validate_content:main"
