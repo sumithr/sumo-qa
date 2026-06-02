@@ -2420,6 +2420,18 @@
     "sumo_qa_load_skill_context": {
       "inputSchema": {
         "properties": {
+          "known_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Known Hash"
+          },
           "mode": {
             "anyOf": [
               {

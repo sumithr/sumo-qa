@@ -21,7 +21,7 @@ A read-only, deterministic, local-only pair of tools that lets a host fetch just
 | Tool | What it returns |
 |---|---|
 | `sumo_qa_list_skill_manifests()` | A JSON string of compact metadata for every bundled skill: `skill_name`, `tool_name`, `description`, `content_hash` (sha256), `estimated_tokens_full`, `sections[]` (id, heading, level, estimated_tokens, required) and `modules[]` (id, path, estimated_tokens). Section ids are stable heading slugs (duplicates get `-2`/`-3` suffixes); `required` flags the structural sections (frontmatter, Iron Law, Checklist, Flow, Red Flags, HARD-GATE) when present. |
-| `sumo_qa_load_skill_context(skill_name, mode, section=None, module=None)` | A JSON string for one slice. `mode` is `manifest` (routing summary + section/module lists), `section` (one section's text), `module` (one module's text), or `full` (the whole body, identical to the skill tool). Invalid skill/mode/section/module, a missing required arg, or a path-traversal attempt returns a JSON error envelope listing the valid choices — it never raises. |
+| `sumo_qa_load_skill_context(skill_name, mode, section=None, module=None, known_hash=None)` | A JSON string for one slice. `mode` is `manifest` (routing summary + section/module lists), `section` (one section's text), `module` (one module's text), or `full` (the whole body, identical to the skill tool). The `section`/`module`/`full` slices each carry `content_hash` (sha256 of the returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this slice changed since hash X?": a match returns `changed: false` with the body omitted (saving the re-send), a mismatch returns `changed: true` with the body. Invalid skill/mode/section/module, a missing required arg, or a path-traversal attempt returns a JSON error envelope listing the valid choices — it never raises. |
 
 ### Which path to use — canonical vs compact
 
@@ -62,6 +62,10 @@ The same skill index is also exposed as MCP resources/resource-templates, for ho
 | JetBrains | Resource support tracks the IDE's MCP client; tools remain the reliable path. |
 
 Because support varies and is user-selection-driven, treat resources as additive and keep using the tools as the primary interface.
+
+### Change detection without a session cache
+
+The `known_hash` affordance is **derived per call** — the loader re-reads the live slice, re-hashes it, and compares to the caller-supplied hash. There is no hidden session cache: nothing is retained between calls, so the answer is identical regardless of whether the host preserves MCP session identity. A true server-side session cache was deliberately **not** implemented, because MCP session identity is not reliable across the supported hosts (some clients reconnect per request or do not expose a stable session id), and a cache keyed on an unstable identity would either leak across sessions or silently miss — both worse than re-hashing a small local slice. Content hashes give callers a cheap, safe way to skip re-sending unchanged text while keeping every load deterministic and stateless.
 
 ## Knowledge loaders
 
