@@ -2261,7 +2261,13 @@
     },
     "sumo_qa_list_skill_manifests": {
       "inputSchema": {
-        "properties": {},
+        "properties": {
+          "detail": {
+            "default": "compact",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
         "title": "sumo_qa_list_skill_manifestsArguments",
         "type": "object"
       },

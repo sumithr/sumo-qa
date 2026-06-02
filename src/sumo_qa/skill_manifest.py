@@ -231,26 +231,46 @@ def _skill_records() -> dict[str, dict[str, Any]]:
     return records
 
 
-def list_skill_manifests() -> dict[str, Any]:
-    """Compact metadata for every bundled skill.
+_LIST_DETAIL_LEVELS = ("compact", "full_index")
 
-    Returns ``{"skills": [manifest, …]}`` where each manifest carries
-    skill_name, tool_name, description, content_hash, estimated_tokens_full,
-    and the section/module indexes (public fields only — no section/module
-    body text)."""
+
+def list_skill_manifests(detail: str = "compact") -> dict[str, Any]:
+    """Metadata for every bundled skill, at one of two detail levels.
+
+    ``detail`` (default ``"compact"``):
+      * ``"compact"`` — per-skill routing metadata only: skill_name, tool_name,
+        description, content_hash, estimated_tokens_full. NO ``sections``/
+        ``modules`` keys. This is the cheap all-skill routing projection — a
+        host fetches one skill's section/module index via
+        ``load_skill_context(skill_name, mode="manifest")`` once it has chosen.
+      * ``"full_index"`` — the same metadata PLUS each skill's ``sections[]``
+        and ``modules[]`` index arrays (public fields only — no section/module
+        body text). The pre-#306 shape, retained as an explicit opt-in.
+
+    Returns ``{"skills": [manifest, …]}``. An unrecognised ``detail`` returns an
+    error envelope (``{"error": …, "available_detail": […]}``) rather than
+    raising — matching ``load_skill_context``'s host-friendly style, so a host
+    that passes a bad value gets the valid choices back instead of a transport
+    error. ``detail`` is matched exactly: a value that merely contains a valid
+    name (``"compact_index"``) is rejected."""
+    if detail not in _LIST_DETAIL_LEVELS:
+        return _error(
+            f"Unknown detail {detail!r}.",
+            {"available_detail": list(_LIST_DETAIL_LEVELS)},
+        )
     skills = []
     for record in _skill_records().values():
-        skills.append(
-            {
-                "skill_name": record["skill_name"],
-                "tool_name": record["tool_name"],
-                "description": record["description"],
-                "content_hash": record["content_hash"],
-                "estimated_tokens_full": record["estimated_tokens_full"],
-                "sections": [_public_section(s) for s in record["sections"]],
-                "modules": [_public_module(m) for m in record["modules"]],
-            }
-        )
+        entry = {
+            "skill_name": record["skill_name"],
+            "tool_name": record["tool_name"],
+            "description": record["description"],
+            "content_hash": record["content_hash"],
+            "estimated_tokens_full": record["estimated_tokens_full"],
+        }
+        if detail == "full_index":
+            entry["sections"] = [_public_section(s) for s in record["sections"]]
+            entry["modules"] = [_public_module(m) for m in record["modules"]]
+        skills.append(entry)
     return {"skills": skills}
 
 

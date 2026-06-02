@@ -75,7 +75,8 @@ def _read(mcp, uri: str) -> str:
 
 
 def _a_skill_with_sections() -> str:
-    skills = sm.list_skill_manifests()["skills"]
+    # The compact default carries no sections[]; ask for the full index here.
+    skills = sm.list_skill_manifests(detail="full_index")["skills"]
     for s in skills:
         if s["sections"]:
             return s["skill_name"]
@@ -103,6 +104,17 @@ def test_static_index_resource_is_registered(mcp):
 def test_static_index_matches_list_skill_manifests(mcp):
     body = _read(mcp, "sumoqa://skills")
     assert json.loads(body) == sm.list_skill_manifests()
+
+
+def test_static_index_mirrors_the_compact_default(mcp):
+    # #306: sumoqa://skills mirrors the compact default — metadata only, no
+    # sections[]/modules[] — not the full index.
+    payload = json.loads(_read(mcp, "sumoqa://skills"))
+    assert payload == sm.list_skill_manifests(detail="compact")
+    assert payload["skills"], "expected at least one bundled skill"
+    for entry in payload["skills"]:
+        assert "sections" not in entry
+        assert "modules" not in entry
 
 
 # --------------------------------------------------------------------------

@@ -1203,23 +1203,32 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         )
 
     @mcp.tool(annotations=_read_only_local)
-    def sumo_qa_list_skill_manifests() -> str:
-        """Return compact, deterministic metadata for every bundled sumo-qa skill
-        as a JSON string — a routing/index aid, NOT the skill bodies.
+    def sumo_qa_list_skill_manifests(detail: str = "compact") -> str:
+        """Return deterministic metadata for every bundled sumo-qa skill as a
+        JSON string — a routing/index aid, NOT the skill bodies.
 
-        Each entry carries: skill_name, tool_name (the zero-argument skill tool),
-        description (from frontmatter), content_hash (sha256 of the SKILL.md),
-        estimated_tokens_full, sections[] (id, heading, level, estimated_tokens,
-        required) and modules[] (id, path, estimated_tokens). Section ids are
-        stable heading slugs (duplicates get `-2`/`-3` suffixes); required marks
-        the structural sections (frontmatter, Iron Law, Checklist, Flow, Red
-        Flags, HARD-GATE) when present.
+        `detail` controls how much per-skill index is included (default
+        "compact"):
+          - "compact" — routing metadata only: skill_name, tool_name (the
+            zero-argument skill tool), description (from frontmatter),
+            content_hash (sha256 of the SKILL.md) and estimated_tokens_full. NO
+            sections[]/modules[] arrays — the cheap all-skill routing slice.
+          - "full_index" — the same metadata PLUS each skill's sections[] (id,
+            heading, level, estimated_tokens, required) and modules[] (id, path,
+            estimated_tokens) index arrays. Section ids are stable heading slugs
+            (duplicates get `-2`/`-3` suffixes); required marks the structural
+            sections (frontmatter, Iron Law, Checklist, Flow, Red Flags,
+            HARD-GATE) when present.
 
-        Read-only and local-only: no network, no extraction, no caching. Use it
-        to decide which slice of a skill to fetch via
-        `sumo_qa_load_skill_context`; the existing zero-argument skill tools
-        still return full bodies unchanged."""
-        return json.dumps(_list_skill_manifests(), ensure_ascii=False, indent=2)
+        Once routing has chosen one skill, fetch that skill's section/module
+        index with `sumo_qa_load_skill_context(skill_name, mode="manifest")`,
+        then a single slice via mode="section"/"module"/"full".
+
+        An unrecognised `detail` returns a JSON error envelope listing the valid
+        values rather than raising. Read-only and local-only: no network, no
+        extraction, no caching. The existing zero-argument skill tools still
+        return full bodies unchanged."""
+        return json.dumps(_list_skill_manifests(detail), ensure_ascii=False, indent=2)
 
     @mcp.tool(annotations=_read_only_local)
     def sumo_qa_load_skill_context(
