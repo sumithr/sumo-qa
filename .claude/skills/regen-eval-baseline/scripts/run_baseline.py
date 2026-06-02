@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Capture a promptfoo eval baseline for one sumo-qa skill.
+"""Capture a promptfoo eval baseline for one sumo-qa skill config.
 
-Runs `npx promptfoo eval` against the named skill's YAML, writes the JSON
-output to docs/qa/runs/eval-baselines/<date>-skill-<name>-<label>.json,
-and prints a pass/fail summary. If a prior baseline exists for the same
-skill, also prints a brief delta.
+Runs `npx promptfoo eval` against the selected config — a base skill YAML
+(`--skill <name>`) or an exact suffixed / `.ab.yaml` config (`--config
+<selector>`) — writes the JSON output to
+docs/qa/runs/eval-baselines/<date>-skill-<slug>-<label>.json, and prints a
+pass/fail summary. If a prior baseline exists for the same config, also
+prints a brief delta.
 
 The baseline directory is gitignored — these snapshots are local evidence
 of past runs, not artefact that ships with the repo.
@@ -50,6 +52,58 @@ def find_repo_root(start: Path) -> Path:
     return start
 
 
+def resolve_config_path(promptfoo_dir: Path, *, skill: str | None, config: str | None) -> Path:
+    """Resolve the exact promptfoo config to drive, EXACTLY as named.
+
+    The repo carries three config shapes side by side: a base
+    ``skill-<name>.yaml``, suffixed scenario variants such as
+    ``skill-reviewing-before-merge-adversarial.yaml``, and ``.ab.yaml`` A/B
+    controls. Because the base name is a *prefix* of every suffixed sibling,
+    a glob/prefix match would cross-match a base skill against a longer
+    variant. This resolver is exact on purpose: it composes one concrete
+    filename and requires that exact file to exist — it never scans for a
+    near-named neighbour.
+
+    Exactly one of ``skill`` / ``config`` must be given:
+
+    - ``skill="reviewing-before-merge"`` → ``skill-reviewing-before-merge.yaml``
+      (the base config only; never a suffixed sibling).
+    - ``config`` may be an exact path (``/abs/skill-x.ab.yaml`` or a relative
+      one), a filename (``skill-x-adversarial.yaml``), or a bare stem
+      (``skill-x-adversarial`` / ``skill-x.ab``) resolved inside the
+      promptfoo dir. Double suffixes such as ``.ab.yaml`` are preserved.
+
+    Raises ``FileNotFoundError`` if the composed path does not exist — it does
+    NOT fall back to a similarly-named sibling.
+    """
+    if (skill is None) == (config is None):
+        raise ValueError("Provide exactly one of skill / config.")
+
+    if skill is not None:
+        candidate = promptfoo_dir / f"skill-{skill}.yaml"
+    else:
+        assert config is not None
+        raw = Path(config)
+        if raw.suffix == ".yaml" and (raw.is_absolute() or len(raw.parts) > 1):
+            # An explicit path (absolute, or carrying a directory component).
+            candidate = raw
+        elif config.endswith(".yaml"):
+            # A bare filename (possibly double-suffixed, e.g. *.ab.yaml).
+            candidate = promptfoo_dir / config
+        else:
+            # A bare stem — append the single .yaml extension. ``.ab`` etc.
+            # stay part of the stem so the double suffix is preserved.
+            candidate = promptfoo_dir / f"{config}.yaml"
+
+    if not candidate.is_file():
+        raise FileNotFoundError(
+            f"No promptfoo config at {candidate}. The selector resolves an exact "
+            "file and does not fall back to a near-named sibling — check the "
+            "config name (base skill vs suffixed variant vs .ab.yaml control)."
+        )
+    return candidate
+
+
 def load_summary(path: Path) -> tuple[int, int]:
     """Return (passed, failed) counts from a promptfoo output JSON."""
     if not path.is_file():
@@ -60,11 +114,27 @@ def load_summary(path: Path) -> tuple[int, int]:
     return (int(stats.get("successes", 0)), int(stats.get("failures", 0)))
 
 
-def find_prior_baseline(baselines_dir: Path, skill: str, current: Path) -> Path | None:
-    """Most recent prior snapshot for this skill, sorted lexicographically (date prefix)."""
+def config_to_slug(config_path: Path) -> str:
+    """Turn a resolved config filename into a kebab-case snapshot slug.
+
+    The snapshot filename uses ``<date>-skill-<slug>-<label>.json``; the slug
+    must be a valid kebab-case token (see ``validate_slug``). A config stem
+    carries the ``skill-`` prefix and may carry a ``.ab`` infix
+    (``skill-x-adversarial.ab.yaml`` → stem ``skill-x-adversarial.ab``); strip
+    the ``skill-`` prefix and turn the ``.ab`` dot into a hyphen so two
+    distinct configs for the same base skill (``-adversarial`` vs
+    ``-adversarial.ab``) snapshot to distinct, non-colliding names.
+    """
+    # `.ab.yaml` is a double suffix: Path.stem strips only the last one.
+    stem = config_path.name.removesuffix(".yaml")
+    return stem.removeprefix("skill-").replace(".", "-")
+
+
+def find_prior_baseline(baselines_dir: Path, slug: str, current: Path) -> Path | None:
+    """Most recent prior snapshot for this slug, sorted lexicographically (date prefix)."""
     if not baselines_dir.is_dir():
         return None
-    candidates = sorted(p for p in baselines_dir.glob(f"*-skill-{skill}-*.json") if p != current)
+    candidates = sorted(p for p in baselines_dir.glob(f"*-skill-{slug}-*.json") if p != current)
     return candidates[-1] if candidates else None
 
 
@@ -85,8 +155,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--skill",
-        required=True,
-        help="Skill name (matches tests/evals/promptfoo/skill-<name>.yaml).",
+        default=None,
+        help=(
+            "Base skill name (matches tests/evals/promptfoo/skill-<name>.yaml "
+            "exactly — never a suffixed sibling). Mutually exclusive with --config."
+        ),
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Exact config selector for a suffixed scenario or .ab.yaml control "
+            "(e.g. 'skill-reviewing-before-merge-adversarial', "
+            "'skill-x.ab.yaml', or a full path). Resolved exactly — no "
+            "cross-matching a base skill against longer siblings. Mutually "
+            "exclusive with --skill."
+        ),
     )
     parser.add_argument(
         "--label",
@@ -107,28 +191,37 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if (args.skill is None) == (args.config is None):
+        print(
+            "Provide exactly one of --skill (base skill) or --config (exact "
+            "suffixed / .ab.yaml selector or path).",
+            file=sys.stderr,
+        )
+        return 2
+
     try:
-        validate_slug(args.skill, "skill")
+        if args.skill is not None:
+            validate_slug(args.skill, "skill")
         validate_slug(args.label, "label")
     except ValueError as e:
         print(f"Invalid input: {e}", file=sys.stderr)
         return 2
 
     repo_root = args.repo_root or find_repo_root(Path.cwd())
+    promptfoo_dir = repo_root / "tests" / "evals" / "promptfoo"
 
-    yaml_path = repo_root / "tests" / "evals" / "promptfoo" / f"skill-{args.skill}.yaml"
-    if not yaml_path.is_file():
-        print(f"No eval YAML for skill '{args.skill}' at {yaml_path}.", file=sys.stderr)
-        available = sorted(
-            p.stem.removeprefix("skill-")
-            for p in (repo_root / "tests" / "evals" / "promptfoo").glob("skill-*.yaml")
-            if not p.stem.endswith((".gen", ".ab", ".generated-tests"))
-        )
+    try:
+        yaml_path = resolve_config_path(promptfoo_dir, skill=args.skill, config=args.config)
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        available = sorted(p.name for p in promptfoo_dir.glob("skill-*.yaml"))
         if available:
-            print("Available skills:", file=sys.stderr)
+            print("Available configs:", file=sys.stderr)
             for s in available:
                 print(f"  - {s}", file=sys.stderr)
         return 2
+
+    snapshot_slug = config_to_slug(yaml_path)
 
     if not os.environ.get("OPENAI_API_KEY"):
         print(
@@ -142,7 +235,7 @@ def main() -> int:
     baselines_dir.mkdir(parents=True, exist_ok=True)
 
     today = dt.date.today().isoformat()
-    output_path = baselines_dir / f"{today}-skill-{args.skill}-{args.label}.json"
+    output_path = baselines_dir / f"{today}-skill-{snapshot_slug}-{args.label}.json"
     if output_path.exists() and not args.force:
         print(
             f"Snapshot already exists at {output_path}. Re-run with --force to overwrite, "
@@ -183,12 +276,12 @@ def main() -> int:
     print(f"  {passed} passed, {failed} failed")
 
     if not args.no_diff:
-        prior = find_prior_baseline(baselines_dir, args.skill, output_path)
+        prior = find_prior_baseline(baselines_dir, snapshot_slug, output_path)
         if prior:
             print("\nDelta vs prior baseline:")
             print_delta(prior, output_path)
         else:
-            print("\nNo prior baseline for this skill — this snapshot becomes the first.")
+            print("\nNo prior baseline for this config — this snapshot becomes the first.")
 
     if failed:
         print(

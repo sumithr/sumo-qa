@@ -545,3 +545,108 @@ class TestRunBaselineScriptSlugValidation:
         assert result.returncode != 0, (
             f"script accepted --label with `..` separator: stdout={result.stdout!r}"
         )
+
+
+def _import_run_baseline() -> ModuleType:
+    """Import run_baseline.py as a module to exercise its resolution helpers
+    directly (the dash-containing path defeats a plain import)."""
+    path = REPO_ROOT / ".claude" / "skills" / "regen-eval-baseline" / "scripts" / "run_baseline.py"
+    spec = importlib.util.spec_from_file_location("run_baseline", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not load run_baseline.py from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestRunBaselineConfigResolution:
+    """Issue #273: the baseline tooling must drive suffixed / A-B promptfoo
+    configs, and exact config selection must NOT cross-match a base skill
+    against longer suffixed siblings.
+
+    Technique: equivalence partitioning over the config-name space. The
+    catalogued failure mode for this technique is substring/token confusion
+    (`skill-reviewing-before-merge` "matching" the longer
+    `skill-reviewing-before-merge-adversarial` because the former is a prefix
+    of the latter). Each partition below seeds the directory with the base
+    config AND its suffixed/`.ab` siblings so a prefix-matching implementation
+    diverges from an exact-matching one — the discriminator the AC demands.
+    """
+
+    @staticmethod
+    def _seed_configs(tmp_path: Path) -> Path:
+        """A promptfoo dir where a base skill and its longer suffixed
+        siblings coexist — the exact condition that makes prefix-matching
+        and exact-matching diverge."""
+        promptfoo = tmp_path / "tests" / "evals" / "promptfoo"
+        promptfoo.mkdir(parents=True)
+        for name in (
+            "skill-reviewing-before-merge.yaml",
+            "skill-reviewing-before-merge.ab.yaml",
+            "skill-reviewing-before-merge-adversarial.yaml",
+            "skill-reviewing-before-merge-adversarial.ab.yaml",
+            "skill-reviewing-before-merge-unproven-escalation.yaml",
+        ):
+            (promptfoo / name).write_text("")
+        return promptfoo
+
+    def test_skill_selector_resolves_base_only_not_suffixed_sibling(self, tmp_path: Path) -> None:
+        """`--skill reviewing-before-merge` must resolve the base
+        `skill-reviewing-before-merge.yaml`, never the longer
+        `skill-reviewing-before-merge-adversarial.yaml` sibling."""
+        promptfoo = self._seed_configs(tmp_path)
+        mod = _import_run_baseline()
+
+        resolved = mod.resolve_config_path(promptfoo, skill="reviewing-before-merge", config=None)
+
+        assert resolved == promptfoo / "skill-reviewing-before-merge.yaml", (
+            f"base skill selector cross-matched a suffixed sibling: {resolved}"
+        )
+
+    def test_config_selector_resolves_exact_suffixed_config(self, tmp_path: Path) -> None:
+        """A suffixed config can be driven by stem, without renaming it to
+        the base skill."""
+        promptfoo = self._seed_configs(tmp_path)
+        mod = _import_run_baseline()
+
+        resolved = mod.resolve_config_path(
+            promptfoo, skill=None, config="skill-reviewing-before-merge-adversarial"
+        )
+
+        assert resolved == promptfoo / "skill-reviewing-before-merge-adversarial.yaml", (
+            f"suffixed config stem did not resolve exactly: {resolved}"
+        )
+
+    def test_config_selector_resolves_ab_config(self, tmp_path: Path) -> None:
+        """`.ab.yaml` A/B controls resolve exactly, double-suffix preserved."""
+        promptfoo = self._seed_configs(tmp_path)
+        mod = _import_run_baseline()
+
+        resolved = mod.resolve_config_path(
+            promptfoo, skill=None, config="skill-reviewing-before-merge-adversarial.ab.yaml"
+        )
+
+        assert resolved == promptfoo / "skill-reviewing-before-merge-adversarial.ab.yaml", (
+            f".ab.yaml config did not resolve exactly: {resolved}"
+        )
+
+    def test_config_selector_accepts_exact_path(self, tmp_path: Path) -> None:
+        """An exact path to a config is accepted verbatim."""
+        promptfoo = self._seed_configs(tmp_path)
+        mod = _import_run_baseline()
+        target = promptfoo / "skill-reviewing-before-merge.ab.yaml"
+
+        resolved = mod.resolve_config_path(promptfoo, skill=None, config=str(target))
+
+        assert resolved == target, f"exact path was not honoured: {resolved}"
+
+    def test_missing_config_raises(self, tmp_path: Path) -> None:
+        """A config that does not exist raises, rather than silently
+        falling back to a near-named sibling."""
+        promptfoo = self._seed_configs(tmp_path)
+        mod = _import_run_baseline()
+
+        with pytest.raises(FileNotFoundError):
+            mod.resolve_config_path(
+                promptfoo, skill=None, config="skill-reviewing-before-merge-nope"
+            )
