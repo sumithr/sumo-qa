@@ -546,6 +546,64 @@ class TestRunBaselineScriptSlugValidation:
             f"script accepted --label with `..` separator: stdout={result.stdout!r}"
         )
 
+    def test_rejects_config_whose_stem_derives_double_underscore_slug(self, tmp_path: Path) -> None:
+        """Codex review R3 (major, latent): the `__` slug/label boundary is
+        only guaranteed because slug+label are restricted to ``[a-z0-9-]`` —
+        but that restriction was enforced ONLY for --skill/--label, not for the
+        slug derived from a --config stem.
+
+        ``config_to_slug`` passes the stem through verbatim (after stripping
+        ``skill-`` and turning ``.ab`` into ``-``), so a config named
+        ``skill-foo__bar.yaml`` derives the slug ``foo__bar``. The write side
+        would then produce ``…-skill-foo__bar__baseline.json``, and
+        ``SNAPSHOT_NAME_RE`` (non-greedy to the FIRST ``__``) parses that slug
+        as ``foo`` — ``find_prior_baseline`` misses its own prior. The script
+        must reject such a config up front rather than silently mis-parse.
+        """
+        promptfoo = tmp_path / "tests" / "evals" / "promptfoo"
+        promptfoo.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+        # A config whose stem derives a slug containing the reserved `__`.
+        (promptfoo / "skill-foo__bar.yaml").write_text("")
+
+        import os as _os
+
+        env = _os.environ.copy()
+        env["OPENAI_API_KEY"] = "dummy-not-used-because-validation-rejects-first"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.RUN_BASELINE),
+                "--config",
+                "skill-foo__bar.yaml",
+                "--repo-root",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode != 0, (
+            "script accepted a --config whose stem derives a `__`-containing "
+            f"slug (would be silently mis-parsed): stdout={result.stdout!r}"
+        )
+        # It must fail on the slug validation BEFORE reaching promptfoo — the
+        # unguarded code instead derives the slug silently and proceeds to run
+        # promptfoo (which fails for an unrelated reason). Key on the guard's
+        # own message so a promptfoo-side failure cannot masquerade as a pass.
+        assert "snapshot slug/label separator" in result.stderr, (
+            "expected the config-derived-slug validation error; the script "
+            "must reject the `__`-containing derived slug up front, not run "
+            f"promptfoo. got stderr={result.stderr!r}"
+        )
+        # Belt-and-braces: it must NOT have launched promptfoo.
+        assert "Running: npx promptfoo" not in result.stdout, (
+            "script proceeded to run promptfoo despite an invalid derived slug: "
+            f"stdout={result.stdout!r}"
+        )
+
 
 def _import_run_baseline() -> ModuleType:
     """Import run_baseline.py as a module to exercise its resolution helpers

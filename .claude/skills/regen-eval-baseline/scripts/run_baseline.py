@@ -280,6 +280,28 @@ def main() -> int:
         return 2
 
     snapshot_slug = config_to_slug(yaml_path)
+    # The slug derived from a --config stem is NOT covered by the --skill /
+    # --label validation above: config_to_slug strips `skill-` and turns `.ab`
+    # into `-`, but otherwise passes the stem through verbatim. A stem such as
+    # `skill-foo__bar.yaml` would yield a slug `foo__bar` containing the `__`
+    # separator the snapshot filename reserves for the slug/label boundary —
+    # SNAPSHOT_NAME_RE would then mis-parse it (slug `foo`, label `bar...`) and
+    # find_prior_baseline would miss its own prior. Validate the derived slug
+    # against the same kebab-case rule so the `__` boundary can never collide
+    # with slug content regardless of how the slug was derived.
+    try:
+        validate_slug(snapshot_slug, "config-derived slug")
+    except ValueError as e:
+        print(
+            f"Invalid --config {args.config!r}: its filename stem derives the slug "
+            f"{snapshot_slug!r}, which is not a valid kebab-case token. {e} "
+            "Rename the config so its stem (after the `skill-` prefix) is "
+            "lowercase letters, digits, and single hyphens only — in particular "
+            "it must not contain `__`, which is reserved as the snapshot "
+            "slug/label separator.",
+            file=sys.stderr,
+        )
+        return 2
 
     if not os.environ.get("OPENAI_API_KEY"):
         print(
