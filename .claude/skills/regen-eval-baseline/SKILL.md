@@ -16,29 +16,49 @@ This is single-skill on purpose. Full-sweep regeneration belongs on `npm run eva
 
 ## Inputs
 
-1. **Skill name** — matches `tests/evals/promptfoo/skill-<name>.yaml`. If the user is unsure which skills are available, the script will list them when given a bad name.
-2. **Label** — short kebab-case tag for the snapshot, defaults to `baseline`. Past conventions in the dir: `baseline`, `postcut`, `greenfix`, or describe-the-change like `removability-gate`. The label is what makes two snapshots taken on the same day distinguishable.
+Pass **exactly one** config selector — either `--skill` (the base config) or `--config` (a suffixed scenario / `.ab.yaml` control / explicit path) — plus an optional `--label`.
+
+1. **`--skill <name>`** — the base config `tests/evals/promptfoo/skill-<name>.yaml`. Resolves that file **exactly**; it never cross-matches a longer suffixed sibling (e.g. `--skill reviewing-before-merge` drives `skill-reviewing-before-merge.yaml`, NOT `skill-reviewing-before-merge-adversarial.yaml`). If the named config is absent the script lists the available configs.
+2. **`--config <selector>`** — for a suffixed scenario config or an `.ab.yaml` A/B control. Accepts a bare stem (`skill-reviewing-before-merge-adversarial`), a filename including the double suffix (`skill-reviewing-before-merge-adversarial.ab.yaml`), or a full/relative path. Resolved **exactly** — a stem composes one filename and that file must exist; the resolver never falls back to a near-named neighbour, so a base name can't accidentally snapshot a suffixed sibling and vice-versa.
+3. **`--label`** — short kebab-case tag for the snapshot, defaults to `baseline`. Past conventions in the dir: `baseline`, `postcut`, `greenfix`, or describe-the-change like `removability-gate`. The label vocabulary is open-ended and may itself be multi-hyphen, so the snapshot filename separates the slug from the label with a literal `__` (double underscore) — `<date>-skill-<slug>__<label>.json`. Because a validated kebab slug/label can never contain `__`, the slug/label boundary stays unambiguous even for a multi-hyphen label. The label is what makes two snapshots taken on the same day distinguishable.
+
+The snapshot filename derives from the resolved config, not just `--skill`: a `.ab` infix becomes a hyphen in the slug (`skill-x-adversarial.ab.yaml` → `…-skill-x-adversarial-ab__<label>.json`), so the base config, its suffixed scenario, and its `.ab` control each snapshot to a distinct, non-colliding path and diff only against their own prior snapshots.
+
+### Wrapper vs raw `promptfoo eval -c`
+
+Use this wrapper (`--skill` / `--config`) whenever you want the **repeatable before/after snapshot** it exists to provide: it writes the dated JSON to `docs/qa/runs/eval-baselines/`, prints pass/fail, and diffs against the prior snapshot for the same config. That covers base configs, suffixed scenario configs, and `.ab.yaml` controls — drive all three through the wrapper so the baseline/postcut delta is preserved (don't hand-roll `npx promptfoo eval -c …` and lose the snapshot). Reach for **raw `promptfoo eval -c <path>`** only for flags the wrapper does not expose (e.g. `--repeat N` variance runs, `-j 1` legible logs, `generate dataset`) — see `tests/evals/promptfoo/README.md`. For a normal baseline/postcut capture, the wrapper is the supported path.
 
 ## Prerequisites the script will check
 
 - `OPENAI_API_KEY` must be set in the environment. The harness reads it from `~/.config/promptfoo-keys.env` per `tests/evals/promptfoo/README.md`; tell the user to `source` that file if the script reports it missing. Never accept the key pasted in chat — both repo policy and the `feedback_never_handle_pasted_secrets` memory rule say so.
-- `tests/evals/promptfoo/skill-<name>.yaml` must exist. If it doesn't, the script lists every skill that does have a YAML so the user can pick again.
+- The selected config must exist: `tests/evals/promptfoo/skill-<name>.yaml` for `--skill`, or the exact suffixed / `.ab.yaml` config for `--config`. If it doesn't, the script lists every available config so the user can pick again — it does not guess a near-named sibling.
 - A snapshot at the target path already existing will block the run unless `--force` is passed. Don't pass `--force` reflexively — snapshots are evidence of past runs and silently clobbering them loses history.
 
 ## Run the script
 
 ```bash
+# Base config:
 python3 .claude/skills/regen-eval-baseline/scripts/run_baseline.py \
   --skill <skill-name> \
   --label <label>
+
+# Suffixed scenario config (no rename to the base skill needed):
+python3 .claude/skills/regen-eval-baseline/scripts/run_baseline.py \
+  --config skill-reviewing-before-merge-adversarial \
+  --label baseline
+
+# .ab.yaml A/B control:
+python3 .claude/skills/regen-eval-baseline/scripts/run_baseline.py \
+  --config skill-reviewing-before-merge-adversarial.ab.yaml \
+  --label postcut
 ```
 
 The script:
 
-1. Computes the snapshot path: `docs/qa/runs/eval-baselines/<today>-skill-<skill>-<label>.json`.
+1. Computes the snapshot path: `docs/qa/runs/eval-baselines/<today>-skill-<slug>__<label>.json` (the slug comes from the resolved config — see Inputs; `__` separates slug from label so a multi-hyphen label stays unambiguous).
 2. Runs `npx promptfoo eval` with `--no-cache` (so the snapshot reflects fresh judge calls, not stale cache hits) and writes the JSON output to that path.
 3. Prints pass/fail counts.
-4. If a prior snapshot for the same skill exists, prints a delta — passed and failed counts vs the previous run.
+4. If a prior snapshot for the same config exists, prints a delta — passed and failed counts vs the previous run.
 
 ## Reading the output
 

@@ -41,6 +41,12 @@ it belongs on a separate scheduled runner with explicit billing approval.
 | Quarterly | Full sweep + `aggregate.py` variance report | Drift baseline |
 | You're iterating on a rubric | Single skill with `--no-cache` | Tight feedback loop |
 
+### Baseline wrapper vs raw `promptfoo eval -c`
+
+For a **repeatable before/after snapshot** (the `baseline` → `postcut` capture around a SKILL.md edit), drive the config through the `regen-eval-baseline` wrapper — `.claude/skills/regen-eval-baseline/scripts/run_baseline.py`. It writes a dated JSON to `docs/qa/runs/eval-baselines/`, prints pass/fail, and diffs against the prior snapshot. It drives **all three committed config shapes**: the base config via `--skill <name>`, a suffixed scenario config via `--config skill-<name>-<suffix>`, and an `.ab.yaml` control via `--config skill-<name>-<suffix>.ab.yaml`. Selection is exact — a base skill never cross-matches a longer suffixed sibling.
+
+Use **raw `./node_modules/.bin/promptfoo eval -c <path>`** (the commands shown below) for one-off runs and for flags the wrapper doesn't expose — `--repeat N` variance, `-j 1` legible logs, `generate dataset`. The raw form does not snapshot; reach for it when you don't need the persisted baseline/postcut delta. See [`regen-eval-baseline/SKILL.md`](../../../.claude/skills/regen-eval-baseline/SKILL.md).
+
 ## Adversarial discovery corpus (review-recall, issue #236)
 
 Most skill evals (including `skill-reviewing-before-merge.yaml`) hand the
