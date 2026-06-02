@@ -136,6 +136,28 @@ source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-unproven-escalation.ab.yaml --no-cache
 ```
 
+## Vacuous-test corpus (issue #255)
+
+`skill-reviewing-before-merge-vacuous-test.yaml` grades the **test_change**
+move: when the diff is test files only (no runtime file), there is no runtime
+anchor for the coverage-ledger, so the central risk is whether each new/changed
+test can actually FAIL. The skill must run a test-quality probe — reusing the
+tautology / setup-discriminator / expected-value-derivation framing from
+`sumo-qa-implementing-with-tdd` step 3 by cross-reference — and NOT rubber-stamp
+a green suite. Two seeds: a tautological diff (a `expected` value read from the
+same call under test, plus a type-only check) that must yield NEEDS WORK / NOT
+SAFE naming the vacuous assertion; and a genuine-discriminator diff (a derived
+leap-year expected value with captured RED-on-pre-fix evidence) that must yield
+SAFE. Candidate is `gpt-5-mini` (the probe is reasoning-heavy — detect a
+self-referential assertion, derive a date), judge `gpt-5.5`. Stashing the
+SKILL.md back to `origin/main` flips the tautology seed to FAIL, isolating the
+#255 probe behaviour.
+
+```bash
+source ~/.config/promptfoo-keys.env
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-vacuous-test.yaml --no-cache
+```
+
 ## How to run
 
 ### One-time setup
