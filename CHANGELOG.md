@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/sumithr/sumo-qa/compare/v0.26.0...v0.27.0) (2026-06-02)
+
+
+### Features
+
+* **hooks:** add PostToolUse router for mutmut survivors and promptfoo FAILs ([#298](https://github.com/sumithr/sumo-qa/issues/298)) ([3eeca68](https://github.com/sumithr/sumo-qa/commit/3eeca6813325e888dda694530479055002f3858f))
+
 ## [0.26.0](https://github.com/sumithr/sumo-qa/compare/v0.25.0...v0.26.0) (2026-06-01)
 
 
