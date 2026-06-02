@@ -328,6 +328,7 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `skill-<name>.yaml` (×14) | One config per skill, all covered |
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
 | `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) load-bearing control (see "UNPROVEN-escalation corpus" above) |
+| `skill-reviewing-before-merge-ac-coverage.yaml` | Issue #264 acceptance-criteria coverage: three seeds — UNMET AC → NOT SAFE, all-MET → SAFE-eligible, and plausibly-implemented-but-no-end-to-end-evidence → UNVERIFIED (not UNMET) → NOT SAFE — exercising the three-state MET/UNMET/UNVERIFIED discriminator |
 | `fixtures/reviewing-before-merge-PRE-187.SKILL.md` | Snapshot of the pre-#187 SKILL.md body, the A0 control leg for the unproven-escalation `.ab.yaml` |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
