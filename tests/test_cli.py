@@ -87,23 +87,29 @@ def test_analyze_next_command_carries_analyzed_path(tmp_path, monkeypatch, capsy
     repo = tmp_path / "repo"
     repo.mkdir()
     _make_repo(repo)
-    # Run from a DIFFERENT cwd to prove the path is carried, not implied by cwd.
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    monkeypatch.chdir(elsewhere)
+    # Run from the parent dir and pass a RELATIVE path, so the only way the
+    # suggestion can name the right repo is by resolving it to an absolute path
+    # before embedding — proving resolution, not mere string passthrough.
+    monkeypatch.chdir(tmp_path)
+    rel = "repo"
+    resolved = repo.resolve().as_posix()
 
-    # JSON next_command must carry the resolved analyzed root.
-    rc = cli.main(["analyze", str(repo), "--json"])
+    # JSON next_command must carry the RESOLVED absolute root, not the relative arg.
+    rc = cli.main(["analyze", rel, "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert rc == 0
-    assert str(repo.resolve()) in payload["next_command"]
     assert payload["next_command"].startswith("sumo-qa status ")
+    suggested = payload["next_command"].split("sumo-qa status ", 1)[1]
+    assert suggested == resolved
+    # The bare relative arg would NOT inspect the analyzed repo from another cwd.
+    assert suggested != rel
+    assert Path(suggested).is_absolute()
 
-    # Human "next:" line carries it too.
-    rc = cli.main(["analyze", str(repo)])
+    # Human "next:" line carries the resolved path too.
+    rc = cli.main(["analyze", rel])
     out = capsys.readouterr().out
     assert rc == 0
-    assert f"sumo-qa status {repo.resolve()}" in out
+    assert f"sumo-qa status {resolved}" in out
 
 
 def test_analyze_json_is_schema_stable(tmp_path, capsys):

@@ -100,7 +100,7 @@ $ sumo-qa analyze /path/to/repo
 Analyzed /path/to/repo
   wrote .sumo-qa/repo-map.json (240 nodes, 20 edges, 9 commands)
   ...
-  next: sumo-qa status
+  next: sumo-qa status /path/to/repo
 ```
 
 `sumo-qa analyze [path]` walks the repo and writes the schema-validated
