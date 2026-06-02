@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/sumithr/sumo-qa/compare/v0.28.0...v0.29.0) (2026-06-02)
+
+
+### Features
+
+* make sumo_qa_list_skill_manifests compact by default ([#308](https://github.com/sumithr/sumo-qa/issues/308)) ([cd9df02](https://github.com/sumithr/sumo-qa/commit/cd9df02f7fac67c639f51594756ce72f6a157406))
+
 ## [0.28.0](https://github.com/sumithr/sumo-qa/compare/v0.27.0...v0.28.0) (2026-06-02)
 
 
