@@ -91,8 +91,13 @@ def _cmd_analyze(root: Path, *, as_json: bool) -> int:
         artifact_bytes=artifact.stat().st_size,
     )
 
+    # Carry the analyzed root into the suggested next command so that, run from
+    # any cwd, `sumo-qa status {root}` inspects the repo just analyzed — mirroring
+    # the way status builds its own next_command. Use the resolved ``root``.
+    next_command = f"{_NEXT_AFTER_ANALYZE} {root}"
+
     payload: dict[str, Any] = {"command": "analyze", **summary.model_dump(mode="json")}
-    payload["next_command"] = _NEXT_AFTER_ANALYZE
+    payload["next_command"] = next_command
 
     nodes_by_type = ", ".join(f"{k}={v}" for k, v in sorted(summary.nodes_by_type.items()))
     human = (
@@ -100,7 +105,7 @@ def _cmd_analyze(root: Path, *, as_json: bool) -> int:
         f"  wrote {REPO_MAP_RELPATH} ({summary.node_count} nodes, "
         f"{summary.edge_count} edges, {summary.command_count} commands)\n"
         f"  {nodes_by_type or 'no classified nodes'}\n"
-        f"  next: {_NEXT_AFTER_ANALYZE}"
+        f"  next: {next_command}"
     )
     _emit(payload, as_json=as_json, human=human)
     return 0
@@ -183,7 +188,21 @@ def _status_payload(root: Path) -> dict[str, Any]:
 
 
 def _cmd_status(root: Path, *, as_json: bool) -> int:
-    """Report artifact presence / schema version / freshness / next command."""
+    """Report artifact presence / schema version / freshness / next command.
+
+    A missing target directory is a usage error (exit 2), not a "no artifact"
+    state — reporting "no artifact" under a directory that does not exist would
+    be misleading. The guard mirrors ``_cmd_analyze`` (same message shape and
+    exit code) and applies to both human and ``--json`` modes, since analyze
+    itself writes the actionable text to stderr in both.
+    """
+    if not root.is_dir():
+        _sys.stderr.write(
+            f"sumo-qa status: {root} is not a directory. "
+            f"Pass an existing repository path (or omit it to use the current directory).\n"
+        )
+        return 2
+
     payload = _status_payload(root)
 
     if as_json:

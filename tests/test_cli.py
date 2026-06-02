@@ -81,6 +81,31 @@ def test_analyze_writes_artifact_and_reports_next_command(tmp_path, capsys):
     assert "sumo-qa status" in out
 
 
+def test_analyze_next_command_carries_analyzed_path(tmp_path, monkeypatch, capsys):
+    """analyze on an explicit path (!= cwd) suggests `sumo-qa status <that path>`,
+    so the next command inspects the repo just analyzed rather than cwd."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _make_repo(repo)
+    # Run from a DIFFERENT cwd to prove the path is carried, not implied by cwd.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    # JSON next_command must carry the resolved analyzed root.
+    rc = cli.main(["analyze", str(repo), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert str(repo.resolve()) in payload["next_command"]
+    assert payload["next_command"].startswith("sumo-qa status ")
+
+    # Human "next:" line carries it too.
+    rc = cli.main(["analyze", str(repo)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert f"sumo-qa status {repo.resolve()}" in out
+
+
 def test_analyze_json_is_schema_stable(tmp_path, capsys):
     """`analyze --json` emits a parseable document with the stable keys
     automation depends on (artifact_path, schema_version, node counts)."""
@@ -135,6 +160,29 @@ def test_status_missing_artifact_points_at_analyze(tmp_path, capsys):
     assert rc == 0
     assert "sumo-qa analyze" in out
     assert "repo-map.json" in out
+
+
+def test_status_missing_repo_is_actionable(tmp_path, capsys):
+    """status on a non-existent directory is a usage error (exit 2) with an
+    actionable message — NOT a "no artifact" report under a dir that doesn't
+    exist. Mirrors analyze's guard, for both human and --json modes."""
+    missing = tmp_path / "does-not-exist"
+
+    rc = cli.main(["status", str(missing)])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert str(missing) in captured.err
+    assert "director" in captured.err.lower()
+    # The misleading "no artifact" state must NOT be emitted to stdout.
+    assert captured.out == ""
+
+    # --json mode behaves identically (no JSON "no artifact" envelope emitted).
+    rc = cli.main(["status", str(missing), "--json"])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert str(missing) in captured.err
+    assert "director" in captured.err.lower()
+    assert captured.out == ""
 
 
 def test_status_present_fresh_artifact(tmp_path, capsys):
