@@ -23,7 +23,45 @@ A read-only, deterministic, local-only pair of tools that lets a host fetch just
 | `sumo_qa_list_skill_manifests()` | A JSON string of compact metadata for every bundled skill: `skill_name`, `tool_name`, `description`, `content_hash` (sha256), `estimated_tokens_full`, `sections[]` (id, heading, level, estimated_tokens, required) and `modules[]` (id, path, estimated_tokens). Section ids are stable heading slugs (duplicates get `-2`/`-3` suffixes); `required` flags the structural sections (frontmatter, Iron Law, Checklist, Flow, Red Flags, HARD-GATE) when present. |
 | `sumo_qa_load_skill_context(skill_name, mode, section=None, module=None, known_hash=None)` | A JSON string for one slice. `mode` is `manifest` (routing summary + section/module lists), `section` (one section's text), `module` (one module's text), or `full` (the whole body, identical to the skill tool). The `section`/`module`/`full` slices each carry `content_hash` (sha256 of the returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this slice changed since hash X?": a match returns `changed: false` with the body omitted (saving the re-send), a mismatch returns `changed: true` with the body. Invalid skill/mode/section/module, a missing required arg, or a path-traversal attempt returns a JSON error envelope listing the valid choices — it never raises. |
 
-This is the foundation slice of progressive skill loading; richer guidance on when a host should prefer a partial load is deferred to a follow-up.
+### Which path to use — canonical vs compact
+
+The four modes form a retrieval ladder. Climb only as far as the work needs:
+
+| Path | Mode | Canonical? | Use it when |
+|---|---|---|---|
+| **Manifest (all skills)** | `sumo_qa_list_skill_manifests()` | No — routing aid | Choosing which skill applies. Metadata for every skill at once — including each skill's `sections[]`/`modules[]` *index* arrays (ids + token weights), but never the section/module *bodies*. The shipped full-index payload is ~11,000 approx tokens (guarded under a 13,000 ceiling); a host that wants the leanest routing slice can project away the `sections[]`/`modules[]` arrays (that compact projection is ~2,073 tokens). |
+| **Manifest (one skill)** | `load_skill_context(skill, "manifest")` | No — routing aid | You've chosen a skill and want its section/module map (ids, token weights, which sections are `required`) before pulling any body. |
+| **Section / Module** | `load_skill_context(skill, "section"/"module", …)` | **Yes** — verbatim slice | You need one part of a skill (its Iron Law, one checklist, one lazy module) and not the rest. The returned text is byte-for-byte from the file. |
+| **Full** | `load_skill_context(skill, "full")` or the zero-arg skill tool | **Yes** — verbatim body | You are about to **execute** the skill. When exact procedure wording matters — Iron Law, HARD-GATE, the operational checklist a workflow follows step-by-step — load the full body. |
+
+**Canonical means verbatim.** `section`, `module`, and `full` return text copied straight from `SKILL.md` (or a module file); a host may cite or follow them as the authoritative instruction. The two **manifest** paths are *compact navigation aids* — they summarise structure and token weights to help a host route, and are **not** a substitute for the procedure text. Do not treat a manifest description or section list as the instruction to follow; once a skill is actually being executed, load the section(s) or the full body so the model has the exact wording. The same rule governs the knowledge catalogues: a compact summary is for recall, the loaded catalogue text is what you cite.
+
+**Cumulative-cost win.** The point of the ladder is session-cumulative cost. A host that revisits a skill many times pays the routing slice (manifest + a required section or two) on each visit instead of the whole body every time — for the heaviest skills the manifest-plus-routing slice is well over 50% lighter than the full body, and across a mixed session the cumulative saving is large. The `tests/test_token_weight_regression.py` and `tests/test_skill_modules.py` budgets lock that in. Two distinct all-skill-manifest budgets exist, for two distinct artifacts: the **shipped `sumo_qa_list_skill_manifests` output** (the full index *with* every skill's `sections[]`/`modules[]` arrays, the payload hosts actually fetch) is ~11,000 approx tokens and guarded under a **13,000** full-index ceiling; the **compact routing projection** (that same metadata with the `sections[]`/`modules[]` arrays projected away) is ~2,073 tokens and guarded under a separate **2,500** budget. Modules stay under 1,500, and the partial path must stay below the full-body cumulative cost.
+
+### MCP resources (additive)
+
+The same skill index is also exposed as MCP resources/resource-templates, for hosts that let the user (or the application) select context as resources. These are **additive** — the model-callable tools above stay the primary, unchanged path; no tool is removed or renamed, and no per-section/per-module tool is added. Each resource body is byte-for-byte the matching loader output (`application/json`):
+
+| URI | Equivalent loader call |
+|---|---|
+| `sumoqa://skills` | `sumo_qa_list_skill_manifests()` |
+| `sumoqa://skills/{skill_name}/manifest` | `load_skill_context(skill_name, "manifest")` |
+| `sumoqa://skills/{skill_name}/sections/{section_id}` | `load_skill_context(skill_name, "section", section=…)` |
+| `sumoqa://skills/{skill_name}/modules/{module_id}` | `load_skill_context(skill_name, "module", module=…)` |
+| `sumoqa://skills/{skill_name}/full` | `load_skill_context(skill_name, "full")` |
+
+`{skill_name}`, `{section_id}` and `{module_id}` are the stable ids from the manifest. An unknown skill/section/module — or a path-traversal attempt in a template parameter — returns the loader's JSON error envelope as the resource content (never a transport error).
+
+**Host compatibility.** MCP resources are application-driven: the host decides whether and how to surface them, and several clients require the user to explicitly attach a resource before the model can read it. The model-callable tool path is therefore the canonical route in every host; resources are an optional convenience where the client supports them.
+
+| Host | Resource behaviour |
+|---|---|
+| Claude Code | Resources and resource-templates are listed; the user attaches a resource (e.g. via `@`) to bring its content into context. The tool path works with no user step. |
+| Codex plugin | Resource exposure depends on the plugin's MCP client; where resources are unsupported, the tool path is used. |
+| VS Code / Copilot | MCP resources surface where the client implements `resources/list` + `resources/read`; otherwise fall back to the tools. |
+| JetBrains | Resource support tracks the IDE's MCP client; tools remain the reliable path. |
+
+Because support varies and is user-selection-driven, treat resources as additive and keep using the tools as the primary interface.
 
 ### Change detection without a session cache
 
@@ -41,6 +79,9 @@ Each returns a markdown catalogue as plain text. The host LLM reasons over the r
 | `sumo_qa_load_techniques()` | Test design techniques (black-box, white-box, experience-based, static, property-based, mutation) |
 | `sumo_qa_load_standards(classification?)` | Team's loaded standards packs; optional metadata-based filter by one or more classifications |
 | `sumo_qa_load_rules(classification?)` | Team's loaded change rules; optional filter by one or more classifications |
+| `sumo_qa_load_catalogue_entry(catalogue, name?, format?)` | One entry from a prose catalogue (`classifications`, `approaches`, `principles`, `techniques`), or the whole catalogue in compact form when `name` is omitted; a lighter alternative to the full-text loaders |
+
+`sumo_qa_load_catalogue_entry` is a progressive-loading aid: pass `name` (a slug id like `api_contract_change` / `equivalence-partitioning`, or the verbatim heading) to fetch a single entry, or omit it to fetch the whole catalogue. `format="full"` (default) returns verbatim text marked `canonical=true` — **safe to cite**. `format="compact"` returns a truncated lead-line summary marked `canonical=false` — **a navigation/recall aid, NOT a citation replacement**; load the full form (or the zero-argument `sumo_qa_load_*` loader) when exact wording matters. An unknown catalogue, name, or format — or a missing/unreadable catalogue file (e.g. a bad `QA_KNOWLEDGE_PATH` or a broken bundle) — returns a JSON error envelope listing the valid choices; the tool never raises. The zero-argument `sumo_qa_load_*` loaders are unchanged.
 
 Specialty-tool picks are intentionally NOT catalogued — the discipline (in `using-sumo-qa`) is to observe the risk surface, web-search current options for the user's stack, and cite when naming a tool. A static catalogue would anchor toward yesterday's brands and create a false floor where novel surfaces never trigger discovery.
 

@@ -60,6 +60,18 @@ descriptions unique across skills, Iron Law section present, Checklist with ≥4
 numbered items, a Process Flow section, Red Flags table
 present.
 
+## Progressive loading — manifest / section / module / full
+
+A skill body can be loaded whole, or in slices, through the partial loader (`sumo_qa_list_skill_manifests` + `sumo_qa_load_skill_context`; see [TOOLS.md](TOOLS.md#progressive-skill-loading) for the tool surface). The four modes are a retrieval ladder:
+
+- **manifest** — compact routing metadata (description, token weights, section/module ids, which sections are `required`). A *navigation aid*, not the instruction. Use it to pick a skill and see its shape.
+- **section** / **module** — one verbatim slice of the body (e.g. just the Iron Law, or one lazy module). **Canonical**: cite or follow it directly.
+- **full** — the entire body, byte-for-byte identical to the zero-argument skill tool. **Canonical**: load it when you are about to *execute* the skill and need the exact procedure wording.
+
+**Canonical vs compact.** `section`, `module`, and `full` are verbatim from the file and may be followed as authoritative. The manifest paths are compact summaries for routing only — never treat a manifest description or section list as the procedure. When a workflow is actually running and depends on exact wording (Iron Law, HARD-GATE, the step-by-step checklist), load the full body or the specific section, not the manifest.
+
+This is the session-cost lever: revisiting a skill via the routing slice (manifest + a required section or two) costs far less than reloading the whole body each time — over 50% lighter for the heaviest skills, and substantially lighter cumulatively across a session. Lazy **modules** (`skills/<skill>/modules/*.md`) hold conditional/deep behaviour that the root body would otherwise always pay for; the root keeps only always-needed orchestration and gates. Token-budget regressions (`tests/test_skill_md_token_budget.py`, `tests/test_skill_modules.py`, `tests/test_token_weight_regression.py`) keep root bodies under a 3000-approx-token global ceiling (documented exceptions aside), modules under 1,500, and the partial path below the full-body cumulative cost. The all-skill manifest has *two* budgets for *two* artifacts: the **shipped `sumo_qa_list_skill_manifests` output** — the full index *with* each skill's `sections[]`/`modules[]` arrays, the payload hosts actually fetch — is ~11,000 approx tokens, guarded under a 13,000 full-index ceiling; the **compact routing projection** (that metadata with the section/module arrays projected away) is ~2,073 tokens, guarded under a separate 2,500 budget. The shipped tool returns the full index, not the compact projection.
+
 ## Editing a skill
 
 Skills are plain markdown. Edit `skills/<name>/SKILL.md`; the change propagates to every host on next reload:

@@ -1,0 +1,24 @@
+Cache is disabled.
+Starting evaluation eval-LKC-2026-06-01T22:11:03
+[Evaluation] Starting 1 test cases...
+Running 1 test cases (up to 4 at a time)...
+[Evaluation] ✓ Complete! 1/1 tests in 0s
+
+┌────────────────────────────────────────────────────────────┬────────────────────────────────────────────────────────────┐
+│ text                                                       │ [echo] {{text}}                                            │
+├────────────────────────────────────────────────────────────┼────────────────────────────────────────────────────────────┤
+│ hello                                                      │ [FAIL] hello                                               │
+└────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────┘
+✓ Eval complete (ID: eval-LKC-2026-06-01T22:11:03)
+
+» View results: promptfoo view
+» Share with your team: https://promptfoo.app
+» Feedback: https://promptfoo.dev/feedback
+
+
+Results:
+  0 passed (0%)
+  ✗ 1 failed (100%)
+  0 errors (0%)
+Duration: 0s (concurrency: 4)
+

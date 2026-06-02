@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """PreToolUse hook: deny Edit/Write to generated, cached, or captured paths.
 
-Why: tests/fixtures/ are byte-for-byte CLI captures (see .pre-commit-config.yaml:46) —
-editing masks parser bugs. mutants/, dist/, build/, .coverage, .hypothesis/, and the
-*_cache/ dirs are all regenerated artefacts; hand-edits drift away from the
-generator and silently rot. node_modules/ and .venv/ are dependencies, not source.
+Why: tests/fixtures/ and .claude/hooks/fixtures/ are byte-for-byte CLI captures
+(see .pre-commit-config.yaml:46) — editing masks parser/matcher bugs. mutants/,
+dist/, build/, .coverage, .hypothesis/, and the *_cache/ dirs are all regenerated
+artefacts; hand-edits drift away from the generator and silently rot.
+node_modules/ and .venv/ are dependencies, not source.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ def find_repo_root(start: Path) -> Path:
 
 DENY_PATTERNS = [
     "tests/fixtures/**",
+    ".claude/hooks/fixtures/**",
     "mutants/**",
     "dist/**",
     "build/**",

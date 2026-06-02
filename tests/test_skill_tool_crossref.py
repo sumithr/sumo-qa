@@ -82,11 +82,18 @@ def test_no_dead_skill_to_tool_refs() -> None:
 # read-only progressive-loading tools a host discovers from their descriptions
 # to fetch a slice of a skill instead of the full body. They are NOT routed via
 # the QA-routing skill chain, so they have no SKILL.md cross-reference either.
+#
+# `sumo_qa_load_catalogue_entry` (#287, epic #137 Lever 4) is the same shape: a
+# read-only progressive-loading tool a host discovers from its description to
+# fetch one catalogue entry or a compact catalogue form instead of the full
+# catalogue. The skills cite the full-text `sumo_qa_load_*` loaders for
+# canonical wording; the compact loader is a navigation aid, not skill-routed.
 _STANDALONE_UTILITY_TOOLS = {
     "sumo_qa_ingest_knowledge_pack",
     "sumo_qa_capabilities",
     "sumo_qa_list_skill_manifests",
     "sumo_qa_load_skill_context",
+    "sumo_qa_load_catalogue_entry",
 }
 # #156 wired the repo-map tools into the skill chain: `sumo_qa_analyze_diff_impact`
 # and `sumo_qa_query_repo_map` are referenced from `sumo-qa-reviewing-before-merge`,

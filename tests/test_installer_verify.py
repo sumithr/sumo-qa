@@ -176,11 +176,12 @@ def test_required_tool_names_constant_is_defined() -> None:
     """The constant exists and lists the canonical (non-skill) sumo-qa tools."""
     assert hasattr(installer, "REQUIRED_TOOL_NAMES")
     assert isinstance(installer.REQUIRED_TOOL_NAMES, tuple)
-    # 4 test-data + 6 knowledge loaders + 1 capabilities + 3 repo-map
-    # (scan + diff-impact + query) + 1 risk-to-test ledger (#144) + 1 context
-    # bundle (#149) + 1 ingestion + 4 external skills + 2 progressive skill
-    # loading (#285: list_skill_manifests + load_skill_context) = 23.
-    assert len(installer.REQUIRED_TOOL_NAMES) == 23
+    # 4 test-data + 6 knowledge loaders + 1 per-entry/compact catalogue loader
+    # (#287) + 1 capabilities + 3 repo-map (scan + diff-impact + query) + 1
+    # risk-to-test ledger (#144) + 1 context bundle (#149) + 1 ingestion + 4
+    # external skills + 2 progressive skill loading (#285: list_skill_manifests
+    # + load_skill_context) = 24.
+    assert len(installer.REQUIRED_TOOL_NAMES) == 24
     assert "sumo_qa_explain_test_data_requirements" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_load_classifications" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_capabilities" in installer.REQUIRED_TOOL_NAMES

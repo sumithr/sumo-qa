@@ -5,8 +5,8 @@
 # sumo-qa MCP
 
 [![tests](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml/badge.svg)](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml)
-[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.26.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
-[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.26.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
+[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.27.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
+[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.27.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
 An MCP server that brings senior-QA discipline to AI coding assistants — test planning, TDD, mutation testing, code review.
@@ -157,6 +157,7 @@ flowchart LR
 |---|---|
 | **Skills** ([`skills/`](skills/)) | Iron-Law procedures across the QA lifecycle: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, finding test data, answering testing questions, repo strategy — plus the planning → parallel subagent execution → finishing chain. |
 | **MCP entry points** | A thin tool surface — skill tools, knowledge loaders, a capabilities-discovery tool, repo-map tools, test-data tools, an ingestion tool, and external-skill lifecycle tools. Each is file IO or small deterministic logic; no inference. |
+| **Progressive skill loading** | A read-only loader (`sumo_qa_list_skill_manifests` + `sumo_qa_load_skill_context`) that fetches a skill in slices — a routing manifest, one section, one lazy module, or the full body — so a host pays the routing slice on each revisit instead of the whole body every time. `section`/`module`/`full` are **canonical** (verbatim from the file — cite/follow them); the **manifest** paths are *compact navigation aids*, not a substitute for the procedure text. Load the full body (or the exact section) when a workflow actually needs the wording. See [docs/TOOLS.md](docs/TOOLS.md#which-path-to-use--canonical-vs-compact) and [docs/SKILLS.md](docs/SKILLS.md#progressive-loading--manifest--section--module--full). |
 | **Knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques. The agent picks from these instead of recalling from training data. Editable as plain markdown. Specialty-tool picks are deliberately not catalogued — the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
 
 ## Host support
