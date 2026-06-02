@@ -136,6 +136,47 @@ source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-unproven-escalation.ab.yaml --no-cache
 ```
 
+## Discriminating-input fence probe (issue #296)
+
+`skill-reviewing-before-merge-fence-parser.yaml` grades the specialisation of
+the 2b discipline to a **stateful character-scanning parser** (the #287 dogfood
+miss: a review asserted "fence-aware parse verified correct" for a markdown
+heading indexer whose fence tracker stored only the fence CHARACTER, not its
+LENGTH — so a 4-tick outer fence wrapping a 3-tick block closes early and
+`## heading`-looking lines inside the code block get indexed as real entries).
+The seed hands the candidate a diff that delegates fence-skip to a pre-existing
+helper whose close-test compares only the marker char, plus a green suite
+described as the "comprehensive fenced-code-block test set" using only
+well-formed fences. The skill must NOT pronounce the parser "verified correct"
+from the code read; it must recognise the structural tell (char-only tracking is
+the defect, not proof), map the parser UNPROVEN, and **prescribe concrete
+discriminating inputs** with broken-vs-correct rationale — a 4-tick fence
+wrapping a 3-tick block, a ≥4-space-indented fence-looking line, `~~~` vs
+backtick, an unclosed fence at EOF, a trailing-content close — required in the
+test gate before SAFE, then deliver NOT SAFE TO MERGE. Candidate `gpt-5-mini`,
+judge `gpt-5.5`. Picked up by `npm run eval:all` automatically.
+
+```bash
+source ~/.config/promptfoo-keys.env
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-fence-parser.yaml --no-cache
+```
+
+**Load-bearing control (`.ab.yaml`).** `skill-reviewing-before-merge-fence-parser.ab.yaml`
+runs the SAME seed against the PRE-EDIT (origin/main) SKILL.md body (A0) and the
+post-#296 body (A1). The pre-edit body names the char-not-length tell and reaches
+NOT SAFE, but — lacking the step-4 stateful-parser fence probe — it does NOT
+prescribe a concrete discriminating fence input with broken-vs-correct rationale
+before SAFE, a SHAPE FAIL under the rubric. A0 (old body) FAILs, A1 (new body)
+PASSes; that lift isolates the #296 behaviour. The A0 body is snapshotted at
+`fixtures/reviewing-before-merge-PRE-296.SKILL.md` — refresh it if the baseline
+moves.
+
+```bash
+source ~/.config/promptfoo-keys.env
+# A0 (pre-296 body) FAIL vs A1 (post-296 body) PASS
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-fence-parser.ab.yaml --no-cache
+```
+
 ## How to run
 
 ### One-time setup
@@ -323,6 +364,8 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
 | `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) load-bearing control (see "UNPROVEN-escalation corpus" above) |
 | `fixtures/reviewing-before-merge-PRE-187.SKILL.md` | Snapshot of the pre-#187 SKILL.md body, the A0 control leg for the unproven-escalation `.ab.yaml` |
+| `skill-reviewing-before-merge-fence-parser.yaml` + `.ab.yaml` | Issue #296 discriminating-input fence probe + A0(pre-edit)/A1(post-edit) load-bearing control (see "Discriminating-input fence probe" above) |
+| `fixtures/reviewing-before-merge-PRE-296.SKILL.md` | Snapshot of the pre-#296 SKILL.md body, the A0 control leg for the fence-parser `.ab.yaml` |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
