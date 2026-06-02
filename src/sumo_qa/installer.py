@@ -100,6 +100,8 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_load_techniques",
     "sumo_qa_load_standards",
     "sumo_qa_load_rules",
+    # Per-entry / compact catalogue loader (#287, epic #137 Lever 4)
+    "sumo_qa_load_catalogue_entry",
     # Capabilities discovery
     "sumo_qa_capabilities",
     # Repo-map scanner (#155 slice 3)

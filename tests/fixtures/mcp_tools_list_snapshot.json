@@ -19,6 +19,7 @@
     "sumo_qa_install_external_skill",
     "sumo_qa_list_skill_manifests",
     "sumo_qa_load_approaches",
+    "sumo_qa_load_catalogue_entry",
     "sumo_qa_load_classifications",
     "sumo_qa_load_principles",
     "sumo_qa_load_rules",
@@ -2295,6 +2296,51 @@
           "result"
         ],
         "title": "sumo_qa_load_approachesOutput",
+        "type": "object"
+      }
+    },
+    "sumo_qa_load_catalogue_entry": {
+      "inputSchema": {
+        "properties": {
+          "catalogue": {
+            "title": "Catalogue",
+            "type": "string"
+          },
+          "format": {
+            "default": "full",
+            "title": "Format",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          }
+        },
+        "required": [
+          "catalogue"
+        ],
+        "title": "sumo_qa_load_catalogue_entryArguments",
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "sumo_qa_load_catalogue_entryOutput",
         "type": "object"
       }
     },

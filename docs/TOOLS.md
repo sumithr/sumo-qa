@@ -50,6 +50,9 @@ Each returns a markdown catalogue as plain text. The host LLM reasons over the r
 | `sumo_qa_load_techniques()` | Test design techniques (black-box, white-box, experience-based, static, property-based, mutation) |
 | `sumo_qa_load_standards(classification?)` | Team's loaded standards packs; optional metadata-based filter by one or more classifications |
 | `sumo_qa_load_rules(classification?)` | Team's loaded change rules; optional filter by one or more classifications |
+| `sumo_qa_load_catalogue_entry(catalogue, name?, format?)` | One entry from a prose catalogue (`classifications`, `approaches`, `principles`, `techniques`), or the whole catalogue in compact form when `name` is omitted; a lighter alternative to the full-text loaders |
+
+`sumo_qa_load_catalogue_entry` is a progressive-loading aid: pass `name` (a slug id like `api_contract_change` / `equivalence-partitioning`, or the verbatim heading) to fetch a single entry, or omit it to fetch the whole catalogue. `format="full"` (default) returns verbatim text marked `canonical=true` — **safe to cite**. `format="compact"` returns a truncated lead-line summary marked `canonical=false` — **a navigation/recall aid, NOT a citation replacement**; load the full form (or the zero-argument `sumo_qa_load_*` loader) when exact wording matters. An unknown catalogue, name, or format — or a missing/unreadable catalogue file (e.g. a bad `QA_KNOWLEDGE_PATH` or a broken bundle) — returns a JSON error envelope listing the valid choices; the tool never raises. The zero-argument `sumo_qa_load_*` loaders are unchanged.
 
 Specialty-tool picks are intentionally NOT catalogued — the discipline (in `using-sumo-qa`) is to observe the risk surface, web-search current options for the user's stack, and cite when naming a tool. A static catalogue would anchor toward yesterday's brands and create a false floor where novel surfaces never trigger discovery.
 
