@@ -986,28 +986,36 @@ class TestRunBaselineLegacySnapshotFallback:
 
 
 class TestRunBaselineLegacyFallbackMultiHyphenDisambiguation:
-    """Issue #273 (review P2, round 2): the round-1 legacy fallback peeled the
-    FINAL hyphen segment as the label and accepted any name whose leading part
-    equalled the target slug EXACTLY. That re-opens a cross-match the PR exists
-    to kill: legacy labels CAN be multi-hyphen (``removability-gate`` — see
-    ``--label`` / SKILL.md:23), so a real legacy snapshot of the BASE slug
+    """Issue #273 (review P2, rounds 2 & 3): the round-1 legacy fallback peeled
+    the FINAL hyphen segment as the label and accepted any name whose leading
+    part equalled the target slug EXACTLY. That re-opens a cross-match the PR
+    exists to kill: legacy labels CAN be multi-hyphen (``removability-gate`` —
+    see ``--label`` / SKILL.md:23), so a real legacy snapshot of the BASE slug
     ``reviewing-before-merge`` labelled ``removability-gate`` —
-    ``…-skill-reviewing-before-merge-removability-gate.json`` — is WRONGLY
+    ``…-skill-reviewing-before-merge-removability-gate.json`` — was WRONGLY
     attributed to the longer known slug ``reviewing-before-merge-removability``
     (peeling the final ``-gate`` segment). A wrong prior-baseline match is worse
     than a missed delta.
 
-    Fix: disambiguate against the KNOWN config-slug set (the slugs the wrapper
-    can actually resolve). A legacy name is attributed only to the SHORTEST
-    known slug that explains it; if a strictly shorter known slug also explains
-    the region via a multi-hyphen label, the name is ambiguous for the longer
-    target and is skipped.
+    Round 2 tried a "shortest known slug owns it" heuristic. That STILL
+    cross-matches in the other direction: a legacy name that really belongs to a
+    SUFFIXED slug (``…-reviewing-before-merge-adversarial-baseline.json``, slug
+    ``reviewing-before-merge-adversarial`` + label ``baseline``) gets
+    wrong-matched to the BASE target ``reviewing-before-merge`` because no
+    strictly-shorter known slug exists, so "shortest owns" hands it to the base
+    — the exact base-vs-suffixed cross-match this PR exists to prevent.
+
+    Round-3 fix (FINAL): **exactly-one-explains**. Compute the SET of known
+    slugs whose hyphen-bounded prefix explains the region. Attribute the name to
+    target T only when EXACTLY ONE known slug explains the region AND that slug
+    is T. Two or more explaining slugs → AMBIGUOUS → match NOTHING (skip for
+    every target). Symmetric: neither base nor suffixed sibling can claim an
+    ambiguous name; a wrong match never happens, a missed delta is acceptable.
 
     Technique: equivalence partitioning over the (target-slug × legacy-name)
-    space, with the discriminating partition being a multi-hyphen legacy label
-    whose region is ALSO explainable by a longer known slug. The round-1
-    single-token-label fallback and the known-slug-disambiguated fallback
-    diverge on exactly this partition.
+    space. The discriminating partitions are (a) a multi-hyphen legacy label
+    whose region two known slugs explain (ambiguous, both targets skip) and
+    (b) a region exactly one known slug explains (the lone slug matches).
     """
 
     @staticmethod
@@ -1015,30 +1023,29 @@ class TestRunBaselineLegacyFallbackMultiHyphenDisambiguation:
         baselines = tmp_path / "docs" / "qa" / "runs" / "eval-baselines"
         baselines.mkdir(parents=True)
         # A real legacy snapshot of the BASE slug `reviewing-before-merge` with a
-        # MULTI-HYPHEN label `removability-gate`. Under the round-1 fallback this
-        # is mis-attributed to the longer known slug `reviewing-before-merge-
-        # removability` (label `gate`).
+        # MULTI-HYPHEN label `removability-gate`. Two known slugs explain this
+        # region (`reviewing-before-merge` + label `removability-gate`, and
+        # `reviewing-before-merge-removability` + label `gate`) → ambiguous.
         (baselines / "2026-05-30-skill-reviewing-before-merge-removability-gate.json").write_text(
             json.dumps({"results": {"stats": {"successes": 7, "failures": 2}}})
         )
         return baselines
 
-    # The two known config slugs that make the legacy name ambiguous: the base
-    # `reviewing-before-merge` AND the longer `reviewing-before-merge-removability`.
+    # Two known config slugs that BOTH explain the seeded legacy name's region:
+    # the base `reviewing-before-merge` AND the longer
+    # `reviewing-before-merge-removability`.
     _KNOWN = frozenset({"reviewing-before-merge", "reviewing-before-merge-removability"})
 
     def test_longer_known_slug_does_not_wrong_match_multi_hyphen_legacy(
         self, tmp_path: Path
     ) -> None:
         """Target ``reviewing-before-merge-removability`` must NOT be matched to
-        ``…-skill-reviewing-before-merge-removability-gate.json``: the shorter
-        known slug ``reviewing-before-merge`` also explains the region (label
-        ``removability-gate``), so the name is AMBIGUOUS for the longer target →
-        skip. Skipping (no prior) is acceptable; wrong-matching is not.
+        ``…-skill-reviewing-before-merge-removability-gate.json``: two known slugs
+        explain the region, so the name is AMBIGUOUS → skip. Skipping (no prior)
+        is acceptable; wrong-matching is not.
 
         Fails on the round-1 code: its single-token-label fallback peels ``-gate``
-        and accepts the name for ``reviewing-before-merge-removability`` (leading
-        part equals the target exactly) — a WRONG prior-baseline match.
+        and accepts the name for ``reviewing-before-merge-removability``.
         """
         baselines = self._seed(tmp_path)
         mod = _import_run_baseline()
@@ -1054,17 +1061,20 @@ class TestRunBaselineLegacyFallbackMultiHyphenDisambiguation:
         assert prior is None, (
             "legacy fallback wrong-matched a multi-hyphen-labelled BASE snapshot to "
             f"the longer known slug: {prior}. With both `reviewing-before-merge` and "
-            "`reviewing-before-merge-removability` known, the name is ambiguous for "
-            "the longer target and must be skipped, not cross-matched."
+            "`reviewing-before-merge-removability` known, two slugs explain the name → "
+            "ambiguous → skip, not cross-match."
         )
 
-    def test_base_known_slug_is_attributed_the_multi_hyphen_legacy_name(
-        self, tmp_path: Path
-    ) -> None:
-        """Target ``reviewing-before-merge`` IS matched to the multi-hyphen
-        legacy name (label ``removability-gate``): it is the shortest known slug
-        explaining the region, so it owns the name and the first post-upgrade run
-        gets its before/after delta."""
+    def test_base_known_slug_skips_ambiguous_multi_hyphen_legacy_name(self, tmp_path: Path) -> None:
+        """Round-3 change: target ``reviewing-before-merge`` must ALSO skip the
+        ambiguous multi-hyphen legacy name. Two known slugs
+        (``reviewing-before-merge``, ``reviewing-before-merge-removability``)
+        explain the region, so the name is ambiguous and is matched by NEITHER —
+        the base no longer "owns" it under the exactly-one-explains rule.
+
+        Fails on the round-2 code: "shortest owns" attributes the ambiguous name
+        to the base (the shortest explaining known slug), returning a prior.
+        """
         baselines = self._seed(tmp_path)
         mod = _import_run_baseline()
         current = baselines / "2026-06-02-skill-reviewing-before-merge__baseline.json"
@@ -1076,11 +1086,74 @@ class TestRunBaselineLegacyFallbackMultiHyphenDisambiguation:
             known_slugs=self._KNOWN,
         )
 
-        assert (
-            prior == baselines / "2026-05-30-skill-reviewing-before-merge-removability-gate.json"
-        ), (
-            "base known slug did not recover its own multi-hyphen-labelled legacy "
-            f"snapshot: {prior} — it is the shortest known slug explaining the name."
+        assert prior is None, (
+            "base target matched an AMBIGUOUS legacy name under the exactly-one-explains "
+            f"rule: {prior}. Two known slugs explain the region, so it must be skipped "
+            "for the base too — not owned by the shortest explaining slug."
+        )
+
+    def test_base_target_does_not_wrong_match_suffixed_sibling_legacy_name(
+        self, tmp_path: Path
+    ) -> None:
+        """Round-3 regression (the cross-match round 2 STILL allowed): a legacy
+        name that belongs to the SUFFIXED slug
+        ``reviewing-before-merge-adversarial`` (label ``baseline``) —
+        ``…-skill-reviewing-before-merge-adversarial-baseline.json`` — must NOT be
+        matched to the BASE target ``reviewing-before-merge``. BOTH known slugs
+        explain the region, so the name is ambiguous → skip for the base.
+
+        This exercises the PRODUCTION path (``known_slugs`` supplied), unlike the
+        legacy-fallback test that omits ``known_slugs``. Fails on the round-2
+        "shortest owns" code: no strictly-shorter known slug than the base exists,
+        so the base wrong-matches the suffixed sibling's snapshot.
+        """
+        baselines = tmp_path / "docs" / "qa" / "runs" / "eval-baselines"
+        baselines.mkdir(parents=True)
+        (
+            baselines / "2026-05-31-skill-reviewing-before-merge-adversarial-baseline.json"
+        ).write_text(json.dumps({"results": {"stats": {"successes": 2, "failures": 6}}}))
+        mod = _import_run_baseline()
+        current = baselines / "2026-06-02-skill-reviewing-before-merge__baseline.json"
+        known = frozenset({"reviewing-before-merge", "reviewing-before-merge-adversarial"})
+
+        prior = mod.find_prior_baseline(
+            baselines,
+            "reviewing-before-merge",
+            current,
+            known_slugs=known,
+        )
+
+        assert prior is None, (
+            "base target wrong-matched a SUFFIXED sibling's legacy snapshot "
+            f"(slug `reviewing-before-merge-adversarial`, label `baseline`): {prior}. "
+            "Both known slugs explain the region → ambiguous → the base must skip it. "
+            "The round-2 'shortest owns' rule wrongly handed it to the base."
+        )
+
+    def test_lone_known_slug_is_attributed_its_legacy_name(self, tmp_path: Path) -> None:
+        """Round-3 positive case: when only ONE known slug explains a legacy
+        name's region, that slug MATCHES it (the common-case delta is recovered).
+        Known {``reviewing-before-merge``} only — no suffixed sibling known — and
+        a legacy ``…-skill-reviewing-before-merge-baseline.json`` (label
+        ``baseline``): exactly one explains → match the base."""
+        baselines = tmp_path / "docs" / "qa" / "runs" / "eval-baselines"
+        baselines.mkdir(parents=True)
+        (baselines / "2026-05-30-skill-reviewing-before-merge-baseline.json").write_text(
+            json.dumps({"results": {"stats": {"successes": 8, "failures": 1}}})
+        )
+        mod = _import_run_baseline()
+        current = baselines / "2026-06-02-skill-reviewing-before-merge__baseline.json"
+
+        prior = mod.find_prior_baseline(
+            baselines,
+            "reviewing-before-merge",
+            current,
+            known_slugs=frozenset({"reviewing-before-merge"}),
+        )
+
+        assert prior == baselines / "2026-05-30-skill-reviewing-before-merge-baseline.json", (
+            "lone known slug did not recover its own legacy snapshot: "
+            f"{prior} — exactly one known slug explains the region, so it must match."
         )
 
 

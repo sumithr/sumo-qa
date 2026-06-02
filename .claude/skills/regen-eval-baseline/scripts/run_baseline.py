@@ -209,23 +209,26 @@ def _legacy_snapshot_matches_slug(
     ``reviewing-before-merge-removability`` + label ``gate``. We resolve this by
     consulting the set of KNOWN config slugs the wrapper can actually produce.
 
-    With ``known_slugs`` provided, a legacy name is attributed to ``slug`` ONLY
-    when ``slug`` is the SHORTEST known slug whose ``<slug>-`` prefix explains
-    the name's region. If a STRICTLY SHORTER known slug ALSO explains the same
-    region (via a longer, multi-hyphen label), the name is AMBIGUOUS for the
-    longer target and must NOT be matched to it — losing that delta is
-    acceptable; a WRONG prior-baseline match is not. This keeps the fallback
-    best-effort and never wrong-matching:
+    With ``known_slugs`` provided, the rule is **exactly-one-explains**: compute
+    the SET of known slugs S whose hyphen-bounded prefix ``f"{S}-"`` explains the
+    name's region (S followed by a hyphen and a non-empty label). The name is
+    attributed to ``slug`` ONLY when EXACTLY ONE known slug explains the region
+    AND that slug IS ``slug``. If TWO OR MORE known slugs explain it the name is
+    AMBIGUOUS and matches NOTHING — it is skipped for every target. Losing that
+    delta is acceptable; a WRONG prior-baseline match is not. This is symmetric:
+    neither the base nor a suffixed sibling can claim an ambiguous name.
 
-    - ``…-skill-reviewing-before-merge-removability-gate.json`` is attributed to
-      ``reviewing-before-merge`` (no shorter known slug explains it), NOT to
-      ``reviewing-before-merge-removability`` (the shorter ``reviewing-before-merge``
-      also explains the region → ambiguous → skip).
-    - The base/suffixed cross-match guard is preserved: target
-      ``reviewing-before-merge`` never matches the longer suffixed sibling
-      ``…-reviewing-before-merge-adversarial-baseline.json`` — its region is not
-      prefixed by ``reviewing-before-merge-`` followed by a label that leaves the
-      target as the explaining slug.
+    - ``…-skill-reviewing-before-merge-adversarial-baseline.json``, known
+      {``reviewing-before-merge``, ``reviewing-before-merge-adversarial``}: BOTH
+      explain → ambiguous → skip for BOTH targets. The base
+      ``reviewing-before-merge`` does NOT wrong-match it (the cross-match this PR
+      exists to prevent), and neither does the suffixed sibling.
+    - ``…-skill-reviewing-before-merge-removability-gate.json``, known
+      {``reviewing-before-merge``, ``reviewing-before-merge-removability``}: both
+      explain → ambiguous → skip for both.
+    - ``…-skill-reviewing-before-merge-baseline.json``, known
+      {``reviewing-before-merge``} only (no suffixed sibling known): exactly one
+      explains → MATCH the base (the common-case delta is recovered).
 
     With ``known_slugs`` omitted (None), this falls back to the round-1
     behaviour: accept ``<slug>-<label>`` only when ``<label>`` is a SINGLE kebab
@@ -249,12 +252,11 @@ def _legacy_snapshot_matches_slug(
         # non-empty label (so ``s`` alone, with no trailing label, never counts).
         return region.startswith(f"{s}-") and len(region) > len(s) + 1
 
-    if not explains(slug):
-        return False
-    # Ambiguous for ``slug`` if any STRICTLY SHORTER known slug also explains the
-    # region (it would own the name via a longer, multi-hyphen label). Only the
-    # shortest known slug explaining the region is attributed the name.
-    return not any(s != slug and len(s) < len(slug) and explains(s) for s in known_slugs)
+    # Exactly-one-explains: the name belongs to ``slug`` only when ``slug`` is the
+    # SOLE known slug whose hyphen-bounded prefix explains the region. Two or more
+    # explaining slugs → ambiguous → matches nothing (skipped for every target).
+    explaining = {s for s in known_slugs if explains(s)}
+    return explaining == {slug}
 
 
 def find_prior_baseline(
@@ -283,9 +285,10 @@ def find_prior_baseline(
     instead of reporting "No prior baseline". The legacy ``<slug>-<label>`` form
     is ambiguous for multi-hyphen labels; ``known_slugs`` (the set of slugs the
     wrapper can actually resolve — pass ``known_config_slugs(promptfoo_dir)``)
-    disambiguates it so the fallback attributes a legacy name only to the
-    shortest known slug that explains it and NEVER wrong-matches a longer target
-    against a multi-hyphen-labelled name (see ``_legacy_snapshot_matches_slug``).
+    disambiguates it so the fallback attributes a legacy name only when EXACTLY
+    ONE known slug explains it (and that slug is the target) and NEVER
+    wrong-matches a base or a suffixed sibling against a name two or more known
+    slugs could explain (see ``_legacy_snapshot_matches_slug``).
     When ``known_slugs`` is omitted the fallback uses the bounded single-token
     rule.
     """
