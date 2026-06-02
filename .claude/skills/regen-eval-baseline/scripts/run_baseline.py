@@ -4,9 +4,18 @@
 Runs `npx promptfoo eval` against the selected config — a base skill YAML
 (`--skill <name>`) or an exact suffixed / `.ab.yaml` config (`--config
 <selector>`) — writes the JSON output to
-docs/qa/runs/eval-baselines/<date>-skill-<slug>-<label>.json, and prints a
+docs/qa/runs/eval-baselines/<date>-skill-<slug>__<label>.json, and prints a
 pass/fail summary. If a prior baseline exists for the same config, also
 prints a brief delta.
+
+The slug and label are separated by a literal ``__`` (double underscore).
+Both are validated kebab-case tokens (lowercase alphanumerics + single
+hyphens), so neither can contain ``__`` — that makes the slug/label boundary
+unambiguous even when the label is itself multi-hyphen (e.g.
+``removability-gate``). A single-hyphen separator would be ambiguous: with a
+multi-hyphen label, ``<slug>-<label>`` cannot be split back into its parts
+without a closed label vocabulary, and the label vocabulary is open-ended
+(see ``--label``).
 
 The baseline directory is gitignored — these snapshots are local evidence
 of past runs, not artefact that ships with the repo.
@@ -31,7 +40,7 @@ def validate_slug(value: str, field: str) -> None:
 
     Both `--skill` and `--label` are interpolated into the snapshot
     filename:
-        docs/qa/runs/eval-baselines/<date>-skill-<skill>-<label>.json
+        docs/qa/runs/eval-baselines/<date>-skill-<skill>__<label>.json
     A value containing `/` or `..` can land the snapshot outside the
     baselines dir entirely. Reject before composing the path so the
     validation failure is on the input, not on the resulting state.
@@ -117,7 +126,7 @@ def load_summary(path: Path) -> tuple[int, int]:
 def config_to_slug(config_path: Path) -> str:
     """Turn a resolved config filename into a kebab-case snapshot slug.
 
-    The snapshot filename uses ``<date>-skill-<slug>-<label>.json``; the slug
+    The snapshot filename uses ``<date>-skill-<slug>__<label>.json``; the slug
     must be a valid kebab-case token (see ``validate_slug``). A config stem
     carries the ``skill-`` prefix and may carry a ``.ab`` infix
     (``skill-x-adversarial.ab.yaml`` → stem ``skill-x-adversarial.ab``); strip
@@ -130,46 +139,52 @@ def config_to_slug(config_path: Path) -> str:
     return stem.removeprefix("skill-").replace(".", "-")
 
 
-SNAPSHOT_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-skill-(?P<body>.+)\.json$")
+# Slug and label are separated by ``__`` (a token neither a kebab slug nor a
+# kebab label can contain), so the boundary is unambiguous even for a
+# multi-hyphen label. The slug is captured non-greedily up to the FIRST ``__``;
+# the label (which may itself contain ``-``) is the remainder.
+SNAPSHOT_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-skill-(?P<slug>.+?)__(?P<label>.+)\.json$")
 
 
 def parse_snapshot_slug(name: str) -> str | None:
     """Extract the slug from a snapshot filename, or None if it doesn't parse.
 
-    Snapshots are written as ``<date>-skill-<slug>-<label>.json`` where both
-    ``<slug>`` and ``<label>`` are kebab-case tokens and ``<label>`` is a
-    single segment (``baseline`` / ``postcut`` / ``greenfix`` — see
-    ``--label``). The slug is therefore everything between ``skill-`` and the
-    final ``-<label>`` segment.
+    Snapshots are written as ``<date>-skill-<slug>__<label>.json`` where both
+    ``<slug>`` and ``<label>`` are kebab-case tokens. The ``__`` separator is
+    unambiguous: neither a kebab slug nor a kebab label can contain a double
+    underscore (``validate_slug`` enforces lowercase alphanumerics + single
+    hyphens only), so the slug is everything between ``skill-`` and the FIRST
+    ``__``, regardless of how many hyphens the label carries.
 
-    A glob like ``*-skill-<slug>-*.json`` would treat ``<slug>`` as a mere
-    substring and so cross-match every longer suffixed sibling (base
-    ``reviewing-before-merge`` matching ``reviewing-before-merge-adversarial``,
-    ``reviewing-before-merge-ab``, …). Parsing the slug as a bounded token and
-    comparing it for *equality* (see ``find_prior_baseline``) is what keeps a
-    base config's delta from comparing against a different eval suite.
+    The earlier ``<slug>-<label>`` form with a single-hyphen separator was
+    ambiguous for multi-hyphen labels (``removability-gate``): an
+    ``rpartition('-')`` split would peel only the final segment, parsing
+    ``reviewing-before-merge-removability-gate`` as slug
+    ``reviewing-before-merge-removability`` (dropping ``-gate``) — missing the
+    real prior and cross-matching a different suffixed config. The ``__``
+    separator removes that ambiguity without needing a closed label vocabulary
+    (the label set is open-ended — see ``--label``).
     """
     m = SNAPSHOT_NAME_RE.match(name)
     if m is None:
         return None
-    body = m.group("body")
-    # The label is the final single hyphen segment; the slug is the rest.
-    slug, sep, _label = body.rpartition("-")
-    if not sep:
-        return None
-    return slug
+    return m.group("slug")
 
 
 def find_prior_baseline(baselines_dir: Path, slug: str, current: Path) -> Path | None:
     """Most recent prior snapshot for this EXACT slug, by date-prefix order.
 
     Selection matches the slug as a bounded token (parsed out of the
-    ``<date>-skill-<slug>-<label>.json`` filename and compared for equality),
+    ``<date>-skill-<slug>__<label>.json`` filename and compared for equality),
     not as a glob substring — the same exact-token discipline
-    ``resolve_config_path`` uses on the selection side. This prevents a base
-    config (``reviewing-before-merge``) from picking a later-dated *suffixed
-    sibling*'s snapshot (``…-adversarial-…``, ``…-ab-…``) as its prior and
-    printing a delta across two different eval suites.
+    ``resolve_config_path`` uses on the selection side. The ``__`` boundary
+    means this holds even when the label is multi-hyphen: target
+    ``reviewing-before-merge`` matches only ``…-skill-reviewing-before-merge__*``
+    and never a suffixed sibling ``…-skill-reviewing-before-merge-adversarial__*``
+    (whose parsed slug is the longer ``reviewing-before-merge-adversarial``).
+    This prevents a base config from picking a later-dated *suffixed sibling*'s
+    snapshot (``…-adversarial…``, ``…-ab…``) as its prior and printing a delta
+    across two different eval suites.
     """
     if not baselines_dir.is_dir():
         return None
@@ -278,7 +293,7 @@ def main() -> int:
     baselines_dir.mkdir(parents=True, exist_ok=True)
 
     today = dt.date.today().isoformat()
-    output_path = baselines_dir / f"{today}-skill-{snapshot_slug}-{args.label}.json"
+    output_path = baselines_dir / f"{today}-skill-{snapshot_slug}__{args.label}.json"
     if output_path.exists() and not args.force:
         print(
             f"Snapshot already exists at {output_path}. Re-run with --force to overwrite, "

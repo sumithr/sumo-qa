@@ -20,9 +20,9 @@ Pass **exactly one** config selector — either `--skill` (the base config) or `
 
 1. **`--skill <name>`** — the base config `tests/evals/promptfoo/skill-<name>.yaml`. Resolves that file **exactly**; it never cross-matches a longer suffixed sibling (e.g. `--skill reviewing-before-merge` drives `skill-reviewing-before-merge.yaml`, NOT `skill-reviewing-before-merge-adversarial.yaml`). If the named config is absent the script lists the available configs.
 2. **`--config <selector>`** — for a suffixed scenario config or an `.ab.yaml` A/B control. Accepts a bare stem (`skill-reviewing-before-merge-adversarial`), a filename including the double suffix (`skill-reviewing-before-merge-adversarial.ab.yaml`), or a full/relative path. Resolved **exactly** — a stem composes one filename and that file must exist; the resolver never falls back to a near-named neighbour, so a base name can't accidentally snapshot a suffixed sibling and vice-versa.
-3. **`--label`** — short kebab-case tag for the snapshot, defaults to `baseline`. Past conventions in the dir: `baseline`, `postcut`, `greenfix`, or describe-the-change like `removability-gate`. The label is what makes two snapshots taken on the same day distinguishable.
+3. **`--label`** — short kebab-case tag for the snapshot, defaults to `baseline`. Past conventions in the dir: `baseline`, `postcut`, `greenfix`, or describe-the-change like `removability-gate`. The label vocabulary is open-ended and may itself be multi-hyphen, so the snapshot filename separates the slug from the label with a literal `__` (double underscore) — `<date>-skill-<slug>__<label>.json`. Because a validated kebab slug/label can never contain `__`, the slug/label boundary stays unambiguous even for a multi-hyphen label. The label is what makes two snapshots taken on the same day distinguishable.
 
-The snapshot filename derives from the resolved config, not just `--skill`: a `.ab` infix becomes a hyphen in the slug (`skill-x-adversarial.ab.yaml` → `…-skill-x-adversarial-ab-<label>.json`), so the base config, its suffixed scenario, and its `.ab` control each snapshot to a distinct, non-colliding path and diff only against their own prior snapshots.
+The snapshot filename derives from the resolved config, not just `--skill`: a `.ab` infix becomes a hyphen in the slug (`skill-x-adversarial.ab.yaml` → `…-skill-x-adversarial-ab__<label>.json`), so the base config, its suffixed scenario, and its `.ab` control each snapshot to a distinct, non-colliding path and diff only against their own prior snapshots.
 
 ### Wrapper vs raw `promptfoo eval -c`
 
@@ -55,7 +55,7 @@ python3 .claude/skills/regen-eval-baseline/scripts/run_baseline.py \
 
 The script:
 
-1. Computes the snapshot path: `docs/qa/runs/eval-baselines/<today>-skill-<slug>-<label>.json` (the slug comes from the resolved config — see Inputs).
+1. Computes the snapshot path: `docs/qa/runs/eval-baselines/<today>-skill-<slug>__<label>.json` (the slug comes from the resolved config — see Inputs; `__` separates slug from label so a multi-hyphen label stays unambiguous).
 2. Runs `npx promptfoo eval` with `--no-cache` (so the snapshot reflects fresh judge calls, not stale cache hits) and writes the JSON output to that path.
 3. Prints pass/fail counts.
 4. If a prior snapshot for the same config exists, prints a delta — passed and failed counts vs the previous run.

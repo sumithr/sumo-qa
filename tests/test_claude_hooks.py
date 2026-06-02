@@ -657,11 +657,17 @@ class TestRunBaselinePriorBaselineResolution:
     base config against suffixed siblings either. ``resolve_config_path``
     (selection) was fixed to exact-token matching, but ``find_prior_baseline``
     (the delta) still globbed ``*-skill-<slug>-*.json`` — and because the slug
-    separator and the suffix separator are both ``-``, the base slug
+    separator and the suffix separator were both ``-``, the base slug
     ``reviewing-before-merge`` ALSO matched every suffixed sibling snapshot
     (``…-adversarial-…``, ``…-ab-…``). A base run could then pick a later-dated
     sibling's snapshot as its "prior baseline" and print a delta comparing two
     DIFFERENT eval suites — the exact cross-match this issue exists to kill.
+
+    Round 2 (review R2, MED): snapshots now separate slug from label with a
+    literal ``__`` (double underscore), so the slug/label boundary is
+    unambiguous even when the LABEL is multi-hyphen (``removability-gate``).
+    The old single-hyphen ``rpartition('-')`` split silently dropped the
+    label's final segment, mis-parsing the slug.
 
     Technique: equivalence partitioning over the snapshot-slug space, with the
     discriminating partition being a base snapshot coexisting with a
@@ -682,12 +688,12 @@ class TestRunBaselinePriorBaselineResolution:
         baselines.mkdir(parents=True)
         for name, passed, failed in (
             # Base config snapshot — the only one that should match the base query.
-            ("2026-06-01-skill-reviewing-before-merge-baseline.json", 10, 0),
+            ("2026-06-01-skill-reviewing-before-merge__baseline.json", 10, 0),
             # Later-dated suffixed sibling — a DIFFERENT eval suite. Must never
             # be selected as the base config's prior.
-            ("2026-06-02-skill-reviewing-before-merge-adversarial-baseline.json", 2, 5),
+            ("2026-06-02-skill-reviewing-before-merge-adversarial__baseline.json", 2, 5),
             # Later-dated .ab sibling — also a different suite.
-            ("2026-06-03-skill-reviewing-before-merge-ab-baseline.json", 7, 1),
+            ("2026-06-03-skill-reviewing-before-merge-ab__baseline.json", 7, 1),
         ):
             (baselines / name).write_text(
                 json.dumps({"results": {"stats": {"successes": passed, "failures": failed}}})
@@ -699,15 +705,15 @@ class TestRunBaselinePriorBaselineResolution:
         never the later-dated suffixed/.ab sibling. This is the discriminator:
         the old ``glob('*-skill-reviewing-before-merge-*.json')`` matches all
         three seeded files and ``sorted(...)[-1]`` returns the latest sibling
-        (``…-ab-baseline.json``); exact-token matching returns the base.
+        (``…-ab__baseline.json``); exact-token matching returns the base.
         """
         baselines = self._seed_baselines(tmp_path)
         mod = _import_run_baseline()
-        current = baselines / "2026-06-04-skill-reviewing-before-merge-baseline.json"
+        current = baselines / "2026-06-04-skill-reviewing-before-merge__baseline.json"
 
         prior = mod.find_prior_baseline(baselines, "reviewing-before-merge", current)
 
-        assert prior == baselines / "2026-06-01-skill-reviewing-before-merge-baseline.json", (
+        assert prior == baselines / "2026-06-01-skill-reviewing-before-merge__baseline.json", (
             f"base config's prior baseline cross-matched a suffixed sibling: {prior}. "
             "find_prior_baseline must match the slug as a bounded token, not a "
             "glob substring — otherwise the delta compares two different eval suites."
@@ -717,12 +723,13 @@ class TestRunBaselinePriorBaselineResolution:
         """A suffixed config finds only its own prior, never the base's."""
         baselines = self._seed_baselines(tmp_path)
         mod = _import_run_baseline()
-        current = baselines / "2026-06-05-skill-reviewing-before-merge-adversarial-baseline.json"
+        current = baselines / "2026-06-05-skill-reviewing-before-merge-adversarial__baseline.json"
 
         prior = mod.find_prior_baseline(baselines, "reviewing-before-merge-adversarial", current)
 
         assert (
-            prior == baselines / "2026-06-02-skill-reviewing-before-merge-adversarial-baseline.json"
+            prior
+            == baselines / "2026-06-02-skill-reviewing-before-merge-adversarial__baseline.json"
         ), f"suffixed config picked a non-matching prior: {prior}"
 
     def test_ab_slug_prior_is_its_own_snapshot(self, tmp_path: Path) -> None:
@@ -730,11 +737,11 @@ class TestRunBaselinePriorBaselineResolution:
         finds only its own prior, never the base's."""
         baselines = self._seed_baselines(tmp_path)
         mod = _import_run_baseline()
-        current = baselines / "2026-06-06-skill-reviewing-before-merge-ab-baseline.json"
+        current = baselines / "2026-06-06-skill-reviewing-before-merge-ab__baseline.json"
 
         prior = mod.find_prior_baseline(baselines, "reviewing-before-merge-ab", current)
 
-        assert prior == baselines / "2026-06-03-skill-reviewing-before-merge-ab-baseline.json", (
+        assert prior == baselines / "2026-06-03-skill-reviewing-before-merge-ab__baseline.json", (
             f".ab config picked a non-matching prior: {prior}"
         )
 
@@ -743,11 +750,80 @@ class TestRunBaselinePriorBaselineResolution:
         a sibling's snapshot just because it shares a prefix."""
         baselines = self._seed_baselines(tmp_path)
         mod = _import_run_baseline()
-        current = baselines / "2026-06-07-skill-implementing-with-tdd-baseline.json"
+        current = baselines / "2026-06-07-skill-implementing-with-tdd__baseline.json"
 
         prior = mod.find_prior_baseline(baselines, "implementing-with-tdd", current)
 
         assert prior is None, f"unseen slug borrowed a prefix-sibling's snapshot: {prior}"
+
+    def test_multi_hyphen_label_prior_resolves_and_does_not_cross_match(
+        self, tmp_path: Path
+    ) -> None:
+        """Round-2 MED regression: a MULTI-HYPHEN label (``removability-gate``)
+        must not blur the slug/label boundary.
+
+        (a) The prior for a base snapshot labelled ``removability-gate`` resolves
+            correctly — the whole multi-hyphen label belongs to the label, none
+            of it leaks into the parsed slug.
+        (b) Target ``reviewing-before-merge`` must STILL NOT cross-match a
+            ``reviewing-before-merge-adversarial-*`` snapshot.
+
+        This fails on the old ``rpartition('-')`` parse: with the old ``-``
+        separator, ``…-skill-reviewing-before-merge-removability-gate.json``
+        parses to slug ``reviewing-before-merge-removability`` (it peels only the
+        final ``-gate`` segment as the label), so (a) finds NO prior for
+        ``reviewing-before-merge``; and a base query that fell back to a
+        substring glob would (b) sweep in the adversarial sibling. The ``__``
+        separator makes both directions exact.
+        """
+        baselines = tmp_path / "docs" / "qa" / "runs" / "eval-baselines"
+        baselines.mkdir(parents=True)
+        for name, passed, failed in (
+            # (a) Base config, MULTI-HYPHEN label. The whole `removability-gate`
+            # is the label; the slug is exactly `reviewing-before-merge`.
+            ("2026-06-01-skill-reviewing-before-merge__removability-gate.json", 9, 0),
+            # (b) Suffixed sibling, also multi-hyphen label — a DIFFERENT suite
+            # the base query must never borrow as its prior.
+            (
+                "2026-06-02-skill-reviewing-before-merge-adversarial__removability-gate.json",
+                3,
+                4,
+            ),
+        ):
+            (baselines / name).write_text(
+                json.dumps({"results": {"stats": {"successes": passed, "failures": failed}}})
+            )
+
+        mod = _import_run_baseline()
+
+        # parse side: the multi-hyphen label does not bleed into the slug.
+        assert (
+            mod.parse_snapshot_slug(
+                "2026-06-01-skill-reviewing-before-merge__removability-gate.json"
+            )
+            == "reviewing-before-merge"
+        )
+        assert (
+            mod.parse_snapshot_slug(
+                "2026-06-02-skill-reviewing-before-merge-adversarial__removability-gate.json"
+            )
+            == "reviewing-before-merge-adversarial"
+        )
+
+        # (a) base prior resolves to the base snapshot.
+        current = baselines / "2026-06-03-skill-reviewing-before-merge__removability-gate.json"
+        prior = mod.find_prior_baseline(baselines, "reviewing-before-merge", current)
+        assert (
+            prior == baselines / "2026-06-01-skill-reviewing-before-merge__removability-gate.json"
+        ), (
+            "multi-hyphen-labelled base prior did not resolve — the label's "
+            f"trailing segment leaked into the parsed slug: {prior}"
+        )
+
+        # (b) base query must NOT cross-match the adversarial sibling.
+        assert prior != baselines / (
+            "2026-06-02-skill-reviewing-before-merge-adversarial__removability-gate.json"
+        ), "base config cross-matched a suffixed sibling under a multi-hyphen label"
 
 
 class TestRunBaselineConfigToSlug:
