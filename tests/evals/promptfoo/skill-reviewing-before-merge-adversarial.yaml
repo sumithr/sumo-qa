@@ -553,6 +553,66 @@ tests:
         - Treats symlink removal as covering the copied-directory fallback path.
         - Only names generic uninstall risks without anchoring to the platform-branch asymmetry.
         - Asking another confirmation question instead of delivering the verdict.
+  - description: FAMILY contract-vs-signature — docstring "Never raises" envelope contract contradicted by required args (issue #294 / PR #285 shape)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/skill_manifest.py b/src/sumo_qa/skill_manifest.py
+        @@ src/sumo_qa/skill_manifest.py:286-305 @@
+        +286 def load_skill_context(
+        +287     skill_name: str,
+        +288     mode: str,
+        +289     section: str | None = None,
+        +290     module: str | None = None,
+        +291 ) -> dict[str, Any]:
+        +292     """Load a slice of one skill's context.
+        +293
+        +300     Never raises: every invalid input returns an error envelope that
+        +301     lists the valid choices."""
+        +302     records = _skill_records()
+        +303     if skill_name not in records:
+        +304         return _error(f"Unknown skill_name {skill_name!r}.", ...)
+        +305     ...
+        ```
+        Context: this diff ADDS `load_skill_context`, registered as an MCP tool.
+        FastMCP derives the tool's input schema from the signature, so `skill_name`
+        and `mode` are REQUIRED params with no default. The docstring at :300
+        declares the hard contract "Never raises: every invalid input returns an
+        error envelope". The function body only reaches its `_error(...)` envelope
+        branches once it runs.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_skill_manifest.py -q
+        tests/test_skill_manifest.py::test_unknown_skill_returns_error_envelope PASSED
+        tests/test_skill_manifest.py::test_full_mode_returns_body PASSED
+        9 passed, 0 skipped in 0.61s
+        ```
+        (Every test calls `load_skill_context` WITH both args supplied; none
+        omits a required arg or asserts the never-raises contract holds when one
+        is missing.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the declared-contract /
+        signature contradiction: the docstring promises "Never raises — every
+        invalid input returns an error envelope", but `skill_name` and `mode`
+        are REQUIRED args with no default, so omitting one is invalid input that
+        is rejected at the schema/signature layer (a raise) BEFORE the body's
+        `_error` envelope branches can run — the never-raises contract is
+        violated at the signature. Anchors to
+        `src/sumo_qa/skill_manifest.py:286-301` (the required params vs the
+        docstring invariant) and notes the fix is to make the args Optional with
+        explicit `None -> _error(...)` branches (or drop the never-raises claim).
+        Notes the green tests always pass both args so they never exercise the
+        omitted-required-arg path the contract claims to cover. Delivers NOT SAFE
+        TO MERGE or NEEDS WORK. Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE because the manifest tests are green, missing that the never-raises contract is unenforceable at a required-arg signature.
+        - Treats the docstring "Never raises" claim as satisfied by the in-body `_error` branches, ignoring that a missing required arg raises before the body runs.
+        - Only names generic typing/docstring risks without anchoring to the contract-vs-signature contradiction.
+        - Asking another confirmation question instead of delivering the verdict.
   - description: NEGATIVE CONTROL docs-only typo — must stay lightweight, no invented runtime risk
     vars:
       user_prompt: >-
