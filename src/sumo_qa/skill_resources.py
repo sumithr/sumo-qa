@@ -59,10 +59,12 @@ def register_skill_resources(mcp: Any) -> None:
         name="sumo-qa skill index",
         description=(
             "Compact, deterministic metadata for every bundled sumo-qa skill "
-            "(same payload as the sumo_qa_list_skill_manifests tool): "
-            "skill_name, tool_name, description, content_hash, "
-            "estimated_tokens_full, sections[] and modules[]. Routing/index "
-            "aid, not the skill bodies."
+            "(same payload as the default sumo_qa_list_skill_manifests tool — "
+            "detail='compact'): skill_name, tool_name, description, "
+            "content_hash, estimated_tokens_full. NO sections[]/modules[] "
+            "arrays — fetch one skill's section/module index via "
+            "sumo_qa_load_skill_context(skill_name, mode='manifest'). "
+            "Routing/index aid, not the skill bodies."
         ),
         mime_type="application/json",
     )

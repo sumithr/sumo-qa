@@ -270,6 +270,40 @@ def test_skill_loading_tools_return_json_via_call_tool() -> None:
     assert loaded["mode"] == "manifest"
 
 
+def test_list_skill_manifests_detail_via_call_tool() -> None:
+    """#306: the MCP wrapper defaults to compact (no sections[]/modules[]) and
+    returns the full index only on explicit detail="full_index"; an invalid
+    detail comes back as an error envelope, not a raised ToolError."""
+    import asyncio
+    import json
+
+    server = build_mcp_server()
+
+    def _text(result) -> str:
+        content = result[0] if isinstance(result, tuple) else result
+        return _tool_text(content)
+
+    async def run() -> tuple[str, str, str]:
+        default = await server.call_tool("sumo_qa_list_skill_manifests", {})
+        full = await server.call_tool("sumo_qa_list_skill_manifests", {"detail": "full_index"})
+        bad = await server.call_tool("sumo_qa_list_skill_manifests", {"detail": "compact_index"})
+        return _text(default), _text(full), _text(bad)
+
+    default_text, full_text, bad_text = asyncio.run(run())
+
+    default = json.loads(default_text)
+    assert default["skills"], "expected at least one bundled skill"
+    assert all("sections" not in m and "modules" not in m for m in default["skills"])
+
+    full = json.loads(full_text)
+    assert all("sections" in m and "modules" in m for m in full["skills"])
+
+    bad = json.loads(bad_text)
+    assert "error" in bad
+    assert bad["available_detail"] == ["compact", "full_index"]
+    assert "skills" not in bad
+
+
 # ---------------------------------------------------------------------------
 # __main__ module import (covers sumo_qa/__main__.py:2)
 # ---------------------------------------------------------------------------

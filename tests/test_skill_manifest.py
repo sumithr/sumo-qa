@@ -160,8 +160,16 @@ def test_has_traversal_allows_flat_slugs(candidate):
 
 
 # --------------------------------------------------------------------------
-# Manifest tool
+# Manifest tool — compact default (detail="compact") vs full_index opt-in (#306)
 # --------------------------------------------------------------------------
+
+_COMPACT_KEYS = {
+    "skill_name",
+    "tool_name",
+    "description",
+    "content_hash",
+    "estimated_tokens_full",
+}
 
 
 def test_list_skill_manifests_covers_every_bundled_skill():
@@ -173,35 +181,69 @@ def test_list_skill_manifests_covers_every_bundled_skill():
     assert on_disk, "expected at least one bundled skill"
 
 
-def test_manifest_entries_carry_required_metadata_fields():
+def test_compact_is_the_default_and_omits_section_and_module_arrays():
+    # #306: the no-arg call is the compact routing projection — metadata only,
+    # NO sections[]/modules[] keys, so a host can route across all skills cheaply.
     result = sm.list_skill_manifests()
-    sample = result["skills"][0]
-    assert set(sample) == {
-        "skill_name",
-        "tool_name",
-        "description",
-        "content_hash",
-        "estimated_tokens_full",
-        "sections",
-        "modules",
-    }
+    assert result["skills"], "expected at least one bundled skill"
+    for entry in result["skills"]:
+        assert set(entry) == _COMPACT_KEYS
+        assert "sections" not in entry
+        assert "modules" not in entry
+
+
+def test_detail_compact_equals_default():
+    # #306 AC: detail="compact" is equivalent to the default.
+    assert sm.list_skill_manifests(detail="compact") == sm.list_skill_manifests()
+
+
+def test_compact_entries_carry_the_routing_metadata():
+    sample = sm.list_skill_manifests()["skills"][0]
     assert sample["tool_name"] == sample["skill_name"].replace("-", "_")
     assert len(sample["content_hash"]) == 64  # sha256 hex
+    assert isinstance(sample["estimated_tokens_full"], int)
 
 
-def test_manifest_sections_do_not_leak_body_text():
-    result = sm.list_skill_manifests()
+def test_full_index_restores_sections_and_modules():
+    # #306 AC: detail="full_index" returns the previous full-index schema with
+    # public sections[]/modules[] arrays.
+    result = sm.list_skill_manifests(detail="full_index")
+    assert result["skills"], "expected at least one bundled skill"
+    for entry in result["skills"]:
+        assert set(entry) == _COMPACT_KEYS | {"sections", "modules"}
+
+
+def test_full_index_sections_do_not_leak_body_text():
+    result = sm.list_skill_manifests(detail="full_index")
     for skill in result["skills"]:
         for section in skill["sections"]:
             assert "_text" not in section
             assert set(section) == {"id", "heading", "level", "estimated_tokens", "required"}
+        for module in skill["modules"]:
+            assert "_text" not in module
 
 
-def test_every_bundled_skill_exposes_a_required_iron_law_and_red_flags():
+def test_full_index_preserves_required_iron_law_and_red_flags():
     # Partial loading must preserve Iron Law / Red Flags availability.
-    result = sm.list_skill_manifests()
+    result = sm.list_skill_manifests(detail="full_index")
     for skill in result["skills"]:
         assert any(s["required"] for s in skill["sections"])
+
+
+def test_invalid_detail_returns_error_envelope_not_raise():
+    # #306 AC: invalid detail returns a JSON error envelope, never raises —
+    # the host-friendly style the loader already uses. Exact-match validation:
+    # a value that merely CONTAINS "compact" ("compact_index") is still invalid
+    # (the equivalence-partitioning substring-confusion failure mode).
+    out = sm.list_skill_manifests(detail="compact_index")
+    assert "error" in out
+    assert "skills" not in out
+    assert out["available_detail"] == ["compact", "full_index"]
+
+
+def test_invalid_detail_empty_string_returns_envelope():
+    out = sm.list_skill_manifests(detail="")
+    assert "error" in out and "available_detail" in out
 
 
 # --------------------------------------------------------------------------
@@ -362,7 +404,7 @@ def test_manifest_lists_modules_when_present(monkeypatch, tmp_path):
     )
     skill_dir.joinpath("modules", "alpha.md").write_text("alpha body", encoding="utf-8")
     monkeypatch.setattr(sm, "_skills_dir", lambda: tmp_path)
-    result = sm.list_skill_manifests()
+    result = sm.list_skill_manifests(detail="full_index")
     modules = result["skills"][0]["modules"]
     assert modules and set(modules[0]) == {"id", "path", "estimated_tokens"}
     assert "_text" not in modules[0]
