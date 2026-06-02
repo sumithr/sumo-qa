@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.30.0](https://github.com/sumithr/sumo-qa/compare/v0.29.0...v0.30.0) (2026-06-02)
+
+
+### Features
+
+* add product-grade CLI analyze and status commands ([#311](https://github.com/sumithr/sumo-qa/issues/311)) ([ac8c87a](https://github.com/sumithr/sumo-qa/commit/ac8c87aa27646487700347cf61c6900a5738cd73))
+
+
+### Bug Fixes
+
+* drive suffixed and A-B eval configs without cross-matching ([#315](https://github.com/sumithr/sumo-qa/issues/315)) ([88a7008](https://github.com/sumithr/sumo-qa/commit/88a70089157f1d00cbbb9b077822f25d6b937c5f))
+
 ## [0.29.0](https://github.com/sumithr/sumo-qa/compare/v0.28.0...v0.29.0) (2026-06-02)
 
 
