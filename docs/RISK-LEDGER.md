@@ -89,13 +89,56 @@ The ledger is an **optional** appendix in these workflows — each still leads w
 its prose deliverable:
 
 - **`sumo-qa-reviewing-before-merge`** — projects the named risks + coverage map
-  below the verdict; `uncovered_blocker_count` must be 0 before SAFE.
+  below the verdict; `uncovered_blocker_count` must be 0 before SAFE. It ALSO
+  reuses the same schema for an **acceptance-criteria coverage view** (issue
+  #264) when the host supplies acceptance criteria — see *Acceptance-criteria
+  coverage* below.
 - **`sumo-qa-preparing-for-work`** — a planning-only ledger (all rows `planned`),
   no code change and no test run required.
 - **`sumo-qa-creating-test-plan`** — the confirmed risk→technique table as a
   traceable appendix to the formal plan.
 - **`sumo-qa-finishing-qa-work`** — the run's risk-to-test map rendered as a
   paste-ready ledger for the PR / summary.
+
+## Acceptance-criteria coverage (issue #264)
+
+`sumo-qa-reviewing-before-merge` answers two distinct questions: is the change
+*correct* (risk→test coverage) and is it the *right* change — does it deliver
+what the ticket asked for? The second is **acceptance/requirements
+traceability**, the sibling of the risk→test traceability above: AC→evidence
+rather than risk→test.
+
+It deliberately **reuses the same `sumo_qa_format_risk_ledger` schema** — there
+is no parallel structure and no new tool. One row per host-supplied acceptance
+criterion:
+
+| Ledger field | AC-coverage meaning |
+|---|---|
+| `risk_id` | `AC1`, `AC2`, … |
+| `risk` | The criterion text, plain English. |
+| `source_anchor` | The diff `file:line` / behaviour that satisfies it (or the criterion text when unmet). |
+| `test` | The covering fresh test id, or a `planned: …` phrase. |
+| `evidence_status` | `passing` = MET (cited fresh test); `planned` = UNMET (no implementing change) or UNVERIFIED (plausibly addressed but unproven this turn). |
+| `residual` | `accepted` for a MET criterion; `blocker` for every UNMET / UNVERIFIED one. |
+
+Because the schema is shared, the SAFE gate is too: `uncovered_blocker_count`
+must be 0 before a SAFE verdict, so **any UNMET or UNVERIFIED acceptance
+criterion blocks safe-to-merge** exactly as an uncovered high-risk row does.
+
+Two hard rules carry over from the risk ledger:
+
+- **Host-neutral, host-supplied.** The host supplies the criteria (the user
+  pastes them, or they arrive in a context bundle). The skill NEVER fetches an
+  issue, calls `gh`, or hits any tracker/API — the host identifies; the skill
+  checks, cites, and renders. Same data-ownership split as every ledger row.
+- **Graceful explicit fallback.** Most ad-hoc *"review my diff"* reviews carry no
+  criteria. When none are supplied the skill says so in one line and falls back
+  to the risk-coverage verdict — it never fabricates criteria and never silently
+  skips the check.
+
+The AC-coverage table is an **optional appendix**, appended below the risk
+ledger when the user wants the structured artifact; the markdown-first prose
+verdict (now naming any unmet/unverified criterion) is always the deliverable.
 
 ## When NOT to use it
 
