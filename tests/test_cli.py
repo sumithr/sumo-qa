@@ -268,6 +268,44 @@ def test_console_main_bare_launches_mcp_server(monkeypatch):
     assert calls == ["server"]
 
 
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_console_main_help_flag_dispatches_to_argparse_not_server(flag, monkeypatch, capsys):
+    """`sumo-qa --help` / `-h` must reach argparse (exit 0, prints usage) and
+    must NOT fall through to launching the stdio MCP server — which would block
+    reading stdin and leave a terminal user with a silent hang."""
+    calls: list[str] = []
+    monkeypatch.setattr(_sys, "argv", ["sumo-qa", flag])
+    import sumo_qa.server as server
+
+    monkeypatch.setattr(server, "main", lambda: calls.append("server"))
+    with pytest.raises(SystemExit) as exc:
+        cli.console_main()
+    out = capsys.readouterr().out
+    # argparse prints usage to stdout and exits 0 for an explicit help request.
+    assert exc.value.code == 0
+    assert "usage" in out.lower()
+    assert "analyze" in out
+    assert "status" in out
+    # The server launch path was never taken.
+    assert calls == []
+
+
+def test_console_main_unknown_token_errors_not_server(monkeypatch, capsys):
+    """A mistyped subcommand reaches argparse (exit 2, usage error on stderr),
+    not the stdio server — so the user sees an error instead of a silent hang."""
+    calls: list[str] = []
+    monkeypatch.setattr(_sys, "argv", ["sumo-qa", "analzye"])  # typo
+    import sumo_qa.server as server
+
+    monkeypatch.setattr(server, "main", lambda: calls.append("server"))
+    with pytest.raises(SystemExit) as exc:
+        cli.console_main()
+    err = capsys.readouterr().err
+    assert exc.value.code == 2
+    assert "usage" in err.lower()
+    assert calls == []
+
+
 def test_console_main_routes_product_subcommand_to_cli(tmp_path, monkeypatch, capsys):
     """`sumo-qa analyze <path>` is dispatched to the product CLI, not the
     server, and exits 0."""

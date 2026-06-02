@@ -44,12 +44,6 @@ from sumo_qa.server import _build_scan_summary, _package_version
 # ``.sumo-qa/repo-map.json`` default the MCP scan / diff-impact tools use.
 REPO_MAP_RELPATH = ".sumo-qa/repo-map.json"
 
-# The product subcommands this CLI owns. Anything else on the ``sumo-qa``
-# binary (notably the no-argument invocation hosts use to launch the stdio
-# MCP server) is delegated to ``sumo_qa.server.main`` so the long-standing
-# "bare ``sumo-qa`` == MCP server" launch contract stays backward-compatible.
-_PRODUCT_SUBCOMMANDS = frozenset({"analyze", "status"})
-
 # Memorable next-step commands surfaced in human + JSON output.
 _NEXT_AFTER_ANALYZE = "sumo-qa status"
 _NEXT_RUN_ANALYZE = "sumo-qa analyze"
@@ -281,17 +275,31 @@ def console_main() -> None:
     memorable binary serves both:
 
     - ``sumo-qa analyze ...`` / ``sumo-qa status ...`` → the product CLI here.
-    - bare ``sumo-qa`` (and any non-product argv) → ``sumo_qa.server.main``,
-      preserving the launch contract every host config and ``sumo-qa-doctor``
-      probe depends on (the MCP server is started by invoking ``sumo-qa`` with
-      no arguments over stdio).
+    - ``sumo-qa --help`` / ``-h`` / a mistyped subcommand / any flag-led argv →
+      the product CLI too, so argparse prints usage or an error instead of the
+      binary silently dropping into the stdio server and blocking on stdin.
+    - bare ``sumo-qa`` (empty argv) → ``sumo_qa.server.main``, preserving the
+      launch contract every host config and ``sumo-qa-doctor`` probe depends on
+      (the MCP server is started by invoking ``sumo-qa`` with no arguments over
+      stdio).
+
+    The bare-launch case is load-bearing: only an EMPTY ``argv`` reaches the
+    server here. Any first token — a product subcommand, a ``-``/``--`` flag, or
+    an unknown word — is handed to :func:`main`, which lets argparse emit usage
+    or a clear error to a terminal user rather than hang.
     """
     argv = _sys.argv[1:]
-    if argv and argv[0] in _PRODUCT_SUBCOMMANDS:
+    if argv:
+        # A non-empty argv is a CLI invocation: a product subcommand, a help
+        # flag, or a mistyped token. Route it all to argparse via ``main`` so a
+        # terminal user gets usage/errors, never a silent stdio-server hang.
         _sys.exit(main(argv))
-    # Bare invocation (or anything that isn't a product subcommand) launches
-    # the MCP server, unchanged. Imported lazily so the product CLI path never
-    # pays for the FastMCP import.
+    # Bare invocation (empty argv) launches the MCP server, unchanged. ``main``
+    # (the server entry point) is imported lazily here, but note FastMCP itself
+    # is only imported inside ``server.build_mcp_server()`` — which the product
+    # CLI path never calls — so it is that deferral, not this one, that spares
+    # the CLI the FastMCP import cost (``sumo_qa.server`` is already imported at
+    # this module's top for ``_build_scan_summary`` / ``_package_version``).
     from sumo_qa.server import main as _server_main
 
     _server_main()
