@@ -6,9 +6,14 @@ description: >
   and (b) require evidence the matcher was verified against REAL captured output
   (a real or minimal run), not a hand-authored fixture. A fabricated/unverified
   external-output fixture makes the risk UNPROVEN — never SAFE — even on a fully
-  green suite. The regression guard: a fixture traceable to a real captured run
-  is SAFE-eligible, and the check must NOT over-trigger on internal/self-produced
-  data. Surfaced by PR #261 / issue #127: a hook grepped `mutmut run` output for
+  green suite. The regression guard has two legs: (a) a fixture traceable to a
+  real captured run is SAFE-eligible (the external contract IS verified), and
+  (b) the check must NOT over-trigger on internal/self-produced data — a value
+  the code (or the host) itself computes and emits is not an external contract,
+  so the external-contract / real-output-verification axis must NOT fire on it.
+  Three seeds: one fabricated-fixture (must escalate), one real-run-traceable
+  (must NOT re-block), one internal/self-produced (must NOT fire at all).
+  Surfaced by PR #261 / issue #127: a hook grepped `mutmut run` output for
   `survived`, but real mutmut 3.x prints an emoji summary — the word appears only
   in `mutmut results`. Tests were green against a fabricated fixture.
 providers:
@@ -65,7 +70,7 @@ defaultTest:
 
 
       A. SHAPE - does the response demonstrate the expected shape concretely?
-         Read the expected shape. The scenario is one of two kinds:
+         Read the expected shape. The scenario is one of three kinds:
          (1) FABRICATED-FIXTURE scenarios: the change matches/parses external
              tool output and the only evidence is a hand-authored fixture with
              no traceability to a real run. The candidate MUST (i) name the
@@ -91,14 +96,32 @@ defaultTest:
              FAILS if the response demands real-output re-verification that the
              context already supplies, or withholds SAFE solely on the
              external-contract axis when the fixture is real-run-traceable.
+         (3) INTERNAL/SELF-PRODUCED scenario: the value the diff parses/matches is
+             produced by the CODE ITSELF (or the host) in the same change — e.g.
+             the module serialises its own output and the test matches that
+             self-produced shape, or the matcher targets a marker the code itself
+             injected — NOT another tool's external output. Here there is NO
+             external contract: the producer and the consumer are the same code
+             under test, so the external-contract / real-output-verification axis
+             must NOT fire. The candidate is SAFE-eligible on the external-contract
+             axis (it may surface ordinary internal risks — e.g. asserting on the
+             round-trip, brittleness of the self-format — but it must NOT brand the
+             self-produced value an external-contract risk, nor demand the value be
+             captured/verified against some "real" external run). SHAPE FAILS if the
+             response treats the self-produced value as an external-contract
+             dependency, demands real-output capture for it, or withholds SAFE
+             citing the external-contract axis on a value the code itself emits.
 
       B. GROUNDING - does the response visibly use the supplied context? For a
          fabricated-fixture scenario it must cite the changed matcher/parser file
          and the specific external tool whose output is matched, and note that the
          committed fixture is not traceable to a real run. For the real-run
          scenario it must acknowledge the fixture's stated real-run provenance.
-         Narrating a generic risk without referencing the concrete external tool
-         and fixture -> GROUNDING FAIL.
+         For the internal/self-produced scenario it must reference the concrete
+         self-produced value and identify the SAME code as both producer and
+         consumer (no external tool involved). Narrating a generic risk without
+         referencing the concrete external tool / self-produced value and fixture
+         -> GROUNDING FAIL.
 
 
       C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
@@ -255,4 +278,65 @@ tests:
         - Withholds SAFE solely on the external-contract axis even though the fixture is documented as captured from a real run.
         - Demands a fresh real-output capture/verification that the context already supplies (over-trigger on already-verified external output).
         - Treats the documented real-run capture as if it were a hand-authored / unverified fixture.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: SEED internal/self-produced — the matcher parses a value the SAME module serialises and emits (no external tool); the external-contract axis must NOT fire (over-trigger guard, true-negative)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/error_envelope.py b/src/sumo_qa/error_envelope.py
+        @@ src/sumo_qa/error_envelope.py:20-31 @@
+        +20 def to_envelope(code: str, detail: str) -> str:
+        +21     # the ONLY producer of this string — serialised here and nowhere else
+        +22     return f"[sumo-qa:{code}] {detail}"
+        +24 _ENVELOPE_RE = re.compile(r"^\[sumo-qa:(?P<code>[A-Z_]+)\] (?P<detail>.*)$")
+        +26 def parse_code(envelope: str) -> str | None:
+        +27     m = _ENVELOPE_RE.match(envelope)
+        +28     return m.group("code") if m else None
+        ```
+        Context: `to_envelope()` is the SOLE producer of this `[sumo-qa:CODE] ...`
+        string — the code computes and serialises it in this same module, and
+        `parse_code()` matches that self-produced format. No external tool, CLI, or
+        API is involved: producer and consumer are the same module in this change.
+        The string is never read from another tool's stdout or an API response.
+
+        ## tests (tests/test_error_envelope.py)
+        ```python
+        def test_roundtrip():
+            # feeds parse_code() exactly what to_envelope() emits — self-produced
+            assert parse_code(to_envelope("BAD_INPUT", "no field x")) == "BAD_INPUT"
+
+        def test_no_match_on_foreign_string():
+            assert parse_code("not an envelope") is None
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_error_envelope.py -q
+        tests/test_error_envelope.py::test_roundtrip PASSED
+        tests/test_error_envelope.py::test_no_match_on_foreign_string PASSED
+        2 passed, 0 skipped in 0.08s
+        ```
+        (The round-trip test feeds `parse_code()` the exact output of
+        `to_envelope()` — the value matched is produced by the code under test,
+        not captured from any external source.)
+      expected_shape: >-
+        Evidence-led verdict that recognises the matched value is INTERNAL /
+        self-produced: `to_envelope()` in the same module is the sole producer of
+        the `[sumo-qa:CODE]` string and `parse_code()` matches that self-format —
+        producer and consumer are the same code under test, so there is NO external
+        contract and the external-contract / real-output-verification axis does NOT
+        fire (the over-trigger guard: it fires ONLY on genuinely external sources).
+        The candidate must NOT brand this an external-contract risk, must NOT demand
+        the value be captured/verified against a "real" external run, and must NOT
+        withhold SAFE citing the external-contract axis. It may note ordinary
+        internal concerns (round-trip coverage, brittleness of the self-format) but
+        on the external-contract axis it is SAFE-eligible. Ends without a
+        confirmation question.
+      anti_patterns:
+        - Brands the self-produced `[sumo-qa:CODE]` value an external-contract / external-output dependency even though the same module is its sole producer.
+        - Demands the self-produced value be captured/verified against a REAL external run (over-trigger on an internal value the code itself emits).
+        - Withholds SAFE solely on the external-contract axis for a value with no external producer.
         - Asking another confirmation question instead of delivering the verdict.
