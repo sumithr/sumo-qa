@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.28.0](https://github.com/sumithr/sumo-qa/compare/v0.27.0...v0.28.0) (2026-06-02)
+
+
+### Features
+
+* **knowledge:** add per-entry and compact catalogue loaders ([#302](https://github.com/sumithr/sumo-qa/issues/302)) ([38ece06](https://github.com/sumithr/sumo-qa/commit/38ece06e8dce62f49326659eae756955ab30177f))
+* **skills:** add content-hash digest + change-detection to partial skill loads ([#304](https://github.com/sumithr/sumo-qa/issues/304)) ([1f16916](https://github.com/sumithr/sumo-qa/commit/1f16916078dc6ed0454b24328d4547c789e650b6))
+* **skills:** expose skill index as additive MCP resources/templates ([#303](https://github.com/sumithr/sumo-qa/issues/303)) ([0d8e662](https://github.com/sumithr/sumo-qa/commit/0d8e6626e53cdee8e8ec6f3e133a977008dc9b4e))
+
+
+### Tests
+
+* add cumulative token-budget tests + host docs for progressive skill loading ([#301](https://github.com/sumithr/sumo-qa/issues/301)) ([7ea5a82](https://github.com/sumithr/sumo-qa/commit/7ea5a824273b5b7536baa279509e3f07adfaae4a))
+
 ## [0.27.0](https://github.com/sumithr/sumo-qa/compare/v0.26.0...v0.27.0) (2026-06-02)
 
 
