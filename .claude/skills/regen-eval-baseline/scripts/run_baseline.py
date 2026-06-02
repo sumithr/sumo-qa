@@ -130,11 +130,54 @@ def config_to_slug(config_path: Path) -> str:
     return stem.removeprefix("skill-").replace(".", "-")
 
 
+SNAPSHOT_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-skill-(?P<body>.+)\.json$")
+
+
+def parse_snapshot_slug(name: str) -> str | None:
+    """Extract the slug from a snapshot filename, or None if it doesn't parse.
+
+    Snapshots are written as ``<date>-skill-<slug>-<label>.json`` where both
+    ``<slug>`` and ``<label>`` are kebab-case tokens and ``<label>`` is a
+    single segment (``baseline`` / ``postcut`` / ``greenfix`` — see
+    ``--label``). The slug is therefore everything between ``skill-`` and the
+    final ``-<label>`` segment.
+
+    A glob like ``*-skill-<slug>-*.json`` would treat ``<slug>`` as a mere
+    substring and so cross-match every longer suffixed sibling (base
+    ``reviewing-before-merge`` matching ``reviewing-before-merge-adversarial``,
+    ``reviewing-before-merge-ab``, …). Parsing the slug as a bounded token and
+    comparing it for *equality* (see ``find_prior_baseline``) is what keeps a
+    base config's delta from comparing against a different eval suite.
+    """
+    m = SNAPSHOT_NAME_RE.match(name)
+    if m is None:
+        return None
+    body = m.group("body")
+    # The label is the final single hyphen segment; the slug is the rest.
+    slug, sep, _label = body.rpartition("-")
+    if not sep:
+        return None
+    return slug
+
+
 def find_prior_baseline(baselines_dir: Path, slug: str, current: Path) -> Path | None:
-    """Most recent prior snapshot for this slug, sorted lexicographically (date prefix)."""
+    """Most recent prior snapshot for this EXACT slug, by date-prefix order.
+
+    Selection matches the slug as a bounded token (parsed out of the
+    ``<date>-skill-<slug>-<label>.json`` filename and compared for equality),
+    not as a glob substring — the same exact-token discipline
+    ``resolve_config_path`` uses on the selection side. This prevents a base
+    config (``reviewing-before-merge``) from picking a later-dated *suffixed
+    sibling*'s snapshot (``…-adversarial-…``, ``…-ab-…``) as its prior and
+    printing a delta across two different eval suites.
+    """
     if not baselines_dir.is_dir():
         return None
-    candidates = sorted(p for p in baselines_dir.glob(f"*-skill-{slug}-*.json") if p != current)
+    candidates = sorted(
+        p
+        for p in baselines_dir.glob("*-skill-*.json")
+        if p != current and parse_snapshot_slug(p.name) == slug
+    )
     return candidates[-1] if candidates else None
 
 

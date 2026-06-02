@@ -650,3 +650,130 @@ class TestRunBaselineConfigResolution:
             mod.resolve_config_path(
                 promptfoo, skill=None, config="skill-reviewing-before-merge-nope"
             )
+
+
+class TestRunBaselinePriorBaselineResolution:
+    """Issue #273 (review R1, HIGH): the delta step must NOT cross-match a
+    base config against suffixed siblings either. ``resolve_config_path``
+    (selection) was fixed to exact-token matching, but ``find_prior_baseline``
+    (the delta) still globbed ``*-skill-<slug>-*.json`` — and because the slug
+    separator and the suffix separator are both ``-``, the base slug
+    ``reviewing-before-merge`` ALSO matched every suffixed sibling snapshot
+    (``…-adversarial-…``, ``…-ab-…``). A base run could then pick a later-dated
+    sibling's snapshot as its "prior baseline" and print a delta comparing two
+    DIFFERENT eval suites — the exact cross-match this issue exists to kill.
+
+    Technique: equivalence partitioning over the snapshot-slug space, with the
+    discriminating partition being a base snapshot coexisting with a
+    later-dated suffixed-sibling snapshot. A substring-glob implementation and
+    an exact-token implementation diverge on this partition; an
+    earlier-but-correct base snapshot vs a later-but-wrong sibling makes the
+    "most recent" sort the load-bearing axis.
+    """
+
+    @staticmethod
+    def _seed_baselines(tmp_path: Path) -> Path:
+        """A baselines dir holding a base snapshot AND a LATER-dated
+        suffixed-sibling snapshot. The later date means a substring glob's
+        ``sorted(...)[-1]`` (most-recent) would wrongly pick the sibling for a
+        base-config query; exact-token matching never sees the sibling.
+        """
+        baselines = tmp_path / "docs" / "qa" / "runs" / "eval-baselines"
+        baselines.mkdir(parents=True)
+        for name, passed, failed in (
+            # Base config snapshot — the only one that should match the base query.
+            ("2026-06-01-skill-reviewing-before-merge-baseline.json", 10, 0),
+            # Later-dated suffixed sibling — a DIFFERENT eval suite. Must never
+            # be selected as the base config's prior.
+            ("2026-06-02-skill-reviewing-before-merge-adversarial-baseline.json", 2, 5),
+            # Later-dated .ab sibling — also a different suite.
+            ("2026-06-03-skill-reviewing-before-merge-ab-baseline.json", 7, 1),
+        ):
+            (baselines / name).write_text(
+                json.dumps({"results": {"stats": {"successes": passed, "failures": failed}}})
+            )
+        return baselines
+
+    def test_base_slug_prior_is_base_snapshot_not_suffixed_sibling(self, tmp_path: Path) -> None:
+        """The base config's prior baseline must resolve to the BASE snapshot,
+        never the later-dated suffixed/.ab sibling. This is the discriminator:
+        the old ``glob('*-skill-reviewing-before-merge-*.json')`` matches all
+        three seeded files and ``sorted(...)[-1]`` returns the latest sibling
+        (``…-ab-baseline.json``); exact-token matching returns the base.
+        """
+        baselines = self._seed_baselines(tmp_path)
+        mod = _import_run_baseline()
+        current = baselines / "2026-06-04-skill-reviewing-before-merge-baseline.json"
+
+        prior = mod.find_prior_baseline(baselines, "reviewing-before-merge", current)
+
+        assert prior == baselines / "2026-06-01-skill-reviewing-before-merge-baseline.json", (
+            f"base config's prior baseline cross-matched a suffixed sibling: {prior}. "
+            "find_prior_baseline must match the slug as a bounded token, not a "
+            "glob substring — otherwise the delta compares two different eval suites."
+        )
+
+    def test_suffixed_slug_prior_is_its_own_snapshot(self, tmp_path: Path) -> None:
+        """A suffixed config finds only its own prior, never the base's."""
+        baselines = self._seed_baselines(tmp_path)
+        mod = _import_run_baseline()
+        current = baselines / "2026-06-05-skill-reviewing-before-merge-adversarial-baseline.json"
+
+        prior = mod.find_prior_baseline(baselines, "reviewing-before-merge-adversarial", current)
+
+        assert (
+            prior == baselines / "2026-06-02-skill-reviewing-before-merge-adversarial-baseline.json"
+        ), f"suffixed config picked a non-matching prior: {prior}"
+
+    def test_ab_slug_prior_is_its_own_snapshot(self, tmp_path: Path) -> None:
+        """An .ab config (slug carries the ``-ab`` infix from config_to_slug)
+        finds only its own prior, never the base's."""
+        baselines = self._seed_baselines(tmp_path)
+        mod = _import_run_baseline()
+        current = baselines / "2026-06-06-skill-reviewing-before-merge-ab-baseline.json"
+
+        prior = mod.find_prior_baseline(baselines, "reviewing-before-merge-ab", current)
+
+        assert prior == baselines / "2026-06-03-skill-reviewing-before-merge-ab-baseline.json", (
+            f".ab config picked a non-matching prior: {prior}"
+        )
+
+    def test_no_prior_for_unseen_slug(self, tmp_path: Path) -> None:
+        """A slug with no matching snapshot returns None — and must NOT borrow
+        a sibling's snapshot just because it shares a prefix."""
+        baselines = self._seed_baselines(tmp_path)
+        mod = _import_run_baseline()
+        current = baselines / "2026-06-07-skill-implementing-with-tdd-baseline.json"
+
+        prior = mod.find_prior_baseline(baselines, "implementing-with-tdd", current)
+
+        assert prior is None, f"unseen slug borrowed a prefix-sibling's snapshot: {prior}"
+
+
+class TestRunBaselineConfigToSlug:
+    """config_to_slug: the .ab double-suffix and ``skill-`` prefix handling
+    are distinct logic worth pinning — they are what makes a base config and
+    its A/B control snapshot to non-colliding slugs."""
+
+    def test_base_config_strips_skill_prefix(self, tmp_path: Path) -> None:
+        mod = _import_run_baseline()
+        slug = mod.config_to_slug(Path("skill-reviewing-before-merge.yaml"))
+        assert slug == "reviewing-before-merge"
+
+    def test_ab_dot_becomes_hyphen(self, tmp_path: Path) -> None:
+        """``.ab.yaml`` is a double suffix; the ``.ab`` dot must become a
+        hyphen so the A/B control snapshots to a distinct, valid kebab slug
+        (``reviewing-before-merge-ab``), not collide with the base or carry a
+        dot that ``validate_slug`` would reject."""
+        mod = _import_run_baseline()
+        slug = mod.config_to_slug(Path("skill-reviewing-before-merge.ab.yaml"))
+        assert slug == "reviewing-before-merge-ab"
+
+    def test_suffixed_ab_config_distinct_from_suffixed_base(self, tmp_path: Path) -> None:
+        """A suffixed config and its .ab control must produce distinct slugs."""
+        mod = _import_run_baseline()
+        plain = mod.config_to_slug(Path("skill-reviewing-before-merge-adversarial.yaml"))
+        ab = mod.config_to_slug(Path("skill-reviewing-before-merge-adversarial.ab.yaml"))
+        assert plain == "reviewing-before-merge-adversarial"
+        assert ab == "reviewing-before-merge-adversarial-ab"
+        assert plain != ab
