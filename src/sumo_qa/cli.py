@@ -85,7 +85,9 @@ def _cmd_analyze(root: Path, *, as_json: bool) -> int:
     )
     summary = _build_scan_summary(
         repo_map,
-        artifact_path=str(artifact),
+        # ``as_posix()`` keeps the --json automation contract OS-independent:
+        # Windows would otherwise emit backslash separators in ``artifact_path``.
+        artifact_path=artifact.as_posix(),
         artifact_bytes=artifact.stat().st_size,
     )
 
@@ -115,7 +117,9 @@ def _status_payload(root: Path) -> dict[str, Any]:
     base: dict[str, Any] = {
         "command": "status",
         "root": str(root),
-        "artifact_path": str(artifact),
+        # ``as_posix()`` keeps the --json automation contract OS-independent:
+        # Windows would otherwise emit backslash separators in ``artifact_path``.
+        "artifact_path": artifact.as_posix(),
         "artifact_present": False,
         "schema_version": None,
         "generator_version": None,
@@ -157,6 +161,10 @@ def _status_payload(root: Path) -> dict[str, Any]:
     base["is_stale"] = is_stale
 
     if is_stale:
+        # ``is_stale`` is only True when both commits are non-None (see above),
+        # but mypy cannot narrow ``recorded``/``current`` through the bool, so
+        # assert it explicitly before slicing.
+        assert recorded is not None and current is not None
         base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root}"
         base["summary"] = (
             f"Repo-map is STALE: recorded commit {recorded[:8]} differs from "
