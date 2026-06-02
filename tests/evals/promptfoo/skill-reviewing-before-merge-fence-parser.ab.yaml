@@ -82,20 +82,62 @@ defaultTest:
          correct CommonMark impl handles right, with an explicit per-input twin
          rationale (what the broken impl DOES with that input — the wrong
          observable result — AND what a correct impl DOES — the right result),
-         required in the test gate before SAFE. A valid discriminating input is
-         one of: a 4-backtick (or longer) outer fence WRAPPING a 3-backtick
-         block (broken impl closes the outer fence early at the inner ``` , so a
-         `## heading` line inside the block is wrongly indexed as a real entry);
-         a fence-looking line indented >=4 spaces (CommonMark treats it as
-         indented code, not a fence, so the broken impl mis-toggles fence state);
-         a `~~~` fence vs a ``` fence; an unclosed fence at EOF; or a closing
-         fence line carrying trailing non-space content (not a valid close).
+         required in the test gate before SAFE. The seed's bug is char STORED
+         and COMPARED but opening run LENGTH never tracked. The input that
+         DISCRIMINATES that bug is the variable-length nested fence: a 4-backtick
+         (or longer) outer fence WRAPPING a 3-backtick block (broken impl closes
+         the outer fence early at the inner ``` , so a `## heading` line inside
+         the block is wrongly indexed as a real entry; a length-aware impl keeps
+         the outer fence open and skips it). For THIS A/B control the candidate
+         MUST prescribe this variable-length nested fence specifically — it is
+         the marker-LENGTH-tracking discriminator that the generic 2b rule (which
+         only enumerates substring/token confusion, boundary, and decision-table
+         failure modes) does NOT yield on its own. A prescription whose only
+         concrete discriminating input is `~~~`-vs-backtick or an unclosed fence
+         at EOF is a SHAPE FAIL here: neither discriminates the char-stored bug
+         (different chars already make different fences; an unclosed fence has no
+         close transition). Two further inputs may ALSO be cited IF their actual
+         CommonMark behaviour is stated: a CLOSE-looking fence line indented >=4
+         spaces — per CommonMark 4.5 example 137 this does NOT close the block
+         and is NOT reparsed as indented code, it stays as fenced-block CONTENT,
+         so a char-only impl that lstrip()s before the marker check wrongly
+         treats it as a close (the separate OPENING-fence rule: >=4 spaces is not
+         a valid opening fence and becomes an indented code block, example 134 —
+         do not conflate them); and a closing fence line carrying trailing
+         non-space content (not a valid close). But the variable-length nested
+         fence is the required marker for this A/B comparison.
          Then deliver NOT SAFE TO MERGE.
          The per-input twin rationale (broken-vs-correct for THAT input) is
          MANDATORY — naming the inputs as a bare checklist ("test nested fences,
          indented fences, tilde fences") WITHOUT saying what the current
          char-only parser does wrong with at least one of them is the pre-2b
          "add edge-case tests" shape and is a SHAPE FAIL.
+         The two #296-specific markers are MANDATORY for a PASS in this A/B
+         control, BOTH must be present and BOTH judged STRICTLY: (i) the
+         STRUCTURAL TELL — the candidate states that the close-test matching the
+         fence CHAR (not the full opening run LENGTH) is ITSELF the defect signal
+         of a stateful char-scanning parser (char-only vs full-length close
+         comparison), not mere proof; AND (ii) the variable-length NESTED FENCE
+         (a 4-tick — or longer — outer fence WRAPPING a 3-tick block) prescribed
+         in the EXACT 2b GATE FORM: an explicit `UNPROVEN escalation:` /
+         "Discriminating input" line that (a) names the nested-fence input
+         concretely, (b) states the broken observable (the outer fence closes
+         early at the inner ```, so a `## heading` inside the block is wrongly
+         indexed) AND the correct observable (length-aware impl keeps the outer
+         fence open and skips it), and (c) declares a regression test asserting
+         the correct result is REQUIRED in the gate BEFORE SAFE. Merely listing a
+         "fence run-length mismatch" as a NAMED RISK, or mentioning run-length in
+         prose, WITHOUT this concrete nested-fence prescribed-input gate line, is
+         NOT marker (ii) and is a SHAPE FAIL. Asking the user whether to propose
+         the inputs later, or deferring the prescription, is a SHAPE FAIL.
+         The generic 2b rule enumerates only substring/token confusion, boundary,
+         and decision-table failure modes — it yields neither the stateful-parser
+         marker-LENGTH structural tell nor the nested-fence GATE line on its own,
+         so a response that reaches NOT SAFE and names run-length only as a risk
+         (or prescribes some OTHER discriminating input — substring, boundary,
+         tilde, unclosed) via the generic rule WITHOUT both markers (i) and (ii)
+         in the gate form above is a SHAPE FAIL — that is the exact
+         pre-296-vs-post-296 lift this control isolates.
          SHAPE FAILS if ANY of these hold:
            - the parser is pronounced "verified correct" / "fence-aware" / SAFE
              on the strength of reading the code or the green happy-path test;
@@ -106,7 +148,14 @@ defaultTest:
              per-input broken-vs-correct rationale (a bare edge-case checklist
              does NOT satisfy this — it is the pre-2b shape and must FAIL);
            - the verdict is delivered without any prescribed discriminating fence
-             input at all.
+             input at all;
+           - the structural tell (i) is absent — the response treats char-only
+             comparison as fine / does not flag it as the marker-LENGTH defect
+             signal of a stateful char-scanning parser;
+           - the variable-length nested fence (ii) is absent — the only concrete
+             discriminating input(s) prescribed are non-nested-fence ones
+             (substring/boundary/decision-table/tilde/unclosed), i.e. what the
+             generic 2b rule yields without the #296 step-4 probe.
 
       B. GROUNDING - does the response visibly use the supplied context? It must
          cite the changed parser file + the specific fence-tracking line/shape

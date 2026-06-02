@@ -81,14 +81,30 @@ defaultTest:
          correct CommonMark impl handles right, with an explicit per-input twin
          rationale (what the broken impl DOES with that input — the wrong
          observable result — AND what a correct impl DOES — the right result),
-         required in the test gate before SAFE. A valid discriminating input is
-         one of: a 4-backtick (or longer) outer fence WRAPPING a 3-backtick
-         block (broken impl closes the outer fence early at the inner ``` , so a
-         `## heading` line inside the block is wrongly indexed as a real entry);
-         a fence-looking line indented >=4 spaces (CommonMark treats it as
-         indented code, not a fence, so the broken impl mis-toggles fence state);
-         a `~~~` fence vs a ``` fence; an unclosed fence at EOF; or a closing
-         fence line carrying trailing non-space content (not a valid close).
+         required in the test gate before SAFE. The seed's bug is char STORED
+         and COMPARED but opening run LENGTH never tracked. The input that
+         DISCRIMINATES that bug is the variable-length nested fence: a 4-backtick
+         (or longer) outer fence WRAPPING a 3-backtick block (broken impl closes
+         the outer fence early at the inner ``` , so a `## heading` line inside
+         the block is wrongly indexed as a real entry; a length-aware impl keeps
+         the outer fence open and skips it). This is the discriminating input the
+         candidate SHOULD prescribe for this bug; crediting it satisfies axis A.
+         Two further inputs discriminate IF the candidate states their actual
+         CommonMark behaviour: (a) a CLOSE-looking fence line indented >=4 spaces
+         — per CommonMark 4.5 example 137 this does NOT close the block and is
+         NOT reparsed as indented code, it stays as fenced-block CONTENT, so a
+         char-only impl that lstrip()s before the marker check wrongly treats it
+         as a close (an OPENING fence indented >=4 spaces is the separate rule:
+         it is not a valid opening fence and becomes an indented code block,
+         example 134 — do not conflate the two); (b) a closing fence line
+         carrying trailing non-space content (not a valid close). A `~~~` fence
+         vs a ``` fence and an unclosed fence at EOF do NOT discriminate the
+         seed's char-stored-and-compared bug (different chars already make
+         different fences; an unclosed fence has no close transition), so a
+         candidate that prescribes the variable-length nested fence MUST NOT be
+         FAILED for omitting `~~~`-vs-backtick or unclosed-at-EOF, and naming
+         only those two (without the nested-fence or indented-close case) is NOT
+         a valid discriminating prescription for this bug.
          Then deliver NOT SAFE TO MERGE.
          The per-input twin rationale (broken-vs-correct for THAT input) is
          MANDATORY — naming the inputs as a bare checklist ("test nested fences,
