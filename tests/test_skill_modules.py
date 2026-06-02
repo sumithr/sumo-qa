@@ -13,8 +13,17 @@ This module owns the budgets that exist *because* the partial loader exists:
    global 1500 approx-token ceiling. No modules ship today; the test guards
    the ceiling the moment the first module lands so a fat module cannot slip
    in unmeasured.
-2. The all-skill manifest (the compact routing projection a host fetches to
-   route) stays under 2,500 approx tokens total.
+2. The all-skill manifest. TWO distinct artifacts, two distinct budgets:
+   * the COMPACT ROUTING PROJECTION (per-skill metadata WITHOUT the
+     section/module index arrays) stays under 2,500 approx tokens — this is
+     the slice a host would hold to route across all skills at once;
+   * the FULL-INDEX output the shipped ``sumo_qa_list_skill_manifests`` MCP
+     tool actually returns (the whole index WITH every skill's ``sections[]``
+     and ``modules[]`` arrays, serialized exactly as the server emits it)
+     stays under a separate, larger ceiling. The shipped tool is the artifact
+     hosts truly fetch, so it gets its own regression guard; without it,
+     section/module-index bloat could balloon the real payload while the
+     compact-projection budget stayed green.
 3. For the heaviest skills, manifest + the routing-minimal required sections
    (frontmatter + Iron Law + Flow — the gate/route slice a host needs before
    it executes the body) stays at least 50% below that skill's full-body
@@ -43,7 +52,19 @@ SKILLS_DIR = Path(__file__).parent.parent / "skills"
 # --------------------------------------------------------------------------
 
 MODULE_TOKEN_BUDGET = 1500  # epic #137: skill modules stay under a smaller global budget
-MANIFEST_TOKEN_BUDGET = 2500  # epic #137: all-skill manifest output under 2,500 total
+# Budget for the COMPACT ROUTING PROJECTION only (per-skill metadata WITHOUT the
+# section/module index arrays). This is NOT what the shipped MCP tool returns —
+# see SHIPPED_MANIFEST_TOKEN_CEILING below for that.
+COMPACT_MANIFEST_TOKEN_BUDGET = 2500  # epic #137: compact routing projection under 2,500
+# Ceiling for the REAL payload the shipped ``sumo_qa_list_skill_manifests`` MCP
+# tool returns: the FULL index WITH every skill's sections[]/modules[] arrays,
+# serialized exactly as ``server.py`` emits it (json.dumps(..., ensure_ascii=
+# False, indent=2)). Measured today at ~11,219 approx tokens; ceiling set with
+# ~16% headroom so future section/module-index bloat trips this guard rather
+# than slipping through unmeasured. This is the artifact hosts actually fetch,
+# so it gets its own regression guard distinct from the compact-projection
+# budget above (which a host would only realise by re-projecting the payload).
+SHIPPED_MANIFEST_TOKEN_CEILING = 13000
 HEAVY_SKILL_FULL_FLOOR = 2500  # a skill is "heavy" once its full body exceeds this
 PARTIAL_LOAD_SAVING_FLOOR = 0.50  # manifest + routing-minimal sections >= 50% below full
 
@@ -71,6 +92,16 @@ def _compact_manifest_projection() -> str:
         {k: v for k, v in m.items() if k not in ("sections", "modules")} for m in out["skills"]
     ]
     return json.dumps(compact)
+
+
+def _shipped_manifest_payload() -> str:
+    """The exact string the shipped ``sumo_qa_list_skill_manifests`` MCP tool
+    returns. The server serializes the FULL index (every skill's
+    ``sections[]``/``modules[]`` arrays included) with
+    ``json.dumps(..., ensure_ascii=False, indent=2)``; this mirrors that
+    serialization byte-for-byte so the guard measures the real artifact a host
+    fetches, not a re-projected approximation of it."""
+    return json.dumps(list_skill_manifests(), ensure_ascii=False, indent=2)
 
 
 # --------------------------------------------------------------------------
@@ -113,19 +144,49 @@ def test_module_budget_is_enforced_via_the_index(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# 2. All-skill manifest budget
+# 2. All-skill manifest budgets — TWO artifacts:
+#    (a) the compact routing projection (under 2,500), and
+#    (b) the shipped full-index tool output (under the larger full-index
+#        ceiling). (b) is what hosts actually fetch.
 # --------------------------------------------------------------------------
 
 
-def test_all_skill_manifest_output_stays_under_budget():
-    """The compact all-skill routing manifest stays under 2,500 approx tokens
-    so a host can hold every skill's routing metadata at once without paying
-    a full-body-per-skill tax."""
+def test_compact_routing_projection_stays_under_budget():
+    """The COMPACT ROUTING PROJECTION (``_compact_manifest_projection`` —
+    per-skill metadata WITHOUT the section/module index arrays) stays under
+    2,500 approx tokens so a host could hold every skill's routing metadata at
+    once without paying a full-body-per-skill tax.
+
+    NOTE: this measures the compact projection, NOT the output of the shipped
+    ``sumo_qa_list_skill_manifests`` MCP tool. The shipped tool returns the
+    FULL index (sections[]/modules[] included) and is guarded separately by
+    ``test_shipped_list_skill_manifests_output_stays_under_full_index_ceiling``.
+    """
     tokens = _approx_tokens(_compact_manifest_projection())
-    assert tokens <= MANIFEST_TOKEN_BUDGET, (
-        f"compact all-skill manifest is ~{tokens} tokens "
-        f"(>{MANIFEST_TOKEN_BUDGET}); trim skill descriptions or the metadata "
-        f"shape — the routing manifest must not carry section/module bodies."
+    assert tokens <= COMPACT_MANIFEST_TOKEN_BUDGET, (
+        f"compact routing projection is ~{tokens} tokens "
+        f"(>{COMPACT_MANIFEST_TOKEN_BUDGET}); trim skill descriptions or the "
+        f"metadata shape — the routing projection must not carry section/"
+        f"module bodies."
+    )
+
+
+def test_shipped_list_skill_manifests_output_stays_under_full_index_ceiling():
+    """Guard the REAL artifact hosts fetch: the exact string the shipped
+    ``sumo_qa_list_skill_manifests`` MCP tool returns (the FULL index WITH
+    every skill's sections[]/modules[] arrays, serialized as the server emits
+    it). This is distinct from the compact-projection budget above — the
+    shipped tool does NOT return the compact projection, so without this guard
+    section/module-index bloat could balloon the payload hosts actually pay for
+    while the compact budget stayed green. Ceiling carries ~16% headroom over
+    today's measured size so genuine bloat trips it, normal drift does not."""
+    tokens = _approx_tokens(_shipped_manifest_payload())
+    assert tokens <= SHIPPED_MANIFEST_TOKEN_CEILING, (
+        f"shipped sumo_qa_list_skill_manifests output is ~{tokens} tokens "
+        f"(>{SHIPPED_MANIFEST_TOKEN_CEILING}); the full-index payload hosts "
+        f"fetch has bloated. Trim section/module index entries or raise the "
+        f"ceiling deliberately with a fresh measurement — do not let the real "
+        f"artifact grow unmeasured behind the compact-projection budget."
     )
 
 
@@ -140,7 +201,7 @@ def test_manifest_excludes_section_and_module_bodies():
     full = _approx_tokens(json.dumps(out))
     compact = _approx_tokens(_compact_manifest_projection())
     assert compact < full
-    assert compact <= MANIFEST_TOKEN_BUDGET
+    assert compact <= COMPACT_MANIFEST_TOKEN_BUDGET
 
 
 # --------------------------------------------------------------------------
