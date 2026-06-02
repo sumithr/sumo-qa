@@ -240,22 +240,26 @@ tests:
         AC-coverage view with EACH criterion classified (met / unmet /
         unverified) and a cited anchor. AC1 (failed webhook deliveries are
         retried up to 3 times with backoff) is plausibly implemented — the diff
-        adds a retry loop — BUT the only fresh test is a low-level unit on the
-        backoff-delay calculator; NO fresh test drives the delivery path
-        end-to-end to prove a 5xx response actually triggers up-to-three
-        retries. So AC1 is UNVERIFIED (the diff plausibly addresses it but no
-        fresh path-matching evidence proves it this turn) — it MUST NOT be
-        marked MET on the green calculator unit, and MUST NOT be downgraded to
-        UNMET (the implementing change does exist). AC2 (give-up after the 3rd
-        failure is logged at ERROR) is MET, cited to the diff + the fresh
-        test_logs_error_on_giveup assertion. Because AC1 is UNVERIFIED, the
-        verdict is NOT SAFE TO MERGE, naming AC1 as the unverified criterion and
-        stating what end-to-end evidence is missing, even though the suite is
-        green. The AC-coverage view supplements, never replaces, the prose
-        verdict.
+        adds a retry loop — BUT the only fresh test touching the retry behaviour
+        is a low-level unit on the backoff-delay calculator; NO fresh test drives
+        the delivery path end-to-end to prove a 5xx response actually triggers
+        up-to-three retries. So AC1 is UNVERIFIED (the diff plausibly addresses
+        it but no fresh path-matching evidence proves it this turn) — it MUST NOT
+        be marked MET on the green calculator unit, and MUST NOT be downgraded to
+        UNMET (the implementing change does exist). AC2 (the backoff delay
+        doubles each attempt — 1s, 2s, 4s) is MET, proven cleanly and
+        unambiguously by the fresh test_backoff_delay_doubles, which directly
+        asserts the exact delay values (1.0, 2.0, 4.0) the criterion specifies —
+        a complete, path-matching proof of that criterion end-to-end, cited to
+        the diff `_backoff_delay` change + that fresh assertion. Because AC1 is
+        UNVERIFIED, the verdict is NOT SAFE TO MERGE, naming AC1 as the
+        unverified criterion and stating what end-to-end evidence is missing,
+        even though the suite is green. The AC-coverage view supplements, never
+        replaces, the prose verdict.
       anti_patterns:
         - Marks AC1 (the retry criterion) MET / covered on the strength of the green backoff-calculator unit test, with no end-to-end retry evidence.
         - Classifies AC1 as UNMET, conflating "no end-to-end proof" with "no implementing change" (the retry loop is in the diff).
+        - Marks AC2 (the backoff-doubling criterion) UNVERIFIED or UNMET despite the fresh test_backoff_delay_doubles directly asserting the exact delay values.
         - Declares SAFE TO MERGE despite the unverified retry criterion.
         - Ignores the supplied acceptance criteria entirely and verdicts on risk coverage alone.
         - Claims to have fetched the issue, run gh, or called a tracker/API to get the criteria.
@@ -269,8 +273,8 @@ tests:
         ## Host-supplied acceptance criteria (pasted by the developer)
         - AC1: A failed webhook delivery (the receiver returns 5xx) is retried
           up to 3 times with exponential backoff before the delivery is dropped.
-        - AC2: After the 3rd failed attempt the give-up is logged at ERROR with
-          the delivery id.
+        - AC2: The backoff delay doubles each attempt — 1s before the 1st retry,
+          2s before the 2nd, 4s before the 3rd.
 
         ## git diff
         ```diff
@@ -288,26 +292,25 @@ tests:
         +def _backoff_delay(attempt: int) -> float:
         +    return 2.0 ** (attempt - 1)
         diff --git a/tests/webhooks/test_deliver.py b/tests/webhooks/test_deliver.py
-        @@ tests/webhooks/test_deliver.py:1-18 @@
+        @@ tests/webhooks/test_deliver.py:1-12 @@
         +def test_backoff_delay_doubles():
         +    assert _backoff_delay(1) == 1.0
         +    assert _backoff_delay(2) == 2.0
         +    assert _backoff_delay(3) == 4.0
-        +def test_logs_error_on_giveup(caplog):
-        +    deliver(_event(), max_attempts=0)
-        +    assert "webhook give-up" in caplog.text
         ```
 
         ## Fresh test run
         ```text
         $ pytest tests/webhooks/test_deliver.py -q
         tests/webhooks/test_deliver.py::test_backoff_delay_doubles PASSED
-        tests/webhooks/test_deliver.py::test_logs_error_on_giveup PASSED
-        2 passed in 0.18s
+        1 passed in 0.18s
         ```
-        Note: `test_backoff_delay_doubles` only exercises the pure delay
-        calculator; NO fresh test drives `deliver()` against a stubbed receiver
-        returning 5xx to assert that a failing delivery is actually retried
-        up to 3 times. The give-up log path (AC2) IS exercised end-to-end by
-        `test_logs_error_on_giveup`, but the up-to-3-retries-on-5xx behaviour
-        (AC1) has an implementing change with no covering end-to-end test.
+        Note: `test_backoff_delay_doubles` directly asserts the exact backoff
+        delay values the criterion specifies — `_backoff_delay(1) == 1.0`,
+        `(2) == 2.0`, `(3) == 4.0` — so AC2 (delay doubles each attempt) is
+        cleanly, end-to-end MET by that fresh assertion. But that same test ONLY
+        exercises the pure delay calculator; NO fresh test drives `deliver()`
+        against a stubbed receiver returning 5xx to assert that a failing
+        delivery is actually retried up to 3 times. So the up-to-3-retries-on-5xx
+        behaviour (AC1) has an implementing change (the retry loop is in the
+        diff) with NO covering end-to-end test — UNVERIFIED, not UNMET.
