@@ -5,9 +5,15 @@ description: >
   repo still carries the OLD count. The candidate loads the enriched
   change_rules.yaml; the judge grades that the reviewer flags the stale doc
   as a merge blocker, not just shrugs at green tests.
+# Candidate is gpt-5-mini (the reasoning tier), not the estate's gpt-4o-mini:
+# per the #245 candidate-by-type policy, reasoning/discovery evals use the
+# reasoning candidate. This scenario requires reasoning over supplied repo state
+# to flag BOTH stale-count files as merge blockers — a reasoning-heavy shape that
+# matches the sibling -repo-map / -mapping-gap configs, not the cheap
+# verdict-format tier. The judge stays gpt-5.5.
 providers:
-  - id: openai:chat:gpt-4o-mini
-    label: candidate-gpt-4o-mini
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
     config:
       temperature: 0.0
       seed: 42
