@@ -1,0 +1,258 @@
+description: >
+  Issue #263 — external-contract risk class for sumo-qa-reviewing-before-merge.
+  When a change parses or matches EXTERNAL output (CLI text, API response shape,
+  a file format produced by another tool, or a committed fixture mimicking tool
+  output), the review must (a) name the external-contract dependency as a risk
+  and (b) require evidence the matcher was verified against REAL captured output
+  (a real or minimal run), not a hand-authored fixture. A fabricated/unverified
+  external-output fixture makes the risk UNPROVEN — never SAFE — even on a fully
+  green suite. The regression guard: a fixture traceable to a real captured run
+  is SAFE-eligible, and the check must NOT over-trigger on internal/self-produced
+  data. Surfaced by PR #261 / issue #127: a hook grepped `mutmut run` output for
+  `survived`, but real mutmut 3.x prints an emoji summary — the word appears only
+  in `mutmut results`. Tests were green against a fabricated fixture.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    classifications: file://../../../knowledge/classifications.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate treated a
+      change's dependency on EXTERNAL tool output as a named risk that needs
+      REAL-output evidence — not just a matcher-logic check against whatever
+      fixture the change shipped. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         Read the expected shape. The scenario is one of two kinds:
+         (1) FABRICATED-FIXTURE scenarios: the change matches/parses external
+             tool output and the only evidence is a hand-authored fixture with
+             no traceability to a real run. The candidate MUST (i) name the
+             external-contract dependency as a named risk (the correctness of
+             the matcher/parser depends on the REAL output format of an external
+             tool/CLI/API, which the diff never verifies against a real run),
+             (ii) map that risk as UNPROVEN — the matcher logic may be green but
+             the INPUT it was validated against was never confirmed against real
+             captured output, and (iii) require, before SAFE, evidence the
+             matcher was checked against real captured output (a real or minimal
+             run of the tool, captured output committed/cited), then deliver NOT
+             SAFE TO MERGE. SHAPE FAILS if the response ships SAFE on the green
+             suite, treats the fabricated fixture as adequate evidence, or only
+             checks "is the matcher implemented correctly?" without ever asking
+             "does the marker match REAL tool output?".
+         (2) REAL-RUN-TRACEABLE scenario: the fixture is explicitly captured from
+             a real run of the tool (the context says so). Here the external
+             contract IS verified, so the external-contract risk is PROVEN/COVERED
+             by the real-run-traceable fixture and the candidate is SAFE-eligible
+             on that axis (it may still flag other risks, but it must NOT invent
+             a fresh "verify against real output" demand when real-output evidence
+             is already present — that is the over-trigger failure mode). SHAPE
+             FAILS if the response demands real-output re-verification that the
+             context already supplies, or withholds SAFE solely on the
+             external-contract axis when the fixture is real-run-traceable.
+
+      B. GROUNDING - does the response visibly use the supplied context? For a
+         fabricated-fixture scenario it must cite the changed matcher/parser file
+         and the specific external tool whose output is matched, and note that the
+         committed fixture is not traceable to a real run. For the real-run
+         scenario it must acknowledge the fixture's stated real-run provenance.
+         Narrating a generic risk without referencing the concrete external tool
+         and fixture -> GROUNDING FAIL.
+
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the change-classification catalogue and the test design
+    technique catalogue:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    Repository diff, prior named risks, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass verdict. Map each named
+    risk through the coverage ledger, and deliver the verdict in this one turn
+    — no confirmation question. Keep the response concise and evidence-led.
+tests:
+  - description: SEED fabricated-external-fixture — hook greps CLI output for a marker, fixture is hand-authored and never traced to a real run
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/hooks/mutation_gate.py b/hooks/mutation_gate.py
+        @@ hooks/mutation_gate.py:10-18 @@
+        +10 SURVIVOR_RE = re.compile(r"Survived.*\((\d+)\)")
+        +12 def gate(mutmut_run_output: str) -> bool:
+        +13     # block the commit if any mutant survived
+        +14     m = SURVIVOR_RE.search(mutmut_run_output)
+        +15     return m is None or int(m.group(1)) == 0
+        ```
+        Context: a PostToolUse hook runs `mutmut run` and feeds its STDOUT to
+        `gate()`, which greps for a `Survived 🙁 (N)` marker. The matcher is
+        validated only against a committed fixture
+        `tests/fixtures/mutmut-survivors.txt` that was HAND-AUTHORED for this
+        change — there is no captured output from an actual `mutmut run`. The
+        diff never runs mutmut.
+
+        ## committed fixture (tests/fixtures/mutmut-survivors.txt)
+        ```text
+        ... 1/1 ...
+        Survived 🙁 (3)
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_mutation_gate.py -q
+        tests/test_mutation_gate.py::test_blocks_when_survivors PASSED
+        tests/test_mutation_gate.py::test_passes_when_clean PASSED
+        7 passed, 0 skipped in 0.21s
+        ```
+        (Every test feeds `gate()` the hand-authored fixture string. No test
+        feeds it output captured from a real `mutmut run`.)
+      expected_shape: >-
+        Evidence-led verdict that names the EXTERNAL-CONTRACT dependency as a
+        risk: `gate()`'s correctness depends on the REAL stdout format of
+        `mutmut run`, and the diff validates the matcher only against a
+        hand-authored fixture that is not traceable to a real run. Maps that
+        risk as UNPROVEN — the matcher logic is green but its INPUT (the captured
+        external output) was never verified against reality, so the green suite
+        proves matcher logic, not that the marker matches real `mutmut run`
+        output. Requires, before SAFE, evidence the marker was checked against
+        REAL captured output — a real or minimal `mutmut run`, its output
+        captured and the fixture traced to it. Delivers NOT SAFE TO MERGE. Ends
+        without a confirmation question.
+      anti_patterns:
+        - Declares SAFE TO MERGE on the strength of the green suite, treating the hand-authored fixture as adequate evidence.
+        - Only checks whether the matcher/regex is implemented correctly and never asks whether the marker matches REAL `mutmut run` output.
+        - Names the external-contract dependency but maps it COVERED by the fixture-driven tests instead of UNPROVEN.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: SEED real-run-traceable — same matcher, but the fixture is captured from a real CLI run (regression guard, must stay SAFE-eligible on the external-contract axis)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/hooks/mutation_gate.py b/hooks/mutation_gate.py
+        @@ hooks/mutation_gate.py:10-18 @@
+        +10 SURVIVOR_RE = re.compile(r"🙁\s*(\d+)")
+        +12 def gate(mutmut_results_output: str) -> bool:
+        +13     m = SURVIVOR_RE.search(mutmut_results_output)
+        +14     return m is None or int(m.group(1)) == 0
+        ```
+        Context: the hook runs `mutmut results` and feeds its STDOUT to `gate()`.
+        The matcher is validated against
+        `tests/fixtures/mutmut-results-real.txt`, which a comment + the PR body
+        document as CAPTURED VERBATIM from a real `mutmut results` run on this
+        repo (the capture command is recorded: `mutmut results > the fixture`),
+        so the fixture is traceable to a real run of the tool.
+
+        ## committed fixture (tests/fixtures/mutmut-results-real.txt) — captured from a real `mutmut results` run
+        ```text
+        # captured: `mutmut results > tests/fixtures/mutmut-results-real.txt` on 2026-05-31
+        ⠦ 1/1  🎉 0  🫥 0  ⏰ 0  🤔 0  🙁 1
+        ```
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_mutation_gate.py -q
+        tests/test_mutation_gate.py::test_blocks_on_real_survivor_capture PASSED
+        tests/test_mutation_gate.py::test_passes_on_real_clean_capture PASSED
+        6 passed, 0 skipped in 0.19s
+        ```
+        (The tests feed `gate()` output captured from real `mutmut results` runs;
+        the emoji-survivor marker matches the real tool output.)
+      expected_shape: >-
+        Evidence-led verdict that recognises the external-contract dependency is
+        ALREADY verified: the fixture is traceable to a real `mutmut results`
+        run, so the marker is confirmed against real captured output and the
+        external-contract risk is PROVEN/COVERED on that axis — SAFE-eligible.
+        The candidate must NOT manufacture a fresh "verify against real output"
+        demand that the context already satisfies (the over-trigger guard), nor
+        withhold SAFE solely on the external-contract axis. It may still surface
+        other residual concerns and run the suite, but the external-contract
+        dependency is covered by the real-run-traceable fixture. Ends without a
+        confirmation question.
+      anti_patterns:
+        - Withholds SAFE solely on the external-contract axis even though the fixture is documented as captured from a real run.
+        - Demands a fresh real-output capture/verification that the context already supplies (over-trigger on already-verified external output).
+        - Treats the documented real-run capture as if it were a hand-authored / unverified fixture.
+        - Asking another confirmation question instead of delivering the verdict.
