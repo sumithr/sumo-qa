@@ -62,6 +62,7 @@ See the Checklist above — that's the flow.
 | "Register this as known-good without testing it first" | Don't. Register only after the user has confirmed the entry was used successfully — and confirm again before writing to the catalogue. |
 | "If no entry matches, I'll fabricate one" | Surface the gap. The user might need to register a new entry — let them decide. |
 | "Found entry failed validation — let me silently grab the next one" | No. Surface the failure to the user with the entry that went stale; let them pick the alternative. Silent substitution hides drift in the catalogue. |
+| "The data I need is a CLI/API's output — I'll hand-write a plausible fixture" | No. `real-capture fixtures for external-output matchers` (`sumo_qa_load_techniques`): capture the tool's REAL output first (run it, redirect to a file). An invented fixture validates your assumption, not the real contract. |
 
 ## Examples
 
