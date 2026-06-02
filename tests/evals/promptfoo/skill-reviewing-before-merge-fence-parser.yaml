@@ -236,14 +236,18 @@ tests:
         variable-length / indented / tilde-vs-backtick / unclosed-at-EOF fence).
         Names the structural tell: the close test compares the fence CHARACTER
         (`marker == fence_char`) and never tracks the opening run LENGTH — that
-        is the defect, not proof. PRESCRIBES at least one concrete discriminating
-        input with broken-vs-correct rationale — e.g. a 4-backtick outer fence
-        wrapping a 3-backtick block (the current impl closes the outer fence
-        early at the inner ```, so a `## heading` inside the block is WRONGLY
-        indexed as a real entry; a length-aware impl keeps the block open and
-        skips it), and/or a 4-space-indented `` ``` `` line (current impl
-        mis-toggles fence state; CommonMark treats it as indented code), and/or
-        an unclosed fence at EOF — required in the test gate before SAFE.
+        is the defect, not proof. PRESCRIBES the concrete discriminating input
+        for a length-not-tracked bug with broken-vs-correct rationale — a
+        4-backtick outer fence wrapping a 3-backtick block (the current impl
+        closes the outer fence early at the inner ```, so a `## heading` inside
+        the block is WRONGLY indexed as a real entry; a length-aware impl keeps
+        the block open and skips it) — required in the test gate before SAFE.
+        May ALSO note general fence edge cases (a ≥4-space-indented
+        close-looking line that stays as block CONTENT per CommonMark ex.137 —
+        the indexer must still skip it, NOT reparse it as indented code;
+        `~~~` vs backtick; an unclosed fence at EOF), but treats those as
+        general edge cases — `~~~`-vs-backtick and unclosed-at-EOF do NOT
+        discriminate the char-stored bug and are not required discriminators.
         Delivers NOT SAFE TO MERGE. Ends without a confirmation question.
       anti_patterns:
         - Declares SAFE TO MERGE and/or states the fence parse is "verified correct" / "fence-aware" on the strength of the code read or the green tests.

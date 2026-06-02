@@ -149,11 +149,17 @@ helper whose close-test compares only the marker char, plus a green suite
 described as the "comprehensive fenced-code-block test set" using only
 well-formed fences. The skill must NOT pronounce the parser "verified correct"
 from the code read; it must recognise the structural tell (char-only tracking is
-the defect, not proof), map the parser UNPROVEN, and **prescribe concrete
-discriminating inputs** with broken-vs-correct rationale — a 4-tick fence
-wrapping a 3-tick block, a ≥4-space-indented fence-looking line, `~~~` vs
-backtick, an unclosed fence at EOF, a trailing-content close — required in the
-test gate before SAFE, then deliver NOT SAFE TO MERGE. Candidate `gpt-5-mini`,
+the defect, not proof), map the parser UNPROVEN, and **prescribe the concrete
+discriminating input** with broken-vs-correct rationale. The single input that
+discriminates a length-not-tracked bug is the **variable-length nested fence —
+a 4-tick fence wrapping a 3-tick block** (char-only closes the outer fence
+early; length-aware keeps it open) — required in the test gate before SAFE. The
+other fence cases (a ≥4-space-indented close-looking line, which per CommonMark
+ex.137 stays as block CONTENT and must still be skipped — NOT reparsed as
+indented code; `~~~` vs backtick; an unclosed fence at EOF; a trailing-content
+close) are general fence edge cases, not the discriminating input for this
+seed's char-stored/length-not-tracked bug. Then deliver NOT SAFE TO MERGE.
+Candidate `gpt-5-mini`,
 judge `gpt-5.5`. Picked up by `npm run eval:all` automatically.
 
 ```bash
