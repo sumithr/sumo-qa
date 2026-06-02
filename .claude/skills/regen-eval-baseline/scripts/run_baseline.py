@@ -171,6 +171,47 @@ def parse_snapshot_slug(name: str) -> str | None:
     return m.group("slug")
 
 
+def _legacy_snapshot_matches_slug(name: str, slug: str) -> bool:
+    """Does a pre-``__`` (single-hyphen) snapshot name belong to ``slug``?
+
+    Before this PR introduced the ``__`` slug/label separator, snapshots were
+    written as ``<date>-skill-<slug>-<label>.json`` with a single hyphen. The
+    new ``SNAPSHOT_NAME_RE`` only recognises the ``__`` form, so on the FIRST
+    run after upgrading, a pre-existing legacy snapshot for this exact slug
+    would parse to None and be filtered out — the run would report "No prior
+    baseline" instead of a before/after delta against it.
+
+    This fallback is slug-DIRECTED on purpose: it never tries to recover the
+    slug from a legacy name in the abstract (that is the ambiguity the ``__``
+    separator was introduced to kill). Given a target ``slug``, we split on the
+    LAST hyphen-group only and accept the name solely when the part after
+    ``skill-`` is exactly ``<slug>-<label>`` with ``<label>`` a SINGLE kebab
+    segment (no internal hyphens): the leading part must equal the target slug
+    EXACTLY. A single-segment label is the bounded-token discipline that keeps
+    the legacy parse safe — peeling more than the final segment would re-open
+    the very multi-hyphen ambiguity the ``__`` separator exists to remove.
+
+    Why a single-segment label is safe AND sufficient here:
+
+    - Safe: target ``reviewing-before-merge`` matches legacy
+      ``…-skill-reviewing-before-merge-baseline.json`` (leading part exactly the
+      target, label ``baseline``) but NOT the longer suffixed sibling
+      ``…-skill-reviewing-before-merge-adversarial-baseline.json`` — peeling its
+      final segment ``baseline`` leaves the leading part
+      ``reviewing-before-merge-adversarial``, which is NOT the target. No
+      cross-match.
+    - Sufficient: legacy snapshots were produced by the OLD writer, which
+      defaulted the label to ``baseline`` (and used short single-token labels
+      like ``postcut`` / ``greenfix``); a multi-hyphen legacy label could not be
+      split back unambiguously anyway, which is precisely why this PR moved to
+      ``__``. We only need to recover the unambiguous single-token legacy case.
+    """
+    legacy_re = re.compile(
+        rf"^\d{{4}}-\d{{2}}-\d{{2}}-skill-{re.escape(slug)}-(?P<label>[a-z0-9]+)\.json$"
+    )
+    return legacy_re.match(name) is not None
+
+
 def find_prior_baseline(baselines_dir: Path, slug: str, current: Path) -> Path | None:
     """Most recent prior snapshot for this EXACT slug, by date-prefix order.
 
@@ -185,13 +226,21 @@ def find_prior_baseline(baselines_dir: Path, slug: str, current: Path) -> Path |
     This prevents a base config from picking a later-dated *suffixed sibling*'s
     snapshot (``…-adversarial…``, ``…-ab…``) as its prior and printing a delta
     across two different eval suites.
+
+    Legacy fallback: a pre-``__`` snapshot (single-hyphen
+    ``<date>-skill-<slug>-<label>.json``) is also matched, so the first run
+    after upgrading still computes a delta against an existing local snapshot
+    instead of reporting "No prior baseline". The legacy match is slug-directed
+    (see ``_legacy_snapshot_matches_slug``) and keeps the same bounded-token
+    discipline — it does NOT cross-match a longer suffixed sibling.
     """
     if not baselines_dir.is_dir():
         return None
     candidates = sorted(
         p
         for p in baselines_dir.glob("*-skill-*.json")
-        if p != current and parse_snapshot_slug(p.name) == slug
+        if p != current
+        and (parse_snapshot_slug(p.name) == slug or _legacy_snapshot_matches_slug(p.name, slug))
     )
     return candidates[-1] if candidates else None
 
