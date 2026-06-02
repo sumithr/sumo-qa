@@ -106,6 +106,38 @@ class TestBlockGeneratedPathsHook:
         )
         assert "tests/fixtures/" in spec["permissionDecisionReason"]
 
+    def test_denies_claude_hooks_fixtures_path(self) -> None:
+        """`.claude/hooks/fixtures/` holds byte-for-byte mutmut/promptfoo
+        captures that the route-qa-runners matcher tests depend on (same kind of
+        artefact as tests/fixtures/, and excluded from the eof/whitespace
+        pre-commit hooks for the same reason). A hand-edit via Edit/MultiEdit
+        would silently diverge them from real tool output and mask matcher bugs,
+        so the PreToolUse denylist must block them too.
+        """
+        result = _run_subprocess_hook(
+            "block-generated-paths.py",
+            {
+                "tool_name": "Edit",
+                "tool_input": {
+                    "file_path": str(
+                        REPO_ROOT / ".claude" / "hooks" / "fixtures" / "mutmut_clean.stdout.txt"
+                    ),
+                },
+                "cwd": str(REPO_ROOT),
+            },
+        )
+
+        assert result.returncode == 0, f"hook crashed: stderr={result.stderr!r}"
+        assert result.stdout.strip(), (
+            "hook produced empty stdout (silent allow) for a "
+            ".claude/hooks/fixtures/ capture. These real captures must be "
+            "deny-protected like tests/fixtures/."
+        )
+        output = json.loads(result.stdout)
+        spec = output["hookSpecificOutput"]
+        assert spec["permissionDecision"] == "deny", f"expected deny, got {output}"
+        assert ".claude/hooks/fixtures/" in spec["permissionDecisionReason"]
+
     def test_allows_non_protected_path_when_cwd_is_subdir(self) -> None:
         """Same equivalence class shape, opposite axis: confirm fix didn't
         introduce a false-positive that denies legitimate source edits.
