@@ -151,9 +151,11 @@ leap-year expected value with captured RED-on-pre-fix evidence) that must yield
 SAFE. Candidate is `gpt-5-mini` (the probe is reasoning-heavy — detect a
 self-referential assertion, derive a date), judge `gpt-5.5`. No `.ab.yaml`
 ships for this seed; to isolate the #255 probe behaviour by hand, run the eval
-once on this branch (tautology seed PASS), then `git stash` the SKILL.md back
-to `origin/main` and re-run — the tautology seed flips to FAIL, confirming the
-verdict comes from the added probe rather than the corpus.
+once on this branch (tautology seed PASS), then check the SKILL.md back to its
+pre-probe state — `git checkout origin/main -- skills/sumo-qa-reviewing-before-merge/SKILL.md`
+— and re-run; the tautology seed flips to FAIL, confirming the verdict comes
+from the added probe rather than the corpus. Restore with
+`git checkout HEAD -- skills/sumo-qa-reviewing-before-merge/SKILL.md`.
 
 ```bash
 source ~/.config/promptfoo-keys.env

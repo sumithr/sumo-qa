@@ -212,9 +212,14 @@ tests:
 
         ## Pre-fix evidence (captured by developer)
         ```text
-        $ git stash && pytest billing/test_schedule.py -q   # against the pre-fix commit
+        # Check out ONLY the buggy pre-fix runtime, keeping the new test in place
+        $ git checkout a1b2c3d -- billing/schedule.py
+        $ pytest billing/test_schedule.py::test_jan31_anchor_clamps_to_leap_feb29 -q
         billing/test_schedule.py::test_jan31_anchor_clamps_to_leap_feb29 FAILED
         E  assert date(2024, 2, 28) == date(2024, 2, 29)
+        1 failed in 0.04s
+        # Restore the fixed runtime
+        $ git checkout HEAD -- billing/schedule.py
         ```
 
         ## Fresh test run (current fix)
