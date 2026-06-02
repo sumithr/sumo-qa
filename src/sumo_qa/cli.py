@@ -93,8 +93,11 @@ def _cmd_analyze(root: Path, *, as_json: bool) -> int:
 
     # Carry the analyzed root into the suggested next command so that, run from
     # any cwd, `sumo-qa status {root}` inspects the repo just analyzed — mirroring
-    # the way status builds its own next_command. Use the resolved ``root``.
-    next_command = f"{_NEXT_AFTER_ANALYZE} {root}"
+    # the way status builds its own next_command. Use the resolved ``root``,
+    # normalised to posix (``as_posix()``) so the suggestion is OS-stable just
+    # like ``artifact_path``; forward slashes are valid paths on Windows for
+    # pathlib/argparse, so the command stays runnable there.
+    next_command = f"{_NEXT_AFTER_ANALYZE} {root.as_posix()}"
 
     payload: dict[str, Any] = {"command": "analyze", **summary.model_dump(mode="json")}
     payload["next_command"] = next_command
@@ -133,7 +136,7 @@ def _status_payload(root: Path) -> dict[str, Any]:
         "current_commit": _detect_git_commit(root),
         "is_stale": False,
         "validation_error": None,
-        "next_command": f"{_NEXT_RUN_ANALYZE} {root}",
+        "next_command": f"{_NEXT_RUN_ANALYZE} {root.as_posix()}",
         "summary": (
             f"No repo-map artifact at {REPO_MAP_RELPATH}. Run `{_NEXT_RUN_ANALYZE}` to generate it."
         ),
@@ -152,7 +155,7 @@ def _status_payload(root: Path) -> dict[str, Any]:
             f"Found {REPO_MAP_RELPATH} but could not read it ({exc.kind}). "
             f"Run `{_NEXT_RUN_ANALYZE}` to regenerate it."
         )
-        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root}"
+        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"
         return base
 
     current = base["current_commit"]
@@ -170,7 +173,7 @@ def _status_payload(root: Path) -> dict[str, Any]:
         # but mypy cannot narrow ``recorded``/``current`` through the bool, so
         # assert it explicitly before slicing.
         assert recorded is not None and current is not None
-        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root}"
+        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"
         base["summary"] = (
             f"Repo-map is STALE: recorded commit {recorded[:8]} differs from "
             f"current HEAD {current[:8]}. Run `{_NEXT_RUN_ANALYZE}` to refresh it."
@@ -179,7 +182,7 @@ def _status_payload(root: Path) -> dict[str, Any]:
         # Fresh, or freshness unknown (no git on either side) — either way the
         # artifact is usable; the natural next step is impact analysis, but that
         # lands in a later slice, so we simply confirm freshness here.
-        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root}"
+        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"
         base["summary"] = (
             f"Repo-map present and fresh (schema {repo_map.schema_version}, "
             f"generated {base['generated_at']})."
