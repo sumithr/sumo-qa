@@ -215,6 +215,42 @@ source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-fence-parser.ab.yaml --no-cache
 ```
 
+## Runtime-scope corpus (issue #300)
+
+Issue #300 broadens what `reviewing-before-merge` counts as a **runtime
+change**: the trigger now keys on **executable behaviour, not path prefix**. An
+executable hook/script/automation under `.claude/hooks/`, `scripts/`, or any
+non-`src/` location gets the same mandatory discovery sweep + coverage ledger as
+a library module — and the trivial-change exemption is scoped to *genuinely
+non-executable* diffs (docs / static config), not "anything outside
+`app`/`src`/`lib`". The `executable-hook-out-of-source` FAMILY case in
+`skill-reviewing-before-merge-adversarial.yaml` exercises this from a raw diff.
+
+**Load-bearing control (`.ab.yaml`).**
+`skill-reviewing-before-merge-runtime-scope.ab.yaml` runs the SAME
+executable-hook seed (a command-parsing PreToolUse hook under `.claude/hooks/`,
+outside the source dirs) against the PRE-EDIT (origin/main) SKILL.md body (A0)
+and the post-#300 body (A1). Both prompts instruct the candidate to classify
+runtime-vs-trivial **strictly by the loaded body's stated trigger**, not by its
+own intuition about hooks. The pre-#300 body keys the verdict-format runtime gate
+on an `app`/`src`/`lib` path prefix and scopes the trivial exemption to a diff
+with "no `app`/`src`/`lib` file present", so A0 classifies the hook as
+non-runtime/tooling, uses `N/A` or `COVERED BY VERIFICATION` instead of a
+mirrored `tests/hooks/` ledger row, and does not reject the "outside src =
+trivial" framing — a SHAPE FAIL. A1 (the new body) keys the trigger on executable
+behaviour, runs the full sweep, emits a `tests/hooks/`-style coverage-ledger row
+marked UNCOVERED/UNPROVEN, flags the command-parsing mis-parse, and reaches NOT
+SAFE — a PASS. A0(FAIL) → A1(PASS) is deterministic over 3 runs; that lift
+isolates the #300 behaviour. The A0 body is snapshotted at
+`fixtures/reviewing-before-merge-PRE-300.SKILL.md` — refresh it if the baseline
+moves.
+
+```bash
+source ~/.config/promptfoo-keys.env
+# A0 (pre-300 body) FAIL vs A1 (post-300 body) PASS
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-runtime-scope.ab.yaml --no-cache
+```
+
 ## How to run
 
 ### One-time setup
@@ -406,6 +442,8 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `fixtures/reviewing-before-merge-PRE-187.SKILL.md` | Snapshot of the pre-#187 SKILL.md body, the A0 control leg for the unproven-escalation `.ab.yaml` |
 | `skill-reviewing-before-merge-fence-parser.yaml` + `.ab.yaml` | Issue #296 discriminating-input fence probe + A0(pre-edit)/A1(post-edit) load-bearing control (see "Discriminating-input fence probe" above) |
 | `fixtures/reviewing-before-merge-PRE-296.SKILL.md` | Snapshot of the pre-#296 SKILL.md body, the A0 control leg for the fence-parser `.ab.yaml` |
+| `skill-reviewing-before-merge-runtime-scope.ab.yaml` | Issue #300 A0(pre-edit)/A1(post-edit) load-bearing control for the behaviour-not-path runtime-scope rule (see "Runtime-scope corpus" above) |
+| `fixtures/reviewing-before-merge-PRE-300.SKILL.md` | Snapshot of the pre-#300 SKILL.md body, the A0 control leg for the runtime-scope `.ab.yaml` |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
