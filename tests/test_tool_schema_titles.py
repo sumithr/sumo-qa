@@ -44,3 +44,25 @@ def test_served_tools_list_has_no_schema_titles() -> None:
         f"{len(offenders)} tool(s) still emit auto-generated schema `title` "
         f"keys (name -> (input_titles, output_titles)): {offenders}"
     )
+
+
+def test_served_tools_list_emits_no_output_schema() -> None:
+    """No tool ships an ``outputSchema`` in the served ``tools/list``.
+
+    FastMCP derives an ``outputSchema`` from each tool's return annotation —
+    measured at ~18k approx tokens across this server, the single largest
+    always-on surface. The host LLM reads the tool's text content, which is
+    identical whether or not the schema is published (FastMCP computes the
+    unstructured content unconditionally and only ADDS a ``structuredContent``
+    block when a schema is present), so the schema is pure overhead.
+    ``build_mcp_server`` drops it; this pins that it stays gone.
+    """
+    mcp = build_mcp_server()
+    tools = asyncio.run(mcp.list_tools())
+    assert tools, "expected a non-empty tools/list"
+
+    with_output_schema = [tool.name for tool in tools if tool.outputSchema is not None]
+    assert not with_output_schema, (
+        f"{len(with_output_schema)} tool(s) still ship an outputSchema in "
+        f"tools/list: {with_output_schema}"
+    )

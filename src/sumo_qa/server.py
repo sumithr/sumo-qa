@@ -375,6 +375,38 @@ def _slim_tool_schemas(mcp: Any) -> None:
             tool.__dict__.pop("output_schema", None)
 
 
+def _drop_structured_output(mcp: Any) -> None:
+    """Stop emitting an ``outputSchema`` for every tool, once at build time.
+
+    FastMCP derives an ``outputSchema`` from each tool's return annotation and
+    ships it in ``tools/list``; measured across this server it is ~18k approx
+    tokens — the single largest always-on surface, paid on every turn the
+    server is connected. It buys nothing for the host LLM: FastMCP's
+    ``convert_result`` ALWAYS computes the same text content via
+    ``_convert_to_content`` (a tool's Pydantic return is rendered to indented
+    JSON) and only ADDITIONALLY attaches a ``structuredContent`` block when an
+    outputSchema is present. The text the model reads is therefore
+    byte-for-byte identical with or without the schema — dropping it removes a
+    redundant wire-level schema and a duplicate structured block, not signal.
+
+    The tools' return models are still constructed (and so validated) inside
+    each tool body, so correctness is unchanged; only the host-side re-
+    validation against the published schema goes away. Nulling
+    ``output_schema``/``output_model``/``wrap_output`` matches FastMCP's own
+    ``structured_output=False`` state, so each tool returns plain text content.
+
+    A post-build pass (over the final tool registry) so it covers every
+    registration path — decorators, skill prompts, resources — uniformly,
+    mirroring _slim_tool_schemas. Pinned by tests/test_tool_schema_titles.py
+    (no ``outputSchema`` served) so a FastMCP internal change fails loudly."""
+    for tool in mcp._tool_manager.list_tools():
+        fn_metadata = tool.fn_metadata
+        fn_metadata.output_schema = None
+        fn_metadata.output_model = None
+        fn_metadata.wrap_output = False
+        tool.__dict__.pop("output_schema", None)
+
+
 def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     try:
         from mcp.server.fastmcp import FastMCP
@@ -1308,6 +1340,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     register_skills_as_prompts(mcp)
     register_skill_resources(mcp)
     _slim_tool_schemas(mcp)
+    _drop_structured_output(mcp)
     return mcp
 
 

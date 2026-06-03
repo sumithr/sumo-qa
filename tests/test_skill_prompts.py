@@ -63,16 +63,17 @@ def test_skill_tool_body_matches_skill_md_content() -> None:
         bodies: dict[str, str] = {}
         for tool_name in _EXPECTED_SKILL_TOOL_NAMES:
             result = await server.call_tool(tool_name, {})
-            # FastMCP returns (content_list, structured_content) for tool
-            # results. Extract the text from the first text content block.
+            # The server drops outputSchema, so call_tool returns a bare
+            # content list (unstructured text). Older FastMCP returned a
+            # (content_list, structured_content) tuple — handle both. Extract
+            # the text from the first text content block.
+            content_list = result[0] if isinstance(result, tuple) else result
             text = ""
-            if isinstance(result, tuple) and result:
-                content_list = result[0]
-                for content in content_list:
-                    block_text = getattr(content, "text", None)
-                    if block_text:
-                        text = block_text
-                        break
+            for content in content_list:
+                block_text = getattr(content, "text", None)
+                if block_text:
+                    text = block_text
+                    break
             bodies[tool_name] = text
         return bodies
 
