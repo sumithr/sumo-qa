@@ -8,6 +8,7 @@
 [![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.31.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.31.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
+[![SafeSkill 30/100](https://img.shields.io/badge/SafeSkill-30%2F100_Blocked-red)](https://safeskill.dev/scan/sumithr-sumo-qa)
 
 An MCP server that brings senior-QA discipline to AI coding assistants — test planning, TDD, mutation testing, code review.
 
