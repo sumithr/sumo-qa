@@ -1,0 +1,246 @@
+description: >
+  Issue #255 — test_change vacuous-test probe for sumo-qa-reviewing-before-merge.
+  When the diff is test files only (no runtime file), the runtime coverage-ledger
+  has no anchor, so the central risk is whether each new/changed test can actually
+  fail — tautology / non-discriminating assertion / matcher under-coverage /
+  unproven regression. The skill must run the test-quality probe (cross-referencing
+  the tautology / setup-discriminator / expected-value-derivation framing from
+  implementing-with-tdd step 3) before the verdict: a tautological assertion → NEEDS
+  WORK / NOT SAFE naming the vacuous assertion; a genuine discriminator with
+  red-on-pre-fix evidence → SAFE. A green suite is NOT a pass for a test_change.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate ran a
+      TEST-QUALITY PROBE on a test-only (test_change) diff instead of rubber-
+      stamping a green suite, AND avoided the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         The diff is test files ONLY, so there is no runtime anchor and a green
+         suite alone is NOT a pass. The candidate MUST run a test-quality probe
+         on each new/changed test — asking whether its assertion can FAIL
+         (discriminates a broken impl from a correct one), NOT whether the suite
+         is green. It must NOT apply the runtime coverage-ledger / module-match
+         framework and conclude "no runtime risk → SAFE". For a TAUTOLOGICAL /
+         non-discriminating test the verdict MUST be NEEDS WORK or NOT SAFE TO
+         MERGE, naming the specific vacuous assertion (e.g. an expected value
+         read from the same call under test, or a type-only check). For a GENUINE
+         discriminator the verdict MUST be SAFE TO MERGE, and the response must
+         explain WHY the assertion discriminates (a derived expected value, not
+         recalled) and cite the captured RED-on-pre-fix evidence where supplied.
+         SHAPE FAILS if ANY of these hold:
+           - it declares SAFE because the new tests pass, without probing whether
+             they can fail;
+           - it applies the runtime coverage-ledger / module-match framework and
+             reports "no risks identified — test-only change";
+           - (tautology scenario) it does not name the self-referential /
+             type-only vacuous assertion, or it ships SAFE;
+           - (discriminator scenario) it flags the sound test as vacuous, ships
+             NEEDS WORK / NOT SAFE despite a derived expected value and pre-fix
+             RED evidence, or never reasons about whether the assertion can fail.
+
+      B. GROUNDING - does the response visibly use the supplied context? It must
+         reference the specific test names and the assertion shape that makes
+         each test vacuous or discriminating (the self-referential expected /
+         type-only check, OR the derived 2024-02-29 value plus the captured
+         pre-fix RED result). Narrating a generic verdict without naming the
+         assertion(s) -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, prior review gates, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass verdict. Deliver the verdict
+    in this one turn — no confirmation question. Keep the response concise and
+    evidence-led.
+tests:
+  - description: SEED tautology — test-only diff whose assertions cannot fail must be flagged
+    vars:
+      user_prompt: >-
+        Is this safe to merge? The diff is just a new test for the discount calc.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff is a single new test file ONLY — NO
+        runtime/source file changed (a test-only change). The intent was to add
+        a regression test for the VIP-discount calculation in
+        pricing/discount_calculator.py (unchanged in this diff).
+        Risk gate: completed. The developer asked only "do these tests actually
+        protect the discount calc?".
+
+        ## git diff
+        ```diff
+        diff --git a/pricing/test_discount_calculator.py b/pricing/test_discount_calculator.py
+        @@ pricing/test_discount_calculator.py:40-48 @@
+        +40 def test_vip_discount_value():
+        +41     order = Order(subtotal=100, customer_tier="VIP")
+        +42     expected = apply_discounts(order).total
+        +43     assert apply_discounts(order).total == expected
+        +
+        +46 def test_discount_is_a_number():
+        +47     order = Order(subtotal=100, customer_tier="VIP")
+        +48     assert isinstance(apply_discounts(order).total, (int, float))
+        ```
+        Context: in test_vip_discount_value the `expected` value is read from the
+        SAME call under test (apply_discounts(order).total) and then compared to
+        itself; test_discount_is_a_number only asserts the result is a number,
+        never the discounted amount.
+
+        ## Fresh test run
+        ```text
+        $ pytest pricing/test_discount_calculator.py -q
+        pricing/test_discount_calculator.py::test_vip_discount_value PASSED
+        pricing/test_discount_calculator.py::test_discount_is_a_number PASSED
+        2 passed, 0 skipped in 0.41s
+        ```
+      expected_shape: >-
+        Evidence-led verdict on a test-only (test_change) diff that runs a
+        test-quality probe instead of the runtime coverage-ledger. It identifies
+        that test_vip_discount_value reads its `expected` from the same call it
+        asserts against — a self-referential tautology that passes against ANY
+        implementation, broken or correct — and that test_discount_is_a_number
+        only checks the type, not the discounted value, so neither assertion
+        discriminates a broken discount calc from a correct one. Delivers NEEDS
+        WORK or NOT SAFE TO MERGE, naming the specific vacuous assertion(s),
+        despite the green suite. Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE TO MERGE because the two new tests pass.
+        - Treats a green test run as proof the tests discriminate broken from fixed.
+        - Applies the runtime coverage-ledger / module-match framework and reports no risks for a test-only diff.
+        - Fails to name the self-referential (tautological) assertion in test_vip_discount_value.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: SEED discriminator — test-only diff with a derived expected value and pre-fix RED evidence passes
+    vars:
+      user_prompt: >-
+        Is this safe to merge? It's a regression test for the leap-year charge-date bug.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff is a single new test file ONLY — NO
+        runtime/source file changed (a test-only change). It is a regression
+        test for the already-fixed next_charge_date leap-year clamp in
+        billing/schedule.py (unchanged in this diff).
+        Risk gate: completed. The developer captured the test running RED against
+        the pre-fix commit (the buggy impl produced 2024-02-28) and GREEN against
+        the current fix.
+
+        ## git diff
+        ```diff
+        diff --git a/billing/test_schedule.py b/billing/test_schedule.py
+        @@ billing/test_schedule.py:30-36 @@
+        +30 def test_jan31_anchor_clamps_to_leap_feb29():
+        +31     # Jan 31 anchored to 31 in a leap year clamps to Feb 29, not Feb 28
+        +32     result = next_charge_date(date(2024, 1, 31), anchor_day=31)
+        +33     assert result == date(2024, 2, 29)
+        ```
+        Context: the expected value 2024-02-29 is derived from the input — Jan 31
+        anchored to 31 in leap year 2024, whose February has 29 days — not a
+        recalled "Feb has 28 days" generic. A broken impl hardcoded to Feb=28
+        produces 2024-02-28 and fails this assertion.
+
+        ## Pre-fix evidence (captured by developer)
+        ```text
+        # Check out ONLY the buggy pre-fix runtime, keeping the new test in place
+        $ git checkout a1b2c3d -- billing/schedule.py
+        $ pytest billing/test_schedule.py::test_jan31_anchor_clamps_to_leap_feb29 -q
+        billing/test_schedule.py::test_jan31_anchor_clamps_to_leap_feb29 FAILED
+        E  assert date(2024, 2, 28) == date(2024, 2, 29)
+        1 failed in 0.04s
+        # Restore the fixed runtime
+        $ git checkout HEAD -- billing/schedule.py
+        ```
+
+        ## Fresh test run (current fix)
+        ```text
+        $ pytest billing/test_schedule.py -q
+        billing/test_schedule.py::test_jan31_anchor_clamps_to_leap_feb29 PASSED
+        14 passed, 0 skipped in 0.58s
+        ```
+      expected_shape: >-
+        Evidence-led verdict on a test-only (test_change) diff that runs a
+        test-quality probe and CONFIRMS the new test carries a genuine
+        discriminator: the expected value 2024-02-29 is derived from the input
+        (Jan 31, anchor 31, leap year 2024 → February has 29 days), NOT a
+        tautology, and there is captured RED-on-pre-fix evidence (the buggy impl
+        produced 2024-02-28 while the test asserts 2024-02-29) plus GREEN on the
+        current fix. Delivers SAFE TO MERGE, citing the discriminating assertion,
+        the red-then-green evidence, and the fresh 14 passed, 0 skipped count.
+        Ends without a confirmation question.
+      anti_patterns:
+        - Flags the test as vacuous when its assertion discriminates broken from fixed.
+        - Declares NEEDS WORK / NOT SAFE despite a derived expected value AND captured pre-fix RED evidence.
+        - Applies the runtime coverage-ledger / module-match framework and reports no risks for a test-only diff.
+        - Ignores the captured pre-fix RED evidence when reasoning about whether the test can fail.
+        - Asking another confirmation question instead of delivering the verdict.

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/sumithr/sumo-qa/compare/v0.30.0...v0.31.0) (2026-06-03)
+
+
+### Features
+
+* add test_change vacuous-test probe to reviewing-before-merge ([#312](https://github.com/sumithr/sumo-qa/issues/312)) ([2a2563f](https://github.com/sumithr/sumo-qa/commit/2a2563f66afc24b31abb5b44b73c7b8813eee072))
+
 ## [0.30.0](https://github.com/sumithr/sumo-qa/compare/v0.29.0...v0.30.0) (2026-06-02)
 
 
