@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/sumithr/sumo-qa/compare/v0.32.0...v0.33.0) (2026-06-03)
+
+
+### Features
+
+* add acceptance-criteria coverage check to reviewing-before-merge ([#314](https://github.com/sumithr/sumo-qa/issues/314)) ([89ee562](https://github.com/sumithr/sumo-qa/commit/89ee562367ff267b9c0f8fd6785c714d96652f6f))
+
 ## [0.32.0](https://github.com/sumithr/sumo-qa/compare/v0.31.0...v0.32.0) (2026-06-03)
 
 
