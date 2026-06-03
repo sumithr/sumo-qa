@@ -1,0 +1,316 @@
+description: >
+  Acceptance-criteria coverage eval for sumo-qa-reviewing-before-merge (issue
+  #264). Measures that the review checks each HOST-SUPPLIED acceptance criterion
+  against the diff + fresh test evidence, surfaces an AC-coverage view
+  (met / unmet / unverified, each with a cited anchor), and REFUSES safe-to-merge
+  while any criterion is UNMET — mirroring the uncovered-risk → NOT SAFE rule.
+  Three cases: one with an UNMET AC (must be NOT SAFE), one with every AC met
+  against fresh tests (SAFE-eligible), and one where a criterion is plausibly
+  implemented but the fresh run lacks end-to-end / path-matching evidence — the
+  candidate must classify it UNVERIFIED (NOT UNMET) and still return NOT SAFE,
+  exercising the novel three-state discriminator. Host-neutral: the criteria
+  are supplied in-context; the skill must not fetch an issue or call gh.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response check EACH supplied acceptance criterion
+         against the diff + the fresh test evidence and classify it (met / unmet
+         / unverified) with a cited anchor (file:line or a fresh test id), AND
+         reach the correct final verdict described in the expected shape? A
+         response that ignores the supplied criteria, or reaches the wrong
+         verdict, is a SHAPE FAIL.
+
+      B. GROUNDING - the AC classifications and verdict must use the supplied
+         criteria and the supplied fresh test output (exact test names / counts),
+         not invented evidence. The skill must NOT claim it fetched the issue,
+         ran gh, or hit a tracker/API — the criteria are supplied in-context.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, prior review gates, the HOST-SUPPLIED acceptance criteria,
+    and fresh verification evidence for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. This is the final verdict turn: deliver the prose
+    verdict citing the named risks + fresh test evidence AND an acceptance-criteria
+    coverage check against the supplied criteria. No confirmation gate.
+tests:
+  - description: AC UNMET — one supplied criterion has no covering change/evidence → NOT SAFE
+    vars:
+      skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+      user_prompt: >-
+        Is this safe to merge? Here are the ticket's acceptance criteria — check
+        the PR delivers them.
+      expected_shape: >-
+        Final-turn merge-review verdict that checks each of the THREE supplied
+        acceptance criteria against the diff + the fresh test run, surfacing an
+        AC-coverage view (each criterion marked met / unmet / unverified with a
+        cited file:line or fresh test id). AC1 (config endpoint added) and AC3
+        (changelog updated) are MET with cited evidence; AC2 (the endpoint is
+        rate-limited) is UNMET — nothing in the diff implements rate limiting and
+        no fresh test exercises it. Because AC2 is UNMET, the verdict is NOT SAFE
+        TO MERGE, naming the unmet criterion, even though the suite is green. The
+        AC-coverage view is an appendix/inline check, never replacing the prose
+        verdict.
+      anti_patterns:
+        - Declares SAFE TO MERGE despite the unmet rate-limiting acceptance criterion.
+        - Ignores the supplied acceptance criteria entirely and verdicts on risk coverage alone.
+        - Marks the unmet rate-limiting criterion as met or covered.
+        - Claims to have fetched the issue, run gh, or called a tracker/API to get the criteria.
+        - Fabricates acceptance criteria beyond the three supplied.
+        - Surfacing literal taxonomy labels such as business_logic_change.
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns (NOT shown above): you read the diff, named the risks, the
+        user confirmed them, and you ran the suite. This is the FINAL TURN.
+
+        ## Host-supplied acceptance criteria (pasted by the developer)
+        - AC1: A new `GET /api/v1/quota` endpoint returns the caller's remaining quota.
+        - AC2: The new endpoint is rate-limited to 60 requests/minute per token.
+        - AC3: The CHANGELOG records the new endpoint under the unreleased section.
+
+        ## git diff
+        ```diff
+        diff --git a/app/api/quota.py b/app/api/quota.py
+        @@ app/api/quota.py:1-18 @@
+        +@router.get("/api/v1/quota")
+        +def get_quota(token: Token) -> QuotaResponse:
+        +    return QuotaResponse(remaining=quota_for(token))
+        diff --git a/CHANGELOG.md b/CHANGELOG.md
+        @@ CHANGELOG.md:5-7 @@
+        +### Unreleased
+        +- Add GET /api/v1/quota endpoint.
+        diff --git a/tests/api/test_quota.py b/tests/api/test_quota.py
+        @@ tests/api/test_quota.py:1-12 @@
+        +def test_quota_returns_remaining():
+        +    assert client.get("/api/v1/quota").json()["remaining"] == 100
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/api/test_quota.py -q
+        tests/api/test_quota.py::test_quota_returns_remaining PASSED
+        1 passed in 0.22s
+        ```
+        Note: no code in the diff applies a rate limit, and no fresh test
+        asserts a 429 / request-count cap, so AC2 (rate-limited to 60 rpm) has
+        NO implementing change and NO covering test.
+
+  - description: All ACs met against fresh tests → SAFE-eligible
+    vars:
+      skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+      user_prompt: >-
+        Is this safe to merge? Acceptance criteria for the ticket are below —
+        confirm the PR delivers each one.
+      expected_shape: >-
+        Final-turn merge-review verdict that checks each of the TWO supplied
+        acceptance criteria against the diff + the fresh test run and finds BOTH
+        MET, each cited to a file:line and a fresh passing test: AC1 (reject empty
+        names with 422) cited to the validator change + the fresh
+        test_rejects_empty_name assertion, AC2 (trim surrounding whitespace) cited
+        to the trim change + the fresh test_trims_whitespace assertion. With no
+        UNMET / UNVERIFIED criterion and a green suite and the named risks covered,
+        the verdict is SAFE-eligible (SAFE TO MERGE), while still listing residual
+        concerns. The AC-coverage view supplements, never replaces, the prose
+        verdict.
+      anti_patterns:
+        - Marks a met criterion as unmet/unverified and refuses SAFE despite cited fresh-test evidence for both ACs.
+        - Ignores the supplied acceptance criteria entirely.
+        - Claims SAFE without citing a fresh passing test for each criterion.
+        - Claims to have fetched the issue, run gh, or called a tracker/API to get the criteria.
+        - States "Residual concerns: none".
+        - Surfacing literal taxonomy labels such as business_logic_change.
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns (NOT shown above): you read the diff, named the risks (R1:
+        empty-name handling, R2: whitespace normalisation), the user confirmed
+        them, and you ran the suite. This is the FINAL TURN.
+
+        ## Host-supplied acceptance criteria (pasted by the developer)
+        - AC1: Submitting an empty display name is rejected with HTTP 422.
+        - AC2: Surrounding whitespace on the display name is trimmed before save.
+
+        ## git diff
+        ```diff
+        diff --git a/app/users/validate.py b/app/users/validate.py
+        @@ app/users/validate.py:10-20 @@
+        +    name = name.strip()
+        +    if not name:
+        +        raise DisplayNameInvalid(status=422)
+        diff --git a/tests/users/test_validate.py b/tests/users/test_validate.py
+        @@ tests/users/test_validate.py:1-16 @@
+        +def test_rejects_empty_name():
+        +    with pytest.raises(DisplayNameInvalid) as e:
+        +        validate_display_name("")
+        +    assert e.value.status == 422
+        +def test_trims_whitespace():
+        +    assert validate_display_name("  ada  ") == "ada"
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/users/test_validate.py -q
+        tests/users/test_validate.py::test_rejects_empty_name PASSED
+        tests/users/test_validate.py::test_trims_whitespace PASSED
+        2 passed in 0.19s
+        ```
+        Both named risks (R1 empty-name, R2 whitespace) have a fresh
+        path-matching passing test asserting the exact behaviour.
+
+  - description: AC plausibly implemented but no end-to-end evidence → UNVERIFIED (not UNMET) → NOT SAFE
+    vars:
+      skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+      user_prompt: >-
+        Is this safe to merge? The ticket's acceptance criteria are below —
+        confirm the PR delivers each one.
+      expected_shape: >-
+        Final-turn merge-review verdict that checks each of the TWO supplied
+        acceptance criteria against the diff + the fresh test run, surfacing an
+        AC-coverage view with EACH criterion classified (met / unmet /
+        unverified) and a cited anchor. AC1 (failed webhook deliveries are
+        retried up to 3 times with backoff) is plausibly implemented — the diff
+        adds a retry loop — BUT the only fresh test touching the retry behaviour
+        is a low-level unit on the backoff-delay calculator; NO fresh test drives
+        the delivery path end-to-end to prove a 5xx response actually triggers
+        up-to-three retries. So AC1 is UNVERIFIED (the diff plausibly addresses
+        it but no fresh path-matching evidence proves it this turn) — it MUST NOT
+        be marked MET on the green calculator unit, and MUST NOT be downgraded to
+        UNMET (the implementing change does exist). AC2 (the backoff delay
+        doubles each attempt — 1s, 2s, 4s) is MET, proven cleanly and
+        unambiguously by the fresh test_backoff_delay_doubles, which directly
+        asserts the exact delay values (1.0, 2.0, 4.0) the criterion specifies —
+        a complete, path-matching proof of that criterion end-to-end, cited to
+        the diff `_backoff_delay` change + that fresh assertion. Because AC1 is
+        UNVERIFIED, the verdict is NOT SAFE TO MERGE, naming AC1 as the
+        unverified criterion and stating what end-to-end evidence is missing,
+        even though the suite is green. The AC-coverage view supplements, never
+        replaces, the prose verdict.
+      anti_patterns:
+        - Marks AC1 (the retry criterion) MET / covered on the strength of the green backoff-calculator unit test, with no end-to-end retry evidence.
+        - Classifies AC1 as UNMET, conflating "no end-to-end proof" with "no implementing change" (the retry loop is in the diff).
+        - Marks AC2 (the backoff-doubling criterion) UNVERIFIED or UNMET despite the fresh test_backoff_delay_doubles directly asserting the exact delay values.
+        - Declares SAFE TO MERGE despite the unverified retry criterion.
+        - Ignores the supplied acceptance criteria entirely and verdicts on risk coverage alone.
+        - Claims to have fetched the issue, run gh, or called a tracker/API to get the criteria.
+        - Fabricates acceptance criteria beyond the two supplied.
+        - Surfacing literal taxonomy labels such as business_logic_change.
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns (NOT shown above): you read the diff, named the risks, the
+        user confirmed them, and you ran the suite. This is the FINAL TURN.
+
+        ## Host-supplied acceptance criteria (pasted by the developer)
+        - AC1: A failed webhook delivery (the receiver returns 5xx) is retried
+          up to 3 times with exponential backoff before the delivery is dropped.
+        - AC2: The backoff delay doubles each attempt — 1s before the 1st retry,
+          2s before the 2nd, 4s before the 3rd.
+
+        ## git diff
+        ```diff
+        diff --git a/app/webhooks/deliver.py b/app/webhooks/deliver.py
+        @@ app/webhooks/deliver.py:20-44 @@
+        +def deliver(event, *, max_attempts=3):
+        +    for attempt in range(1, max_attempts + 1):
+        +        resp = _post(event.url, event.payload)
+        +        if resp.status_code < 500:
+        +            return resp
+        +        time.sleep(_backoff_delay(attempt))
+        +    log.error("webhook give-up id=%s", event.id)
+        +    return None
+        +
+        +def _backoff_delay(attempt: int) -> float:
+        +    return 2.0 ** (attempt - 1)
+        diff --git a/tests/webhooks/test_deliver.py b/tests/webhooks/test_deliver.py
+        @@ tests/webhooks/test_deliver.py:1-12 @@
+        +def test_backoff_delay_doubles():
+        +    assert _backoff_delay(1) == 1.0
+        +    assert _backoff_delay(2) == 2.0
+        +    assert _backoff_delay(3) == 4.0
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/webhooks/test_deliver.py -q
+        tests/webhooks/test_deliver.py::test_backoff_delay_doubles PASSED
+        1 passed in 0.18s
+        ```
+        Note: `test_backoff_delay_doubles` directly asserts the exact backoff
+        delay values the criterion specifies — `_backoff_delay(1) == 1.0`,
+        `(2) == 2.0`, `(3) == 4.0` — so AC2 (delay doubles each attempt) is
+        cleanly, end-to-end MET by that fresh assertion. But that same test ONLY
+        exercises the pure delay calculator; NO fresh test drives `deliver()`
+        against a stubbed receiver returning 5xx to assert that a failing
+        delivery is actually retried up to 3 times. So the up-to-3-retries-on-5xx
+        behaviour (AC1) has an implementing change (the retry loop is in the
+        diff) with NO covering end-to-end test — UNVERIFIED, not UNMET.
