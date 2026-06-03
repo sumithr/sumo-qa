@@ -338,6 +338,43 @@ def build_service() -> QAShiftLeftService:
     return QAShiftLeftService.from_standards_path(standards_path, rules_path, test_data_path)
 
 
+def _strip_schema_titles(node: Any) -> Any:
+    """Recursively drop auto-generated ``title`` keys from a JSON schema.
+
+    Pydantic emits a Title-Cased echo of every field name ("Base Ref",
+    "Artifact Path") plus a ``<model>Arguments`` title per input model. Those
+    titles carry no signal for the host LLM — tool selection reads the tool
+    ``description``, argument filling reads ``properties``/``type``, and
+    structured-output validators key on ``properties``/``required`` — yet
+    measured across the full always-on ``tools/list`` they cost ~3.3k approx
+    tokens, paid on every turn the server is connected. Stripping them is
+    lossless for routing, argument filling, and output validation."""
+    if isinstance(node, dict):
+        return {k: _strip_schema_titles(v) for k, v in node.items() if k != "title"}
+    if isinstance(node, list):
+        return [_strip_schema_titles(v) for v in node]
+    return node
+
+
+def _slim_tool_schemas(mcp: Any) -> None:
+    """Remove auto-generated schema ``title`` keys from every registered tool's
+    input and output schema, in place, once at build time.
+
+    Reaches into the FastMCP tool registry because that is the only surface
+    that holds the generated schemas. ``Tool.output_schema`` is a
+    ``cached_property`` over ``fn_metadata.output_schema``, so the memoised
+    value is dropped after the source dict is stripped, forcing the served
+    schema to recompute from the slimmed source. The loop is pinned by
+    tests/test_tool_schema_titles.py against the real served ``tools/list``,
+    so a future FastMCP internal change fails loudly rather than silently
+    re-inflating the surface."""
+    for tool in mcp._tool_manager.list_tools():
+        tool.parameters = _strip_schema_titles(tool.parameters)
+        if tool.fn_metadata.output_schema is not None:
+            tool.fn_metadata.output_schema = _strip_schema_titles(tool.fn_metadata.output_schema)
+            tool.__dict__.pop("output_schema", None)
+
+
 def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     try:
         from mcp.server.fastmcp import FastMCP
@@ -1270,6 +1307,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
     register_skills_as_prompts(mcp)
     register_skill_resources(mcp)
+    _slim_tool_schemas(mcp)
     return mcp
 
 

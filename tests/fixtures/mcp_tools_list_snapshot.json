@@ -52,8 +52,7 @@
                 "type": "null"
               }
             ],
-            "default": ".sumo-qa/repo-map.json",
-            "title": "Artifact Path"
+            "default": ".sumo-qa/repo-map.json"
           },
           "base_ref": {
             "anyOf": [
@@ -64,8 +63,7 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Base Ref"
+            "default": null
           },
           "changed_files": {
             "anyOf": [
@@ -79,23 +77,19 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Changed Files"
+            "default": null
           },
           "root": {
-            "title": "Root",
             "type": "string"
           },
           "write_overlay": {
             "default": false,
-            "title": "Write Overlay",
             "type": "boolean"
           }
         },
         "required": [
           "root"
         ],
-        "title": "sumo_qa_analyze_diff_impactArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -109,7 +103,6 @@
                 "items": {
                   "$ref": "#/$defs/_ImpactNodeSummary"
                 },
-                "title": "Affected Nodes",
                 "type": "array"
               },
               "artifact_path": {
@@ -122,8 +115,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Resolved path of the loaded repo-map artifact, when used.",
-                "title": "Artifact Path"
+                "description": "Resolved path of the loaded repo-map artifact, when used."
               },
               "base_ref": {
                 "anyOf": [
@@ -135,12 +127,10 @@
                   }
                 ],
                 "default": null,
-                "description": "Git base ref used to derive changed files, when given.",
-                "title": "Base Ref"
+                "description": "Git base ref used to derive changed files, when given."
               },
               "changed_file_count": {
                 "description": "Number of input changed paths considered.",
-                "title": "Changed File Count",
                 "type": "integer"
               },
               "changed_nodes": {
@@ -148,12 +138,10 @@
                 "items": {
                   "$ref": "#/$defs/_ImpactNodeSummary"
                 },
-                "title": "Changed Nodes",
                 "type": "array"
               },
               "is_stale": {
                 "description": "True when the map's git_commit differs from current HEAD.",
-                "title": "Is Stale",
                 "type": "boolean"
               },
               "overlay_bytes": {
@@ -166,8 +154,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Size of the written overlay in bytes, when requested.",
-                "title": "Overlay Bytes"
+                "description": "Size of the written overlay in bytes, when requested."
               },
               "overlay_path": {
                 "anyOf": [
@@ -179,8 +166,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Path the diff-impact overlay was written to, when requested.",
-                "title": "Overlay Path"
+                "description": "Path the diff-impact overlay was written to, when requested."
               },
               "persisted_map_path": {
                 "anyOf": [
@@ -192,13 +178,11 @@
                   }
                 ],
                 "default": null,
-                "description": "Resolved path of a repo-map persisted on this run \u2014 set only on the first run of an unmapped repo, when the live scan is written out for future runs.",
-                "title": "Persisted Map Path"
+                "description": "Resolved path of a repo-map persisted on this run \u2014 set only on the first run of an unmapped repo, when the live scan is written out for future runs."
               },
               "probable_mapping_gap": {
                 "default": false,
                 "description": "True when test files exist but the map has no likely_tests edges, so the risk surface is a probable mapping gap (a missed convention), not true zero coverage.",
-                "title": "Probable Mapping Gap",
                 "type": "boolean"
               },
               "related_tests": {
@@ -206,7 +190,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Related Tests",
                 "type": "array"
               },
               "risk_surface": {
@@ -214,12 +197,10 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Risk Surface",
                 "type": "array"
               },
               "root": {
                 "description": "Resolved root path analysed.",
-                "title": "Root",
                 "type": "string"
               },
               "suggested_inspections": {
@@ -227,14 +208,12 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Suggested Inspections",
                 "type": "array"
               },
               "tool": {
                 "const": "sumo_qa_analyze_diff_impact",
                 "default": "sumo_qa_analyze_diff_impact",
                 "description": "Tool discriminator; always the literal tool name.",
-                "title": "Tool",
                 "type": "string"
               },
               "unmapped_files": {
@@ -242,17 +221,14 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Unmapped Files",
                 "type": "array"
               },
               "used_live_scan": {
                 "description": "True when no artifact was found and the map was scanned live.",
-                "title": "Used Live Scan",
                 "type": "boolean"
               },
               "warning_count": {
                 "description": "Number of warnings (stale, live-scan fallback, etc.).",
-                "title": "Warning Count",
                 "type": "integer"
               },
               "warnings_by_kind": {
@@ -260,7 +236,6 @@
                   "type": "integer"
                 },
                 "description": "Per-kind warning counts.",
-                "title": "Warnings By Kind",
                 "type": "object"
               }
             },
@@ -271,7 +246,6 @@
               "is_stale",
               "used_live_scan"
             ],
-            "title": "DiffImpactOutput",
             "type": "object"
           },
           "ErrorEnvelope": {
@@ -285,7 +259,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -293,7 +266,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -302,17 +274,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -321,7 +290,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           },
           "_ImpactNodeSummary": {
@@ -330,22 +298,18 @@
             "properties": {
               "has_mapped_tests": {
                 "description": "True when at least one likely_tests edge targets this node.",
-                "title": "Has Mapped Tests",
                 "type": "boolean"
               },
               "id": {
                 "description": "Node id, e.g. 'file:src/app.py'.",
-                "title": "Id",
                 "type": "string"
               },
               "path": {
                 "description": "Repo-relative path.",
-                "title": "Path",
                 "type": "string"
               },
               "type": {
                 "description": "Node type from the repo-map vocabulary.",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -355,7 +319,6 @@
               "path",
               "has_mapped_tests"
             ],
-            "title": "_ImpactNodeSummary",
             "type": "object"
           }
         },
@@ -368,41 +331,35 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_analyze_diff_impactOutput",
         "type": "object"
       }
     },
     "sumo_qa_answering_testing_question": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_answering_testing_questionArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_answering_testing_questionOutput",
         "type": "object"
       }
     },
     "sumo_qa_capabilities": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_capabilitiesArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -413,22 +370,18 @@
             "properties": {
               "outcome": {
                 "description": "One-line description of what the workflow produces.",
-                "title": "Outcome",
                 "type": "string"
               },
               "sample_prompt": {
                 "description": "An example user prompt that triggers this workflow.",
-                "title": "Sample Prompt",
                 "type": "string"
               },
               "target_skill": {
                 "description": "The sumo-qa skill this workflow routes to (an existing skills/<name>).",
-                "title": "Target Skill",
                 "type": "string"
               },
               "workflow": {
                 "description": "Short human name of the workflow.",
-                "title": "Workflow",
                 "type": "string"
               }
             },
@@ -438,7 +391,6 @@
               "target_skill",
               "outcome"
             ],
-            "title": "CapabilityWorkflow",
             "type": "object"
           }
         },
@@ -449,7 +401,6 @@
             "const": "sumo_qa_capabilities",
             "default": "sumo_qa_capabilities",
             "description": "Tool discriminator; always the literal tool name.",
-            "title": "Tool",
             "type": "string"
           },
           "workflows": {
@@ -457,14 +408,12 @@
             "items": {
               "$ref": "#/$defs/CapabilityWorkflow"
             },
-            "title": "Workflows",
             "type": "array"
           }
         },
         "required": [
           "workflows"
         ],
-        "title": "CapabilitiesOutput",
         "type": "object"
       }
     },
@@ -473,18 +422,15 @@
         "properties": {
           "scope": {
             "default": "auto",
-            "title": "Scope",
             "type": "string"
           },
           "skill": {
-            "title": "Skill",
             "type": "string"
           }
         },
         "required": [
           "skill"
         ],
-        "title": "sumo_qa_check_external_skill_installedArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -495,17 +441,14 @@
             "properties": {
               "agent": {
                 "description": "Agent flavour the skill is installed for (codex / claude-code / agents).",
-                "title": "Agent",
                 "type": "string"
               },
               "name": {
                 "description": "Canonical skill name (hyphen/underscore-normalised) as discovered on disk.",
-                "title": "Name",
                 "type": "string"
               },
               "path": {
                 "description": "POSIX path to the installed SKILL.md file.",
-                "title": "Path",
                 "type": "string"
               },
               "scope": {
@@ -514,7 +457,6 @@
                   "project",
                   "global"
                 ],
-                "title": "Scope",
                 "type": "string"
               }
             },
@@ -524,7 +466,6 @@
               "agent",
               "scope"
             ],
-            "title": "CheckExternalSkillInstalledOutput",
             "type": "object"
           },
           "ErrorEnvelope": {
@@ -538,7 +479,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -546,7 +486,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -555,17 +494,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -574,7 +510,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           }
         },
@@ -590,54 +525,46 @@
               {
                 "type": "null"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_check_external_skill_installedOutput",
         "type": "object"
       }
     },
     "sumo_qa_creating_test_plan": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_creating_test_planArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_creating_test_planOutput",
         "type": "object"
       }
     },
     "sumo_qa_deciding_approach": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_deciding_approachArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_deciding_approachOutput",
         "type": "object"
       }
     },
@@ -646,23 +573,19 @@
         "properties": {
           "intent": {
             "default": "",
-            "title": "Intent",
             "type": "string"
           },
           "scope": {
             "default": "auto",
-            "title": "Scope",
             "type": "string"
           },
           "skill": {
-            "title": "Skill",
             "type": "string"
           }
         },
         "required": [
           "skill"
         ],
-        "title": "sumo_qa_execute_external_skillArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -678,7 +601,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -686,7 +608,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "ExecuteExternalSkillOutput": {
@@ -695,22 +616,18 @@
             "properties": {
               "agent": {
                 "description": "Agent flavour the skill is installed for.",
-                "title": "Agent",
                 "type": "string"
               },
               "execution_prompt": {
                 "description": "Fixed handoff prompt instructing the host to follow the loaded SKILL.md.",
-                "title": "Execution Prompt",
                 "type": "string"
               },
               "intent": {
                 "description": "Echo of the intent the caller passed; empty string when none supplied.",
-                "title": "Intent",
                 "type": "string"
               },
               "path": {
                 "description": "POSIX path to the SKILL.md that was loaded.",
-                "title": "Path",
                 "type": "string"
               },
               "scope": {
@@ -719,17 +636,14 @@
                   "project",
                   "global"
                 ],
-                "title": "Scope",
                 "type": "string"
               },
               "skill": {
                 "description": "Canonical skill name as discovered on disk.",
-                "title": "Skill",
                 "type": "string"
               },
               "skill_body": {
                 "description": "Verbatim contents of SKILL.md, ready to hand to the host LLM.",
-                "title": "Skill Body",
                 "type": "string"
               }
             },
@@ -742,7 +656,6 @@
               "skill_body",
               "execution_prompt"
             ],
-            "title": "ExecuteExternalSkillOutput",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -751,17 +664,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -770,7 +680,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           }
         },
@@ -783,34 +692,29 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_execute_external_skillOutput",
         "type": "object"
       }
     },
     "sumo_qa_executing_qa_rollout": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_executing_qa_rolloutArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_executing_qa_rolloutOutput",
         "type": "object"
       }
     },
@@ -819,23 +723,19 @@
         "properties": {
           "domain": {
             "default": "",
-            "title": "Domain",
             "type": "string"
           },
           "environment": {
             "default": "",
-            "title": "Environment",
             "type": "string"
           },
           "question": {
-            "title": "Question",
             "type": "string"
           }
         },
         "required": [
           "question"
         ],
-        "title": "sumo_qa_explain_test_data_requirementsArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -851,7 +751,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -859,7 +758,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "TestDataRequirementsOutput": {
@@ -871,7 +769,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Assumptions",
                 "type": "array"
               },
               "confidence": {
@@ -880,7 +777,6 @@
               },
               "domain": {
                 "description": "Resolved domain the requirements were scoped to.",
-                "title": "Domain",
                 "type": "string"
               },
               "downstream_dependencies": {
@@ -888,7 +784,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Downstream Dependencies",
                 "type": "array"
               },
               "edge_case_recommendations": {
@@ -896,7 +791,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Edge Case Recommendations",
                 "type": "array"
               },
               "environment": {
@@ -909,8 +803,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Resolved environment the requirements were scoped to, if supplied.",
-                "title": "Environment"
+                "description": "Resolved environment the requirements were scoped to, if supplied."
               },
               "freshness": {
                 "$ref": "#/$defs/_Freshness",
@@ -921,7 +814,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Required Entity Characteristics",
                 "type": "array"
               },
               "resource_state_conditions": {
@@ -929,7 +821,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Resource State Conditions",
                 "type": "array"
               },
               "scenario_preconditions": {
@@ -937,24 +828,20 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Scenario Preconditions",
                 "type": "array"
               },
               "summary": {
                 "description": "One-line summary of the test-data shape required.",
-                "title": "Summary",
                 "type": "string"
               },
               "tool": {
                 "const": "sumo_qa_explain_test_data_requirements",
                 "default": "sumo_qa_explain_test_data_requirements",
                 "description": "Tool discriminator; always the literal tool name.",
-                "title": "Tool",
                 "type": "string"
               },
               "validation_source": {
                 "description": "Identifier of the reasoning path that produced these requirements.",
-                "title": "Validation Source",
                 "type": "string"
               },
               "what_not_to_use": {
@@ -962,7 +849,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "What Not To Use",
                 "type": "array"
               }
             },
@@ -973,7 +859,6 @@
               "freshness",
               "validation_source"
             ],
-            "title": "TestDataRequirementsOutput",
             "type": "object"
           },
           "_Confidence": {
@@ -986,12 +871,10 @@
                   "medium",
                   "high"
                 ],
-                "title": "Level",
                 "type": "string"
               },
               "reason": {
                 "description": "Why this confidence level was assigned.",
-                "title": "Reason",
                 "type": "string"
               }
             },
@@ -999,7 +882,6 @@
               "level",
               "reason"
             ],
-            "title": "_Confidence",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -1008,17 +890,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -1027,7 +906,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           },
           "_Freshness": {
@@ -1043,8 +921,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Days since last validation, or null when not applicable.",
-                "title": "Age Days"
+                "description": "Days since last validation, or null when not applicable."
               },
               "last_validated_at": {
                 "anyOf": [
@@ -1057,12 +934,10 @@
                   }
                 ],
                 "default": null,
-                "description": "UTC timestamp the entry was last validated, if known.",
-                "title": "Last Validated At"
+                "description": "UTC timestamp the entry was last validated, if known."
               },
               "reason": {
                 "description": "Human-readable rationale for the freshness status.",
-                "title": "Reason",
                 "type": "string"
               },
               "status": {
@@ -1074,7 +949,6 @@
                   "unknown",
                   "not_applicable"
                 ],
-                "title": "Status",
                 "type": "string"
               }
             },
@@ -1082,7 +956,6 @@
               "status",
               "reason"
             ],
-            "title": "_Freshness",
             "type": "object"
           }
         },
@@ -1095,14 +968,12 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_explain_test_data_requirementsOutput",
         "type": "object"
       }
     },
@@ -1111,12 +982,10 @@
         "properties": {
           "domain": {
             "default": "",
-            "title": "Domain",
             "type": "string"
           },
           "environment": {
             "default": "",
-            "title": "Environment",
             "type": "string"
           },
           "known_valid_for": {
@@ -1135,22 +1004,18 @@
               [
                 "boundary input validation"
               ]
-            ],
-            "title": "Known Valid For"
+            ]
           },
           "limit": {
             "default": 5,
-            "title": "Limit",
             "type": "integer"
           },
           "offset": {
             "default": 0,
-            "title": "Offset",
             "type": "integer"
           },
           "product_id": {
             "default": "",
-            "title": "Product Id",
             "type": "string"
           },
           "scenario_tags": {
@@ -1170,16 +1035,13 @@
                 "boundary_input",
                 "degraded_dependency"
               ]
-            ],
-            "title": "Scenario Tags"
+            ]
           },
           "sku": {
             "default": "",
-            "title": "Sku",
             "type": "string"
           }
         },
-        "title": "sumo_qa_find_test_dataArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -1195,7 +1057,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -1203,7 +1064,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "TestDataFindOutput": {
@@ -1221,7 +1081,6 @@
               "has_more": {
                 "default": false,
                 "description": "True when there are further pages beyond next_offset.",
-                "title": "Has More",
                 "type": "boolean"
               },
               "missing_information": {
@@ -1229,7 +1088,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Missing Information",
                 "type": "array"
               },
               "next_offset": {
@@ -1242,13 +1100,11 @@
                   }
                 ],
                 "default": null,
-                "description": "Offset to pass to the next call, or null when there are no more pages.",
-                "title": "Next Offset"
+                "description": "Offset to pass to the next call, or null when there are no more pages."
               },
               "query": {
                 "additionalProperties": true,
                 "description": "Echo of the query filters applied (environment, domain, tags, etc.).",
-                "title": "Query",
                 "type": "object"
               },
               "results": {
@@ -1256,25 +1112,21 @@
                 "items": {
                   "$ref": "#/$defs/_SearchResult"
                 },
-                "title": "Results",
                 "type": "array"
               },
               "tool": {
                 "const": "sumo_qa_find_test_data",
                 "default": "sumo_qa_find_test_data",
                 "description": "Tool discriminator; always the literal tool name.",
-                "title": "Tool",
                 "type": "string"
               },
               "total_count": {
                 "default": 0,
                 "description": "Total number of matches before pagination.",
-                "title": "Total Count",
                 "type": "integer"
               },
               "validation_source": {
                 "description": "Identifier of the validator that produced per-result validations.",
-                "title": "Validation Source",
                 "type": "string"
               }
             },
@@ -1284,7 +1136,6 @@
               "freshness",
               "validation_source"
             ],
-            "title": "TestDataFindOutput",
             "type": "object"
           },
           "_Confidence": {
@@ -1297,12 +1148,10 @@
                   "medium",
                   "high"
                 ],
-                "title": "Level",
                 "type": "string"
               },
               "reason": {
                 "description": "Why this confidence level was assigned.",
-                "title": "Reason",
                 "type": "string"
               }
             },
@@ -1310,7 +1159,6 @@
               "level",
               "reason"
             ],
-            "title": "_Confidence",
             "type": "object"
           },
           "_Entry": {
@@ -1324,7 +1172,6 @@
                   "medium",
                   "high"
                 ],
-                "title": "Confidence",
                 "type": "string"
               },
               "constraints": {
@@ -1332,22 +1179,18 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Constraints",
                 "type": "array"
               },
               "domain": {
                 "description": "Domain folder under knowledge/test_data/ this entry lives in.",
-                "title": "Domain",
                 "type": "string"
               },
               "environment": {
                 "description": "Target environment (e.g. integration, staging).",
-                "title": "Environment",
                 "type": "string"
               },
               "id": {
                 "description": "Stable, human-readable catalogue identifier.",
-                "title": "Id",
                 "type": "string"
               },
               "known_valid_for": {
@@ -1355,7 +1198,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Known Valid For",
                 "type": "array"
               },
               "last_validated_at": {
@@ -1369,18 +1211,15 @@
                   }
                 ],
                 "default": null,
-                "description": "UTC timestamp the entry was last validated.",
-                "title": "Last Validated At"
+                "description": "UTC timestamp the entry was last validated."
               },
               "notes": {
                 "default": "",
                 "description": "Free-text notes about this entry.",
-                "title": "Notes",
                 "type": "string"
               },
               "owner": {
                 "description": "Team or individual responsible for this entry.",
-                "title": "Owner",
                 "type": "string"
               },
               "product_id": {
@@ -1393,15 +1232,13 @@
                   }
                 ],
                 "default": null,
-                "description": "Optional product identifier.",
-                "title": "Product Id"
+                "description": "Optional product identifier."
               },
               "scenario_tags": {
                 "description": "Scenario tags this entry is suitable for.",
                 "items": {
                   "type": "string"
                 },
-                "title": "Scenario Tags",
                 "type": "array"
               },
               "sku": {
@@ -1414,18 +1251,15 @@
                   }
                 ],
                 "default": null,
-                "description": "Optional SKU identifier.",
-                "title": "Sku"
+                "description": "Optional SKU identifier."
               },
               "source": {
                 "description": "Provenance of the entry (e.g. qa-curated, imported).",
-                "title": "Source",
                 "type": "string"
               },
               "validation_source": {
                 "default": "catalogue",
                 "description": "Where the entry's validation history comes from.",
-                "title": "Validation Source",
                 "type": "string"
               }
             },
@@ -1436,7 +1270,6 @@
               "owner",
               "source"
             ],
-            "title": "_Entry",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -1445,17 +1278,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -1464,7 +1294,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           },
           "_Freshness": {
@@ -1480,8 +1309,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Days since last validation, or null when not applicable.",
-                "title": "Age Days"
+                "description": "Days since last validation, or null when not applicable."
               },
               "last_validated_at": {
                 "anyOf": [
@@ -1494,12 +1322,10 @@
                   }
                 ],
                 "default": null,
-                "description": "UTC timestamp the entry was last validated, if known.",
-                "title": "Last Validated At"
+                "description": "UTC timestamp the entry was last validated, if known."
               },
               "reason": {
                 "description": "Human-readable rationale for the freshness status.",
-                "title": "Reason",
                 "type": "string"
               },
               "status": {
@@ -1511,7 +1337,6 @@
                   "unknown",
                   "not_applicable"
                 ],
-                "title": "Status",
                 "type": "string"
               }
             },
@@ -1519,7 +1344,6 @@
               "status",
               "reason"
             ],
-            "title": "_Freshness",
             "type": "object"
           },
           "_SearchResult": {
@@ -1531,12 +1355,10 @@
               },
               "rank_score": {
                 "description": "Internal ranking score; higher is better.",
-                "title": "Rank Score",
                 "type": "integer"
               },
               "suitability_reason": {
                 "description": "Why this entry was considered suitable for the query.",
-                "title": "Suitability Reason",
                 "type": "string"
               },
               "validation": {
@@ -1550,7 +1372,6 @@
               "suitability_reason",
               "rank_score"
             ],
-            "title": "_SearchResult",
             "type": "object"
           },
           "_ValidationResult": {
@@ -1559,7 +1380,6 @@
               "checked_at": {
                 "description": "UTC timestamp the validation was performed.",
                 "format": "date-time",
-                "title": "Checked At",
                 "type": "string"
               },
               "confidence": {
@@ -1568,7 +1388,6 @@
               },
               "entry_id": {
                 "description": "Catalogue id of the entry that was validated.",
-                "title": "Entry Id",
                 "type": "string"
               },
               "freshness": {
@@ -1580,22 +1399,18 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Issues",
                 "type": "array"
               },
               "valid": {
                 "description": "True when the validator could not find any blocking issues.",
-                "title": "Valid",
                 "type": "boolean"
               },
               "validation_reason": {
                 "description": "Why the validator reached this verdict.",
-                "title": "Validation Reason",
                 "type": "string"
               },
               "validation_source": {
                 "description": "Identifier of the validator that produced this result.",
-                "title": "Validation Source",
                 "type": "string"
               }
             },
@@ -1608,7 +1423,6 @@
               "validation_reason",
               "checked_at"
             ],
-            "title": "_ValidationResult",
             "type": "object"
           }
         },
@@ -1621,54 +1435,46 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_find_test_dataOutput",
         "type": "object"
       }
     },
     "sumo_qa_finding_test_data": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_finding_test_dataArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_finding_test_dataOutput",
         "type": "object"
       }
     },
     "sumo_qa_finishing_qa_work": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_finishing_qa_workArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_finishing_qa_workOutput",
         "type": "object"
       }
     },
@@ -1677,7 +1483,6 @@
         "properties": {
           "bundle": {
             "additionalProperties": true,
-            "title": "Bundle",
             "type": "object"
           },
           "local_head_sha": {
@@ -1689,19 +1494,16 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Local Head Sha"
+            "default": null
           },
           "max_files": {
             "default": 40,
-            "title": "Max Files",
             "type": "integer"
           }
         },
         "required": [
           "bundle"
         ],
-        "title": "sumo_qa_format_context_bundleArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -1717,7 +1519,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -1725,7 +1526,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "FormatContextBundleOutput": {
@@ -1734,12 +1534,10 @@
             "properties": {
               "changed_file_count": {
                 "description": "Number of changed files in the validated bundle.",
-                "title": "Changed File Count",
                 "type": "integer"
               },
               "compact_summary": {
                 "description": "One-line roll-up of the bundle's trust state.",
-                "title": "Compact Summary",
                 "type": "string"
               },
               "conflict": {
@@ -1752,12 +1550,10 @@
                   }
                 ],
                 "default": null,
-                "description": "Bundle-vs-local-state conflict message when head shas differ, else None.",
-                "title": "Conflict"
+                "description": "Bundle-vs-local-state conflict message when head shas differ, else None."
               },
               "markdown": {
                 "description": "The rendered host-neutral context-bundle brief.",
-                "title": "Markdown",
                 "type": "string"
               },
               "stale_evidence_fields": {
@@ -1765,14 +1561,12 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Stale Evidence Fields",
                 "type": "array"
               },
               "tool": {
                 "const": "sumo_qa_format_context_bundle",
                 "default": "sumo_qa_format_context_bundle",
                 "description": "Tool discriminator; always the literal tool name.",
-                "title": "Tool",
                 "type": "string"
               },
               "untrustworthy_evidence_fields": {
@@ -1780,7 +1574,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Untrustworthy Evidence Fields",
                 "type": "array"
               }
             },
@@ -1791,7 +1584,6 @@
               "stale_evidence_fields",
               "untrustworthy_evidence_fields"
             ],
-            "title": "FormatContextBundleOutput",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -1800,17 +1592,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -1819,7 +1608,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           }
         },
@@ -1832,14 +1620,12 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_format_context_bundleOutput",
         "type": "object"
       }
     },
@@ -1848,7 +1634,6 @@
         "properties": {
           "max_rows": {
             "default": 25,
-            "title": "Max Rows",
             "type": "integer"
           },
           "rows": {
@@ -1856,14 +1641,12 @@
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "Rows",
             "type": "array"
           }
         },
         "required": [
           "rows"
         ],
-        "title": "sumo_qa_format_risk_ledgerArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -1879,7 +1662,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -1887,7 +1669,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "FormatRiskLedgerOutput": {
@@ -1896,34 +1677,28 @@
             "properties": {
               "compact_summary": {
                 "description": "One-line roll-up of the ledger's evidence state.",
-                "title": "Compact Summary",
                 "type": "string"
               },
               "markdown": {
                 "description": "The rendered risk-ledger markdown table (the structured verdict appendix).",
-                "title": "Markdown",
                 "type": "string"
               },
               "row_count": {
                 "description": "Number of risk rows in the validated ledger.",
-                "title": "Row Count",
                 "type": "integer"
               },
               "tool": {
                 "const": "sumo_qa_format_risk_ledger",
                 "default": "sumo_qa_format_risk_ledger",
                 "description": "Tool discriminator; always the literal tool name.",
-                "title": "Tool",
                 "type": "string"
               },
               "truncated": {
                 "description": "True when the rendered table omitted rows past max_rows.",
-                "title": "Truncated",
                 "type": "boolean"
               },
               "uncovered_blocker_count": {
                 "description": "Rows that are high-risk gaps (not passing, not accepted; residual=blocker).",
-                "title": "Uncovered Blocker Count",
                 "type": "integer"
               }
             },
@@ -1934,7 +1709,6 @@
               "compact_summary",
               "truncated"
             ],
-            "title": "FormatRiskLedgerOutput",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -1943,17 +1717,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -1962,7 +1733,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           }
         },
@@ -1975,34 +1745,29 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_format_risk_ledgerOutput",
         "type": "object"
       }
     },
     "sumo_qa_implementing_with_tdd": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_implementing_with_tddArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_implementing_with_tddOutput",
         "type": "object"
       }
     },
@@ -2018,28 +1783,23 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Content Type"
+            "default": null
           },
           "scope": {
             "default": "project",
-            "title": "Scope",
             "type": "string"
           },
           "source": {
-            "title": "Source",
             "type": "string"
           }
         },
         "required": [
           "source"
         ],
-        "title": "sumo_qa_ingest_knowledge_packArguments",
         "type": "object"
       },
       "outputSchema": {
         "additionalProperties": true,
-        "title": "sumo_qa_ingest_knowledge_packDictOutput",
         "type": "object"
       }
     },
@@ -2048,33 +1808,27 @@
         "properties": {
           "agent": {
             "default": "codex",
-            "title": "Agent",
             "type": "string"
           },
           "confirmed": {
             "default": false,
-            "title": "Confirmed",
             "type": "boolean"
           },
           "scope": {
             "default": "project",
-            "title": "Scope",
             "type": "string"
           },
           "skill": {
-            "title": "Skill",
             "type": "string"
           },
           "source": {
             "default": "https://github.com/vercel-labs/skills",
-            "title": "Source",
             "type": "string"
           }
         },
         "required": [
           "skill"
         ],
-        "title": "sumo_qa_install_external_skillArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -2085,17 +1839,14 @@
             "properties": {
               "agent": {
                 "description": "Agent flavour the skill is installed for (codex / claude-code / agents).",
-                "title": "Agent",
                 "type": "string"
               },
               "name": {
                 "description": "Canonical skill name (hyphen/underscore-normalised) as discovered on disk.",
-                "title": "Name",
                 "type": "string"
               },
               "path": {
                 "description": "POSIX path to the installed SKILL.md file.",
-                "title": "Path",
                 "type": "string"
               },
               "scope": {
@@ -2104,7 +1855,6 @@
                   "project",
                   "global"
                 ],
-                "title": "Scope",
                 "type": "string"
               }
             },
@@ -2114,7 +1864,6 @@
               "agent",
               "scope"
             ],
-            "title": "CheckExternalSkillInstalledOutput",
             "type": "object"
           },
           "ErrorEnvelope": {
@@ -2128,7 +1877,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -2136,7 +1884,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "InstallExternalSkillOutput": {
@@ -2145,7 +1892,6 @@
             "properties": {
               "agent": {
                 "description": "Agent flavour the skill was installed for.",
-                "title": "Agent",
                 "type": "string"
               },
               "command": {
@@ -2153,7 +1899,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Command",
                 "type": "array"
               },
               "installed": {
@@ -2169,7 +1914,6 @@
               },
               "raw_output": {
                 "description": "ANSI-stripped stdout from the Skills CLI install run.",
-                "title": "Raw Output",
                 "type": "string"
               },
               "scope": {
@@ -2178,22 +1922,18 @@
                   "project",
                   "global"
                 ],
-                "title": "Scope",
                 "type": "string"
               },
               "skill": {
                 "description": "Echo of the skill name the caller requested.",
-                "title": "Skill",
                 "type": "string"
               },
               "source": {
                 "description": "Source URL or registry the skill was installed from.",
-                "title": "Source",
                 "type": "string"
               },
               "stderr": {
                 "description": "ANSI-stripped stderr from the Skills CLI install run.",
-                "title": "Stderr",
                 "type": "string"
               }
             },
@@ -2207,7 +1947,6 @@
               "raw_output",
               "stderr"
             ],
-            "title": "InstallExternalSkillOutput",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -2216,17 +1955,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -2235,7 +1971,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           }
         },
@@ -2248,14 +1983,12 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_install_external_skillOutput",
         "type": "object"
       }
     },
@@ -2264,44 +1997,37 @@
         "properties": {
           "detail": {
             "default": "compact",
-            "title": "Detail",
             "type": "string"
           }
         },
-        "title": "sumo_qa_list_skill_manifestsArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_list_skill_manifestsOutput",
         "type": "object"
       }
     },
     "sumo_qa_load_approaches": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_load_approachesArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_load_approachesOutput",
         "type": "object"
       }
     },
@@ -2309,12 +2035,10 @@
       "inputSchema": {
         "properties": {
           "catalogue": {
-            "title": "Catalogue",
             "type": "string"
           },
           "format": {
             "default": "full",
-            "title": "Format",
             "type": "string"
           },
           "name": {
@@ -2326,67 +2050,57 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Name"
+            "default": null
           }
         },
         "required": [
           "catalogue"
         ],
-        "title": "sumo_qa_load_catalogue_entryArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_load_catalogue_entryOutput",
         "type": "object"
       }
     },
     "sumo_qa_load_classifications": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_load_classificationsArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_load_classificationsOutput",
         "type": "object"
       }
     },
     "sumo_qa_load_principles": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_load_principlesArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_load_principlesOutput",
         "type": "object"
       }
     },
@@ -2402,24 +2116,20 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Classification"
+            "default": null
           }
         },
-        "title": "sumo_qa_load_rulesArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_load_rulesOutput",
         "type": "object"
       }
     },
@@ -2435,8 +2145,7 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Known Hash"
+            "default": null
           },
           "mode": {
             "anyOf": [
@@ -2447,8 +2156,7 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Mode"
+            "default": null
           },
           "module": {
             "anyOf": [
@@ -2459,8 +2167,7 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Module"
+            "default": null
           },
           "section": {
             "anyOf": [
@@ -2471,8 +2178,7 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Section"
+            "default": null
           },
           "skill_name": {
             "anyOf": [
@@ -2483,24 +2189,20 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Skill Name"
+            "default": null
           }
         },
-        "title": "sumo_qa_load_skill_contextArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_load_skill_contextOutput",
         "type": "object"
       }
     },
@@ -2516,84 +2218,71 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Classification"
+            "default": null
           }
         },
-        "title": "sumo_qa_load_standardsArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_load_standardsOutput",
         "type": "object"
       }
     },
     "sumo_qa_load_techniques": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_load_techniquesArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_load_techniquesOutput",
         "type": "object"
       }
     },
     "sumo_qa_planning_qa_rollout": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_planning_qa_rolloutArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_planning_qa_rolloutOutput",
         "type": "object"
       }
     },
     "sumo_qa_preparing_for_work": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_preparing_for_workArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_preparing_for_workOutput",
         "type": "object"
       }
     },
@@ -2609,20 +2298,16 @@
                 "type": "null"
               }
             ],
-            "default": ".sumo-qa/repo-map.json",
-            "title": "Artifact Path"
+            "default": ".sumo-qa/repo-map.json"
           },
           "limit": {
             "default": 10,
-            "title": "Limit",
             "type": "integer"
           },
           "query": {
-            "title": "Query",
             "type": "string"
           },
           "root": {
-            "title": "Root",
             "type": "string"
           },
           "types": {
@@ -2637,15 +2322,13 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Types"
+            "default": null
           }
         },
         "required": [
           "root",
           "query"
         ],
-        "title": "sumo_qa_query_repo_mapArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -2661,7 +2344,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -2669,7 +2351,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "RepoMapQueryOutput": {
@@ -2686,18 +2367,15 @@
                   }
                 ],
                 "default": null,
-                "description": "Resolved path of the loaded repo-map artifact, when used.",
-                "title": "Artifact Path"
+                "description": "Resolved path of the loaded repo-map artifact, when used."
               },
               "generated_at": {
                 "description": "UTC timestamp the queried map was generated.",
                 "format": "date-time",
-                "title": "Generated At",
                 "type": "string"
               },
               "generator_version": {
                 "description": "Generator version recorded in the map.",
-                "title": "Generator Version",
                 "type": "string"
               },
               "git_commit": {
@@ -2710,17 +2388,14 @@
                   }
                 ],
                 "default": null,
-                "description": "git_commit recorded in the map, when present.",
-                "title": "Git Commit"
+                "description": "git_commit recorded in the map, when present."
               },
               "is_stale": {
                 "description": "True when the map's git_commit differs from current HEAD.",
-                "title": "Is Stale",
                 "type": "boolean"
               },
               "limit": {
                 "description": "Maximum number of matches returned.",
-                "title": "Limit",
                 "type": "integer"
               },
               "matches": {
@@ -2728,39 +2403,32 @@
                 "items": {
                   "$ref": "#/$defs/_QueryMatchSummary"
                 },
-                "title": "Matches",
                 "type": "array"
               },
               "query": {
                 "description": "Echo of the query string the caller supplied.",
-                "title": "Query",
                 "type": "string"
               },
               "root": {
                 "description": "Resolved root path whose map was queried.",
-                "title": "Root",
                 "type": "string"
               },
               "schema_version": {
                 "description": "Schema version of the queried map (currently '1.0').",
-                "title": "Schema Version",
                 "type": "string"
               },
               "tool": {
                 "const": "sumo_qa_query_repo_map",
                 "default": "sumo_qa_query_repo_map",
                 "description": "Tool discriminator; always the literal tool name.",
-                "title": "Tool",
                 "type": "string"
               },
               "total_matches": {
                 "description": "Total matches before the limit was applied (so the host knows if truncated).",
-                "title": "Total Matches",
                 "type": "integer"
               },
               "truncated": {
                 "description": "True when total_matches exceeded the limit.",
-                "title": "Truncated",
                 "type": "boolean"
               },
               "types_filter": {
@@ -2768,17 +2436,14 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Types Filter",
                 "type": "array"
               },
               "used_live_scan": {
                 "description": "True when no artifact was found and the map was scanned live.",
-                "title": "Used Live Scan",
                 "type": "boolean"
               },
               "warning_count": {
                 "description": "Number of warnings (stale, live-scan fallback, etc.).",
-                "title": "Warning Count",
                 "type": "integer"
               },
               "warnings_by_kind": {
@@ -2786,7 +2451,6 @@
                   "type": "integer"
                 },
                 "description": "Per-kind warning counts.",
-                "title": "Warnings By Kind",
                 "type": "object"
               }
             },
@@ -2803,7 +2467,6 @@
               "used_live_scan",
               "warning_count"
             ],
-            "title": "RepoMapQueryOutput",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -2812,17 +2475,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -2831,7 +2491,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           },
           "_QueryMatchSummary": {
@@ -2840,7 +2499,6 @@
             "properties": {
               "id": {
                 "description": "Node id (e.g. 'file:src/app.py') or 'command:<name>'.",
-                "title": "Id",
                 "type": "string"
               },
               "kind": {
@@ -2849,22 +2507,18 @@
                   "node",
                   "command"
                 ],
-                "title": "Kind",
                 "type": "string"
               },
               "match_reason": {
                 "description": "Why this entity matched (dimension + matched value), for relevance judging.",
-                "title": "Match Reason",
                 "type": "string"
               },
               "path": {
                 "description": "Repo-relative path for a node, or the command's source file for a command.",
-                "title": "Path",
                 "type": "string"
               },
               "score": {
                 "description": "Internal rank; higher is a stronger match.",
-                "title": "Score",
                 "type": "integer"
               },
               "tags": {
@@ -2872,12 +2526,10 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Tags",
                 "type": "array"
               },
               "type": {
                 "description": "Node type for a node match, or command kind for a command match.",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -2889,7 +2541,6 @@
               "match_reason",
               "score"
             ],
-            "title": "_QueryMatchSummary",
             "type": "object"
           }
         },
@@ -2902,14 +2553,12 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_query_repo_mapOutput",
         "type": "object"
       }
     },
@@ -2918,14 +2567,12 @@
         "properties": {
           "entry": {
             "additionalProperties": true,
-            "title": "Entry",
             "type": "object"
           }
         },
         "required": [
           "entry"
         ],
-        "title": "sumo_qa_register_known_good_test_dataArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -2941,7 +2588,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -2949,7 +2595,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "TestDataRegisterOutput": {
@@ -2963,12 +2608,10 @@
                   "updated",
                   "duplicate"
                 ],
-                "title": "Action",
                 "type": "string"
               },
               "catalogue_path": {
                 "description": "Filesystem path the entry was written to.",
-                "title": "Catalogue Path",
                 "type": "string"
               },
               "duplicate_of": {
@@ -2981,8 +2624,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Catalogue id of the existing duplicate when action is 'duplicate'.",
-                "title": "Duplicate Of"
+                "description": "Catalogue id of the existing duplicate when action is 'duplicate'."
               },
               "entry": {
                 "$ref": "#/$defs/_Entry",
@@ -2992,7 +2634,6 @@
                 "const": "sumo_qa_register_known_good_test_data",
                 "default": "sumo_qa_register_known_good_test_data",
                 "description": "Tool discriminator; always the literal tool name.",
-                "title": "Tool",
                 "type": "string"
               },
               "validation": {
@@ -3006,7 +2647,6 @@
               "validation",
               "catalogue_path"
             ],
-            "title": "TestDataRegisterOutput",
             "type": "object"
           },
           "_Confidence": {
@@ -3019,12 +2659,10 @@
                   "medium",
                   "high"
                 ],
-                "title": "Level",
                 "type": "string"
               },
               "reason": {
                 "description": "Why this confidence level was assigned.",
-                "title": "Reason",
                 "type": "string"
               }
             },
@@ -3032,7 +2670,6 @@
               "level",
               "reason"
             ],
-            "title": "_Confidence",
             "type": "object"
           },
           "_Entry": {
@@ -3046,7 +2683,6 @@
                   "medium",
                   "high"
                 ],
-                "title": "Confidence",
                 "type": "string"
               },
               "constraints": {
@@ -3054,22 +2690,18 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Constraints",
                 "type": "array"
               },
               "domain": {
                 "description": "Domain folder under knowledge/test_data/ this entry lives in.",
-                "title": "Domain",
                 "type": "string"
               },
               "environment": {
                 "description": "Target environment (e.g. integration, staging).",
-                "title": "Environment",
                 "type": "string"
               },
               "id": {
                 "description": "Stable, human-readable catalogue identifier.",
-                "title": "Id",
                 "type": "string"
               },
               "known_valid_for": {
@@ -3077,7 +2709,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Known Valid For",
                 "type": "array"
               },
               "last_validated_at": {
@@ -3091,18 +2722,15 @@
                   }
                 ],
                 "default": null,
-                "description": "UTC timestamp the entry was last validated.",
-                "title": "Last Validated At"
+                "description": "UTC timestamp the entry was last validated."
               },
               "notes": {
                 "default": "",
                 "description": "Free-text notes about this entry.",
-                "title": "Notes",
                 "type": "string"
               },
               "owner": {
                 "description": "Team or individual responsible for this entry.",
-                "title": "Owner",
                 "type": "string"
               },
               "product_id": {
@@ -3115,15 +2743,13 @@
                   }
                 ],
                 "default": null,
-                "description": "Optional product identifier.",
-                "title": "Product Id"
+                "description": "Optional product identifier."
               },
               "scenario_tags": {
                 "description": "Scenario tags this entry is suitable for.",
                 "items": {
                   "type": "string"
                 },
-                "title": "Scenario Tags",
                 "type": "array"
               },
               "sku": {
@@ -3136,18 +2762,15 @@
                   }
                 ],
                 "default": null,
-                "description": "Optional SKU identifier.",
-                "title": "Sku"
+                "description": "Optional SKU identifier."
               },
               "source": {
                 "description": "Provenance of the entry (e.g. qa-curated, imported).",
-                "title": "Source",
                 "type": "string"
               },
               "validation_source": {
                 "default": "catalogue",
                 "description": "Where the entry's validation history comes from.",
-                "title": "Validation Source",
                 "type": "string"
               }
             },
@@ -3158,7 +2781,6 @@
               "owner",
               "source"
             ],
-            "title": "_Entry",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -3167,17 +2789,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -3186,7 +2805,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           },
           "_Freshness": {
@@ -3202,8 +2820,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Days since last validation, or null when not applicable.",
-                "title": "Age Days"
+                "description": "Days since last validation, or null when not applicable."
               },
               "last_validated_at": {
                 "anyOf": [
@@ -3216,12 +2833,10 @@
                   }
                 ],
                 "default": null,
-                "description": "UTC timestamp the entry was last validated, if known.",
-                "title": "Last Validated At"
+                "description": "UTC timestamp the entry was last validated, if known."
               },
               "reason": {
                 "description": "Human-readable rationale for the freshness status.",
-                "title": "Reason",
                 "type": "string"
               },
               "status": {
@@ -3233,7 +2848,6 @@
                   "unknown",
                   "not_applicable"
                 ],
-                "title": "Status",
                 "type": "string"
               }
             },
@@ -3241,7 +2855,6 @@
               "status",
               "reason"
             ],
-            "title": "_Freshness",
             "type": "object"
           },
           "_ValidationResult": {
@@ -3250,7 +2863,6 @@
               "checked_at": {
                 "description": "UTC timestamp the validation was performed.",
                 "format": "date-time",
-                "title": "Checked At",
                 "type": "string"
               },
               "confidence": {
@@ -3259,7 +2871,6 @@
               },
               "entry_id": {
                 "description": "Catalogue id of the entry that was validated.",
-                "title": "Entry Id",
                 "type": "string"
               },
               "freshness": {
@@ -3271,22 +2882,18 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Issues",
                 "type": "array"
               },
               "valid": {
                 "description": "True when the validator could not find any blocking issues.",
-                "title": "Valid",
                 "type": "boolean"
               },
               "validation_reason": {
                 "description": "Why the validator reached this verdict.",
-                "title": "Validation Reason",
                 "type": "string"
               },
               "validation_source": {
                 "description": "Identifier of the validator that produced this result.",
-                "title": "Validation Source",
                 "type": "string"
               }
             },
@@ -3299,7 +2906,6 @@
               "validation_reason",
               "checked_at"
             ],
-            "title": "_ValidationResult",
             "type": "object"
           }
         },
@@ -3312,34 +2918,29 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_register_known_good_test_dataOutput",
         "type": "object"
       }
     },
     "sumo_qa_reviewing_before_merge": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_reviewing_before_mergeArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_reviewing_before_mergeOutput",
         "type": "object"
       }
     },
@@ -3355,11 +2956,9 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Generator Version"
+            "default": null
           },
           "root": {
-            "title": "Root",
             "type": "string"
           },
           "write_to": {
@@ -3371,14 +2970,12 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Write To"
+            "default": null
           }
         },
         "required": [
           "root"
         ],
-        "title": "sumo_qa_scan_repoArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -3394,7 +2991,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -3402,7 +2998,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "RepoMapScanOutput": {
@@ -3419,8 +3014,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Size of the written artifact in bytes, when write_to was provided.",
-                "title": "Artifact Bytes"
+                "description": "Size of the written artifact in bytes, when write_to was provided."
               },
               "artifact_path": {
                 "anyOf": [
@@ -3432,12 +3026,10 @@
                   }
                 ],
                 "default": null,
-                "description": "Absolute path the full artifact was written to, when write_to was provided.",
-                "title": "Artifact Path"
+                "description": "Absolute path the full artifact was written to, when write_to was provided."
               },
               "command_count": {
                 "description": "Total number of commands extracted.",
-                "title": "Command Count",
                 "type": "integer"
               },
               "commands_by_kind": {
@@ -3445,12 +3037,10 @@
                   "type": "integer"
                 },
                 "description": "Per-kind counts (e.g. {'test': 1, 'lint': 1, 'other': 7}).",
-                "title": "Commands By Kind",
                 "type": "object"
               },
               "edge_count": {
                 "description": "Total number of edges in the produced artifact.",
-                "title": "Edge Count",
                 "type": "integer"
               },
               "edges_by_confidence": {
@@ -3458,7 +3048,6 @@
                   "type": "integer"
                 },
                 "description": "Per-confidence counts (e.g. {'high': 18, 'medium': 2}).",
-                "title": "Edges By Confidence",
                 "type": "object"
               },
               "edges_by_type": {
@@ -3466,18 +3055,15 @@
                   "type": "integer"
                 },
                 "description": "Per-type counts (e.g. {'likely_tests': 20}).",
-                "title": "Edges By Type",
                 "type": "object"
               },
               "generated_at": {
                 "description": "UTC timestamp when this scan ran.",
                 "format": "date-time",
-                "title": "Generated At",
                 "type": "string"
               },
               "generator_version": {
                 "description": "Generator version string passed by the caller.",
-                "title": "Generator Version",
                 "type": "string"
               },
               "git_commit": {
@@ -3490,8 +3076,7 @@
                   }
                 ],
                 "default": null,
-                "description": "HEAD commit SHA when root IS a git toplevel; null otherwise.",
-                "title": "Git Commit"
+                "description": "HEAD commit SHA when root IS a git toplevel; null otherwise."
               },
               "name": {
                 "anyOf": [
@@ -3503,12 +3088,10 @@
                   }
                 ],
                 "default": null,
-                "description": "Project name (resolved from the root directory's basename).",
-                "title": "Name"
+                "description": "Project name (resolved from the root directory's basename)."
               },
               "node_count": {
                 "description": "Total number of nodes in the produced artifact.",
-                "title": "Node Count",
                 "type": "integer"
               },
               "nodes_by_type": {
@@ -3516,29 +3099,24 @@
                   "type": "integer"
                 },
                 "description": "Per-type counts (e.g. {'source_file': 46, 'test_file': 101}).",
-                "title": "Nodes By Type",
                 "type": "object"
               },
               "root": {
                 "description": "Absolute, resolved root path that was scanned.",
-                "title": "Root",
                 "type": "string"
               },
               "schema_version": {
                 "description": "Schema version of the underlying RepoMap artifact (currently '1.0').",
-                "title": "Schema Version",
                 "type": "string"
               },
               "tool": {
                 "const": "sumo_qa_scan_repo",
                 "default": "sumo_qa_scan_repo",
                 "description": "Tool discriminator; always the literal tool name.",
-                "title": "Tool",
                 "type": "string"
               },
               "warning_count": {
                 "description": "Total number of warnings emitted by the scan.",
-                "title": "Warning Count",
                 "type": "integer"
               },
               "warnings_by_kind": {
@@ -3546,7 +3124,6 @@
                   "type": "integer"
                 },
                 "description": "Per-kind counts (e.g. {'unsupported_language': 11, 'skipped_file': 1}).",
-                "title": "Warnings By Kind",
                 "type": "object"
               }
             },
@@ -3560,7 +3137,6 @@
               "command_count",
               "warning_count"
             ],
-            "title": "RepoMapScanOutput",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -3569,17 +3145,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -3588,7 +3161,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           }
         },
@@ -3601,14 +3173,12 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_scan_repoOutput",
         "type": "object"
       }
     },
@@ -3616,14 +3186,12 @@
       "inputSchema": {
         "properties": {
           "query": {
-            "title": "Query",
             "type": "string"
           }
         },
         "required": [
           "query"
         ],
-        "title": "sumo_qa_search_external_skillsArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -3639,7 +3207,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -3647,7 +3214,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "SearchExternalSkillsOutput": {
@@ -3659,27 +3225,22 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Command",
                 "type": "array"
               },
               "hint": {
                 "description": "Guidance for the host LLM on how to parse raw_output.",
-                "title": "Hint",
                 "type": "string"
               },
               "query": {
                 "description": "Echo of the search query the caller supplied.",
-                "title": "Query",
                 "type": "string"
               },
               "raw_output": {
                 "description": "ANSI-stripped stdout from the Skills CLI; one candidate per line.",
-                "title": "Raw Output",
                 "type": "string"
               },
               "stderr": {
                 "description": "ANSI-stripped stderr from the Skills CLI; usually empty on success.",
-                "title": "Stderr",
                 "type": "string"
               }
             },
@@ -3690,7 +3251,6 @@
               "stderr",
               "hint"
             ],
-            "title": "SearchExternalSkillsOutput",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -3699,17 +3259,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -3718,7 +3275,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           }
         },
@@ -3731,74 +3287,63 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_search_external_skillsOutput",
         "type": "object"
       }
     },
     "sumo_qa_strategising": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_strategisingArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_strategisingOutput",
         "type": "object"
       }
     },
     "sumo_qa_strengthening_tests": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_strengthening_testsArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_strengthening_testsOutput",
         "type": "object"
       }
     },
     "sumo_qa_suggesting_external_skill": {
       "inputSchema": {
         "properties": {},
-        "title": "sumo_qa_suggesting_external_skillArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_suggesting_external_skillOutput",
         "type": "object"
       }
     },
@@ -3815,8 +3360,7 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Entry"
+            "default": null
           },
           "entry_id": {
             "anyOf": [
@@ -3827,11 +3371,9 @@
                 "type": "null"
               }
             ],
-            "default": null,
-            "title": "Entry Id"
+            "default": null
           }
         },
-        "title": "sumo_qa_validate_test_dataArguments",
         "type": "object"
       },
       "outputSchema": {
@@ -3847,7 +3389,6 @@
               "isError": {
                 "const": true,
                 "description": "Marks the response as an error per the MCP error-shape convention.",
-                "title": "Iserror",
                 "type": "boolean"
               }
             },
@@ -3855,7 +3396,6 @@
               "isError",
               "error"
             ],
-            "title": "ErrorEnvelope",
             "type": "object"
           },
           "TestDataValidateOutput": {
@@ -3870,7 +3410,6 @@
                 "const": "sumo_qa_validate_test_data",
                 "default": "sumo_qa_validate_test_data",
                 "description": "Tool discriminator; always the literal tool name.",
-                "title": "Tool",
                 "type": "string"
               },
               "validation": {
@@ -3882,7 +3421,6 @@
               "entry",
               "validation"
             ],
-            "title": "TestDataValidateOutput",
             "type": "object"
           },
           "_Confidence": {
@@ -3895,12 +3433,10 @@
                   "medium",
                   "high"
                 ],
-                "title": "Level",
                 "type": "string"
               },
               "reason": {
                 "description": "Why this confidence level was assigned.",
-                "title": "Reason",
                 "type": "string"
               }
             },
@@ -3908,7 +3444,6 @@
               "level",
               "reason"
             ],
-            "title": "_Confidence",
             "type": "object"
           },
           "_Entry": {
@@ -3922,7 +3457,6 @@
                   "medium",
                   "high"
                 ],
-                "title": "Confidence",
                 "type": "string"
               },
               "constraints": {
@@ -3930,22 +3464,18 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Constraints",
                 "type": "array"
               },
               "domain": {
                 "description": "Domain folder under knowledge/test_data/ this entry lives in.",
-                "title": "Domain",
                 "type": "string"
               },
               "environment": {
                 "description": "Target environment (e.g. integration, staging).",
-                "title": "Environment",
                 "type": "string"
               },
               "id": {
                 "description": "Stable, human-readable catalogue identifier.",
-                "title": "Id",
                 "type": "string"
               },
               "known_valid_for": {
@@ -3953,7 +3483,6 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Known Valid For",
                 "type": "array"
               },
               "last_validated_at": {
@@ -3967,18 +3496,15 @@
                   }
                 ],
                 "default": null,
-                "description": "UTC timestamp the entry was last validated.",
-                "title": "Last Validated At"
+                "description": "UTC timestamp the entry was last validated."
               },
               "notes": {
                 "default": "",
                 "description": "Free-text notes about this entry.",
-                "title": "Notes",
                 "type": "string"
               },
               "owner": {
                 "description": "Team or individual responsible for this entry.",
-                "title": "Owner",
                 "type": "string"
               },
               "product_id": {
@@ -3991,15 +3517,13 @@
                   }
                 ],
                 "default": null,
-                "description": "Optional product identifier.",
-                "title": "Product Id"
+                "description": "Optional product identifier."
               },
               "scenario_tags": {
                 "description": "Scenario tags this entry is suitable for.",
                 "items": {
                   "type": "string"
                 },
-                "title": "Scenario Tags",
                 "type": "array"
               },
               "sku": {
@@ -4012,18 +3536,15 @@
                   }
                 ],
                 "default": null,
-                "description": "Optional SKU identifier.",
-                "title": "Sku"
+                "description": "Optional SKU identifier."
               },
               "source": {
                 "description": "Provenance of the entry (e.g. qa-curated, imported).",
-                "title": "Source",
                 "type": "string"
               },
               "validation_source": {
                 "default": "catalogue",
                 "description": "Where the entry's validation history comes from.",
-                "title": "Validation Source",
                 "type": "string"
               }
             },
@@ -4034,7 +3555,6 @@
               "owner",
               "source"
             ],
-            "title": "_Entry",
             "type": "object"
           },
           "_ErrorDetail": {
@@ -4043,17 +3563,14 @@
             "properties": {
               "actionable_hint": {
                 "description": "One-line hint the host surfaces to the user with a concrete next step.",
-                "title": "Actionable Hint",
                 "type": "string"
               },
               "message": {
                 "description": "Cleaned exception message; '(no message)' when the exception was raised with no args.",
-                "title": "Message",
                 "type": "string"
               },
               "type": {
                 "description": "Exception class name (e.g. 'ValueError', 'FileNotFoundError').",
-                "title": "Type",
                 "type": "string"
               }
             },
@@ -4062,7 +3579,6 @@
               "message",
               "actionable_hint"
             ],
-            "title": "_ErrorDetail",
             "type": "object"
           },
           "_Freshness": {
@@ -4078,8 +3594,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Days since last validation, or null when not applicable.",
-                "title": "Age Days"
+                "description": "Days since last validation, or null when not applicable."
               },
               "last_validated_at": {
                 "anyOf": [
@@ -4092,12 +3607,10 @@
                   }
                 ],
                 "default": null,
-                "description": "UTC timestamp the entry was last validated, if known.",
-                "title": "Last Validated At"
+                "description": "UTC timestamp the entry was last validated, if known."
               },
               "reason": {
                 "description": "Human-readable rationale for the freshness status.",
-                "title": "Reason",
                 "type": "string"
               },
               "status": {
@@ -4109,7 +3622,6 @@
                   "unknown",
                   "not_applicable"
                 ],
-                "title": "Status",
                 "type": "string"
               }
             },
@@ -4117,7 +3629,6 @@
               "status",
               "reason"
             ],
-            "title": "_Freshness",
             "type": "object"
           },
           "_ValidationResult": {
@@ -4126,7 +3637,6 @@
               "checked_at": {
                 "description": "UTC timestamp the validation was performed.",
                 "format": "date-time",
-                "title": "Checked At",
                 "type": "string"
               },
               "confidence": {
@@ -4135,7 +3645,6 @@
               },
               "entry_id": {
                 "description": "Catalogue id of the entry that was validated.",
-                "title": "Entry Id",
                 "type": "string"
               },
               "freshness": {
@@ -4147,22 +3656,18 @@
                 "items": {
                   "type": "string"
                 },
-                "title": "Issues",
                 "type": "array"
               },
               "valid": {
                 "description": "True when the validator could not find any blocking issues.",
-                "title": "Valid",
                 "type": "boolean"
               },
               "validation_reason": {
                 "description": "Why the validator reached this verdict.",
-                "title": "Validation Reason",
                 "type": "string"
               },
               "validation_source": {
                 "description": "Identifier of the validator that produced this result.",
-                "title": "Validation Source",
                 "type": "string"
               }
             },
@@ -4175,7 +3680,6 @@
               "validation_reason",
               "checked_at"
             ],
-            "title": "_ValidationResult",
             "type": "object"
           }
         },
@@ -4188,34 +3692,29 @@
               {
                 "$ref": "#/$defs/ErrorEnvelope"
               }
-            ],
-            "title": "Result"
+            ]
           }
         },
         "required": [
           "result"
         ],
-        "title": "sumo_qa_validate_test_dataOutput",
         "type": "object"
       }
     },
     "using_sumo_qa": {
       "inputSchema": {
         "properties": {},
-        "title": "using_sumo_qaArguments",
         "type": "object"
       },
       "outputSchema": {
         "properties": {
           "result": {
-            "title": "Result",
             "type": "string"
           }
         },
         "required": [
           "result"
         ],
-        "title": "using_sumo_qaOutput",
         "type": "object"
       }
     }
