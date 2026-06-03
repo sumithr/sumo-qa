@@ -8,9 +8,16 @@ description: >
   `risk_surface` flags a changed source with no test at all. A reviewer that
   rubber-stamps SAFE on the map's leads fails; the Iron Law (fresh evidence)
   must still gate the verdict.
+# Candidate is gpt-5-mini (the reasoning tier), not the estate's gpt-4o-mini:
+# per the #245 candidate-by-type policy, reasoning/discovery evals use the
+# reasoning candidate. This scenario requires treating the diff-impact
+# related_tests / risk_surface as LEADS and gating on the fresh run — gpt-4o-mini
+# mis-tiers it (marks tests/billing/test_refund.py COVERED instead of UNPROVEN).
+# Sibling reasoning-heavy configs (-mapping-gap, -ledger, -adversarial) already
+# pin gpt-5-mini. The judge stays gpt-5.5.
 providers:
-  - id: openai:chat:gpt-4o-mini
-    label: candidate-gpt-4o-mini
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
     config:
       temperature: 0.0
       seed: 42
