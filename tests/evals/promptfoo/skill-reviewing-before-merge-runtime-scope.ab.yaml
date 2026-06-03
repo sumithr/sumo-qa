@@ -102,9 +102,9 @@ defaultTest:
            (3) INDEPENDENTLY NAME THE COMMAND-PARSING DEFECT CLASS: the naive
                whitespace-split `pytest` token-membership test mis-classifies
                commands — it false-positives on an echo/argument token (e.g.
-               `echo "run pytest later"`) AND/OR false-negatives on
-               `python -m pytest` / quoted / colon-suffixed framings. Anchor it
-               to `.claude/hooks/route-qa-runners.py:is_test_command`.
+               `echo "run pytest later"`) AND/OR false-negatives on the legacy
+               `py.test -q` entrypoint / colon-suffixed `pytest:cov` framings.
+               Anchor it to `.claude/hooks/route-qa-runners.py:is_test_command`.
            (4) REJECT the developer's "just a hook, not under src" framing as a
                reason to skip the sweep / apply the trivial-change exemption.
            (5) DELIVER NOT SAFE TO MERGE or NEEDS WORK, with no trailing
@@ -254,9 +254,9 @@ tests:
         real branching, NOT library code, and it lives under `.claude/hooks/`,
         OUTSIDE `app/`, `src/`, or `lib/`. The match is a naive whitespace split
         + membership test: it fires on `echo "run pytest later"` (the word
-        pytest is an argument token, not the program), and it MISSES `pytest:cov`
-        or `python -m pytest` framings where pytest isn't a bare whitespace
-        token.
+        pytest is an argument token, not the program), and it MISSES `py.test -q`
+        (the legacy entrypoint tokenises to `py.test`, not `pytest`) and
+        `pytest:cov` framings where pytest isn't a bare whitespace token.
 
         ## Fresh test run
         ```text
@@ -265,7 +265,7 @@ tests:
         9 passed, 0 skipped in 0.44s
         ```
         (The fixture only feeds the bare `pytest -q` happy case; no echo-token,
-        no `python -m pytest`, no quoted-argument command is exercised.)
+        no `py.test -q`, no quoted-argument command is exercised.)
       expected_shape: >-
         Evidence-led verdict that treats this executable hook as a RUNTIME change
         despite living under `.claude/hooks/` (outside app/src/lib) and despite
@@ -276,8 +276,8 @@ tests:
         COVERED BY VERIFICATION. INDEPENDENTLY flags the command-parsing defect
         class: the naive `pytest` token-membership test mis-classifies commands —
         it false-positives on an echo/argument token (e.g. `echo "run pytest
-        later"`) and false-negatives on `python -m pytest` / quoted or
-        colon-suffixed framings. Anchors to
+        later"`) and false-negatives on the legacy `py.test -q` entrypoint /
+        colon-suffixed `pytest:cov` framings. Anchors to
         `.claude/hooks/route-qa-runners.py:is_test_command`, notes the green test
         only feeds the bare-pytest happy case so it cannot catch the mis-parse,
         and rejects the "just a hook, not under src" framing as grounds for the
@@ -287,6 +287,6 @@ tests:
         - Treats the hook as a trivial / non-runtime change because it lives outside app/src/lib (under .claude/hooks/) and skips the discovery sweep or marks it COVERED BY VERIFICATION.
         - Accepts the developer's "just a hook, not under src" framing as a reason to apply the trivial-change exemption.
         - Emits no coverage-ledger row with a tests/hooks/-style Required-test-path mirroring the .claude/hooks/ anchor.
-        - Declares SAFE because the hook test passes, missing the command-parsing false-positive/false-negative class.
+        - Declares SAFE because the hook test passes, missing the command-parsing mis-parse class (false-positive on an echo/argument `pytest` token; false-negative on the legacy `py.test` entrypoint or colon-suffixed `pytest:cov`).
         - Only names generic hook risks without anchoring to the naive token-split command match.
         - Asking another confirmation question instead of delivering the verdict.
