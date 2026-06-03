@@ -168,6 +168,89 @@ source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-vacuous-test.yaml --no-cache
 ```
 
+## Discriminating-input fence probe (issue #296)
+
+`skill-reviewing-before-merge-fence-parser.yaml` grades the specialisation of
+the 2b discipline to a **stateful character-scanning parser** (the #287 dogfood
+miss: a review asserted "fence-aware parse verified correct" for a markdown
+heading indexer whose fence tracker stored only the fence CHARACTER, not its
+LENGTH — so a 4-tick outer fence wrapping a 3-tick block closes early and
+`## heading`-looking lines inside the code block get indexed as real entries).
+The seed hands the candidate a diff that delegates fence-skip to a pre-existing
+helper whose close-test compares only the marker char, plus a green suite
+described as the "comprehensive fenced-code-block test set" using only
+well-formed fences. The skill must NOT pronounce the parser "verified correct"
+from the code read; it must recognise the structural tell (char-only tracking is
+the defect, not proof), map the parser UNPROVEN, and **prescribe the concrete
+discriminating input** with broken-vs-correct rationale. The single input that
+discriminates a length-not-tracked bug is the **variable-length nested fence —
+a 4-tick fence wrapping a 3-tick block** (char-only closes the outer fence
+early; length-aware keeps it open) — required in the test gate before SAFE. The
+other fence cases (a ≥4-space-indented close-looking line, which per CommonMark
+ex.137 stays as block CONTENT and must still be skipped — NOT reparsed as
+indented code; `~~~` vs backtick; an unclosed fence at EOF; a trailing-content
+close) are general fence edge cases, not the discriminating input for this
+seed's char-stored/length-not-tracked bug. Then deliver NOT SAFE TO MERGE.
+Candidate `gpt-5-mini`,
+judge `gpt-5.5`. Picked up by `npm run eval:all` automatically.
+
+```bash
+source ~/.config/promptfoo-keys.env
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-fence-parser.yaml --no-cache
+```
+
+**Load-bearing control (`.ab.yaml`).** `skill-reviewing-before-merge-fence-parser.ab.yaml`
+runs the SAME seed against the PRE-EDIT (origin/main) SKILL.md body (A0) and the
+post-#296 body (A1). The pre-edit body names the char-not-length tell and reaches
+NOT SAFE, but — lacking the step-4 stateful-parser fence probe — it does NOT
+prescribe a concrete discriminating fence input with broken-vs-correct rationale
+before SAFE, a SHAPE FAIL under the rubric. A0 (old body) FAILs, A1 (new body)
+PASSes; that lift isolates the #296 behaviour. The A0 body is snapshotted at
+`fixtures/reviewing-before-merge-PRE-296.SKILL.md` — refresh it if the baseline
+moves.
+
+```bash
+source ~/.config/promptfoo-keys.env
+# A0 (pre-296 body) FAIL vs A1 (post-296 body) PASS
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-fence-parser.ab.yaml --no-cache
+```
+
+## Runtime-scope corpus (issue #300)
+
+Issue #300 broadens what `reviewing-before-merge` counts as a **runtime
+change**: the trigger now keys on **executable behaviour, not path prefix**. An
+executable hook/script/automation under `.claude/hooks/`, `scripts/`, or any
+non-`src/` location gets the same mandatory discovery sweep + coverage ledger as
+a library module — and the trivial-change exemption is scoped to *genuinely
+non-executable* diffs (docs / static config), not "anything outside
+`app`/`src`/`lib`". The `executable-hook-out-of-source` FAMILY case in
+`skill-reviewing-before-merge-adversarial.yaml` exercises this from a raw diff.
+
+**Load-bearing control (`.ab.yaml`).**
+`skill-reviewing-before-merge-runtime-scope.ab.yaml` runs the SAME
+executable-hook seed (a command-parsing PreToolUse hook under `.claude/hooks/`,
+outside the source dirs) against the PRE-EDIT (origin/main) SKILL.md body (A0)
+and the post-#300 body (A1). Both prompts instruct the candidate to classify
+runtime-vs-trivial **strictly by the loaded body's stated trigger**, not by its
+own intuition about hooks. The pre-#300 body keys the verdict-format runtime gate
+on an `app`/`src`/`lib` path prefix and scopes the trivial exemption to a diff
+with "no `app`/`src`/`lib` file present", so A0 classifies the hook as
+non-runtime/tooling, uses `N/A` or `COVERED BY VERIFICATION` instead of a
+mirrored `tests/hooks/` ledger row, and does not reject the "outside src =
+trivial" framing — a SHAPE FAIL. A1 (the new body) keys the trigger on executable
+behaviour, runs the full sweep, emits a `tests/hooks/`-style coverage-ledger row
+marked UNCOVERED/UNPROVEN, flags the command-parsing mis-parse, and reaches NOT
+SAFE — a PASS. A0(FAIL) → A1(PASS) is deterministic over 3 runs; that lift
+isolates the #300 behaviour. The A0 body is snapshotted at
+`fixtures/reviewing-before-merge-PRE-300.SKILL.md` — refresh it if the baseline
+moves.
+
+```bash
+source ~/.config/promptfoo-keys.env
+# A0 (pre-300 body) FAIL vs A1 (post-300 body) PASS
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-runtime-scope.ab.yaml --no-cache
+```
+
 ## How to run
 
 ### One-time setup
@@ -357,6 +440,10 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `skill-reviewing-before-merge-external-contract.yaml` | Issue #263 external-contract corpus, three seeds: (1) a matcher/parser over external CLI/API/tool output validated only by a hand-authored fixture → external-contract risk UNPROVEN, withhold SAFE; (2) a fixture traceable to a real run → external-contract risk discharged, SAFE-eligible (over-trigger guard); (3) a matcher over an INTERNAL/self-produced value the same module emits → external-contract axis must NOT fire at all (true-negative over-trigger guard) |
 | `skill-reviewing-before-merge-ac-coverage.yaml` | Issue #264 acceptance-criteria coverage: three seeds — UNMET AC → NOT SAFE, all-MET → SAFE-eligible, and plausibly-implemented-but-no-end-to-end-evidence → UNVERIFIED (not UNMET) → NOT SAFE — exercising the three-state MET/UNMET/UNVERIFIED discriminator |
 | `fixtures/reviewing-before-merge-PRE-187.SKILL.md` | Snapshot of the pre-#187 SKILL.md body, the A0 control leg for the unproven-escalation `.ab.yaml` |
+| `skill-reviewing-before-merge-fence-parser.yaml` + `.ab.yaml` | Issue #296 discriminating-input fence probe + A0(pre-edit)/A1(post-edit) load-bearing control (see "Discriminating-input fence probe" above) |
+| `fixtures/reviewing-before-merge-PRE-296.SKILL.md` | Snapshot of the pre-#296 SKILL.md body, the A0 control leg for the fence-parser `.ab.yaml` |
+| `skill-reviewing-before-merge-runtime-scope.ab.yaml` | Issue #300 A0(pre-edit)/A1(post-edit) load-bearing control for the behaviour-not-path runtime-scope rule (see "Runtime-scope corpus" above) |
+| `fixtures/reviewing-before-merge-PRE-300.SKILL.md` | Snapshot of the pre-#300 SKILL.md body, the A0 control leg for the runtime-scope `.ab.yaml` |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |

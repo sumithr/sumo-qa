@@ -41,6 +41,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
    - For `coverage-first-then-refactor` characterization tests, every fixture value (strings, numbers, identifiers) MUST be copied verbatim from the ground-truth context — never paraphrase or shorten; the asserted output must be exactly what the function currently produces.
    - For characterization tests, prefer techniques that pin existing behaviour: `equivalence partitioning` or `exploratory testing` charters. Avoid `use case testing` — that fits new-behaviour scaffolding, not pinning existing behaviour.
+   - When the function under test parses/matches an external CLI/API's output (greps stdout, regex-matches a response body or log line), the technique is `real-capture fixtures for external-output matchers`: capture the tool's REAL output to the fixture FIRST (run it, redirect to a file), THEN write the matcher. An invented fixture validates against your assumption, not the real contract — green but meaningless (e.g. a hook grepping `mutmut run` for `survived` passes a fabricated fixture yet never fires, because real output is emoji counters like `🙁 4`).
 
 4. **Confirm the test idea, only for the AMBIGUOUS parts** — name target, fixture style, and proposed assertion, then ask ONE focused question for what code couldn't answer (e.g. *"is 90.0 right, or does VIP stack with promo?"*). If unambiguous, skip the question.
 

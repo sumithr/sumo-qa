@@ -78,6 +78,19 @@ Time-boxed, mission-driven sessions documenting findings.
 ### checklist-based testing
 Reusable list of common pitfalls (e.g. OWASP Top 10).
 
+### real-capture fixtures for external-output matchers
+When the unit under test parses or matches the output of an external CLI/API
+(greps stdout/stderr, regex-matches a response body or log line), the fixture
+MUST be a byte-for-byte real capture — run the tool, redirect to a file, THEN
+write the matcher. Failure mode (name it): an invented fixture validates the
+matcher against your assumption of the output, not the real contract — green
+but meaningless; it passes the fabricated fixture yet never fires in production
+(e.g. real `mutmut run` reports survivors as emoji counters like `🙁 4`, never
+the literal `survived`, so a hook grepping `survived` is green on the fixture
+and dead in production). Common failure modes: assuming wording/format instead
+of capturing it; a stale capture after the tool's output changes (re-capture on
+version moves); capturing only the happy path, not the real error/empty output.
+
 ## Static
 
 ### review (walkthrough / technical review / inspection)

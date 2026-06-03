@@ -1,0 +1,257 @@
+description: >
+  Issue #296 — discriminating-input fence probe for sumo-qa-reviewing-before-merge.
+  Reproduces the #287 dogfood miss: a per-file review asserted "fence-aware parse
+  verified correct" for a markdown heading indexer whose fence tracker stored only
+  the fence CHARACTER, not its LENGTH — so a 4-tick outer fence wrapping a 3-tick
+  block closes early and `## heading`-looking lines inside the code block get
+  indexed as real entries. Each scenario hands the candidate a diff whose fence
+  parser compares only the marker char, plus a GREEN test that uses only
+  well-formed happy fixtures (no variable-length nested / indented / tilde /
+  unclosed-at-EOF inputs). The skill must NOT pronounce the parser "verified
+  correct" from reading the code; it must treat the parser as UNPROVEN, name the
+  state-transition failure mode (the close-test matches char not length — the
+  structural tell), PRESCRIBE concrete discriminating inputs (a 4-tick fence
+  wrapping a 3-tick block; a ≥4-space-indented fence-looking line; `~~~` vs
+  backtick; an unclosed fence at EOF; a close line with trailing content)
+  required in the test gate before SAFE, and deliver NOT SAFE TO MERGE.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate REFUSED to
+      pronounce a stateful fence/marker parser "verified correct" from a code
+      read, and instead treated it as UNPROVEN and PRESCRIBED concrete
+      discriminating fence inputs before SAFE. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         The fence parser compares only the marker CHARACTER, not its length /
+         full opening run, so its correctness is NOT established by the green
+         happy-fixture test. The candidate must (1) map the fence-parser risk in
+         the coverage ledger as NOT proven — UNPROVEN (the parse path runs green
+         but no assertion exercises a variable-length / indented / tilde /
+         unclosed fence) or UNCOVERED — never COVERED and never "verified
+         correct" from reading the code; (2) name the structural tell — that the
+         close-test matches the fence CHAR not its LENGTH (or equivalently, does
+         not track the opening run length / does not validate the close line),
+         which is the defect, not proof; and (3) PRESCRIBE at least one CONCRETE
+         discriminating input that the current char-only impl mishandles and a
+         correct CommonMark impl handles right, with an explicit per-input twin
+         rationale (what the broken impl DOES with that input — the wrong
+         observable result — AND what a correct impl DOES — the right result),
+         required in the test gate before SAFE. The seed's bug is char STORED
+         and COMPARED but opening run LENGTH never tracked. The input that
+         DISCRIMINATES that bug is the variable-length nested fence: a 4-backtick
+         (or longer) outer fence WRAPPING a 3-backtick block (broken impl closes
+         the outer fence early at the inner ``` , so a `## heading` line inside
+         the block is wrongly indexed as a real entry; a length-aware impl keeps
+         the outer fence open and skips it). This is the discriminating input the
+         candidate SHOULD prescribe for this bug; crediting it satisfies axis A.
+         Two further inputs discriminate IF the candidate states their actual
+         CommonMark behaviour: (a) a CLOSE-looking fence line indented >=4 spaces
+         — per CommonMark 4.5 example 137 this does NOT close the block and is
+         NOT reparsed as indented code, it stays as fenced-block CONTENT, so a
+         char-only impl that lstrip()s before the marker check wrongly treats it
+         as a close (an OPENING fence indented >=4 spaces is the separate rule:
+         it is not a valid opening fence and becomes an indented code block,
+         example 134 — do not conflate the two); (b) a closing fence line
+         carrying trailing non-space content (not a valid close). A `~~~` fence
+         vs a ``` fence and an unclosed fence at EOF do NOT discriminate the
+         seed's char-stored-and-compared bug (different chars already make
+         different fences; an unclosed fence has no close transition), so a
+         candidate that prescribes the variable-length nested fence MUST NOT be
+         FAILED for omitting `~~~`-vs-backtick or unclosed-at-EOF, and naming
+         only those two (without the nested-fence or indented-close case) is NOT
+         a valid discriminating prescription for this bug.
+         Then deliver NOT SAFE TO MERGE.
+         The per-input twin rationale (broken-vs-correct for THAT input) is
+         MANDATORY — naming the inputs as a bare checklist ("test nested fences,
+         indented fences, tilde fences") WITHOUT saying what the current
+         char-only parser does wrong with at least one of them is the pre-2b
+         "add edge-case tests" shape and is a SHAPE FAIL.
+         SHAPE FAILS if ANY of these hold:
+           - the parser is pronounced "verified correct" / "fence-aware" / SAFE
+             on the strength of reading the code or the green happy-path test;
+           - the risk is shipped SAFE as a residual / known parser limitation;
+           - the prescription is only a vague "add more fence tests" / "harden
+             the parser" with no concrete discriminating input;
+           - at least one concrete fence input is named but WITHOUT the explicit
+             per-input broken-vs-correct rationale (a bare edge-case checklist
+             does NOT satisfy this — it is the pre-2b shape and must FAIL);
+           - the verdict is delivered without any prescribed discriminating fence
+             input at all.
+
+      B. GROUNDING - does the response visibly use the supplied context? It must
+         cite the changed parser file + the specific fence-tracking line/shape
+         that compares the char only (e.g. it stores/compares the fence char,
+         not the run length), and reference that the green test uses only
+         well-formed fences so it does not exercise the edge cases. Narrating a
+         generic "the parser might have bugs" without anchoring to the char-only
+         comparison or a concrete fence input -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark ABSENT
+         or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the test design technique catalogue:
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    Repository diff, prior named risks, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass verdict. Map each named
+    risk through the coverage ledger, and deliver the verdict in this one turn
+    — no confirmation question. Keep the response concise and evidence-led.
+tests:
+  - description: SEED fence-char-only — heading indexer tracks the fence CHAR not its length; green test uses only well-formed fences
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The change wires a markdown heading indexer into
+        the catalogue loader: `index_headings(text)` records the document's
+        `##`/`###` headings, skipping any line inside a fenced code block. The
+        fence-skip itself is delegated to an existing helper, `_in_fence_state`,
+        whose body is NOT in this diff (it shipped earlier).
+        (No specific fence risk was pre-named by the developer — surface the
+        risks yourself from the change shape.)
+
+        ## git diff
+        ```diff
+        diff --git a/src/sumo_qa/knowledge_loaders.py b/src/sumo_qa/knowledge_loaders.py
+        @@ src/sumo_qa/knowledge_loaders.py:60-74 @@
+        +60 def index_headings(text: str) -> list[str]:
+        +61     headings: list[str] = []
+        +62     fence = FenceState()           # tracks open/close of ``` and ~~~ blocks
+        +63     for line in text.splitlines():
+        +64         fence.feed(line)           # _in_fence_state helper, shipped earlier
+        +65         if fence.open:
+        +66             continue               # inside a code block — skip headings
+        +67         if line.startswith(("## ", "### ")):
+        +68             headings.append(line.strip())
+        +69     return headings
+        ```
+        Context (the relevant part of the pre-existing `FenceState.feed`, for
+        reference — unchanged by this diff): on a `` ``` ``/`~~~` line it stores
+        the fence's MARKER CHARACTER (`self._char = marker_line.lstrip()[0]`) and
+        treats a later line as a close when `line.lstrip()[0] == self._char`. It
+        records only the fence character; it does not store or compare the
+        opening fence's run LENGTH, and it `lstrip()`s before the marker check.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_knowledge_loaders.py -q
+        tests/test_knowledge_loaders.py::test_indexes_top_level_headings PASSED
+        tests/test_knowledge_loaders.py::test_skips_heading_inside_backtick_fence PASSED
+        tests/test_knowledge_loaders.py::test_skips_heading_inside_tilde_fence PASSED
+        tests/test_knowledge_loaders.py::test_two_separate_fenced_blocks PASSED
+        tests/test_knowledge_loaders.py::test_fence_with_language_info_string PASSED
+        14 passed, 0 skipped in 0.31s
+        ```
+        (The suite is described as the "comprehensive fenced-code-block test
+        set". Reading the fixtures: every one opens and closes with a
+        well-formed 3-character fence at column 0, never nested, never indented,
+        always closed before EOF, with nothing after the closing fence. No
+        fixture nests a 3-tick block inside a 4-tick fence, indents a
+        fence-looking line >=4 spaces, leaves a fence unclosed at EOF, or puts
+        trailing content on a close line.)
+      expected_shape: >-
+        Evidence-led verdict that REFUSES to pronounce the fence parser
+        "verified correct" from the code read or the green happy-path test. Maps
+        R1 as UNPROVEN (the parse path runs green but no assertion exercises a
+        variable-length / indented / tilde-vs-backtick / unclosed-at-EOF fence).
+        Names the structural tell: the close test compares the fence CHARACTER
+        (`marker == fence_char`) and never tracks the opening run LENGTH — that
+        is the defect, not proof. PRESCRIBES the concrete discriminating input
+        for a length-not-tracked bug with broken-vs-correct rationale — a
+        4-backtick outer fence wrapping a 3-backtick block (the current impl
+        closes the outer fence early at the inner ```, so a `## heading` inside
+        the block is WRONGLY indexed as a real entry; a length-aware impl keeps
+        the block open and skips it) — required in the test gate before SAFE.
+        May ALSO note general fence edge cases (a ≥4-space-indented
+        close-looking line that stays as block CONTENT per CommonMark ex.137 —
+        the indexer must still skip it, NOT reparse it as indented code;
+        `~~~` vs backtick; an unclosed fence at EOF), but treats those as
+        general edge cases — `~~~`-vs-backtick and unclosed-at-EOF do NOT
+        discriminate the char-stored bug and are not required discriminators.
+        Delivers NOT SAFE TO MERGE. Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE TO MERGE and/or states the fence parse is "verified correct" / "fence-aware" on the strength of the code read or the green tests.
+        - Maps R1 as COVERED because the green fence tests pass, treating happy-path fixtures as proof of the edge cases.
+        - Leaves R1 as a bare UNPROVEN row with no prescribed discriminating fence input and no acknowledged deferral.
+        - Names fence edge cases only as a checklist (nested / indented / tilde / unclosed) WITHOUT per-input broken-vs-correct rationale.
+        - Asking another confirmation question instead of delivering the verdict.

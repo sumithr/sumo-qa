@@ -53,11 +53,15 @@ PER_CALL_BUDGET = 1500
 # both-sides boundary, missing rule row — that the review skill surfaces when
 # escalating an UNPROVEN risk into a discriminating-input test). The catalogue
 # is still ~1014 approx-tokens, well under PER_CALL_BUDGET (1500); the flow
-# baseline rose to ~2883. Budget gives a small regression cushion above the
-# current catalogue. For comparison the old heavy single-shot path emitted
-# >10k tokens for one call, which is what broke IntelliJ AI Assistant in the
-# first place.
-PER_FLOW_BUDGET = 2940
+# baseline rose to ~2883. #299 then added the `real-capture fixtures for
+# external-output matchers` experience-based technique (capture an external
+# CLI/API's real output as the fixture before writing the matcher — an invented
+# fixture is green-but-meaningless), raising techniques to ~1196 approx-tokens
+# (still well under PER_CALL_BUDGET) and the flow baseline to ~3113. Budget gives
+# a small regression cushion above the current catalogue. For comparison the old
+# heavy single-shot path emitted >10k tokens for one call, which is what broke
+# IntelliJ AI Assistant in the first place.
+PER_FLOW_BUDGET = 3170
 
 
 def test_thin_catalogues_stay_under_per_call_budget():
