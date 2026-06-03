@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0](https://github.com/sumithr/sumo-qa/compare/v0.33.0...v0.34.0) (2026-06-03)
+
+
+### Features
+
+* **skills:** combined reviewing-before-merge probes + [#299](https://github.com/sumithr/sumo-qa/issues/299) technique + [#276](https://github.com/sumithr/sumo-qa/issues/276) eval re-tier ([#333](https://github.com/sumithr/sumo-qa/issues/333)) ([e756317](https://github.com/sumithr/sumo-qa/commit/e7563170d0e419638594e6dcac47573322c03bf0))
+
 ## [0.33.0](https://github.com/sumithr/sumo-qa/compare/v0.32.0...v0.33.0) (2026-06-03)
 
 
