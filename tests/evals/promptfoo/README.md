@@ -142,6 +142,32 @@ source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-unproven-escalation.ab.yaml --no-cache
 ```
 
+## Vacuous-test corpus (issue #255)
+
+`skill-reviewing-before-merge-vacuous-test.yaml` grades the **test_change**
+move: when the diff is test files only (no runtime file), there is no runtime
+anchor for the coverage-ledger, so the central risk is whether each new/changed
+test can actually FAIL. The skill must run a test-quality probe — reusing the
+tautology / setup-discriminator / expected-value-derivation framing from
+`sumo-qa-implementing-with-tdd` step 3 by cross-reference — and NOT rubber-stamp
+a green suite. Two seeds: a tautological diff (a `expected` value read from the
+same call under test, plus a type-only check) that must yield NEEDS WORK / NOT
+SAFE naming the vacuous assertion; and a genuine-discriminator diff (a derived
+leap-year expected value with captured RED-on-pre-fix evidence) that must yield
+SAFE. Candidate is `gpt-5-mini` (the probe is reasoning-heavy — detect a
+self-referential assertion, derive a date), judge `gpt-5.5`. No `.ab.yaml`
+ships for this seed; to isolate the #255 probe behaviour by hand, run the eval
+once on this branch (tautology seed PASS), then check the SKILL.md back to its
+pre-probe state — `git checkout origin/main -- skills/sumo-qa-reviewing-before-merge/SKILL.md`
+— and re-run; the tautology seed flips to FAIL, confirming the verdict comes
+from the added probe rather than the corpus. Restore with
+`git checkout HEAD -- skills/sumo-qa-reviewing-before-merge/SKILL.md`.
+
+```bash
+source ~/.config/promptfoo-keys.env
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-vacuous-test.yaml --no-cache
+```
+
 ## How to run
 
 ### One-time setup
@@ -328,6 +354,7 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `skill-<name>.yaml` (×14) | One config per skill, all covered |
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
 | `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) load-bearing control (see "UNPROVEN-escalation corpus" above) |
+| `skill-reviewing-before-merge-external-contract.yaml` | Issue #263 external-contract corpus, three seeds: (1) a matcher/parser over external CLI/API/tool output validated only by a hand-authored fixture → external-contract risk UNPROVEN, withhold SAFE; (2) a fixture traceable to a real run → external-contract risk discharged, SAFE-eligible (over-trigger guard); (3) a matcher over an INTERNAL/self-produced value the same module emits → external-contract axis must NOT fire at all (true-negative over-trigger guard) |
 | `skill-reviewing-before-merge-ac-coverage.yaml` | Issue #264 acceptance-criteria coverage: three seeds — UNMET AC → NOT SAFE, all-MET → SAFE-eligible, and plausibly-implemented-but-no-end-to-end-evidence → UNVERIFIED (not UNMET) → NOT SAFE — exercising the three-state MET/UNMET/UNVERIFIED discriminator |
 | `fixtures/reviewing-before-merge-PRE-187.SKILL.md` | Snapshot of the pre-#187 SKILL.md body, the A0 control leg for the unproven-escalation `.ab.yaml` |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
