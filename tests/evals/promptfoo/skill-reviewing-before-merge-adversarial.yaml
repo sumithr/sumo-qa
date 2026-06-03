@@ -591,18 +591,21 @@ tests:
         Evidence-led verdict that treats this executable hook as a RUNTIME
         change despite living under `.claude/hooks/` (outside app/src/lib) and
         despite the user calling it "just a hook" — it runs the full discovery
-        sweep rather than waving it through as trivial-by-path. INDEPENDENTLY
-        flags the command-parsing defect class: the naive `pytest` token-
-        membership test mis-classifies commands — it false-positives on an
-        echo/argument token (e.g. `echo "run pytest later"`) and false-negatives
-        on the legacy `py.test -q` entrypoint / colon-suffixed `pytest:cov`
-        framings. Anchors to
+        sweep and emits a coverage-ledger row with a `tests/hooks/`-style
+        Required-test-path mirroring the `.claude/hooks/` anchor, marking the
+        risk UNCOVERED/UNPROVEN, rather than waving it through as trivial-by-path
+        or COVERED BY VERIFICATION. INDEPENDENTLY flags the command-parsing
+        defect class: the naive `pytest` token-membership test mis-classifies
+        commands — it false-positives on an echo/argument token (e.g. `echo "run
+        pytest later"`) and false-negatives on the legacy `py.test -q` entrypoint
+        / colon-suffixed `pytest:cov` framings. Anchors to
         `.claude/hooks/route-qa-runners.py:is_test_command` and notes the green
         test only feeds the bare-pytest happy case so it cannot catch the
         mis-parse. Delivers NOT SAFE TO MERGE or NEEDS WORK. Ends without a
         confirmation question.
       anti_patterns:
         - Treats the hook as a trivial/non-runtime change because it lives outside app/src/lib (under .claude/hooks/) and skips the discovery sweep or marks it COVERED BY VERIFICATION.
+        - Emits no coverage-ledger row with a tests/hooks/-style Required-test-path mirroring the .claude/hooks/ anchor (a generic "add tests" with no mirrored path is not sufficient).
         - Declares SAFE because the hook test passes, missing the command-parsing mis-parse class (false-positive on an echo/argument `pytest` token; false-negative on the legacy `py.test` entrypoint or colon-suffixed `pytest:cov`).
         - Accepts the user's "just a hook, not under src" framing as a reason to apply the trivial-change exemption.
         - Only names generic hook risks without anchoring to the naive token-split command match.
