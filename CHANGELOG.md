@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.0](https://github.com/sumithr/sumo-qa/compare/v0.31.0...v0.32.0) (2026-06-03)
+
+
+### Features
+
+* add external-contract risk class to reviewing-before-merge ([#313](https://github.com/sumithr/sumo-qa/issues/313)) ([fc02455](https://github.com/sumithr/sumo-qa/commit/fc024553d4b6e21911f6bfccf25d47de83291200))
+
 ## [0.31.0](https://github.com/sumithr/sumo-qa/compare/v0.30.0...v0.31.0) (2026-06-03)
 
 

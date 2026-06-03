@@ -20,5 +20,5 @@
   "mcpServers": "./.mcp.json",
   "name": "sumo-qa",
   "repository": "https://github.com/sumithr/sumo-qa",
-  "version": "0.31.0"
+  "version": "0.32.0"
 }
