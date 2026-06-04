@@ -1,0 +1,218 @@
+disableVarExpansion: true
+description: >
+  Issue #321 — A0/A1 control proving the eval-validity probe is LOAD-BEARING.
+  The SAME seed (an eval-driven skill change shipping an A/B whose A0 already
+  passes via a pre-existing generic rule — so the single A0-FAIL is variance —
+  and whose rubric credits a non-discriminating input for the seed defect) runs
+  against the PRE-EDIT (origin/main) SKILL.md body (A0) and the post-#321 body
+  (A1). A0 lacks the step-9 eval-validity probe — it has no rule to check the
+  A/B control's own isolation or to apply 2b to the RUBRIC, so it accepts the
+  A0-FAIL/A1-PASS lift at face value and does not flag the non-discriminating
+  credited input — a SHAPE FAIL under the rubric. A1 (the new body) runs the
+  probe, flags the non-load-bearing control and the non-discriminating credited
+  input, and delivers NOT SAFE. The A0(FAIL) -> A1(PASS) lift isolates the #321
+  behaviour, not pre-existing UNPROVEN/2b handling (A0 already carries that, and
+  it is exactly what the seed exploits). A0 body is snapshotted at
+  fixtures/reviewing-before-merge-PRE-321.SKILL.md (= origin/main before the #321
+  commit); refresh it if the baseline moves.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content_old: file://fixtures/reviewing-before-merge-PRE-321.SKILL.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate probed the
+      VALIDITY of a shipped A/B "load-bearing" eval — that A0 is structurally
+      incapable of passing via pre-existing rules, and that the rubric credits
+      only inputs that actually discriminate the seed defect — instead of
+      accepting an A0-FAIL/A1-PASS lift at face value, AND avoided the named
+      anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - the change ships an A/B "load-bearing" eval. The load-bearing
+         behaviour this control isolates is STRUCTURAL A/B-ISOLATION reasoning
+         (NOT generic single-sample flakiness, which any test-quality probe gives):
+         the candidate MUST reason that the A/B control is not structurally
+         load-bearing because the PRE-EDIT body could reach the SAME
+         NOT-SAFE-with-a-prescribed-input verdict via a NAMED pre-existing rule it
+         already carries — the generic 2b prescribed-discriminating-input
+         requirement — so the A0-FAIL/A1-PASS lift is UNPROVEN as isolation, not
+         proof the new text is load-bearing. It MUST deliver NOT SAFE TO MERGE.
+         SHAPE FAILS if it accepts the A0-FAIL/A1-PASS lift as proof the new text
+         is load-bearing, treats the result as merely single-sample flakiness
+         WITHOUT identifying that a pre-existing rule could already reach PASS, or
+         ships SAFE.
+
+      B. GROUNDING - it must NAME the pre-existing rule the pre-edit body already
+         carries that could reach PASS without the new fence probe — the generic
+         2b prescribed-discriminating-input rule — as the reason the A/B control
+         is not structurally isolating. Treating it only as generic run-to-run
+         flakiness, or a verdict that never names that pre-existing rule ->
+         GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - label: 'A0 - PRE-321 body (control, expected FAIL)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_old}}
+      --- END SKILL ---
+
+      Repository diff, prior review gates, and fresh verification evidence for
+      this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill. The developer has WAIVED the section-by-section
+      confirmation gates and asked for a single-pass verdict. Deliver the verdict
+      in this one turn — no confirmation question. Keep the response concise and
+      evidence-led.
+  - label: 'A1 - post-321 body (new, expected PASS)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_new}}
+      --- END SKILL ---
+
+      Repository diff, prior review gates, and fresh verification evidence for
+      this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill. The developer has WAIVED the section-by-section
+      confirmation gates and asked for a single-pass verdict. Deliver the verdict
+      in this one turn — no confirmation question. Keep the response concise and
+      evidence-led.
+tests:
+  - description: SEED not-load-bearing — A0 already passes via a pre-existing rule (single A0-FAIL is variance) and the rubric credits a non-discriminating input
+    vars:
+      user_prompt: >-
+        Is this safe to merge? The new .ab.yaml shows A0 FAIL -> A1 PASS, so the
+        new fence probe is load-bearing.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff edits
+        skills/sumo-qa-reviewing-before-merge/SKILL.md (adds a new step-4
+        stateful-parser fence probe) and ships a new A/B eval
+        skill-reviewing-before-merge-fence-parser.ab.yaml claimed to prove the
+        probe text is load-bearing.
+        Risk gate: completed. The developer confirmed:
+        R1 — the A/B claims the post-edit body is load-bearing because A0
+        (pre-edit body) FAILed once and A1 (post-edit) PASSed.
+
+        ## git diff (the eval's A/B + rubric)
+        ```diff
+        diff --git a/.../skill-reviewing-before-merge-fence-parser.ab.yaml b/...
+        @@ rubric requires: mark the parser UNPROVEN/NOT SAFE and PRESCRIBE a
+           concrete discriminating fence input @@
+        @@ rubric also CREDITS as discriminating: a `~~~` (tilde) fence and an
+           unclosed fence at EOF @@
+        ```
+        Seed defect under test: the parser stores and compares the fence
+        CHARACTER but does NOT track the opening run LENGTH.
+
+        ## Observations supplied by the developer
+        - The PRE-EDIT (A0) body ALREADY carries the generic 2b discipline:
+          "every UNPROVEN row must emit a prescribed concrete discriminating
+          input." So A0 can reach NOT-SAFE-with-a-prescribed-input for the SAME
+          generic reason, without the new fence-specific probe. When re-run, A0
+          actually PASSed on a second sample — the single observed A0-FAIL was
+          variance, not isolation.
+        - For the seed's char-stored/length-not-tracked bug, a `~~~`-vs-backtick
+          fence and an unclosed-fence-at-EOF are handled IDENTICALLY by broken and
+          correct impls (different chars → different fences; no close transition
+          at EOF), so they do NOT discriminate this defect. The rubric credits
+          them anyway.
+
+        ## Fresh A/B run (single sample)
+        ```text
+        A0 (pre-edit body): FAIL
+        A1 (post-edit body): PASS
+        ```
+      expected_shape: >-
+        Evidence-led verdict that runs the eval-validity probe and finds the A/B
+        control is NOT structurally load-bearing: A0 (the pre-edit body) already
+        carries the generic 2b prescribed-discriminating-input rule, so it can
+        reach the rubric PASS for that pre-existing reason without the new fence
+        probe — the single observed A0-FAIL is variance, not isolation, leaving
+        the control UNPROVEN. AND it applies 2b to the RUBRIC: the rubric credits
+        `~~~`-vs-backtick and unclosed-fence-at-EOF as discriminating even though
+        broken and correct impls handle them identically for the char-stored/
+        length-not-tracked bug — crediting a non-discriminating input. Delivers
+        NOT SAFE TO MERGE on both grounds. Ends without a confirmation question.
+      anti_patterns:
+        - Accepts the A0-FAIL -> A1-PASS lift as proof the new text is load-bearing without checking A0 could pass via the pre-existing 2b rule.
+        - Treats a single A0-FAIL run as isolation rather than variance.
+        - Fails to flag that the rubric credits a non-discriminating input (`~~~` / unclosed-at-EOF) for the char-stored/length-not-tracked bug.
+        - Declares SAFE TO MERGE.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered NOT SAFE verdict are NOT this anti-pattern).

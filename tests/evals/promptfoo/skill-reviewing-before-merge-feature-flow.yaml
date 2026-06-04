@@ -1,0 +1,247 @@
+description: >
+  Issue #331 — primary feature-flow evidence check for
+  sumo-qa-reviewing-before-merge. Even with NO supplied acceptance criterion, a
+  change whose primary FEATURE FLOW (the closest realistic UI / API / CLI /
+  worker / artifact path the change serves) was never driven end-to-end this turn
+  — only a lower-level unit ran — is UNVERIFIED (feature flow), a SAFE-blocker,
+  distinct from an UNMET AC (#314). It must reuse the MET/UNVERIFIED boundary
+  sharpened in #314: do NOT over-fire when a fresh path-matching test genuinely
+  exercises the end-to-end flow. Host-neutral; graceful fallback when the
+  realistic path cannot be identified from the diff. Two seeds: (1) a retry-on-5xx
+  delivery feature whose only fresh test asserts a lower-level backoff-delay
+  calculator unit — the end-to-end deliver() path was never driven →
+  UNVERIFIED (feature flow), NOT SAFE; (2) the same feature with a fresh
+  path-matching test that drives deliver() end-to-end against a 5xx receiver →
+  feature flow VERIFIED, SAFE-eligible (true-negative; the check must NOT
+  over-fire when the realistic path is genuinely exercised).
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate checked that
+      the primary FEATURE FLOW was exercised end-to-end (not merely a lower-level
+      unit) and labelled a missing one UNVERIFIED (feature flow) — distinct from
+      an UNMET AC — without over-firing when a fresh path-matching test genuinely
+      drives the flow, AND avoided the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - the candidate MUST check whether the change's PRIMARY FEATURE
+         FLOW (the closest realistic UI/API/CLI/worker/artifact path) was driven
+         end-to-end this turn. For the unexercised seed (only a lower-level unit
+         ran, the end-to-end path was never driven), it MUST label the flow
+         UNVERIFIED (feature flow) — distinct from an UNMET acceptance criterion —
+         and deliver NOT SAFE TO MERGE, naming the realistic path that was not
+         exercised and the lower-level unit that ran instead. For the
+         exercised seed (a fresh path-matching test genuinely drives the
+         end-to-end flow), it MUST treat the flow as VERIFIED and deliver
+         SAFE-eligible, NOT over-fire. SHAPE FAILS if ANY of these hold:
+           - (unexercised seed) it declares SAFE because a lower-level unit passed;
+           - (unexercised seed) it never distinguishes the unexercised feature
+             flow from the unit that ran, or never labels it UNVERIFIED (feature
+             flow) / a SAFE-blocker;
+           - (unexercised seed) it mislabels the gap as an UNMET acceptance
+             criterion when no acceptance criterion was supplied;
+           - (exercised seed) it flags the genuinely-exercised flow as UNVERIFIED,
+             or raises the bar above the flow's own behaviour, or ships NOT SAFE
+             despite a fresh path-matching end-to-end test.
+
+      B. GROUNDING - it must name the specific realistic feature-flow path (the
+         deliver() retry path against a 5xx receiver) and either the lower-level
+         unit that ran instead (the backoff-delay calculator) for the unexercised
+         seed, or the fresh path-matching end-to-end test that drives deliver()
+         for the exercised seed. A generic verdict without naming the path / the
+         unit -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, prior review gates, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass verdict. Deliver the verdict
+    in this one turn — no confirmation question. Keep the response concise and
+    evidence-led.
+tests:
+  - description: SEED unexercised — retry-on-5xx feature, only a lower-level backoff-delay unit ran, the end-to-end deliver() path never driven
+    vars:
+      user_prompt: >-
+        Is this safe to merge? The new retry logic is in and the unit test passes.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff adds retry-on-5xx to the webhook delivery
+        worker: app/delivery/worker.py gains a retry loop so a failed delivery is
+        retried up to 3 times when the receiver returns a 5xx. NO acceptance
+        criteria were supplied for this review.
+        Risk gate: completed. The developer confirmed:
+        R1 — on a 5xx the delivery should retry up to 3 times then park; the
+        primary feature flow is the worker calling deliver() against a 5xx
+        receiver and observing the retry-then-park behaviour.
+
+        ## git diff
+        ```diff
+        diff --git a/app/delivery/worker.py b/app/delivery/worker.py
+        @@ +deliver(): retry loop, up to 3 attempts on 5xx, then park @@
+        +    for attempt in range(3):
+        +        resp = self._post(payload)
+        +        if resp.status_code < 500:
+        +            return resp
+        +        time.sleep(self._backoff_delay(attempt))
+        +    self._park(payload)
+        diff --git a/app/delivery/worker.py b/app/delivery/worker.py
+        @@ +_backoff_delay(attempt): exponential backoff helper @@
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/delivery/test_worker.py -q
+        tests/delivery/test_worker.py::test_backoff_delay_grows PASSED
+        9 passed, 0 skipped in 0.40s
+        ```
+        The only fresh test for this change asserts the backoff-delay calculator
+        (`_backoff_delay(2) == 2.0`). NO fresh test drives deliver() against a
+        5xx receiver to observe retry-up-to-3-then-park; the end-to-end delivery
+        path was never exercised this turn.
+      expected_shape: >-
+        Evidence-led verdict that checks the primary FEATURE FLOW — the worker's
+        deliver() retrying against a 5xx receiver up to 3 times then parking — and
+        finds it was NEVER driven end-to-end this turn: only the lower-level
+        backoff-delay calculator unit (`_backoff_delay`) ran. Labels the flow
+        UNVERIFIED (feature flow), explicitly DISTINCT from an unmet acceptance
+        criterion (none were supplied), and delivers NOT SAFE TO MERGE, naming the
+        unexercised deliver()/5xx path and the backoff unit that ran instead.
+        Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE TO MERGE because the backoff-delay unit test passes.
+        - Treats the lower-level backoff unit as covering the end-to-end retry-then-park feature flow.
+        - Never labels the unexercised feature flow as UNVERIFIED (feature flow) / a SAFE-blocker.
+        - Mislabels the gap as an UNMET acceptance criterion when none were supplied.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
+  - description: SEED exercised — a fresh path-matching test drives deliver() end-to-end against a 5xx receiver
+    vars:
+      user_prompt: >-
+        Is this safe to merge? I added an end-to-end test that drives the worker
+        against a 5xx stub.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff adds the same retry-on-5xx to
+        app/delivery/worker.py — ONE function, deliver(), gains the retry loop.
+        NO acceptance criteria were supplied.
+        Risk gate: completed and CLOSED. The developer confirmed exactly ONE named
+        risk, and agreed there are NO other outstanding concerns for this diff:
+        R1 — the primary feature flow is the worker calling deliver() against a
+        5xx receiver and observing retry-up-to-3-then-park. There is no rollback,
+        no persistence reordering, no schema change, no platform branch, no
+        external-output matcher, and no other risk surface in this diff — R1 is
+        the only named risk and it is fully confirmed.
+
+        ## git diff
+        ```diff
+        diff --git a/app/delivery/worker.py b/app/delivery/worker.py
+        @@ +deliver(): retry loop, up to 3 attempts on 5xx, then park @@
+        +    for attempt in range(3):
+        +        resp = self._post(payload)
+        +        if resp.status_code < 500:
+        +            return resp
+        +        time.sleep(self._backoff_delay(attempt))
+        +    self._park(payload)
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/delivery/test_worker.py -q
+        tests/delivery/test_worker.py::test_deliver_retries_3x_then_parks_on_5xx PASSED
+        tests/delivery/test_worker.py::test_backoff_delay_grows PASSED
+        11 passed, 0 skipped in 0.55s
+        ```
+        test_deliver_retries_3x_then_parks_on_5xx drives the END-TO-END path: it
+        wires a stub receiver returning 500 on every call, invokes the worker's
+        deliver(), and asserts the receiver was called exactly 3 times AND the
+        payload was parked — exercising the realistic retry-then-park feature
+        flow, not just the backoff calculator. R1 is therefore COVERED by a fresh
+        path-matching end-to-end test, and no other risk is outstanding.
+      expected_shape: >-
+        Evidence-led verdict that checks the primary FEATURE FLOW and finds it
+        WAS driven end-to-end this turn: test_deliver_retries_3x_then_parks_on_5xx
+        wires a 5xx stub receiver, invokes deliver(), and asserts called-3-times +
+        parked — the realistic retry-then-park path, not merely the backoff unit.
+        Treats the feature flow as VERIFIED and delivers SAFE TO MERGE (or
+        SAFE-eligible), citing the end-to-end test and the 11 passed count — and
+        does NOT over-fire by labelling the genuinely-exercised flow UNVERIFIED or
+        raising the bar above the flow's own behaviour. Lists residual concerns.
+        Ends without a confirmation question.
+      anti_patterns:
+        - Labels the genuinely end-to-end-exercised feature flow as UNVERIFIED (feature flow).
+        - Delivers NOT SAFE / NEEDS WORK despite a fresh path-matching test driving deliver() against a 5xx receiver.
+        - Raises the bar above the flow's own behaviour (e.g. demanding unrelated nuances) to withhold SAFE.
+        - Ignores the end-to-end test when reasoning about feature-flow coverage.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).

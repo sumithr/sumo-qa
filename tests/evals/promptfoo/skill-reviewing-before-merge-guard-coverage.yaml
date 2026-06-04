@@ -1,0 +1,250 @@
+description: >
+  Issue #316 — regression-guard coverage check for
+  sumo-qa-reviewing-before-merge. When a change ADDS a regression guard /
+  bidirectional "do X but NOT Y" rule (an over-trigger guard, an anti-over-fire
+  carve-out) to a skill or matcher, the review must verify the eval exercises
+  BOTH directions — confirm a discriminating true-negative / over-trigger seed
+  exists that would FAIL a reviewer VIOLATING the guard — not just confirm the
+  guard's prose is present. "The guard is described" is NOT "the guard is
+  tested": a one-sided (positive-only) eval leaves the guard UNCOVERED, a
+  SAFE-blocker, mirroring uncovered-risk -> NOT SAFE and the #255 vacuous-test
+  probe. Two seeds: (1) a new "do NOT over-trigger on internal/self-produced
+  values" guard whose eval has only external-output (positive-direction) seeds
+  and NO internal-value true-negative -> guard UNCOVERED, NOT SAFE; (2) the same
+  guard whose eval DOES carry a discriminating internal/self-produced
+  true-negative seed (one an over-triggering reviewer would FAIL) -> guard
+  COVERED, SAFE-eligible (true-negative; the check must NOT over-fire when the
+  over-trigger direction is genuinely tested).
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate verified that
+      a newly-added regression guard's eval exercises BOTH directions (a
+      discriminating true-negative / over-trigger case exists) instead of
+      accepting a present-and-plausible guard as validated, AND avoided the named
+      anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - the change ADDS a regression guard / bidirectional "do X but NOT
+         Y" rule. The candidate MUST verify the guard is TESTED in BOTH
+         directions, not merely described: a discriminating true-negative /
+         over-trigger seed must exist that a reviewer VIOLATING the guard would
+         FAIL. For the one-sided seed (eval has only positive-direction cases, no
+         over-trigger true-negative), the candidate MUST mark the guard UNCOVERED
+         and deliver NOT SAFE TO MERGE, naming the missing over-trigger / true-
+         negative direction — NOT accept "the guard's prose is present" as
+         validation. For the two-sided seed (a discriminating true-negative seed
+         IS present that an over-triggering reviewer would fail), the candidate
+         MUST treat the guard as COVERED and SAFE-eligible, and NOT over-fire by
+         demanding still more directions. SHAPE FAILS if ANY of these hold:
+           - (one-sided seed) it declares the guard validated / SAFE because the
+             guard prose is present and the positive-direction seeds pass;
+           - (one-sided seed) it never identifies that the over-trigger / true-
+             negative direction is missing from the eval;
+           - (two-sided seed) it marks a genuinely two-sided guard UNCOVERED or
+             ships NOT SAFE despite a discriminating over-trigger true-negative
+             that a guard-violating reviewer would fail.
+
+      B. GROUNDING - it must name the specific guard ("do NOT over-trigger on
+         internal/self-produced values"), the eval's existing seeds, and either
+         the MISSING internal-value true-negative (one-sided seed) or the PRESENT
+         discriminating internal-value true-negative and why a guard-violating
+         reviewer fails it (two-sided seed). A generic verdict without naming the
+         guard direction -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, prior review gates, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass verdict. Deliver the verdict
+    in this one turn — no confirmation question. Keep the response concise and
+    evidence-led.
+tests:
+  - description: SEED one-sided — new over-trigger guard, eval has only positive (external) seeds, no internal-value true-negative
+    vars:
+      user_prompt: >-
+        Is this safe to merge? The new external-contract guard is in place and
+        both eval seeds pass.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff edits
+        skills/sumo-qa-reviewing-before-merge/SKILL.md and its eval
+        tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml.
+        The SKILL.md adds a NEW regression guard: "do NOT over-trigger on
+        internal/self-produced values — the external-contract axis fires ONLY on a
+        genuinely external source the diff does not control." This is a
+        bidirectional "do X (flag external-output dependencies) but NOT Y (do not
+        flag internal/self-produced values)" rule.
+        Risk gate: completed. The developer confirmed:
+        R1 — a reviewer (or future skill regression) that OVER-triggers would flag
+        an internal/self-produced value as an external-contract risk and demand a
+        real-output capture for it.
+
+        ## git diff
+        ```diff
+        diff --git a/skills/sumo-qa-reviewing-before-merge/SKILL.md b/...
+        @@ + the new "do NOT over-trigger on internal/self-produced values" guard @@
+        diff --git a/tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml b/...
+        @@ +2 seeds @@
+        ```
+        Both eval seeds are EXTERNAL-output scenarios (a matcher over `mutmut`
+        CLI text): seed 1 asserts the external-contract risk fires + is UNPROVEN
+        without a real capture; seed 2 asserts it is discharged once a real
+        capture is cited. There is NO seed where the matched value is
+        internal/self-produced and the axis must NOT fire.
+
+        ## Fresh test run
+        ```text
+        $ ./node_modules/.bin/promptfoo eval -c .../skill-reviewing-before-merge-external-contract.yaml
+        Successes: 2   Failures: 0   (2/2)
+        ```
+      expected_shape: >-
+        Evidence-led verdict that recognises the change ADDS a bidirectional
+        regression guard ("do NOT over-trigger on internal/self-produced values")
+        but its eval has only POSITIVE-direction (external-output) seeds and NO
+        discriminating internal/self-produced true-negative — so a reviewer that
+        OVER-triggers (flags an internal value, demands a real capture) would
+        still pass the rubric. Marks the guard UNCOVERED ("described, not
+        tested"), names the missing internal-value true-negative direction, and
+        delivers NOT SAFE TO MERGE despite the 2/2 green seeds. Ends without a
+        confirmation question.
+      anti_patterns:
+        - Declares the guard validated / SAFE because the guard prose is present and the two seeds pass.
+        - Treats a green positive-direction-only eval as covering the over-trigger direction.
+        - Never identifies that the internal/self-produced true-negative direction is missing.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
+  - description: SEED two-sided — the over-trigger guard's eval DOES carry a discriminating internal-value true-negative seed
+    vars:
+      user_prompt: >-
+        Is this safe to merge? I added an internal/self-produced true-negative
+        seed to the eval.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff edits
+        skills/sumo-qa-reviewing-before-merge/SKILL.md and its eval
+        tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml.
+        The SKILL.md adds the same NEW regression guard: "do NOT over-trigger on
+        internal/self-produced values."
+        Risk gate: completed and CLOSED. The developer confirmed exactly ONE named
+        risk and agreed there are NO other outstanding concerns for this diff
+        (guard coverage is the only question — no other uncovered risk surface):
+        R1 — a reviewer that OVER-triggers would flag an internal/self-produced
+        value as an external-contract risk.
+
+        ## git diff
+        ```diff
+        diff --git a/skills/sumo-qa-reviewing-before-merge/SKILL.md b/...
+        @@ + the new "do NOT over-trigger on internal/self-produced values" guard @@
+        diff --git a/tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml b/...
+        @@ +3 seeds @@
+        ```
+        The eval now has THREE seeds:
+        - seed 1 (positive): a matcher over `mutmut` CLI text → external-contract
+          risk fires, UNPROVEN without a real capture.
+        - seed 2 (positive): the same matcher with a real capture cited → axis
+          discharged, SAFE-eligible.
+        - seed 3 (TRUE-NEGATIVE / over-trigger): the matched value is an
+          INTERNAL/self-produced marker the SAME module emits and parses back
+          (a self-serialised `[sumo-qa:CODE]` round-trip). The seed's rubric
+          asserts the external-contract axis must NOT fire and the candidate must
+          DECLINE it as internal (quote the value, name producer + same-module
+          consumer). A reviewer that OVER-triggers — flagging the internal value
+          as an external-contract risk and demanding a real capture — FAILS this
+          seed.
+
+        ## Fresh test run
+        ```text
+        $ ./node_modules/.bin/promptfoo eval -c .../skill-reviewing-before-merge-external-contract.yaml
+        Successes: 3   Failures: 0   (3/3)
+        ```
+        R1 is therefore COVERED — the guard is tested in both directions — and no
+        other risk is outstanding.
+      expected_shape: >-
+        Evidence-led verdict that recognises the bidirectional guard ("do NOT
+        over-trigger on internal/self-produced values") is now tested in BOTH
+        directions: alongside the positive external-output seeds, seed 3 is a
+        discriminating internal/self-produced true-negative that a reviewer
+        VIOLATING the guard (over-triggering) would FAIL. Marks the guard COVERED
+        and delivers SAFE TO MERGE (or SAFE-eligible), citing seed 3 as the
+        over-trigger discriminator and the 3/3 green run — and does NOT over-fire
+        by demanding still more directions. Lists residual concerns. Ends without
+        a confirmation question.
+      anti_patterns:
+        - Marks the guard UNCOVERED despite a discriminating internal/self-produced true-negative seed that a guard-violating reviewer would fail.
+        - Delivers NOT SAFE / NEEDS WORK despite the eval exercising both directions with a 3/3 green run.
+        - Demands additional guard directions beyond the discriminating over-trigger true-negative already present (over-fire).
+        - Ignores seed 3 (the internal-value true-negative) when reasoning about guard coverage.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).

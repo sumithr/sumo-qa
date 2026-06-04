@@ -1,0 +1,278 @@
+description: >
+  Issue #321 — eval-validity probe for sumo-qa-reviewing-before-merge. When a
+  SKILL.md edit ships with a new/changed promptfoo A/B "load-bearing" eval, the
+  discovery sweep must probe the eval's OWN validity: (1) A/B-isolation — the
+  pre-edit (A0) leg must be structurally INCAPABLE of passing via pre-existing
+  general rules; the rubric's PASS condition must require something ONLY the new
+  skill text produces. A single observed A0-FAIL is variance, not isolation; an
+  A0/A1 lift explainable by a pre-existing rule is UNPROVEN. (2) Apply the 2b
+  rule to the RUBRIC, not just the diff — any input the rubric credits as
+  "discriminating" must actually discriminate the seed's specific defect (broken
+  and correct impls diverge on it); crediting a non-discriminating input is a
+  SAFE-blocker. Two seeds: (1) an A/B whose A0 already carries the generic rule
+  that reaches the rubric PASS (so the single A0-FAIL is variance) AND whose
+  rubric credits a non-discriminating input for the seed's char-stored/length-
+  not-tracked bug -> A/B not load-bearing + rubric credits a non-discriminating
+  input, NOT SAFE; (2) an A/B whose A0 is structurally incapable of passing (the
+  rubric PASS needs only-new-text) AND whose rubric credits only inputs that
+  actually discriminate the seed defect -> A/B load-bearing, SAFE-eligible
+  (true-negative; the check must NOT over-fire on a genuinely-isolating control).
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate probed the
+      VALIDITY of a shipped A/B "load-bearing" eval — that A0 is structurally
+      incapable of passing via pre-existing rules, and that the rubric credits
+      only inputs that actually discriminate the seed defect — instead of
+      accepting an A0-FAIL/A1-PASS lift at face value, AND avoided the named
+      anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - the change is an eval-driven skill edit shipping a new A/B
+         "load-bearing" eval. The candidate MUST run the eval-validity probe:
+         (1) A/B-isolation — verify A0 is structurally INCAPABLE of passing via
+         pre-existing general rules (the rubric PASS must require something only
+         the new skill text produces); a single A0-FAIL is variance, and an
+         A0/A1 lift explainable by a pre-existing rule is UNPROVEN, not proof.
+         (2) Apply 2b to the RUBRIC — any input the rubric credits as
+         "discriminating" must actually discriminate the seed's specific defect
+         (broken and correct impls diverge on it). For the not-load-bearing seed,
+         the candidate MUST flag that A0 already carries the generic rule that
+         reaches the rubric PASS (so the single A0-FAIL is variance, the control
+         is UNPROVEN) AND that the rubric credits a non-discriminating input,
+         and deliver NOT SAFE TO MERGE. For the load-bearing seed, the candidate
+         MUST confirm A0 is structurally incapable of passing and the rubric
+         credits only discriminating inputs, and deliver SAFE-eligible, NOT
+         over-fire. SHAPE FAILS if ANY of these hold:
+           - (not-load-bearing seed) it accepts the A0-FAIL/A1-PASS lift as proof
+             the new text is load-bearing without checking A0 could pass via the
+             pre-existing rule;
+           - (not-load-bearing seed) it does not flag the rubric crediting a
+             non-discriminating input for the seed defect;
+           - (not-load-bearing seed) it ships SAFE;
+           - (load-bearing seed) it flags a genuinely isolating control as
+             UNPROVEN, or flags a genuinely discriminating credited input as
+             non-discriminating, or ships NOT SAFE on a valid A/B.
+
+      B. GROUNDING - it must reference the specific pre-existing rule A0 already
+         carries (the generic 2b prescribed-input requirement) and the specific
+         non-discriminating input the rubric credits for the seed's
+         char-stored/length-not-tracked bug (e.g. `~~~`-vs-backtick or
+         unclosed-fence-at-EOF, which broken and correct impls handle
+         identically) — OR, for the load-bearing seed, why A0 cannot reach PASS
+         and why the credited inputs (the variable-length nested fence) genuinely
+         discriminate. A generic verdict without naming the rule / the input ->
+         GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, prior review gates, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass verdict. Deliver the verdict
+    in this one turn — no confirmation question. Keep the response concise and
+    evidence-led.
+tests:
+  - description: SEED not-load-bearing — A0 already passes via a pre-existing rule (single A0-FAIL is variance) and the rubric credits a non-discriminating input
+    vars:
+      user_prompt: >-
+        Is this safe to merge? The new .ab.yaml shows A0 FAIL -> A1 PASS, so the
+        new fence probe is load-bearing.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff edits
+        skills/sumo-qa-reviewing-before-merge/SKILL.md (adds a new step-4
+        stateful-parser fence probe) and ships a new A/B eval
+        skill-reviewing-before-merge-fence-parser.ab.yaml claimed to prove the
+        probe text is load-bearing.
+        Risk gate: completed. The developer confirmed:
+        R1 — the A/B claims the post-edit body is load-bearing because A0
+        (pre-edit body) FAILed once and A1 (post-edit) PASSed.
+
+        ## git diff (the eval's A/B + rubric)
+        ```diff
+        diff --git a/.../skill-reviewing-before-merge-fence-parser.ab.yaml b/...
+        @@ rubric requires: mark the parser UNPROVEN/NOT SAFE and PRESCRIBE a
+           concrete discriminating fence input @@
+        @@ rubric also CREDITS as discriminating: a `~~~` (tilde) fence and an
+           unclosed fence at EOF @@
+        ```
+        Seed defect under test: the parser stores and compares the fence
+        CHARACTER but does NOT track the opening run LENGTH.
+
+        ## Observations supplied by the developer
+        - The PRE-EDIT (A0) body ALREADY carries THE GENERIC 2b
+          PRESCRIBED-DISCRIMINATING-INPUT RULE: "every UNPROVEN row must emit a
+          prescribed concrete discriminating input." This pre-existing generic 2b
+          rule is precisely what lets A0 reach NOT-SAFE-with-a-prescribed-input
+          for the SAME generic reason, WITHOUT the new fence-specific probe. When
+          re-run, A0 actually PASSed on a second sample — the single observed
+          A0-FAIL was variance, not isolation.
+        - For the seed's char-stored/length-not-tracked bug, a `~~~`-vs-backtick
+          fence and an unclosed-fence-at-EOF are handled IDENTICALLY by broken and
+          correct impls (different chars → different fences; no close transition
+          at EOF), so they do NOT discriminate this defect. The rubric credits
+          them anyway.
+
+        ## Fresh A/B run (single sample)
+        ```text
+        A0 (pre-edit body): FAIL
+        A1 (post-edit body): PASS
+        ```
+      expected_shape: >-
+        Evidence-led verdict that runs the eval-validity probe and finds the A/B
+        control is NOT structurally load-bearing: A0 (the pre-edit body) already
+        carries the GENERIC 2b PRESCRIBED-DISCRIMINATING-INPUT RULE, so it can
+        reach the rubric PASS for that pre-existing reason without the new fence
+        probe — the single observed A0-FAIL is variance, not isolation, leaving
+        the control UNPROVEN. The response must name that pre-existing rule as the
+        generic 2b prescribed-discriminating-input requirement specifically. AND
+        it applies 2b to the RUBRIC: the rubric credits `~~~`-vs-backtick and
+        unclosed-fence-at-EOF as discriminating even though broken and correct
+        impls handle them identically for the char-stored/length-not-tracked bug
+        — crediting a non-discriminating input. Delivers NOT SAFE TO MERGE on both
+        grounds. Ends without a confirmation question.
+      anti_patterns:
+        - Accepts the A0-FAIL -> A1-PASS lift as proof the new text is load-bearing without checking A0 could pass via the pre-existing 2b rule.
+        - Treats a single A0-FAIL run as isolation rather than variance.
+        - Fails to flag that the rubric credits a non-discriminating input (`~~~` / unclosed-at-EOF) for the char-stored/length-not-tracked bug.
+        - Declares SAFE TO MERGE.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
+  - description: SEED load-bearing — A0 is structurally incapable of passing and the rubric credits only discriminating inputs
+    vars:
+      user_prompt: >-
+        Is this safe to merge? I tightened the .ab.yaml so A0 cannot pass via the
+        generic rule and the rubric only credits the variable-length nested fence.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff edits
+        skills/sumo-qa-reviewing-before-merge/SKILL.md (the step-4 fence probe)
+        and ships a tightened A/B eval skill-reviewing-before-merge-fence-parser.ab.yaml.
+        Risk gate: completed and CLOSED. The developer confirmed exactly ONE named
+        risk and agreed there are NO other outstanding concerns for this diff (no
+        runtime/provenance gap, no uncovered side risk — R1 is the only risk):
+        R1 — the A/B must prove the FENCE-SPECIFIC probe is load-bearing, not just
+        the generic 2b discipline.
+
+        ## git diff (the eval's A/B + rubric)
+        ```diff
+        diff --git a/.../skill-reviewing-before-merge-fence-parser.ab.yaml b/...
+        @@ rubric PASS now REQUIRES the fence-specific discriminating input — a
+           variable-length nested fence (a 4-tick fence wrapping a 3-tick block) —
+           with the broken-vs-correct rationale (char-only closes the outer fence
+           early; length-aware keeps it open). A generic "prescribe some input"
+           is NOT sufficient for PASS. @@
+        @@ rubric does NOT credit `~~~`-vs-backtick or unclosed-at-EOF as the
+           discriminating input (they are noted as non-discriminating for this
+           bug). @@
+        ```
+        Seed defect under test: the parser stores/compares the fence CHARACTER
+        but does NOT track the opening run LENGTH.
+
+        ## Observations supplied by the developer
+        - The PRE-EDIT (A0) body carries the GENERIC 2b rule but has NO
+          fence-specific guidance, so it cannot name the variable-length nested
+          fence the tightened rubric now REQUIRES for PASS — A0 is structurally
+          incapable of reaching PASS regardless of variance.
+        - The only credited discriminating input is the variable-length nested
+          fence (a 4-tick fence wrapping a 3-tick block), which a char-only
+          (broken) impl and a length-aware (correct) impl genuinely handle
+          DIFFERENTLY — it discriminates the seed defect.
+
+        ## Fresh A/B run (3 samples, deterministic)
+        ```text
+        A0 (pre-edit body): FAIL, FAIL, FAIL
+        A1 (post-edit body): PASS, PASS, PASS
+        ```
+        R1 is therefore DISCHARGED — the A/B control is load-bearing — and no
+        other risk is outstanding.
+      expected_shape: >-
+        Evidence-led verdict that runs the eval-validity probe and CONFIRMS the
+        A/B control is genuinely load-bearing: the tightened rubric PASS requires
+        the fence-specific discriminating input (the variable-length nested fence)
+        that ONLY the new skill text produces, so A0 — which carries only the
+        generic 2b rule and no fence-specific guidance — is structurally
+        incapable of passing (FAIL across 3 deterministic samples, not a single
+        variance run). AND the rubric credits only the variable-length nested
+        fence, which broken (char-only) and correct (length-aware) impls handle
+        differently, so it genuinely discriminates the seed defect. Delivers SAFE
+        TO MERGE (or SAFE-eligible), and does NOT over-fire by calling the valid
+        control UNPROVEN or the discriminating input non-discriminating. Lists
+        residual concerns. Ends without a confirmation question.
+      anti_patterns:
+        - Flags a structurally-isolating A/B control (A0 cannot reach PASS, 3/3 deterministic) as UNPROVEN.
+        - Flags the variable-length nested fence (which broken and correct impls handle differently) as non-discriminating.
+        - Delivers NOT SAFE / NEEDS WORK on a valid load-bearing A/B with only discriminating credited inputs.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
