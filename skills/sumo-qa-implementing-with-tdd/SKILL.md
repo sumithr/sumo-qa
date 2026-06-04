@@ -65,8 +65,13 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 **Retrospective regression — the bug is already fixed.** When the fix landed before the test (hotfix, someone else's fix, a bug spotted after patching), the Iron Law still holds: an unfailed test proves nothing. Manufacture the red against the OLD code:
 1. Write the regression test against the *current* (fixed) tree per steps 3–5.
-2. Temporarily restore the pre-fix file with a **scoped, reversible** move only — `git show <pre-fix-commit>:<path> > <path>`, `git checkout <pre-fix-commit> -- <path>`, or `git stash` — never destructive (`git reset --hard`, `git checkout <branch>`, `git clean` discard the worktree). Run the test; capture the real assertion failure.
-3. **MANDATORY: reverse the restore and return to the current worktree before final verification** (`git checkout -- <path>` / `git stash pop`), then re-run and confirm green. Leaving the tree on the old version reintroduces the bug — the cycle is write-current → restore-old → red → restore-current → green; you always end on the current tree. If the pre-fix version is unrecoverable, say so — never fabricate red by weakening the assertion against current code.
+2. Temporarily restore the pre-fix file with a **scoped, reversible** move, **paired with the CORRECT reverse** (each reverse differs; all must end on the current tree). Prefer the first two — they leave the index clean:
+   - `git show <pre-fix-commit>:<path> > <path>` → reverse `git checkout -- <path>`.
+   - `git stash` → reverse `git stash pop`.
+   - `git checkout <pre-fix-commit> -- <path>` → reverse `git checkout HEAD -- <path>` (or `git restore --source=HEAD --staged --worktree <path>`): it writes the OLD file into BOTH index AND worktree, so a bare `git checkout -- <path>` restores the buggy version from the polluted index — reverse against HEAD, not the index.
+
+   Never destructive — `git reset --hard`, `git checkout <branch>`, `git clean` discard the worktree. Run the test; capture the real assertion failure.
+3. **MANDATORY: reverse the restore (with the reverse paired in step 2) and return to the current worktree before final verification**, then re-run and confirm green. Leaving the tree on the old version reintroduces the bug — the cycle is write-current → restore-old → red → restore-current → green; you always end on the current tree. If the pre-fix version is unrecoverable, say so — never fabricate red by weakening the assertion against current code.
 
 **Tests for code outside the coverage target.** A test for code outside `--cov=src/sumo_qa` (a script, CI helper, build artifact, sibling package) is still legitimate and often required. Coverage accounting does not decide whether a regression matters. Write it where the code lives and let it gate on its own pass/fail; don't drop it for not moving the number, and don't widen `--cov` to "count" it — the gate stays as configured.
 
@@ -89,7 +94,7 @@ See the Checklist above — that's the flow.
 | "February has 28 days, so `anchorDay=31` lands on the 28th" | Recall, not derivation. Feb 2024 has 29 days; Feb 2023 has 28. Trace input → rule → expected for THIS input. Same trap: *"UTC offset is +0"*, *"ASCII is 7-bit"* — year/locale/encoding-dependent. A broken impl that hardcodes the same generic passes the assertion. |
 | "I'll stub the prod function with `return total * 0.9` so the test fails meaningfully" | Iron Law violated via the stub. Red-phase stubs are signature-only (`pass` / `raise NotImplementedError`); the 0.9 belongs in the user's green phase. |
 | "Mutation testing fits here" | Wrong skill. Mutation follow-up is `sumo-qa-strengthening-tests`. |
-| "The bug's already fixed, so I'll commit the test green" | An unred test proves nothing. Manufacture red against the pre-fix version with a scoped reversible restore (`git show <commit>:<path> > <path>`, `git stash` — never `reset --hard` / `checkout <branch>`), see red, then restore current and see green. Always end on the current tree. |
+| "The bug's already fixed, so I'll commit the test green" | An unred test proves nothing. Manufacture red against the pre-fix version with a scoped reversible restore (`git show <commit>:<path> > <path>` → reverse `git checkout -- <path>`; or `git stash` → reverse `git stash pop` — never `reset --hard` / `checkout <branch>`), see red, then reverse (pair the reverse to the restore — `git checkout <commit> -- <path>` pollutes the index, so reverse it against HEAD) and see green. Always end on the current tree. |
 | "This test won't move `--cov=src/sumo_qa`, so it doesn't count" | Coverage accounting doesn't decide whether a regression matters. Write it where the code lives; don't drop it, don't widen `--cov`. |
 
 ## Examples
