@@ -198,6 +198,37 @@ def test_newline_in_field_is_flattened():
     assert "\n" not in body_line
 
 
+# --- injection hardening (csv formula injection) -----------------------------
+
+
+def test_csv_formula_injection_title_is_neutralised():
+    # A title starting with "=" would be evaluated as a live formula when the CSV
+    # is opened in Excel/Sheets. The OWASP guard prefixes a single apostrophe so
+    # the spreadsheet treats the value as literal text.
+    out = export_csv(_export(_case(title='=HYPERLINK("http://evil")')))
+    row = list(csv.reader(io.StringIO(out)))[1]
+    assert row[1] == '\'=HYPERLINK("http://evil")'
+    assert not row[1].startswith("=")
+
+
+@pytest.mark.parametrize("trigger", ["=", "+", "-", "@", "\t", "\r"])
+def test_csv_formula_injection_each_trigger_is_neutralised(trigger):
+    # Every documented formula-trigger prefix is guarded across the free-text
+    # columns (here exercised via the title cell).
+    out = export_csv(_export(_case(title=f"{trigger}cmd")))
+    row = list(csv.reader(io.StringIO(out)))[1]
+    assert row[1].startswith("'")
+    assert not row[1].startswith(trigger)
+
+
+def test_csv_safe_leading_character_is_left_verbatim():
+    # A value that does not begin with a trigger is written unchanged — the guard
+    # must not add a spurious apostrophe to ordinary content.
+    out = export_csv(_export(_case(title="Refund flow")))
+    row = list(csv.reader(io.StringIO(out)))[1]
+    assert row[1] == "Refund flow"
+
+
 # --- format gating -----------------------------------------------------------
 
 

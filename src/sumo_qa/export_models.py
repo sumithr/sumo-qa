@@ -102,10 +102,14 @@ class QaTestCase(BaseModel):
     @classmethod
     def _require_non_blank_id(cls, value: str) -> str:
         # A blank id can't anchor a stable row reference, so every projection
-        # (JSON key, markdown row, CSV row) would be unreferenceable.
-        if not value.strip():
+        # (JSON key, markdown row, CSV row) would be unreferenceable. Return the
+        # STRIPPED value so the id is canonical: surrounding whitespace must not
+        # make " TC1 " and "TC1" distinct keys, or the duplicate-id guard (which
+        # stops two cases collapsing onto one downstream key) would be bypassed.
+        stripped = value.strip()
+        if not stripped:
             raise ValueError("test case id must be non-blank")
-        return value
+        return stripped
 
     @field_validator("title", "expected_result")
     @classmethod

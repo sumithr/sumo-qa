@@ -106,6 +106,23 @@ def _join_ordered(items: list[str]) -> str:
     return "; ".join(f"{i}. {_escape_cell(item)}" for i, item in enumerate(items, start=1))
 
 
+#: Leading characters that trigger formula evaluation when a CSV cell is opened
+#: in a spreadsheet (Excel / Google Sheets). A value starting with one of these
+#: is treated as a live formula, so a crafted title like ``=HYPERLINK(...)`` would
+#: execute on open. Per OWASP CSV-injection guidance.
+_CSV_INJECTION_PREFIXES: Final[tuple[str, ...]] = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_csv_cell(value: str) -> str:
+    # Neutralise spreadsheet formula injection: if a cell value begins with a
+    # formula trigger, prefix a single apostrophe so the spreadsheet treats the
+    # whole value as literal text instead of evaluating it. The apostrophe is the
+    # OWASP-recommended guard and is not itself rendered as content by Excel/Sheets.
+    if value.startswith(_CSV_INJECTION_PREFIXES):
+        return "'" + value
+    return value
+
+
 def _case_to_dict(case: QaTestCase) -> dict:
     # Explicit, stable field order for the JSON projection — the same field set
     # the schema documents. (json.dumps(sort_keys=True) also sorts, so this dict's
@@ -175,6 +192,12 @@ def export_csv(export: QaTestCaseExport) -> str:
     Uses the stdlib ``csv`` writer with ``\\r\\n`` line terminator forced to
     ``\\n`` for deterministic, OS-independent output. The header row is always
     emitted (even for an empty export) so a consumer can read the columns.
+
+    Each free-text cell is passed through :func:`_sanitize_csv_cell`, which
+    neutralises spreadsheet formula injection (OWASP CSV-injection guidance): a
+    value beginning with ``=``, ``+``, ``-``, ``@``, a tab or a carriage return
+    is prefixed with a single apostrophe so a spreadsheet treats it as literal
+    text rather than evaluating it as a live formula.
     """
     if not export.is_flat():
         offending = [case.id for case in export.test_cases if not case.is_flat()]
@@ -186,14 +209,17 @@ def export_csv(export: QaTestCaseExport) -> str:
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(_CSV_COLUMNS)
     for case in export.test_cases:
+        # Every free-text cell is run through the formula-injection guard; the
+        # fixed-vocabulary columns (priority / evidence_status) can never start
+        # with a trigger character, so they are written verbatim.
         writer.writerow(
             [
-                case.id,
-                case.title,
-                case.preconditions[0] if case.preconditions else "",
-                case.steps[0] if case.steps else "",
-                case.expected_result,
-                case.linked_risk_id or "",
+                _sanitize_csv_cell(case.id),
+                _sanitize_csv_cell(case.title),
+                _sanitize_csv_cell(case.preconditions[0] if case.preconditions else ""),
+                _sanitize_csv_cell(case.steps[0] if case.steps else ""),
+                _sanitize_csv_cell(case.expected_result),
+                _sanitize_csv_cell(case.linked_risk_id or ""),
                 case.priority,
                 case.evidence_status,
             ]

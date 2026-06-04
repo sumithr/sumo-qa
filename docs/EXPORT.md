@@ -47,7 +47,7 @@ is rejected with a clear `schema_version_mismatch` message.
 |---|---|---|
 | `markdown` | A markdown table | **The default.** Human-facing; ordered preconditions/steps render as `1. … ; 2. …` inside their cell. |
 | `json` | A versioned, key-sorted document | **Deterministic** (`sort_keys=True`, no float content) so it is byte-for-byte stable and snapshot/diff-friendly. `linked_risk_id` is always present (`null` when absent) so the shape is uniform across cases. |
-| `csv` | Flat rows | **Optional, and only for a *flat* outline** — at most one precondition and one step per case. A nested case would force an ordered list into a single CSV cell, which CSV cannot represent without losing structure, so a non-flat CSV request is **refused** with a message naming the offending case ids. Export as `json` or `markdown` to keep the ordered structure. |
+| `csv` | Flat rows | **Optional, and only for a *flat* outline** — at most one precondition and one step per case. A nested case would force an ordered list into a single CSV cell, which CSV cannot represent without losing structure, so a non-flat CSV request is **refused** with a message naming the offending case ids. Export as `json` or `markdown` to keep the ordered structure. Free-text cells are **hardened against spreadsheet formula injection** (OWASP guidance): a value starting with `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with a single apostrophe so it is treated as literal text, not evaluated as a live formula. |
 
 There is **no dependency on any single external test-management vendor**, and
 **no new mandatory install dependency**: `json` and `csv` are Python standard

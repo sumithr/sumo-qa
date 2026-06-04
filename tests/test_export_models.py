@@ -132,6 +132,24 @@ def test_distinct_ids_are_accepted():
     assert len(export.test_cases) == 2
 
 
+def test_id_is_stripped_to_canonical_form():
+    # Surrounding whitespace must not survive: the stored id is the canonical,
+    # stripped value so it feeds the dedup check and every projection's row key
+    # consistently.
+    assert _case(id="  TC1  ").id == "TC1"
+
+
+def test_whitespace_variant_ids_collide_under_the_duplicate_guard():
+    # Because the id is normalised to its stripped form, " TC1 " and "TC1" are the
+    # same canonical key — the duplicate-id guard (which stops two cases collapsing
+    # onto one downstream key) must reject them as a duplicate.
+    with pytest.raises(ValidationError, match="duplicate test case id"):
+        QaTestCaseExport(
+            schema_version=EXPORT_SCHEMA_VERSION,
+            test_cases=[_case(id=" TC1 "), _case(id="TC1")],
+        )
+
+
 def test_case_is_flat_with_at_most_one_step_and_precondition():
     assert _case().is_flat() is True
     assert _case(preconditions=[], steps=[]).is_flat() is True
