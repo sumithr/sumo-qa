@@ -130,11 +130,11 @@ A typical end-to-end flow (e.g. `sumo-qa-creating-test-plan`):
 | Layer | Typical token cost |
 |---|---|
 | Skill body (loaded once via MCP prompt or symlink) | ~1500 tokens |
-| Catalogue loads (`load_classifications`, `load_approaches`, `load_techniques`) | ~2300 tokens total |
-| Total MCP-call surface | ~2300 tokens |
+| Catalogue loads (`load_classifications`, `load_approaches`, `load_techniques`) | ~2400 tokens total |
+| Total MCP-call surface | ~2400 tokens |
 | Old heavy-path single call | ~3000+ tokens of structured JSON (the IntelliJ SSE failure mode) |
 
-The new path is enforced by `tests/test_token_weight_regression.py` and `tests/test_phase3_e2e_skill_path.py`. No single MCP call returns more than ~700 tokens; no full flow exceeds 2600 tokens.
+The new path is enforced by `tests/test_token_weight_regression.py` and `tests/test_phase3_e2e_skill_path.py`. No single per-catalogue MCP call returns more than the ~1500-token per-call budget; the heaviest full flow (create-test-plan, five catalogue loads) stays within its per-flow budget.
 
 ## How a typical request flows
 

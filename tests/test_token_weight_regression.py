@@ -57,11 +57,15 @@ PER_CALL_BUDGET = 1500
 # external-output matchers` experience-based technique (capture an external
 # CLI/API's real output as the fixture before writing the matcher — an invented
 # fixture is green-but-meaningless), raising techniques to ~1196 approx-tokens
-# (still well under PER_CALL_BUDGET) and the flow baseline to ~3113. Budget gives
-# a small regression cushion above the current catalogue. For comparison the old
-# heavy single-shot path emitted >10k tokens for one call, which is what broke
-# IntelliJ AI Assistant in the first place.
-PER_FLOW_BUDGET = 3170
+# (still well under PER_CALL_BUDGET) and the flow baseline to ~3113. #184 then
+# added the `build artifact contents verification` technique (a packaging-contract
+# check on a wheel/sdist/package, container image, or bundle — assert the BUILT
+# artifact's required/forbidden members, not the source tree), raising techniques
+# to ~1301 approx-tokens (still well under PER_CALL_BUDGET) and the flow baseline
+# to ~3218. Budget gives a small regression cushion above the current catalogue.
+# For comparison the old heavy single-shot path emitted >10k tokens for one call,
+# which is what broke IntelliJ AI Assistant in the first place.
+PER_FLOW_BUDGET = 3250
 
 
 def test_thin_catalogues_stay_under_per_call_budget():

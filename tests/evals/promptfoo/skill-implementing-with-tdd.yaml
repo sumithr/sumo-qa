@@ -422,3 +422,73 @@ tests:
         anchored on the 31st blow up in February; `nextChargeDate` should clamp
         to the last valid day of shorter months. Kotlin file is
         `src/main/kotlin/com/acme/billing/BillingCycle.kt`.
+  - description: >-
+      retrospective regression — bug ALREADY fixed; must manufacture red against
+      the pre-fix version, then return to the current tree before green
+    vars:
+      ground_truth_context: |
+        ## pyproject.toml
+        ```toml
+        [tool.pytest.ini_options]
+        pythonpath = ["."]
+        testpaths = ["tests"]
+        ```
+
+        ## accounts/withdrawal.py (production — ALREADY FIXED in commit a1b2c3d)
+        ```python
+        WITHDRAWAL_LIMIT = 500.0
+
+        def withdraw(account, amount):
+            # FIXED in a1b2c3d: previously used `>=` so a withdrawal EXACTLY at
+            # the limit was wrongly rejected (off-by-one at the boundary). Now
+            # uses `>` so a withdrawal of exactly WITHDRAWAL_LIMIT is ALLOWED and
+            # only amounts strictly above it are rejected.
+            if amount > WITHDRAWAL_LIMIT:
+                raise WithdrawalLimitExceeded(account.id, amount, WITHDRAWAL_LIMIT)
+            account.balance -= amount
+            return account.balance
+        ```
+
+        ## The PRE-FIX version of accounts/withdrawal.py (commit a1b2c3d^ — the buggy code the fix replaced)
+        ```python
+        WITHDRAWAL_LIMIT = 500.0
+
+        def withdraw(account, amount):
+            if amount >= WITHDRAWAL_LIMIT:   # BUG: `>=` rejects a withdrawal AT the limit
+                raise WithdrawalLimitExceeded(account.id, amount, WITHDRAWAL_LIMIT)
+            account.balance -= amount
+            return account.balance
+        ```
+
+        ## tests/accounts/test_withdrawal.py (existing tests)
+        ```python
+        import pytest
+        from accounts.withdrawal import withdraw, WithdrawalLimitExceeded, WITHDRAWAL_LIMIT
+        from tests.fixtures.account import make_account
+
+        # `withdraw` returns the REMAINING balance after a successful withdrawal.
+        def test_withdraw_below_limit():
+            account = make_account(balance=1000)
+            assert withdraw(account, 100) == 900
+
+        def test_withdraw_above_limit_rejected():
+            account = make_account(balance=1000)
+            with pytest.raises(WithdrawalLimitExceeded):
+                withdraw(account, 600)
+
+        # No test covers a withdrawal of EXACTLY WITHDRAWAL_LIMIT — the boundary
+        # the off-by-one fix in a1b2c3d closed. There is no regression test
+        # guarding the at-the-limit case.
+        ```
+      user_prompt: >-
+        We already fixed an off-by-one at the withdrawal limit in
+        `accounts/withdrawal.py` (commit a1b2c3d) — a withdrawal of EXACTLY
+        `WITHDRAWAL_LIMIT` (500.0) used to be wrongly REJECTED (`>=` raised
+        `WithdrawalLimitExceeded`) and now SUCCEEDS and returns the remaining
+        balance (`>`). But there's no regression test guarding the at-the-limit
+        boundary. Add the retrospective regression test: on an account with
+        balance 1000, a withdrawal of exactly 500.0 must now SUCCEED and return
+        500.0 (1000 − 500.0). Assert the successful return value (NOT
+        `pytest.raises`) — that is exactly what diverges, because the broken
+        `>=` version raised instead of returning. The pre-fix version is in the
+        context.

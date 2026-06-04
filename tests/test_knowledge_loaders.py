@@ -79,6 +79,7 @@ def test_load_techniques_contains_canonical_techniques():
         "exploratory testing",
         "property-based testing",
         "mutation testing",
+        "build artifact contents verification",
     ]:
         assert entry in text, f"Missing canonical technique: {entry}"
 
