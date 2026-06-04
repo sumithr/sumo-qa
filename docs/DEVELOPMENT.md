@@ -216,6 +216,16 @@ reciprocally if the `--ignore` list grows a stale or unjustified entry (which
 would quietly shrink mutation coverage). The guard is a static AST check, so it
 runs on every platform without invoking mutmut.
 
+The guard's classifier recognises the hazard whether the `-c` body is an inline
+literal or built in a separate variable (`code = textwrap.dedent("...import
+sumo_qa.knowledge_loaders..."); subprocess.run([sys.executable, "-c", code])`),
+and whether `-m` targets the full package or any `sumo_qa.<sub>` submodule that
+transitively imports a mutated module (e.g. `sumo_qa.server`, `sumo_qa.ingest`).
+The provably non-mutating CLI entry points `sumo_qa.installer` / `sumo_qa.doctor`
+are exempt, so `-m sumo_qa.installer --help` style spawns stay unflagged. Its
+classifications are pinned by real fixture meta-tests in
+`tests/fixtures/mutmut_guard/`.
+
 ## Branch workflow
 
 Feature work goes on a feature branch off `main`. Don't push without explicit
