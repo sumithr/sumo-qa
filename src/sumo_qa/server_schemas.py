@@ -663,3 +663,29 @@ class FormatContextBundleOutput(_StrictBase):
         default=None,
         description="Bundle-vs-local-state conflict message when head shas differ, else None.",
     )
+
+
+class ExportTestCasesOutput(_StrictBase):
+    """Compact result of ``sumo_qa_export_test_cases`` (issue #148).
+
+    Pure deterministic export — the host supplies already-structured QA test
+    cases, this tool validates them and renders them into one documented,
+    machine-readable shape (``json`` / ``markdown`` / ``csv``). It performs NO
+    inference and is side-effect free: it returns the rendered text, it never
+    writes a file. ``markdown`` is the default human-facing shape; ``csv`` is
+    only valid for a flat outline. An unsupported format request returns an error
+    envelope listing the supported formats; CSV for a non-flat export likewise.
+    """
+
+    tool: Literal["sumo_qa_export_test_cases"] = Field(
+        default="sumo_qa_export_test_cases",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    format: Literal["json", "markdown", "csv"] = Field(
+        description="The format the export was rendered in."
+    )
+    schema_version: str = Field(description="The export schema version stamped on the artifact.")
+    test_case_count: int = Field(description="Number of test cases in the validated export.")
+    content: str = Field(
+        description="The rendered export text (JSON document, markdown table, or CSV)."
+    )

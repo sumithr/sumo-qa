@@ -94,6 +94,12 @@ _STANDALONE_UTILITY_TOOLS = {
     "sumo_qa_list_skill_manifests",
     "sumo_qa_load_skill_context",
     "sumo_qa_load_catalogue_entry",
+    # QA-artifact export (#148) is opt-in and deliberately NOT wired into any
+    # default skill flow — markdown prose stays the human-facing output unless
+    # the user explicitly asks to export, and the token-budget guard
+    # (test_export_token_budget.py) pins that no SKILL.md references it. So it is
+    # a standalone utility, not cross-referenced from a skill body.
+    "sumo_qa_export_test_cases",
 }
 # #156 wired the repo-map tools into the skill chain: `sumo_qa_analyze_diff_impact`
 # and `sumo_qa_query_repo_map` are referenced from `sumo-qa-reviewing-before-merge`,

@@ -9,6 +9,7 @@
     "sumo_qa_execute_external_skill",
     "sumo_qa_executing_qa_rollout",
     "sumo_qa_explain_test_data_requirements",
+    "sumo_qa_export_test_cases",
     "sumo_qa_find_test_data",
     "sumo_qa_finding_test_data",
     "sumo_qa_finishing_qa_work",
@@ -186,6 +187,28 @@
         },
         "required": [
           "question"
+        ],
+        "type": "object"
+      },
+      "outputSchema": null
+    },
+    "sumo_qa_export_test_cases": {
+      "inputSchema": {
+        "properties": {
+          "format": {
+            "default": "markdown",
+            "type": "string"
+          },
+          "test_cases": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "test_cases"
         ],
         "type": "object"
       },

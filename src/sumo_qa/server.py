@@ -54,6 +54,7 @@ from sumo_qa.server_schemas import (
     DiffImpactOutput,
     ErrorEnvelope,
     ExecuteExternalSkillOutput,
+    ExportTestCasesOutput,
     FormatContextBundleOutput,
     FormatRiskLedgerOutput,
     InstallExternalSkillOutput,
@@ -119,6 +120,15 @@ _HINT_FORMAT_CONTEXT_BUNDLE = (
     "source is one of manual/local_git/github/ci_provider/other. Everything but "
     "schema is optional — a partial bundle is fine. Supply local_head_sha to "
     "detect a bundle-vs-local-state conflict. No network call; gather facts yourself."
+)
+_HINT_EXPORT_TEST_CASES = (
+    "Pass test_cases=[{id, title, preconditions, steps, expected_result, "
+    "priority, evidence_status, optional linked_risk_id}, ...] and "
+    "format='json'|'markdown'|'csv'. priority is one of critical/high/medium/low; "
+    "evidence_status is one of planned/passing/failing/stale/accepted_residual. "
+    "csv is only for flat outlines (<=1 precondition and <=1 step per case). "
+    "Identify the cases yourself — this tool only validates and renders them, it "
+    "never infers a case. Side-effect free: it returns text, it never writes a file."
 )
 
 
@@ -1174,6 +1184,63 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_format_context_bundle",
             args={"bundle": bundle, "local_head_sha": local_head_sha, "max_files": max_files},
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_read_only_local)
+    def sumo_qa_export_test_cases(
+        test_cases: list[dict[str, Any]],
+        format: str = "markdown",
+        title: str | None = None,
+    ) -> ExportTestCasesOutput | ErrorEnvelope:
+        """Deterministically EXPORT already-structured QA test cases into one
+        documented machine-readable shape (issue #148). FILE/FORMAT PLUMBING ONLY
+        — the host LLM identifies the cases; this tool never infers them, never
+        inspects a repo, and is side-effect free (it RETURNS the rendered text, it
+        never writes a file).
+
+        Each case is a dict with: ``id`` (stable within this export), ``title``,
+        ``preconditions`` (ordered list, may be empty), ``steps`` (ordered list,
+        may be empty), ``expected_result``, optional ``linked_risk_id`` (a risk id
+        in a companion risk ledger), ``priority`` (one of critical / high / medium
+        / low), and ``evidence_status`` (one of planned / passing / failing /
+        stale / accepted_residual — the same vocabulary as the risk ledger).
+
+        ``format`` is one of: ``markdown`` (the DEFAULT human-facing table),
+        ``json`` (a versioned, key-sorted, deterministic document), or ``csv``
+        (OPTIONAL, and only valid for a *flat* outline — at most one precondition
+        and one step per case). An unsupported format, or CSV for a non-flat
+        export, returns an error envelope naming the supported formats. Tool-
+        specific import mappings may need local adjustment.
+
+        Returns the rendered ``content``, the chosen ``format``, the stamped
+        ``schema_version``, and the validated ``test_case_count``.
+        """
+        from sumo_qa.export_format import export_test_cases
+        from sumo_qa.export_models import EXPORT_SCHEMA_VERSION
+        from sumo_qa.export_validation import load_test_case_export
+
+        output: ExportTestCasesOutput | dict[str, Any]
+        try:
+            export = load_test_case_export(
+                {
+                    "schema_version": EXPORT_SCHEMA_VERSION,
+                    "title": title,
+                    "test_cases": test_cases,
+                }
+            )
+            content = export_test_cases(export, format)
+            output = ExportTestCasesOutput(
+                format=format,  # type: ignore[arg-type]
+                schema_version=export.schema_version,
+                test_case_count=len(export.test_cases),
+                content=content,
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_EXPORT_TEST_CASES)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_export_test_cases",
+            args={"test_cases": test_cases, "format": format, "title": title},
             output=output,  # type: ignore[arg-type]
         )
 
