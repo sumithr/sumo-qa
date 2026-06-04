@@ -138,7 +138,7 @@ prompts:
     in this one turn — no confirmation question. Keep the response concise and
     evidence-led.
 tests:
-  - description: SEED missing-verifier — eval-surface skill change with green review + codex + CI but the promptfoo eval was NEVER run
+  - description: SEED missing-verifier — eval-surface skill change with green review + codex + CI, no promptfoo run; risk gate CLOSED (no independently-uncovered risk)
     vars:
       user_prompt: >-
         Is this safe to merge? Per-file review came back clean, codex was clean,
@@ -149,10 +149,15 @@ tests:
         skills/sumo-qa-reviewing-before-merge/SKILL.md — adding a new
         external-contract risk class to the discovery sweep (a behaviour change
         to how the skill grades reviews). It also adds a new promptfoo eval,
-        tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml.
-        Risk gate: completed. The developer confirmed:
-        R1 — the new external-contract grading branch could over- or under-fire;
-        its behaviour is only observable when the eval that exercises it runs.
+        tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml,
+        with two seeds covering the fire and discharge directions of the new
+        branch.
+        Risk gate: completed and CLOSED. The developer walked the discovery sweep
+        and confirmed there is NO independently-uncovered named risk on this diff:
+        the new external-contract branch is fully described, the new eval ships
+        with seeds for both directions of the new branch, and there is no other
+        risk surface (no runtime source file, no schema change, no rollback path).
+        The only open question is whether the change was actually VERIFIED.
 
         ## git diff
         ```diff
@@ -166,24 +171,24 @@ tests:
         - Per-file sumo-qa review of the SKILL.md diff: SAFE.
         - Codex adversarial pass: clean.
         - CI: all required checks green (lint, pytest, token-budget).
-        - The promptfoo eval skill-reviewing-before-merge-external-contract.yaml
-          was NOT run. (CI does not run promptfoo — these evals are not in CI.)
-          No record of any promptfoo run with Node 24 + the OpenAI key for this
-          change.
+        (That is the complete record of verification performed for this change.)
       expected_shape: >-
-        Evidence-led verdict that recognises the changed surface (the SKILL.md
-        grading behaviour) has a REQUIRED verifier — the promptfoo eval
-        skill-reviewing-before-merge-external-contract.yaml — that was NEVER run
-        with Node 24 + the configured OpenAI key this turn, and that green
-        per-file review + green codex + green CI do NOT exercise the changed
-        grading behaviour. Classifies it UNVERIFIED (surface verifier) and
-        delivers NOT SAFE TO MERGE pending the promptfoo eval running correctly.
-        Names the eval and that CI does not run promptfoo. Ends without a
-        confirmation question.
+        Evidence-led verdict that, BECAUSE this is an eval-surface skill change,
+        identifies the promptfoo eval
+        skill-reviewing-before-merge-external-contract.yaml as the REQUIRED
+        verifier of the changed grading behaviour, and observes that the complete
+        verification record (green per-file review + green codex + green CI) shows
+        NO promptfoo run with Node 24 + the configured OpenAI key — the lint /
+        pytest / token-budget CI checks do not exercise the changed grading
+        behaviour. Classifies it UNVERIFIED (surface verifier) and delivers NOT
+        SAFE TO MERGE pending the promptfoo eval running correctly. Names the
+        unrun eval ITSELF (the ground-truth context does not pre-name it as
+        unrun). Ends without a confirmation question.
       anti_patterns:
         - Declares SAFE TO MERGE on the strength of green per-file review / codex / CI.
-        - Treats green CI as covering the changed grading behaviour even though CI does not run promptfoo.
-        - Never names the promptfoo eval as the required-but-unrun verifier.
+        - Treats the green CI checks (lint / pytest / token-budget) as covering the changed grading behaviour.
+        - Never identifies the promptfoo eval as the required verifier whose run is absent from the record.
+        - Reaches NOT SAFE only via a generic uncovered-risk claim rather than the surface-verifier-must-have-run precondition.
         - Proposes clearing the blocker by skipping the eval or loosening the rubric instead of running the eval.
         - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
   - description: SEED combined-tree — sibling PRs co-edit the same SKILL.md, each green in isolation, no combined-tree verifier run

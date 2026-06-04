@@ -158,8 +158,13 @@ and never cleared by weakening the verifier (only by running it correctly):
 | **An eval-driven skill change's A/B control is load-bearing** (#321) — A0 structurally cannot pass via pre-existing rules (a single A0-FAIL is variance, not isolation), and any input the rubric credits as "discriminating" must actually discriminate the seed defect. | UNPROVEN A/B control |
 
 Any of these is a SAFE-blocker → NOT SAFE TO MERGE, mirroring the uncovered-risk
-rule. Each is host-neutral with a graceful one-line fallback when the relevant
-surface / realistic path cannot be identified from the diff.
+rule. All four are host-neutral. Checks (i) surface verifier and (ii) feature
+flow carry a graceful one-line fallback for when the relevant verifier surface /
+realistic path cannot be identified from the diff; checks (iii) guard coverage
+and (iv) A/B control fire only conditionally — (iii) only when the change ADDS a
+regression guard, (iv) only when an eval-driven skill change ships an A/B control
+— so they simply do not apply (no fallback line needed) when those conditions are
+absent.
 
 ## When NOT to use it
 

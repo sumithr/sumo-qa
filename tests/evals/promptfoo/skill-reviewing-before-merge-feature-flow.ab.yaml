@@ -1,0 +1,224 @@
+disableVarExpansion: true
+description: >
+  Issue #331 — A0/A1 control proving the feature-flow check (ii) is LOAD-BEARING.
+  The SAME seed (a CSV-export CLI feature whose only fresh test asserts a
+  lower-level _row_to_csv() formatter unit — the end-to-end `qa export --format
+  csv` command and the written artifact were never driven; NO acceptance criteria
+  supplied; risk gate CLOSED) runs against the PRE-EDIT (origin/main) SKILL.md
+  body (A0) and the post-#332 body (A1). A0 lacks the step-9
+  "Verification-evidence discipline" check (ii): it has NO rule that a change
+  whose primary FEATURE FLOW was never driven end-to-end this turn (only a
+  lower-level unit ran) is UNVERIFIED (feature flow), a SAFE-blocker distinct from
+  an UNMET AC. With NO acceptance criteria to trigger the pre-existing #314 AC
+  rule, the formatter unit green, and no independently-uncovered risk, A0 returns
+  SAFE (or fails to label the unexercised CLI-to-artifact flow as a blocker) — a
+  SHAPE FAIL under the rubric. The feature flow is deliberately a CLI
+  export-artifact path, DIFFERENT from the retry-on-5xx / backoff-delay flow the
+  pre-edit body already exemplifies in its AC worked contrast, so the lift
+  isolates check (ii), not the pre-existing AC example. A1 (the new body) labels
+  the flow UNVERIFIED (feature flow) and delivers NOT SAFE. A0 body is
+  snapshotted at fixtures/reviewing-before-merge-PRE-332.SKILL.md (= origin/main
+  before the #332 commit); refresh it if the baseline moves.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content_old: file://fixtures/reviewing-before-merge-PRE-332.SKILL.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate labelled a
+      primary FEATURE FLOW that was never driven end-to-end this turn (only a
+      lower-level unit ran) as UNVERIFIED (feature flow) — a SAFE-blocker distinct
+      from an UNMET acceptance criterion — instead of returning SAFE on the green
+      lower-level unit, AND avoided the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - the change is a CSV-export CLI feature (a `qa export --format
+         csv` subcommand that writes a report file); NO acceptance criteria were
+         supplied and the risk gate is CLOSED (no independently-uncovered named
+         risk). The load-bearing behaviour this control isolates is the
+         FEATURE-FLOW GATE: the candidate MUST check whether the change's primary
+         FEATURE FLOW (the realistic CLI-to-artifact path) was driven end-to-end
+         this turn, find it was NOT (only the lower-level _row_to_csv formatter
+         unit ran), label it UNVERIFIED (feature flow) — explicitly distinct from
+         an UNMET acceptance criterion (none were supplied) — and deliver NOT SAFE
+         TO MERGE. Because no AC was supplied, the pre-existing #314 AC rule does
+         not fire; because the risk gate is closed, there is no generic
+         uncovered-risk hook. SHAPE FAILS if it declares SAFE because the formatter
+         unit passed, never labels the unexercised feature flow as UNVERIFIED
+         (feature flow) / a SAFE-blocker, mislabels the gap as an UNMET acceptance
+         criterion when none were supplied, or reaches NOT SAFE only via a generic
+         uncovered-risk claim without the feature-flow check.
+
+      B. GROUNDING - it must name the specific realistic feature-flow path (the
+         `qa export --format csv` CLI command that writes the report file) and the
+         lower-level unit that ran instead (the _row_to_csv() formatter unit), and
+         conclude the feature flow was never driven end-to-end. A verdict that
+         never names the CLI-to-artifact path / the formatter unit, or never ties
+         UNVERIFIED to the unexercised flow -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - label: 'A0 - PRE-332 body (control, expected FAIL)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_old}}
+      --- END SKILL ---
+
+      Repository diff, prior review gates, and fresh verification evidence for
+      this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill. The developer has WAIVED the section-by-section
+      confirmation gates and asked for a single-pass verdict. Deliver the verdict
+      in this one turn — no confirmation question. Keep the response concise and
+      evidence-led.
+  - label: 'A1 - post-332 body (new, expected PASS)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_new}}
+      --- END SKILL ---
+
+      Repository diff, prior review gates, and fresh verification evidence for
+      this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill. The developer has WAIVED the section-by-section
+      confirmation gates and asked for a single-pass verdict. Deliver the verdict
+      in this one turn — no confirmation question. Keep the response concise and
+      evidence-led.
+tests:
+  - description: SEED unexercised — CSV-export CLI feature, only the _row_to_csv() formatter unit ran, no AC supplied, risk gate CLOSED
+    vars:
+      user_prompt: >-
+        Is this safe to merge? The new export command is in and the formatter
+        unit test passes.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff adds a new CLI subcommand
+        `qa export --format csv <out_path>` to app/cli/export.py: it gathers the
+        QA-run rows and WRITES a CSV report file at the given path. NO acceptance
+        criteria were supplied for this review.
+        Risk gate: completed and CLOSED. The developer confirmed there is exactly
+        ONE named risk and NO other outstanding concern — no rollback, no
+        persistence reordering, no schema change, no platform branch, no
+        external-output matcher:
+        R1 — the primary feature flow is a user running `qa export --format csv
+        report.csv` and getting a correctly-populated CSV file on disk (header
+        row + one line per QA run); that end-to-end CLI-to-artifact path is what
+        the change serves.
+
+        ## git diff
+        ```diff
+        diff --git a/app/cli/export.py b/app/cli/export.py
+        @@ +export_cmd(out_path, fmt): gather rows, write CSV report to out_path @@
+        +    rows = collect_run_rows()
+        +    with open(out_path, "w", newline="") as fh:
+        +        writer = csv.writer(fh)
+        +        writer.writerow(HEADER)
+        +        for row in rows:
+        +            writer.writerow(_row_to_csv(row))
+        diff --git a/app/cli/export.py b/app/cli/export.py
+        @@ +_row_to_csv(row): map a run row to a CSV field list @@
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/cli/test_export.py -q
+        tests/cli/test_export.py::test_row_to_csv_formats_fields PASSED
+        9 passed, 0 skipped in 0.31s
+        ```
+        The only fresh test for this change asserts the per-row formatter
+        (`_row_to_csv(sample_row) == ["...", "..."]`). NO fresh test invokes the
+        `qa export --format csv` command end-to-end or reads back the written CSV
+        file to assert its header + rows; the end-to-end CLI-to-artifact path was
+        never exercised this turn.
+      expected_shape: >-
+        Evidence-led verdict that checks the primary FEATURE FLOW — a user running
+        `qa export --format csv` and getting a correctly-populated CSV file on
+        disk — and finds it was NEVER driven end-to-end this turn: only the
+        lower-level per-row formatter unit (`_row_to_csv`) ran, with no fresh test
+        invoking the CLI command or reading back the written artifact. Labels the
+        flow UNVERIFIED (feature flow), explicitly DISTINCT from an unmet
+        acceptance criterion (none were supplied), and delivers NOT SAFE TO MERGE,
+        naming the unexercised `qa export` CLI-to-CSV path and the formatter unit
+        that ran instead. Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE TO MERGE because the _row_to_csv formatter unit test passes.
+        - Treats the lower-level formatter unit as covering the end-to-end CLI export-to-CSV-file feature flow.
+        - Never labels the unexercised feature flow as UNVERIFIED (feature flow) / a SAFE-blocker.
+        - Mislabels the gap as an UNMET acceptance criterion when none were supplied.
+        - Reaches NOT SAFE only via a generic uncovered-risk claim without invoking the feature-flow check.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
