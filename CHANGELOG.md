@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.1](https://github.com/sumithr/sumo-qa/compare/v0.34.0...v0.34.1) (2026-06-04)
+
+
+### Performance Improvements
+
+* **server:** slim always-on tools/list (drop outputSchema + schema titles) ([#335](https://github.com/sumithr/sumo-qa/issues/335)) ([d0427bc](https://github.com/sumithr/sumo-qa/commit/d0427bc9492db1137a648b9c14618d3b1b193795))
+
 ## [0.34.0](https://github.com/sumithr/sumo-qa/compare/v0.33.0...v0.34.0) (2026-06-03)
 
 
