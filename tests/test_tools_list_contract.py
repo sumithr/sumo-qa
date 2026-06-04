@@ -10,6 +10,14 @@ Schema drift (input/output schema fields changing) emits a warning today;
 this can tighten to a hard assertion in a follow-up once schemas settle.
 """
 
+# mutmut-subprocess-spawning: spawns a fresh Python interpreter that imports the
+# sumo_qa package (``-m sumo_qa``, transitively importing the mutated modules),
+# so it MUST be excluded from the mutmut gate via
+# [tool.mutmut].pytest_add_cli_args in pyproject.toml — otherwise it crashes the
+# trampoline (KeyError: 'MUTANT_UNDER_TEST') and silently disarms the gate. The
+# tests/test_mutmut_subprocess_exclusions.py guard enforces this marker↔ignore
+# pairing loudly at PR time. See docs/DEVELOPMENT.md § Mutation testing.
+
 from __future__ import annotations
 
 import json
