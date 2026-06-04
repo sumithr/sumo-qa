@@ -32,8 +32,15 @@ from sumo_qa.skill_prompts import _parse_frontmatter, _skills_dir
 # Heading line: 1-6 leading '#', a space, then the heading text. Matched only
 # on lines OUTSIDE fenced code blocks (see _iter_headings).
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
-# A fence opener/closer: ``` or ~~~ (3+), optionally indented, optional info string.
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+# CommonMark fenced code blocks (parity with knowledge_loaders._ENTRY_FENCE_RE):
+# an opening fence is a run of >=3 backticks or >=3 tildes, indented by AT MOST
+# 3 spaces (>=4 spaces is an indented code block, not a fence). Capture the whole
+# run so lengths can be compared — a closing fence must use the same char with
+# length >= the opener's, so an outer 4-backtick fence is NOT closed by an inner
+# 3-backtick run. Capture the remainder after the run too: a CLOSING fence may
+# carry only whitespace after it, whereas an OPENING fence may carry an info
+# string (e.g. ```python).
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n.*?\n---\s*\n", re.DOTALL)
 # Sections whose heading text contains any of these terms (case-insensitively)
 # are flagged required=True. `frontmatter` is the synthetic frontmatter section.
@@ -86,16 +93,30 @@ def _iter_headings(body: str) -> list[tuple[int, int, str]]:
     that is NOT inside a fenced code block.
 
     Tracks ``` / ~~~ fences so a ``# comment`` inside a python/js example block
-    is never mistaken for a section heading."""
+    is never mistaken for a section heading. Fence handling is CommonMark-correct
+    and identical to ``knowledge_loaders._iter_entry_headings``: the open fence is
+    held as ``(char, length)``, an indented (>=4 spaces) run is not a fence, an
+    info string is allowed on the opener, and a close must be a same-char run of
+    length >= the opener's with only whitespace after it (so a 4-backtick fence
+    is not closed by an inner 3-backtick run, and ```bash is content not a
+    close)."""
     headings: list[tuple[int, int, str]] = []
-    fence: str | None = None
+    # Open fence as (char, length), or None when outside a code block. CommonMark
+    # closes a fence only on a same-char run at least as long as the opener.
+    fence: tuple[str, int] | None = None
     for idx, line in enumerate(body.splitlines()):
         fence_match = _FENCE_RE.match(line)
         if fence_match:
-            marker = fence_match.group(1)[0]  # ` or ~
+            run = fence_match.group(1)
+            remainder = fence_match.group(2)
+            marker, length = run[0], len(run)
             if fence is None:
-                fence = marker
-            elif marker == fence:
+                # Opening fence: an info string after the run is allowed.
+                fence = (marker, length)
+            elif marker == fence[0] and length >= fence[1] and not remainder.strip():
+                # Closing fence: CommonMark requires whitespace-only after the
+                # run. A trailing info string (e.g. ```bash) means this is
+                # content inside the block, not a valid close.
                 fence = None
             continue
         if fence is not None:

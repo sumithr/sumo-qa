@@ -93,6 +93,102 @@ def test_tilde_fences_also_suppress_headings():
     assert _ids(sections) == ["outer", "after"]
 
 
+# --------------------------------------------------------------------------
+# CommonMark fence-parsing parity with knowledge_loaders._iter_entry_headings
+# (#297). Technique: boundary value analysis — defects cluster at the fence
+# rule boundaries (run length, indent, close-line content). Each case is
+# derived from the CommonMark rule for that specific input, not recalled.
+# --------------------------------------------------------------------------
+
+
+def test_longer_backtick_fence_is_not_closed_by_a_shorter_inner_run():
+    # CommonMark: a closing fence must be a run of the SAME char with length
+    # >= the opener. A 4-backtick opener wraps a 3-backtick run as CONTENT, so
+    # the block stays open until the matching 4-backtick close. Any '#' line
+    # between the inner 3-backtick run and the 4-backtick close is INSIDE the
+    # block and must NOT be indexed. The buggy len-blind tracker closes on the
+    # inner ``` and indexes '## leaked' as a real section.
+    text = (
+        "## Outer\n\n"
+        "````\n"  # 4-backtick opener
+        "```\n"  # inner 3-backtick run — content, NOT a close
+        "## leaked\n"  # still inside the block
+        "````\n\n"  # 4-backtick close (length >= opener)
+        "## After\n"
+    )
+    sections = sm._index_sections(text)
+    assert _ids(sections) == ["outer", "after"]
+
+
+def test_info_string_on_closing_fence_does_not_close_the_block():
+    # CommonMark: a closing fence may carry ONLY whitespace after the run; a
+    # trailing info string (```bash) makes it content, not a valid close. So the
+    # block opened by ``` stays open across the ```bash line and the '## leaked'
+    # heading inside it, until the bare ``` close. The buggy tracker treats the
+    # ```bash line as a close and indexes '## leaked'.
+    text = (
+        "## Outer\n\n"
+        "```\n"  # opener
+        "```bash\n"  # info string after the run — content, NOT a close
+        "## leaked\n"  # still inside the block
+        "```\n\n"  # bare close
+        "## After\n"
+    )
+    sections = sm._index_sections(text)
+    assert _ids(sections) == ["outer", "after"]
+
+
+def test_info_string_on_opening_fence_is_allowed():
+    # An OPENING fence may carry an info string (language tag). The '#' lines
+    # inside the ```python block must be suppressed; the block closes on the
+    # bare ```.
+    text = (
+        "## Examples\n\n"
+        "```python\n"
+        "# not a heading\n"
+        "## also not a heading\n"
+        "```\n\n"
+        "## After\n"
+    )
+    sections = sm._index_sections(text)
+    assert _ids(sections) == ["examples", "after"]
+
+
+def test_indented_four_space_backtick_run_is_not_a_fence():
+    # CommonMark: a line indented >= 4 spaces is an indented code block, NOT a
+    # fence opener. So the 4-space-indented ``` does NOT open a fenced block,
+    # and the '## Real' heading that follows is a normal heading. The buggy
+    # tracker (\\s* allows any indent) opens a fence on the indented run and
+    # swallows '## Real'.
+    text = "## Outer\n\n    ```\n## Real\n"
+    sections = sm._index_sections(text)
+    assert _ids(sections) == ["outer", "real"]
+
+
+def test_unclosed_fence_at_eof_suppresses_trailing_headings():
+    # An opener with no matching close runs to EOF: every '#' line after it is
+    # inside the (unterminated) block and must NOT be indexed.
+    text = "## Outer\n\n```\n## inside unterminated block\nstill inside\n"
+    sections = sm._index_sections(text)
+    assert _ids(sections) == ["outer"]
+
+
+def test_tilde_fence_is_not_closed_by_a_backtick_run():
+    # CommonMark: a fence closes only on a run of the SAME char as the opener.
+    # A ~~~ block is not closed by a ``` line; the '## leaked' between them stays
+    # inside the block until the matching ~~~ close.
+    text = (
+        "## Outer\n\n"
+        "~~~\n"  # tilde opener
+        "```\n"  # backtick run — different char, NOT a close
+        "## leaked\n"  # still inside the tilde block
+        "~~~\n\n"  # tilde close
+        "## After\n"
+    )
+    sections = sm._index_sections(text)
+    assert _ids(sections) == ["outer", "after"]
+
+
 @pytest.mark.parametrize(
     "heading,expected",
     [
