@@ -26,8 +26,10 @@ defaultTest:
       manufacture the red against the OLD code per the SKILL's "Retrospective
       regression" special case: write the test against the current tree, restore
       the pre-fix file with a SCOPED, REVERSIBLE move (`git show <commit>:<path>
-      > <path>` or `git stash` — never `git reset --hard` / `git checkout
-      <branch>` / `git clean`), see the real red, then reverse the restore and
+      > <path>` or `git checkout <commit> -- <path>` — never `git reset --hard` /
+      `git checkout <branch>` / `git clean`, and NOT `git stash`, which only
+      reverts to the already-fixed HEAD instead of restoring the pre-fix file),
+      see the real red, then reverse the restore and
       RETURN TO THE CURRENT WORKTREE before final verification, ending on the
       current (fixed) tree. Ends with EXACTLY ONE of the SKILL's two pinned
       handoff phrasings — both are valid per
@@ -91,7 +93,6 @@ defaultTest:
         // (a) scoped/reversible restore of the pre-fix code is present.
         const hasScopedRestore =
           /git\s+show\s+\S+:\S+\s*>\s*\S+/.test(o) ||   // git show <commit>:<path> > <path>
-          /git\s+stash\b/.test(o) ||                     // git stash
           /git\s+checkout\s+\S+\s+--\s+\S+/.test(o);      // git checkout <commit> -- <path>
         // Strip every `git checkout ... -- <path>` (scoped pathspec form) so a
         // bare `git checkout <branch>` can be detected without false positives.
@@ -102,16 +103,15 @@ defaultTest:
           /git\s+checkout\s+(?!--\s|HEAD\s+--)[^\n]*/.test(stripped); // branch checkout w/o pathspec
         // (b) explicit return-to-current-tree reverse before final verification.
         const hasReturnReverse =
-          /git\s+stash\s+pop/.test(o) ||
           /git\s+checkout\s+--\s+\S+/.test(o) ||          // git checkout -- <path>
           /git\s+checkout\s+HEAD\s+--\s+\S+/.test(o) ||   // git checkout HEAD -- <path>
           /git\s+restore\b/.test(o);                      // git restore ... <path>
         if (!hasScopedRestore)
-          return { pass: false, score: 0, reason: 'no scoped/reversible restore (git show/stash/checkout <commit> -- <path>)' };
+          return { pass: false, score: 0, reason: 'no scoped/reversible restore (git show <commit>:<path> > <path> / git checkout <commit> -- <path>)' };
         if (hasDestructive)
           return { pass: false, score: 0, reason: 'destructive restore present (git reset --hard / git checkout <branch> / git clean)' };
         if (!hasReturnReverse)
-          return { pass: false, score: 0, reason: 'no return-to-current-tree reverse before final verification (git checkout -- / git checkout HEAD -- / git stash pop / git restore)' };
+          return { pass: false, score: 0, reason: 'no return-to-current-tree reverse before final verification (git checkout -- / git checkout HEAD -- / git restore)' };
         return { pass: true, score: 1, reason: 'scoped restore + return-to-current-tree reverse present, no destructive command' };
     - type: llm-rubric
       value: >
@@ -120,13 +120,14 @@ defaultTest:
         mechanic. PASS only if BOTH hold:
 
         (a) the response restores the pre-fix code with a SCOPED, REVERSIBLE
-        move (e.g. `git show <commit>:<path> > <path>` or `git stash`) and does
-        NOT use a destructive command (`git reset --hard`, `git checkout
+        move (e.g. `git show <commit>:<path> > <path>` or `git checkout <commit>
+        -- <path>`; NOT `git stash`, which reverts to the already-fixed HEAD) and
+        does NOT use a destructive command (`git reset --hard`, `git checkout
         <branch>`, `git clean`); AND
 
         (b) the response EXPLICITLY reverses the restore and returns to the
         CURRENT worktree before the final green verification (e.g. `git checkout
-        -- <path>`, `git checkout HEAD -- <path>`, `git stash pop`, or `git
+        -- <path>`, `git checkout HEAD -- <path>`, or `git
         restore ... <path>`), and the reverse is correctly paired with the
         chosen restore (if it restored with `git checkout <commit> -- <path>`,
         the reverse must target HEAD — a bare `git checkout -- <path>` reverse
