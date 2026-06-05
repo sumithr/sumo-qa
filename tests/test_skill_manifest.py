@@ -142,14 +142,7 @@ def test_info_string_on_opening_fence_is_allowed():
     # An OPENING fence may carry an info string (language tag). The '#' lines
     # inside the ```python block must be suppressed; the block closes on the
     # bare ```.
-    text = (
-        "## Examples\n\n"
-        "```python\n"
-        "# not a heading\n"
-        "## also not a heading\n"
-        "```\n\n"
-        "## After\n"
-    )
+    text = "## Examples\n\n```python\n# not a heading\n## also not a heading\n```\n\n## After\n"
     sections = sm._index_sections(text)
     assert _ids(sections) == ["examples", "after"]
 
