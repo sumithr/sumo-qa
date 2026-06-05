@@ -50,6 +50,7 @@ platform (mutmut's fork-based runner segfaults on macOS) and at PR time.
 from __future__ import annotations
 
 import ast
+import shlex
 import sys
 from pathlib import Path
 
@@ -128,7 +129,17 @@ def _spawns_subprocess_importing_mutated_code(path: Path) -> bool:
         # The first positional arg is the command arg-list (or a string).
         if not node.args:
             continue
-        cmd = _string_literals_in(node.args[0])
+        first = node.args[0]
+        cmd = _string_literals_in(first)
+        # A shell=True single-string command (`subprocess.run("python -m sumo_qa",
+        # shell=True)`) arrives as ONE string, so the interpreter/import checks
+        # below — which key on individual tokens ("-m", "python", a bare
+        # "sumo_qa") — would miss it. Tokenise a single-string command so a
+        # shell-string spawn is classified like the equivalent argv list (#195
+        # follow-up: the shell-string blind spot). The original string is kept too,
+        # so the substring import checks (`sumo_qa.<m>` / `import <m>`) still apply.
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            cmd = cmd + _shell_tokens(first.value)
         # The spawn must actually launch a Python interpreter.
         if not _is_python_interpreter_spawn(cmd):
             continue
@@ -211,6 +222,18 @@ def _is_sumo_qa_submodule_token(s: str) -> bool:
     # An inline `-c` body or a bare-string sentence containing "sumo_qa." has
     # spaces/newlines and is handled by the substring checks above, not here.
     return all(c not in s for c in " \t\n\r/")
+
+
+def _shell_tokens(command: str) -> list[str]:
+    """Best-effort shell tokenisation of a single-string command (the shell=True
+    form): ``"python -m sumo_qa"`` -> ``["python", "-m", "sumo_qa"]`` so the
+    token-keyed interpreter/import checks see it like an argv list. Returns []
+    when the string isn't cleanly tokenisable (e.g. an unbalanced-quote -c body),
+    in which case the substring import checks on the original string still apply."""
+    try:
+        return shlex.split(command)
+    except ValueError:  # pragma: no cover -- defensive: malformed shell quoting
+        return []
 
 
 def _string_literals_in(node: ast.AST) -> list[str]:
@@ -331,12 +354,16 @@ _GUARD_FIXTURE_CASES = [
     # HAZARDS — must be flagged. These are the issue #195 false-negatives.
     ("fixture_hazard_dash_c_dedent_var.py", True),
     ("fixture_hazard_dash_m_server.py", True),
+    # shell=True single-string command: `subprocess.run("python -m sumo_qa", shell=True)`.
+    ("fixture_hazard_shell_string.py", True),
     # NON-HAZARDS — must stay unflagged.
     ("fixture_safe_dash_m_installer.py", False),
     ("fixture_safe_mocked_run.py", False),
     ("fixture_safe_git_spawn.py", False),
     ("fixture_safe_script_path.py", False),
     ("fixture_safe_bare_string_mention.py", False),
+    # shell-string spawn of an exempt entry point — tokenised but allow-listed.
+    ("fixture_safe_shell_string_installer.py", False),
 ]
 
 

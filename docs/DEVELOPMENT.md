@@ -221,9 +221,13 @@ literal or built in a separate variable (`code = textwrap.dedent("...import
 sumo_qa.knowledge_loaders..."); subprocess.run([sys.executable, "-c", code])`),
 and whether `-m` targets the full package or any `sumo_qa.<sub>` submodule that
 transitively imports a mutated module (e.g. `sumo_qa.server`, `sumo_qa.ingest`).
-The provably non-mutating CLI entry points `sumo_qa.installer` / `sumo_qa.doctor`
-are exempt, so `-m sumo_qa.installer --help` style spawns stay unflagged. Its
-classifications are pinned by real fixture meta-tests in
+It also handles the `shell=True` single-string form
+(`subprocess.run("python -m sumo_qa", shell=True)`): a one-string command is
+shlex-tokenised so it is classified like the equivalent argv list, rather than
+slipping past as one un-split token. The provably non-mutating CLI entry points
+`sumo_qa.installer` / `sumo_qa.doctor` are exempt (across both the argv and
+shell-string forms), so `-m sumo_qa.installer --help` style spawns stay
+unflagged. Its classifications are pinned by real fixture meta-tests in
 `tests/fixtures/mutmut_guard/`.
 
 ## Branch workflow
