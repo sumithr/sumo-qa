@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.35.0](https://github.com/sumithr/sumo-qa/compare/v0.34.1...v0.35.0) (2026-06-05)
+
+
+### Features
+
+* **export:** deterministic QA test-case export tool ([#148](https://github.com/sumithr/sumo-qa/issues/148)) ([#342](https://github.com/sumithr/sumo-qa/issues/342)) ([15b104a](https://github.com/sumithr/sumo-qa/commit/15b104a7c6febdf1f92b2f5d1e2a4926251d6d72))
+
+
+### Bug Fixes
+
+* **skill-manifest:** CommonMark-correct heading-fence parsing ([#297](https://github.com/sumithr/sumo-qa/issues/297)) ([#341](https://github.com/sumithr/sumo-qa/issues/341)) ([41875b3](https://github.com/sumithr/sumo-qa/commit/41875b359774ed0ab4bfe50a59b61d745d2e8752))
+
+
+### Miscellaneous Chores
+
+* **mutmut:** loud guard for subprocess-spawning test exclusions ([#195](https://github.com/sumithr/sumo-qa/issues/195)) ([#343](https://github.com/sumithr/sumo-qa/issues/343)) ([fd53a0d](https://github.com/sumithr/sumo-qa/commit/fd53a0d457ea60fe7df8fbb32e4926ab125ab256))
+
 ## [0.34.1](https://github.com/sumithr/sumo-qa/compare/v0.34.0...v0.34.1) (2026-06-04)
 
 
