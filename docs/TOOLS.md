@@ -125,7 +125,7 @@ A deterministic exporter for already-structured QA test cases — markdown prose
 
 | Tool | What it returns |
 |---|---|
-| `sumo_qa_export_test_cases(test_cases, format="markdown", title=None)` | Validates host-supplied test cases (`id`, `title`, `preconditions`, `steps`, `expected_result`, optional `linked_risk_id`, `priority`, `evidence_status`) and renders them deterministically as `markdown` (the default table), versioned key-sorted `json`, or `csv` (only for a flat outline — one precondition + one step per case), returning the rendered `content`, the chosen `format`, the stamped `schema_version`, and the `test_case_count` (`ExportTestCasesOutput`). Read-only and side-effect free; an unsupported format, or CSV for a non-flat export, returns an error envelope naming the supported formats. |
+| `sumo_qa_export_test_cases(test_cases, format="markdown", export_title=None)` | Validates host-supplied test cases (`id`, `title`, `preconditions`, `steps`, `expected_result`, optional `linked_risk_id`, `priority`, `evidence_status`; optional export-level `export_title`) and renders them deterministically as `markdown` (the default table), versioned key-sorted `json`, or `csv` (only for a flat outline — one precondition + one step per case), returning the rendered `content`, the chosen `format`, the stamped `schema_version`, and the `test_case_count` (`ExportTestCasesOutput`). Read-only and side-effect free; an unsupported format, or CSV for a non-flat export, returns an error envelope naming the supported formats. |
 
 ## Test-data tools
 

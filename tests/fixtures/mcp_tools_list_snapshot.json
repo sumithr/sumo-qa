@@ -195,6 +195,17 @@
     "sumo_qa_export_test_cases": {
       "inputSchema": {
         "properties": {
+          "export_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "format": {
             "default": "markdown",
             "type": "string"

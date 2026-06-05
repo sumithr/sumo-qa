@@ -190,8 +190,21 @@ def export_csv(export: QaTestCaseExport) -> str:
     """Render a FLAT export as CSV. Refuses a non-flat export.
 
     Uses the stdlib ``csv`` writer with ``\\r\\n`` line terminator forced to
-    ``\\n`` for deterministic, OS-independent output. The header row is always
-    emitted (even for an empty export) so a consumer can read the columns.
+    ``\\n`` for deterministic, OS-independent output, and ``QUOTE_ALL`` so every
+    field is quoted. The header row is always emitted (even for an empty export)
+    so a consumer can read the columns.
+
+    ``QUOTE_ALL`` is required for cross-version correctness, not just tidiness: a
+    cell may carry an embedded carriage return — ``\\r`` is itself a formula-
+    injection trigger, so a title like ``"\\rcmd"`` is sanitised to ``"'\\rcmd"``
+    which still contains a bare CR. Under ``QUOTE_MINIMAL`` on Python <= 3.10 the
+    writer only quotes a field containing a char in the configured
+    ``lineterminator``; with ``lineterminator="\\n"`` a lone ``\\r`` is left
+    unquoted and emitted raw mid-row, producing a CSV that ``csv.reader`` cannot
+    re-read (``_csv.Error: new-line character seen in unquoted field``). Python
+    3.11+ always quotes embedded CR/LF, hence the failure was py3.10-only.
+    ``QUOTE_ALL`` quotes every field on every version, so embedded CR/LF always
+    round-trips. (Determinism is preserved: ``QUOTE_ALL`` is stable.)
 
     Each free-text cell is passed through :func:`_sanitize_csv_cell`, which
     neutralises spreadsheet formula injection (OWASP CSV-injection guidance): a
@@ -205,8 +218,11 @@ def export_csv(export: QaTestCaseExport) -> str:
 
     buffer = io.StringIO()
     # lineterminator="\n" so the output is identical on every platform (the
-    # default "\r\n" would make snapshots platform-dependent).
-    writer = csv.writer(buffer, lineterminator="\n")
+    # default "\r\n" would make snapshots platform-dependent). QUOTE_ALL so an
+    # embedded CR/LF (the "\r" formula-injection trigger included) is always
+    # quoted and re-readable on every Python version (py3.10 QUOTE_MINIMAL would
+    # leave a bare CR unquoted — see the docstring).
+    writer = csv.writer(buffer, lineterminator="\n", quoting=csv.QUOTE_ALL)
     writer.writerow(_CSV_COLUMNS)
     for case in export.test_cases:
         # Every free-text cell is run through the formula-injection guard; the

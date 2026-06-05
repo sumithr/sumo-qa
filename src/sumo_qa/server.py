@@ -1191,7 +1191,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     def sumo_qa_export_test_cases(
         test_cases: list[dict[str, Any]],
         format: str = "markdown",
-        title: str | None = None,
+        export_title: str | None = None,
     ) -> ExportTestCasesOutput | ErrorEnvelope:
         """Deterministically EXPORT already-structured QA test cases into one
         documented machine-readable shape (issue #148). FILE/FORMAT PLUMBING ONLY
@@ -1213,6 +1213,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         export, returns an error envelope naming the supported formats. Tool-
         specific import mappings may need local adjustment.
 
+        ``export_title`` (optional) names the export as a whole — rendered in the
+        markdown header and the JSON top-level ``title``. (It is named
+        ``export_title``, not ``title``, so it is distinct from each case's own
+        ``title`` and survives the served-schema title-slimming pass.)
+
         Returns the rendered ``content``, the chosen ``format``, the stamped
         ``schema_version``, and the validated ``test_case_count``.
         """
@@ -1225,7 +1230,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             export = load_test_case_export(
                 {
                     "schema_version": EXPORT_SCHEMA_VERSION,
-                    "title": title,
+                    "title": export_title,
                     "test_cases": test_cases,
                 }
             )
@@ -1240,7 +1245,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             output = _error_envelope(exc, _HINT_EXPORT_TEST_CASES)
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_export_test_cases",
-            args={"test_cases": test_cases, "format": format, "title": title},
+            args={"test_cases": test_cases, "format": format, "export_title": export_title},
             output=output,  # type: ignore[arg-type]
         )
 

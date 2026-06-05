@@ -144,13 +144,12 @@ def test_markdown_export_snapshot():
     assert export_markdown(_SNAPSHOT_EXPORT) == _EXPECTED_MARKDOWN
 
 
+# Every field is quoted (QUOTE_ALL) so an embedded CR/LF is always re-readable
+# across Python versions — see export_csv's docstring (the py3.10 CR fix).
 _EXPECTED_CSV = (
-    "id,title,precondition,step,expected_result,linked_risk_id,priority,evidence_status\n"
-    "TC1,Refund is idempotent across a retried request.,A charge exists with a "
-    "known idempotency key.,POST the refund twice with the same idempotency key.,"
-    "The charge is refunded exactly once; the second call is a no-op.,R1,critical,passing\n"
-    "TC2,Webhook retry does not double-fire.,,,Exactly one downstream event is "
-    "emitted per source event.,,medium,planned\n"
+    '"id","title","precondition","step","expected_result","linked_risk_id","priority","evidence_status"\n'
+    '"TC1","Refund is idempotent across a retried request.","A charge exists with a known idempotency key.","POST the refund twice with the same idempotency key.","The charge is refunded exactly once; the second call is a no-op.","R1","critical","passing"\n'
+    '"TC2","Webhook retry does not double-fire.","","","Exactly one downstream event is emitted per source event.","","medium","planned"\n'
 )
 
 
@@ -163,6 +162,19 @@ def test_csv_export_round_trips_through_stdlib_reader():
     assert rows[0][0] == "id"
     assert rows[1][0] == "TC1"
     assert rows[2][5] == ""  # TC2 has no linked_risk_id
+
+
+def test_csv_cell_with_embedded_crlf_round_trips_on_every_version():
+    # Regression for the py3.10 CI failure (#148): a cell carrying an embedded
+    # CR/LF must be QUOTED so csv.reader can re-read the row. Under QUOTE_MINIMAL
+    # with lineterminator="\n", py3.10 left a bare CR unquoted and csv.reader
+    # raised `_csv.Error: new-line character seen in unquoted field`. QUOTE_ALL
+    # quotes every field, so the embedded CR/LF round-trips verbatim and the row
+    # is not split — on py3.10 through py3.14 alike.
+    out = export_csv(_export(_case(expected_result="line one\r\nline two")))
+    rows = list(csv.reader(io.StringIO(out)))
+    assert len(rows) == 2  # header + exactly one data row (not split by the CR/LF)
+    assert rows[1][4] == "line one\r\nline two"
 
 
 # --- markdown defaults / empties ---------------------------------------------
@@ -264,13 +276,13 @@ def test_csv_refuses_a_nested_export_naming_offenders():
 def test_csv_allows_a_flat_export():
     flat = _export(_case(id="TC1"), _case(id="TC2"))
     out = export_test_cases(flat, "csv")
-    assert out.startswith("id,title,")
+    assert out.startswith('"id","title",')
 
 
 def test_csv_empty_export_emits_header_only():
     out = export_csv(_export())
     assert out == (
-        "id,title,precondition,step,expected_result,linked_risk_id,priority,evidence_status\n"
+        '"id","title","precondition","step","expected_result","linked_risk_id","priority","evidence_status"\n'
     )
 
 

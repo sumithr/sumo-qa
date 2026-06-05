@@ -35,7 +35,10 @@ Each case carries these fields:
 | `evidence_status` | One of `planned`, `passing`, `failing`, `stale`, `accepted_residual` — the **same vocabulary as the risk ledger**, so a case and a ledger row mean the same thing by the same word. |
 
 The whole export carries a `schema_version` (`"1.0"` — **versioned from the
-start**) and an optional `title` for the export as a whole. A producer that
+start**) and an optional export-level title, supplied via the **`export_title`**
+tool argument (named `export_title`, not `title`, so it stays distinct from each
+case's `title` and survives the served-schema title-slimming pass) and rendered
+as the top-level `title` in the JSON and in the markdown header. A producer that
 forgets to stamp the version, or stamps a version this build doesn't recognise,
 is rejected with a clear `schema_version_mismatch` message.
 
@@ -92,8 +95,12 @@ A two-case export rendered as the default markdown table:
 
 The same export as `csv` (flat — one precondition and one step per case):
 
+Every field is quoted (`QUOTE_ALL`) so an embedded carriage return or newline is
+always re-readable across Python versions (a bare CR left unquoted broke
+`csv.reader` round-trips on py3.10):
+
 ```csv
-id,title,precondition,step,expected_result,linked_risk_id,priority,evidence_status
-TC1,Refund is idempotent across a retried request.,A charge exists with a known idempotency key.,POST the refund twice with the same idempotency key.,The charge is refunded exactly once; the second call is a no-op.,R1,critical,passing
-TC2,Webhook retry does not double-fire.,,,Exactly one downstream event is emitted per source event.,,medium,planned
+"id","title","precondition","step","expected_result","linked_risk_id","priority","evidence_status"
+"TC1","Refund is idempotent across a retried request.","A charge exists with a known idempotency key.","POST the refund twice with the same idempotency key.","The charge is refunded exactly once; the second call is a no-op.","R1","critical","passing"
+"TC2","Webhook retry does not double-fire.","","","Exactly one downstream event is emitted per source event.","","medium","planned"
 ```

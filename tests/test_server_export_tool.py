@@ -11,6 +11,7 @@ unsupported format, a non-flat CSV request, and an invalid case.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -47,6 +48,20 @@ def test_tool_is_registered(server):
     assert "sumo_qa_export_test_cases" in server._tool_manager._tools
 
 
+def test_export_title_param_survives_schema_title_slimming(server):
+    # Regression for #148: the export-level title arg must be named
+    # `export_title`, NOT `title`. The served-schema slimming pass drops every
+    # dict key named `title` (Pydantic field-name echoes), so a param literally
+    # named `title` would be stripped from the published inputSchema and a host
+    # model could never see or fill it. Assert the real served schema exposes
+    # `export_title` and carries no top-level `title` property (the bug shape).
+    tools = asyncio.run(server.list_tools())
+    export = next(t for t in tools if t.name == "sumo_qa_export_test_cases")
+    props = (export.inputSchema or {}).get("properties", {})
+    assert "export_title" in props, f"export_title missing from served schema: {sorted(props)}"
+    assert "title" not in props
+
+
 def test_tool_advertises_read_only_annotation(server):
     ann = server._tool_manager._tools["sumo_qa_export_test_cases"].annotations
     assert ann.readOnlyHint is True
@@ -71,7 +86,7 @@ def test_default_format_is_markdown(tool):
 
 
 def test_json_export_returns_parseable_versioned_document(tool):
-    out = tool(test_cases=[_case()], format="json", title="Billing")
+    out = tool(test_cases=[_case()], format="json", export_title="Billing")
     assert out.format == "json"
     parsed = json.loads(out.content)
     assert parsed["schema_version"] == "1.0"
@@ -82,7 +97,7 @@ def test_json_export_returns_parseable_versioned_document(tool):
 def test_csv_export_for_flat_outline(tool):
     out = tool(test_cases=[_case(preconditions=[], steps=[])], format="csv")
     assert out.format == "csv"
-    assert out.content.startswith("id,title,")
+    assert out.content.startswith('"id","title",')
 
 
 def test_unsupported_format_returns_error_envelope(tool):
