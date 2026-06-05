@@ -1,6 +1,6 @@
 # MCP Tools
 
-The sumo-qa MCP exposes a small, thin tool surface: skill tools, knowledge loaders, a capabilities-discovery tool, repo-map tools, a risk-to-test ledger formatter, test-data tools, an ingestion tool, and external-skill lifecycle tools. Each is file IO, small deterministic logic, or a Skills CLI subprocess — no inference, no host-LLM sampling. The host LLM reasons over what they return. For the live tool surface, see your host's MCP tool list; the skills live under [`skills/`](../skills/). (`sumo_qa_capabilities` is a compact map of the core QA workflows — discovery, not the full tool inventory.)
+The sumo-qa MCP exposes a small, thin tool surface: skill tools, knowledge loaders, a capabilities-discovery tool, repo-map tools, a risk-to-test ledger formatter, a context-bundle formatter, a QA-artifact export tool, test-data tools, an ingestion tool, and external-skill lifecycle tools. Each is file IO, small deterministic logic, or a Skills CLI subprocess — no inference, no host-LLM sampling. The host LLM reasons over what they return. For the live tool surface, see your host's MCP tool list; the skills live under [`skills/`](../skills/). (`sumo_qa_capabilities` is a compact map of the core QA workflows — discovery, not the full tool inventory.)
 
 ## Skill tools
 
@@ -118,6 +118,14 @@ A deterministic formatter/validator for the host-neutral issue/PR context bundle
 | Tool | What it returns |
 |---|---|
 | `sumo_qa_format_context_bundle(bundle, local_head_sha=None, max_files=40)` | Validates a host-supplied bundle (`issue_summary`, `pr_summary`, `head_sha`, `changed_files`, `test_evidence`/`ci_status` with `result`/`freshness`/`source`, `user_constraints` — all optional but `schema_version`) and renders a host-neutral markdown brief plus a one-line summary, the changed-file count, the stale and not-safety-supporting evidence fields, and a bundle-vs-local-state conflict message when `head_sha` differs from `local_head_sha` (`FormatContextBundleOutput`). Read-only; no inference, no network call. |
+
+## QA-artifact export
+
+A deterministic exporter for already-structured QA test cases — markdown prose stays the default human-facing output; export only happens on an explicit user request. The host LLM identifies the cases; this tool only validates the supplied cases and renders them into one documented, machine-readable shape. No inference, no vendor lock-in, no new mandatory dependency (`json`/`csv` are stdlib), and side-effect free (it returns text, it never writes a file). See [EXPORT.md](EXPORT.md) for the case schema, the format set, and the import-mapping caveat.
+
+| Tool | What it returns |
+|---|---|
+| `sumo_qa_export_test_cases(test_cases, format="markdown", export_title=None)` | Validates host-supplied test cases (`id`, `title`, `preconditions`, `steps`, `expected_result`, optional `linked_risk_id`, `priority`, `evidence_status`; optional export-level `export_title`) and renders them deterministically as `markdown` (the default table), versioned key-sorted `json`, or `csv` (only for a flat outline — one precondition + one step per case), returning the rendered `content`, the chosen `format`, the stamped `schema_version`, and the `test_case_count` (`ExportTestCasesOutput`). Read-only and side-effect free; an unsupported format, or CSV for a non-flat export, returns an error envelope naming the supported formats. |
 
 ## Test-data tools
 

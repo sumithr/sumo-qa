@@ -114,6 +114,8 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_format_risk_ledger",
     # Context-bundle formatter (#149)
     "sumo_qa_format_context_bundle",
+    # QA-artifact export (#148)
+    "sumo_qa_export_test_cases",
     # Ingestion
     "sumo_qa_ingest_knowledge_pack",
     # External skills

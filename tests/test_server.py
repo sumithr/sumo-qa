@@ -46,6 +46,10 @@ _CONTEXT_BUNDLE_TOOL_NAMES = {
     "sumo_qa_format_context_bundle",
 }
 
+_EXPORT_TOOL_NAMES = {
+    "sumo_qa_export_test_cases",
+}
+
 # Progressive skill loading (issue #285) — deterministic, read-only, local-only
 # manifest index + partial skill-context loader. The existing zero-argument
 # skill tools still return full bodies unchanged; these add a slice-loading path.
@@ -127,6 +131,7 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
         | _REPO_MAP_TOOL_NAMES
         | _LEDGER_TOOL_NAMES
         | _CONTEXT_BUNDLE_TOOL_NAMES
+        | _EXPORT_TOOL_NAMES
         | _INGESTION_TOOL_NAMES
         | _EXTERNAL_SKILL_TOOL_NAMES
         | _SKILL_LOADING_TOOL_NAMES
