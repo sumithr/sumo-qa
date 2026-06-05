@@ -17,6 +17,14 @@ mutmut gate via ``[tool.mutmut].pytest_add_cli_args`` in pyproject.toml, the
 same treatment the other subprocess E2E tests receive.
 """
 
+# mutmut-subprocess-spawning: spawns a ``pip wheel`` build subprocess against the
+# tree. Under mutmut the CWD is the incomplete mutants/ mirror, so the build
+# would target the wrong tree; it must be excluded from the mutmut gate via
+# [tool.mutmut].pytest_add_cli_args in pyproject.toml. Unlike the ``-m sumo_qa``
+# E2E tests this is a build-subprocess (not an import-mutated-code spawn), so the
+# tests/test_mutmut_subprocess_exclusions.py guard allow-lists it by name while
+# still requiring this marker. See docs/DEVELOPMENT.md § Mutation testing.
+
 from __future__ import annotations
 
 import subprocess

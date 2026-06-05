@@ -144,6 +144,7 @@ The full suite covers:
 - `test_tools.py` — service factory
 - `test_standards.py`, `test_rules.py` — file loading
 - `test_debug_capture.py` — `SUMO_QA_DEBUG_DIR` capture
+- `test_mutmut_subprocess_exclusions.py` — loud guard that every subprocess-spawning test which imports a mutated module is excluded from the mutation gate and marked (see [Mutation testing](#mutation-testing)). Runs in the ordinary suite, so it fails at the PR that introduces an unmarked/unignored test — not later against an unrelated change
 
 ## Type checking
 
@@ -166,6 +167,68 @@ runs the same command on every PR. The few dynamic surfaces (FastMCP decorator
 returns, a Pydantic opt-out attribute) carry narrow `# type: ignore[<code>]`
 comments with rationale; `warn_unused_ignores` is on, so a suppression that
 stops being needed fails the check until removed.
+
+## Mutation testing
+
+A nightly [`.github/workflows/mutation.yml`](../.github/workflows/mutation.yml) job
+mutates four parser/decision modules (`knowledge_loaders`, `rules`, `standards`,
+`tdm_validation` — see `[tool.mutmut]` in `pyproject.toml`) and enforces a strict
+100% kill rate. A pre-push hook re-runs it locally when a diff touches one of
+those modules or any test file. Always invoke it via the `mutmut run` console
+script, never `python -m mutmut` (the `-m` form re-runs `set_start_method('fork')`
+and crashes the trampoline). On macOS the fork-based runner can segfault — the
+faithful run is the Linux CI one; the local hook uses `--max-children 1` to reduce
+flakiness.
+
+### Subprocess-spawning tests (the marker convention)
+
+mutmut mutates a function by injecting a *trampoline* into it; when the function
+runs, the trampoline reads the `MUTANT_UNDER_TEST` env var that the mutmut runner
+sets. A test that spawns a **fresh Python interpreter** (`subprocess` running
+`sys.executable -m sumo_qa` / `-c "import sumo_qa.knowledge_loaders; ..."`) starts
+a process the runner did NOT launch, so that var is absent and the trampoline
+crashes the moment a mutated function is called:
+
+```
+KeyError: 'MUTANT_UNDER_TEST'
+```
+
+(Older mutmut releases surfaced this as `AttributeError: 'NoneType' object has no
+attribute 'max_stack_depth'` — same root cause.) The crash used to be *silent*:
+the pre-push hook only fires on a mutated-module/test-file diff, so a new
+subprocess-spawning test sat latent until some unrelated later change tripped the
+hook — at which point the failure looked like it belonged to that change.
+
+If you add a test that spawns a Python subprocess importing the `sumo_qa` package
+or a mutated module, do **both**:
+
+1. Add `# mutmut-subprocess-spawning: <one-line reason>` near the top of the test
+   file (the verbatim token `mutmut-subprocess-spawning` is what the guard scans
+   for).
+2. Add `"--ignore=tests/<your_test>.py"` to `[tool.mutmut].pytest_add_cli_args`
+   in `pyproject.toml`.
+
+You don't have to remember this from tribal knowledge:
+`tests/test_mutmut_subprocess_exclusions.py` runs in the **ordinary** pytest
+suite and fails **loudly and immediately** — at the PR that introduces the test —
+if a subprocess-spawning test is added without being marked AND ignored, and
+reciprocally if the `--ignore` list grows a stale or unjustified entry (which
+would quietly shrink mutation coverage). The guard is a static AST check, so it
+runs on every platform without invoking mutmut.
+
+The guard's classifier recognises the hazard whether the `-c` body is an inline
+literal or built in a separate variable (`code = textwrap.dedent("...import
+sumo_qa.knowledge_loaders..."); subprocess.run([sys.executable, "-c", code])`),
+and whether `-m` targets the full package or any `sumo_qa.<sub>` submodule that
+transitively imports a mutated module (e.g. `sumo_qa.server`, `sumo_qa.ingest`).
+It also handles the `shell=True` single-string form
+(`subprocess.run("python -m sumo_qa", shell=True)`): a one-string command is
+shlex-tokenised so it is classified like the equivalent argv list, rather than
+slipping past as one un-split token. The provably non-mutating CLI entry points
+`sumo_qa.installer` / `sumo_qa.doctor` are exempt (across both the argv and
+shell-string forms), so `-m sumo_qa.installer --help` style spawns stay
+unflagged. Its classifications are pinned by real fixture meta-tests in
+`tests/fixtures/mutmut_guard/`.
 
 ## Branch workflow
 

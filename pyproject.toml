@@ -166,26 +166,37 @@ paths_to_mutate = [
 ]
 # --no-cov: bypasses --cov-fail-under=100 addopts (fails every mutated run)
 # -x: stop at first failure for speed
-# --ignore: exclude E2E tests that spawn subprocesses; they can't run under
-#   mutmut's CWD because REPO_ROOT resolves to mutants/ and the subprocess
-#   PYTHONPATH then points at the incomplete mutants/src/ package.
+# --ignore: exclude tests that spawn a fresh Python interpreter importing a
+#   mutated module. Such a subprocess is NOT started by the mutmut runner, so the
+#   trampoline injected into the mutated function reads an absent MUTANT_UNDER_TEST
+#   env var and crashes (`KeyError: 'MUTANT_UNDER_TEST'`; older mutmut releases
+#   surfaced this as `AttributeError: 'NoneType' object has no attribute
+#   'max_stack_depth'`). The wheel-build test is excluded for a related reason —
+#   under mutmut the CWD is the incomplete mutants/ mirror, so its build
+#   subprocess would target the wrong tree.
+#
+#   DISCOVERABLE CONVENTION (do not add to this list by tribal knowledge):
+#   every entry below carries the `mutmut-subprocess-spawning` marker comment in
+#   the test file itself, and tests/test_mutmut_subprocess_exclusions.py is a
+#   LOUD guard that runs in the ordinary pytest suite — it fails immediately (at
+#   the PR that introduces the test, not a later unrelated one) if a
+#   subprocess-spawning test is added without being marked AND listed here, and
+#   reciprocally if a listed entry is stale. See docs/DEVELOPMENT.md § Mutation
+#   testing.
 # Note: mutmut 3.x does not support a `runner` key — use pytest_add_cli_args.
 pytest_add_cli_args = [
   "--no-cov",
   "-x",
+  # Spawn `python -m sumo_qa` (the full package → transitively imports the four
+  # mutated modules via the server). Marker: `mutmut-subprocess-spawning`.
   "--ignore=tests/test_e2e_mcp_initialize.py",
   "--ignore=tests/test_tools_list_contract.py",
-  # Builds a wheel via a subprocess; under mutmut the CWD is mutants/, so the
-  # build would target the incomplete mutated tree. Same exclusion rationale as
-  # the E2E tests above — it exercises packaging, not the four mutated modules.
+  # Builds a wheel via a `pip wheel` subprocess; under mutmut the CWD is mutants/,
+  # so the build would target the incomplete mutated tree. Marker:
+  # `mutmut-subprocess-spawning`.
   "--ignore=tests/test_wheel_packaging.py",
-  # Spawns a `python -c` subprocess that imports the mutated
-  # knowledge_loaders.py; the mutmut trampoline references mutmut.config
-  # which is None in a fresh interpreter (no parent harness state), and the
-  # subprocess crashes with `AttributeError: 'NoneType' object has no attribute
-  # 'max_stack_depth'`. Mutmut runs the loader inside the parent harness for
-  # all in-process tests; subprocess-spawning tests need to be excluded. Same
-  # exclusion rationale as the three above.
+  # Spawns `python -m sumo_qa.ingest` and a `python -c` subprocess that imports
+  # the mutated knowledge_loaders.py. Marker: `mutmut-subprocess-spawning`.
   "--ignore=tests/test_ingest_source_free.py",
 ]
 tests_dir = ["tests/"]

@@ -7,6 +7,15 @@ Everything runs in subprocesses from a tmp cwd so no ambient repo state leaks
 in, and the global scope is redirected to a tmp dir via ``XDG_DATA_HOME``.
 """
 
+# mutmut-subprocess-spawning: spawns fresh Python interpreters that import a
+# mutated module (``-m sumo_qa.ingest`` and ``-c "...import
+# sumo_qa.knowledge_loaders..."``), so it MUST be excluded from the mutmut gate
+# via [tool.mutmut].pytest_add_cli_args in pyproject.toml — otherwise it crashes
+# the trampoline (KeyError: 'MUTANT_UNDER_TEST') and silently disarms the gate.
+# The tests/test_mutmut_subprocess_exclusions.py guard enforces this
+# marker↔ignore pairing loudly at PR time. See docs/DEVELOPMENT.md § Mutation
+# testing.
+
 import os
 import subprocess
 import sys
