@@ -1,0 +1,318 @@
+description: >-
+  Skill-isolation eval for sumo-qa-implementing-with-tdd — the RETROSPECTIVE
+  regression special case (the bug is already fixed). This seed exercises the
+  restore→red→return-to-current-tree mechanic, a reasoning/procedural task, so
+  the candidate is pinned to gpt-5-mini (matching the sibling reasoning configs
+  -reviewing-before-merge-repo-map / -doc-drift) rather than the cheap
+  verdict-format gpt-4o-mini tier the base skill-implementing-with-tdd.yaml uses.
+  The judge stays gpt-5.5.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-implementing-with-tdd/SKILL.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+    expected_shape: >-
+      Concrete TDD red-phase artefact. Names (a) the target test file path, (b)
+      the function under test, (c) concrete input, (d) the assertion that
+      distinguishes broken from fixed, (e) one test-design technique from the
+      loaded techniques catalogue applied to this risk. Writes the failing test
+      code inline (not "would write"). Refuses to write the production fix in
+      the same turn. Because the bug is ALREADY fixed, the response must also
+      manufacture the red against the OLD code per the SKILL's "Retrospective
+      regression" special case: write the test against the current tree, restore
+      the pre-fix file with a SCOPED, REVERSIBLE move (`git show <commit>:<path>
+      > <path>` or `git checkout <commit> -- <path>` — never `git reset --hard` /
+      `git checkout <branch>` / `git clean`, and NOT `git stash`, which only
+      reverts to the already-fixed HEAD instead of restoring the pre-fix file),
+      see the real red, then reverse the restore and
+      RETURN TO THE CURRENT WORKTREE before final verification, ending on the
+      current (fixed) tree. Ends with EXACTLY ONE of the SKILL's two pinned
+      handoff phrasings — both are valid per
+      skills/sumo-qa-implementing-with-tdd/SKILL.md step 7: phrasing (a) "red
+      phase confirmed. Implement to make it green; I'll re-run when ready. If
+      you'd like me to write the production code, say so." (used ONLY when
+      actual red assertion output is shown in ground_truth_context), OR phrasing
+      (b) "I'll run this and surface the assertion failure next." (used when no
+      real red output is supplied — which is the case here, since no Bash tool
+      is available). NO confirmation question, NO closing pleasantry, NO
+      "shall I". Either phrasing PASSES the handoff check; only deviation from
+      both is a failure.
+    anti_patterns:
+      - >-
+        Writes the production fix in the same turn (Iron Law: red phase is
+        test-only).
+      - >-
+        Tautology assertion that re-states the broken production code (e.g.
+        asserting the buggy formula equals itself).
+      - >-
+        Asks 4+ clarification questions instead of grounding in the supplied
+        context.
+      - >-
+        Stub allowance violation: any *behaviour* in a production stub instead
+        of signature-only `pass` / `raise NotImplementedError`.
+      - >-
+        Hedging language — 'would write...', 'likely named...', 'probably
+        check...' — instead of producing the concrete test code.
+      - >-
+        Commits the test green against the already-fixed tree WITHOUT
+        manufacturing red against the pre-fix version (an unred test proves
+        nothing — the SKILL's Iron Law still holds for retrospective regression).
+      - >-
+        Restores the pre-fix code with a DESTRUCTIVE command (`git reset
+        --hard`, `git checkout <branch>`, `git clean`) instead of a scoped,
+        reversible move.
+      - >-
+        Leaves the tree on the OLD/pre-fix version — never reverses the restore
+        and returns to the current worktree before final verification (the
+        cycle must end on the current tree).
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL — apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+    - type: javascript
+      value: 'output.match(/boundary value analysis|equivalence partitioning|decision table|state transition|pairwise|exploratory/i) !== null'
+      threshold: 1
+    # Load-bearing per-scenario axis. The shared rubric above grades
+    # SHAPE/GROUNDING/generic anti-patterns; this axis deterministically gates
+    # the restore→red→return-to-current-tree mechanic so a response that omits
+    # the return-to-current-tree reverse, OR uses a destructive restore, FAILS
+    # here even if it satisfies the shared rubric.
+    - type: javascript
+      value: |
+        const o = output;
+        // (a) scoped/reversible restore of the pre-fix code is present.
+        const hasScopedRestore =
+          /git\s+show\s+\S+:\S+\s*>\s*\S+/.test(o) ||   // git show <commit>:<path> > <path>
+          /git\s+checkout\s+\S+\s+--\s+\S+/.test(o);      // git checkout <commit> -- <path>
+        // Strip every `git checkout ... -- <path>` (scoped pathspec form) so a
+        // bare `git checkout <branch>` can be detected without false positives.
+        const stripped = o.replace(/git\s+checkout\s+[^\n]*?\s--\s+\S+/g, '');
+        const hasDestructive =
+          /git\s+reset\s+--hard/.test(o) ||
+          /git\s+clean\b/.test(o) ||
+          /git\s+checkout\s+(?!--\s|HEAD\s+--)[^\n]*/.test(stripped); // branch checkout w/o pathspec
+        // (b) explicit return-to-current-tree reverse before final verification.
+        const hasReturnReverse =
+          /git\s+checkout\s+--\s+\S+/.test(o) ||          // git checkout -- <path>
+          /git\s+checkout\s+HEAD\s+--\s+\S+/.test(o) ||   // git checkout HEAD -- <path>
+          /git\s+restore\b/.test(o);                      // git restore ... <path>
+        if (!hasScopedRestore)
+          return { pass: false, score: 0, reason: 'no scoped/reversible restore (git show <commit>:<path> > <path> / git checkout <commit> -- <path>)' };
+        if (hasDestructive)
+          return { pass: false, score: 0, reason: 'destructive restore present (git reset --hard / git checkout <branch> / git clean)' };
+        if (!hasReturnReverse)
+          return { pass: false, score: 0, reason: 'no return-to-current-tree reverse before final verification (git checkout -- / git checkout HEAD -- / git restore)' };
+        return { pass: true, score: 1, reason: 'scoped restore + return-to-current-tree reverse present, no destructive command' };
+    - type: llm-rubric
+      value: >
+        The candidate is doing a RETROSPECTIVE regression test (the bug is
+        already fixed). Grade ONLY the restore→red→return-to-current-tree
+        mechanic. PASS only if BOTH hold:
+
+        (a) the response restores the pre-fix code with a SCOPED, REVERSIBLE
+        move (e.g. `git show <commit>:<path> > <path>` or `git checkout <commit>
+        -- <path>`; NOT `git stash`, which reverts to the already-fixed HEAD) and
+        does NOT use a destructive command (`git reset --hard`, `git checkout
+        <branch>`, `git clean`); AND
+
+        (b) the response EXPLICITLY reverses the restore and returns to the
+        CURRENT worktree before the final green verification (e.g. `git checkout
+        -- <path>`, `git checkout HEAD -- <path>`, or `git
+        restore ... <path>`), and the reverse is correctly paired with the
+        chosen restore (if it restored with `git checkout <commit> -- <path>`,
+        the reverse must target HEAD — a bare `git checkout -- <path>` reverse
+        there leaves the index polluted and the buggy version in place).
+
+        A response that manufactures red against the pre-fix version but never
+        returns the tree to the current/fixed version before final verification
+        FAILS this axis. Return ONLY JSON:
+        {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<why>"}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE — does the response demonstrate the expected shape concretely?
+         (Concrete = produces the artefact: test code, assertion, file path,
+         specific function name. For this retrospective seed, SHAPE also requires
+         the restore→red→return-to-current-tree mechanic to be present and to
+         END on the current tree. Ends with exactly one of the two pinned
+         handoff phrasings; either is valid. Hedging = SHAPE FAIL.)
+
+      B. GROUNDING — does the response use the provided ground-truth context?
+         The response must visibly reference it. Narrating without using the
+         supplied context → GROUNDING FAIL.
+         B GROUNDING: the named test-design technique must appear verbatim in {{loaded_techniques}}.
+
+      C. ANTI-PATTERNS — for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then
+      verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the test-design technique catalogue (the source of
+    truth for valid technique names; verbatim wording is mandatory per the
+    skill's step 3):
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    Repository state and prior conversation context for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is a post-confirmation red-phase turn. Execute step 3 of the skill's
+    checklist (which names ALL FIVE required artefacts: target test file path,
+    function under test, concrete input, distinguishing assertion, named
+    test-design technique with verbatim catalogue wording), then write the
+    COMPLETE failing test FUNCTION inline as a fenced code block (e.g.
+    ```python
+    def test_xxx():
+        ...
+        assert ...
+    ```
+    — not just the assertion line, the full test function with setup,
+    invocation, and assertion). Skip writing production code.
+
+    Then apply the skill's discipline to THIS situation as the context
+    describes it, and lay out the exact sequence of steps you will take to
+    satisfy the Iron Law before final verification — do not assume the generic
+    red-phase handoff is the whole job; the context may put you in one of the
+    skill's special cases, and you must handle whichever one applies exactly as
+    the skill prescribes. State the concrete commands for each step you name.
+
+    End with EXACTLY one of the skill's two pinned handoff phrasings (no
+    question, no pleasantry) — phrasing (a) only when real red output is in the
+    ground-truth context, otherwise phrasing (b).
+tests:
+  - description: >-
+      retrospective regression — bug ALREADY fixed; must manufacture red against
+      the pre-fix version, then return to the current tree before green
+    vars:
+      ground_truth_context: |
+        ## pyproject.toml
+        ```toml
+        [tool.pytest.ini_options]
+        pythonpath = ["."]
+        testpaths = ["tests"]
+        ```
+
+        ## accounts/withdrawal.py (production — ALREADY FIXED in commit a1b2c3d)
+        ```python
+        WITHDRAWAL_LIMIT = 500.0
+
+        def withdraw(account, amount):
+            # FIXED in a1b2c3d: previously used `>=` so a withdrawal EXACTLY at
+            # the limit was wrongly rejected (off-by-one at the boundary). Now
+            # uses `>` so a withdrawal of exactly WITHDRAWAL_LIMIT is ALLOWED and
+            # only amounts strictly above it are rejected.
+            if amount > WITHDRAWAL_LIMIT:
+                raise WithdrawalLimitExceeded(account.id, amount, WITHDRAWAL_LIMIT)
+            account.balance -= amount
+            return account.balance
+        ```
+
+        ## The PRE-FIX version of accounts/withdrawal.py (commit a1b2c3d^ — the buggy code the fix replaced)
+        ```python
+        WITHDRAWAL_LIMIT = 500.0
+
+        def withdraw(account, amount):
+            if amount >= WITHDRAWAL_LIMIT:   # BUG: `>=` rejects a withdrawal AT the limit
+                raise WithdrawalLimitExceeded(account.id, amount, WITHDRAWAL_LIMIT)
+            account.balance -= amount
+            return account.balance
+        ```
+
+        ## tests/accounts/test_withdrawal.py (existing tests)
+        ```python
+        import pytest
+        from accounts.withdrawal import withdraw, WithdrawalLimitExceeded, WITHDRAWAL_LIMIT
+        from tests.fixtures.account import make_account
+
+        # `withdraw` returns the REMAINING balance after a successful withdrawal.
+        def test_withdraw_below_limit():
+            account = make_account(balance=1000)
+            assert withdraw(account, 100) == 900
+
+        def test_withdraw_above_limit_rejected():
+            account = make_account(balance=1000)
+            with pytest.raises(WithdrawalLimitExceeded):
+                withdraw(account, 600)
+
+        # No test covers a withdrawal of EXACTLY WITHDRAWAL_LIMIT — the boundary
+        # the off-by-one fix in a1b2c3d closed. There is no regression test
+        # guarding the at-the-limit case.
+        ```
+      user_prompt: >-
+        We already fixed an off-by-one at the withdrawal limit in
+        `accounts/withdrawal.py` (commit a1b2c3d) — a withdrawal of EXACTLY
+        `WITHDRAWAL_LIMIT` (500.0) used to be wrongly REJECTED (`>=` raised
+        `WithdrawalLimitExceeded`) and now SUCCEEDS and returns the remaining
+        balance (`>`). But there's no regression test guarding the at-the-limit
+        boundary. Add the retrospective regression test: on an account with
+        balance 1000, a withdrawal of exactly 500.0 must now SUCCEED and return
+        500.0 (1000 − 500.0). Assert the successful return value (NOT
+        `pytest.raises`) — that is exactly what diverges, because the broken
+        `>=` version raised instead of returning. The pre-fix version is in the
+        context.

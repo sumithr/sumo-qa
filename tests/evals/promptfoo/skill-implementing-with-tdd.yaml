@@ -422,3 +422,8 @@ tests:
         anchored on the 31st blow up in February; `nextChargeDate` should clamp
         to the last valid day of shorter months. Kotlin file is
         `src/main/kotlin/com/acme/billing/BillingCycle.kt`.
+  # NOTE: the retrospective-regression seed (restore→red→return-to-current-tree
+  # mechanic) lives in skill-implementing-with-tdd-retrospective.yaml — it is a
+  # reasoning/procedural seed pinned to the gpt-5-mini candidate tier (matching
+  # the sibling -repo-map / -doc-drift configs), not this verdict-format
+  # gpt-4o-mini file. Keeping it here forced it onto the wrong candidate tier.

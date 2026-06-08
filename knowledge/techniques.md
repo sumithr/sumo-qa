@@ -91,6 +91,15 @@ and dead in production). Common failure modes: assuming wording/format instead
 of capturing it; a stale capture after the tool's output changes (re-capture on
 version moves); capturing only the happy path, not the real error/empty output.
 
+## Build / packaging
+
+### build artifact contents verification
+Build the artifact, open it, and assert its required members are present and
+forbidden ones absent — a packaging-contract check on what ships (wheel / sdist
+/ package, container image, bundle), not an input space. Assert the BUILT
+artifact, never the source tree (a `MANIFEST.in` / `.dockerignore` gap, or a
+leaked secret, slips past a source-tree check).
+
 ## Static
 
 ### review (walkthrough / technical review / inspection)
