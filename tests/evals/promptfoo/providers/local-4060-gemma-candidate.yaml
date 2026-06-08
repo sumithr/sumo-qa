@@ -1,0 +1,6 @@
+id: openai:chat:gemma4-e4b-bounded
+label: rtx4060-gemma4-e4b-bounded
+config:
+  apiBaseUrl: "{{ env.SUMO_OWUI_BASE }}"
+  showThinking: false
+  seed: 42

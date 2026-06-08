@@ -441,31 +441,90 @@ read the pass-rate, not the exit code.
 
 We grade `message.content` only (`showThinking: false`), so a candidate can REASON
 (body-faithful discrimination) while the judge sees a clean verdict. The **cheap-tier
-judge uses _bounded_ reasoning** (`enable_thinking:false`): it still emits structured
-A/B/C analysis + a score in the output channel (~3.5 s, always a parseable verdict) —
-it just drops the unbounded `<think>` channel, which on the 9B spirals 90–140 s /
-25–40 k chars and **cannot** be capped (OWUI strips `max_tokens`; native `num_predict`
-truncates to empty; brevity directives are ignored) while returning the *same* verdict.
-It's decent enough for its job: on gpt-5.5-**separated** A0/A1 pairs it ranks A1 > A0
-~83 % and keeps the pass/fail split ~75 % (the lift signal — pair with `--repeat 3`).
-Absolute cloud agreement is only ~56 %, which is fine: this tier is a *relative* signal,
-cloud (gpt-5.5) is the merge gate. Heavyweight `<think>` grading lives in the 4090 tier.
+models are the 2026-06 judge/candidate bake-off winners** (tooling in `bakeoff/` +
+`validate-local-judge/`): candidate `gemma4-e4b-bounded` on the 4060, judge
+`gemma4-12b-bounded` on the laptop. Headline vs stored gpt-5.5 verdicts: the judge agrees
+**92 %** (vs ~56 % for the old reasoning-off qwen3.5:9b) and is **binary-deterministic**
+on fixed input; the `gemma4-e4b` candidate is the only 4060 model that lifts all three
+`.ab` control types. The rep-to-rep wobble is **candidate-side** (the e4b regenerates near
+the pass threshold at temp 0), so pair with `--repeat 3`. Still a *relative* signal; cloud
+(gpt-5.5) is the merge gate. The 4090 `gpt-oss:20b` judge was tested and **rejected for
+now** (too strict — 0/3 separation, beaten by the laptop judge); revisit with a tuned 20B.
+The old instant `sumo-cheap-judge-9b` remains available via `SUMO_CHEAP_JUDGE`.
 
 | Tier | Scope | Candidate (host) | Judge (host) | 4090? |
 |---|---|---|---|---|
-| cheap | gpt-4o-mini files | `sumo-cheap-4b` — qwen3.5:4b reasoning-off (4060) | `sumo-cheap-judge-9b` — qwen3.5:9b reasoning-off (laptop) | no |
-| reasoning | gpt-5-mini files | `sumo-rcand-9b` — qwen3.5:9b reasoning-on (laptop) | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
-| quality | **all** skills | `sumo-rcand-9b` reasoning-on (laptop) — or `sumo-rcand-14b` via `SUMO_QUALITY_CANDIDATE` | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
+| cheap | gpt-4o-mini files | `gemma4-e4b-bounded` — bounded Gemma 4 e4b (4060) | `gemma4-12b-bounded` — bounded Gemma 4 12B (laptop), 92% gpt-5.5 agreement | no |
+| reasoning | gpt-5-mini files | `gemma4-12b-bounded` — OWUI alias for bounded Gemma 4 12B on the laptop | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
+| quality | **all** skills | `gemma4-12b-bounded` (laptop) — or another model via `SUMO_QUALITY_CANDIDATE` | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
 
 The **quality** tier is the highest-fidelity local option — the laptop reasoning candidate +
 the bigger, different-family 4090 judge across *every* skill, for when the 4090 is free. It's
 slow (both sides reason) and uses the 4090, so it's opt-in; it's still a relative signal, not
 the merge gate. Validate its judge before relying on it: `npm run eval:validate-judge -- --judge sumo-rjudge-20b`.
 
+`gemma4-12b-bounded` is an OpenWebUI workspace alias, so it appears in the chat model
+picker rather than as a separately managed Ollama model. Promptfoo addresses it directly
+by that stable model ID through `$SUMO_OWUI_BASE/chat/completions`. The alias persists
+`think=medium`; its underlying `gemma4-12b-bounded:latest` laptop tag persists the 128K
+context, Gemma sampling parameters, anti-loop system prompt, and 4096-token hard cap.
+
 Override any default via the `SUMO_CHEAP_*` / `SUMO_REASON_*` env vars in `run-eval.sh`.
 Each model needs a **16k+-num_ctx variant** (`ollama create <m> --from <base>` with
 `num_ctx 16384`) — the ~14k-token skill prompts 400-error at Ollama's 4096 default.
 Tags pinned 2026-06; revisit when the hardware or Ollama version changes.
+
+`SUMO_EVAL_CONCURRENCY` sets promptfoo's `-j` (number of test cases in flight; defaults
+**1** local, **4** cloud). Raising local `-j` looks tempting — overlap candidate-gen on one
+host with judge-grading on the other — but on the single-GPU local tiers it **backfires**:
+`-j>1` stacks several concurrent *reasoning* generations onto the one candidate GPU (and
+grades onto the one judge GPU), which thrashes them. Verified 2026-06-08: at `-j 3` the
+laptop reasoning candidate pegged and never finished a generation while the 4090 judge sat
+idle. The gen/grade host-overlap can't be isolated from same-GPU stacking via `-j`, and the
+reasoning models can't share a GPU, so **local stays `-j 1`**. Cloud has no single-GPU limit
+(OpenAI's fleet) so its default is promptfoo's `4`, bounded only by the OpenAI rate-limit
+(429), not compute.
+
+### Reusable provider configs (`providers/`)
+
+Candidate and judge providers are factored out of the test YAMLs into reusable
+`providers/*.yaml` files and referenced through `file://` with an env-var override and a
+**cloud default**. A test file pins its providers like this:
+
+```yaml
+providers:
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-reasoning-candidate.yaml') }}
+defaultTest:
+  options:
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
+```
+
+With **no env vars set**, the file resolves to its cloud default → the same pinned
+`gpt-5-mini`/`gpt-4o-mini` candidate + `gpt-5.5` judge as before, so the **cloud merge gate
+is unchanged**. Setting `SUMO_EVAL_CANDIDATES_FILE` and/or `SUMO_EVAL_JUDGE_FILE` swaps in a
+local pairing for the relative tiers — one switch per side, no per-file `--providers`/`--grader`
+flags, and the judge provider is shared across every test so grading runs **concurrently** with
+candidate generation across the two boxes.
+
+| Provider file | Role | Model (host) |
+|---|---|---|
+| `cloud-quality-judge.yaml` | judge (default) | `gpt-5.5`, `response_format: json_object` — the merge gate |
+| `cloud-reasoning-candidate.yaml` | candidate (default, reasoning files) | `gpt-5-mini` |
+| `local-laptop-qwen-judge.yaml` | judge | `sumo-cheap-judge-9b` — qwen3.5:9b reasoning-off (laptop) |
+| `local-4090-judge.yaml` | judge | `sumo-rjudge-20b` — gpt-oss:20b (4090) |
+| `local-4060-gemma-candidate.yaml` | candidate | `gemma4-e4b-bounded` (4060) |
+| `local-laptop-gemma-candidate.yaml` | candidate | `gemma4-12b-bounded` (laptop) |
+| `local-gemma-candidates.yaml` | candidate list | both bounded Gemma 4 tags (laptop + 4060) |
+
+`SUMO_OWUI_BASE` is interpolated into the local provider files' `apiBaseUrl`, and
+`showThinking: false` keeps the judge grading clean `content` (no `<think>` channel). To run a
+`.ab` control on a local pairing instead of the cloud gate:
+
+```bash
+SUMO_EVAL_CANDIDATES_FILE=providers/local-4060-gemma-candidate.yaml \
+SUMO_EVAL_JUDGE_FILE=providers/local-laptop-qwen-judge.yaml \
+  promptfoo eval -c skill-reviewing-before-merge-fence-parser.ab.yaml --repeat 3
+```
 
 ### Validating the local judge (`validate-local-judge/`)
 

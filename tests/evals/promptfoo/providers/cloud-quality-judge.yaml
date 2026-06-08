@@ -1,0 +1,6 @@
+id: openai:chat:gpt-5.5
+config:
+  temperature: 0.0
+  seed: 42
+  response_format:
+    type: json_object

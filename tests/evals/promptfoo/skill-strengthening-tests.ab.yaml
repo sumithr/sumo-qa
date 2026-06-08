@@ -1,11 +1,7 @@
 disableVarExpansion: true
 description: 'A/B/C value-measurement for sumo-qa-strengthening-tests'
 providers:
-  - id: openai:chat:gpt-4o-mini
-    label: candidate-gpt-4o-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-cheap-candidate.yaml') }}
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-strengthening-tests/SKILL.md
@@ -21,13 +17,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate response
       demonstrates the QA shape AND avoids the named anti-patterns. Be strict.

@@ -1,0 +1,7 @@
+id: openai:chat:sumo-cheap-judge-9b
+label: laptop-qwen35-9b-judge
+config:
+  apiBaseUrl: "{{ env.SUMO_OWUI_BASE }}"
+  showThinking: false
+  temperature: 0
+  max_tokens: 8000

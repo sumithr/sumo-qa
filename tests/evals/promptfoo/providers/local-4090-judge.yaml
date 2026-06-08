@@ -1,0 +1,7 @@
+id: openai:chat:sumo-rjudge-20b:latest
+label: rtx4090-sumo-rjudge-20b
+config:
+  apiBaseUrl: "{{ env.SUMO_OWUI_BASE }}"
+  showThinking: false
+  temperature: 0
+  max_tokens: 8000

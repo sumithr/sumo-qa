@@ -1,0 +1,6 @@
+id: openai:chat:sumo-cheap-4b
+label: rtx4060-qwen35-4b-reasoff
+config:
+  apiBaseUrl: "{{ env.SUMO_OWUI_BASE }}"
+  showThinking: false
+  seed: 42

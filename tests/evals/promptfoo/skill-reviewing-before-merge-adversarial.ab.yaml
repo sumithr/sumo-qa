@@ -19,11 +19,7 @@ description: >
   A0/A1 miss. A0/A1 flicker run-to-run; B is stable. Read the B-over-A0
   ordering as the signal.
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-reasoning-candidate.yaml') }}
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -41,13 +37,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate
       INDEPENDENTLY DISCOVERED the seeded defect from a raw diff (no risks were

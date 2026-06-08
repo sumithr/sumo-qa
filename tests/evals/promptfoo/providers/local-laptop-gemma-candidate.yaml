@@ -1,0 +1,6 @@
+id: openai:chat:gemma4-12b-bounded
+label: laptop-gemma4-12b-bounded
+config:
+  apiBaseUrl: "{{ env.SUMO_OWUI_BASE }}"
+  showThinking: false
+  seed: 42
