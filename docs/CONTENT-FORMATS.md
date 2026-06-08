@@ -14,6 +14,7 @@ Authoring guide for the editable files a team customises in a [local clone](INST
 | `standards/packs/*.yml` / `*.yaml` | Any valid YAML — unfiltered loads return verbatim | YAML parse error → silently skipped under classification filtering; `sumo-qa-validate` fails it | YAML parses; warns if no `applies_to_classifications` |
 | `standards/rules/change_rules.yaml` | **Strict Pydantic** — see [rules.py](../src/sumo_qa/rules.py); `extra="forbid"` | `from_file` raises `ValueError` at server / validator startup | Hard fail on schema violation |
 | `knowledge/test_data/<domain>/<file>.y(a)ml` | **Strict Pydantic** — `TestDataEntry` (`extra="forbid"`) | Loader raises `ValueError` on first invalid entry | Hard fail on schema violation |
+| `feedback/review_feedback.yaml` (user pack, **tool/CLI-written**) | Strict — `{entries: [{scope, trigger_signal, recommended_probe, source_note, last_reviewed}]}` via `sumo_qa_capture_review_feedback`; a missing/blank required field, an unknown field, a bad timestamp, or sensitive input (raw diff/secret/code/full body) is rejected, writing nothing | **Advisory only** — never a loader tier, so it never shadows a catalogue; cited separately, never overrides a classification/change-rule | Not hand-authored — managed by the tool / `sumo-qa-feedback` CLI |
 
 > **Permissive ≠ schemaless.** The four `knowledge/*.md` files are read verbatim, but the skills tell the LLM to "pick from the catalogue" by scanning headings. Drift far from the existing shape (top-level `# Title`, `##` section headings, one entry per `###` block) and the LLM stops picking from your file. Keep the existing structure; replace the substance.
 
@@ -174,6 +175,33 @@ entries:
 ```
 
 `extra="forbid"` means a typo like `scenarios_tags:` (missing `o`) fails loudly at validator and server startup.
+
+### `feedback/review_feedback.yaml` — review feedback memory (advisory)
+
+**Tool/CLI-managed, not hand-authored.** This file is written by
+`sumo_qa_capture_review_feedback` (and inspected/pruned with the `sumo-qa-feedback`
+console script) — see [CONFIGURATION.md](CONFIGURATION.md#review-feedback-memory).
+It is shown here so you can read or wipe it. It lives under the same
+`project`/`global` pack root as ingested content, in a `feedback/` subdir, and is
+**advisory only**: it is never a loader tier, so it cannot shadow a canonical
+catalogue, and the skills cite a memory-derived probe separately and never let it
+override a classification or change-rule.
+
+```yaml
+# <cwd>/.sumo-qa/feedback/review_feedback.yaml  (project scope)
+entries:
+  - id: any-change-touching-timezone-or-day-boundary-logic   # auto-derived on capture from trigger_signal (slugified, first 8 words); do not hand-author
+    scope: billing service
+    trigger_signal: any change touching timezone or day-boundary logic in invoicing
+    recommended_probe: boundary value analysis on the 23:59 -> 00:00 local day rollover across DST
+    source_note: we shipped two off-by-one-day invoice bugs last quarter
+    last_reviewed: "2026-03-01T09:00:00Z"   # ISO-8601; defaults to now on capture
+```
+
+Each entry needs all five fields; capture rejects a missing/blank field, an
+unknown field, a malformed `last_reviewed`, or sensitive input (a raw diff hunk,
+a secret/credential, a code snippet, or a pasted full issue/PR body) — writing
+nothing. Only your own short summary is stored.
 
 ## Swap ISTQB out for something else
 

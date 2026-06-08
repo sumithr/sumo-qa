@@ -68,3 +68,16 @@ def standards_packs_dir(scope: str) -> Path:
 def rules_path(scope: str) -> Path:
     """Return the change-rules file path for ``scope``."""
     return user_pack_root(scope) / "standards" / "rules" / "change_rules.yaml"
+
+
+def feedback_memory_path(scope: str) -> Path:
+    """Return the review-feedback-memory file path for ``scope``.
+
+    Lives in its OWN ``feedback/`` subdir under the #92 user-pack root (the same
+    ``project``/``global`` location custom packs use) — never a second hidden
+    tree. It is deliberately NOT one of the bundled knowledge/standards/rules
+    tiers, so it can never shadow a canonical catalogue: feedback memory is
+    advisory context the planning/review skills cite *separately*, never an
+    override of classifications or change-rules.
+    """
+    return user_pack_root(scope) / "feedback" / "review_feedback.yaml"

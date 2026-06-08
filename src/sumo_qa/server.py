@@ -23,6 +23,24 @@ from sumo_qa.external_skills import (
 from sumo_qa.external_skills import (
     search_external_skills as _search_external_skills,
 )
+from sumo_qa.feedback_memory import (
+    ACTIONS as _FEEDBACK_ACTIONS,
+)
+from sumo_qa.feedback_memory import (
+    FeedbackValidationError,
+)
+from sumo_qa.feedback_memory import (
+    capture_feedback as _capture_feedback,
+)
+from sumo_qa.feedback_memory import (
+    delete_feedback as _delete_feedback,
+)
+from sumo_qa.feedback_memory import (
+    list_feedback as _list_feedback,
+)
+from sumo_qa.feedback_memory import (
+    update_feedback as _update_feedback,
+)
 from sumo_qa.ingest import IngestValidationError, ingest_pack
 from sumo_qa.knowledge_loaders import (
     load_catalogue as _load_catalogue,
@@ -91,6 +109,12 @@ _HINT_INGEST = (
     "Pass a native md/yaml file (principles.md, techniques.md, classifications.md, "
     "approaches.md, a standards-pack *.yaml, or change_rules.yaml). Convert other "
     "formats (PDF/PPTX/URL) to markdown first via the sumo-qa-suggesting-external-skill flow."
+)
+_HINT_FEEDBACK_MEMORY = (
+    "Pass action='capture'|'update'|'delete'|'list'. capture/update need an entry "
+    "with scope, trigger_signal, recommended_probe, source_note (and optional "
+    "last_reviewed). Store only your own short summary — never raw code, diffs, "
+    "secrets, or pasted issue/PR bodies. Only persist with explicit user confirmation."
 )
 _HINT_SCAN_REPO = (
     "Pass an existing directory path. Use an absolute path or one relative to the "
@@ -695,6 +719,94 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         return maybe_capture(
             tool="sumo_qa_ingest_knowledge_pack",
             args={"source": source, "scope": scope, "content_type": content_type},
+            output=output,
+        )
+
+    @mcp.tool(annotations=_writer_local)
+    def sumo_qa_capture_review_feedback(
+        action: str = "list",
+        entry: dict[str, Any] | None = None,
+        entry_id: str | None = None,
+        scope: str = "project",
+    ) -> dict[str, Any]:
+        """Manage an EXPLICIT, user-confirmed review-feedback memory of recurring QA findings.
+
+        Promotes a recurring review lesson (e.g. "we always miss timezone
+        boundaries in billing") into a local, inspectable, reversible memory that
+        future planning/review skills consult as an ADVISORY hint — NOT automatic
+        learning. `action` selects the operation:
+
+        - `'capture'` — add a new lesson (or replace one with the same `id`).
+          Requires `entry` with `scope`, `trigger_signal`, `recommended_probe`,
+          `source_note`, and optional `last_reviewed` (ISO-8601; defaults to now).
+        - `'update'` — replace the fields of an existing lesson; needs `entry_id`
+          plus `entry`.
+        - `'delete'` — remove a lesson by `entry_id`.
+        - `'list'` (default) — return stored lessons, advisory-flagged. The
+          `scope` default is the literal `'project'`, so it lists the current
+          repo; pass `scope='global'` for the cross-repo set. An unrecognised
+          `scope` returns an error envelope (it is never coerced to project).
+
+        NEVER persist without explicit user confirmation, and NEVER auto-capture
+        from a review/prompt/trace. That confirmation gate is the HOST/skill's
+        responsibility, not enforced by a tool parameter — the deliberate
+        writer-local data-ownership model shared with the risk-ledger and AC
+        tools; the `sumo-qa-feedback` CLI correspondingly exposes only list/delete,
+        so a capture can never be a fire-and-forget flag. Sensitive input — a raw
+        diff hunk, a secret, a code snippet, or a pasted full issue/PR body — is
+        REJECTED; only the user's own summary is stored, and a rejected entry is
+        never echoed to the debug-capture sink either. Storage reuses the #92 user-writable pack
+        location (`project` = <cwd>/.sumo-qa, `global` = the user data dir) under
+        a `feedback/` subdir, so it is NOT a second hidden tree. Memory-derived
+        probes are ADVISORY: cite them SEPARATELY from bundled ISTQB/rules
+        content; they never override canonical classifications or change-rules.
+
+        Common natural-language phrasings that map to this tool:
+        "remember that we always miss X in Y", "save this review lesson", "promote
+        this recurring finding to team memory", "what review lessons have we
+        saved?", "forget the timezone-billing lesson".
+        """
+        try:
+            # Pass `scope` through UNCHANGED — never coerce an unrecognised value
+            # to 'project'. The feedback_memory module validates it via
+            # `_require_scope` and raises FeedbackValidationError on an invalid
+            # scope (e.g. a typo like 'glabal'), which the except below wraps into
+            # an error envelope — so a typo surfaces as an error, not a silent
+            # write to the project store.
+            if action == "capture":
+                output: dict[str, Any] = _capture_feedback(entry or {}, scope=scope)
+            elif action == "update":
+                output = _update_feedback(entry_id or "", entry or {}, scope=scope)
+            elif action == "delete":
+                output = _delete_feedback(entry_id or "", scope=scope)
+            elif action == "list":
+                # `list` defaults to the literal 'project' (the tool's default
+                # arg) for the current-repo view; pass scope='global' for the
+                # cross-repo set. An invalid scope errors via _require_scope.
+                output = _list_feedback(scope=scope)
+            else:
+                output = _error_envelope(
+                    FeedbackValidationError(
+                        f"unknown action {action!r}; expected one of {list(_FEEDBACK_ACTIONS)}"
+                    ),
+                    _HINT_FEEDBACK_MEMORY,
+                )
+        except (FeedbackValidationError, ValueError, OSError) as exc:
+            output = _error_envelope(exc, _HINT_FEEDBACK_MEMORY)
+        # Never let a REJECTED raw `entry` reach the debug-capture sink. A rejected
+        # entry may carry the exact secret / diff / code snippet the validator
+        # refused, and `maybe_capture` writes `args` verbatim to disk when
+        # SUMO_QA_DEBUG_DIR is set — which would contradict the feature's "sensitive
+        # input is rejected, not stored" contract (#145). On a rejection we record
+        # only the entry's field NAMES (its shape), never the values. On success the
+        # entry passed the sensitivity gate, so capturing it is safe and useful.
+        rejected = isinstance(output, dict) and output.get("isError")
+        debug_entry: Any = (
+            {"_redacted_keys": sorted(entry)} if rejected and isinstance(entry, dict) else entry
+        )
+        return maybe_capture(
+            tool="sumo_qa_capture_review_feedback",
+            args={"action": action, "entry": debug_entry, "entry_id": entry_id, "scope": scope},
             output=output,
         )
 

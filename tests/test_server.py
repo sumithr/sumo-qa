@@ -10,7 +10,8 @@ from sumo_qa.server import build_mcp_server
 # External-skill lifecycle restored as thin MCP tools; Node installer helpers remain deleted.
 # Task 72: sumo_qa_load_specialty_tools removed (catalogue → discovery rule).
 # Issue #144: sumo_qa_format_risk_ledger added (risk-to-test ledger formatter).
-# Total registered tools: 20 atomic + 14 skill = 34.
+# Issue #145: sumo_qa_capture_review_feedback added (review-feedback memory).
+# Total registered tools: 21 atomic + 14 skill = 35.
 _TEST_DATA_TOOL_NAMES = {
     "sumo_qa_explain_test_data_requirements",
     "sumo_qa_find_test_data",
@@ -20,6 +21,13 @@ _TEST_DATA_TOOL_NAMES = {
 
 _INGESTION_TOOL_NAMES = {
     "sumo_qa_ingest_knowledge_pack",
+}
+
+# Explicit review-feedback memory (issue #145). Writer-local; nothing is
+# persisted without an explicit user-confirmed capture, and memory-derived
+# probes are advisory (never override canonical classifications/rules).
+_FEEDBACK_MEMORY_TOOL_NAMES = {
+    "sumo_qa_capture_review_feedback",
 }
 
 _CAPABILITIES_TOOL_NAMES = {
@@ -133,6 +141,7 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
         | _CONTEXT_BUNDLE_TOOL_NAMES
         | _EXPORT_TOOL_NAMES
         | _INGESTION_TOOL_NAMES
+        | _FEEDBACK_MEMORY_TOOL_NAMES
         | _EXTERNAL_SKILL_TOOL_NAMES
         | _SKILL_LOADING_TOOL_NAMES
         | _SKILL_TOOL_NAMES

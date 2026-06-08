@@ -9,6 +9,16 @@ beyond optional metadata-based subset selection on `load_standards` and
 Path resolution mirrors the existing pattern in `server.py` for
 `QA_TEST_DATA_PATH`: env var override, then bundled `_data/knowledge/`
 in installed wheels, then `knowledge/` at repo root in dev.
+
+Advisory precedence (issue #145): the explicit review-feedback memory
+(`sumo_qa.feedback_memory`, stored under the #92 pack root's own ``feedback/``
+subdir) is DELIBERATELY NOT a tier in any loader below — it is never read here,
+so it can never shadow `classifications.md` / `standards` / `change_rules.yaml`.
+That keeps memory-derived probes ADVISORY: a planning/review skill cites them
+SEPARATELY from the canonical catalogues these loaders return, and they never
+override a classification or change-rule. The only way team content gains
+canonical authority is the #92 ingest path (`sumo_qa.ingest`), which writes into
+the knowledge/standards/rules tiers these loaders DO resolve.
 """
 
 from __future__ import annotations

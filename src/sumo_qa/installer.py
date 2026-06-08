@@ -118,6 +118,8 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_export_test_cases",
     # Ingestion
     "sumo_qa_ingest_knowledge_pack",
+    # Review-feedback memory (#145)
+    "sumo_qa_capture_review_feedback",
     # External skills
     "sumo_qa_search_external_skills",
     "sumo_qa_check_external_skill_installed",

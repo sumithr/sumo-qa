@@ -329,6 +329,51 @@ done
   unexercised seed against `fixtures/reviewing-before-merge-PRE-332.SKILL.md` (A0,
   no feature-flow check, no AC supplied → SAFE on the green formatter unit = FAIL)
   vs the post-#332 body (A1 → NOT SAFE = PASS).
+## Review-feedback-memory corpus (issue #145)
+
+`skill-preparing-for-work-feedback-memory.yaml` and
+`skill-reviewing-before-merge-feedback-memory.yaml` grade the #145
+advisory-hints behaviour: when the team has saved a recurring review lesson
+(`sumo_qa_capture_review_feedback`) whose `trigger_signal` matches the in-flight
+change, the skill consults it as a SEPARATE ADVISORY hint that sharpens a named
+risk — never an override of a canonical classification/change-rule, never an
+auto-capture, and (memory-absent) never an invented hint. The
+reviewing-before-merge seed makes the hint-derived rollover/DST risk UNCOVERED
+by the fresh test, so it is a SAFE-blocker and the verdict is NOT SAFE TO MERGE.
+The candidate prompts are NEUTRAL — they carry only the output-format scaffold
+plus a generic "consult any supplied team context; the loaded skill governs how"
+— so the behaviour comes ONLY from the injected `skill_content`, not the prompt.
+Candidate `gpt-5-mini`, judge `gpt-5.5`. Picked up by `npm run eval:all`
+automatically.
+
+```bash
+source ~/.config/promptfoo-keys.env
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-preparing-for-work-feedback-memory.yaml --no-cache
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-feedback-memory.yaml --no-cache
+```
+
+**Load-bearing controls (`.ab.yaml`).**
+`skill-preparing-for-work-feedback-memory.ab.yaml` and
+`skill-reviewing-before-merge-feedback-memory.ab.yaml` run the SAME
+memory-PRESENT seed against the PRE-EDIT (origin/main) SKILL.md body (A0) and the
+post-#145 body (A1), under the neutral prompt. The pre-#145 body has no
+review-feedback-memory note, so A0 has nothing instructing it to consult the
+saved lesson: it grades the change on the diff risks + green-but-non-covering
+test alone, does not surface the lesson as a separate advisory hint or map the
+rollover/DST probe into the coverage ledger, and can wave the change through — a
+SHAPE FAIL. A1 (the new body) consults the matched lesson as a separate advisory
+hint and reaches the correct shape/verdict — a PASS. A0(FAIL) → A1(PASS) isolates
+the #145 behaviour. The A0 bodies are snapshotted at
+`fixtures/preparing-for-work-PRE-145.SKILL.md` and
+`fixtures/reviewing-before-merge-PRE-145.SKILL.md` — refresh them if the baseline
+moves.
+
+```bash
+source ~/.config/promptfoo-keys.env
+# A0 (pre-145 body) FAIL vs A1 (post-145 body) PASS
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-preparing-for-work-feedback-memory.ab.yaml --no-cache --repeat 3
+./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-feedback-memory.ab.yaml --no-cache --repeat 3
+```
 
 ## How to run
 
@@ -622,6 +667,10 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `skill-reviewing-before-merge-eval-validity.yaml` + `.ab.yaml` | Issue #321 eval-validity probe (2 seeds: non-load-bearing A/B + non-discriminating credited input → NOT SAFE; structurally-isolating A/B with only discriminating inputs → SAFE-eligible) + A0(pre-edit)/A1(post-edit) load-bearing control |
 | `fixtures/reviewing-before-merge-PRE-321.SKILL.md` | Snapshot of the pre-#321 SKILL.md body, the A0 control leg for the eval-validity `.ab.yaml` |
 | `skill-reviewing-before-merge-feature-flow.yaml` + `.ab.yaml` | Issue #331 primary feature-flow evidence corpus (2 seeds: CSV-export CLI feature with only a `_row_to_csv` formatter unit → UNVERIFIED (feature flow), NOT SAFE; fresh end-to-end test invoking the CLI command + asserting the written CSV → VERIFIED, SAFE-eligible) + A0(pre-#332)/A1(post-#332) load-bearing control on the unexercised seed |
+| `skill-preparing-for-work-feedback-memory.yaml` + `.ab.yaml` | Issue #145 review-feedback-memory advisory-hints corpus (prep side) + A0(pre-edit)/A1(post-edit) load-bearing control (see "Review-feedback-memory corpus" above) |
+| `skill-reviewing-before-merge-feedback-memory.yaml` + `.ab.yaml` | Issue #145 review-feedback-memory advisory-hints corpus (review side, uncovered-rollover NOT-SAFE driver) + A0/A1 load-bearing control |
+| `fixtures/preparing-for-work-PRE-145.SKILL.md` | Snapshot of the pre-#145 prep SKILL.md body, the A0 control leg for the prep feedback-memory `.ab.yaml` |
+| `fixtures/reviewing-before-merge-PRE-145.SKILL.md` | Snapshot of the pre-#145 review SKILL.md body, the A0 control leg for the review feedback-memory `.ab.yaml` |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
