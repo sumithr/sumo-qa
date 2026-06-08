@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.37.0](https://github.com/sumithr/sumo-qa/compare/v0.36.0...v0.37.0) (2026-06-08)
+
+
+### Features
+
+* add explicit review feedback memory for recurring QA findings ([#145](https://github.com/sumithr/sumo-qa/issues/145)) ([#344](https://github.com/sumithr/sumo-qa/issues/344)) ([72bc88d](https://github.com/sumithr/sumo-qa/commit/72bc88ddab992120a710d39115f9168e1b887a0e))
+
 ## [0.36.0](https://github.com/sumithr/sumo-qa/compare/v0.35.1...v0.36.0) (2026-06-08)
 
 
