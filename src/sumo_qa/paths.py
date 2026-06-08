@@ -70,6 +70,18 @@ def rules_path(scope: str) -> Path:
     return user_pack_root(scope) / "standards" / "rules" / "change_rules.yaml"
 
 
+def export_dir(scope: str) -> Path:
+    """Return the test-case export directory for ``scope``.
+
+    Lives in its OWN ``exports/`` subdir under the #92 user-pack root (the same
+    ``project``/``global`` location custom packs use) — parallel to ``feedback/``,
+    never colliding with the bundled knowledge/standards/rules tiers. This is the
+    sole allowed root for ``sumo_qa_export_test_cases``'s explicit file-write
+    carve-out: a host-supplied ``output_path`` is confined here.
+    """
+    return user_pack_root(scope) / "exports"
+
+
 def feedback_memory_path(scope: str) -> Path:
     """Return the review-feedback-memory file path for ``scope``.
 

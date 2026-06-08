@@ -47,3 +47,19 @@ def test_subpaths_mirror_bundled_layout(tmp_path, monkeypatch):
     assert paths.knowledge_dir("project") == root / "knowledge"
     assert paths.standards_packs_dir("project") == root / "standards" / "packs"
     assert paths.rules_path("project") == root / "standards" / "rules" / "change_rules.yaml"
+
+
+def test_export_dir_project_is_under_pack_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert paths.export_dir("project") == paths.user_pack_root("project") / "exports"
+    assert paths.export_dir("project") == tmp_path / ".sumo-qa" / "exports"
+
+
+def test_export_dir_global_is_under_global_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    assert paths.export_dir("global") == paths.user_pack_root("global") / "exports"
+
+
+def test_export_dir_unknown_scope_raises(tmp_path):
+    with pytest.raises(ValueError, match="unknown scope"):
+        paths.export_dir("nope")
