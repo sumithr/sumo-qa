@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.0](https://github.com/sumithr/sumo-qa/compare/v0.37.0...v0.38.0) (2026-06-08)
+
+
+### Features
+
+* **skills:** implementing-with-tdd retrospective regression + build-artifact technique ([#101](https://github.com/sumithr/sumo-qa/issues/101)/[#184](https://github.com/sumithr/sumo-qa/issues/184)) ([#340](https://github.com/sumithr/sumo-qa/issues/340)) ([7c83ea8](https://github.com/sumithr/sumo-qa/commit/7c83ea8d4a11330a358f8e0a00deee4e6aad0656))
+
 ## [0.37.0](https://github.com/sumithr/sumo-qa/compare/v0.36.0...v0.37.0) (2026-06-08)
 
 
