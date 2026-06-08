@@ -285,6 +285,99 @@ npm run eval:view         # open the local results UI
 npm run eval:all          # run all skill-*.yaml configs sequentially
 ```
 
+### Local fallback (OpenWebUI proxy) — when you're out of OpenAI quota
+
+`run-eval.sh` adds a `SUMO_EVAL_BACKEND=local` toggle so you can keep iterating on
+a SKILL.md when the OpenAI quota is exhausted. Promptfoo talks to ONE endpoint — the
+OpenWebUI proxy (`$SUMO_OWUI_BASE`, OpenAI-compatible) — which routes each model id to
+the box that holds it (single-host tags) and applies model-level params. Only the
+candidate (`--providers`) and judge (`--grader`) are overridden; cloud is untouched.
+
+Split into two tiers so the 4090 (a personal machine) is only touched on demand:
+
+```bash
+npm run eval:local:cheap      # 4060 candidate + laptop judge — NEVER the 4090
+npm run eval:local:reasoning  # laptop candidate + 4090 judge — gpt-5-mini files, uses the 4090
+npm run eval:local:quality    # laptop candidate + 4090 judge — ALL skills, uses the 4090
+```
+
+> **NOT merge-authoritative.** Local runs measure *relative* movement — did a
+> SKILL.md edit raise or lower the pass-rate with a **fixed** local candidate+judge
+> — not cloud parity. The merge decision always re-runs the cloud backend
+> (`npm run eval` / `eval:all`); a local lift is iteration signal only.
+
+**Multiple runs & readable reports.** Each test runs `--repeat 3` by default
+(`SUMO_EVAL_REPEAT=N npm run eval:local:cheap` to change). Every run writes an HTML + JSON
+report to `tests/evals/results/local-reports/<skill>.<tier>.html` (gitignored) — open the
+HTML for the full grid: every candidate output + judge verdict, reason and score. The CLI
+table is unreadable; use the HTML. For an interactive UI across **all** past runs (filter,
+compare two runs, diff cells) run `npm run eval:view` (= `promptfoo view`). Note: promptfoo
+exits non-zero whenever any assertion fails — that's "not 100 % green", not a harness error;
+read the pass-rate, not the exit code.
+
+We grade `message.content` only (`showThinking: false`), so a candidate can REASON
+(body-faithful discrimination) while the judge sees a clean verdict. The **cheap-tier
+judge uses _bounded_ reasoning** (`enable_thinking:false`): it still emits structured
+A/B/C analysis + a score in the output channel (~3.5 s, always a parseable verdict) —
+it just drops the unbounded `<think>` channel, which on the 9B spirals 90–140 s /
+25–40 k chars and **cannot** be capped (OWUI strips `max_tokens`; native `num_predict`
+truncates to empty; brevity directives are ignored) while returning the *same* verdict.
+It's decent enough for its job: on gpt-5.5-**separated** A0/A1 pairs it ranks A1 > A0
+~83 % and keeps the pass/fail split ~75 % (the lift signal — pair with `--repeat 3`).
+Absolute cloud agreement is only ~56 %, which is fine: this tier is a *relative* signal,
+cloud (gpt-5.5) is the merge gate. Heavyweight `<think>` grading lives in the 4090 tier.
+
+| Tier | Scope | Candidate (host) | Judge (host) | 4090? |
+|---|---|---|---|---|
+| cheap | gpt-4o-mini files | `sumo-cheap-4b` — qwen3.5:4b reasoning-off (4060) | `sumo-cheap-judge-9b` — qwen3.5:9b reasoning-off (laptop) | no |
+| reasoning | gpt-5-mini files | `sumo-rcand-9b` — qwen3.5:9b reasoning-on (laptop) | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
+| quality | **all** skills | `sumo-rcand-9b` reasoning-on (laptop) — or `sumo-rcand-14b` via `SUMO_QUALITY_CANDIDATE` | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
+
+The **quality** tier is the highest-fidelity local option — the laptop reasoning candidate +
+the bigger, different-family 4090 judge across *every* skill, for when the 4090 is free. It's
+slow (both sides reason) and uses the 4090, so it's opt-in; it's still a relative signal, not
+the merge gate. Validate its judge before relying on it: `npm run eval:validate-judge -- --judge sumo-rjudge-20b`.
+
+Override any default via the `SUMO_CHEAP_*` / `SUMO_REASON_*` env vars in `run-eval.sh`.
+Each model needs a **16k+-num_ctx variant** (`ollama create <m> --from <base>` with
+`num_ctx 16384`) — the ~14k-token skill prompts 400-error at Ollama's 4096 default.
+Tags pinned 2026-06; revisit when the hardware or Ollama version changes.
+
+### Validating the local judge (`validate-local-judge/`)
+
+A local judge is only safe to trust as a *relative* signal if it tracks the cloud
+judge's direction, discriminates a skill lift, and is repeatable — and those are per
+`(model, num_ctx, GPU, build)`. **Re-run this whenever the local judge model or
+hardware changes** (it's the executable form of "re-baseline on change"):
+
+```bash
+npm run eval:validate-judge                       # all checks, default sumo-cheap-judge-9b
+npm run eval:validate-judge -- --mode determinism --reps 5
+npm run eval:validate-judge -- --judge <model> --mode discrimination --pairs 12
+```
+
+It reads the local `~/.promptfoo/promptfoo.db` read-only, faithfully reconstructs the
+exact `llm-rubric` prompt each cloud `gpt-5.5` row was graded with (promptfoo's own
+nunjucks, via `render.js` — apples-to-apples), re-grades through OpenWebUI, and reports:
+
+- **agreement** — verdict-for-verdict vs the stored cloud verdicts + confusion matrix.
+  Expect this to be *modest* (~56 % for the 9B) — the local judge is a relative signal,
+  not a cloud clone; this number is diagnostic, not a gate.
+- **discrimination** — on gpt-5.5-**separated** A0/A1 control pairs, does it keep the
+  pass/fail split and rank A1 (skill-on) > A0? This is the fitness metric that matters.
+  Pairs are drawn only from the genuine A0/A1 control families (the A/B/C value-measurement
+  and A0/A1 control configs) and matched by each prompt's **A0/A1 label**, never inferred
+  from the verdict — so single-prompt probe configs can't be mistaken for a control pair.
+- **determinism** — re-grade identical inputs N times; verdict/score stability (at
+  temp 0 the 9B is fully deterministic, score range 0.0, which is what makes the
+  before/after delta meaningful). An **unparsable** verdict counts as a failure, not a
+  stable result — a judge that never emits valid verdict JSON can't score as deterministic.
+
+Reports land in `tests/evals/results/judge-validation/` (gitignored — process artifact,
+not tool output). Needs `~/.config/owui.env` (`OPENWEBUI_API_KEY`); Node for `render.js`.
+Reference numbers captured 2026-06 (`sumo-cheap-judge-9b`): agreement ~56 %, discrimination
+~9/12 split + ~10/12 score-rank, determinism 12/12 stable.
+
 ### Direct binary invocation (for flags not in the scripts)
 
 The local binary is at `./node_modules/.bin/promptfoo` after `npm install`.

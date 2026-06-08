@@ -9,6 +9,10 @@
   "scripts": {
     "eval": "promptfoo eval -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml --no-cache",
     "eval:all": "for f in tests/evals/promptfoo/skill-*.yaml; do case \"$f\" in *.gen.yaml) continue;; esac; promptfoo eval -c \"$f\" --no-cache; done",
+    "eval:local:cheap": "SUMO_EVAL_BACKEND=local TIER=cheap bash tests/evals/promptfoo/run-eval.sh",
+    "eval:local:reasoning": "SUMO_EVAL_BACKEND=local TIER=reasoning bash tests/evals/promptfoo/run-eval.sh",
+    "eval:local:quality": "SUMO_EVAL_BACKEND=local TIER=quality bash tests/evals/promptfoo/run-eval.sh",
+    "eval:validate-judge": "bash tests/evals/promptfoo/validate-local-judge/run.sh",
     "eval:generate": "promptfoo generate dataset -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml --write",
     "eval:view": "promptfoo view"
   },
