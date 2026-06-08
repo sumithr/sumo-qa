@@ -22,6 +22,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import sys
 import tempfile
@@ -153,7 +154,9 @@ def _dest_path(kind: str, dest_name: str, scope: str) -> Path:
     return paths.standards_packs_dir(scope) / dest_name
 
 
-def _atomic_write_via_dir_fd(dest: Path, text: str) -> None:
+def _atomic_write_via_dir_fd(
+    dest: Path, text: str
+) -> None:  # pragma: no cover -- platform-conditional (POSIX only)
     """TOCTOU-safe write used wherever the OS exposes ``*at`` syscalls.
 
     A caller validates ``dest`` against a confined root and THEN hands it here,
@@ -195,8 +198,10 @@ def _atomic_write_fallback(dest: Path, text: str) -> None:
     Windows). mkstemp creates the temp file with O_EXCL + mode 0600 and a random
     name in the dest dir, so we never follow a pre-existing (possibly symlinked)
     temp path the way a predictable ``.<name>.tmp`` + write_text would. The
-    parent-symlink TOCTOU that the dir-fd path defends against is a POSIX concern
-    and does not apply where this fallback runs."""
+    parent-symlink swap is refused cross-platform by :func:`_write_atomic`
+    (which rejects a symlinked ``dest.parent`` before dispatching here), so a
+    swapped-in parent symlink never reaches this fallback; mkstemp lacks the
+    POSIX ``O_NOFOLLOW`` race-free guarantee the dir-fd path adds on top."""
     fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=f".{dest.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
@@ -221,9 +226,22 @@ _SUPPORTS_DIR_FD_WRITE = (
 
 
 def _write_atomic(dest: Path, text: str) -> None:
+    # Refuse a symlinked parent BEFORE any mkdir/write, cross-platform. The
+    # dir-fd path enforces this race-free via O_NOFOLLOW; the Windows fallback
+    # has no such guard, so this shared check gives both platforms the same
+    # "never write through a symlinked parent" contract and closes the
+    # parent-symlink-swap TOCTOU where the dir-fd syscalls aren't available.
+    if dest.parent.is_symlink():
+        raise OSError(
+            errno.ELOOP,
+            "refusing to write through a symlinked parent directory",
+            str(dest.parent),
+        )
     dest.parent.mkdir(parents=True, exist_ok=True)
     if _SUPPORTS_DIR_FD_WRITE:
-        _atomic_write_via_dir_fd(dest, text)
+        _atomic_write_via_dir_fd(
+            dest, text
+        )  # pragma: no cover -- platform-conditional (POSIX only)
     else:
         _atomic_write_fallback(dest, text)
 
