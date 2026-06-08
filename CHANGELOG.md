@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.0](https://github.com/sumithr/sumo-qa/compare/v0.35.1...v0.36.0) (2026-06-08)
+
+
+### Features
+
+* **skills:** reviewing-before-merge verification-evidence discipline ([#332](https://github.com/sumithr/sumo-qa/issues/332)/[#321](https://github.com/sumithr/sumo-qa/issues/321)/[#331](https://github.com/sumithr/sumo-qa/issues/331), addresses [#316](https://github.com/sumithr/sumo-qa/issues/316)) ([#339](https://github.com/sumithr/sumo-qa/issues/339)) ([990351f](https://github.com/sumithr/sumo-qa/commit/990351fef8a46f830874abb578c6c6938a3b9479))
+
 ## [0.35.1](https://github.com/sumithr/sumo-qa/compare/v0.35.0...v0.35.1) (2026-06-08)
 
 
