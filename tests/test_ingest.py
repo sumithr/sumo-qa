@@ -255,14 +255,63 @@ def test_directory_ingest_skips_symlinks(tmp_path, monkeypatch):
 def test_write_atomic_cleans_up_temp_on_replace_failure(tmp_path, monkeypatch):
     dest = tmp_path / "knowledge" / "principles.md"
 
+    # The TOCTOU-safe write does its final swap via renameat (os.rename with
+    # dir fds) on POSIX, falling back to os.replace where *at syscalls are
+    # absent. Patch whichever primitive this platform uses so the cleanup-on-
+    # rename-failure contract is exercised regardless of the active code path.
+    rename_attr = "rename" if ingest._SUPPORTS_DIR_FD_WRITE else "replace"
+
+    def boom(*args, **kwargs):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(ingest.os, rename_attr, boom)
+    with pytest.raises(OSError, match="replace failed"):
+        ingest._write_atomic(dest, "body\n")
+    # No leftover temp file in the destination directory.
+    assert list(dest.parent.glob(".*tmp*")) == []
+
+
+def test_atomic_write_fallback_writes_bytes(tmp_path):
+    # The Windows / no-*at-syscall fallback isn't reached on POSIX test hosts, so
+    # exercise it directly: it must write the exact bytes atomically and leave no
+    # temp file behind on success.
+    dest = tmp_path / "knowledge" / "principles.md"
+    dest.parent.mkdir(parents=True)
+    ingest._atomic_write_fallback(dest, "body\n")
+    assert dest.read_text(encoding="utf-8") == "body\n"
+    assert list(dest.parent.glob(".*tmp*")) == []
+
+
+def test_atomic_write_fallback_cleans_up_on_replace_failure(tmp_path, monkeypatch):
+    dest = tmp_path / "knowledge" / "principles.md"
+    dest.parent.mkdir(parents=True)
+
     def boom(src, dst):
         raise OSError("replace failed")
 
     monkeypatch.setattr(ingest.os, "replace", boom)
     with pytest.raises(OSError, match="replace failed"):
-        ingest._write_atomic(dest, "body\n")
-    # No leftover temp file in the destination directory.
+        ingest._atomic_write_fallback(dest, "body\n")
+    # No leftover temp file in the destination directory, and dest never created.
     assert list(dest.parent.glob(".*tmp*")) == []
+    assert not dest.exists()
+
+
+def test_write_atomic_uses_fallback_when_no_at_syscalls(tmp_path, monkeypatch):
+    # When the platform lacks *at syscalls, _write_atomic must route through the
+    # mkstemp fallback (and still mkdir the parent + write the bytes).
+    dest = tmp_path / "knowledge" / "principles.md"
+    calls: list[Path] = []
+
+    def fake_fallback(d, text):
+        calls.append(d)
+        d.write_text(text, encoding="utf-8")
+
+    monkeypatch.setattr(ingest, "_SUPPORTS_DIR_FD_WRITE", False)
+    monkeypatch.setattr(ingest, "_atomic_write_fallback", fake_fallback)
+    ingest._write_atomic(dest, "body\n")
+    assert calls == [dest]
+    assert dest.read_text(encoding="utf-8") == "body\n"
 
 
 def test_multifile_write_rolls_back_on_oserror(tmp_path, monkeypatch):

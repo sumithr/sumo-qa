@@ -250,6 +250,17 @@
             "default": "markdown",
             "type": "string"
           },
+          "output_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "test_cases": {
             "items": {
               "additionalProperties": true,

@@ -56,11 +56,43 @@ There is **no dependency on any single external test-management vendor**, and
 **no new mandatory install dependency**: `json` and `csv` are Python standard
 library.
 
-## Side-effect free
+## Side-effect free by default
 
-The export tool **returns the rendered text; it never writes a file**. If you
-want the export on disk, your host saves the returned `content` — the tool itself
-does no file IO, so an export request can never mutate the working tree.
+By default the export tool **returns the rendered text and writes nothing**. With
+no `output_path` the tool does no file IO, so an export request can never mutate
+the working tree — your host can save the returned `content` itself.
+
+## Explicit file write (`output_path`)
+
+Issue #148 authorises one carve-out: *"Keep export commands side-effect free
+unless the user explicitly asks to write a file."* When — and only when — the
+caller supplies an explicit **`output_path`**, the **same rendered bytes** that
+`content` returns are **also** persisted to disk, and the resolved location comes
+back in `written_path` (otherwise `written_path` is `None`).
+
+The write is deliberately tight:
+
+- **Confined to the project export root.** Writes land under
+  `<cwd>/.sumo-qa/exports` (its own subdir under the user-pack root, parallel to
+  `feedback/`, never colliding with the bundled knowledge/standards/rules tiers).
+  A relative `output_path` resolves under that root.
+- **No escape.** An absolute path outside the root, or a `..` traversal (or a
+  symlink under `exports/`) that resolves outside it, is refused — nothing is
+  written.
+- **No silent overwrite.** If the target already exists the write is refused
+  rather than clobbering it; choose another `output_path` or remove the file.
+- **Atomic, validate-first.** The write happens only after a clean
+  validate+render (a bad export never leaves a partial file). On POSIX the
+  write opens the destination's parent directory and uses an `O_NOFOLLOW`
+  `openat` + `renameat` chain against that verified directory fd, so a parent
+  directory swapped for a symlink after validation (the TOCTOU race) cannot
+  redirect the write outside the export root; Windows falls back to a
+  `mkstemp` + `os.replace` swap. Either way a pre-existing symlinked target
+  name is never followed during the write.
+
+Each refusal surfaces as the same structured error envelope used elsewhere
+(`ExportValidationError` for an out-of-root path, `FileExistsError` for an
+existing target).
 
 ## Invalid requests
 

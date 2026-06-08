@@ -153,11 +153,50 @@ def _dest_path(kind: str, dest_name: str, scope: str) -> Path:
     return paths.standards_packs_dir(scope) / dest_name
 
 
-def _write_atomic(dest: Path, text: str) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    # mkstemp creates the temp file with O_EXCL + mode 0600 and a random name in
-    # the dest dir, so we never follow a pre-existing (possibly symlinked) temp
-    # path the way a predictable `.<name>.tmp` + write_text would.
+def _atomic_write_via_dir_fd(dest: Path, text: str) -> None:
+    """TOCTOU-safe write used wherever the OS exposes ``*at`` syscalls.
+
+    A caller validates ``dest`` against a confined root and THEN hands it here,
+    so there is a window in which an attacker can swap the dest's parent for a
+    symlink pointing outside the root. ``mkstemp(dir=...)`` / a plain
+    ``os.open(path)`` would follow that swapped-in symlink and write out-of-root.
+
+    Instead we open the parent directory itself with ``O_NOFOLLOW`` (refusing it
+    outright if it has become a symlink) and then create the temp file, write it,
+    and rename it into place *relative to that directory's file descriptor* with
+    ``O_NOFOLLOW | O_EXCL`` — so every step lands in the real directory we just
+    verified, never via a path that could be re-pointed between the check and the
+    open.
+    """
+    dir_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    dir_fd = os.open(dest.parent, dir_flags)
+    try:
+        # A random suffix keeps the temp name unpredictable (mkstemp-like)
+        # without re-introducing a path we'd have to re-resolve.
+        tmp_name = f".{dest.name}.{os.urandom(8).hex()}.tmp"
+        file_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        fd = os.open(tmp_name, file_flags, 0o600, dir_fd=dir_fd)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            # Rename relative to the same verified directory fd so the final
+            # swap likewise can't be redirected through a swapped-in parent
+            # symlink. POSIX rename overwrites atomically (== os.replace).
+            os.rename(tmp_name, dest.name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        except BaseException:
+            os.unlink(tmp_name, dir_fd=dir_fd)
+            raise
+    finally:
+        os.close(dir_fd)
+
+
+def _atomic_write_fallback(dest: Path, text: str) -> None:
+    """Write path for platforms without ``*at`` syscalls / ``O_NOFOLLOW`` (e.g.
+    Windows). mkstemp creates the temp file with O_EXCL + mode 0600 and a random
+    name in the dest dir, so we never follow a pre-existing (possibly symlinked)
+    temp path the way a predictable ``.<name>.tmp`` + write_text would. The
+    parent-symlink TOCTOU that the dir-fd path defends against is a POSIX concern
+    and does not apply where this fallback runs."""
     fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=f".{dest.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
@@ -167,6 +206,26 @@ def _write_atomic(dest: Path, text: str) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+# The dir-fd write needs renameat (os.rename with src/dst_dir_fd), openat
+# (os.open with dir_fd), unlinkat, plus O_NOFOLLOW/O_DIRECTORY. POSIX exposes
+# all of these; Windows exposes none — fall back there.
+_SUPPORTS_DIR_FD_WRITE = (
+    hasattr(os, "O_NOFOLLOW")
+    and hasattr(os, "O_DIRECTORY")
+    and os.open in os.supports_dir_fd
+    and os.rename in os.supports_dir_fd
+    and os.unlink in os.supports_dir_fd
+)
+
+
+def _write_atomic(dest: Path, text: str) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if _SUPPORTS_DIR_FD_WRITE:
+        _atomic_write_via_dir_fd(dest, text)
+    else:
+        _atomic_write_fallback(dest, text)
 
 
 def _unsupported(source: str, kind: str) -> dict:

@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
+from sumo_qa import paths
 from sumo_qa.capabilities import build_capabilities
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.external_skills import (
@@ -42,6 +43,7 @@ from sumo_qa.feedback_memory import (
     update_feedback as _update_feedback,
 )
 from sumo_qa.ingest import IngestValidationError, ingest_pack
+from sumo_qa.ingest import _write_atomic as _write_atomic
 from sumo_qa.knowledge_loaders import (
     load_catalogue as _load_catalogue,
 )
@@ -152,7 +154,9 @@ _HINT_EXPORT_TEST_CASES = (
     "evidence_status is one of planned/passing/failing/stale/accepted_residual. "
     "csv is only for flat outlines (<=1 precondition and <=1 step per case). "
     "Identify the cases yourself — this tool only validates and renders them, it "
-    "never infers a case. Side-effect free: it returns text, it never writes a file."
+    "never infers a case. Without output_path it is side-effect free: it returns "
+    "text and writes nothing. output_path is optional; when given it must be under "
+    "the project export root and must not overwrite an existing file."
 )
 
 
@@ -170,6 +174,41 @@ def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
             "actionable_hint": actionable_hint,
         },
     }
+
+
+def _resolve_export_target(output_path: str) -> Path:
+    """Resolve+confine a host-supplied export ``output_path`` to the project
+    export root (``<cwd>/.sumo-qa/exports``), reusing the #92 paths discipline.
+
+    A relative path resolves against the exports root; an absolute path is taken
+    as-is. After ``.resolve()`` (which collapses ``..`` and follows existing
+    symlinks) the target — and its parent — must stay within the resolved exports
+    root, else an out-of-root write is refused with a typed
+    :class:`ExportValidationError`. The caller then writes via the atomic
+    O_NOFOLLOW openat/renameat discipline (:func:`_write_atomic`) so that even if
+    the validated parent is swapped for a symlink before the write, the temp-file
+    creation and rename refuse to follow it out of root (TOCTOU-safe).
+    """
+    from sumo_qa.export_validation import ExportValidationError
+
+    exports_root = paths.export_dir("project").resolve()
+    candidate = Path(output_path)
+    if not candidate.is_absolute():
+        candidate = exports_root / candidate
+    resolved = candidate.resolve()
+    if not (
+        resolved.is_relative_to(exports_root)
+        and resolved.parent.resolve().is_relative_to(exports_root)
+    ):
+        raise ExportValidationError(
+            kind="value_error",
+            message=(
+                f"output_path resolves to {resolved} which is outside the project "
+                f"export root {exports_root}; refusing to write outside the project "
+                "export root"
+            ),
+        )
+    return resolved
 
 
 def _package_version() -> str:
@@ -1299,17 +1338,19 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             output=output,  # type: ignore[arg-type]
         )
 
-    @mcp.tool(annotations=_read_only_local)
+    @mcp.tool(annotations=_writer_local)
     def sumo_qa_export_test_cases(
         test_cases: list[dict[str, Any]],
         format: str = "markdown",
         export_title: str | None = None,
+        output_path: str | None = None,
     ) -> ExportTestCasesOutput | ErrorEnvelope:
         """Deterministically EXPORT already-structured QA test cases into one
         documented machine-readable shape (issue #148). FILE/FORMAT PLUMBING ONLY
-        — the host LLM identifies the cases; this tool never infers them, never
-        inspects a repo, and is side-effect free (it RETURNS the rendered text, it
-        never writes a file).
+        — the host LLM identifies the cases; this tool never infers them and never
+        inspects a repo. By DEFAULT it is side-effect free (it RETURNS the rendered
+        text and writes nothing); a file is persisted ONLY when an explicit
+        ``output_path`` is supplied.
 
         Each case is a dict with: ``id`` (stable within this export), ``title``,
         ``preconditions`` (ordered list, may be empty), ``steps`` (ordered list,
@@ -1330,8 +1371,19 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         ``export_title``, not ``title``, so it is distinct from each case's own
         ``title`` and survives the served-schema title-slimming pass.)
 
+        ``output_path`` (optional) is the EXPLICIT file-write carve-out. When
+        omitted (the default) nothing is written. When given, the SAME rendered
+        bytes are ALSO persisted, confined to the project export root
+        (``<cwd>/.sumo-qa/exports``): a relative path resolves under that root, an
+        absolute path or ``..`` traversal that escapes it is refused, and an
+        already-existing target is refused rather than silently overwritten. The
+        write only happens AFTER successful validation+render, so a bad export
+        never leaves a file. On a successful write ``written_path`` carries the
+        resolved absolute path (else ``None``).
+
         Returns the rendered ``content``, the chosen ``format``, the stamped
-        ``schema_version``, and the validated ``test_case_count``.
+        ``schema_version``, the validated ``test_case_count``, and ``written_path``
+        (the persisted location, or ``None`` on the default no-write path).
         """
         from sumo_qa.export_format import export_test_cases
         from sumo_qa.export_models import EXPORT_SCHEMA_VERSION
@@ -1347,17 +1399,41 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 }
             )
             content = export_test_cases(export, format)
+            written_path: str | None = None
+            if output_path is not None:
+                # Explicit file-write carve-out (#148): persist the SAME rendered
+                # bytes, confined to the project export root, only after a clean
+                # validate+render. Refuse a silent overwrite of an existing target.
+                target = _resolve_export_target(output_path)
+                if target.exists():
+                    raise FileExistsError(
+                        f"refusing to overwrite existing export at {target}; remove "
+                        "it or choose another output_path"
+                    )
+                # _write_atomic mkdir's the dest parent (within the confined
+                # root), then writes via an O_NOFOLLOW openat/renameat chain
+                # against the parent's dir fd — so even if an attacker swaps the
+                # parent for a symlink in the gap after _resolve_export_target,
+                # the write refuses to follow it out of root (TOCTOU-safe).
+                _write_atomic(target, content)
+                written_path = str(target.resolve())
             output = ExportTestCasesOutput(
                 format=format,  # type: ignore[arg-type]
                 schema_version=export.schema_version,
                 test_case_count=len(export.test_cases),
                 content=content,
+                written_path=written_path,
             )
         except Exception as exc:  # noqa: BLE001
             output = _error_envelope(exc, _HINT_EXPORT_TEST_CASES)
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_export_test_cases",
-            args={"test_cases": test_cases, "format": format, "export_title": export_title},
+            args={
+                "test_cases": test_cases,
+                "format": format,
+                "export_title": export_title,
+                "output_path": output_path,
+            },
             output=output,  # type: ignore[arg-type]
         )
 

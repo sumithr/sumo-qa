@@ -671,8 +671,11 @@ class ExportTestCasesOutput(_StrictBase):
     Pure deterministic export — the host supplies already-structured QA test
     cases, this tool validates them and renders them into one documented,
     machine-readable shape (``json`` / ``markdown`` / ``csv``). It performs NO
-    inference and is side-effect free: it returns the rendered text, it never
-    writes a file. ``markdown`` is the default human-facing shape; ``csv`` is
+    inference. By default it is side-effect free — it returns the rendered text
+    and writes nothing. When an explicit ``output_path`` is supplied the same
+    rendered bytes are ALSO persisted under the project export root and
+    ``written_path`` carries the resolved location (else ``None``). ``markdown``
+    is the default human-facing shape; ``csv`` is
     only valid for a flat outline. An unsupported format request returns an error
     envelope listing the supported formats; CSV for a non-flat export likewise.
     """
@@ -688,4 +691,12 @@ class ExportTestCasesOutput(_StrictBase):
     test_case_count: int = Field(description="Number of test cases in the validated export.")
     content: str = Field(
         description="The rendered export text (JSON document, markdown table, or CSV)."
+    )
+    written_path: str | None = Field(
+        default=None,
+        description=(
+            "Absolute path the rendered export was ALSO persisted to, when an "
+            "explicit output_path was supplied; None on the default side-effect-"
+            "free path. The written bytes equal `content`."
+        ),
     )
