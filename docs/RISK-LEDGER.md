@@ -140,6 +140,32 @@ The AC-coverage table is an **optional appendix**, appended below the risk
 ledger when the user wants the structured artifact; the markdown-first prose
 verdict (now naming any unmet/unverified criterion) is always the deliverable.
 
+## Verification-evidence discipline (issue #332, consolidating #316/#321/#331)
+
+The AC-coverage question above asks whether the change is the *right* change. A
+third question is whether the change was actually *verified*: a green per-file /
+codex review and green CI do NOT prove the changed behaviour was exercised.
+`sumo-qa-reviewing-before-merge` carries one consolidated **verification-evidence
+discipline** with four checks, each surfacing *missing relevant verification* as
+a SAFE-blocker exactly like an uncovered risk — never demoted to a residual note,
+and never cleared by weakening the verifier (only by running it correctly):
+
+| Check | Missing-evidence verdict |
+|---|---|
+| **Surface-specific verifier ran** (#332) — the changed surface's relevant verifier (promptfoo eval, fixture/parser corpus, contract test, smoke probe, generated-artifact verification) ran with the right runtime/env/key/scope/tree. Eval-surface skill changes KEEP promptfoo as the REQUIRED verifier (Node 24 + the configured key). Sibling PRs co-editing one surface require COMBINED-TREE verification — per-branch-green is not combined-green. | UNVERIFIED (surface verifier) |
+| **Primary feature flow exercised end-to-end** (#331) — the closest realistic UI/API/CLI/worker/artifact path was driven this turn, not merely a lower-level unit. Distinct from an UNMET AC; reuses the MET/UNVERIFIED boundary so a fresh path-matching test does not over-fire. | UNVERIFIED (feature flow) |
+| **A newly-added regression guard's eval exercises BOTH directions** (#316) — a "do X but NOT Y" guard is only COVERED when its eval carries a discriminating true-negative / over-trigger seed a guard-violating reviewer would FAIL. | UNCOVERED guard |
+| **An eval-driven skill change's A/B control is load-bearing** (#321) — A0 structurally cannot pass via pre-existing rules (a single A0-FAIL is variance, not isolation), and any input the rubric credits as "discriminating" must actually discriminate the seed defect. | UNPROVEN A/B control |
+
+Any of these is a SAFE-blocker → NOT SAFE TO MERGE, mirroring the uncovered-risk
+rule. All four are host-neutral. Checks (i) surface verifier and (ii) feature
+flow carry a graceful one-line fallback for when the relevant verifier surface /
+realistic path cannot be identified from the diff; checks (iii) guard coverage
+and (iv) A/B control fire only conditionally — (iii) only when the change ADDS a
+regression guard, (iv) only when an eval-driven skill change ships an A/B control
+— so they simply do not apply (no fallback line needed) when those conditions are
+absent.
+
 ## When NOT to use it
 
 - **Trivial-change reviews.** A docs typo or a one-line config tweak does not

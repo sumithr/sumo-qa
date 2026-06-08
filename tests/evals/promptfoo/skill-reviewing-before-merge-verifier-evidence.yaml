@@ -1,0 +1,283 @@
+description: >
+  Issue #332 — surface-specific verifier-evidence check for
+  sumo-qa-reviewing-before-merge. A green per-file/codex review + green CI is NOT
+  evidence that the changed behaviour was exercised: when the changed surface has
+  a relevant repo-specific verifier (promptfoo eval, fixture/parser corpus,
+  contract test, smoke probe, generated-artifact verification), SAFE requires that
+  verifier to have RUN — and run with the right runtime / env / key / scope / tree.
+  For an eval-surface skill change (a SKILL.md / promptfoo YAML edit) promptfoo is
+  the REQUIRED verifier and must have run with Node 24 + the configured OpenAI key.
+  When sibling PRs co-edit ONE behaviour surface, per-branch-green is NOT
+  combined-green — combined-tree verification is required before the set is SAFE.
+  Three seeds: (1) an eval-surface skill change whose promptfoo eval was NEVER run
+  (only per-file review + codex + CI green) → UNVERIFIED (surface verifier), NOT
+  SAFE; (2) sibling PRs co-editing the same SKILL.md, each green in isolation, no
+  combined-tree run → NOT SAFE pending combined-tree verification; (3) the eval
+  WAS run on the combined tree with Node 24 + key and passed, risks covered →
+  SAFE-eligible (true-negative / over-trigger guard — the check must NOT re-demand
+  verification that already exists).
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate treated
+      MISSING / wrong-context surface-specific verifier evidence as a SAFE-blocker
+      instead of returning SAFE on green review + green CI, AND avoided the named
+      anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response demonstrate the expected shape concretely?
+         The change touches a surface with a relevant repo-specific verifier. A
+         green per-file review, a green codex pass, and green CI are NOT evidence
+         the changed behaviour was exercised. The candidate MUST recognise that
+         the relevant verifier was not run (or was run with the wrong
+         runtime/env/key/scope/tree, or only per-branch when siblings co-edit one
+         surface) and treat that as a SAFE-blocker — UNVERIFIED (surface verifier)
+         / NOT SAFE — naming the specific verifier and what is missing (e.g. the
+         promptfoo eval was never run with Node 24 + the key; no combined-tree
+         run). For the SAFE-eligible seed (the verifier DID run on the combined
+         tree with the right runtime + key and passed, risks covered), the
+         candidate MUST treat the verification as discharged and NOT re-demand it.
+         SHAPE FAILS if ANY of these hold:
+           - (missing-verifier / combined-tree seed) it declares SAFE TO MERGE on
+             the strength of green review / green codex / green CI without the
+             surface-specific verifier having run correctly;
+           - it never names the relevant verifier (promptfoo eval / fixture corpus
+             / contract test) or what makes its evidence missing/wrong-context;
+           - (combined-tree seed) it accepts per-branch-green as sufficient and
+             does not require a combined-tree run;
+           - it tries to clear the blocker by weakening / skipping the verifier or
+             loosening the rubric rather than running it correctly;
+           - (SAFE-eligible seed) it re-blocks an already-correctly-run-and-passed
+             verifier as still UNVERIFIED, or demands a redundant re-run.
+
+      B. GROUNDING - does the response visibly use the supplied context? It must
+         cite the changed surface (the SKILL.md / eval file), the specific verifier
+         that applies, and the concrete gap (never run / wrong runtime / no key /
+         per-branch-only) OR, for the SAFE seed, the cited combined-tree run with
+         Node 24 + key and its pass counts. Narrating a generic verdict without
+         naming the verifier and the gap -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, prior review gates, and fresh verification evidence for
+    this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass verdict. Deliver the verdict
+    in this one turn — no confirmation question. Keep the response concise and
+    evidence-led.
+tests:
+  - description: SEED missing-verifier — eval-surface skill change with green review + codex + CI, no promptfoo run; risk gate CLOSED (no independently-uncovered risk)
+    vars:
+      user_prompt: >-
+        Is this safe to merge? Per-file review came back clean, codex was clean,
+        and CI is fully green.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff edits one file —
+        skills/sumo-qa-reviewing-before-merge/SKILL.md — adding a new
+        external-contract risk class to the discovery sweep (a behaviour change
+        to how the skill grades reviews). It also adds a new promptfoo eval,
+        tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml,
+        with two seeds covering the fire and discharge directions of the new
+        branch.
+        Risk gate: completed and CLOSED. The developer walked the discovery sweep
+        and confirmed there is NO independently-uncovered named risk on this diff:
+        the new external-contract branch is fully described, the new eval ships
+        with seeds for both directions of the new branch, and there is no other
+        risk surface (no runtime source file, no schema change, no rollback path).
+        The only open question is whether the change was actually VERIFIED.
+
+        ## git diff
+        ```diff
+        diff --git a/skills/sumo-qa-reviewing-before-merge/SKILL.md b/skills/sumo-qa-reviewing-before-merge/SKILL.md
+        @@ +47 lines: new external-contract probe + coverage-ledger rule @@
+        diff --git a/tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml b/...
+        @@ +120 lines: new eval, two seeds @@
+        ```
+
+        ## Verification evidence available this turn
+        - Per-file sumo-qa review of the SKILL.md diff: SAFE.
+        - Codex adversarial pass: clean.
+        - CI: all required checks green (lint, pytest, token-budget).
+        (That is the complete record of verification performed for this change.)
+      expected_shape: >-
+        Evidence-led verdict that, BECAUSE this is an eval-surface skill change,
+        identifies the promptfoo eval
+        skill-reviewing-before-merge-external-contract.yaml as the REQUIRED
+        verifier of the changed grading behaviour, and observes that the complete
+        verification record (green per-file review + green codex + green CI) shows
+        NO promptfoo run with Node 24 + the configured OpenAI key — the lint /
+        pytest / token-budget CI checks do not exercise the changed grading
+        behaviour. Classifies it UNVERIFIED (surface verifier) and delivers NOT
+        SAFE TO MERGE pending the promptfoo eval running correctly. Names the
+        unrun eval ITSELF (the ground-truth context does not pre-name it as
+        unrun). Ends without a confirmation question.
+      anti_patterns:
+        - Declares SAFE TO MERGE on the strength of green per-file review / codex / CI.
+        - Treats the green CI checks (lint / pytest / token-budget) as covering the changed grading behaviour.
+        - Never identifies the promptfoo eval as the required verifier whose run is absent from the record.
+        - Reaches NOT SAFE only via a generic uncovered-risk claim rather than the surface-verifier-must-have-run precondition.
+        - Proposes clearing the blocker by skipping the eval or loosening the rubric instead of running the eval.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
+  - description: SEED combined-tree — sibling PRs co-edit the same SKILL.md, each green in isolation, no combined-tree verifier run
+    vars:
+      user_prompt: >-
+        Is this batch of three PRs safe to merge? Each one's eval passed 3/3 on
+        its own branch.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. THREE sibling PRs each edit the SAME behaviour
+        surface — skills/sumo-qa-reviewing-before-merge/SKILL.md — with additive
+        grading guidance (PR #312 adds a test_change probe, #313 adds an
+        external-contract risk class, #314 adds an AC-coverage check). They are
+        proposed to merge as a batch.
+        Risk gate: completed. The developer confirmed:
+        R1 — the three additions enlarge the same discovery/UNPROVEN-escalation
+        surface; one addition's guidance can over-pressure another's
+        (cross-interference), changing the verdict on a seed only when all three
+        are present together.
+
+        ## git diff (summary)
+        ```diff
+        # All three branches touch skills/sumo-qa-reviewing-before-merge/SKILL.md
+        # in overlapping sections (the step-4 discovery sweep + the step-9 ledger).
+        ```
+
+        ## Verification evidence available this turn
+        - PR #312 branch: promptfoo eval ran with Node 24 + key, 3/3.
+        - PR #313 branch: promptfoo eval ran with Node 24 + key, 3/3.
+        - PR #314 branch: promptfoo eval ran with Node 24 + key, 3/3.
+        - The COMBINED tree (all three merged together) has NOT been built and
+          the evals have NOT been run against it. No combined-tree promptfoo run
+          exists.
+      expected_shape: >-
+        Evidence-led verdict that recognises the three sibling PRs co-edit ONE
+        behaviour surface (the same SKILL.md, overlapping sections), so
+        per-branch-green is NOT combined-green: the additive guidance can
+        cross-interfere only when all three are present together, and no
+        combined-tree promptfoo run exists. Requires the verifier to have run on
+        the COMBINED tree (with Node 24 + key) before the set is SAFE; delivers
+        NOT SAFE TO MERGE pending that combined-tree verification. Ends without a
+        confirmation question.
+      anti_patterns:
+        - Declares the batch SAFE because each branch's eval passed 3/3 in isolation.
+        - Treats per-branch-green as equivalent to combined-tree-green for PRs co-editing one surface.
+        - Never requires a combined-tree verifier run before SAFE.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
+  - description: SEED discharged — eval ran on the combined tree with Node 24 + key and passed, risks covered, must NOT re-demand verification
+    vars:
+      user_prompt: >-
+        Is this safe to merge? I ran the combined-tree eval already.
+      ground_truth_context: |
+        ## Prior review gates
+        Scope gate: completed. The diff edits
+        skills/sumo-qa-reviewing-before-merge/SKILL.md (a behaviour change to the
+        grading discipline) plus its promptfoo eval. This is the combined tree of
+        a small batch that co-edits this one file.
+        Risk gate: completed. The developer confirmed:
+        R1 — the grading-behaviour change is only observable via the promptfoo
+        eval that exercises it.
+
+        ## git diff
+        ```diff
+        diff --git a/skills/sumo-qa-reviewing-before-merge/SKILL.md b/...
+        @@ combined additive grading guidance @@
+        diff --git a/tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml b/...
+        @@ seeds for the changed branch @@
+        ```
+
+        ## Verification evidence available this turn
+        ```text
+        # Combined tree, Node 24 + configured OpenAI key, run THIS turn:
+        $ nvm use 24 && source ~/.config/promptfoo-keys.env
+        $ ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml --no-cache
+        Successes: 3   Failures: 0   (3/3)
+        ```
+        R1 is covered: the seed that exercises the changed grading branch passes
+        on the combined tree. CI green; pytest green (412 passed).
+      expected_shape: >-
+        Evidence-led verdict that treats the surface verifier as DISCHARGED: the
+        promptfoo eval ran on the COMBINED tree with Node 24 + the configured key
+        THIS turn and passed 3/3, exercising the changed grading branch, and R1
+        is covered. Delivers SAFE TO MERGE (or SAFE-eligible), citing the
+        combined-tree run command, the 3/3 result, and the green suite — and does
+        NOT re-demand verification that already exists or invent a missing-verifier
+        blocker. Lists residual concerns. Ends without a confirmation question.
+      anti_patterns:
+        - Re-blocks the change as UNVERIFIED (surface verifier) despite a cited combined-tree run with Node 24 + key passing 3/3.
+        - Demands a redundant re-run of an eval that already ran correctly on the combined tree this turn.
+        - Invents a speculative missing-verifier blocker the evidence already discharges.
+        - Ignores the cited combined-tree promptfoo run when reasoning about verification.
+        - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).

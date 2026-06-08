@@ -251,6 +251,85 @@ source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-runtime-scope.ab.yaml --no-cache
 ```
 
+## Verification-evidence corpus (issue #332, consolidating #316/#321/#331)
+
+Four configs grade ONE consolidated discipline added to
+`sumo-qa-reviewing-before-merge`: a green per-file/codex review + green CI is NOT
+evidence that the *changed behaviour* was exercised — the relevant
+surface-specific verifier (and the right one, run correctly) must have run. All
+four route through the same step-9 "Verification-evidence discipline" block, its
+Verdict-format item 8 lines, and the step-10(e) SAFE-blocker. Each carries a
+must-flag (NOT SAFE) seed AND a true-negative (SAFE-eligible) seed; the
+`.ab.yaml` controls prove the new text is load-bearing (A0 = pre-edit body FAILs,
+A1 = post-edit body PASSes). Candidate `gpt-5-mini`, judge `gpt-5.5`.
+
+```bash
+source ~/.config/promptfoo-keys.env
+for c in verifier-evidence guard-coverage eval-validity feature-flow; do
+  ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-$c.yaml --no-cache
+done
+# load-bearing controls (.ab.yaml for the checks that carry one)
+for c in verifier-evidence eval-validity feature-flow; do
+  ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-$c.ab.yaml --no-cache
+done
+```
+
+- **`skill-reviewing-before-merge-verifier-evidence.yaml` + `.ab.yaml` (#332).**
+  When the changed surface has a relevant repo-specific verifier (promptfoo eval,
+  fixture/parser corpus, contract test, smoke probe, generated-artifact
+  verification), SAFE requires that verifier to have RUN with the right
+  runtime/env/key/scope/tree. Eval-surface skill changes KEEP promptfoo as the
+  REQUIRED verifier (Node 24 + the configured key). When sibling PRs co-edit ONE
+  surface, per-branch-green is NOT combined-green — combined-tree verification is
+  required (the #332 dogfood: external-contract 3/3 per-branch → 1/3 combined).
+  Three seeds: an unrun-eval skill change with a CLOSED risk gate and no pre-named
+  unrun eval — IDENTIFYING the required-but-unrun verifier is the discriminating
+  behaviour (→ UNVERIFIED (surface verifier), NOT SAFE), sibling PRs with no
+  combined-tree run (→ NOT SAFE pending combined-tree), and a discharged
+  combined-tree run (→ SAFE-eligible, over-trigger guard). The `.ab.yaml` runs the
+  unrun-eval seed against `fixtures/reviewing-before-merge-PRE-332.SKILL.md` (A0,
+  no verification-evidence block, no generic uncovered-risk hook → SAFE on green
+  CI = FAIL) vs the post-#332 body (A1 → NOT SAFE = PASS).
+- **`skill-reviewing-before-merge-guard-coverage.yaml` (#316).** When a change
+  ADDS a regression guard / bidirectional "do X but NOT Y" rule, "the guard is
+  described" is NOT "the guard is tested": its eval must carry a discriminating
+  true-negative / over-trigger seed a guard-violating reviewer would FAIL. A
+  one-sided (positive-only) eval leaves the guard UNCOVERED, a SAFE-blocker,
+  mirroring uncovered-risk → NOT SAFE and the #255 vacuous-test probe. Two seeds:
+  a one-sided over-trigger guard (only external-output seeds, no internal-value
+  true-negative → guard UNCOVERED, NOT SAFE) and the same guard with a
+  discriminating internal/self-produced true-negative seed (→ COVERED,
+  SAFE-eligible).
+- **`skill-reviewing-before-merge-eval-validity.yaml` + `.ab.yaml` (#321).** When
+  a SKILL.md edit ships a new/changed A/B "load-bearing" eval, probe the eval's
+  OWN validity: A0 must be structurally INCAPABLE of passing via pre-existing
+  rules (a single A0-FAIL is variance, not isolation; a lift explainable by a
+  pre-existing rule is UNPROVEN), AND apply the 2b rule to the RUBRIC — a credited
+  "discriminating" input must actually discriminate the seed defect. Two seeds: a
+  non-load-bearing A/B (A0 passes via the pre-existing generic 2b rule + rubric
+  credits `~~~`/unclosed-at-EOF, non-discriminating for the char-stored bug → NOT
+  SAFE) and a genuinely load-bearing A/B (A0 cannot reach PASS, 3/3 deterministic;
+  rubric credits only the variable-length nested fence → SAFE-eligible). The
+  `.ab.yaml` runs the non-load-bearing seed against
+  `fixtures/reviewing-before-merge-PRE-321.SKILL.md` (A0, no eval-validity probe →
+  accepts the lift at face value = FAIL) vs the post-#321 body (A1 = PASS).
+- **`skill-reviewing-before-merge-feature-flow.yaml` + `.ab.yaml` (#331).** Even
+  with NO supplied AC, a change whose primary FEATURE FLOW (the closest realistic
+  UI/API/CLI/worker/artifact path) was never driven end-to-end this turn — only a
+  lower-level unit ran — is UNVERIFIED (feature flow), a SAFE-blocker DISTINCT
+  from an UNMET AC (#314). Reuse the MET/UNVERIFIED boundary: no over-fire when a
+  fresh path-matching test genuinely drives the flow. The feature flow is a CLI
+  export-artifact path (`qa export --format csv` writing a report file),
+  deliberately DIFFERENT from the retry-on-5xx / backoff-delay flow the pre-edit
+  body already exemplifies in its AC worked contrast. Two seeds: the CSV-export
+  feature whose only fresh test is a `_row_to_csv` formatter unit (the CLI command
+  + written artifact never driven → UNVERIFIED (feature flow), NOT SAFE) and the
+  same feature with a fresh end-to-end test invoking the CLI command and asserting
+  the written CSV file (→ VERIFIED, SAFE-eligible). The `.ab.yaml` runs the
+  unexercised seed against `fixtures/reviewing-before-merge-PRE-332.SKILL.md` (A0,
+  no feature-flow check, no AC supplied → SAFE on the green formatter unit = FAIL)
+  vs the post-#332 body (A1 → NOT SAFE = PASS).
+
 ## How to run
 
 ### One-time setup
@@ -537,6 +616,12 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `fixtures/reviewing-before-merge-PRE-296.SKILL.md` | Snapshot of the pre-#296 SKILL.md body, the A0 control leg for the fence-parser `.ab.yaml` |
 | `skill-reviewing-before-merge-runtime-scope.ab.yaml` | Issue #300 A0(pre-edit)/A1(post-edit) load-bearing control for the behaviour-not-path runtime-scope rule (see "Runtime-scope corpus" above) |
 | `fixtures/reviewing-before-merge-PRE-300.SKILL.md` | Snapshot of the pre-#300 SKILL.md body, the A0 control leg for the runtime-scope `.ab.yaml` |
+| `skill-reviewing-before-merge-verifier-evidence.yaml` + `.ab.yaml` | Issue #332 surface-specific verifier-evidence corpus (3 seeds: unrun eval with a CLOSED risk gate, the unrun eval NOT pre-named → NOT SAFE, no combined-tree run → NOT SAFE, discharged combined-tree run → SAFE-eligible) + A0(pre-edit)/A1(post-edit) load-bearing control (see "Verification-evidence corpus" above) |
+| `fixtures/reviewing-before-merge-PRE-332.SKILL.md` | Snapshot of the pre-#332 SKILL.md body, the shared A0 control leg for the verifier-evidence and feature-flow `.ab.yaml` controls |
+| `skill-reviewing-before-merge-guard-coverage.yaml` | Issue #316 regression-guard coverage corpus (2 seeds: one-sided over-trigger guard → UNCOVERED, NOT SAFE; two-sided guard with a discriminating internal-value true-negative → COVERED, SAFE-eligible) |
+| `skill-reviewing-before-merge-eval-validity.yaml` + `.ab.yaml` | Issue #321 eval-validity probe (2 seeds: non-load-bearing A/B + non-discriminating credited input → NOT SAFE; structurally-isolating A/B with only discriminating inputs → SAFE-eligible) + A0(pre-edit)/A1(post-edit) load-bearing control |
+| `fixtures/reviewing-before-merge-PRE-321.SKILL.md` | Snapshot of the pre-#321 SKILL.md body, the A0 control leg for the eval-validity `.ab.yaml` |
+| `skill-reviewing-before-merge-feature-flow.yaml` + `.ab.yaml` | Issue #331 primary feature-flow evidence corpus (2 seeds: CSV-export CLI feature with only a `_row_to_csv` formatter unit → UNVERIFIED (feature flow), NOT SAFE; fresh end-to-end test invoking the CLI command + asserting the written CSV → VERIFIED, SAFE-eligible) + A0(pre-#332)/A1(post-#332) load-bearing control on the unexercised seed |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
