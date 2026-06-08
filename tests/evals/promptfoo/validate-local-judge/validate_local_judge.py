@@ -311,12 +311,13 @@ def ab_arm(label):
     """Map a prompt LABEL to its control arm by reading prompt IDENTITY, never the verdict.
     'A0 — no skill, no catalogues' -> 'A0'; 'A1 - post-296 body (new)' -> 'A1'. Returns None
     for the 'B — full skill' arm and for single-prompt probe configs (whose 'label' is the raw
-    prompt text), so only genuine A0/A1 arms can be paired."""
+    prompt text), so only genuine A0/A1 arms can be paired. The arm digit must be followed by a
+    non-alphanumeric boundary (space/dash/em-dash) or end-of-label, so 'A10' or 'A0probe' do
+    NOT match the 'A1'/'A0' arms."""
     head = (label or "").strip().upper()
-    if head.startswith("A0"):
-        return "A0"
-    if head.startswith("A1"):
-        return "A1"
+    arm = head[:2]
+    if arm in ("A0", "A1") and (len(head) == 2 or not head[2].isalnum()):
+        return arm
     return None
 
 
