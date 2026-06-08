@@ -103,6 +103,55 @@ and runs a converter skill to turn the source into markdown (the converter owns
 any URL fetch), then re-ingests the result with an explicit `--type` /
 `content_type`. Don't transcribe the source by hand.
 
+## Review feedback memory
+
+A team can promote a recurring review lesson — *"we always miss timezone
+boundaries in billing"* — into an explicit, inspectable, reversible **review
+feedback memory** that the planning and review skills consult as an **advisory
+hint**. It is deliberately not automatic learning: nothing is saved without an
+explicit, user-confirmed capture, and sumo-qa never auto-captures from a review,
+prompt, or tool trace.
+
+**Storage reuses the same `project`/`global` pack location as ingestion** (it is
+*not* a second hidden tree) under a `feedback/` subdir:
+
+- **`project`** → `<cwd>/.sumo-qa/feedback/review_feedback.yaml` — this repo only.
+- **`global`** → the user data dir (`$XDG_DATA_HOME/sumo-qa/feedback/…`, else
+  `~/.local/share/sumo-qa/feedback/…`; `%LOCALAPPDATA%\sumo-qa\feedback\…` on
+  Windows) — every repo.
+
+**Each saved item carries** `scope` (where the lesson applies), `trigger_signal`
+(the change shape that should surface it), `recommended_probe` (the QA check to
+run), `source_note` (your own short summary of where the lesson came from), and
+`last_reviewed` (an ISO-8601 timestamp, defaulted to now).
+
+**Advisory precedence.** Feedback memory is *not* one of the
+knowledge/standards/rules loader tiers, so it can never shadow a canonical
+catalogue. The skills cite a memory-derived probe **separately** from the
+bundled ISTQB principles, techniques, and change-rules, and it **never overrides
+a classification or change-rule**. The only way team content gains canonical
+authority is the `sumo_qa_ingest_knowledge_pack` path above (a #92 custom pack).
+
+**Sensitive input is rejected, not stored.** A free-text field that looks like a
+raw diff hunk, a secret/credential, a code snippet, or a pasted full issue/PR
+body fails validation and **nothing is written** — only your own summary is kept.
+
+**In conversation** (the MCP tool): *"remember that we always miss timezone
+boundaries in billing"* → the agent calls `sumo_qa_capture_review_feedback`
+after confirming with you. *"what review lessons have we saved?"* lists them.
+
+**Inspect and remove** (the console script — capture goes through a host that can
+confirm with you, so the CLI exposes only listing and deletion):
+
+```bash
+sumo-qa-feedback list                          # all saved lessons (this repo + global), as JSON
+sumo-qa-feedback list --scope project          # this repo only
+sumo-qa-feedback list --scope global           # cross-repo lessons only
+sumo-qa-feedback delete <id> --scope project   # remove a saved lesson by id
+```
+
+To wipe a scope entirely, delete its `feedback/review_feedback.yaml` file.
+
 ## Debugging
 
 ```json

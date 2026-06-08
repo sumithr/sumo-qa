@@ -146,6 +146,14 @@ Add or replace team QA knowledge/standards/rules at runtime, without cloning the
 |---|---|
 | `sumo_qa_ingest_knowledge_pack(source, scope, content_type?)` | Validate + materialize a native pack; non-native sources (PDF/PPTX/URL) return an `unsupported_source` result routing through the `sumo-qa-suggesting-external-skill` flow to convert + re-ingest |
 
+## Review feedback memory
+
+An explicit, user-confirmed, reversible memory of recurring QA review findings that the planning/review skills consult as **advisory hints** — never automatic learning. Reuses the same `project`/`global` pack location as ingestion (under a `feedback/` subdir), so it is not a second hidden tree; it is *not* a loader tier, so it never shadows a canonical catalogue, and a memory-derived probe is cited separately from bundled ISTQB/rules content and never overrides a classification or change-rule. Sensitive input (raw diff/secret/code/full issue body) is rejected — only the user's own summary is stored. Listing and deletion are also exposed as the `sumo-qa-feedback` console script. See [CONFIGURATION.md](CONFIGURATION.md#review-feedback-memory).
+
+| Tool | Purpose |
+|---|---|
+| `sumo_qa_capture_review_feedback(action, entry?, entry_id?, scope?)` | `action='capture'\|'update'\|'delete'\|'list'` over the local feedback memory. capture/update need an `entry` with `scope`, `trigger_signal`, `recommended_probe`, `source_note` (+ optional `last_reviewed`); nothing persists without an explicit user-confirmed capture; sensitive input is rejected |
+
 ## External-skill lifecycle
 
 When no native sumo-qa fit is found, `sumo-qa-suggesting-external-skill` searches, installs, and executes external skills through sumo-qa MCP tools:

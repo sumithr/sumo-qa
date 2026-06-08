@@ -1,0 +1,216 @@
+disableVarExpansion: true
+description: >
+  Issue #145 — A0/A1 control proving the review-feedback-memory advisory-hints
+  NOTE in sumo-qa-reviewing-before-merge is LOAD-BEARING. The SAME memory-PRESENT
+  seed (a billing-day timezone diff whose ONLY fresh test asserts a midday UTC
+  instant — nothing exercises the 23:59 -> 00:00 local rollover or DST — plus a
+  trigger-matched SAVED REVIEW FEEDBACK block recommending exactly that rollover
+  probe) runs against the PRE-EDIT (origin/main) SKILL.md body (A0) and the
+  post-#145 body (A1). The candidate prompt is NEUTRAL — final-turn verdict
+  framing only, "the loaded skill governs whether and how to use" the saved-
+  feedback block — so the ONLY source of the advisory-hint / map-as-coverage-
+  ledger-risk / never-override / never-auto-capture behaviour is the loaded skill
+  body. The pre-#145 body runs the discovery sweep + coverage ledger but has NO
+  review-feedback-memory note, so A0 has no instruction to consult the saved
+  lesson: it grades the diff on the green-but-non-covering test and the named
+  diff risks alone, does not pull the rollover/DST probe into the ledger as an
+  uncovered SAFE-blocker, and can wave the change through (or omit the advisory
+  hint entirely) — a SHAPE FAIL under the rubric. A1 (the post-#145 body) consults
+  the matched lesson as a SEPARATE advisory hint, maps the rollover/DST risk
+  through the coverage ledger as UNCOVERED (the fresh test only feeds the midday
+  case), and reaches NOT SAFE TO MERGE without inventing or auto-capturing — a
+  PASS. The A0(FAIL) -> A1(PASS) lift isolates the #145 behaviour. A0 body is
+  snapshotted at fixtures/reviewing-before-merge-PRE-145.SKILL.md (= origin/main
+  before the #145 commit); refresh it if the baseline moves.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content_old: file://fixtures/reviewing-before-merge-PRE-145.SKILL.md
+    expected_shape: >-
+      Final-turn evidence-led merge review verdict. Because the supplied context
+      carries a SAVED REVIEW FEEDBACK block whose trigger matches this billing-day
+      timezone diff, the candidate consults it as an ADVISORY hint that sharpens
+      the discovery sweep — surfaced SEPARATELY (clearly labelled advisory /
+      distinct from bundled ISTQB/rules) and mapped as an ordinary named risk
+      through the coverage ledger. The 23:59 -> 00:00 local rollover / DST risk is
+      UNCOVERED (the only fresh test asserts a midday UTC instant), so it is a
+      SAFE-blocker like any other and the verdict is NOT SAFE TO MERGE. The hint
+      never overrides the canonical classification or a change-rule, and the
+      candidate does not auto-capture a new lesson. Ends without a confirmation
+      question.
+    anti_patterns:
+      - Treating the saved review lesson as a canonical rule / classification
+        override or a hard authority rather than an advisory hint mapped like any
+        other named risk.
+      - Ignoring the saved review lesson entirely — not surfacing the rollover/DST
+        probe or not mapping it as a risk through the coverage ledger.
+      - Auto-capturing / claiming to save a new review lesson from this verdict turn.
+      - Declaring SAFE TO MERGE while the hint-derived rollover/DST risk is
+        uncovered by the fresh test evidence.
+      - Asking another confirmation question instead of delivering the verdict.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate consulted the
+      trigger-matched SAVED REVIEW FEEDBACK as a SEPARATE ADVISORY hint, mapped the
+      uncovered rollover/DST risk through the coverage ledger as a SAFE-blocker,
+      and reached NOT SAFE TO MERGE — without overriding the canonical rules,
+      inventing, or auto-capturing. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response deliver an evidence-led verdict gated on green
+         tests + covered risks, ending without a confirmation question? It must
+         surface the matched saved lesson as a SEPARATE advisory hint and map the
+         23:59 -> 00:00 rollover / DST risk as an ordinary named risk through the
+         coverage ledger, marked UNCOVERED (the only fresh test asserts a midday
+         UTC instant), and therefore reach NOT SAFE TO MERGE. IGNORING the saved
+         lesson (no advisory hint, rollover/DST risk not mapped) OR declaring SAFE
+         while that risk is uncovered is a SHAPE FAIL.
+
+      B. GROUNDING - the response must reference the diff + the fresh test run
+         (note that only a midday UTC instant is asserted). The advisory hint must
+         trace to the supplied SAVED REVIEW FEEDBACK block (same trigger — timezone
+         / day-boundary in invoicing). Narrating without the supplied context ->
+         GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - label: 'A0 - PRE-145 body (control, expected FAIL)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_old}}
+      --- END SKILL ---
+
+      Repository diff, prior review gates, fresh verification evidence, and (when
+      present) the team's SAVED REVIEW FEEDBACK memory for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill. This is the final verdict turn: no confirmation gate,
+      deliver the verdict. The context may include a SAVED REVIEW FEEDBACK block —
+      the loaded skill governs whether and how to use it. Keep the response concise
+      and evidence-led.
+  - label: 'A1 - post-145 body (new, expected PASS)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_new}}
+      --- END SKILL ---
+
+      Repository diff, prior review gates, fresh verification evidence, and (when
+      present) the team's SAVED REVIEW FEEDBACK memory for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      Apply the loaded skill. This is the final verdict turn: no confirmation gate,
+      deliver the verdict. The context may include a SAVED REVIEW FEEDBACK block —
+      the loaded skill governs whether and how to use it. Keep the response concise
+      and evidence-led.
+tests:
+  - description: memory PRESENT and trigger-matched, hint-risk uncovered — advisory hint + NOT SAFE must come from the loaded skill, not the prompt
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns (NOT shown): you read the diff, named the risks, the user
+        confirmed them, and you ran the suite. This is the FINAL TURN — produce
+        the verdict. No more confirmation gates.
+
+        ## git diff
+        ```diff
+        diff --git a/billing/invoice_day.py b/billing/invoice_day.py
+        @@ billing/invoice_day.py:1-3 @@
+        +1 def billing_day(subscription, now):
+        +2     local = now.astimezone(subscription.tz)
+        +3     return local.date()
+        ```
+
+        diff --git a/tests/billing/test_invoice_day.py b/tests/billing/test_invoice_day.py
+        @@ +1 def test_billing_day_uses_local_date():
+        @@ +2     assert billing_day(sub(tz="UTC"), at("2026-03-01T10:00:00Z")) == date(2026, 3, 1)
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/billing/test_invoice_day.py -q
+        tests/billing/test_invoice_day.py::test_billing_day_uses_local_date PASSED
+        40 passed, 1 skipped in 1.84s
+        ```
+        Note: the only fresh test asserts a midday UTC instant; nothing exercises
+        the 23:59 -> 00:00 local rollover or DST.
+
+        ## SAVED REVIEW FEEDBACK
+        - scope: billing service
+          trigger_signal: any change touching timezone or day-boundary logic in invoicing
+          recommended_probe: boundary value analysis on the 23:59 -> 00:00 local day rollover across DST
+          source_note: we shipped two off-by-one-day invoice bugs last quarter
+          last_reviewed: 2026-03-01T09:00:00Z

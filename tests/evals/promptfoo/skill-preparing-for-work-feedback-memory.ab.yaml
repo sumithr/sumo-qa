@@ -1,0 +1,255 @@
+disableVarExpansion: true
+description: >
+  Issue #145 — A0/A1 control proving the review-feedback-memory advisory-hints
+  NOTE in sumo-qa-preparing-for-work is LOAD-BEARING. The SAME memory-PRESENT
+  seed (a billing-day timezone change with a trigger-matched SAVED REVIEW
+  FEEDBACK block) runs against the PRE-EDIT (origin/main) SKILL.md body (A0) and
+  the post-#145 body (A1). The candidate prompt is NEUTRAL — it spells out the
+  output-format scaffold and a generic "consult any supplied team context to
+  sharpen risks; the loaded skill governs HOW", but it does NOT spell out the
+  advisory-hint / never-override / never-auto-capture / never-invent contract
+  that the rubric grades. So the ONLY source of that behaviour is the loaded
+  skill body. The pre-#145 body carries the surface-signal rule but NOT the
+  review-feedback-memory note, so A0 either ignores the saved-feedback block, or
+  folds it in without surfacing it SEPARATELY as an advisory hint tied to a named
+  risk — a SHAPE FAIL under the rubric. A1 (the post-#145 body) carries the note,
+  so it surfaces the matched lesson as a SEPARATE advisory hint anchored to a
+  named risk, never as an override, and does not auto-capture — a PASS. The
+  A0(FAIL) -> A1(PASS) lift isolates the #145 behaviour. A0 body is snapshotted at
+  fixtures/preparing-for-work-PRE-145.SKILL.md (= origin/main before the #145
+  commit); refresh it if the baseline moves.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content_new: file://../../../skills/sumo-qa-preparing-for-work/SKILL.md
+    skill_content_old: file://fixtures/preparing-for-work-PRE-145.SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+    expected_shape: >-
+      Risk-shaped QA prep brief. Because the supplied context carries a SAVED
+      REVIEW FEEDBACK block whose trigger matches this billing-day timezone change,
+      the candidate consults it as an ADVISORY HINT that sharpens a named risk —
+      surfaced SEPARATELY (e.g. labelled "advisory hint from saved review
+      feedback" or clearly distinct from the loaded ISTQB/techniques/rules) and
+      anchored to the change (the day-boundary / DST rollover risk). The hint
+      never overrides a canonical classification or change-rule. The candidate
+      does NOT auto-capture or claim to save a new lesson.
+    anti_patterns:
+      - Treating the saved review lesson as a hard blocker, a canonical rule, or
+        an override of the change classification rather than an advisory hint.
+      - Folding the saved lesson silently into the risks WITHOUT surfacing it as a
+        SEPARATE advisory hint distinct from the loaded catalogues.
+      - Auto-capturing / claiming to save a new review lesson from this prep turn.
+      - Surfacing literal taxonomy labels such as business_logic_change.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate surfaced the
+      trigger-matched SAVED REVIEW FEEDBACK as a SEPARATE ADVISORY hint that
+      sharpens a named risk (never as an authority/override, never invented, never
+      auto-captured). Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response name 3+ anchored risks for the change AND
+         surface the matched saved lesson as a SEPARATE advisory hint that
+         sharpens a risk (clearly distinguished from the loaded
+         ISTQB/techniques/rules — e.g. an "advisory hint from saved review
+         feedback" line or equivalently explicit separation), NOT as a hard
+         blocker / canonical rule / classification override, and NOT silently
+         merged into the risk list with no separation? Silently folding the lesson
+         in with no separation, or ignoring it, is a SHAPE FAIL.
+
+      B. GROUNDING - the named risks must visibly use the supplied billing-day
+         snippet. The advisory hint must trace to the supplied SAVED REVIEW
+         FEEDBACK block (same trigger — timezone / day-boundary in invoicing).
+         Narrating without using the supplied context -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - label: 'A0 - PRE-145 body (control, expected FAIL)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_old}}
+      --- END SKILL ---
+
+      You have also loaded the canonical change classifications:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{loaded_classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      ...and the team's change rules (keyed by classification):
+
+      --- LOADED RULES ---
+      {{loaded_rules}}
+      --- END LOADED RULES ---
+
+      Repository state, change context, and (when present) the team's SAVED REVIEW
+      FEEDBACK memory for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is the QA-prep turn. Produce EXACTLY this response format:
+
+      Line 1: `Naming risks and the smallest test set.`
+
+      ## Risks (each MUST cite a specific line number from the supplied snippet)
+
+      1. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor in observable behaviour.
+      2. ...
+
+      ## Tests (each tied to a risk by NUMBER)
+
+      1. Test for risk 1: one-sentence test idea.
+      2. ...
+
+      ## Techniques (each named verbatim from the loaded techniques vocabulary)
+
+      - Risk 1 → <technique>
+      - ...
+
+      Consult any supplied team context (including a SAVED REVIEW FEEDBACK block, if
+      present) to sharpen the named risks — the loaded skill governs HOW to use it.
+      Describe behaviour in plain domain terms — NEVER surface internal taxonomy
+      labels (e.g. write "behaviour change in billing-day logic", never
+      "business_logic_change") and NEVER narrate which tools you loaded. NO test
+      code. NO formal entry/exit criteria. NO confirmation question. NO closing
+      pleasantry.
+  - label: 'A1 - post-145 body (new, expected PASS)'
+    raw: |
+      You are a senior QA agent in an IDE chat session. You have loaded this
+      sumo-qa skill and MUST follow its discipline exactly as written:
+
+      --- BEGIN SKILL ---
+      {{skill_content_new}}
+      --- END SKILL ---
+
+      You have also loaded the canonical change classifications:
+
+      --- LOADED CLASSIFICATIONS ---
+      {{loaded_classifications}}
+      --- END LOADED CLASSIFICATIONS ---
+
+      ...and the team's change rules (keyed by classification):
+
+      --- LOADED RULES ---
+      {{loaded_rules}}
+      --- END LOADED RULES ---
+
+      Repository state, change context, and (when present) the team's SAVED REVIEW
+      FEEDBACK memory for this turn:
+
+      --- GROUND-TRUTH CONTEXT ---
+      {{ground_truth_context}}
+      --- END GROUND-TRUTH CONTEXT ---
+
+      The developer just said:
+
+      > {{user_prompt}}
+
+      This is the QA-prep turn. Produce EXACTLY this response format:
+
+      Line 1: `Naming risks and the smallest test set.`
+
+      ## Risks (each MUST cite a specific line number from the supplied snippet)
+
+      1. **<risk name>** (line N: `<exact code fragment>`): one-sentence anchor in observable behaviour.
+      2. ...
+
+      ## Tests (each tied to a risk by NUMBER)
+
+      1. Test for risk 1: one-sentence test idea.
+      2. ...
+
+      ## Techniques (each named verbatim from the loaded techniques vocabulary)
+
+      - Risk 1 → <technique>
+      - ...
+
+      Consult any supplied team context (including a SAVED REVIEW FEEDBACK block, if
+      present) to sharpen the named risks — the loaded skill governs HOW to use it.
+      Describe behaviour in plain domain terms — NEVER surface internal taxonomy
+      labels (e.g. write "behaviour change in billing-day logic", never
+      "business_logic_change") and NEVER narrate which tools you loaded. NO test
+      code. NO formal entry/exit criteria. NO confirmation question. NO closing
+      pleasantry.
+tests:
+  - description: memory PRESENT and trigger-matched (billing timezone boundary) — advisory hint must be surfaced SEPARATELY from the loaded skill, not the prompt
+    vars:
+      user_prompt: >-
+        I'm changing how we compute the invoice billing day for subscriptions in
+        the billing service. Help me prep QA.
+      ground_truth_context: |
+        ## billing/invoice_day.py (after the change)
+        ```
+         1 def billing_day(subscription, now):
+         2     local = now.astimezone(subscription.tz)
+         3     return local.date()
+        ```
+
+        ## SAVED REVIEW FEEDBACK
+        - scope: billing service
+          trigger_signal: any change touching timezone or day-boundary logic in invoicing
+          recommended_probe: boundary value analysis on the 23:59 -> 00:00 local day rollover across DST
+          source_note: we shipped two off-by-one-day invoice bugs last quarter
+          last_reviewed: 2026-03-01T09:00:00Z

@@ -1,0 +1,201 @@
+description: >
+  Issue #145 — proves the review-feedback-memory advisory-hints note works in a
+  merge review. Two scenarios: (1) memory PRESENT and trigger-matched — the
+  candidate consults the saved lesson as an ADVISORY hint that sharpens the
+  discovery sweep, surfaced SEPARATELY (advisory) and mapped as an ordinary named
+  risk through the coverage ledger; it does NOT override the canonical
+  classification/rules and the verdict gate is unchanged (an uncovered hint-risk
+  is a SAFE-blocker like any other); (2) memory ABSENT — the candidate runs the
+  normal sweep and does NOT invent a hint. In neither case does it auto-capture.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    expected_shape: >-
+      Final-turn evidence-led merge review verdict. When saved review feedback is
+      supplied AND its trigger matches the diff, the candidate consults it as an
+      ADVISORY hint that sharpens the discovery sweep — surfaced SEPARATELY
+      (clearly labelled advisory / distinct from bundled ISTQB/rules) and mapped
+      as an ordinary named risk through the coverage ledger; the hint never
+      overrides the canonical classification or a change-rule, and an uncovered
+      hint-derived risk is a SAFE-blocker like any other (NOT SAFE TO MERGE).
+      When NO saved feedback is supplied, the candidate runs the normal sweep and
+      does not invent a hint. In neither case does it auto-capture a new lesson.
+      Delivers SAFE TO MERGE or NOT SAFE TO MERGE gated on green tests + covered
+      risks. Ends without a confirmation question.
+    anti_patterns:
+      - Treating the saved review lesson as a canonical rule / classification
+        override or a hard authority rather than an advisory hint mapped like any
+        other named risk.
+      - Inventing a saved review lesson when none was supplied, or claiming
+        memory says something it does not.
+      - Auto-capturing / claiming to save a new review lesson from this verdict turn.
+      - Declaring SAFE TO MERGE while a hint-derived (or any) named risk is
+        uncovered by the fresh test evidence.
+      - Asking another confirmation question instead of delivering the verdict.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate treats saved
+      review feedback as an ADVISORY hint (never an authority), keeps the verdict
+      gate intact, and handles the memory-absent case without fabrication. Be
+      strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response deliver an evidence-led verdict (SAFE / NOT
+         SAFE TO MERGE) gated on green tests + covered risks, ending without a
+         confirmation question? In the memory-PRESENT scenario, is the matched
+         saved lesson surfaced as a SEPARATE advisory hint and mapped as an
+         ordinary named risk (not as a canonical override)? In the memory-ABSENT
+         scenario, are no fabricated hints introduced?
+
+      B. GROUNDING - the response must reference the diff/fresh test evidence. In
+         the memory-PRESENT scenario the advisory hint must trace to the supplied
+         SAVED REVIEW FEEDBACK block (same trigger). Narrating without the
+         supplied context -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, prior review gates, fresh verification evidence, and (when
+    present) the team's SAVED REVIEW FEEDBACK memory for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. This is the final verdict turn: no confirmation gate,
+    deliver the verdict. The context may include a SAVED REVIEW FEEDBACK block —
+    the loaded skill governs whether and how to use it. Keep the response concise
+    and evidence-led.
+tests:
+  - description: memory PRESENT and trigger-matched, hint-risk uncovered
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns (NOT shown): you read the diff, named the risks, the user
+        confirmed them, and you ran the suite. This is the FINAL TURN — produce
+        the verdict. No more confirmation gates.
+
+        ## git diff
+        ```diff
+        diff --git a/billing/invoice_day.py b/billing/invoice_day.py
+        @@ billing/invoice_day.py:1-3 @@
+        +1 def billing_day(subscription, now):
+        +2     local = now.astimezone(subscription.tz)
+        +3     return local.date()
+        ```
+
+        diff --git a/tests/billing/test_invoice_day.py b/tests/billing/test_invoice_day.py
+        @@ +1 def test_billing_day_uses_local_date():
+        @@ +2     assert billing_day(sub(tz="UTC"), at("2026-03-01T10:00:00Z")) == date(2026, 3, 1)
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/billing/test_invoice_day.py -q
+        tests/billing/test_invoice_day.py::test_billing_day_uses_local_date PASSED
+        40 passed, 1 skipped in 1.84s
+        ```
+        Note: the only fresh test asserts a midday UTC instant; nothing exercises
+        the 23:59 -> 00:00 local rollover or DST.
+
+        ## SAVED REVIEW FEEDBACK
+        - scope: billing service
+          trigger_signal: any change touching timezone or day-boundary logic in invoicing
+          recommended_probe: boundary value analysis on the 23:59 -> 00:00 local day rollover across DST
+          source_note: we shipped two off-by-one-day invoice bugs last quarter
+          last_reviewed: 2026-03-01T09:00:00Z
+  - description: memory ABSENT (no saved feedback supplied)
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## Prior review gates
+        Prior turns (NOT shown): you read the diff, named the risks auth bypass
+        and inactive-admin access, the user confirmed them, and you ran the
+        suite. This is the FINAL TURN — produce the verdict.
+
+        ## git diff
+        ```diff
+        diff --git a/app/auth/permissions.py b/app/auth/permissions.py
+        @@ app/auth/permissions.py:10-14 @@
+        -    return user.id == invoice.owner_id
+        +    return user.is_authenticated and user.id == invoice.owner_id
+
+        diff --git a/tests/auth/test_permissions.py b/tests/auth/test_permissions.py
+        @@ +40 def test_rejects_unauthenticated_user():
+        @@ +41     assert not can_view_invoice(anonymous_user(id=42), invoice(owner_id=42))
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/auth/test_permissions.py -q
+        tests/auth/test_permissions.py::test_rejects_unauthenticated_user PASSED
+        38 passed, 0 skipped in 2.01s
+        ```
+
+        (No saved review feedback memory exists for this repo yet.)

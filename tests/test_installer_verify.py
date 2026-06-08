@@ -179,9 +179,10 @@ def test_required_tool_names_constant_is_defined() -> None:
     # 4 test-data + 6 knowledge loaders + 1 per-entry/compact catalogue loader
     # (#287) + 1 capabilities + 3 repo-map (scan + diff-impact + query) + 1
     # risk-to-test ledger (#144) + 1 context bundle (#149) + 1 QA-artifact export
-    # (#148) + 1 ingestion + 4 external skills + 2 progressive skill loading
-    # (#285: list_skill_manifests + load_skill_context) = 25.
-    assert len(installer.REQUIRED_TOOL_NAMES) == 25
+    # (#148) + 1 review-feedback memory (#145) + 1 ingestion + 4 external skills
+    # + 2 progressive skill loading
+    # (#285: list_skill_manifests + load_skill_context) = 26.
+    assert len(installer.REQUIRED_TOOL_NAMES) == 26
     assert "sumo_qa_explain_test_data_requirements" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_load_classifications" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_capabilities" in installer.REQUIRED_TOOL_NAMES
@@ -190,6 +191,7 @@ def test_required_tool_names_constant_is_defined() -> None:
     assert "sumo_qa_format_risk_ledger" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_format_context_bundle" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_ingest_knowledge_pack" in installer.REQUIRED_TOOL_NAMES
+    assert "sumo_qa_capture_review_feedback" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_install_external_skill" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_list_skill_manifests" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_load_skill_context" in installer.REQUIRED_TOOL_NAMES

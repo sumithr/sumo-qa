@@ -109,6 +109,7 @@ sumo-qa-install = "sumo_qa.installer:main"
 sumo-qa-doctor = "sumo_qa.doctor:main"
 sumo-qa-validate = "sumo_qa.validate_content:main"
 sumo-qa-ingest = "sumo_qa.ingest:main"
+sumo-qa-feedback = "sumo_qa.feedback_memory:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sumo_qa"]

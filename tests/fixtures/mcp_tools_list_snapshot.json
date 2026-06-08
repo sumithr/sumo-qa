@@ -3,6 +3,7 @@
     "sumo_qa_analyze_diff_impact",
     "sumo_qa_answering_testing_question",
     "sumo_qa_capabilities",
+    "sumo_qa_capture_review_feedback",
     "sumo_qa_check_external_skill_installed",
     "sumo_qa_creating_test_plan",
     "sumo_qa_deciding_approach",
@@ -105,6 +106,45 @@
     "sumo_qa_capabilities": {
       "inputSchema": {
         "properties": {},
+        "type": "object"
+      },
+      "outputSchema": null
+    },
+    "sumo_qa_capture_review_feedback": {
+      "inputSchema": {
+        "properties": {
+          "action": {
+            "default": "list",
+            "type": "string"
+          },
+          "entry": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "entry_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "scope": {
+            "default": "project",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "outputSchema": null
