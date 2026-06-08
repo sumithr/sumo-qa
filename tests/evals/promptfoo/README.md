@@ -365,9 +365,13 @@ nunjucks, via `render.js` — apples-to-apples), re-grades through OpenWebUI, an
   not a cloud clone; this number is diagnostic, not a gate.
 - **discrimination** — on gpt-5.5-**separated** A0/A1 control pairs, does it keep the
   pass/fail split and rank A1 (skill-on) > A0? This is the fitness metric that matters.
+  Pairs are drawn only from the genuine A0/A1 control families (the A/B/C value-measurement
+  and A0/A1 control configs) and matched by each prompt's **A0/A1 label**, never inferred
+  from the verdict — so single-prompt probe configs can't be mistaken for a control pair.
 - **determinism** — re-grade identical inputs N times; verdict/score stability (at
   temp 0 the 9B is fully deterministic, score range 0.0, which is what makes the
-  before/after delta meaningful).
+  before/after delta meaningful). An **unparsable** verdict counts as a failure, not a
+  stable result — a judge that never emits valid verdict JSON can't score as deterministic.
 
 Reports land in `tests/evals/results/judge-validation/` (gitignored — process artifact,
 not tool output). Needs `~/.config/owui.env` (`OPENWEBUI_API_KEY`); Node for `render.js`.

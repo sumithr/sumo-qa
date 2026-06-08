@@ -29,7 +29,6 @@ Env: OPENWEBUI_API_KEY (required), SUMO_OWUI_BASE (default below).
 """
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -171,8 +170,10 @@ def skill_of(desc):
 
 def iter_graded_rows(con, cloud_judge, *, candidate=None, like_any=None, limit=None):
     """Yield re-gradable rows from cloud-graded evals as
-    {id, idx, desc, tmpl, output, rubric, vars, g55} — the SINGLE source of the row
-    shape, shared by all three checks. `candidate` filters to one cheap-tier candidate;
+    {id, idx, desc, plabel, tmpl, output, rubric, vars, g55} — the SINGLE source of the
+    row shape, shared by all three checks. `plabel` is the prompt's LABEL (e.g.
+    'A0 — no skill...'), so the discrimination check can pair by prompt IDENTITY rather
+    than inferring A0/A1 from the verdict. `candidate` filters to one cheap-tier candidate;
     `like_any` ORs a set of description LIKE patterns; `limit` caps the evals scanned."""
     where = ["json_extract(config,'$.defaultTest.options.provider.id')=?"]
     params = [cloud_judge]
@@ -191,7 +192,8 @@ def iter_graded_rows(con, cloud_judge, *, candidate=None, like_any=None, limit=N
         if not tmpl:
             continue
         for r in con.execute(
-            "SELECT test_idx,test_case,response,grading_result FROM eval_results WHERE eval_id=?",
+            "SELECT test_idx,prompt,test_case,response,grading_result "
+            "FROM eval_results WHERE eval_id=?",
             (e["id"],),
         ):
             if not r["grading_result"] or not r["response"]:
@@ -199,10 +201,15 @@ def iter_graded_rows(con, cloud_judge, *, candidate=None, like_any=None, limit=N
             c = llm_rubric_component(json.loads(r["grading_result"]))
             if not c:
                 continue
+            try:
+                plabel = json.loads(r["prompt"]).get("label") if r["prompt"] else None
+            except Exception:
+                plabel = None
             yield {
                 "id": e["id"],
                 "idx": r["test_idx"],
                 "desc": e["description"] or "",
+                "plabel": plabel,
                 "tmpl": tmpl,
                 "output": json.loads(r["response"]).get("output", ""),
                 "rubric": (c.get("assertion") or {}).get("value", ""),
@@ -300,18 +307,46 @@ def run_agreement(con, owui, args, workdir):
     return {"summary": summary, "rows": rows}
 
 
+def ab_arm(label):
+    """Map a prompt LABEL to its control arm by reading prompt IDENTITY, never the verdict.
+    'A0 — no skill, no catalogues' -> 'A0'; 'A1 - post-296 body (new)' -> 'A1'. Returns None
+    for the 'B — full skill' arm and for single-prompt probe configs (whose 'label' is the raw
+    prompt text), so only genuine A0/A1 arms can be paired."""
+    head = (label or "").strip().upper()
+    if head.startswith("A0"):
+        return "A0"
+    if head.startswith("A1"):
+        return "A1"
+    return None
+
+
 def discrimination_pairs(con, args):
-    # group cloud-graded control rows by (eval, test_idx); a clean pair = one PASS + one FAIL output
-    by = {}
-    for r in iter_graded_rows(con, args.cloud_judge, like_any=["%A0/A1%", "%control%", "%probe%"]):
-        by.setdefault((r["id"], r["idx"]), []).append(r)
+    # A gpt-5.5-SEPARATED pair = the SAME test where the cloud judge PASSED the A1 (skill-on)
+    # prompt and FAILED the A0 (skill-off) prompt. Pair by PROMPT IDENTITY (label), not by
+    # verdict: the old %probe%/%control% filters also matched single-prompt probe configs, and
+    # labelling one-PASS/one-FAIL outputs A1/A0 from their verdicts could pair arbitrary prompt
+    # variants — or two reps of the SAME prompt that the cloud judge graded differently —
+    # corrupting the lift signal. We restrict to the genuine A0/A1 control families and read
+    # the A0/A1 arm from each row's prompt label.
+    arms = {}  # (eval_id, test_idx) -> {"A0": row|None, "A1": row|None}
+    for r in iter_graded_rows(
+        con,
+        args.cloud_judge,
+        like_any=["%A/B/C value-measurement%", "%A0/A1 control%", "%discovery-lift measurement%"],
+    ):
+        arm = ab_arm(r["plabel"])
+        if arm is None:
+            continue
+        slots = arms.setdefault((r["id"], r["idx"]), {})
+        if arm not in slots:
+            slots[arm] = r
+        elif slots[arm] is not None and slots[arm]["g55"] != r["g55"]:
+            slots[arm] = None  # cloud disagreed with itself across reps -> not a clean arm
     pairs = []
-    for (eid, idx), items in by.items():
-        items = list({hashlib.md5(it["output"].encode()).hexdigest(): it for it in items}.values())
-        ps = [i for i in items if i["g55"]]
-        fs = [i for i in items if not i["g55"]]
-        if len(ps) == 1 and len(fs) == 1:
-            pairs.append({"eid": eid[:7], "idx": idx, "A1": ps[0], "A0": fs[0]})
+    for (eid, idx), slots in arms.items():
+        a0, a1 = slots.get("A0"), slots.get("A1")
+        if a0 and a1 and a1["g55"] and not a0["g55"]:
+            pairs.append({"eid": eid[:7], "idx": idx, "A1": a1, "A0": a0})
     return pairs
 
 
@@ -372,10 +407,22 @@ def run_determinism(con, owui, args, workdir):
         passes = [r[0] for r in reps]
         scores = [r[1] for r in reps]
         sc = [s for s in scores if isinstance(s, (int, float))]
-        st = len(set(passes)) == 1
+        unparsable = sum(1 for p in passes if p is None)
+        # An unparsable verdict is a FAILURE, not a stable result. Without this guard a judge
+        # that never emits valid verdict JSON gives passes=[None,...] -> one unique value
+        # (counted "stable") with an empty score list (zero range) -> a false clean signal.
+        st = unparsable == 0 and len(set(passes)) == 1
         sd = (max(sc) - min(sc)) if len(sc) > 1 else 0.0
         stable += st
-        rows.append({"passes": passes, "scores": scores, "stable": st, "score_range": sd})
+        rows.append(
+            {
+                "passes": passes,
+                "scores": scores,
+                "stable": st,
+                "score_range": sd,
+                "unparsable": unparsable,
+            }
+        )
         print(
             f"  [{i + 1:2}/{len(spread)}] {''.join('P' if p else ('F' if p is not None else '?') for p in passes)} "
             f"scores={scores} {'STABLE' if st else 'FLIPS'}",
@@ -385,10 +432,13 @@ def run_determinism(con, owui, args, workdir):
         "rows": len(spread),
         "reps": args.reps,
         "binary_stable_rows": stable,
+        "rows_with_unparsable": sum(1 for r in rows if r["unparsable"]),
         "max_score_range": max((r["score_range"] for r in rows), default=0.0),
     }
     print(
-        f"[determinism] binary-stable {stable}/{len(spread)}, max score range {summary['max_score_range']}\n",
+        f"[determinism] binary-stable {stable}/{len(spread)}, "
+        f"rows-with-unparsable {summary['rows_with_unparsable']}, "
+        f"max score range {summary['max_score_range']}\n",
         flush=True,
     )
     return {"summary": summary, "rows": rows}
@@ -451,7 +501,7 @@ def main():
         s = report["determinism"]["summary"]
         print(
             f"  determinism (repeatability):  {s['binary_stable_rows']}/{s['rows']} stable, "
-            f"max score range {s['max_score_range']}"
+            f"{s['rows_with_unparsable']} unparsable, max score range {s['max_score_range']}"
         )
 
 
