@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.1](https://github.com/sumithr/sumo-qa/compare/v0.35.0...v0.35.1) (2026-06-08)
+
+
+### Tests
+
+* **evals:** local-tier eval runner + judge-validation harness ([#366](https://github.com/sumithr/sumo-qa/issues/366)) ([c68b9a6](https://github.com/sumithr/sumo-qa/commit/c68b9a6bdb358d22ff8d670058d38403924a9a55))
+
 ## [0.35.0](https://github.com/sumithr/sumo-qa/compare/v0.34.1...v0.35.0) (2026-06-05)
 
 
