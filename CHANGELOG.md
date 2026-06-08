@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.39.0](https://github.com/sumithr/sumo-qa/compare/v0.38.0...v0.39.0) (2026-06-08)
+
+
+### Features
+
+* **export:** opt-in output_path file-write for export_test_cases ([#371](https://github.com/sumithr/sumo-qa/issues/371)) ([#372](https://github.com/sumithr/sumo-qa/issues/372)) ([46ff00b](https://github.com/sumithr/sumo-qa/commit/46ff00b89b6407cd6ed821343de322d9d9f742b7))
+
 ## [0.38.0](https://github.com/sumithr/sumo-qa/compare/v0.37.0...v0.38.0) (2026-06-08)
 
 
