@@ -1,0 +1,7 @@
+id: openai:chat:gemma4-12b-bounded
+label: laptop-gemma4-12b-judge
+config:
+  apiBaseUrl: "{{ env.SUMO_OWUI_BASE }}"
+  showThinking: false
+  temperature: 0
+  max_tokens: 8000

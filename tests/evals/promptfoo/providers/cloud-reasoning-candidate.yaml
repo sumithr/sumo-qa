@@ -1,0 +1,5 @@
+id: openai:chat:gpt-5-mini
+label: candidate-gpt-5-mini
+config:
+  temperature: 0.0
+  seed: 42

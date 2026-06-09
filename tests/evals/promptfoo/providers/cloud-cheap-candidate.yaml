@@ -1,0 +1,5 @@
+id: openai:chat:gpt-4o-mini
+label: candidate-gpt-4o-mini
+config:
+  temperature: 0.0
+  seed: 42

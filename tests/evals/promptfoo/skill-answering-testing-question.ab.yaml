@@ -1,11 +1,7 @@
 disableVarExpansion: true
 description: 'A/B/C value-measurement for sumo-qa-answering-testing-question'
 providers:
-  - id: openai:chat:gpt-4o-mini
-    label: candidate-gpt-4o-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-cheap-candidate.yaml') }}
 
 defaultTest:
   vars:
@@ -17,13 +13,7 @@ defaultTest:
     # Disable automatic array-var expansion so allowlists are passed to the
     # rubric template as lists rather than exploding the test into one-per-item.
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
     rubricPrompt: |
       You are an adversarial reviewer grading catalogue-grounded usefulness.
 

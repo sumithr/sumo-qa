@@ -15,11 +15,7 @@ description: >
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-296.SKILL.md
   (= origin/main before the #296 commit); refresh it if the baseline moves.
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-reasoning-candidate.yaml') }}
 defaultTest:
   vars:
     skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -36,13 +32,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate REFUSED to
       pronounce a stateful fence/marker parser "verified correct" from a code
@@ -241,8 +231,10 @@ prompts:
       risk through the coverage ledger, and deliver the verdict in this one turn
       — no confirmation question. Keep the response concise and evidence-led.
 tests:
-  - description: SEED fence-char-only — heading indexer tracks the fence CHAR not its length; green test uses only well-formed fences
-    vars:
+  - description: A0 fence-char-only control
+    prompts:
+      - A0 - PRE-296 body (control, expected FAIL)
+    vars: &fence_parser_vars
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -320,3 +312,7 @@ tests:
         - Leaves R1 as a bare UNPROVEN row with no prescribed discriminating fence input and no acknowledged deferral.
         - Names fence edge cases only as a checklist (nested / indented / tilde / unclosed) WITHOUT per-input broken-vs-correct rationale.
         - Asking another confirmation question instead of delivering the verdict.
+  - description: A1 fence-char-only skill lift
+    prompts:
+      - A1 - post-296 body (new, expected PASS)
+    vars: *fence_parser_vars

@@ -1,0 +1,7 @@
+id: openai:chat:qwen3.5-9b-bounded:latest
+label: laptop-qwen35-9b-bounded-judge
+config:
+  apiBaseUrl: "{{ env.SUMO_OWUI_BASE }}"
+  showThinking: false
+  temperature: 0
+  max_tokens: 8000
