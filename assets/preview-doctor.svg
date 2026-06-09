@@ -1,13 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="840" viewBox="0 0 1200 840">
-<rect width="1200" height="840" fill="#FAF7F2"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="864" viewBox="0 0 1200 864">
+<rect width="1200" height="864" fill="#FAF7F2"/>
 <rect width="1200" height="6" fill="#7A1F1F"/>
 <text x="56" y="78" font-family="Georgia, 'Times New Roman', serif" font-size="40" font-weight="bold" fill="#1C1917">Sumo QA</text>
 <text x="1144" y="78" text-anchor="end" font-family="Georgia, 'Times New Roman', serif" font-size="19" font-style="italic" fill="#7A1F1F">sumo-qa-doctor &#8212; one read-only command to verify any host setup</text>
 <line x1="56" y1="104" x2="1144" y2="104" stroke="#1C1917" stroke-width="1" stroke-opacity="0.35"/>
 <text x="56" y="148" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" font-weight="bold" fill="#1C1917">$ sumo-qa-doctor</text>
-<text x="56" y="186" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] python_version — Python 3.14.4; sumo-qa 0.39.0</text>
+<text x="56" y="186" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] python_version — Python 3.14.4; sumo-qa 0.39.1</text>
 <text x="56" y="210" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] install_mode — editable install (skills/ under ~/sumo-qa)</text>
-<text x="56" y="234" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] binary_discoverable — sumo-qa on PATH at ~/sumo-qa/.venv/bin/sumo-qa</text>
+<text x="56" y="234" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] binary_discoverable — sumo-qa on PATH at ~/Desktop/repos/apo/sumo-qa/.venv/bin/sumo-qa</text>
 <text x="56" y="258" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] uvx_available — uvx on PATH at ~/Desktop/repos/apo/sumo-qa/.venv/bin/uvx</text>
 <text x="56" y="282" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] mcp_handshake — MCP initialize handshake succeeded</text>
 <text x="56" y="306" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] tools_list_complete — all 26 required tools advertised</text>
@@ -17,19 +17,20 @@
 <text x="56" y="402" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] claude_desktop_config — ~/Library/Application Support/Claude/claude_desktop_config.json registers</text>
 <text x="56" y="426" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        sumo-qa at ~/.pyenv/versions/3.13.13/bin/sumo-qa</text>
 <text x="56" y="450" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] codex_plugin — sumo-qa not installed via Codex plugin manager (no sumo-qa entry)</text>
-<text x="56" y="474" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#7A1F1F" font-weight="bold">[FAIL] vscode_workspace_config — ~/sumo-qa/.vscode/mcp.json missing — VS Code workspace not initialised</text>
-<text x="56" y="498" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#7A1F1F">      Fix: Run `sumo-qa-install --vscode --workspace ~/sumo-qa` to write the config.</text>
-<text x="56" y="522" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] vscode_user_misleading — no user-level ~/.vscode/mcp.json present — workspace-level is the right</text>
-<text x="56" y="546" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        location</text>
-<text x="56" y="570" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] jetbrains_detection — detected JetBrains IDE(s): IntelliJIdea2022.2, IntelliJIdea2022.3,</text>
-<text x="56" y="594" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        IntelliJIdea2023.1, IntelliJIdea2023.2, IntelliJIdea2023.3, IntelliJIdea2024.1,</text>
-<text x="56" y="618" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        IntelliJIdea2024.2, IntelliJIdea2024.3, IntelliJIdea2025.1, IntelliJIdea2025.2,</text>
-<text x="56" y="642" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        IntelliJIdea2025.3, IntelliJIdea2026.1, PyCharm2026.1 — manual MCP setup required</text>
-<text x="56" y="666" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#7A1F1F">Fix: Open Settings -&gt; Tools -&gt; AI Assistant -&gt; Model Context Protocol, click + Add server, Name:</text>
-<text x="56" y="690" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        sumo-qa, Command: &lt;sumo-qa binary&gt;, Arguments: leave empty.</text>
-<text x="56" y="714" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917"></text>
-<text x="56" y="738" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917" font-weight="bold">Summary: 12 OK, 0 WARN, 1 FAIL</text>
-<line x1="56" y1="776" x2="1144" y2="776" stroke="#1C1917" stroke-width="1" stroke-opacity="0.35"/>
-<text x="56" y="812" font-family="Georgia, 'Times New Roman', serif" font-size="17" font-style="italic" fill="#1C1917">Real output &#8212; every failure ships the exact command that fixes it.</text>
-<text x="1144" y="812" text-anchor="end" font-family="Georgia, 'Times New Roman', serif" font-size="17" fill="#5C554E">github.com/sumithr/sumo-qa</text>
+<text x="56" y="474" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#7A1F1F" font-weight="bold">[FAIL] vscode_workspace_config — ~/sumo-qa/.vscode/mcp.json points at a binary that does not resolve</text>
+<text x="56" y="498" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        ('/usr/local/bin/sumo-qa') — stale config</text>
+<text x="56" y="522" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#7A1F1F">      Fix: Run `sumo-qa-install --vscode --workspace ~/sumo-qa` to refresh the binary path.</text>
+<text x="56" y="546" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] vscode_user_misleading — no user-level ~/.vscode/mcp.json present — workspace-level is the right</text>
+<text x="56" y="570" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        location</text>
+<text x="56" y="594" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] jetbrains_detection — detected JetBrains IDE(s): IntelliJIdea2022.2, IntelliJIdea2022.3,</text>
+<text x="56" y="618" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        IntelliJIdea2023.1, IntelliJIdea2023.2, IntelliJIdea2023.3, IntelliJIdea2024.1,</text>
+<text x="56" y="642" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        IntelliJIdea2024.2, IntelliJIdea2024.3, IntelliJIdea2025.1, IntelliJIdea2025.2,</text>
+<text x="56" y="666" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        IntelliJIdea2025.3, IntelliJIdea2026.1, PyCharm2026.1 — manual MCP setup required</text>
+<text x="56" y="690" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#7A1F1F">Fix: Open Settings -&gt; Tools -&gt; AI Assistant -&gt; Model Context Protocol, click + Add server, Name:</text>
+<text x="56" y="714" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917">        sumo-qa, Command: &lt;sumo-qa binary&gt;, Arguments: leave empty.</text>
+<text x="56" y="738" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917"></text>
+<text x="56" y="762" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#1C1917" font-weight="bold">Summary: 12 OK, 0 WARN, 1 FAIL</text>
+<line x1="56" y1="800" x2="1144" y2="800" stroke="#1C1917" stroke-width="1" stroke-opacity="0.35"/>
+<text x="56" y="836" font-family="Georgia, 'Times New Roman', serif" font-size="17" font-style="italic" fill="#1C1917">Real output &#8212; every failure ships the exact command that fixes it.</text>
+<text x="1144" y="836" text-anchor="end" font-family="Georgia, 'Times New Roman', serif" font-size="17" fill="#5C554E">github.com/sumithr/sumo-qa</text>
 </svg>

@@ -11,12 +11,15 @@ imaging dependency:
   T4 — preview shows REAL doctor output (capture + render agree on content)
   T5 — sanitisation held: no absolute home paths leak into committed assets
   T6 — brand rule: no emoji/pictogram codepoints in the text assets
+  T7 — the committed capture (and SVG) advertise the installed sumo-qa
+       version — the preview can't ship a stale release number
 """
 
 from __future__ import annotations
 
 import re
 import struct
+from importlib.metadata import version
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -96,3 +99,28 @@ def test_text_assets_contain_no_pictograms() -> None:
             cp = ord(ch)
             for lo, hi in ranges:
                 assert not (lo <= cp <= hi), f"{path.name} contains pictogram U+{cp:04X}"
+
+
+def test_committed_capture_advertises_installed_version() -> None:
+    """T7 — the committed preview must not advertise a stale release. Read
+    the first line of the committed capture, extract its `sumo-qa X.Y.Z`
+    version, and assert it equals the installed package version. Pure file
+    read — it never shells out to the doctor or regenerates anything, so it
+    is deterministic in CI (installed version always matches pyproject).
+    The same version string must also appear in the committed SVG, which
+    pins txt/SVG agreement on the version line."""
+    installed = version("sumo-qa")
+    first_line = CAPTURE.read_text(encoding="utf-8").splitlines()[0]
+    match = re.search(r"sumo-qa (\d+\.\d+\.\d+)", first_line)
+    assert match, f"capture first line lacks a `sumo-qa X.Y.Z` version: {first_line!r}"
+    assert match.group(1) == installed, (
+        f"preview-doctor.txt advertises sumo-qa {match.group(1)} but the installed "
+        f"version is {installed} — refresh via "
+        f"`scripts/generate_marketplace_assets.py capture`"
+    )
+    svg = PREVIEW.read_text(encoding="utf-8")
+    assert f"sumo-qa {installed}" in svg, (
+        f"preview-doctor.svg does not advertise sumo-qa {installed} — txt/SVG "
+        f"version lines disagree; re-render via "
+        f"`scripts/generate_marketplace_assets.py capture`"
+    )

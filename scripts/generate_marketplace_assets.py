@@ -15,8 +15,9 @@ Modes:
              onto a 512x512 paper-coloured canvas, write assets/icon-512.png
   capture  — run `sumo-qa-doctor`, sanitise machine-specific paths
              (home dir -> ~, repo dir name -> sumo-qa), write
-             assets/preview-doctor.txt. Machine-dependent by nature, so it
-             is NEVER run implicitly — only when you ask for it.
+             assets/preview-doctor.txt, then render the SVG from it so the
+             two never drift. Machine-dependent by nature, so it is NEVER
+             run implicitly — only when you ask for it.
   render   — render assets/preview-doctor.txt to assets/preview-doctor.svg
              (deterministic: same capture in, same SVG out)
   all      — icon + render (no capture)
@@ -367,6 +368,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "capture":
         capture_doctor()
         _assert_no_pictograms(CAPTURE.read_text(encoding="utf-8"), str(CAPTURE))
+        # Re-render immediately: the SVG is deterministic from the capture,
+        # so this keeps the documented `capture` refresh from leaving a
+        # stale preview-doctor.svg behind.
+        render_preview()
+        _assert_no_pictograms(PREVIEW.read_text(encoding="utf-8"), str(PREVIEW))
     if args.mode in ("render", "all"):
         render_preview()
         _assert_no_pictograms(PREVIEW.read_text(encoding="utf-8"), str(PREVIEW))

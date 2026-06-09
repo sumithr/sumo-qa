@@ -293,7 +293,8 @@ python scripts/generate_marketplace_assets.py all
 
 # Refresh the doctor capture itself (runs the real `sumo-qa-doctor` on
 # YOUR machine, sanitises home paths) — only when the doctor's output
-# format or checks change:
+# format or checks change. This also re-renders preview-doctor.svg from
+# the fresh capture, so the txt and SVG never drift apart:
 python scripts/generate_marketplace_assets.py capture
 ```
 
