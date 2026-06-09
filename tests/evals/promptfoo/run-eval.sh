@@ -141,7 +141,9 @@ echo "[eval]   NOT merge-authoritative — relative lift only; cloud stays the g
 files=()
 for f in "$EVAL_DIR"/skill-*.yaml; do
   case "$f" in *.gen.yaml|*.generated-tests.yaml) continue;; esac
-  if grep -qE 'gpt-5-mini|cloud-reasoning-candidate' "$f"; then is_reason=1; else is_reason=0; fi
+  # anchor on the provider id / file, not a bare 'gpt-5-mini' — a cheap config can mention
+  # gpt-5-mini in a COMMENT (e.g. skill-implementing-with-tdd.yaml) and must stay cheap.
+  if grep -qE 'openai:chat:gpt-5-mini|cloud-reasoning-candidate' "$f"; then is_reason=1; else is_reason=0; fi
   if [ "$FILTER" = all ] \
      || { [ "$FILTER" = reasoning ] && [ "$is_reason" = 1 ]; } \
      || { [ "$FILTER" = cheap ] && [ "$is_reason" = 0 ]; }; then

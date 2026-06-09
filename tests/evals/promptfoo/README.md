@@ -521,9 +521,10 @@ candidate generation across the two boxes.
 `.ab` control on a local pairing instead of the cloud gate:
 
 ```bash
+# from the repo root (env-var paths resolve relative to the config file's dir, the -c path to cwd)
 SUMO_EVAL_CANDIDATES_FILE=providers/local-4060-gemma-candidate.yaml \
 SUMO_EVAL_JUDGE_FILE=providers/local-laptop-qwen-judge.yaml \
-  promptfoo eval -c skill-reviewing-before-merge-fence-parser.ab.yaml --repeat 3
+  ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-fence-parser.ab.yaml --repeat 3
 ```
 
 ### Validating the local judge (`validate-local-judge/`)

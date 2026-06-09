@@ -48,12 +48,14 @@ match() { [ -z "${2:-}" ] || [[ ",$2," == *",$1,"* ]]; }
 for J in "${JUDGES[@]}"; do
   IFS='|' read -r jlabel jfile jmodel <<<"$J"
   match "$jlabel" "${JUDGES_ONLY:-}" || continue
-  echo "=== JUDGE $jlabel ($jmodel) ==="; warm "$jmodel" || { echo "  skip judge $jlabel"; continue; }
+  # On warm failure the control loop (and its per-$out rm) is skipped — clear THIS judge's
+  # stale outputs so a prior run's JSON isn't consumed as if this judge had produced it.
+  echo "=== JUDGE $jlabel ($jmodel) ==="; warm "$jmodel" || { echo "  skip judge $jlabel (cleared stale outputs)"; rm -f "$OUT"/*__*__"$jlabel".json; continue; }
   for C in "${CANDIDATES[@]}"; do
     IFS='|' read -r clabel cfile <<<"$C"
     match "$clabel" "${CANDS_ONLY:-}" || continue
     cmodel="$(grep -m1 'id: openai:chat:' "$EVAL_DIR/$cfile" | sed 's/.*openai:chat://')"
-    echo "  -- candidate $clabel ($cmodel)"; warm "$cmodel" || { echo "    skip candidate $clabel"; continue; }
+    echo "  -- candidate $clabel ($cmodel)"; warm "$cmodel" || { echo "    skip candidate $clabel (cleared stale outputs)"; rm -f "$OUT"/*__"$clabel"__"$jlabel".json; continue; }
     for ctrl in "${CONTROLS[@]}"; do
       case "$ctrl" in *"${CONTROLS_ONLY:-}"*) ;; *) continue;; esac
       out="$OUT/${ctrl}__${clabel}__${jlabel}.json"
@@ -61,6 +63,8 @@ for J in "${JUDGES[@]}"; do
       # Stale-output guard: filenames are deterministic, so a FAILED rerun after an earlier
       # success would leave the prior JSON in place and falsely report `ok` (aggregator then
       # scores stale measurements as this run's). Delete it before promptfoo writes.
+      # NOTE: deterministic + unlocked paths => run bake-offs SEQUENTIALLY (the single shared
+      # GPU enforces that anyway); concurrent same-variant runs would race on this file.
       rm -f "$out"
       # promptfoo exits 100 when ANY test fails — but that's the bake-off DATA (A0 is meant to
       # FAIL), and --output is written regardless. So success = a valid JSON file, not rc==0.
