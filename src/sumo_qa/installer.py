@@ -118,6 +118,8 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_format_qa_scorecard",
     # QA-artifact export (#148)
     "sumo_qa_export_test_cases",
+    # Local QA report (#157)
+    "sumo_qa_generate_qa_report",
     # Ingestion
     "sumo_qa_ingest_knowledge_pack",
     # Review-feedback memory (#145)

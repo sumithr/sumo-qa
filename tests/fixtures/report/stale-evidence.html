@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QA report &#8212; stale-evidence</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0; padding: 2.5rem 1.5rem 4rem;
+    background: #FAF7F2; color: #1B1B1B;
+    font-family: Charter, "Iowan Old Style", Georgia, serif;
+    font-size: 16px; line-height: 1.55;
+  }
+  main, header.masthead, footer { max-width: 60rem; margin: 0 auto; }
+  header.masthead { border-bottom: 3px double #7A1F1F; padding-bottom: 1rem; }
+  header.masthead h1 { margin: 0; font-size: 1.9rem; color: #7A1F1F; font-weight: 600; }
+  header.masthead .kicker {
+    margin: 0 0 0.35rem; font-size: 0.78rem; letter-spacing: 0.18em;
+    text-transform: uppercase; color: #8A7B5C;
+  }
+  dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 1.2rem; margin: 1rem 0 0; }
+  dl.meta dt { font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: #8A7B5C; }
+  dl.meta dd { margin: 0; font-variant-numeric: tabular-nums; }
+  section { margin-top: 2.2rem; }
+  h2 {
+    font-size: 1.05rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: #7A1F1F; border-bottom: 1px solid #E2D9C8; padding-bottom: 0.3rem;
+  }
+  h3 { font-size: 0.95rem; margin: 1.4rem 0 0.4rem; }
+  .banner { padding: 1.1rem 1.3rem; border-left: 0.5rem solid; }
+  .banner .verdict-label { margin: 0; font-size: 1.6rem; font-weight: 700; }
+  .banner.state-good { background: #E8EDDF; color: #3F4A2E; border-color: #3F4A2E; }
+  .banner.state-warm { background: #F0EAE0; color: #8A7B5C; border-color: #8A7B5C; }
+  .banner.state-bad { background: #7A1F1F; color: #FAF7F2; border-color: #1B1B1B; }
+  .banner.state-neutral { background: #F0EAE0; color: #1B1B1B; border-color: #8A7B5C; }
+  .banner ul.reasons { margin: 0.6rem 0 0; padding-left: 1.2rem; }
+  .banner p.reasons-none { margin: 0.6rem 0 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+  th {
+    text-align: left; font-size: 0.72rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: #8A7B5C;
+    border-bottom: 2px solid #7A1F1F; padding: 0.35rem 0.6rem 0.35rem 0;
+  }
+  td { padding: 0.45rem 0.6rem 0.45rem 0; border-bottom: 1px solid #E2D9C8; vertical-align: top; }
+  td.more, li.more { font-style: italic; color: #8A7B5C; }
+  .badge {
+    display: inline-block; padding: 0.05rem 0.5rem; font-size: 0.78rem;
+    border: 1px solid; border-radius: 2px; white-space: nowrap;
+  }
+  .badge.ok { color: #3F4A2E; background: #E8EDDF; border-color: #3F4A2E; }
+  .badge.warm { color: #8A7B5C; background: #F0EAE0; border-color: #8A7B5C; }
+  .badge.bad { color: #FAF7F2; background: #7A1F1F; border-color: #7A1F1F; }
+  .badge.off { color: #1B1B1B; background: #F0EAE0; border-color: #8A7B5C; }
+  p.empty { color: #8A7B5C; font-style: italic; }
+  ul.warnings li { color: #7A1F1F; }
+  footer { margin-top: 3rem; border-top: 1px solid #E2D9C8; padding-top: 0.6rem;
+    font-size: 0.82rem; color: #8A7B5C; }
+</style>
+</head>
+<body>
+<header class="masthead">
+<p class="kicker">sumo-qa &#183; local QA report</p>
+<h1>stale-evidence</h1>
+<dl class="meta">
+<dt>root</dt><dd>/fixtures/stale-evidence</dd>
+<dt>head commit</dt><dd>ffffffffffffffffffffffffffffffffffffffff</dd>
+<dt>generated</dt><dd>2026-06-08T08:00:00+00:00</dd>
+<dt>artifacts</dt><dd>3 of 6 available &#183; 2 risks &#183; 0 uncovered blockers &#183; 0 warnings</dd>
+</dl>
+</header>
+<main>
+<section class="banner state-warm">
+<p class="verdict-label">stale evidence</p>
+<ul class="reasons"><li>repo_map artifact is stale</li><li>risk R4 evidence is stale</li><li>tests evidence is stale</li></ul>
+</section>
+<section>
+<h2>Artifact inventory</h2>
+<table><thead><tr><th>artifact</th><th>status</th><th>path</th><th>age</th><th>notes</th></tr></thead><tbody><tr><td>repo map</td><td><span class="badge warm">stale</span></td><td>.sumo-qa/repo-map.json</td><td>6 days</td><td>recorded commit 00000000 differs from current HEAD ffffffff</td></tr><tr><td>diff impact</td><td><span class="badge ok">available</span></td><td>.sumo-qa/diff-impact.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>risk ledger</td><td><span class="badge ok">available</span></td><td>.sumo-qa/risk-ledger.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>context bundle</td><td><span class="badge ok">available</span></td><td>.sumo-qa/context-bundle.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>readiness scorecard</td><td><span class="badge off">not available</span></td><td>&#8212;</td><td>&#8212;</td><td>not produced yet — the readiness scorecard lands with #151</td></tr><tr><td>coverage mutation</td><td><span class="badge off">not available</span></td><td>&#8212;</td><td>&#8212;</td><td>not produced yet — coverage/mutation evidence lands with #147</td></tr></tbody></table>
+</section>
+<section>
+<h2>Change impact</h2>
+<h3>Changed components</h3><table><thead><tr><th>component</th><th>type</th><th>path</th><th>mapped tests</th></tr></thead><tbody><tr><td>src/billing/refund.py</td><td>source_file</td><td>src/billing/refund.py</td><td>yes</td></tr></tbody></table><h3>Affected components (one hop)</h3><table><thead><tr><th>component</th><th>type</th><th>path</th><th>mapped tests</th></tr></thead><tbody><tr><td>tests/test_refund.py</td><td>test_file</td><td>tests/test_refund.py</td><td>no</td></tr></tbody></table><h3>Related tests</h3><ul><li>tests/test_refund.py</li></ul><h3>Risk surface (changed sources with no mapped test)</h3><ul><li>src/billing/refund.py</li></ul><h3>Unmapped files</h3><ul><li>docs/refund-notes.md</li></ul>
+</section>
+<section>
+<h2>Risk ledger</h2>
+<table><thead><tr><th>id</th><th>risk</th><th>anchor</th><th>test</th><th>evidence</th><th>residual</th><th>repo-map node</th></tr></thead><tbody><tr><td>R1</td><td>Refund applied twice on a retried request</td><td>src/billing/refund.py:42</td><td>tests/test_refund.py::test_refund_is_idempotent</td><td>passing</td><td>mitigated</td><td>src/billing/refund.py</td></tr><tr><td>R4</td><td>Webhook retry storm duplicates refund events</td><td>src/billing/webhooks.py:88</td><td>tests/test_webhooks.py::test_retry_dedupe</td><td>stale</td><td>open</td><td>&#8212;</td></tr></tbody></table>
+</section>
+<section>
+<h2>Evidence</h2>
+<table><thead><tr><th>stream</th><th>status</th><th>freshness</th><th>trustworthy</th><th>source</th><th>captured at</th><th>detail</th></tr></thead><tbody><tr><td>tests</td><td>passing</td><td>stale</td><td>no</td><td>local_git</td><td>2026-06-08T07:30:00+00:00</td><td>&#8212;</td></tr><tr><td>ci</td><td>passing</td><td>fresh</td><td>yes</td><td>ci_provider</td><td>2026-06-08T07:45:00+00:00</td><td>&#8212;</td></tr><tr><td>coverage</td><td>not available</td><td>&#8212;</td><td>no</td><td>&#8212;</td><td>&#8212;</td><td>no producer yet — coverage/mutation evidence lands with #147</td></tr><tr><td>mutation</td><td>not available</td><td>&#8212;</td><td>no</td><td>&#8212;</td><td>&#8212;</td><td>no producer yet — coverage/mutation evidence lands with #147</td></tr></tbody></table>
+</section>
+<section>
+<h2>Warnings</h2>
+<p class="empty">No warnings.</p>
+</section>
+</main>
+<footer>
+Generated by sumo-qa 0.0.0-fixture &#183; report schema 1.0
+</footer>
+</body>
+</html>

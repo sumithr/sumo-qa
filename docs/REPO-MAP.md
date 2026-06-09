@@ -13,8 +13,9 @@ deterministically rather than re-walking the repo each session:
 
 This page describes the schema (issue #155), the scanner that populates it,
 and the consumers built on it: the `sumo_qa_scan_repo`, `sumo_qa_analyze_diff_impact`,
-and `sumo_qa_query_repo_map` MCP tools (#156). The report renderer ships in a
-follow-up slice (#157).
+and `sumo_qa_query_repo_map` MCP tools (#156). The local QA report (#157)
+composes this artifact (plus the other `.sumo-qa` artifacts) into a static
+HTML page — see [QA-REPORT.md](QA-REPORT.md).
 
 ## Shape
 
@@ -329,6 +330,7 @@ regenerate locally before comparison.
 | 4 | `sumo_qa_analyze_diff_impact` — first consumer of the map (diff → related tests + risk surface) |
 | 5 | `sumo_qa_query_repo_map` — bounded ranked search over the map; wiring of `sumo-qa-reviewing-before-merge`, `sumo-qa-preparing-for-work`, and `sumo-qa-strategising` to prefer the map when present and fall back to a repo walk when absent |
 | 6 | `sumo-qa analyze` / `sumo-qa status` CLI commands (#160) — terminal-facing wrappers over the same `scan_repo` / load+validate services, with `--json`; bare `sumo-qa` still launches the MCP server |
+| 7 | Local QA report (#157) — `sumo-qa report` / `sumo_qa_generate_qa_report` compose the repo-map, diff-impact, risk-ledger, and context-bundle artifacts into the static `.sumo-qa/qa-report.html` page with honest not-available states ([QA-REPORT.md](QA-REPORT.md)) |
 
 `imports`, `configured_by`, and `command_runs` edges are deferred. The
 scanner produces only `likely_tests` — enough for the slice-4 diff-impact

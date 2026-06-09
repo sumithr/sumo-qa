@@ -296,6 +296,135 @@ def test_status_json_missing_artifact(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
+# report
+# ---------------------------------------------------------------------------
+
+
+def test_report_writes_html_artifact_and_reports_next_command(tmp_path, capsys):
+    """report generates `.sumo-qa/qa-report.html` and points the user at the
+    next command; a repo with no artifacts still succeeds (exit 0) with honest
+    not-available states — never an error."""
+    _make_repo(tmp_path)
+    rc = cli.main(["report", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    artifact = tmp_path / ".sumo-qa" / "qa-report.html"
+    assert artifact.is_file()
+    assert artifact.read_text(encoding="utf-8").lower().startswith("<!doctype html>")
+    assert ".sumo-qa/qa-report.html" in out
+    # No repo-map yet → the actionable next step is analyze.
+    assert "sumo-qa analyze" in out
+    assert "incomplete" in out.lower()
+
+
+def test_report_json_is_schema_stable(tmp_path, capsys):
+    """`report --json` emits a parseable document with the stable keys
+    automation depends on."""
+    _make_repo(tmp_path)
+    rc = cli.main(["report", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["command"] == "report"
+    for key in (
+        "root",
+        "artifact_path",
+        "artifact_bytes",
+        "readiness_state",
+        "readiness_reasons",
+        "artifacts",
+        "changed_component_count",
+        "affected_component_count",
+        "related_test_count",
+        "risk_count",
+        "uncovered_blocker_count",
+        "warning_count",
+        "next_command",
+        "summary",
+    ):
+        assert key in payload, f"missing stable key {key!r}"
+    assert payload["artifact_path"].endswith(".sumo-qa/qa-report.html")
+    assert payload["artifacts"]["repo_map"] == "missing"
+    assert payload["readiness_state"] == "incomplete"
+
+
+def test_report_after_analyze_consumes_the_repo_map(tmp_path, capsys):
+    """report on an analyzed repo marks the repo-map available and suggests
+    status (artifacts are fresh enough to inspect)."""
+    _make_repo(tmp_path)
+    _git_init_commit(tmp_path)
+    cli.main(["analyze", str(tmp_path)])
+    capsys.readouterr()
+
+    rc = cli.main(["report", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["artifacts"]["repo_map"] == "available"
+    assert payload["next_command"] == f"sumo-qa status {tmp_path.resolve().as_posix()}"
+
+
+def test_report_flags_stale_repo_map_and_suggests_reanalyze(tmp_path, capsys):
+    """A stale repo-map (recorded commit != HEAD) downgrades readiness and the
+    next command points back at analyze."""
+    _make_repo(tmp_path)
+    _git_init_commit(tmp_path)
+    cli.main(["analyze", str(tmp_path)])
+    capsys.readouterr()
+    (tmp_path / "src" / "extra.py").write_text("x = 1\n", encoding="utf-8")
+    _git_init_commit(tmp_path)
+
+    rc = cli.main(["report", str(tmp_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["artifacts"]["repo_map"] == "stale"
+    assert payload["readiness_state"] == "stale_evidence"
+    assert payload["next_command"] == f"sumo-qa analyze {tmp_path.resolve().as_posix()}"
+
+
+def test_report_missing_repo_is_actionable(tmp_path, capsys):
+    """report on a non-existent directory is a usage error (exit 2) with an
+    actionable message on stderr, both human and --json modes."""
+    missing = tmp_path / "does-not-exist"
+
+    rc = cli.main(["report", str(missing)])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert str(missing) in captured.err
+    assert "director" in captured.err.lower()
+    assert captured.out == ""
+
+    rc = cli.main(["report", str(missing), "--json"])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert captured.out == ""
+
+
+def test_report_defaults_to_cwd(tmp_path, monkeypatch, capsys):
+    _make_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    rc = cli.main(["report"])
+    capsys.readouterr()
+
+    assert rc == 0
+    assert (tmp_path / ".sumo-qa" / "qa-report.html").is_file()
+
+
+def test_report_overwrites_previous_report(tmp_path, capsys):
+    """qa-report.html is a regenerated artifact (like repo-map.json): a second
+    run replaces it rather than refusing."""
+    _make_repo(tmp_path)
+    assert cli.main(["report", str(tmp_path)]) == 0
+    first = (tmp_path / ".sumo-qa" / "qa-report.html").read_text(encoding="utf-8")
+    assert cli.main(["report", str(tmp_path)]) == 0
+    second = (tmp_path / ".sumo-qa" / "qa-report.html").read_text(encoding="utf-8")
+    capsys.readouterr()
+    assert first and second  # both runs produced a page
+
+
+# ---------------------------------------------------------------------------
 # dispatch / host-neutrality
 # ---------------------------------------------------------------------------
 
@@ -373,10 +502,11 @@ def test_console_main_routes_product_subcommand_to_cli(tmp_path, monkeypatch, ca
 
 def test_messages_do_not_assume_a_specific_host(tmp_path, capsys):
     """The CLI must not imply a host-specific plugin is installed (AC: host
-    neutral). No mention of Claude/Codex/VS Code in analyze/status output."""
+    neutral). No mention of Claude/Codex/VS Code in analyze/status/report output."""
     _make_repo(tmp_path)
     cli.main(["analyze", str(tmp_path)])
     cli.main(["status", str(tmp_path)])
+    cli.main(["report", str(tmp_path)])
     # Scrub the echoed repo path: a tmp dir can itself live under a host-named
     # folder (e.g. /private/tmp/claude-501/...), which is the user's path, not
     # the CLI's own prose. The AC is about the CLI not naming a host of its own.

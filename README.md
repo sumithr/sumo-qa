@@ -119,9 +119,10 @@ Beyond the host integration, sumo-qa ships memorable commands for the QA-native 
 ```bash
 sumo-qa analyze            # map the current repo into .sumo-qa/repo-map.json
 sumo-qa status             # is the map present, current, and fresh? what next?
+sumo-qa report             # compose the .sumo-qa artifacts into qa-report.html
 ```
 
-`analyze [path]` writes the schema-validated `.sumo-qa/repo-map.json` artifact and prints a concise summary; `status [path]` reports the artifact's presence, schema version, freshness against `HEAD`, and the next command to run. Both take `--json` for automation. (Bare `sumo-qa` launches the MCP server for hosts; `sumo-qa-doctor` runs setup diagnostics.)
+`analyze [path]` writes the schema-validated `.sumo-qa/repo-map.json` artifact and prints a concise summary; `status [path]` reports the artifact's presence, schema version, freshness against `HEAD`, and the next command to run; `report [path]` composes the persisted `.sumo-qa` artifacts into a self-contained static HTML QA report at `.sumo-qa/qa-report.html`, with honest not-available states for anything missing. All take `--json` for automation. (Bare `sumo-qa` launches the MCP server for hosts; `sumo-qa-doctor` runs setup diagnostics.)
 
 ### Update
 
@@ -291,4 +292,5 @@ Filing a clear issue gets it fixed faster. Pick the template that matches the pr
 - [docs/RISK-LEDGER.md](docs/RISK-LEDGER.md) — risk-to-test traceability ledger: the structured appendix to the markdown-first verdict, its row schema and evidence-status vocabulary, and when not to use it (issue #144)
 - [docs/SCORECARD.md](docs/SCORECARD.md) — QA readiness scorecard: composes the risk ledger + context bundle + optional coverage/mutation into a *derived* readiness recommendation (ready / blocked / insufficient_evidence / ready-with-accepted-residuals) — an evidence summary, not a predictive quality score (issue #151)
 - [docs/EXPORT.md](docs/EXPORT.md) — deterministic export of already-structured QA test cases to versioned JSON, a markdown table, or (flat-only) CSV: the case schema, the format set, the side-effect-free contract, and the import-mapping caveat (issue #148)
+- [docs/QA-REPORT.md](docs/QA-REPORT.md) — local QA report: the static `.sumo-qa/qa-report.html` page composed from the persisted artifacts, the four honest artifact states, and the readiness roll-up's severity ordering (issue #157)
 - [docs/PERSONA.md](docs/PERSONA.md) — optional Sumo-sensei voice (off by default)

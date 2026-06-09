@@ -1,0 +1,197 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+"""Tests for sumo_qa.report_html — the static QA report renderer (#157).
+
+The renderer is pure deterministic projection, so the contract is pinned the
+same way the export renderers are: byte-for-byte snapshots. The five goldens
+under tests/fixtures/report/ are the issue's required fixture states
+(full-data, ready-with-residuals, stale-evidence, blocked, partial-data),
+built by scripts/regen_report_snapshots.py — this module imports that script's
+case table so the goldens and the assertions can never drift apart. On a
+deliberate renderer change, regenerate via
+`uv run python scripts/regen_report_snapshots.py` and inspect the diff in the
+same PR.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+from sumo_qa.report_html import render_report_html
+from sumo_qa.report_models import (
+    QAReport,
+    ReportArtifact,
+    ReportComponent,
+    ReportProject,
+    ReportReadiness,
+    ReportRisk,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+GOLDEN_DIR = REPO_ROOT / "tests" / "fixtures" / "report"
+
+_spec = importlib.util.spec_from_file_location(
+    "regen_report_snapshots", REPO_ROOT / "scripts" / "regen_report_snapshots.py"
+)
+assert _spec is not None and _spec.loader is not None
+_regen = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_regen)
+
+_CASE_REPORTS = _regen.build_case_reports()
+
+_NOW = datetime(2026, 6, 8, 8, 0, 0, tzinfo=timezone.utc)
+
+
+def _minimal_report(**overrides) -> QAReport:
+    data = {
+        "schema_version": "1.0",
+        "project": ReportProject(
+            root="/fixtures/minimal",
+            name="minimal",
+            head_commit=None,
+            generated_at=_NOW,
+            generator_version="sumo-qa 0.0.0-fixture",
+        ),
+        "artifacts": [
+            ReportArtifact(kind=kind, status="missing", path=None, detail=None)
+            for kind in (
+                "repo_map",
+                "diff_impact",
+                "risk_ledger",
+                "context_bundle",
+                "readiness_scorecard",
+                "coverage_mutation",
+            )
+        ],
+        "readiness": ReportReadiness(state="incomplete", reasons=["nothing recorded"]),
+    }
+    data.update(overrides)
+    return QAReport(**data)
+
+
+# ---------------------------------------------------------------------------
+# golden snapshots — the five issue-mandated states
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("case", sorted(_CASE_REPORTS), ids=lambda c: c)
+def test_golden_snapshot_is_byte_for_byte_stable(case):
+    golden = GOLDEN_DIR / f"{case}.html"
+    assert golden.is_file(), (
+        f"missing golden {golden}; run `uv run python scripts/regen_report_snapshots.py` "
+        "and commit the result with a rationale"
+    )
+    assert render_report_html(_CASE_REPORTS[case]) == golden.read_text(encoding="utf-8")
+
+
+def test_render_is_deterministic_across_calls():
+    report = _CASE_REPORTS["full-data-ready"]
+    assert render_report_html(report) == render_report_html(report)
+
+
+@pytest.mark.parametrize("case", sorted(_CASE_REPORTS), ids=lambda c: c)
+def test_report_is_self_contained_static_html(case):
+    """No network access and no hosted service (AC): nothing in the page may
+    fetch — no scripts, stylesheets links, images, imports, or remote fonts."""
+    html = render_report_html(_CASE_REPORTS[case])
+    lowered = html.lower()
+    assert lowered.startswith("<!doctype html>")
+    for forbidden in ("<script", "<link", "<img", "src=", "@import", "url(", "http://", "https://"):
+        assert forbidden not in lowered, f"{forbidden!r} found in rendered report"
+
+
+def test_missing_states_are_visibly_distinct_from_passing():
+    """AC: the report must distinguish missing data from passing evidence."""
+    html = render_report_html(_CASE_REPORTS["partial-data"])
+    assert "not available" in html.lower()
+    blocked = render_report_html(_CASE_REPORTS["blocked"])
+    assert "blocked" in blocked.lower()
+
+
+def test_readiness_state_is_prominent_per_case():
+    expectations = {
+        "full-data-ready": "ready",
+        "ready-with-residuals": "ready with residuals",
+        "stale-evidence": "stale evidence",
+        "blocked": "blocked",
+        "partial-data": "incomplete",
+    }
+    for case, label in expectations.items():
+        assert label in render_report_html(_CASE_REPORTS[case]).lower()
+
+
+# ---------------------------------------------------------------------------
+# escaping — artifact strings are attacker-ish input to the page
+# ---------------------------------------------------------------------------
+
+
+def test_hostile_artifact_strings_are_escaped():
+    report = _minimal_report(
+        risks=[
+            ReportRisk(
+                risk_id="R1",
+                risk='<script>alert("x")</script> & "quotes"',
+                source_anchor="src/<b>bold</b>.py:1",
+                test="planned: <img src=x onerror=alert(1)>",
+                evidence_status="planned",
+                residual="open",
+                repo_map_node_id=None,
+                uncovered_blocker=False,
+            )
+        ],
+    )
+    html = render_report_html(report)
+    assert "<script>" not in html
+    assert "<img" not in html
+    assert "&lt;script&gt;" in html
+    assert "onerror" not in html or "&lt;img" in html
+
+
+def test_warnings_are_rendered_and_escaped():
+    """Cross-artifact warnings (e.g. a bundle/local head-commit conflict) must
+    surface on the page, escaped like every other artifact-supplied string."""
+    report = _minimal_report(warnings=["head <b>conflict</b> detected against local state"])
+    html = render_report_html(report)
+    assert "head" in html
+    assert "&lt;b&gt;conflict&lt;/b&gt;" in html
+    assert "<b>conflict</b>" not in html
+
+
+def test_hostile_project_strings_are_escaped():
+    report = _minimal_report(
+        project=ReportProject(
+            root='/tmp/<script>"evil"</script>',
+            name="<svg/onload=alert(1)>",
+            head_commit=None,
+            generated_at=_NOW,
+            generator_version="sumo-qa 0.0.0-fixture",
+        )
+    )
+    html = render_report_html(report)
+    assert "<svg" not in html
+    assert "&lt;svg" in html
+
+
+# ---------------------------------------------------------------------------
+# bounded output
+# ---------------------------------------------------------------------------
+
+
+def test_long_component_tables_truncate_with_notice():
+    components = [
+        ReportComponent(
+            id=f"src/mod_{i:03d}.py",
+            path=f"src/mod_{i:03d}.py",
+            type="source_file",
+            has_mapped_tests=False,
+        )
+        for i in range(120)
+    ]
+    report = _minimal_report(changed_components=components)
+    html = render_report_html(report)
+    assert "src/mod_000.py" in html
+    assert "src/mod_119.py" not in html
+    assert "more" in html.lower()  # an explicit "+N more" style notice

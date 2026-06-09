@@ -752,3 +752,62 @@ class ExportTestCasesOutput(_StrictBase):
             "free path. The written bytes equal `content`."
         ),
     )
+
+
+class GenerateQAReportOutput(_StrictBase):
+    """Compact summary of a ``sumo_qa_generate_qa_report`` invocation (issue #157).
+
+    Deliberately omits the rendered HTML body — a full page is tens of KB and
+    the host only needs the verdict shape. Callers that want the page pass
+    ``write_to`` and open it from disk. By default the tool is side-effect
+    free: without ``write_to`` nothing is written and ``artifact_path`` /
+    ``artifact_bytes`` stay ``None``.
+    """
+
+    tool: Literal["sumo_qa_generate_qa_report"] = Field(
+        default="sumo_qa_generate_qa_report",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    root: str = Field(description="Absolute, resolved root path the report was composed for.")
+    readiness_state: str = Field(
+        description=(
+            "Derived readiness roll-up: one of ready / ready_with_residuals / "
+            "stale_evidence / blocked / incomplete (most severe state wins)."
+        )
+    )
+    readiness_reasons: list[str] = Field(
+        default_factory=list,
+        description="Why the state was derived; empty only for a fully green 'ready'.",
+    )
+    artifact_statuses: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Per-source inventory status (available / missing / invalid / stale) "
+            "for every consumable artifact kind — missing data is an explicit "
+            "state, never silently dropped."
+        ),
+    )
+    changed_component_count: int = Field(
+        description="Changed components composed from the diff-impact artifact."
+    )
+    affected_component_count: int = Field(
+        description="One-hop affected components composed from the diff-impact artifact."
+    )
+    related_test_count: int = Field(
+        description="Tests the diff-impact artifact maps to the changes."
+    )
+    risk_count: int = Field(description="Risk-ledger rows composed into the report.")
+    uncovered_blocker_count: int = Field(
+        description="Risk rows that are uncovered blockers (not passing, not accepted, blocker)."
+    )
+    warning_count: int = Field(
+        description="Cross-artifact warnings (e.g. a bundle/local head-commit conflict)."
+    )
+    artifact_path: str | None = Field(
+        default=None,
+        description="Absolute path the HTML page was written to, when write_to was provided.",
+    )
+    artifact_bytes: int | None = Field(
+        default=None,
+        description="Size of the written page in bytes, when write_to was provided.",
+    )

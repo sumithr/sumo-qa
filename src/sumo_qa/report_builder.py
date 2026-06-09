@@ -1,0 +1,445 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+"""Assemble a :class:`~sumo_qa.report_models.QAReport` from ``.sumo-qa`` artifacts (#157).
+
+Split into a pure core and an IO shell so the rendered report can be
+snapshot-tested byte-for-byte:
+
+- :func:`load_report_inputs` (IO) reads the conventional ``.sumo-qa/*.json``
+  artifacts off disk, validating each through its existing loader. A missing,
+  malformed, or schema-drifted file becomes an honest :class:`ArtifactSource`
+  state — never an exception. Inline overrides (the MCP chat flow, where a
+  ledger or bundle was built in-conversation and never persisted) take
+  precedence over whatever is on disk.
+- :func:`build_report` (pure) projects a :class:`ReportInputs` into the
+  render-ready :class:`QAReport` given an explicit clock and generator
+  version — deterministic for fixed inputs, which is what lets the golden
+  HTML fixtures pin the renderer.
+- :func:`generate_report` composes the two for the CLI / MCP callers.
+
+Artifact conventions: ``repo-map.json`` and ``diff-impact.json`` are written
+by the #155/#156 producers. ``risk-ledger.json`` and ``context-bundle.json``
+have NO persisting producer yet (#144/#149 are chat-only formatters) — they
+are opt-in conventional paths validated by the existing loaders, so a host
+that chooses to persist them gets them composed into the report.
+``readiness-scorecard.json`` (#151) and coverage/mutation evidence (#147)
+have no format yet; they appear in the inventory as honest pending states.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import TypeVar
+
+from pydantic import BaseModel, ConfigDict
+
+from sumo_qa.context_bundle_models import ContextBundle, detect_local_conflict
+from sumo_qa.context_bundle_validation import load_context_bundle
+from sumo_qa.ledger_models import RiskLedger
+from sumo_qa.ledger_validation import load_ledger
+from sumo_qa.repo_map_models import DiffImpact, RepoMap
+from sumo_qa.repo_map_scanner import _detect_git_commit
+from sumo_qa.repo_map_validation import load_repo_map
+from sumo_qa.report_models import (
+    REPORT_SCHEMA_VERSION,
+    QAReport,
+    ReportArtifact,
+    ReportComponent,
+    ReportEvidence,
+    ReportProject,
+    ReportRisk,
+    derive_readiness,
+)
+
+REPO_MAP_RELPATH = ".sumo-qa/repo-map.json"
+DIFF_IMPACT_RELPATH = ".sumo-qa/diff-impact.json"
+RISK_LEDGER_RELPATH = ".sumo-qa/risk-ledger.json"
+CONTEXT_BUNDLE_RELPATH = ".sumo-qa/context-bundle.json"
+READINESS_SCORECARD_RELPATH = ".sumo-qa/readiness-scorecard.json"
+
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+class ArtifactSource(BaseModel):
+    """Where one artifact's data came from (or why it could not be read).
+
+    ``path`` is the repo-relative posix path that was read (None when absent
+    or inline). ``error`` carries the load failure detail (None on success or
+    absence). ``inline`` marks a caller-supplied override that never touched
+    disk. ``detail`` is optional free-text context surfaced on the report row.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str | None = None
+    error: str | None = None
+    inline: bool = False
+    detail: str | None = None
+
+
+class ReportInputs(BaseModel):
+    """Everything :func:`build_report` needs, fully resolved — no IO beyond here."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    root: str
+    current_commit: str | None = None
+    repo_map: RepoMap | None = None
+    repo_map_source: ArtifactSource
+    diff_impact: DiffImpact | None = None
+    diff_impact_source: ArtifactSource
+    ledger: RiskLedger | None = None
+    ledger_source: ArtifactSource
+    bundle: ContextBundle | None = None
+    bundle_source: ArtifactSource
+    scorecard_source: ArtifactSource
+
+
+def _first_line(exc: Exception) -> str:
+    """Collapse an exception to its first message line (envelope errors carry
+    their ``[kind]`` prefix there; Pydantic's multi-line dumps get truncated)."""
+    lines = str(exc).strip().splitlines()
+    return lines[0] if lines else exc.__class__.__name__
+
+
+def _load_json_artifact(
+    root: Path,
+    relpath: str,
+    loader: Callable[[dict], _ModelT],
+) -> tuple[_ModelT | None, ArtifactSource]:
+    """Read + validate one conventional artifact, mapping every failure mode
+    to an honest source state: absent file → all-None source; unparseable
+    JSON → ``malformed_json`` error; non-object JSON → ``type_error``;
+    loader rejection (schema drift, vocab, missing field) → the loader's own
+    ``[kind]``-prefixed message. Never raises."""
+    target = root / relpath
+    if not target.is_file():
+        return None, ArtifactSource()
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, ArtifactSource(path=relpath, error=f"[malformed_json] {_first_line(exc)}")
+    if not isinstance(data, dict):
+        return None, ArtifactSource(
+            path=relpath,
+            error=f"[type_error] expected a JSON object, got {type(data).__name__}",
+        )
+    try:
+        return loader(data), ArtifactSource(path=relpath)
+    except ValueError as exc:
+        # Every artifact loader raises a ValueError subclass: the validation
+        # envelopes (RepoMap/Ledger/ContextBundle) and pydantic's
+        # ValidationError (DiffImpact) alike.
+        return None, ArtifactSource(path=relpath, error=_first_line(exc))
+
+
+_INLINE_SOURCE_DETAIL = "supplied inline by the caller (not read from disk)"
+
+
+def load_report_inputs(
+    root: Path | str,
+    *,
+    ledger_override: RiskLedger | None = None,
+    bundle_override: ContextBundle | None = None,
+) -> ReportInputs:
+    """Gather every report input from ``root``'s ``.sumo-qa`` directory.
+
+    Inline overrides take precedence over disk: when the MCP caller built a
+    ledger or bundle in-conversation, the (possibly stale or invalid) on-disk
+    file is not even read.
+    """
+    root_path = Path(root).resolve()
+    current_commit = _detect_git_commit(root_path)
+
+    repo_map, repo_map_source = _load_json_artifact(root_path, REPO_MAP_RELPATH, load_repo_map)
+    diff_impact, diff_impact_source = _load_json_artifact(
+        root_path, DIFF_IMPACT_RELPATH, DiffImpact.model_validate
+    )
+
+    if ledger_override is not None:
+        ledger: RiskLedger | None = ledger_override
+        ledger_source = ArtifactSource(inline=True, detail=_INLINE_SOURCE_DETAIL)
+    else:
+        ledger, ledger_source = _load_json_artifact(root_path, RISK_LEDGER_RELPATH, load_ledger)
+
+    if bundle_override is not None:
+        bundle: ContextBundle | None = bundle_override
+        bundle_source = ArtifactSource(inline=True, detail=_INLINE_SOURCE_DETAIL)
+    else:
+        bundle, bundle_source = _load_json_artifact(
+            root_path, CONTEXT_BUNDLE_RELPATH, load_context_bundle
+        )
+
+    scorecard_path = root_path / READINESS_SCORECARD_RELPATH
+    scorecard_source = (
+        ArtifactSource(path=READINESS_SCORECARD_RELPATH)
+        if scorecard_path.is_file()
+        else ArtifactSource()
+    )
+
+    return ReportInputs(
+        root=str(root_path),
+        current_commit=current_commit,
+        repo_map=repo_map,
+        repo_map_source=repo_map_source,
+        diff_impact=diff_impact,
+        diff_impact_source=diff_impact_source,
+        ledger=ledger,
+        ledger_source=ledger_source,
+        bundle=bundle,
+        bundle_source=bundle_source,
+        scorecard_source=scorecard_source,
+    )
+
+
+def _artifact_from_source(
+    kind: str,
+    source: ArtifactSource,
+    *,
+    missing_detail: str,
+) -> ReportArtifact:
+    """Inventory row for an artifact that did NOT load: invalid when a file
+    was present but unreadable, missing otherwise."""
+    if source.error is not None:
+        return ReportArtifact(kind=kind, status="invalid", path=source.path, detail=source.error)
+    return ReportArtifact(kind=kind, status="missing", path=None, detail=missing_detail)
+
+
+def _repo_map_artifact(inputs: ReportInputs, now: datetime) -> ReportArtifact:
+    repo_map = inputs.repo_map
+    if repo_map is None:
+        return _artifact_from_source(
+            "repo_map",
+            inputs.repo_map_source,
+            missing_detail="not generated yet — run `sumo-qa analyze` to create it",
+        )
+    recorded = repo_map.project.git_commit
+    current = inputs.current_commit
+    is_stale = recorded is not None and current is not None and recorded != current
+    detail = (
+        f"recorded commit {recorded[:8]} differs from current HEAD {current[:8]}"
+        if is_stale and recorded is not None and current is not None
+        else inputs.repo_map_source.detail
+    )
+    generated_at = repo_map.project.generated_at
+    return ReportArtifact(
+        kind="repo_map",
+        status="stale" if is_stale else "available",
+        path=inputs.repo_map_source.path,
+        detail=detail,
+        generated_at=generated_at,
+        age_days=(now - generated_at).days,
+    )
+
+
+def _diff_impact_artifact(inputs: ReportInputs) -> ReportArtifact:
+    diff_impact = inputs.diff_impact
+    if diff_impact is None:
+        return _artifact_from_source(
+            "diff_impact",
+            inputs.diff_impact_source,
+            missing_detail="no diff-impact overlay — run the diff-impact analysis to create one",
+        )
+    stale_messages = [w.message for w in diff_impact.warnings if w.kind == "stale"]
+    return ReportArtifact(
+        kind="diff_impact",
+        status="stale" if stale_messages else "available",
+        path=inputs.diff_impact_source.path,
+        detail="; ".join(stale_messages) if stale_messages else inputs.diff_impact_source.detail,
+    )
+
+
+def _ledger_artifact(inputs: ReportInputs) -> ReportArtifact:
+    if inputs.ledger is None:
+        return _artifact_from_source(
+            "risk_ledger",
+            inputs.ledger_source,
+            missing_detail=(
+                "no persisted risk ledger — persist one to .sumo-qa/risk-ledger.json "
+                "or pass rows inline"
+            ),
+        )
+    return ReportArtifact(
+        kind="risk_ledger",
+        status="available",
+        path=inputs.ledger_source.path,
+        detail=inputs.ledger_source.detail,
+    )
+
+
+def _bundle_artifact(inputs: ReportInputs, conflict: str | None) -> ReportArtifact:
+    if inputs.bundle is None:
+        return _artifact_from_source(
+            "context_bundle",
+            inputs.bundle_source,
+            missing_detail=(
+                "no persisted context bundle — persist one to .sumo-qa/context-bundle.json "
+                "or pass it inline"
+            ),
+        )
+    return ReportArtifact(
+        kind="context_bundle",
+        status="stale" if conflict is not None else "available",
+        path=inputs.bundle_source.path,
+        detail=conflict if conflict is not None else inputs.bundle_source.detail,
+    )
+
+
+def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
+    # No scorecard format exists until #151 lands: a present file is
+    # unsupported (invalid), an absent one is the expected pending state.
+    if inputs.scorecard_source.path is not None:
+        return ReportArtifact(
+            kind="readiness_scorecard",
+            status="invalid",
+            path=inputs.scorecard_source.path,
+            detail="file present but no reader exists yet — the scorecard format lands with #151",
+        )
+    return ReportArtifact(
+        kind="readiness_scorecard",
+        status="missing",
+        path=None,
+        detail="not produced yet — the readiness scorecard lands with #151",
+    )
+
+
+def _components(nodes: list) -> list[ReportComponent]:
+    return sorted(
+        (
+            ReportComponent(
+                id=node.id, path=node.path, type=node.type, has_mapped_tests=node.has_mapped_tests
+            )
+            for node in nodes
+        ),
+        key=lambda component: component.id,
+    )
+
+
+def _evidence_streams(inputs: ReportInputs) -> list[ReportEvidence]:
+    """Project the bundle's go-stale facts (plus the not-yet-produced coverage
+    and mutation streams) into the four named evidence rows."""
+    bundle = inputs.bundle
+    stale_fields = set(bundle.stale_evidence_fields()) if bundle is not None else set()
+    untrusted_fields = set(bundle.untrustworthy_evidence_fields()) if bundle is not None else set()
+
+    streams: list[ReportEvidence] = []
+    for name, field in (("tests", "test_evidence"), ("ci", "ci_status")):
+        fact = getattr(bundle, field) if bundle is not None else None
+        if fact is None:
+            streams.append(ReportEvidence(name=name, status="missing", trustworthy=False))
+            continue
+        streams.append(
+            ReportEvidence(
+                name=name,
+                status=fact.result,
+                # A fact captured against a different commit than the bundle
+                # head is effectively stale even when labelled fresh.
+                freshness="stale" if field in stale_fields else fact.freshness,
+                trustworthy=field not in untrusted_fields,
+                source=fact.source,
+                captured_at=fact.captured_at,
+                detail=fact.detail,
+            )
+        )
+    for name in ("coverage", "mutation"):
+        streams.append(
+            ReportEvidence(
+                name=name,
+                status="missing",
+                trustworthy=False,
+                detail="no producer yet — coverage/mutation evidence lands with #147",
+            )
+        )
+    return streams
+
+
+def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str) -> QAReport:
+    """Project resolved inputs into the render-ready report. Pure: fixed
+    inputs + fixed clock + fixed version ⇒ byte-identical output."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+
+    conflict = (
+        detect_local_conflict(inputs.bundle, inputs.current_commit)
+        if inputs.bundle is not None
+        else None
+    )
+
+    artifacts = [
+        _repo_map_artifact(inputs, now),
+        _diff_impact_artifact(inputs),
+        _ledger_artifact(inputs),
+        _bundle_artifact(inputs, conflict),
+        _scorecard_artifact(inputs),
+        ReportArtifact(
+            kind="coverage_mutation",
+            status="missing",
+            path=None,
+            detail="not produced yet — coverage/mutation evidence lands with #147",
+        ),
+    ]
+
+    diff_impact = inputs.diff_impact
+    risks = [
+        ReportRisk(
+            risk_id=row.risk_id,
+            risk=row.risk,
+            source_anchor=row.source_anchor,
+            test=row.test,
+            evidence_status=row.evidence_status,
+            residual=row.residual,
+            repo_map_node_id=row.repo_map_node_id,
+            uncovered_blocker=row.is_uncovered_blocker(),
+        )
+        for row in (inputs.ledger.rows if inputs.ledger is not None else [])
+    ]
+    evidence = _evidence_streams(inputs)
+
+    repo_map = inputs.repo_map
+    project_name = (
+        repo_map.project.name
+        if repo_map is not None and repo_map.project.name
+        else Path(inputs.root).name or None
+    )
+
+    return QAReport(
+        schema_version=REPORT_SCHEMA_VERSION,
+        project=ReportProject(
+            root=inputs.root,
+            name=project_name,
+            head_commit=inputs.current_commit,
+            generated_at=now,
+            generator_version=generator_version,
+        ),
+        artifacts=artifacts,
+        changed_components=_components(diff_impact.changed_nodes if diff_impact else []),
+        affected_components=_components(diff_impact.affected_nodes if diff_impact else []),
+        related_tests=sorted(diff_impact.related_tests) if diff_impact else [],
+        unmapped_files=sorted(diff_impact.unmapped_files) if diff_impact else [],
+        risk_surface=sorted(diff_impact.risk_surface) if diff_impact else [],
+        risks=risks,
+        uncovered_blocker_count=sum(1 for risk in risks if risk.uncovered_blocker),
+        evidence=evidence,
+        warnings=[conflict] if conflict is not None else [],
+        readiness=derive_readiness(artifacts, risks, evidence),
+    )
+
+
+def generate_report(
+    root: Path | str,
+    *,
+    generator_version: str,
+    ledger_override: RiskLedger | None = None,
+    bundle_override: ContextBundle | None = None,
+    now: datetime | None = None,
+) -> QAReport:
+    """Load inputs from ``root`` and build the report. ``now`` defaults to the
+    current UTC time; a naive ``now`` is rejected (in :func:`build_report`)."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    inputs = load_report_inputs(
+        root, ledger_override=ledger_override, bundle_override=bundle_override
+    )
+    return build_report(inputs, now=now, generator_version=generator_version)
