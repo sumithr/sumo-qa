@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.39.1](https://github.com/sumithr/sumo-qa/compare/v0.39.0...v0.39.1) (2026-06-09)
+
+
+### Tests
+
+* **evals:** tune local cheap-tier via judge/candidate bake-off + provider-file pattern ([#374](https://github.com/sumithr/sumo-qa/issues/374)) ([f8a0a97](https://github.com/sumithr/sumo-qa/commit/f8a0a979b76f38b7e36ebc1bf85ea0558572bce8))
+
 ## [0.39.0](https://github.com/sumithr/sumo-qa/compare/v0.38.0...v0.39.0) (2026-06-08)
 
 
