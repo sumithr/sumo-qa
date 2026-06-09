@@ -7,6 +7,7 @@ A combo's verdicts are "close to gpt" when, per control, it FAILS the A0 (pre-fi
 PASSES the A1 (post-fix) arm — the lift the cloud judge produces by construction. We score that
 over --repeat reps (majority vote) and flag any arm whose verdict flips across reps."""
 
+import hashlib
 import json
 import sys
 from collections import defaultdict
@@ -55,8 +56,14 @@ def main():
             a = arm(lbl)
             if not a:
                 continue
-            desc = row.get("testCase") or row.get("vars") or {}
-            tid = json.dumps(desc, sort_keys=True)[:160]
+            # Seed identity = the resolved VARS, hashed. A seed's A0/A1 arms share identical vars
+            # (the arm differs only in the PROMPT) but distinct seeds differ in vars — so this
+            # groups A0/A1 of one seed AND keeps separate seeds apart. Do NOT key on testCase:
+            # its `description` encodes the arm ("A0 ..."/"A1 ...") for fence-parser-style controls,
+            # which would split A0/A1 into separate groups; and the earlier testCase[:160] key
+            # collided the two unproven-escalation seeds via their shared assertion prefix.
+            desc = row.get("vars") or {}
+            tid = hashlib.sha1(json.dumps(desc, sort_keys=True).encode()).hexdigest()
             arms[(ctrl, tid)][a].append(grade(row))
         c = combos[(cand, judge)]
         for _, v in arms.items():

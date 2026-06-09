@@ -136,11 +136,12 @@ esac
 echo "[eval]   candidate=$CAND  judge=$JUDGE  via OWUI $OWUI_BASE  repeat=$REPEAT"
 echo "[eval]   NOT merge-authoritative — relative lift only; cloud stays the gate."
 
-# select files for this tier: quality = ALL; reasoning = pins gpt-5-mini (discovery + .ab); cheap = the rest
+# select files for this tier: quality = ALL; reasoning = pins gpt-5-mini OR the cloud-reasoning-candidate
+# provider (the provider extraction moved gpt-5-mini out of the .ab configs into the file); cheap = the rest
 files=()
 for f in "$EVAL_DIR"/skill-*.yaml; do
   case "$f" in *.gen.yaml|*.generated-tests.yaml) continue;; esac
-  if grep -q 'gpt-5-mini' "$f"; then is_reason=1; else is_reason=0; fi
+  if grep -qE 'gpt-5-mini|cloud-reasoning-candidate' "$f"; then is_reason=1; else is_reason=0; fi
   if [ "$FILTER" = all ] \
      || { [ "$FILTER" = reasoning ] && [ "$is_reason" = 1 ]; } \
      || { [ "$FILTER" = cheap ] && [ "$is_reason" = 0 ]; }; then

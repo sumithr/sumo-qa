@@ -58,6 +58,10 @@ for J in "${JUDGES[@]}"; do
       case "$ctrl" in *"${CONTROLS_ONLY:-}"*) ;; *) continue;; esac
       out="$OUT/${ctrl}__${clabel}__${jlabel}.json"
       echo "     $ctrl -> $(basename "$out")"
+      # Stale-output guard: filenames are deterministic, so a FAILED rerun after an earlier
+      # success would leave the prior JSON in place and falsely report `ok` (aggregator then
+      # scores stale measurements as this run's). Delete it before promptfoo writes.
+      rm -f "$out"
       # promptfoo exits 100 when ANY test fails — but that's the bake-off DATA (A0 is meant to
       # FAIL), and --output is written regardless. So success = a valid JSON file, not rc==0.
       # MUST disable errexit around it: under `set -e`, exit 100 would abort the whole sweep.
