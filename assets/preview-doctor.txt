@@ -1,0 +1,17 @@
+[OK] python_version — Python 3.14.4; sumo-qa 0.39.0
+[OK] install_mode — editable install (skills/ under ~/sumo-qa)
+[OK] binary_discoverable — sumo-qa on PATH at ~/sumo-qa/.venv/bin/sumo-qa
+[OK] uvx_available — uvx on PATH at ~/Desktop/repos/apo/sumo-qa/.venv/bin/uvx
+[OK] mcp_handshake — MCP initialize handshake succeeded
+[OK] tools_list_complete — all 26 required tools advertised
+[OK] claude_code_config — ~/.config/claude/claude_desktop_config.json registers sumo-qa at ~/.pyenv/versions/3.13.13/bin/sumo-qa
+[OK] claude_code_plugin — sumo-qa not installed via plugin manager (no sumo-qa entry)
+[OK] claude_desktop_config — ~/Library/Application Support/Claude/claude_desktop_config.json registers sumo-qa at ~/.pyenv/versions/3.13.13/bin/sumo-qa
+[OK] codex_plugin — sumo-qa not installed via Codex plugin manager (no sumo-qa entry)
+[FAIL] vscode_workspace_config — ~/sumo-qa/.vscode/mcp.json missing — VS Code workspace not initialised
+      Fix: Run `sumo-qa-install --vscode --workspace ~/sumo-qa` to write the config.
+[OK] vscode_user_misleading — no user-level ~/.vscode/mcp.json present — workspace-level is the right location
+[OK] jetbrains_detection — detected JetBrains IDE(s): IntelliJIdea2022.2, IntelliJIdea2022.3, IntelliJIdea2023.1, IntelliJIdea2023.2, IntelliJIdea2023.3, IntelliJIdea2024.1, IntelliJIdea2024.2, IntelliJIdea2024.3, IntelliJIdea2025.1, IntelliJIdea2025.2, IntelliJIdea2025.3, IntelliJIdea2026.1, PyCharm2026.1 — manual MCP setup required
+      Fix: Open Settings -> Tools -> AI Assistant -> Model Context Protocol, click + Add server, Name: sumo-qa, Command: <sumo-qa binary>, Arguments: leave empty.
+
+Summary: 12 OK, 0 WARN, 1 FAIL

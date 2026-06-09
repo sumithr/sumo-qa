@@ -264,6 +264,25 @@ also_copy = [
 [tool.sumo-qa.plugin]
 display_name = "Sumo QA"
 keywords = ["qa", "testing", "tdd", "mutation-testing", "mcp", "claude-code", "codex"]
+# Marketplace copy (issue #84) — canonical here, propagated ONLY by the
+# generator (snapshot + docs/host-adapters.md). short_description is capped
+# at 200 chars by plugin_packaging.canonical; host manifests keep the
+# [project] description as their `description`.
+category = "testing"
+short_description = "A QA-native MCP server and skills library: analyze a repo, map risks to tests and evidence, plan and scaffold tests, strengthen weak suites, and review diffs before merge with senior-QA discipline."
+long_description = """\
+Sumo QA packages a senior QA engineer's working discipline as an MCP server \
+with a bundled skills library. It drives the QA loop end to end: analyze the \
+repository to understand what it does, map named risks to the tests and \
+evidence that would catch them, decide a grounded test approach, then do the \
+work — test plans, TDD scaffolding, mutation-testing follow-up, test-data \
+discovery, and pre-merge diff review.
+
+Every recommendation cites a curated QA catalogue of principles, techniques, \
+classifications, and approaches instead of improvised advice, so guidance \
+stays consistent across hosts and models. It ships as a standard stdio MCP \
+server: install with pip, wire it into a supported host with one command, \
+and verify the setup with the bundled doctor."""
 
 [tool.sumo-qa.plugin.mcp]
 server_name = "sumo-qa"

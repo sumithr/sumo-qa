@@ -106,7 +106,7 @@ The JSON document looks like:
 
 For hosts beyond Claude Code, VS Code + Copilot, and JetBrains (which `sumo-qa-install` handles directly), the `sumo-qa` binary you get from `pip install sumo-qa` exposes a standard stdio MCP server. To wire it into any other MCP-capable host, follow that host's own MCP-server setup documentation and point it at the absolute path of `sumo-qa` on your machine (run `which sumo-qa` or `where sumo-qa` on Windows to find it).
 
-We haven't verified those host-specific paths end-to-end ourselves, so we don't ship per-host instructions — but the underlying server is a vanilla MCP stdio server and should work wherever MCP works.
+**Cursor, OpenCode, and Gemini CLI are explicitly not yet verified** — we haven't run those host-specific paths end-to-end ourselves, so we don't ship per-host instructions for them (or for any other unlisted MCP host). The underlying server is a vanilla MCP stdio server and should work wherever MCP works.
 
 ## Plugin-format install (Claude Code / Codex)
 

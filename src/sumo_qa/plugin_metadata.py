@@ -34,6 +34,9 @@ class PluginMetadata:
     mcp_command: str
     mcp_transport: str
     mcp_args: tuple[str, ...]
+    short_description: str
+    long_description: str
+    category: str
 
     @classmethod
     def from_bundle(cls) -> PluginMetadata:
@@ -60,4 +63,7 @@ class PluginMetadata:
             mcp_command=mcp["command"],
             mcp_transport=mcp["transport"],
             mcp_args=tuple(mcp["args"]),
+            short_description=data["short_description"],
+            long_description=data["long_description"],
+            category=data["category"],
         )

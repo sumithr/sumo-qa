@@ -59,6 +59,15 @@ class CanonicalPlugin:
     keywords: tuple[str, ...]
     mcp: McpSpec
     hooks: tuple[HookSpec, ...]
+    # Marketplace copy (issue #84). Optional so older overlays still load;
+    # short_description is capped at 200 chars — the common marketplace
+    # short-copy limit — and enforced in load().
+    short_description: str = ""
+    long_description: str = ""
+    category: str = ""
+
+
+_SHORT_DESCRIPTION_MAX = 200
 
 
 def _require(data: dict, dotted_path: str) -> object:
@@ -88,6 +97,14 @@ def load(pyproject_path: Path) -> CanonicalPlugin:
     overlay = data.get("tool", {}).get("sumo-qa", {}).get("plugin", {})
     display_name = str(overlay.get("display_name", name))
     keywords = tuple(overlay.get("keywords", ()))
+    short_description = str(overlay.get("short_description", ""))
+    long_description = str(overlay.get("long_description", ""))
+    category = str(overlay.get("category", ""))
+    if len(short_description) > _SHORT_DESCRIPTION_MAX:
+        raise CanonicalLoadError(
+            f"[tool.sumo-qa.plugin].short_description must be <= "
+            f"{_SHORT_DESCRIPTION_MAX} characters, got {len(short_description)}"
+        )
 
     mcp_raw = _require(data, "tool.sumo-qa.plugin.mcp")
     if not isinstance(mcp_raw, dict):
@@ -125,4 +142,7 @@ def load(pyproject_path: Path) -> CanonicalPlugin:
         keywords=keywords,
         mcp=mcp,
         hooks=hooks,
+        short_description=short_description,
+        long_description=long_description,
+        category=category,
     )

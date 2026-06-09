@@ -41,6 +41,28 @@ def test_required_fields_present() -> None:
     assert meta.description
 
 
+def test_marketplace_copy_fields_surface() -> None:
+    """T5 — issue-#84 marketplace copy reaches the runtime accessor with the
+    canonical short-copy cap intact and no Claude-centering phrases."""
+    meta = plugin_metadata.PluginMetadata.from_bundle()
+    assert meta.short_description
+    assert len(meta.short_description) <= 200
+    assert meta.long_description
+    assert meta.category == "testing"
+    banned = (
+        "Claude Code only",
+        "primarily for Claude",
+        "Claude's QA assistant",
+        "designed for Claude",
+        "for Claude users",
+    )
+    copy_blob = " ".join(
+        (meta.short_description, meta.long_description, meta.description, meta.display_name)
+    )
+    for phrase in banned:
+        assert phrase.lower() not in copy_blob.lower(), phrase
+
+
 def test_version_matches_project_version() -> None:
     """T4 — Snapshot must match pyproject [project].version so a version
     bump that doesn't re-run the generator is caught."""
