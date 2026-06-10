@@ -161,11 +161,13 @@ def load_report_inputs(
     current_commit = _detect_git_commit(root_path)
 
     repo_map, repo_map_source = _load_json_artifact(root_path, REPO_MAP_RELPATH, load_repo_map)
+    repo_map_foreign = False
     if repo_map is not None and Path(repo_map.project.root).resolve() != root_path:
         # A repo-map copied from ANOTHER repository measures a different tree —
         # composing it would present foreign evidence as local. Mirror the
         # `_load_map_with_fallback` rejection precedent (server.py); here the
         # honest state is invalid (the report has no live-scan fallback).
+        repo_map_foreign = True
         repo_map_source = ArtifactSource(
             path=REPO_MAP_RELPATH,
             error=(
@@ -177,6 +179,21 @@ def load_report_inputs(
     diff_impact, diff_impact_source = _load_json_artifact(
         root_path, DIFF_IMPACT_RELPATH, DiffImpact.model_validate
     )
+    if diff_impact is not None and repo_map_foreign:
+        # The overlay's changed/affected nodes are repo-map node ids; with the
+        # map rejected as foreign, those references describe a different
+        # repository. Reject the overlay in lockstep so it is neither composed
+        # into the report body nor counted as local evidence — the overlay
+        # carries no root of its own to re-validate against (schema 1.x has no
+        # provenance), so the only honest signal is the foreign map beside it.
+        diff_impact_source = ArtifactSource(
+            path=DIFF_IMPACT_RELPATH,
+            error=(
+                "[foreign_root] overlay derives from a repo-map describing a different "
+                "repository — regenerate with `sumo-qa analyze`"
+            ),
+        )
+        diff_impact = None
 
     if ledger_override is not None:
         ledger: RiskLedger | None = ledger_override

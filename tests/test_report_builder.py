@@ -254,6 +254,27 @@ def test_foreign_root_repo_map_is_invalid_not_evidence(tmp_path):
     assert report.readiness.state == "incomplete"
 
 
+def test_foreign_root_repo_map_also_rejects_its_diff_impact_overlay(tmp_path):
+    """The diff-impact overlay's nodes are repo-map node ids — when the map is
+    rejected as foreign, the overlay describes the same foreign tree. It must
+    be rejected in lockstep: neither composed into the report body nor counted
+    as evidence. Without this the overlay (no own stale warning) reads
+    `available` and its foreign components leak into the report."""
+    foreign = tmp_path / "elsewhere"
+    foreign.mkdir()
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(foreign))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())  # no own stale warning
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "invalid"
+    assert entry.detail is not None and "foreign_root" in entry.detail
+    # the foreign overlay's components must NOT leak into the report body
+    assert report.changed_components == []
+    assert report.affected_components == []
+    assert report.related_tests == []
+    assert report.risk_surface == []
+
+
 def test_pathologically_nested_artifact_is_invalid_not_a_crash(tmp_path):
     """A hostile deeply-nested JSON file overflows the recursive parser —
     that must surface as an honest invalid state, never a RecursionError."""
