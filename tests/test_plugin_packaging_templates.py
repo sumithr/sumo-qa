@@ -41,6 +41,9 @@ def plugin() -> CanonicalPlugin:
                 trigger="startup|clear|compact",
             ),
         ),
+        short_description="Short marketplace copy.",
+        long_description="Long marketplace copy.",
+        category="testing",
     )
 
 
@@ -178,3 +181,24 @@ def test_host_adapters_doc_lists_both_hosts(plugin):
     assert "https://json.schemastore.org/claude-code-plugin-manifest.json" in text
     # No skill body content leaking in
     assert "## When reviewing code" not in text
+
+
+def test_host_adapters_doc_renders_marketplace_copy(plugin):
+    """Marketplace copy surfaces in the generated doc — the visible proof
+    that it propagates from pyproject.toml through the generator only."""
+    text = host_adapters_doc.render(plugin)
+    assert "## Marketplace copy" in text
+    assert "Short marketplace copy." in text
+    assert "Long marketplace copy." in text
+    assert "testing" in text
+
+
+def test_manifests_do_not_duplicate_marketplace_copy(plugin):
+    """Decision pin (issue #84): short/long copy propagate generator-only.
+    Host manifests keep the [project] description as `description` and gain
+    no marketplace-copy keys."""
+    for render in (claude_code.render, codex.render):
+        out = render(plugin)
+        assert out["description"] == "d"
+        for key in ("short_description", "shortDescription", "long_description", "category"):
+            assert key not in out, key

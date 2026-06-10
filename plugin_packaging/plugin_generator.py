@@ -65,6 +65,9 @@ def _snapshot(plugin: CanonicalPlugin) -> dict:
         "homepage": plugin.homepage,
         "repository": plugin.repository,
         "display_name": plugin.display_name,
+        "short_description": plugin.short_description,
+        "long_description": plugin.long_description,
+        "category": plugin.category,
         "keywords": list(plugin.keywords),
         "mcp": {
             "server_name": plugin.mcp.server_name,

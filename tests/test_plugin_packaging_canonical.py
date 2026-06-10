@@ -201,3 +201,108 @@ command = "sumo-qa"
     )
     plugin = canonical.load(pyproj)
     assert plugin.mcp.env == {}
+
+
+def test_reads_marketplace_copy_fields(tmp_path: Path) -> None:
+    """T11 — short_description / long_description / category flow from the
+    [tool.sumo-qa.plugin] overlay (issue #84 marketplace copy)."""
+    pyproj = _write_pyproject(
+        tmp_path / "pyproject.toml",
+        """\
+[project]
+name = "sumo-qa"
+version = "0.0.1"
+description = "x"
+license = "Apache-2.0"
+
+[tool.sumo-qa.plugin]
+display_name = "Sumo QA"
+short_description = "Short copy."
+long_description = "Long copy paragraph."
+category = "testing"
+
+[tool.sumo-qa.plugin.mcp]
+server_name = "sumo-qa"
+command = "sumo-qa"
+""",
+    )
+    plugin = canonical.load(pyproj)
+    assert plugin.short_description == "Short copy."
+    assert plugin.long_description == "Long copy paragraph."
+    assert plugin.category == "testing"
+
+
+def test_marketplace_copy_defaults_to_empty(tmp_path: Path) -> None:
+    """T12 — overlays without marketplace copy still load (empty strings,
+    not None), so templates can render without guards."""
+    pyproj = _write_pyproject(
+        tmp_path / "pyproject.toml",
+        """\
+[project]
+name = "sumo-qa"
+version = "0.0.1"
+description = "x"
+license = "Apache-2.0"
+
+[tool.sumo-qa.plugin]
+display_name = "Sumo QA"
+
+[tool.sumo-qa.plugin.mcp]
+server_name = "sumo-qa"
+command = "sumo-qa"
+""",
+    )
+    plugin = canonical.load(pyproj)
+    assert plugin.short_description == ""
+    assert plugin.long_description == ""
+    assert plugin.category == ""
+
+
+def test_short_description_over_200_chars_raises(tmp_path: Path) -> None:
+    """T13 — the marketplace short-copy cap (<= 200 chars) is enforced at
+    the canonical source, so an over-long blurb can never reach a generated
+    manifest."""
+    pyproj = _write_pyproject(
+        tmp_path / "pyproject.toml",
+        f"""\
+[project]
+name = "sumo-qa"
+version = "0.0.1"
+description = "x"
+license = "Apache-2.0"
+
+[tool.sumo-qa.plugin]
+display_name = "Sumo QA"
+short_description = "{"x" * 201}"
+
+[tool.sumo-qa.plugin.mcp]
+server_name = "sumo-qa"
+command = "sumo-qa"
+""",
+    )
+    with pytest.raises(canonical.CanonicalLoadError, match="short_description"):
+        canonical.load(pyproj)
+
+
+def test_short_description_at_200_chars_loads(tmp_path: Path) -> None:
+    """T13b — boundary: exactly 200 chars is allowed (cap is inclusive)."""
+    pyproj = _write_pyproject(
+        tmp_path / "pyproject.toml",
+        f"""\
+[project]
+name = "sumo-qa"
+version = "0.0.1"
+description = "x"
+license = "Apache-2.0"
+
+[tool.sumo-qa.plugin]
+display_name = "Sumo QA"
+short_description = "{"x" * 200}"
+
+[tool.sumo-qa.plugin.mcp]
+server_name = "sumo-qa"
+command = "sumo-qa"
+""",
+    )
+    plugin = canonical.load(pyproj)
+    assert len(plugin.short_description) == 200

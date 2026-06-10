@@ -216,3 +216,25 @@ def test_emitted_json_is_deterministic(fresh_repo: Path) -> None:
         loaded = json.loads(text)
         canonical_str = json.dumps(loaded, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
         assert canonical_str == text, rel
+
+
+def test_snapshot_carries_marketplace_copy(fresh_repo: Path) -> None:
+    """T10 — the runtime snapshot propagates the issue-#84 marketplace copy
+    fields from the canonical overlay, and the host manifests do NOT
+    duplicate them (generator-only propagation: the [project] description
+    stays the manifests' `description`)."""
+    plugin_generator.sync(fresh_repo)
+    snapshot = json.loads(
+        (fresh_repo / "src/sumo_qa/_data/plugin_metadata.json").read_text(encoding="utf-8")
+    )
+    for key in ("short_description", "long_description", "category"):
+        assert key in snapshot, key
+    assert snapshot["short_description"]
+    assert len(snapshot["short_description"]) <= 200
+    assert snapshot["long_description"]
+    assert snapshot["category"]
+
+    for manifest_rel in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+        manifest = json.loads((fresh_repo / manifest_rel).read_text(encoding="utf-8"))
+        for key in ("short_description", "long_description", "category"):
+            assert key not in manifest, f"{manifest_rel} duplicates marketplace copy key {key}"
