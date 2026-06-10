@@ -175,14 +175,20 @@ def test_unverified_host_is_rejected_not_passed_through():
     assert INSTALLER not in result.stdout
 
 
-def test_uninstall_is_a_documented_deferral_not_a_destructive_action():
+def test_uninstall_routes_to_the_canonical_installer_uninstall():
+    # --uninstall now routes to the canonical installer's ownership-aware
+    # --uninstall path (no longer a deferral). The wrapper itself must run
+    # nothing destructive: no pip uninstall, no rm of user data.
     result = _plan("--uninstall")
-    combined = result.stdout + result.stderr
-    # Deferred on purpose: the wrapper must NOT run a real uninstall, because
-    # it cannot prove it owns the host config entries it would remove.
-    assert "pip uninstall" not in result.stdout
-    # It must point the user at the documented manual uninstall steps.
-    assert "docs/INSTALL.md" in combined or "INSTALL.md" in combined
+    assert result.returncode == 0, result.stderr
+    plan = result.stdout
+    # The plan delegates the uninstall to the canonical installer.
+    assert f"{INSTALLER} --uninstall" in plan
+    # No doctor after uninstall — nothing to verify once config is removed.
+    assert "sumo-qa-doctor" not in plan
+    # The wrapper itself never runs anything destructive.
+    assert "pip uninstall" not in plan
+    assert "rm " not in plan
 
 
 def test_doctor_flag_runs_only_doctor():
@@ -343,23 +349,28 @@ def test_powershell_wrapper_does_not_use_invoke_expression():
         assert "Invoke-Expression" not in code, line
 
 
-def test_powershell_uninstall_is_deferred_not_destructive():
+def test_powershell_uninstall_routes_to_canonical_installer():
+    # Static-only check (CI's Windows leg confirms at runtime): -Uninstall now
+    # routes to the canonical installer's ownership-aware --uninstall path, NOT
+    # a deferral. The wrapper itself runs nothing destructive directly.
     text = INSTALL_PS1.read_text()
-    # Must route to the documented manual steps, never auto-run pip uninstall
-    # outside the quoted guidance block.
-    assert "docs/INSTALL.md#uninstall" in text
     # Inspect the actual `'uninstall' {` switch-case BODY, not the
-    # `$mode = 'uninstall'` assignment (the old `split("'uninstall'")` landed on
-    # the assignment line, so it guarded almost nothing). The case ends at its
-    # closing brace, the first `\n    }` at case indentation.
+    # `$mode = 'uninstall'` assignment. The case ends at its closing brace, the
+    # first `\n    }` at case indentation.
     uninstall_body = text.split("'uninstall' {", 1)[1].split("\n    }", 1)[0]
-    # Deferred + non-destructive: the body must never auto-run an uninstall.
+    # Routes the --uninstall flag to the canonical installer via Add-Cmd.
+    assert "'sumo_qa.installer', '--uninstall'" in uninstall_body
+    assert "Add-Cmd" in uninstall_body
+    # No doctor after uninstall.
+    assert "sumo-qa-doctor" not in uninstall_body
+    # Non-destructive: the body never auto-runs an uninstall or removes data
+    # itself (the canonical installer does the ownership-aware removal).
     assert "Invoke-Expression" not in uninstall_body
     assert "Start-Process" not in uninstall_body
-    # `pip uninstall` may appear ONLY as documented manual guidance text, never
-    # as an executed call (no call operator `&` / `Invoke-Expression` on it).
     assert "& 'pip'" not in uninstall_body
     assert "& pip" not in uninstall_body
+    assert "Remove-Item" not in uninstall_body
+    assert "pip uninstall" not in uninstall_body
 
 
 def test_powershell_does_not_whitespace_split_the_interpreter_override():

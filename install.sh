@@ -19,8 +19,9 @@
 #   ./install.sh --update        upgrade the package, refresh host configs,
 #                                then run the doctor
 #   ./install.sh --doctor        run the read-only doctor only (no install)
-#   ./install.sh --uninstall     print the documented manual uninstall steps
-#                                (deferred: see "Uninstall" below)
+#   ./install.sh --uninstall     remove the host config entries this installer
+#                                wrote (ownership-aware) — the inverse of
+#                                install; runs no doctor afterward
 #   ./install.sh --host HOST     limit install to one verified host:
 #                                claude-code | vscode | jetbrains
 #   ./install.sh --print-plan …  print the exact commands this script WOULD
@@ -33,13 +34,13 @@
 # it owns. On failure it prints the exact command that failed and the next
 # safe manual command to run.
 #
-# Uninstall is DEFERRED on purpose. The canonical installer has no
-# ``--uninstall`` subcommand, and a clean uninstall means editing host
-# config files (the ``sumo-qa`` key under ``mcpServers`` / ``servers``) that
-# this wrapper cannot prove it owns. Removing them blindly could delete a
-# user's unrelated MCP servers. Until the Python installer grows an
-# ownership-aware uninstall, the wrapper routes users to the documented
-# manual steps in docs/INSTALL.md#uninstall rather than guessing.
+# Uninstall routes to the canonical installer's ownership-aware
+# ``--uninstall`` path. The Python installer writes a fixed-key entry
+# (``sumo-qa`` under ``mcpServers`` / ``servers``) on install and removes
+# exactly that key on uninstall, preserving every other MCP server. The
+# wrapper just forwards the flag (plus the host flag, if any) — it runs
+# nothing destructive itself and never touches your ``.sumo-qa/`` artifacts
+# or the ``sumo-qa`` pip package (run ``pip uninstall sumo-qa`` separately).
 
 set -euo pipefail
 
@@ -200,29 +201,13 @@ case "$mode" in
     add_cmd sumo-qa-doctor
     ;;
   uninstall)
-    # Deferred: print the documented manual steps, run nothing destructive.
-    if [[ "$print_plan" -eq 1 ]]; then
-      echo "# uninstall is deferred — no automated uninstall command is run."
-      echo "# See docs/INSTALL.md#uninstall for the manual steps."
-      exit 0
+    # Route to the canonical installer's ownership-aware --uninstall path.
+    # No doctor afterward (nothing to verify once config is removed).
+    if [[ -n "$host" ]]; then
+      add_cmd "${python_argv[@]}" -m sumo_qa.installer --uninstall "$host_flag_value"
+    else
+      add_cmd "${python_argv[@]}" -m sumo_qa.installer --uninstall
     fi
-    cat >&2 <<'EOF'
-Automated uninstall is not available yet.
-
-A clean uninstall edits host config files (the "sumo-qa" entry under
-mcpServers / servers) that this wrapper cannot prove it owns, so it will not
-guess and risk removing your other MCP servers.
-
-Follow the documented manual steps instead:
-
-  docs/INSTALL.md#uninstall
-
-In short: `pip uninstall sumo-qa`, then remove the "sumo-qa" entry from each
-host config you configured (Claude Code, Claude Desktop, VS Code, JetBrains).
-Your `.sumo-qa/` repo artifacts are yours to keep or delete; the uninstall
-never touches them.
-EOF
-    exit 0
     ;;
 esac
 
