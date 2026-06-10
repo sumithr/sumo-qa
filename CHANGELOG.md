@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.40.0](https://github.com/sumithr/sumo-qa/compare/v0.39.1...v0.40.0) (2026-06-10)
+
+
+### Features
+
+* **distribution:** add marketplace metadata, assets, and per-host install docs ([#84](https://github.com/sumithr/sumo-qa/issues/84)) ([#377](https://github.com/sumithr/sumo-qa/issues/377)) ([130fc0a](https://github.com/sumithr/sumo-qa/commit/130fc0a70a028bdcd71710a240ed1c0a76d76715))
+
+
+### Bug Fixes
+
+* **release:** sync marketplace preview after version bump ([#385](https://github.com/sumithr/sumo-qa/issues/385)) ([3286054](https://github.com/sumithr/sumo-qa/commit/32860544b2cd3241930c8401e981aa838087c969))
+
 ## [0.39.1](https://github.com/sumithr/sumo-qa/compare/v0.39.0...v0.39.1) (2026-06-09)
 
 
