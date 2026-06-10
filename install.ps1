@@ -97,14 +97,15 @@ if ([string]::IsNullOrEmpty($python)) {
     }
 }
 
-# Split the (possibly multi-word) interpreter override into argv words once,
-# so commands run as argv via the call operator instead of Invoke-Expression
-# on a rebuilt string. This preserves SUMO_QA_PYTHON values like 'py -3'
-# while removing the dynamic-eval injection surface.
-# @(...) forces an array even when the split yields a single word — without
-# it a one-word value stays a [string] and `$pythonArgv + @(...)` would do
-# string concatenation instead of array extension.
-$pythonArgv = @($python -split '\s+' | Where-Object { $_ -ne '' })
+# SUMO_QA_PYTHON (and the resolved fallback) is a SINGLE interpreter path or
+# executable name, NOT a whitespace-split command line. Treat it as one argv
+# element so a path containing spaces (e.g. 'C:\Program Files\Python\python')
+# binds as one token and exec's correctly, instead of being split into two
+# words that would invoke the wrong path. The default 'py' launcher is a
+# single executable; it does not need the multi-word 'py -3' form here.
+# @(...) forces an array so `$pythonArgv + @(...)` does array extension, not
+# string concatenation.
+$pythonArgv = @($python)
 
 # Verified hosts the installer can target via a single flag. Keep in lockstep
 # with python -m sumo_qa.installer; unverified hosts are rejected, never
@@ -154,6 +155,17 @@ $plan = New-Object System.Collections.Generic.List[object]
 # Helper: append one command's argv to the plan as a flat string[].
 function Add-Cmd { param([string[]]$Argv) $plan.Add([string[]]$Argv) }
 
+# Render an argv array as a human-readable, copy-pasteable command line. Any
+# token containing whitespace is single-quoted so the printed/echoed line
+# matches what is executed (a space-containing interpreter path stays one
+# token instead of looking like two words).
+function Format-CmdLine {
+    param([string[]]$Argv)
+    ($Argv | ForEach-Object {
+        if ($_ -match '\s') { "'$_'" } else { $_ }
+    }) -join ' '
+}
+
 switch ($mode) {
     'install' {
         Add-Cmd ($pythonArgv + @('-m', 'pip', 'install', 'sumo-qa'))
@@ -197,7 +209,7 @@ touches them.
 }
 
 if ($PrintPlan) {
-    foreach ($cmd in $plan) { Write-Output ($cmd -join ' ') }
+    foreach ($cmd in $plan) { Write-Output (Format-CmdLine $cmd) }
     exit 0
 }
 
@@ -226,7 +238,7 @@ re-running .\install.ps1 is safe.
 # AND a command-not-found / launch error (which throws under
 # $ErrorActionPreference='Stop'), and propagates the real exit code.
 foreach ($cmd in $plan) {
-    $cmdLine = $cmd -join ' '
+    $cmdLine = Format-CmdLine $cmd
     Write-Output "+ $cmdLine"
     $prog = $cmd[0]
     $rest = @($cmd | Select-Object -Skip 1)

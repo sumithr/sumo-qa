@@ -150,13 +150,15 @@ if [[ "$mode_flags" == *", "* ]]; then
   exit 2
 fi
 
-# Split the (possibly multi-word) interpreter override into argv words once,
-# so we can execute commands as argv arrays instead of eval-ing a rebuilt
-# string. This preserves the documented behaviour of SUMO_QA_PYTHON values
-# like "py -3" while removing the shell-injection surface of eval.
-# (Bash 3.2 compatible: plain word-splitting, no mapfile.)
-# shellcheck disable=SC2206
-python_argv=(${PYTHON})
+# SUMO_QA_PYTHON (and the resolved $PYTHON fallback) is a SINGLE interpreter
+# path or executable name, NOT a whitespace-split command line. Treat it as
+# one argv element so a path containing spaces (e.g.
+# "/Applications/Python 3/python") is preserved verbatim and exec'd correctly,
+# and so a value like "python *" is never glob-expanded into the argv. On
+# macOS/Linux there is no multi-word launcher form to support (the Windows
+# "py -3" launcher is handled separately in install.ps1's default resolution).
+# Commands run as argv arrays (no eval, no string re-splitting at exec time).
+python_argv=("${PYTHON}")
 
 # The command plan is built as a flat argv array: each command's words are
 # appended, followed by a sentinel record-separator. This lets us both print
@@ -230,10 +232,24 @@ esac
 # truth, with no eval anywhere.
 cmd_words=()
 
-# print_cmd: emit one command as a human-readable line (used by --print-plan
-# and by the "+ ..." exec echo). Mirrors the old single-string rendering.
+# print_cmd: emit one command as a human-readable, copy-pasteable line (used
+# by --print-plan and by the "+ ..." exec echo). Any token containing
+# whitespace is single-quoted so the printed plan matches what is executed —
+# e.g. an interpreter path "/Applications/Python 3/python" renders as a single
+# quoted token, not two words that would exec the wrong path.
 print_cmd() {
-  printf '%s\n' "$*"
+  local out="" word
+  for word in "$@"; do
+    case "$word" in
+      *[[:space:]]*) word="'${word}'" ;;
+    esac
+    if [[ -n "$out" ]]; then
+      out="${out} ${word}"
+    else
+      out="$word"
+    fi
+  done
+  printf '%s\n' "$out"
 }
 
 # run_cmd: execute the current command as argv. Captures the REAL exit code
@@ -241,7 +257,8 @@ print_cmd() {
 # failing command's status reaches us instead of the negation's), then
 # surfaces the friendly failure message and propagates that exact code.
 run_cmd() {
-  printf '+ %s\n' "$*"
+  printf '+ '
+  print_cmd "$@"
   set +e
   "$@"
   local status=$?

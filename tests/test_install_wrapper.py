@@ -160,6 +160,60 @@ def test_failing_delegated_command_propagates_nonzero_exit(tmp_path):
     assert "pip install sumo-qa" in result.stderr
 
 
+def test_space_containing_interpreter_path_is_one_token_in_plan(tmp_path):
+    # Regression guard: SUMO_QA_PYTHON is a SINGLE interpreter path, not a
+    # whitespace-split command line. A path containing a space must be treated
+    # as one argv token — never split into two words (which would exec the
+    # wrong path) and never glob-expanded. The printed plan must render it as a
+    # single quoted, copy-pasteable token that matches what is executed.
+    interp = tmp_path / "with space" / "python"
+    interp.parent.mkdir()
+    interp.write_text("#!/bin/sh\nexit 0\n")
+    interp.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(INSTALL_SH), "--print-plan"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(interp)},
+    )
+    assert result.returncode == 0, result.stderr
+    pip_line = next(line for line in result.stdout.splitlines() if PIP_INSTALL in line)
+    # The full path appears verbatim, single-quoted as ONE token...
+    assert f"'{interp}'" in pip_line
+    # ...and is NOT split into "<dir>/with" + "space/python" two-word form.
+    assert f"{interp.parent}/with" not in pip_line.replace(f"'{interp}'", "")
+
+
+def test_space_containing_interpreter_path_execs_as_one_token(tmp_path):
+    # Drive the REAL exec path (not --print-plan) with SUMO_QA_PYTHON pointed
+    # at a stub interpreter whose directory name contains a space. The stub
+    # echoes the program path it was launched as; the wrapper must invoke the
+    # full quoted path, not a truncated first word. The stub exits 0 so the
+    # delegated pip/installer steps "succeed" without a real install.
+    interp = tmp_path / "with space" / "python"
+    interp.parent.mkdir()
+    interp.write_text('#!/bin/sh\necho "LAUNCHED_AS:[$0]"\nexit 0\n')
+    interp.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(INSTALL_SH)],  # real exec path, install mode
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(interp)},
+    )
+    # The stub was launched with the FULL space-containing path as $0, proving
+    # the wrapper exec'd it as a single token (a split would have tried to run
+    # "<dir>/with", which does not exist and would fail command-not-found).
+    assert f"LAUNCHED_AS:[{interp}]" in result.stdout, (
+        result.returncode,
+        result.stdout,
+        result.stderr,
+    )
+
+
 # --- install.ps1 (Windows PowerShell parity) -----------------------------
 #
 # pwsh is rarely available on the dev/CI runners that gate this repo, so the
@@ -211,6 +265,67 @@ def test_powershell_uninstall_is_deferred_not_destructive():
     # outside the quoted guidance block.
     assert "docs/INSTALL.md#uninstall" in text
     assert "Invoke-Expression" not in text.split("'uninstall'")[1].split("}")[0]
+
+
+def test_powershell_does_not_whitespace_split_the_interpreter_override():
+    # Parity with install.sh: SUMO_QA_PYTHON is a single interpreter path, so
+    # install.ps1 must NOT split it on whitespace (which would break a path
+    # containing a space, e.g. 'C:\Program Files\Python\python'). The argv
+    # array is built directly from the single value, not via `-split`.
+    text = INSTALL_PS1.read_text()
+    assert "$pythonArgv = @($python)" in text
+    # The old whitespace-splitting form must never be reintroduced.
+    assert "$python -split" not in text
+
+
+@pytest.mark.skipif(
+    shutil.which("pwsh") is None and shutil.which("powershell") is None,
+    reason="no PowerShell interpreter available to parse install.ps1",
+)
+def test_powershell_space_path_binds_as_one_token():
+    # pwsh-gated functional parity for the space-path fix: drive -PrintPlan
+    # with SUMO_QA_PYTHON set to a path containing a space and assert it is
+    # rendered as a single quoted token, not split into two words.
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
+    import os
+
+    env = dict(os.environ)
+    env["SUMO_QA_PYTHON"] = "/tmp/with space/python"
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-File", str(INSTALL_PS1), "-PrintPlan"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    pip_line = next(line for line in result.stdout.splitlines() if "pip install sumo-qa" in line)
+    # The full space-containing path is one quoted token...
+    assert "'/tmp/with space/python'" in pip_line
+    # ...never split into "/tmp/with" + "space/python".
+    assert "/tmp/with " not in pip_line.replace("'/tmp/with space/python'", "")
+
+
+@pytest.mark.skipif(
+    shutil.which("pwsh") is None and shutil.which("powershell") is None,
+    reason="no PowerShell interpreter available to parse install.ps1",
+)
+def test_powershell_host_flag_still_forwards_vscode():
+    # Guard that the space-path fix did not break host-flag forwarding.
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-File", str(INSTALL_PS1), "-PrintPlan", "-Host", "vscode"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    installer_line = next(
+        line for line in result.stdout.splitlines() if "sumo_qa.installer" in line
+    )
+    assert "--vscode" in installer_line
 
 
 @pytest.mark.skipif(
