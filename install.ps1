@@ -60,11 +60,26 @@ param(
     [switch]$Update,
     [switch]$Doctor,
     [switch]$Uninstall,
-    [string]$Host,
+    # Public CLI flag stays -Host (kept via the alias) for documentation
+    # parity, but the internal variable is $TargetHost so it does not shadow
+    # PowerShell's read-only automatic $Host variable (which makes -Host fail
+    # to bind on some PS versions).
+    [Alias('Host')]
+    [string]$TargetHost,
     [switch]$PrintPlan
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Emit an error message to stderr WITHOUT terminating. Under
+# $ErrorActionPreference='Stop', a plain Write-Error throws and aborts before
+# the following `exit <code>`, so the script would exit with PS's generic
+# code 1 instead of the intended code. Writing straight to the error stream
+# keeps our explicit exit codes (e.g. 2 for argument errors) intact.
+function Write-ErrLine {
+    param([string]$Message)
+    [Console]::Error.WriteLine($Message)
+}
 
 # Resolve a Python launcher. Prefer the Windows `py` launcher, fall back to
 # `python`. ($env:SUMO_QA_PYTHON overrides both, mirroring install.sh.)
@@ -77,10 +92,19 @@ if ([string]::IsNullOrEmpty($python)) {
         $python = 'python'
     }
     else {
-        Write-Error "No 'py' or 'python' found on PATH. Install Python 3, then re-run .\install.ps1"
+        Write-ErrLine "No 'py' or 'python' found on PATH. Install Python 3, then re-run .\install.ps1"
         exit 1
     }
 }
+
+# Split the (possibly multi-word) interpreter override into argv words once,
+# so commands run as argv via the call operator instead of Invoke-Expression
+# on a rebuilt string. This preserves SUMO_QA_PYTHON values like 'py -3'
+# while removing the dynamic-eval injection surface.
+# @(...) forces an array even when the split yields a single word — without
+# it a one-word value stays a [string] and `$pythonArgv + @(...)` would do
+# string concatenation instead of array extension.
+$pythonArgv = @($python -split '\s+' | Where-Object { $_ -ne '' })
 
 # Verified hosts the installer can target via a single flag. Keep in lockstep
 # with python -m sumo_qa.installer; unverified hosts are rejected, never
@@ -91,44 +115,60 @@ $HostFlag = @{
     'jetbrains'   = '--jetbrains'
 }
 
-# Determine the mode (install | update | doctor | uninstall).
+# Determine the mode (install | update | doctor | uninstall). Reject more
+# than one mode flag rather than silently letting precedence win — a user
+# who passed -Uninstall -Update must not get an update.
+$modeFlags = @()
+if ($Update) { $modeFlags += '-Update' }
+if ($Doctor) { $modeFlags += '-Doctor' }
+if ($Uninstall) { $modeFlags += '-Uninstall' }
+if ($modeFlags.Count -gt 1) {
+    Write-ErrLine "Conflicting mode flags: $($modeFlags -join ', '). Choose exactly one of -Update, -Doctor, -Uninstall."
+    exit 2
+}
 $mode = 'install'
 if ($Update) { $mode = 'update' }
 if ($Doctor) { $mode = 'doctor' }
 if ($Uninstall) { $mode = 'uninstall' }
 
 $hostFlagValue = ''
-if (-not [string]::IsNullOrEmpty($Host)) {
-    if (-not $HostFlag.ContainsKey($Host)) {
-        Write-Error @"
-Unverified host '$Host'.
+if (-not [string]::IsNullOrEmpty($TargetHost)) {
+    if (-not $HostFlag.ContainsKey($TargetHost)) {
+        Write-ErrLine @"
+Unverified host '$TargetHost'.
 Verified hosts: claude-code, vscode, jetbrains.
 Next: re-run with one of those, or configure your host manually per
 docs/INSTALL.md (other MCP hosts section).
 "@
         exit 2
     }
-    $hostFlagValue = $HostFlag[$Host]
+    $hostFlagValue = $HostFlag[$TargetHost]
 }
 
-# Build the command plan as an ordered list, one command string per element.
-$plan = New-Object System.Collections.Generic.List[string]
+# Build the command plan as an ordered list. Each element is an argv array
+# (string[]): element[0] is the program, the rest are arguments. Commands run
+# via the call operator (&) with splatting — no Invoke-Expression, so a
+# SUMO_QA_PYTHON value with PS metacharacters cannot inject.
+$plan = New-Object System.Collections.Generic.List[object]
+
+# Helper: append one command's argv to the plan as a flat string[].
+function Add-Cmd { param([string[]]$Argv) $plan.Add([string[]]$Argv) }
 
 switch ($mode) {
     'install' {
-        $plan.Add("$python -m pip install sumo-qa")
-        if ($hostFlagValue) { $plan.Add("$python -m sumo_qa.installer $hostFlagValue") }
-        else { $plan.Add("$python -m sumo_qa.installer") }
-        $plan.Add('sumo-qa-doctor')
+        Add-Cmd ($pythonArgv + @('-m', 'pip', 'install', 'sumo-qa'))
+        if ($hostFlagValue) { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer', $hostFlagValue)) }
+        else { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer')) }
+        Add-Cmd @('sumo-qa-doctor')
     }
     'update' {
-        $plan.Add("$python -m pip install --upgrade sumo-qa")
-        if ($hostFlagValue) { $plan.Add("$python -m sumo_qa.installer $hostFlagValue") }
-        else { $plan.Add("$python -m sumo_qa.installer") }
-        $plan.Add('sumo-qa-doctor')
+        Add-Cmd ($pythonArgv + @('-m', 'pip', 'install', '--upgrade', 'sumo-qa'))
+        if ($hostFlagValue) { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer', $hostFlagValue)) }
+        else { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer')) }
+        Add-Cmd @('sumo-qa-doctor')
     }
     'doctor' {
-        $plan.Add('sumo-qa-doctor')
+        Add-Cmd @('sumo-qa-doctor')
     }
     'uninstall' {
         if ($PrintPlan) {
@@ -157,26 +197,52 @@ touches them.
 }
 
 if ($PrintPlan) {
-    foreach ($cmd in $plan) { Write-Output $cmd }
+    foreach ($cmd in $plan) { Write-Output ($cmd -join ' ') }
     exit 0
 }
 
-# Execute the plan. On failure, surface the exact failing command and the
-# next safe manual step, then stop.
-foreach ($cmd in $plan) {
-    Write-Output "+ $cmd"
-    Invoke-Expression $cmd
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error @"
+# Emit the friendly failure block and exit with the given code. Shared by
+# both failure modes below so the message stays identical.
+function Stop-WithFailure {
+    param([string]$CmdLine, [int]$Code, [string]$Detail)
+    # Write-Host (not Write-Error) so the message prints verbatim without PS
+    # decorating it as a terminating error — which would mask the real native
+    # exit code behind PS's generic failure stream.
+    $tail = if ($Detail) { "`n$Detail" } else { '' }
+    Write-Host @"
 
-Command failed (exit $LASTEXITCODE):
-  $cmd
+Command failed (exit ${Code}):
+  $CmdLine$tail
 
 Next safe step: run that command yourself to see the full error, then check
 docs/INSTALL.md for the per-host manual install path. Nothing was deleted;
 re-running .\install.ps1 is safe.
 "@
-        exit $LASTEXITCODE
+    exit $Code
+}
+
+# Execute the plan as argv arrays. On failure, surface the exact failing
+# command + next safe step, then stop. Handles BOTH a native non-zero exit
+# AND a command-not-found / launch error (which throws under
+# $ErrorActionPreference='Stop'), and propagates the real exit code.
+foreach ($cmd in $plan) {
+    $cmdLine = $cmd -join ' '
+    Write-Output "+ $cmdLine"
+    $prog = $cmd[0]
+    $rest = @($cmd | Select-Object -Skip 1)
+    $global:LASTEXITCODE = 0
+    try {
+        & $prog @rest
+    }
+    catch {
+        # Command-not-found, launch failure, or any terminating error from
+        # invoking $prog. Preserve a native exit code if one was set; else 127
+        # (the conventional "command not found" code).
+        $code = if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 127 }
+        Stop-WithFailure -CmdLine $cmdLine -Code $code -Detail $_.Exception.Message
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Stop-WithFailure -CmdLine $cmdLine -Code $LASTEXITCODE
     }
 }
 

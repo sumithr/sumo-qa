@@ -60,15 +60,38 @@ fi
 # Verified hosts the installer can target via a single flag. Keep this in
 # lockstep with python -m sumo_qa.installer's host flags; unverified hosts
 # are rejected, never passed through as an unknown installer flag.
-declare -A HOST_FLAG=(
-  [claude-code]="--claude-code"
-  [vscode]="--vscode"
-  [jetbrains]="--jetbrains"
-)
+#
+# A case statement (not an associative array) so this stays compatible with
+# the stock macOS Bash 3.2 the shebang resolves to — `declare -A` is Bash 4+.
+# Prints the installer flag for a verified host on stdout and returns 0;
+# returns 1 (no output) for an unverified host.
+host_flag() {
+  case "$1" in
+    claude-code) printf '%s' "--claude-code" ;;
+    vscode)      printf '%s' "--vscode" ;;
+    jetbrains)   printf '%s' "--jetbrains" ;;
+    *)           return 1 ;;
+  esac
+}
 
 print_plan=0
 mode="install"   # install | update | doctor | uninstall
 host=""
+host_flag_value=""
+# Track explicit mode flags so mutually-exclusive modes can be rejected
+# (the last one would otherwise silently win — e.g. --uninstall --update
+# could trigger an update for a user who asked to uninstall).
+mode_flags=""
+
+set_mode() {
+  # $1 = mode name, $2 = the flag the user typed (for the error message).
+  mode="$1"
+  if [[ -n "$mode_flags" ]]; then
+    mode_flags="${mode_flags}, $2"
+  else
+    mode_flags="$2"
+  fi
+}
 
 usage() {
   sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//'
@@ -81,15 +104,15 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --update)
-      mode="update"
+      set_mode "update" "--update"
       shift
       ;;
     --doctor)
-      mode="doctor"
+      set_mode "doctor" "--doctor"
       shift
       ;;
     --uninstall)
-      mode="uninstall"
+      set_mode "uninstall" "--uninstall"
       shift
       ;;
     --host)
@@ -98,7 +121,7 @@ while [[ $# -gt 0 ]]; do
         exit 2
       fi
       host="$2"
-      if [[ -z "${HOST_FLAG[$host]:-}" ]]; then
+      if ! host_flag_value="$(host_flag "$host")"; then
         echo "ERROR: unverified host '${host}'." >&2
         echo "Verified hosts: claude-code, vscode, jetbrains." >&2
         echo "Next: re-run with one of those, or configure your host manually" >&2
@@ -119,30 +142,60 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Build the command plan as an array of strings, one command per element.
-plan=()
+# Reject mutually-exclusive modes rather than silently letting the last flag
+# win. A user who typed --uninstall --update must not get an update.
+if [[ "$mode_flags" == *", "* ]]; then
+  echo "ERROR: conflicting mode flags: ${mode_flags}." >&2
+  echo "Choose exactly one of --update, --doctor, --uninstall." >&2
+  exit 2
+fi
+
+# Split the (possibly multi-word) interpreter override into argv words once,
+# so we can execute commands as argv arrays instead of eval-ing a rebuilt
+# string. This preserves the documented behaviour of SUMO_QA_PYTHON values
+# like "py -3" while removing the shell-injection surface of eval.
+# (Bash 3.2 compatible: plain word-splitting, no mapfile.)
+# shellcheck disable=SC2206
+python_argv=(${PYTHON})
+
+# The command plan is built as a flat argv array: each command's words are
+# appended, followed by a sentinel record-separator. This lets us both print
+# a human-readable plan (--print-plan) and execute each command directly as
+# argv (no eval / no string re-splitting at exec time). The sentinel is an
+# internal token that never appears in a real argument.
+CMD_SEP=$'\x1f'   # ASCII unit separator — not a valid argv word here
+plan_argv=()
+
+# add_cmd <word>...  — append one command (its words) plus the separator.
+add_cmd() {
+  local w
+  for w in "$@"; do
+    plan_argv+=("$w")
+  done
+  plan_argv+=("$CMD_SEP")
+}
 
 case "$mode" in
   install)
-    plan+=("${PYTHON} -m pip install sumo-qa")
+    add_cmd "${python_argv[@]}" -m pip install sumo-qa
     if [[ -n "$host" ]]; then
-      plan+=("${PYTHON} -m sumo_qa.installer ${HOST_FLAG[$host]}")
+      add_cmd "${python_argv[@]}" -m sumo_qa.installer "$host_flag_value"
     else
-      plan+=("${PYTHON} -m sumo_qa.installer")
+      add_cmd "${python_argv[@]}" -m sumo_qa.installer
     fi
-    plan+=("sumo-qa-doctor")
+    add_cmd sumo-qa-doctor
     ;;
   update)
-    plan+=("${PYTHON} -m pip install --upgrade sumo-qa")
+    add_cmd "${python_argv[@]}" -m pip install --upgrade sumo-qa
     if [[ -n "$host" ]]; then
-      plan+=("${PYTHON} -m sumo_qa.installer ${HOST_FLAG[$host]}")
+      add_cmd "${python_argv[@]}" -m sumo_qa.installer "$host_flag_value"
     else
-      plan+=("${PYTHON} -m sumo_qa.installer")
+      add_cmd "${python_argv[@]}" -m sumo_qa.installer
     fi
-    plan+=("sumo-qa-doctor")
+    add_cmd sumo-qa-doctor
     ;;
   doctor)
-    plan+=("sumo-qa-doctor")
+    add_cmd sumo-qa-doctor
     ;;
   uninstall)
     # Deferred: print the documented manual steps, run nothing destructive.
@@ -171,27 +224,56 @@ EOF
     ;;
 esac
 
-if [[ "$print_plan" -eq 1 ]]; then
-  printf '%s\n' "${plan[@]}"
-  exit 0
-fi
+# Walk the flat plan_argv array one command at a time. `cmd_words` collects
+# the argv of the current command until the sentinel record-separator, then
+# `run` is invoked with that command. Keeps print + exec on one source of
+# truth, with no eval anywhere.
+cmd_words=()
 
-# Execute the plan. On failure, surface the exact failing command and the
-# next safe manual step, then stop.
-for cmd in "${plan[@]}"; do
-  echo "+ ${cmd}"
-  if ! eval "${cmd}"; then
-    status=$?
+# print_cmd: emit one command as a human-readable line (used by --print-plan
+# and by the "+ ..." exec echo). Mirrors the old single-string rendering.
+print_cmd() {
+  printf '%s\n' "$*"
+}
+
+# run_cmd: execute the current command as argv. Captures the REAL exit code
+# of the delegated command (errexit is disabled just around the call so the
+# failing command's status reaches us instead of the negation's), then
+# surfaces the friendly failure message and propagates that exact code.
+run_cmd() {
+  printf '+ %s\n' "$*"
+  set +e
+  "$@"
+  local status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
     echo "" >&2
     echo "ERROR: command failed (exit ${status}):" >&2
-    echo "  ${cmd}" >&2
+    echo "  $*" >&2
     echo "" >&2
     echo "Next safe step: run that command yourself to see the full error," >&2
     echo "then check docs/INSTALL.md for the per-host manual install path." >&2
     echo "Nothing was deleted; re-running ./install.sh is safe." >&2
-    exit "${status}"
+    exit "$status"
+  fi
+}
+
+for word in "${plan_argv[@]}"; do
+  if [[ "$word" == "$CMD_SEP" ]]; then
+    if [[ "$print_plan" -eq 1 ]]; then
+      print_cmd "${cmd_words[@]}"
+    else
+      run_cmd "${cmd_words[@]}"
+    fi
+    cmd_words=()
+  else
+    cmd_words+=("$word")
   fi
 done
+
+if [[ "$print_plan" -eq 1 ]]; then
+  exit 0
+fi
 
 echo ""
 echo "Done. If a host was configured, restart it (or open a fresh chat) so it"

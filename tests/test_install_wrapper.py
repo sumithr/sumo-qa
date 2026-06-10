@@ -115,6 +115,51 @@ def test_doctor_flag_runs_only_doctor():
     assert "pip install sumo-qa" not in plan
 
 
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ("--uninstall", "--update"),
+        ("--update", "--doctor"),
+        ("--doctor", "--uninstall"),
+    ],
+)
+def test_conflicting_mode_flags_are_rejected_not_silently_overridden(flags):
+    # Two mode flags must error, not silently let precedence win — a user who
+    # asked to --uninstall must never get an --update.
+    result = _plan(*flags)
+    assert result.returncode != 0, result.stdout
+    combined = result.stdout + result.stderr
+    assert "onflicting" in combined  # "Conflicting"/"conflicting"
+    for flag in flags:
+        assert flag in combined, f"error should name the conflicting flag {flag}"
+    # A rejected, ambiguous invocation must emit no delegated command.
+    assert "pip install" not in result.stdout
+    assert INSTALLER not in result.stdout
+
+
+def test_failing_delegated_command_propagates_nonzero_exit(tmp_path):
+    # Regression guard for the swallowed-exit-code bug: a delegated command
+    # that exits non-zero must make the wrapper exit with THAT code, not 0.
+    # Drive the real exec path (not --print-plan) with SUMO_QA_PYTHON pointed
+    # at a stub interpreter that exits 7; the wrapper's first plan step
+    # (`$PYTHON -m pip install ...`) then fails deterministically.
+    stub = tmp_path / "fail_python.sh"
+    stub.write_text("#!/bin/sh\nexit 7\n")
+    stub.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(INSTALL_SH)],  # real exec path, NOT --print-plan
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(stub)},
+    )
+    assert result.returncode == 7, (result.returncode, result.stdout, result.stderr)
+    # The friendly failure message still names the exact failing command.
+    assert "command failed" in result.stderr.lower()
+    assert "pip install sumo-qa" in result.stderr
+
+
 # --- install.ps1 (Windows PowerShell parity) -----------------------------
 #
 # pwsh is rarely available on the dev/CI runners that gate this repo, so the
@@ -130,10 +175,12 @@ def test_powershell_wrapper_exists_for_parity():
 
 def test_powershell_wrapper_covers_the_same_modes_and_hosts():
     text = INSTALL_PS1.read_text()
-    # Same canonical delegation targets as install.sh.
-    assert "-m pip install sumo-qa" in text
-    assert "-m pip install --upgrade sumo-qa" in text
-    assert "-m sumo_qa.installer" in text
+    # Same canonical delegation targets as install.sh. The plan is built as
+    # argv arrays (call operator, no Invoke-Expression), so assert on the
+    # argv fragments rather than a single reconstructed command string.
+    assert "'pip', 'install', 'sumo-qa'" in text
+    assert "'pip', 'install', '--upgrade', 'sumo-qa'" in text
+    assert "'sumo_qa.installer'" in text
     assert "sumo-qa-doctor" in text
     # Same mode switches.
     for switch in ("Update", "Doctor", "Uninstall", "PrintPlan"):
@@ -141,6 +188,21 @@ def test_powershell_wrapper_covers_the_same_modes_and_hosts():
     # Same verified host set.
     for host in ("claude-code", "vscode", "jetbrains"):
         assert host in text, f"install.ps1 is missing the {host} host mapping"
+    # The public -Host flag is preserved via an alias even though the internal
+    # parameter is renamed ($TargetHost) to avoid shadowing PowerShell's
+    # read-only automatic $Host variable.
+    assert "[Alias('Host')]" in text
+    assert "$TargetHost" in text
+    assert "param([string]$Host)" not in text  # never re-introduce the shadow
+
+
+def test_powershell_wrapper_does_not_use_invoke_expression():
+    # The exec path runs argv via the call operator, not Invoke-Expression,
+    # so a SUMO_QA_PYTHON value with PowerShell metacharacters cannot inject.
+    # Ignore comment lines (the rationale comments reference the term by name).
+    for line in INSTALL_PS1.read_text().splitlines():
+        code = line.split("#", 1)[0]
+        assert "Invoke-Expression" not in code, line
 
 
 def test_powershell_uninstall_is_deferred_not_destructive():
