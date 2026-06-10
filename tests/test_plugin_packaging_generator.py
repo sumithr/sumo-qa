@@ -50,6 +50,7 @@ def fresh_repo(tmp_path: Path) -> Path:
 def _files_to_check() -> tuple[str, ...]:
     return (
         ".claude-plugin/plugin.json",
+        ".claude-plugin/marketplace.json",
         ".codex-plugin/plugin.json",
         ".mcp.json",
         "hooks/hooks.json",

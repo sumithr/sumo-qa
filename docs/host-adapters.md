@@ -76,10 +76,19 @@ out of the box.
 ## Supported adapters
 
 - **Claude Code** — `.claude-plugin/plugin.json` auto-discovers `skills/`,
-  `hooks/`, and `.mcp.json`. Loaded today via `claude --plugin-dir <repo>`
-  (session-scoped local-dev); persistent marketplace install
-  (`claude plugin install …`) is on the roadmap pending marketplace
-  publication.
+  `hooks/`, and `.mcp.json`. Two load paths: `claude --plugin-dir <repo>`
+  (session-scoped local-dev), or persistent marketplace install — add this
+  repo as a marketplace and install the plugin:
+
+      /plugin marketplace add sumithr/sumo-qa
+      /plugin install sumo-qa@sumo-qa
+
+  The marketplace catalog (`.claude-plugin/marketplace.json`) is generated
+  from the same canonical source and lists this repo as a single plugin
+  whose source is the repo root. **Note:** the marketplace add → install
+  flow is wired and schema-valid but has not yet been run end-to-end in a
+  live Claude Code session; treat the live install as unverified until that
+  confirmation is recorded.
 - **Codex** — `.codex-plugin/plugin.json` declares explicit `skills` /
   `mcpServers` / `hooks` paths. The install + MCP-server-launch flow
   hasn't been verified end-to-end yet; treat as TBD until confirmed.

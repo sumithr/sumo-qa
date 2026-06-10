@@ -47,8 +47,9 @@ jobs:
         run: python -m plugin_packaging.plugin_generator check
 
       - name: Host-schema validation
-        # Validates .claude-plugin/plugin.json against the vendored
-        # Claude Code schema and hooks/hooks-codex.json against the
-        # vendored Codex hooks schema. Codex manifest itself has no
-        # published schema — that's covered by install-smoke.yml.
+        # Validates .claude-plugin/plugin.json and
+        # .claude-plugin/marketplace.json against the vendored Claude Code
+        # schemas, and hooks/hooks-codex.json against the vendored Codex
+        # hooks schema. Codex manifest itself has no published schema —
+        # that's covered by install-smoke.yml.
         run: python -m plugin_packaging.validate_plugins

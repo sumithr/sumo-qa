@@ -1,9 +1,10 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Host-schema validation gate for generated plugin folders.
 
-Two checks (both run by default):
+Three checks (all run by default):
 
   - .claude-plugin/plugin.json against vendored claude-code-plugin-manifest.json
+  - .claude-plugin/marketplace.json against vendored claude-code-marketplace.json
   - hooks/hooks-codex.json against vendored codex-hooks.json
 
 The Codex plugin manifest itself has no published schema — that surface
@@ -45,6 +46,13 @@ def validate_claude_code(repo_root: Path) -> None:
     )
 
 
+def validate_marketplace(repo_root: Path) -> None:
+    _validate(
+        repo_root / ".claude-plugin" / "marketplace.json",
+        _SCHEMAS_DIR / "claude-code-marketplace.json",
+    )
+
+
 def validate_codex_hooks(repo_root: Path) -> None:
     _validate(
         repo_root / "hooks" / "hooks-codex.json",
@@ -61,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         validate_claude_code(args.repo_root)
+        validate_marketplace(args.repo_root)
         validate_codex_hooks(args.repo_root)
     except SchemaValidationError as exc:
         sys.stderr.write(f"schema validation failed: {exc}\n")
