@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "sumo-qa",
+  "owner": {
+    "email": "sumithr51@gmail.com",
+    "name": "Sumith Ramsookbhai"
+  },
+  "plugins": [
+    {
+      "author": {
+        "email": "sumithr51@gmail.com",
+        "name": "Sumith Ramsookbhai"
+      },
+      "category": "testing",
+      "description": "A QA-native MCP server and skills library: analyze a repo, map risks to tests and evidence, plan and scaffold tests, strengthen weak suites, and review diffs before merge with senior-QA discipline.",
+      "homepage": "https://github.com/sumithr/sumo-qa",
+      "keywords": [
+        "qa",
+        "testing",
+        "tdd",
+        "mutation-testing",
+        "mcp",
+        "claude-code",
+        "codex"
+      ],
+      "license": "Apache-2.0",
+      "name": "sumo-qa",
+      "repository": "https://github.com/sumithr/sumo-qa",
+      "source": "./",
+      "version": "0.41.0"
+    }
+  ]
+}

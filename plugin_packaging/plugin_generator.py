@@ -30,6 +30,7 @@ from plugin_packaging.templates import (
     codex,
     hooks,
     host_adapters_doc,
+    marketplace,
     mcp,
 )
 
@@ -81,6 +82,7 @@ def _snapshot(plugin: CanonicalPlugin) -> dict:
 def _build_outputs(plugin: CanonicalPlugin) -> list[Output]:
     return [
         Output(".claude-plugin/plugin.json", _json_bytes(claude_code.render(plugin))),
+        Output(".claude-plugin/marketplace.json", _json_bytes(marketplace.render(plugin))),
         Output(".codex-plugin/plugin.json", _json_bytes(codex.render(plugin))),
         Output(".mcp.json", _json_bytes(mcp.render(plugin))),
         Output("hooks/hooks.json", _json_bytes(hooks.render_claude_code(plugin))),

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.40.0"
+version = "0.41.0"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
@@ -267,6 +267,15 @@ also_copy = [
   # is a repo-root convenience script, mutmut-local-only here.
   "install.sh",
   "install.ps1",
+  # tests/test_plugin_packaging_marketplace.py (added in #382) resolves
+  # `REPO_ROOT / ".claude-plugin" / "marketplace.json"`, which under mutmut
+  # becomes `mutants/.claude-plugin/marketplace.json`. Without this entry the
+  # committed-output tests fail during collection, mutmut's `-x` aborts stats
+  # collection, and the pre-push mutmut hook fails on every push whose delta
+  # touches any test file. The whole dir is copied (the committed generated
+  # plugin/marketplace JSON). Same root-level-resource pattern as `assets/`.
+  # NOT mutated — mutmut-local mirror only.
+  ".claude-plugin/",
 ]
 
 # ---------------------------------------------------------------------------
