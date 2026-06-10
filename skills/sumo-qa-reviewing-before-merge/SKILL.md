@@ -200,6 +200,12 @@ The prose verdict above is the deliverable; it is never replaced. When the user 
 `| AC1 | Skill checks each host-supplied criterion vs diff + fresh tests | skills/sumo-qa-reviewing-before-merge/SKILL.md:88 | tests/evals/promptfoo/skill-reviewing-before-merge-ac-coverage.yaml::ac-unmet | passing | accepted |`
 `| AC2 | Refuses SAFE while any criterion is UNMET | step 10(d) | planned: scenario asserting NOT SAFE on an unmet AC | planned | blocker |`
 
+### QA readiness scorecard (optional, structured)
+
+When the user asks for a **readiness summary** (*"is this ready to merge/release"*, *"give me a readiness scorecard"*), project the SAME evidence into a compact scorecard via `sumo_qa_format_qa_scorecard`, appended BELOW the verdict — never replacing it. **Omit it from short reviews**; it is an evidence summary, not a predictive quality score. Feed it the artifacts you already built: `ledger_rows` (the appendix rows above), `context_bundle` (the #149 bundle if supplied), and `coverage`/`mutation` signals **only when they actually ran** (absent ⇒ reported "not measured", never assumed passing); pass the live head as `local_head_sha` to flag a stale bundle.
+
+The tool **derives** the verdict — you cannot pass "ready", and by construction it agrees with the prose verdict: a `NOT SAFE TO MERGE` can only yield `blocked` (a `residual: blocker` row → `uncovered_blocker_count > 0`) or `insufficient_evidence` (stale/unknown evidence, or a planned-not-run risk) — it refuses a ready state whenever a risk is an uncovered blocker or evidence is stale, the same gate as step 10. `ready_with_accepted_residuals` is an all-covered diff carrying a deliberately accepted residual; `ready` only when evidence is fresh, passing, and complete. A scorecard reading "ready" under a NOT SAFE verdict means the ledger rows are mis-coded — fix the rows, never the scorecard. A JSON-able `serialized` snapshot is returned for a downstream report (#157); the markdown table is what you paste.
+
 ## Process Flow
 
 See the Checklist above — that's the flow.

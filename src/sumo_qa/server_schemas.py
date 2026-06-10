@@ -20,7 +20,7 @@ public outputSchema, defeating the contract this module exists to provide.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -662,6 +662,58 @@ class FormatContextBundleOutput(_StrictBase):
     conflict: str | None = Field(
         default=None,
         description="Bundle-vs-local-state conflict message when head shas differ, else None.",
+    )
+
+
+class FormatQaScorecardOutput(_StrictBase):
+    """Compact result of ``sumo_qa_format_qa_scorecard`` (issue #151).
+
+    An EVIDENCE SUMMARY, not a predictive quality score. The host supplies the
+    already-produced artifacts (the #144 risk ledger, the #149 context bundle,
+    optional coverage/mutation signals); this tool composes them and DERIVES a
+    readiness recommendation — it infers no risk and invents no numeric score.
+    ``recommendation`` is one of ready / ready_with_accepted_residuals / blocked
+    / insufficient_evidence; ``is_ready`` is True only for the two ready states.
+    A positive ``uncovered_blocker_count`` or a non-empty ``stale_evidence``
+    guarantees a non-ready recommendation — readiness is refused when risks are
+    uncovered or evidence is stale. ``not_measured`` lists the optional signals
+    that were absent (reported, never assumed passing). ``serialized`` is the
+    JSON-able snapshot a downstream report (#157) renders without re-deriving.
+    """
+
+    tool: Literal["sumo_qa_format_qa_scorecard"] = Field(
+        default="sumo_qa_format_qa_scorecard",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    recommendation: Literal[
+        "ready", "ready_with_accepted_residuals", "blocked", "insufficient_evidence"
+    ] = Field(description="The derived readiness verdict (never caller-asserted).")
+    is_ready: bool = Field(description="True only for ready / ready_with_accepted_residuals.")
+    uncovered_blocker_count: int = Field(
+        description="Uncovered high-impact risks (reuses #144's is_uncovered_blocker)."
+    )
+    open_residual_count: int = Field(description="Risks whose residual decision is still open.")
+    accepted_residual_count: int = Field(
+        description="Risks recorded as consciously accepted residuals."
+    )
+    stale_evidence: list[str] = Field(
+        description=(
+            "Readiness-GATING dimensions (risk coverage / test / CI) whose evidence is "
+            "present but stale — non-empty implies a non-ready recommendation. A stale "
+            "optional coverage/mutation signal is shown in the dimension table, not here."
+        )
+    )
+    not_measured: list[str] = Field(
+        description="Dimensions not measured (absent optional coverage/mutation signals)."
+    )
+    markdown: str = Field(
+        description="The rendered scorecard markdown (headline + dimension table + reasons)."
+    )
+    compact_summary: str = Field(
+        description="One-line roll-up to drop inline when a full report was not asked for."
+    )
+    serialized: dict[str, Any] = Field(
+        description="JSON-able scorecard snapshot for a downstream report renderer (#157)."
     )
 
 

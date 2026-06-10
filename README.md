@@ -289,5 +289,6 @@ Filing a clear issue gets it fixed faster. Pick the template that matches the pr
 - [docs/TEST-DATA.md](docs/TEST-DATA.md) — known-good test-data catalogue
 - [docs/REPO-MAP.md](docs/REPO-MAP.md) — QA-native repo-map artifact under `.sumo-qa/`: schema, scanner, and the scan / diff-impact / query tools that consume it (issues #155, #156)
 - [docs/RISK-LEDGER.md](docs/RISK-LEDGER.md) — risk-to-test traceability ledger: the structured appendix to the markdown-first verdict, its row schema and evidence-status vocabulary, and when not to use it (issue #144)
+- [docs/SCORECARD.md](docs/SCORECARD.md) — QA readiness scorecard: composes the risk ledger + context bundle + optional coverage/mutation into a *derived* readiness recommendation (ready / blocked / insufficient_evidence / ready-with-accepted-residuals) — an evidence summary, not a predictive quality score (issue #151)
 - [docs/EXPORT.md](docs/EXPORT.md) — deterministic export of already-structured QA test cases to versioned JSON, a markdown table, or (flat-only) CSV: the case schema, the format set, the side-effect-free contract, and the import-mapping caveat (issue #148)
 - [docs/PERSONA.md](docs/PERSONA.md) — optional Sumo-sensei voice (off by default)

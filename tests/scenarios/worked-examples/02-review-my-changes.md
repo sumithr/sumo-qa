@@ -114,6 +114,39 @@ Want me to scaffold the regression test for R2 first (red-phase, you make it gre
 
 ---
 
+## Turn 8 — User
+
+> Before I do — give me a readiness scorecard I can drop into the PR.
+
+---
+
+## Turn 9 — sumo-qa
+
+*(internal: projects the SAME named risks + the run into `sumo_qa_format_qa_scorecard`. The recommendation is DERIVED — it cannot read "ready" while R2/R3 are uncovered blockers, so it agrees with the NOT SAFE verdict by construction.)*
+
+**QA readiness scorecard — refund partial-amount + idempotency**
+
+Recommendation: **BLOCKED** — 2 hard stop(s) must be resolved before this is ready.
+
+| Dimension | Status | Evidence |
+|---|---|---|
+| Risk coverage | blocker | 4 risk(s) — 2 passing, 1 planned, 1 stale; 2 uncovered blocker(s) |
+| Test evidence | ok | passing/fresh (local_git) |
+| CI status | not measured | not supplied |
+| Coverage | not measured | not measured |
+| Mutation | not measured | not measured |
+| Residual risks | ok | 0 accepted, 2 open |
+
+Blockers (resolve before ready):
+- R2: idempotency key derivation moved → double refund on retry — covering evidence is stale (xfail pins the old behaviour)
+- R3: float-rounding rejection on minor-unit conversion — covering test only planned, not executed
+
+This scorecard summarises the evidence supplied; it is not a predictive quality score. Absent coverage/mutation signals are reported as "not measured", never assumed passing.
+
+It is `blocked`, not `ready` — and it will *stay* blocked until R2 and R3 have fresh passing tests. Close those two gaps and re-run, and the same scorecard flips to `ready` (or `ready_with_accepted_residuals` if you consciously accept R3 with a documented justification). The scorecard never lets high coverage or a green happy-path outweigh an uncovered high-impact risk.
+
+---
+
 ## Why this is senior QA
 
 - **Read the diff before asking.** Most AI assistants would say *"what files did you change?"* — this one walks the diff via git itself.
@@ -122,5 +155,6 @@ Want me to scaffold the regression test for R2 first (red-phase, you make it gre
 - **HARD GATE on test evidence.** Refuses to call safe-to-merge from "CI was green earlier." Runs the suite now, shows the output.
 - **Risk-to-test coverage map.** Every risk is matched to a passing test or flagged as uncovered. Two risks were uncovered — that's the verdict.
 - **Verdict refuses to soften the call.** The portal team's contract bump is real but separate; the suite-uncovered risks are the SAFE blockers.
+- **Readiness scorecard agrees with the verdict by construction.** When asked for a paste-into-PR scorecard, the recommendation is *derived* from the same evidence — it reads `blocked`, never `ready`, while a risk is uncovered, and reports the absent coverage/mutation signals as "not measured" rather than assuming they pass. It is an evidence summary, not a quality score.
 
 This is what *"senior QA"* looks like in practice: the bug doesn't ship; the AI doesn't pretend.
