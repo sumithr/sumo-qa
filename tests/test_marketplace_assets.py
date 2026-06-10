@@ -11,16 +11,22 @@ imaging dependency:
   T4 — preview shows REAL doctor output (capture + render agree on content)
   T5 — sanitisation held: no absolute home paths leak into committed assets
   T6 — brand rule: no emoji/pictogram codepoints in the text assets
-  T7 — the committed capture (and SVG) advertise the installed sumo-qa
-       version — the preview can't ship a stale release number
+  T7 — the committed capture (and SVG) advertise the canonical sumo-qa
+       version from pyproject.toml — the preview can't ship a stale
+       release number
 """
 
 from __future__ import annotations
 
 import re
 import struct
-from importlib.metadata import version
+import sys
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover -- 3.10 backport path; covered by py3.10 CI matrix
+    import tomli as tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ICON = REPO_ROOT / "assets" / "icon-512.png"
@@ -101,26 +107,29 @@ def test_text_assets_contain_no_pictograms() -> None:
                 assert not (lo <= cp <= hi), f"{path.name} contains pictogram U+{cp:04X}"
 
 
-def test_committed_capture_advertises_installed_version() -> None:
+def test_committed_capture_advertises_canonical_version() -> None:
     """T7 — the committed preview must not advertise a stale release. Read
     the first line of the committed capture, extract its `sumo-qa X.Y.Z`
-    version, and assert it equals the installed package version. Pure file
-    read — it never shells out to the doctor or regenerates anything, so it
-    is deterministic in CI (installed version always matches pyproject).
+    version, and assert it equals `[project].version` in pyproject.toml —
+    the canonical source, readable from a bare source checkout. Pure file
+    reads — no install required (importlib.metadata would raise
+    PackageNotFoundError without one, or false-fail on a stale editable
+    install), no shelling out, no regeneration; deterministic everywhere.
     The same version string must also appear in the committed SVG, which
     pins txt/SVG agreement on the version line."""
-    installed = version("sumo-qa")
+    with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
+        canonical = tomllib.load(fh)["project"]["version"]
     first_line = CAPTURE.read_text(encoding="utf-8").splitlines()[0]
     match = re.search(r"sumo-qa (\d+\.\d+\.\d+)", first_line)
     assert match, f"capture first line lacks a `sumo-qa X.Y.Z` version: {first_line!r}"
-    assert match.group(1) == installed, (
-        f"preview-doctor.txt advertises sumo-qa {match.group(1)} but the installed "
-        f"version is {installed} — refresh via "
+    assert match.group(1) == canonical, (
+        f"preview-doctor.txt advertises sumo-qa {match.group(1)} but pyproject.toml "
+        f"says {canonical} — refresh via "
         f"`scripts/generate_marketplace_assets.py capture`"
     )
     svg = PREVIEW.read_text(encoding="utf-8")
-    assert f"sumo-qa {installed}" in svg, (
-        f"preview-doctor.svg does not advertise sumo-qa {installed} — txt/SVG "
+    assert f"sumo-qa {canonical}" in svg, (
+        f"preview-doctor.svg does not advertise sumo-qa {canonical} — txt/SVG "
         f"version lines disagree; re-render via "
         f"`scripts/generate_marketplace_assets.py capture`"
     )

@@ -248,6 +248,14 @@ also_copy = [
   # because mutmut copies dir entries verbatim but does not create parent
   # dirs for a nested-file entry. Same dir-copy pattern as `.claude/`.
   ".github/",
+  # tests/test_marketplace_assets.py (added in #84) resolves
+  # `Path(__file__).resolve().parents[1] / "assets"`, which under mutmut
+  # becomes `mutants/assets/`. Without this entry T1 fails on the missing
+  # icon, mutmut's `-x` aborts stats collection, and the pre-push mutmut
+  # hook fails on every push whose delta touches any test file. Same
+  # root-level-resource pattern as `release-please-config.json`. NOT
+  # shipped in the wheel — mutmut-local-only.
+  "assets/",
 ]
 
 # ---------------------------------------------------------------------------
