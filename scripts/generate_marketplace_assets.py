@@ -18,6 +18,9 @@ Modes:
              assets/preview-doctor.txt, then render the SVG from it so the
              two never drift. Machine-dependent by nature, so it is NEVER
              run implicitly — only when you ask for it.
+  version  — update only the version in the committed doctor capture from
+             pyproject.toml, then re-render the SVG. Deterministic release
+             automation uses this after release-please bumps the version.
   render   — render assets/preview-doctor.txt to assets/preview-doctor.svg
              (deterministic: same capture in, same SVG out)
   all      — icon + render (no capture)
@@ -33,6 +36,7 @@ No third-party dependencies — PNG decode/encode is done with zlib/struct.
 from __future__ import annotations
 
 import argparse
+import re
 import struct
 import subprocess
 import sys
@@ -230,6 +234,31 @@ def capture_doctor() -> None:
     print(f"wrote {CAPTURE.relative_to(REPO_ROOT)} ({len(text.splitlines())} lines)")
 
 
+def sync_capture_version() -> None:
+    """Update the captured doctor version from canonical project metadata."""
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    project = re.search(r"(?ms)^\[project\]\s*$\n(.*?)(?=^\[|\Z)", pyproject)
+    if project is None:
+        raise ValueError("pyproject.toml has no [project] table")
+    version = re.search(r'(?m)^version\s*=\s*"(\d+\.\d+\.\d+)"\s*$', project.group(1))
+    if version is None:
+        raise ValueError("pyproject.toml [project] table has no X.Y.Z version")
+
+    lines = CAPTURE.read_text(encoding="utf-8").splitlines(keepends=True)
+    if not lines:
+        raise ValueError(f"{CAPTURE} is empty")
+    lines[0], replacements = re.subn(
+        r"(sumo-qa )\d+\.\d+\.\d+",
+        rf"\g<1>{version.group(1)}",
+        lines[0],
+        count=1,
+    )
+    if replacements != 1:
+        raise ValueError(f"{CAPTURE} first line has no sumo-qa X.Y.Z version")
+    CAPTURE.write_text("".join(lines), encoding="utf-8")
+    print(f"updated {CAPTURE.relative_to(REPO_ROOT)} to {version.group(1)}")
+
+
 # ---------------------------------------------------------------------------
 # Preview render (deterministic: capture text -> SVG)
 # ---------------------------------------------------------------------------
@@ -361,7 +390,9 @@ def main(argv: list[str] | None = None) -> int:
         prog="scripts/generate_marketplace_assets.py",
         description="Generate marketplace assets (icon + doctor preview) from canonical inputs.",
     )
-    parser.add_argument("mode", choices=("icon", "capture", "render", "all"), default="all")
+    parser.add_argument(
+        "mode", choices=("icon", "capture", "version", "render", "all"), default="all"
+    )
     args = parser.parse_args(argv)
     if args.mode in ("icon", "all"):
         generate_icon()
@@ -372,6 +403,11 @@ def main(argv: list[str] | None = None) -> int:
         # so this keeps the documented `capture` refresh from leaving a
         # stale preview-doctor.svg behind.
         render_preview()
+        _assert_no_pictograms(PREVIEW.read_text(encoding="utf-8"), str(PREVIEW))
+    if args.mode == "version":
+        sync_capture_version()
+        render_preview()
+        _assert_no_pictograms(CAPTURE.read_text(encoding="utf-8"), str(CAPTURE))
         _assert_no_pictograms(PREVIEW.read_text(encoding="utf-8"), str(PREVIEW))
     if args.mode in ("render", "all"):
         render_preview()

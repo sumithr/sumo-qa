@@ -19,7 +19,9 @@ imaging dependency:
 from __future__ import annotations
 
 import re
+import shutil
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -28,7 +30,19 @@ if sys.version_info >= (3, 11):
 else:  # pragma: no cover -- 3.10 backport path; covered by py3.10 CI matrix
     import tomli as tomllib
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+
+def _find_repo_root() -> Path:
+    """Locate source files when mutmut runs tests from its mirror."""
+    here = Path(__file__).resolve()
+    for candidate in (here.parent, *here.parents):
+        if (candidate / "pyproject.toml").exists() and (
+            candidate / "scripts" / "generate_marketplace_assets.py"
+        ).is_file():
+            return candidate
+    raise RuntimeError(f"cannot locate repo root from {here}")
+
+
+REPO_ROOT = _find_repo_root()
 ICON = REPO_ROOT / "assets" / "icon-512.png"
 CAPTURE = REPO_ROOT / "assets" / "preview-doctor.txt"
 PREVIEW = REPO_ROOT / "assets" / "preview-doctor.svg"
@@ -133,3 +147,46 @@ def test_committed_capture_advertises_canonical_version() -> None:
         f"version lines disagree; re-render via "
         f"`scripts/generate_marketplace_assets.py capture`"
     )
+
+
+def test_version_mode_syncs_release_bump_without_recapturing(tmp_path: Path) -> None:
+    """T8 — release automation updates only the captured version and SVG."""
+    repo = tmp_path / "repo"
+    (repo / "assets").mkdir(parents=True)
+    (repo / "scripts").mkdir()
+    shutil.copy2(REPO_ROOT / "scripts" / "generate_marketplace_assets.py", repo / "scripts")
+    shutil.copy2(CAPTURE, repo / "assets")
+    shutil.copy2(PREVIEW, repo / "assets")
+
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    pyproject, count = re.subn(
+        r'(\[project\][^\[]*?\nversion\s*=\s*)"[^"]+"',
+        r'\1"9.9.9"',
+        pyproject,
+        count=1,
+        flags=re.DOTALL,
+    )
+    assert count == 1
+    (repo / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+
+    before = (repo / "assets" / "preview-doctor.txt").read_text(encoding="utf-8").splitlines()
+    subprocess.run(
+        [sys.executable, repo / "scripts" / "generate_marketplace_assets.py", "version"],
+        check=True,
+        cwd=repo,
+    )
+    after = (repo / "assets" / "preview-doctor.txt").read_text(encoding="utf-8").splitlines()
+    svg = (repo / "assets" / "preview-doctor.svg").read_text(encoding="utf-8")
+
+    assert after[0] == re.sub(r"sumo-qa \d+\.\d+\.\d+", "sumo-qa 9.9.9", before[0])
+    assert after[1:] == before[1:]
+    assert "sumo-qa 9.9.9" in svg
+
+
+def test_release_workflow_syncs_and_stages_preview_assets() -> None:
+    """T9 — release-please cannot leave preview assets at the old version."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "release-please.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "python scripts/generate_marketplace_assets.py version" in workflow
+    assert "assets/preview-doctor.txt assets/preview-doctor.svg" in workflow
