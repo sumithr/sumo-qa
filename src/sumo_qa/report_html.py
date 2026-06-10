@@ -49,6 +49,17 @@ _STATE_CLASSES = {
     "incomplete": "state-neutral",
 }
 
+#: A plain-language reading of each readiness state — the one line that says
+#: what the verdict MEANS for merging, so the page interprets rather than just
+#: labels. Static per state, so the render stays deterministic.
+_STATE_GLOSS = {
+    "ready": "Safe to merge on the evidence composed here.",
+    "ready_with_residuals": "Mergeable — the remaining risks are recorded and accepted.",
+    "stale_evidence": "Re-verify before trusting this — some evidence may be out of date.",
+    "blocked": "Do not merge — unresolved blockers are present.",
+    "incomplete": "Not enough evidence to judge yet — generate the missing sources.",
+}
+
 _STATUS_LABELS = {
     "available": "available",
     "missing": "not available",
@@ -64,57 +75,138 @@ _STATUS_CLASSES = {
 }
 
 _STYLE = """
-  :root { color-scheme: light; }
+  :root {
+    color-scheme: light;
+    --paper: #FAF7F2; --ink: #1B1B1B; --crimson: #7A1F1F; --crimson-deep: #5E1717;
+    --label: #8A7B5C; --rule: #E2D9C8; --rule-soft: #EDE6D8;
+    --olive: #3F4A2E; --olive-bg: #E8EDDF; --ochre-bg: #F0EAE0; --note-bg: #F4EFE6;
+    --display: "Hoefler Text", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --body: Charter, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  }
+  * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 2.5rem 1.5rem 4rem;
-    background: #FAF7F2; color: #1B1B1B;
-    font-family: Charter, "Iowan Old Style", Georgia, serif;
-    font-size: 16px; line-height: 1.55;
+    margin: 0; padding: 3rem 1.5rem 4rem;
+    color: var(--ink);
+    background:
+      radial-gradient(120% 60% at 50% -10%, rgba(122,31,31,0.05), rgba(122,31,31,0) 60%),
+      linear-gradient(180deg, #FCFAF6 0%, var(--paper) 28%);
+    background-color: var(--paper);
+    font-family: var(--body); font-size: 16px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
   }
-  main, header.masthead, footer { max-width: 60rem; margin: 0 auto; }
-  header.masthead { border-bottom: 3px double #7A1F1F; padding-bottom: 1rem; }
-  header.masthead h1 { margin: 0; font-size: 1.9rem; color: #7A1F1F; font-weight: 600; }
+  .sheet { max-width: 62rem; margin: 0 auto; }
+  header.masthead { border-bottom: 3px double var(--crimson); padding-bottom: 0.9rem; }
   header.masthead .kicker {
-    margin: 0 0 0.35rem; font-size: 0.78rem; letter-spacing: 0.18em;
-    text-transform: uppercase; color: #8A7B5C;
+    margin: 0 0 0.5rem; font-size: 0.72rem; letter-spacing: 0.32em;
+    text-transform: uppercase; color: var(--label);
   }
-  dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 1.2rem; margin: 1rem 0 0; }
-  dl.meta dt { font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: #8A7B5C; }
-  dl.meta dd { margin: 0; font-variant-numeric: tabular-nums; }
-  section { margin-top: 2.2rem; }
+  header.masthead h1 {
+    margin: 0; font-family: var(--display); font-size: 2.7rem; line-height: 1.04;
+    color: var(--crimson); font-weight: 700; letter-spacing: -0.012em;
+    word-break: break-word;
+  }
+  .dateline {
+    margin: 0.7rem 0 0; font-size: 0.8rem; letter-spacing: 0.02em; color: var(--label);
+    font-variant-numeric: tabular-nums;
+  }
+  .dateline b { color: var(--label); font-weight: 400; text-transform: uppercase;
+    letter-spacing: 0.12em; font-size: 0.68rem; }
+  .dateline .sep { color: var(--rule); margin: 0 0.55rem; }
+  .dateline code { font-family: var(--body); }
+  main { counter-reset: sec; }
+  section { margin-top: 2.4rem; }
+  /* Verdict hero */
+  .verdict {
+    margin-top: 2.2rem; padding: 1.5rem 1.6rem 1.6rem;
+    border: 1px solid var(--rule); border-left: 0.6rem solid var(--crimson);
+    background: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0) 70%), var(--ochre-bg);
+  }
+  .verdict-kicker { margin: 0 0 0.2rem; font-size: 0.7rem; letter-spacing: 0.28em;
+    text-transform: uppercase; opacity: 0.8; }
+  .verdict-label {
+    margin: 0; font-family: var(--display); font-size: 2.4rem; line-height: 1;
+    font-weight: 700; text-transform: lowercase; letter-spacing: -0.01em;
+  }
+  .verdict-gloss { margin: 0.55rem 0 0; font-size: 1.05rem; font-style: italic; max-width: 44rem; }
+  .verdict ul.reasons { margin: 0.9rem 0 0; padding-left: 1.1rem; }
+  .verdict ul.reasons li { margin: 0.15rem 0; }
+  .verdict p.reasons-none { margin: 0.9rem 0 0; font-style: italic; opacity: 0.85; }
+  .verdict.state-good { border-left-color: var(--olive); background:
+    linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0) 70%), var(--olive-bg); }
+  .verdict.state-good .verdict-label, .verdict.state-good .verdict-kicker { color: var(--olive); }
+  .verdict.state-warm { border-left-color: #9A7B2E; }
+  .verdict.state-warm .verdict-label, .verdict.state-warm .verdict-kicker { color: #7A5E1E; }
+  .verdict.state-bad { border: 1px solid var(--crimson-deep); border-left: 0.6rem solid var(--ink);
+    background: linear-gradient(180deg, #7A1F1F, #641A1A); color: var(--paper); }
+  .verdict.state-bad .verdict-label, .verdict.state-bad .verdict-kicker { color: var(--paper); }
+  .verdict.state-neutral .verdict-label, .verdict.state-neutral .verdict-kicker { color: var(--crimson); }
+  /* Stat band */
+  .statband {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    margin-top: 1px; background: var(--rule); border: 1px solid var(--rule);
+  }
+  .stat { background: var(--paper); padding: 1rem 1.1rem; }
+  .stat-num { display: block; font-family: var(--display); font-size: 1.9rem;
+    line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .stat-label { display: block; margin-top: 0.35rem; font-size: 0.66rem;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--label); }
+  .stat.alert .stat-num { color: var(--crimson); }
+  .stat.alert .stat-label { color: var(--crimson); }
+  /* Sections */
   h2 {
-    font-size: 1.05rem; letter-spacing: 0.14em; text-transform: uppercase;
-    color: #7A1F1F; border-bottom: 1px solid #E2D9C8; padding-bottom: 0.3rem;
+    font-size: 0.86rem; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--crimson); border-bottom: 1px solid var(--rule); padding-bottom: 0.35rem;
+    display: flex; align-items: baseline; gap: 0.7rem;
   }
-  h3 { font-size: 0.95rem; margin: 1.4rem 0 0.4rem; }
-  .banner { padding: 1.1rem 1.3rem; border-left: 0.5rem solid; }
-  .banner .verdict-label { margin: 0; font-size: 1.6rem; font-weight: 700; }
-  .banner.state-good { background: #E8EDDF; color: #3F4A2E; border-color: #3F4A2E; }
-  .banner.state-warm { background: #F0EAE0; color: #8A7B5C; border-color: #8A7B5C; }
-  .banner.state-bad { background: #7A1F1F; color: #FAF7F2; border-color: #1B1B1B; }
-  .banner.state-neutral { background: #F0EAE0; color: #1B1B1B; border-color: #8A7B5C; }
-  .banner ul.reasons { margin: 0.6rem 0 0; padding-left: 1.2rem; }
-  .banner p.reasons-none { margin: 0.6rem 0 0; }
-  table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+  h2::before {
+    counter-increment: sec; content: counter(sec, decimal-leading-zero);
+    font-family: var(--display); font-size: 0.9rem; letter-spacing: 0;
+    color: var(--label); font-weight: 400;
+  }
+  h3 { font-size: 0.95rem; margin: 1.5rem 0 0.3rem; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; }
   th {
-    text-align: left; font-size: 0.72rem; letter-spacing: 0.14em;
-    text-transform: uppercase; color: #8A7B5C;
-    border-bottom: 2px solid #7A1F1F; padding: 0.35rem 0.6rem 0.35rem 0;
+    text-align: left; font-size: 0.66rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--label);
+    border-bottom: 2px solid var(--crimson); padding: 0.4rem 0.7rem 0.4rem 0; white-space: nowrap;
   }
-  td { padding: 0.45rem 0.6rem 0.45rem 0; border-bottom: 1px solid #E2D9C8; vertical-align: top; }
-  td.more, li.more { font-style: italic; color: #8A7B5C; }
+  td { padding: 0.5rem 0.7rem 0.5rem 0; border-bottom: 1px solid var(--rule); vertical-align: top;
+    font-variant-numeric: tabular-nums; }
+  tbody tr:nth-child(even) td { background: rgba(226,217,200,0.18); }
+  td.more, li.more { font-style: italic; color: var(--label); background: none; }
   .badge {
-    display: inline-block; padding: 0.05rem 0.5rem; font-size: 0.78rem;
-    border: 1px solid; border-radius: 2px; white-space: nowrap;
+    display: inline-block; padding: 0.08rem 0.55rem; font-size: 0.66rem;
+    letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--display);
+    border: 1px solid; border-radius: 1px; white-space: nowrap;
   }
-  .badge.ok { color: #3F4A2E; background: #E8EDDF; border-color: #3F4A2E; }
-  .badge.warm { color: #8A7B5C; background: #F0EAE0; border-color: #8A7B5C; }
-  .badge.bad { color: #FAF7F2; background: #7A1F1F; border-color: #7A1F1F; }
-  .badge.off { color: #1B1B1B; background: #F0EAE0; border-color: #8A7B5C; }
-  p.empty { color: #8A7B5C; font-style: italic; }
-  ul.warnings li { color: #7A1F1F; }
-  footer { margin-top: 3rem; border-top: 1px solid #E2D9C8; padding-top: 0.6rem;
-    font-size: 0.82rem; color: #8A7B5C; }
+  .badge.ok { color: var(--olive); background: var(--olive-bg); border-color: var(--olive); }
+  .badge.warm { color: #7A5E1E; background: var(--ochre-bg); border-color: #9A7B2E; }
+  .badge.bad { color: var(--paper); background: var(--crimson); border-color: var(--crimson-deep); }
+  .badge.off { color: var(--label); background: var(--note-bg); border-color: var(--rule); }
+  p.empty {
+    color: var(--label); font-style: italic; margin-top: 0.6rem;
+    padding: 0.85rem 1rem; background: var(--note-bg);
+    border: 1px solid var(--rule); border-left: 3px solid #C9BDA3;
+  }
+  ul { padding-left: 1.2rem; }
+  ul.warnings { list-style: none; padding-left: 0; }
+  ul.warnings li { color: var(--crimson); padding: 0.4rem 0.8rem; border-left: 3px solid var(--crimson);
+    background: var(--note-bg); margin-top: 0.4rem; }
+  footer.colophon { margin-top: 3.5rem; border-top: 1px solid var(--rule); padding-top: 0.7rem;
+    font-size: 0.74rem; letter-spacing: 0.08em; color: var(--label); text-transform: uppercase; }
+  @media (max-width: 46rem) {
+    body { padding: 1.75rem 1rem 3rem; }
+    header.masthead h1 { font-size: 2rem; }
+    .verdict-label { font-size: 1.9rem; }
+    .statband { grid-template-columns: repeat(2, 1fr); }
+    table { font-size: 0.86rem; }
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .verdict.state-bad { background: #fff; color: var(--ink); border-left-color: var(--crimson); }
+    .verdict.state-bad .verdict-label, .verdict.state-bad .verdict-kicker { color: var(--crimson); }
+    .badge.bad { color: var(--crimson); background: #fff; }
+  }
 """
 
 
@@ -280,31 +372,42 @@ def render_report_html(report: QAReport) -> str:
         else '<p class="reasons-none">All composed signals are green.</p>'
     )
     available = sum(1 for artifact in report.artifacts if artifact.status == "available")
+    blocker_class = " alert" if report.uncovered_blocker_count else ""
+    title = _esc(project.name or project.root)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>QA report &#8212; {_esc(project.name or project.root)}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA report &#8212; {title}</title>
 <style>{_STYLE}</style>
 </head>
 <body>
+<div class="sheet">
 <header class="masthead">
 <p class="kicker">sumo-qa &#183; local QA report</p>
-<h1>{_esc(project.name or project.root)}</h1>
-<dl class="meta">
-<dt>root</dt><dd>{_esc(project.root)}</dd>
-<dt>head commit</dt><dd>{_dash(project.head_commit)}</dd>
-<dt>generated</dt><dd>{_esc(project.generated_at.isoformat())}</dd>
-<dt>artifacts</dt><dd>{available} of {len(report.artifacts)} available &#183; \
-{len(report.risks)} risks &#183; {report.uncovered_blocker_count} uncovered blockers &#183; \
-{len(report.warnings)} warnings</dd>
-</dl>
+<h1>{title}</h1>
+<p class="dateline"><b>root</b> <code>{_esc(project.root)}</code>\
+<span class="sep">&#183;</span><b>head</b> <code>{_dash(project.head_commit)}</code>\
+<span class="sep">&#183;</span><b>generated</b> {_esc(project.generated_at.isoformat())}</p>
 </header>
 <main>
-<section class="banner {_STATE_CLASSES[state]}">
+<section class="verdict {_STATE_CLASSES[state]}">
+<p class="verdict-kicker">Readiness</p>
 <p class="verdict-label">{_STATE_LABELS[state]}</p>
+<p class="verdict-gloss">{_esc(_STATE_GLOSS[state])}</p>
 {reasons_block}
+</section>
+<section class="statband">
+<div class="stat"><span class="stat-num">{available}/{len(report.artifacts)}</span>\
+<span class="stat-label">sources available</span></div>
+<div class="stat"><span class="stat-num">{len(report.risks)}</span>\
+<span class="stat-label">risks tracked</span></div>
+<div class="stat{blocker_class}"><span class="stat-num">{report.uncovered_blocker_count}</span>\
+<span class="stat-label">uncovered blockers</span></div>
+<div class="stat"><span class="stat-num">{len(report.warnings)}</span>\
+<span class="stat-label">warnings</span></div>
 </section>
 <section>
 <h2>Artifact inventory</h2>
@@ -327,9 +430,10 @@ def render_report_html(report: QAReport) -> str:
 {_warning_section(report.warnings)}
 </section>
 </main>
-<footer>
+<footer class="colophon">
 Generated by {_esc(project.generator_version)} &#183; report schema {_esc(report.schema_version)}
 </footer>
+</div>
 </body>
 </html>
 """
