@@ -48,6 +48,8 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 
 If `sumo-qa-install` isn't on your PATH (e.g. `pip install --user` without `~/.local/bin` exported), use the PATH-proof module form: `python -m pip install sumo-qa && python -m sumo_qa.installer`.
 
+Prefer one command that installs, configures, and verifies in a single shot? From a clone of this repo, run `./install.sh` (macOS/Linux) or `.\install.ps1` (Windows) — thin wrappers that route to the same `pip install` + `python -m sumo_qa.installer` + `sumo-qa-doctor` steps, with `--update`, `--doctor`, per-host `--host`, and an ownership-aware `--uninstall` flag. CI-verified on Linux/macOS/Windows. Details: [docs/INSTALL.md#one-command-wrapper-installsh--installps1](docs/INSTALL.md#one-command-wrapper-installsh--installps1).
+
 Restart your host or open a fresh chat afterwards.
 
 ### Plugin install from a local clone (Claude Code, session-scoped)

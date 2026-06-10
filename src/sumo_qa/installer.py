@@ -289,6 +289,17 @@ def main() -> int:
         action="store_true",
         help="Don't reinstall the MCP binary via uv (assume it's already installed).",
     )
+    parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help=(
+            "Uninstall sumo-qa instead of installing it: remove the host config "
+            "entries this installer wrote (the ownership-proven `sumo-qa` key "
+            "under mcpServers/servers) plus the Claude Code skill symlinks. "
+            "Honours the same host flags; with none, uninstalls from every "
+            "detected host. Never removes a co-existing unrelated MCP server."
+        ),
+    )
     args = parser.parse_args()
 
     # If no host flag is set, default to all.
@@ -299,6 +310,43 @@ def main() -> int:
     do_claude_desktop = args.claude_desktop or not explicit_hosts
 
     system = platform.system()
+
+    # Uninstall path: the inverse of install. No MCP binary is needed to
+    # remove config, so _install_mcp_binary is skipped entirely and none of
+    # the install functions run. Uses the SAME host-selection logic above.
+    if args.uninstall:
+        print(f"sumo-qa uninstaller  (OS: {system})")
+        hosts_str = ", ".join(
+            h
+            for h, do in [
+                ("Claude Code", do_claude),
+                ("VS Code", do_vscode),
+                ("JetBrains", do_jetbrains),
+                ("Claude Desktop", do_claude_desktop),
+            ]
+            if do
+        )
+        print(f"Uninstalling from: {hosts_str}\n")
+
+        workspace = args.workspace.resolve() if args.workspace else Path.cwd()
+        uninstall_results: list[HostResult] = []
+        if do_claude:
+            uninstall_results.append(_uninstall_claude_code(system))
+        if do_vscode:
+            uninstall_results.append(_uninstall_vscode(workspace))
+        if do_jetbrains:
+            uninstall_results.append(_uninstall_intellij(system))
+        if do_claude_desktop:
+            uninstall_results.append(_uninstall_claude_desktop(system))
+
+        print("Host removal:")
+        for r in uninstall_results:
+            print(r.render())
+        print()
+        print("Uninstall complete. Restart any host you just changed. Run")
+        print("`pip uninstall sumo-qa` separately to remove the package itself.")
+        return 0
+
     print(f"sumo-qa installer  (OS: {system})")
     hosts_str = ", ".join(
         h
@@ -718,6 +766,254 @@ def _install_claude_code_skills_per_dir(skills_dir: Path, system: str) -> str:
     if copied:
         parts.append(f"copied {len(copied)} (Windows fallback)")
     return "; ".join(parts) + f" under {skills_dir}"
+
+
+# ----------------------------------------------------------------------
+# Uninstall primitives (inverse of install)
+# ----------------------------------------------------------------------
+
+
+def _remove_server_entry(config_path: Path, container_key: str) -> bool:
+    """Remove the fixed sumo-qa entry from a host config, proving ownership.
+
+    The installer writes exactly one entry keyed by
+    ``PLUGIN_METADATA.mcp_server_name`` under ``config[container_key]`` (a
+    ``mcpServers``/``servers`` dict). This pops that one key and writes the
+    file back, preserving every other server entry and leaving the (possibly
+    now-empty) container key in place.
+
+    Returns ``True`` if our entry was found and removed, ``False`` for every
+    no-op case: the file is missing, isn't valid JSON, the container key is
+    absent or isn't a dict, or our entry isn't present. A ``False`` return
+    never mutates the file.
+    """
+    if not config_path.exists():
+        return False
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(config, dict):
+        return False
+    container = config.get(container_key)
+    server_name = PLUGIN_METADATA.mcp_server_name
+    if not isinstance(container, dict) or server_name not in container:
+        return False
+    container.pop(server_name)
+    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
+def _remove_claude_code_skills(skills_dir: Path) -> str:
+    """Remove the skill entries the per-dir install created at the top level of
+    ~/.claude/skills/. The removal half of ``_install_claude_code_skills_per_dir``.
+
+    Removes the legacy ``sumo-qa`` wrapper (symlink/file/dir) and, for each
+    repo skill name, removes the top-level entry ONLY if it is a symlink OR a
+    directory whose ``SKILL.md`` content matches the repo version — the same
+    safety guard the install cleanup uses so a user-customised skill is never
+    deleted. Does NOT re-symlink anything.
+
+    Returns a one-line summary for the uninstall output.
+    """
+    # 1. Remove the legacy wrapper.
+    wrapper = skills_dir / "sumo-qa"
+    if wrapper.is_symlink() or wrapper.is_file():
+        wrapper.unlink()
+    elif wrapper.is_dir():
+        shutil.rmtree(wrapper)
+
+    # 2. Remove our top-level skills — only the ones in repo/skills/, and only
+    #    when we can prove ownership (a symlink, or a dir whose SKILL.md still
+    #    matches the repo version). Never touch unrelated or user-customised
+    #    skills.
+    repo_skill_names = {p.name for p in SKILLS_SRC.iterdir() if p.is_dir()}
+    removed: list[str] = []
+    for name in repo_skill_names:
+        target = skills_dir / name
+        if not (target.exists() or target.is_symlink()):
+            continue
+        if target.is_symlink():
+            target.unlink()
+            removed.append(name)
+            continue
+        repo_skill = SKILLS_SRC / name / "SKILL.md"
+        target_skill = target / "SKILL.md"
+        if (
+            target.is_dir()
+            and repo_skill.is_file()
+            and target_skill.is_file()
+            and repo_skill.read_text(encoding="utf-8").replace("\r\n", "\n")
+            == target_skill.read_text(encoding="utf-8").replace("\r\n", "\n")
+        ):
+            shutil.rmtree(target)
+            removed.append(name)
+
+    return f"removed {len(removed)} skills from {skills_dir}"
+
+
+def _uninstall_claude_code(system: str) -> HostResult:
+    """Uninstall sumo-qa from Claude Code: remove skill symlinks, the
+    ``mcpServers["sumo-qa"]`` entry from claude_desktop_config.json, and the
+    Claude Code MCP-registry entry via ``claude mcp remove``.
+
+    Mirrors ``_setup_claude_code``'s detection so "not detected" is reported
+    identically.
+    """
+    r = HostResult("Claude Code")
+    home = Path.home()
+
+    if system == "Windows":  # pragma: no cover -- platform-conditional Windows branch
+        config_dir = Path(os.environ.get("APPDATA", "")) / "Claude"
+    else:
+        config_dir = home / ".config" / "claude"
+
+    claude_home = home / ".claude"
+
+    if not (claude_home.exists() or config_dir.exists()):
+        r.message = "not detected on this machine"
+        return r
+
+    r.detected = True
+    actions: list[str] = []
+    anything_removed = False
+
+    # 1. Remove the skill symlinks/dirs.
+    skills_dir = claude_home / "skills"
+    if skills_dir.exists():
+        skills_msg = _remove_claude_code_skills(skills_dir)
+        actions.append(skills_msg)
+        if "removed 0 skills" not in skills_msg:
+            anything_removed = True
+
+    # 2. Remove our entry from claude_desktop_config.json.
+    config_path = config_dir / "claude_desktop_config.json"
+    if _remove_server_entry(config_path, "mcpServers"):
+        actions.append(f"removed sumo-qa from {config_path}")
+        anything_removed = True
+
+    # 3. Remove the Claude Code MCP-registry entry. Mirror the which-check in
+    #    _register_claude_code_mcp: no-op when the CLI isn't on PATH.
+    claude = shutil.which("claude")
+    if claude is None:
+        actions.append("claude CLI not on PATH — skipped MCP-registry removal")
+    else:
+        subprocess.run(
+            [claude, "mcp", "remove", PLUGIN_METADATA.mcp_server_name, "-s", "user"],
+            capture_output=True,
+            check=False,
+        )
+        actions.append("removed sumo-qa from claude mcp registry")
+        anything_removed = True
+
+    r.configured = anything_removed
+    r.message = "; ".join(actions) if actions else "nothing to remove"
+    return r
+
+
+def _uninstall_vscode(workspace: Path) -> HostResult:
+    """Uninstall sumo-qa from a VS Code workspace: remove ``servers["sumo-qa"]``
+    from ``<workspace>/.vscode/mcp.json``. Not-detected when that file is
+    absent.
+    """
+    r = HostResult("VS Code + Copilot")
+    config_path = workspace / ".vscode" / "mcp.json"
+    if not config_path.exists():
+        r.message = f"not detected (no {config_path})"
+        return r
+    r.detected = True
+    if _remove_server_entry(config_path, "servers"):
+        r.configured = True
+        r.config_path = config_path
+        r.message = f"removed sumo-qa from {config_path}"
+    else:
+        r.message = f"no sumo-qa entry in {config_path}"
+    return r
+
+
+def _uninstall_claude_desktop(system: str) -> HostResult:
+    """Uninstall sumo-qa from the Claude Desktop app config: remove
+    ``mcpServers["sumo-qa"]`` from the OS-correct claude_desktop_config.json.
+
+    Mirrors ``_setup_claude_desktop``'s detection (the config dir must exist).
+    """
+    r = HostResult("Claude Desktop")
+    home = Path.home()
+    config_path = _claude_desktop_config_path(home, system)
+    config_dir = config_path.parent
+
+    if not config_dir.is_dir():
+        r.message = "Claude Desktop not detected on this machine"
+        return r
+
+    r.detected = True
+    if _remove_server_entry(config_path, "mcpServers"):
+        r.configured = True
+        r.config_path = config_path
+        r.message = f"removed sumo-qa from {config_path}"
+    else:
+        r.message = f"no sumo-qa entry in {config_path}"
+    return r
+
+
+def _uninstall_intellij(system: str) -> HostResult:
+    """Uninstall sumo-qa from JetBrains IDEs.
+
+    The installer never wrote a JetBrains config file (the MCP plugin requires
+    a Settings-UI add — see ``_setup_intellij``), so there is nothing to
+    remove programmatically. Detect a JetBrains install like ``_setup_intellij``
+    and, when one is found, surface manual removal steps. ``configured`` stays
+    ``False`` because removal is manual.
+    """
+    r = HostResult("JetBrains IDEs")
+    home = Path.home()
+
+    if system == "Darwin":
+        jb_root = home / "Library" / "Application Support" / "JetBrains"
+    elif system == "Windows":  # pragma: no cover -- platform-conditional Windows branch
+        jb_root = Path(os.environ.get("APPDATA", "")) / "JetBrains"
+    else:
+        jb_root = home / ".config" / "JetBrains"
+
+    if not jb_root.exists():
+        r.message = "not detected (no JetBrains config dir)"
+        return r
+
+    ide_dirs = sorted(
+        (
+            p
+            for p in jb_root.iterdir()
+            if p.is_dir()
+            and any(p.name.startswith(prefix) for prefix in _JB_IDE_PREFIXES)
+            and (p / "options").exists()
+        ),
+        key=lambda p: p.name,
+        reverse=True,
+    )
+    if not ide_dirs:
+        r.message = "no JetBrains IDE installation found"
+        return r
+
+    r.detected = True
+    latest = ide_dirs[0]
+    r.message = (
+        f"detected {latest.name} (and {len(ide_dirs) - 1} other IDE(s)). "
+        "JetBrains MCP plugin requires one-time Settings-UI removal."
+    )
+    server_name = PLUGIN_METADATA.mcp_server_name
+    r.followup = (
+        "      In any JetBrains IDE, open the chat / AI Assistant panel,\n"
+        "      then:\n"
+        "        Settings -> Tools -> AI Assistant -> Model Context Protocol\n"
+        f"        Select the `{server_name}` server and click - Remove.\n"
+        "        Apply.\n"
+        "\n"
+        "      Why manual: the installer never wrote a JetBrains MCP config\n"
+        "      file (external writes are not reliably picked up on IDEA\n"
+        "      2026.1), so there is nothing for the uninstaller to delete —\n"
+        "      remove the entry via the same Settings UI used to add it."
+    )
+    return r
 
 
 # ----------------------------------------------------------------------

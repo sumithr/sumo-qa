@@ -114,6 +114,50 @@ jobs:
           grep -q "^Summary:" doctor.out
           python -c "import json; d = json.load(open('doctor.json')); assert d['schema_version'] == '0'; assert 'summary' in d and 'checks' in d; assert isinstance(d['checks'], list); assert len(d['checks']) >= 6, d"
 
+      - name: Smoke install.sh wrapper (--print-plan)
+        # The one-command wrapper is a thin router; --print-plan emits the
+        # exact commands it WOULD delegate to without executing them, so this
+        # smoke verifies the routing on a real runner with zero side effects.
+        # Runs under git-bash on Windows too (the entry-point step above
+        # already relies on it). No untrusted GitHub event inputs are
+        # interpolated in this step.
+        shell: bash
+        run: |
+          plan=$(bash install.sh --print-plan)
+          echo "$plan"
+          echo "$plan" | grep -q -- "-m pip install sumo-qa"
+          echo "$plan" | grep -q -- "-m sumo_qa.installer"
+          # Doctor runs via the resolved interpreter (-m sumo_qa.doctor), not
+          # the bare console script, so verification is PATH-independent.
+          echo "$plan" | grep -q -- "-m sumo_qa.doctor"
+          # --update routes to the upgrade path.
+          bash install.sh --print-plan --update | grep -q -- "-m pip install --upgrade sumo-qa"
+          # A verified host is forwarded; an unverified host is rejected.
+          bash install.sh --print-plan --host vscode | grep -q -- "--vscode"
+          ! bash install.sh --print-plan --host emacs
+
+      - name: Smoke install.ps1 wrapper (-PrintPlan)
+        # Windows-only PowerShell parity smoke for the wrapper. Mirrors the
+        # bash smoke above. No untrusted GitHub event inputs are interpolated.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # -PrintPlan emits one command per line; join to a single string so
+          # the membership checks below work regardless of array semantics
+          # (a bare `$array -notmatch x` returns the non-matching subset, not
+          # a boolean, which would mis-fire on a multi-line plan).
+          $plan = (& .\install.ps1 -PrintPlan) -join "`n"
+          $plan
+          if ($plan -notmatch '-m pip install sumo-qa') { throw 'plan missing pip install' }
+          if ($plan -notmatch '-m sumo_qa.installer') { throw 'plan missing installer' }
+          if ($plan -notmatch 'sumo_qa\.doctor') { throw 'plan missing doctor' }
+          $upd = (& .\install.ps1 -PrintPlan -Update) -join "`n"
+          if ($upd -notmatch '-m pip install --upgrade sumo-qa') { throw 'update plan missing upgrade' }
+          # -Host must still bind (it is preserved as an alias of -TargetHost)
+          # and forward --vscode to the installer.
+          $vs = (& .\install.ps1 -PrintPlan -Host vscode) -join "`n"
+          if ($vs -notmatch '--vscode') { throw 'host flag not forwarded' }
+
       - name: Smoke sumo-qa-install --claude-code
         # Claude Code host-wiring path contains the Windows-specific branches in
         # installer.py (APPDATA handling, .cmd shims, symlink-vs-copy fallback

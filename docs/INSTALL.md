@@ -18,6 +18,38 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 
 Restart your host (or open a fresh chat) once it's done.
 
+## One-command wrapper (`install.sh` / `install.ps1`)
+
+Prefer a single command that installs, configures, and verifies in one shot? The repo ships thin wrappers that route to the same canonical steps above — `python -m pip install sumo-qa`, then `python -m sumo_qa.installer`, then `sumo-qa-doctor`. The wrappers add no install logic of their own; they exist so a first-time user runs one command instead of learning the pip / installer / doctor split. They never bypass the installer's validation.
+
+```bash
+# macOS / Linux — clone or download the repo, then from its root:
+./install.sh                       # install every detected host, then run the doctor
+./install.sh --host claude-code    # one verified host (claude-code | vscode | jetbrains)
+./install.sh --update              # pip --upgrade + re-run installer + doctor
+./install.sh --doctor              # read-only doctor only (no install)
+./install.sh --uninstall           # ownership-aware uninstall (see below); add --host to scope it
+./install.sh --print-plan          # show the exact commands it would run, run nothing
+```
+
+```powershell
+# Windows PowerShell — from the repo root:
+.\install.ps1                      # install every detected host, then run the doctor
+.\install.ps1 -Host vscode         # one verified host
+.\install.ps1 -Update              # upgrade + re-run installer + doctor
+.\install.ps1 -Doctor              # read-only doctor only
+.\install.ps1 -Uninstall           # ownership-aware uninstall (see below); add -Host to scope it
+.\install.ps1 -PrintPlan           # show the exact commands it would run, run nothing
+```
+
+Safety: the wrappers never use `sudo`/admin escalation, never delete your `.sumo-qa/` repo artifacts, and never remove a host config entry they can't prove they own. On any failure they print the exact command that failed plus the next safe manual command, and re-running is always safe.
+
+The post-install `sumo-qa-doctor` check is **advisory** in install/update modes: a successful install (pip + host config written) is reported as success even if the doctor flags something — most commonly the VS Code workspace check when you ran the install outside a VS Code workspace (which the installer correctly skips). The doctor's findings are still printed for you to act on, and a non-zero result prints a clear `NOTE`. Run `./install.sh --doctor` (or `.\install.ps1 -Doctor`) for a **strict** verification-only run whose exit code reflects the doctor's verdict. The doctor is invoked through the resolved interpreter (`-m sumo_qa.doctor`), so it works even when pip's scripts dir isn't on `PATH`.
+
+Verified in CI: the `install-smoke` workflow runs `install.sh --print-plan` on Linux/macOS/Windows and `install.ps1 -PrintPlan` on Windows, asserting the wrapper routes to the canonical pip + installer + doctor commands (and rejects unverified hosts) on every push and PR. `--uninstall` routes to the installer's ownership-aware removal — see [Uninstall](#uninstall) below.
+
+The per-host installer flags (`python -m sumo_qa.installer --vscode`, etc.) remain fully supported for users who don't want the wrapper — see [Per-host flags](#per-host-flags).
+
 ## Diagnosing setup with `sumo-qa-doctor`
 
 After install, run:
@@ -225,7 +257,15 @@ You only strictly need to re-run `sumo-qa-install` when **new** skills are added
 
 ## Uninstall
 
-There's no automated uninstall yet — a `sumo-qa-install --uninstall` (and a one-command wrapper) is on the roadmap. Until it ships, remove sumo-qa manually: run the package step, plus the steps for whichever hosts you configured.
+`install.sh --uninstall` (and `install.ps1 -Uninstall`) run an **ownership-aware uninstall**: they delegate to `python -m sumo_qa.installer --uninstall`, which removes only what the installer wrote and proves ownership before touching anything —
+
+- the `sumo-qa` key under `mcpServers` / `servers` in each host config (every *other* server entry is left untouched);
+- the sumo-qa skill symlinks under `~/.claude/skills/` — only a symlink, or a directory whose `SKILL.md` still matches the shipped skill, so a skill you customised is never deleted;
+- the Claude Code MCP registration, via `claude mcp remove sumo-qa -s user`.
+
+JetBrains is the exception: nothing was written programmatically (its MCP plugin requires a Settings-UI add), so the uninstall prints the one manual removal step. No `sudo`, no deletion of your `.sumo-qa/` repo artifacts. Scope it to one host with `--host` / `-Host` (e.g. `./install.sh --uninstall --host vscode`).
+
+This removes the host *configuration*; the pip package stays installed. Run `pip uninstall sumo-qa` as well if you also want to remove the package and its console scripts. Prefer to do every step by hand? The equivalent manual commands:
 
 **Package (all hosts):**
 

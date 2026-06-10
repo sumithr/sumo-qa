@@ -74,7 +74,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: shellcheck
-        run: shellcheck hooks/session-start scripts/check_markdown_links.sh
+        run: shellcheck hooks/session-start scripts/check_markdown_links.sh install.sh
 
   markdown-links:
     name: markdown link existence
