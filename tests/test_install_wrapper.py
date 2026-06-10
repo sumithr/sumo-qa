@@ -18,6 +18,7 @@ these argv, route to these commands"; running it the way a user runs it is
 the only test that exercises real shell arg parsing, quoting, and exit codes.
 """
 
+import os
 import pathlib
 import shutil
 import subprocess
@@ -29,10 +30,47 @@ INSTALL_SH = REPO_ROOT / "install.sh"
 INSTALL_PS1 = REPO_ROOT / "install.ps1"
 
 
+def _resolve_bash() -> str | None:
+    """Locate a real POSIX bash to run ``install.sh`` with.
+
+    On Windows a bare ``bash`` on PATH is usually the WSL launcher stub
+    (``C:\\Windows\\System32\\bash.exe``), which on a CI runner has no distro
+    installed: it prints a UTF-16 "no installed distributions" notice and
+    exits 1, nothing to do with the wrapper. Prefer Git's bash, fall back to
+    whatever ``shutil.which`` finds, and treat the System32 WSL stub as
+    unusable so the suite skips on a bash-less host rather than failing on an
+    unrelated tool.
+    """
+    candidates: list[str] = []
+    if os.name == "nt":
+        candidates += [
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\usr\bin\bash.exe",
+        ]
+    found = shutil.which("bash")
+    if found:
+        candidates.append(found)
+    for cand in candidates:
+        if cand and pathlib.Path(cand).exists() and "System32" not in cand:
+            return cand
+    return None
+
+
+BASH = _resolve_bash()
+
+# When no usable POSIX bash exists (e.g. a Windows host with only the WSL
+# stub), the install.sh tests cannot run; skip them rather than fail. The
+# pwsh-gated tests below carry their own independent skip guards.
+pytestmark = pytest.mark.skipif(
+    BASH is None,
+    reason="no POSIX bash available (bare 'bash' on Windows is the WSL stub, not git-bash)",
+)
+
+
 def _plan(*args: str) -> subprocess.CompletedProcess:
     """Run ``install.sh --print-plan <args>`` and capture the plan."""
     return subprocess.run(
-        ["bash", str(INSTALL_SH), "--print-plan", *args],
+        [BASH, str(INSTALL_SH), "--print-plan", *args],
         capture_output=True,
         text=True,
         timeout=30,
@@ -147,7 +185,7 @@ def test_failing_delegated_command_propagates_nonzero_exit(tmp_path):
     stub.write_text("#!/bin/sh\nexit 7\n")
     stub.chmod(0o755)
     result = subprocess.run(
-        ["bash", str(INSTALL_SH)],  # real exec path, NOT --print-plan
+        [BASH, str(INSTALL_SH)],  # real exec path, NOT --print-plan
         capture_output=True,
         text=True,
         timeout=30,
@@ -171,7 +209,7 @@ def test_space_containing_interpreter_path_is_one_token_in_plan(tmp_path):
     interp.write_text("#!/bin/sh\nexit 0\n")
     interp.chmod(0o755)
     result = subprocess.run(
-        ["bash", str(INSTALL_SH), "--print-plan"],
+        [BASH, str(INSTALL_SH), "--print-plan"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -197,7 +235,7 @@ def test_space_containing_interpreter_path_execs_as_one_token(tmp_path):
     interp.write_text('#!/bin/sh\necho "LAUNCHED_AS:[$0]"\nexit 0\n')
     interp.chmod(0o755)
     result = subprocess.run(
-        ["bash", str(INSTALL_SH)],  # real exec path, install mode
+        [BASH, str(INSTALL_SH)],  # real exec path, install mode
         capture_output=True,
         text=True,
         timeout=30,

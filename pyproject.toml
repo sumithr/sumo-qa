@@ -256,6 +256,17 @@ also_copy = [
   # root-level-resource pattern as `release-please-config.json`. NOT
   # shipped in the wheel — mutmut-local-only.
   "assets/",
+  # tests/test_install_wrapper.py (added in #158) resolves
+  # `Path(__file__).resolve().parents[1] / "install.sh"` (and `install.ps1`)
+  # and shells out to them, which under mutmut become
+  # `mutants/install.sh` / `mutants/install.ps1`. Without these entries the
+  # first install-wrapper test fails with exit 127 ("No such file"), mutmut's
+  # `-x` aborts stats collection, and the pre-push mutmut hook fails on every
+  # push whose delta touches any test file. Same root-level-resource pattern
+  # as `release-please-config.json`. NOT shipped in the wheel — the wrapper
+  # is a repo-root convenience script, mutmut-local-only here.
+  "install.sh",
+  "install.ps1",
 ]
 
 # ---------------------------------------------------------------------------

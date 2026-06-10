@@ -249,7 +249,11 @@ print_cmd() {
       out="$word"
     fi
   done
-  printf '%s\n' "$out"
+  # 2>/dev/null: when the plan is piped to a consumer that closes the pipe
+  # early (e.g. `--print-plan | grep -q`), this write hits a broken pipe.
+  # Swallow that error message; the SIGPIPE/errexit guard below the loop keeps
+  # the broken pipe from failing the script.
+  printf '%s\n' "$out" 2>/dev/null
 }
 
 # run_cmd: execute the current command as argv. Captures the REAL exit code
@@ -274,6 +278,17 @@ run_cmd() {
     exit "$status"
   fi
 }
+
+# --print-plan only PRINTS the commands and exits 0 — it never executes. A
+# reader auditing the plan with `grep -q`/`head` closes the pipe after the
+# first match, so a later write gets SIGPIPE (exit 141) or a broken-pipe
+# error that errexit would turn into a failure. Ignore SIGPIPE and drop
+# errexit for the print walk so an early-closing consumer can never make an
+# audit fail. The exec path keeps errexit (run_cmd manages its own toggling).
+if [[ "$print_plan" -eq 1 ]]; then
+  trap '' PIPE
+  set +e
+fi
 
 for word in "${plan_argv[@]}"; do
   if [[ "$word" == "$CMD_SEP" ]]; then
