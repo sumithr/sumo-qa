@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.41.0](https://github.com/sumithr/sumo-qa/compare/v0.40.0...v0.41.0) (2026-06-10)
+
+
+### Features
+
+* **packaging:** generate .claude-plugin/marketplace.json for plugin marketplace install ([#388](https://github.com/sumithr/sumo-qa/issues/388)) ([26c8755](https://github.com/sumithr/sumo-qa/commit/26c87554e1c1f12752482d0045afa76175fca675))
+
 ## [0.40.0](https://github.com/sumithr/sumo-qa/compare/v0.39.1...v0.40.0) (2026-06-10)
 
 
