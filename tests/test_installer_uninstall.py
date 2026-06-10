@@ -509,3 +509,66 @@ def test_main_uninstall_single_host(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     install_binary.assert_not_called()
     written = json.loads((config_dir / "claude_desktop_config.json").read_text(encoding="utf-8"))
     assert SERVER not in written["mcpServers"]
+
+
+def test_remove_server_entry_noop_on_non_dict_root(tmp_path: Path) -> None:
+    """A JSON file whose root is not an object (e.g. a list) is a no-op."""
+    config_path = tmp_path / "config.json"
+    payload = json.dumps([1, 2, 3])
+    config_path.write_text(payload, encoding="utf-8")
+
+    removed = installer._remove_server_entry(config_path, "mcpServers")
+
+    assert removed is False
+    assert config_path.read_text(encoding="utf-8") == payload
+
+
+def test_remove_skills_removes_legacy_wrapper_real_dir(tmp_path: Path) -> None:
+    """A legacy ``sumo-qa`` wrapper left as a REAL directory is removed (the
+    pre-per-skill-symlink layout some older installs left behind)."""
+    skills_dir = tmp_path / "skills"
+    wrapper = skills_dir / "sumo-qa"
+    (wrapper / "nested").mkdir(parents=True)
+    (wrapper / "nested" / "old.md").write_text("legacy", encoding="utf-8")
+
+    installer._remove_claude_code_skills(skills_dir)
+
+    assert not wrapper.exists()
+
+
+def test_uninstall_intellij_linux_config_path(tmp_path: Path) -> None:
+    """On Linux the JetBrains root resolves under ~/.config/JetBrains."""
+    jb_root = tmp_path / ".config" / "JetBrains"
+    (jb_root / "PyCharm2026.1" / "options").mkdir(parents=True)
+
+    with patch.object(Path, "home", return_value=tmp_path):
+        result = installer._uninstall_intellij("Linux")
+
+    assert result.detected is True
+    assert result.configured is False
+    assert "Model Context Protocol" in result.followup
+
+
+def test_uninstall_intellij_dir_present_but_no_ide(tmp_path: Path) -> None:
+    """JetBrains config dir exists but holds no recognised IDE → not detected."""
+    jb_root = tmp_path / "Library" / "Application Support" / "JetBrains"
+    jb_root.mkdir(parents=True)  # exists, but empty (no IDE subdir with options/)
+
+    with patch.object(Path, "home", return_value=tmp_path):
+        result = installer._uninstall_intellij("Darwin")
+
+    assert result.detected is False
+    assert "no JetBrains IDE installation found" in result.message
+
+
+def test_remove_skills_removes_legacy_wrapper_file(tmp_path: Path) -> None:
+    """A legacy ``sumo-qa`` wrapper left as a plain file/symlink is unlinked
+    (the install-time layout removed it the same way)."""
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    wrapper = skills_dir / "sumo-qa"
+    wrapper.write_text("legacy", encoding="utf-8")
+
+    installer._remove_claude_code_skills(skills_dir)
+
+    assert not wrapper.exists()
