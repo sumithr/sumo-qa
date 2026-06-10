@@ -92,6 +92,10 @@ def _plan(*args: str) -> subprocess.CompletedProcess:
 PIP_INSTALL = "-m pip install sumo-qa"
 PIP_UPGRADE = "-m pip install --upgrade sumo-qa"
 INSTALLER = "-m sumo_qa.installer"
+# Doctor runs through the resolved interpreter (`-m sumo_qa.doctor`), NOT the
+# bare `sumo-qa-doctor` console script, so verification doesn't depend on pip's
+# scripts dir being on PATH (the `pip install --user` case).
+DOCTOR = "-m sumo_qa.doctor"
 
 
 def test_bare_install_plan_delegates_to_canonical_pip_and_installer():
@@ -106,14 +110,17 @@ def test_bare_install_plan_delegates_to_canonical_pip_and_installer():
     assert len(lines) == 3, lines
     assert lines[0].endswith(PIP_INSTALL)
     assert lines[1].endswith(INSTALLER)
-    assert lines[2].endswith("sumo-qa-doctor")
+    assert lines[2].endswith(DOCTOR)
+    # Doctor is the resolved-interpreter module form, never the bare console
+    # script (which is PATH-fragile on --user installs).
+    assert "sumo-qa-doctor" not in plan
 
 
 def test_bare_install_plan_runs_doctor_at_the_end():
     plan = _plan().stdout
-    assert "sumo-qa-doctor" in plan
+    assert DOCTOR in plan
     # Doctor must come AFTER the installer step, never before it.
-    assert plan.index(INSTALLER) < plan.index("sumo-qa-doctor")
+    assert plan.index("sumo_qa.installer") < plan.index("sumo_qa.doctor")
 
 
 def test_print_plan_survives_a_consumer_that_closes_the_pipe_early():
@@ -164,6 +171,24 @@ def test_jetbrains_host_maps_to_jetbrains_installer_flag():
     assert "--jetbrains" in installer_line
 
 
+def test_host_is_forwarded_to_the_doctor():
+    # P1: a host-scoped install must scope the doctor too. Otherwise the
+    # doctor's VS Code workspace check FAILs whenever cwd lacks .vscode/mcp.json,
+    # and a successful `--host claude-code` install exits nonzero.
+    for host in ("claude-code", "vscode", "jetbrains"):
+        plan = _plan("--host", host).stdout
+        doctor_line = next(ln for ln in plan.splitlines() if DOCTOR in ln)
+        assert f"--host {host}" in doctor_line, doctor_line
+    # Doctor-only mode forwards the host too.
+    plan = _plan("--doctor", "--host", "claude-code").stdout
+    doctor_line = next(ln for ln in plan.splitlines() if DOCTOR in ln)
+    assert "--host claude-code" in doctor_line
+    # A bare (all-host) install must NOT add a stray --host to the doctor.
+    plan = _plan().stdout
+    doctor_line = next(ln for ln in plan.splitlines() if DOCTOR in ln)
+    assert "--host" not in doctor_line
+
+
 def test_unverified_host_is_rejected_not_passed_through():
     result = _plan("--host", "emacs")
     assert result.returncode != 0
@@ -185,6 +210,7 @@ def test_uninstall_routes_to_the_canonical_installer_uninstall():
     # The plan delegates the uninstall to the canonical installer.
     assert f"{INSTALLER} --uninstall" in plan
     # No doctor after uninstall — nothing to verify once config is removed.
+    assert DOCTOR not in plan
     assert "sumo-qa-doctor" not in plan
     # The wrapper itself never runs anything destructive.
     assert "pip uninstall" not in plan
@@ -195,7 +221,7 @@ def test_doctor_flag_runs_only_doctor():
     result = _plan("--doctor")
     assert result.returncode == 0, result.stderr
     plan = result.stdout
-    assert "sumo-qa-doctor" in plan
+    assert DOCTOR in plan
     # A bare --doctor run is verification only; it must not reinstall.
     assert "pip install sumo-qa" not in plan
 
@@ -325,7 +351,9 @@ def test_powershell_wrapper_covers_the_same_modes_and_hosts():
     assert "'pip', 'install', 'sumo-qa'" in text
     assert "'pip', 'install', '--upgrade', 'sumo-qa'" in text
     assert "'sumo_qa.installer'" in text
-    assert "sumo-qa-doctor" in text
+    # Doctor via the resolved interpreter (-m sumo_qa.doctor), not the bare
+    # console script — the argv-fragment form, matching install.sh.
+    assert "'sumo_qa.doctor'" in text
     # Same mode switches.
     for switch in ("Update", "Doctor", "Uninstall", "PrintPlan"):
         assert switch in text, f"install.ps1 is missing the -{switch} switch"
@@ -362,7 +390,8 @@ def test_powershell_uninstall_routes_to_canonical_installer():
     assert "'sumo_qa.installer', '--uninstall'" in uninstall_body
     assert "Add-Cmd" in uninstall_body
     # No doctor after uninstall.
-    assert "sumo-qa-doctor" not in uninstall_body
+    assert "sumo_qa.doctor" not in uninstall_body
+    assert "Add-Doctor" not in uninstall_body
     # Non-destructive: the body never auto-runs an uninstall or removes data
     # itself (the canonical installer does the ownership-aware removal).
     assert "Invoke-Expression" not in uninstall_body

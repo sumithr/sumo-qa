@@ -178,6 +178,20 @@ add_cmd() {
   plan_argv+=("$CMD_SEP")
 }
 
+# add_doctor — append the post-install verification step. Run via the RESOLVED
+# interpreter (`$PYTHON -m sumo_qa.doctor`), not the bare `sumo-qa-doctor`
+# console script, so verification doesn't depend on pip's scripts dir being on
+# PATH (the documented `pip install --user` case). Forward the selected host so
+# a host-scoped install isn't failed by an unrelated host's check (e.g. the VS
+# Code workspace check FAILing when there's no .vscode/mcp.json in cwd).
+add_doctor() {
+  if [[ -n "$host" ]]; then
+    add_cmd "${python_argv[@]}" -m sumo_qa.doctor --host "$host"
+  else
+    add_cmd "${python_argv[@]}" -m sumo_qa.doctor
+  fi
+}
+
 case "$mode" in
   install)
     add_cmd "${python_argv[@]}" -m pip install sumo-qa
@@ -186,7 +200,7 @@ case "$mode" in
     else
       add_cmd "${python_argv[@]}" -m sumo_qa.installer
     fi
-    add_cmd sumo-qa-doctor
+    add_doctor
     ;;
   update)
     add_cmd "${python_argv[@]}" -m pip install --upgrade sumo-qa
@@ -195,10 +209,10 @@ case "$mode" in
     else
       add_cmd "${python_argv[@]}" -m sumo_qa.installer
     fi
-    add_cmd sumo-qa-doctor
+    add_doctor
     ;;
   doctor)
-    add_cmd sumo-qa-doctor
+    add_doctor
     ;;
   uninstall)
     # Route to the canonical installer's ownership-aware --uninstall path.

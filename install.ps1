@@ -161,6 +161,17 @@ $plan = New-Object System.Collections.Generic.List[object]
 # Helper: append one command's argv to the plan as a flat string[].
 function Add-Cmd { param([string[]]$Argv) $plan.Add([string[]]$Argv) }
 
+# Add-Doctor — append the post-install verification step. Run via the RESOLVED
+# interpreter (`-m sumo_qa.doctor`), not the bare `sumo-qa-doctor` console
+# script, so verification doesn't depend on pip's Scripts dir being on PATH (a
+# case documented in docs/INSTALL.md). Forward the selected host so a
+# host-scoped install isn't failed by an unrelated host's check (e.g. the VS
+# Code workspace check FAILing when there's no .vscode/mcp.json in cwd).
+function Add-Doctor {
+    if ($TargetHost) { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.doctor', '--host', $TargetHost)) }
+    else { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.doctor')) }
+}
+
 # Render an argv array as a human-readable, copy-pasteable command line. Any
 # token containing whitespace is single-quoted so the printed/echoed line
 # matches what is executed (a space-containing interpreter path stays one
@@ -180,16 +191,16 @@ switch ($mode) {
         Add-Cmd ($pythonArgv + @('-m', 'pip', 'install', 'sumo-qa'))
         if ($hostFlagValue) { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer', $hostFlagValue)) }
         else { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer')) }
-        Add-Cmd @('sumo-qa-doctor')
+        Add-Doctor
     }
     'update' {
         Add-Cmd ($pythonArgv + @('-m', 'pip', 'install', '--upgrade', 'sumo-qa'))
         if ($hostFlagValue) { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer', $hostFlagValue)) }
         else { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer')) }
-        Add-Cmd @('sumo-qa-doctor')
+        Add-Doctor
     }
     'doctor' {
-        Add-Cmd @('sumo-qa-doctor')
+        Add-Doctor
     }
     'uninstall' {
         # Route to the canonical installer's ownership-aware --uninstall path.
