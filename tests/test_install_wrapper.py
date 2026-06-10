@@ -20,6 +20,7 @@ the only test that exercises real shell arg parsing, quoting, and exit codes.
 
 import os
 import pathlib
+import shlex
 import shutil
 import subprocess
 
@@ -51,24 +52,30 @@ def _resolve_bash() -> str | None:
     if found:
         candidates.append(found)
     for cand in candidates:
-        if cand and pathlib.Path(cand).exists() and "System32" not in cand:
+        if cand and pathlib.Path(cand).exists() and "system32" not in cand.lower():
             return cand
     return None
 
 
 BASH = _resolve_bash()
 
-# When no usable POSIX bash exists (e.g. a Windows host with only the WSL
-# stub), the install.sh tests cannot run; skip them rather than fail. The
-# pwsh-gated tests below carry their own independent skip guards.
-pytestmark = pytest.mark.skipif(
-    BASH is None,
-    reason="no POSIX bash available (bare 'bash' on Windows is the WSL stub, not git-bash)",
-)
+
+def _bash_or_skip() -> str:
+    """Return the resolved bash, or skip the calling test if none is usable.
+
+    Scoped to the bash-dependent tests only (NOT a module-wide skip), so the
+    pwsh-gated tests still run on a Windows host that has PowerShell but no
+    git-bash."""
+    if BASH is None:
+        pytest.skip(
+            "no POSIX bash available (bare 'bash' on Windows is the WSL stub, not git-bash)"
+        )
+    return BASH
 
 
 def _plan(*args: str) -> subprocess.CompletedProcess:
     """Run ``install.sh --print-plan <args>`` and capture the plan."""
+    _bash_or_skip()
     return subprocess.run(
         [BASH, str(INSTALL_SH), "--print-plan", *args],
         capture_output=True,
@@ -93,6 +100,13 @@ def test_bare_install_plan_delegates_to_canonical_pip_and_installer():
     plan = result.stdout
     assert PIP_INSTALL in plan
     assert INSTALLER in plan
+    # Exact ordered plan — count + order + per-line tail — so an extra,
+    # duplicated, or reordered command cannot slip past the substring checks.
+    lines = [ln for ln in plan.splitlines() if ln.strip()]
+    assert len(lines) == 3, lines
+    assert lines[0].endswith(PIP_INSTALL)
+    assert lines[1].endswith(INSTALLER)
+    assert lines[2].endswith("sumo-qa-doctor")
 
 
 def test_bare_install_plan_runs_doctor_at_the_end():
@@ -100,6 +114,33 @@ def test_bare_install_plan_runs_doctor_at_the_end():
     assert "sumo-qa-doctor" in plan
     # Doctor must come AFTER the installer step, never before it.
     assert plan.index(INSTALLER) < plan.index("sumo-qa-doctor")
+
+
+def test_print_plan_survives_a_consumer_that_closes_the_pipe_early():
+    """Regression: a reader auditing the plan pipes it into `grep -q`/`head`,
+    which closes the pipe after the first match. Under `set -e -o pipefail`
+    the next write in install.sh took SIGPIPE (exit 141) / a broken-pipe error
+    that failed the whole pipeline. --print-plan only prints and must exit 0
+    even when its consumer stops reading early.
+
+    `| true` is a consumer that never reads and exits immediately, so install.sh
+    writes into a pipe with no reader — a deterministic broken pipe. Under an
+    explicit `pipefail` shell, an unguarded install.sh dies (exit 141) and that
+    propagates; with the guard it exits 0."""
+    _bash_or_skip()
+    pipeline = f"{shlex.quote(BASH)} {shlex.quote(str(INSTALL_SH))} --print-plan --update | true"
+    for _ in range(5):
+        result = subprocess.run(
+            [BASH, "-o", "pipefail", "-c", pipeline],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, (
+            f"--print-plan must survive an early pipe close, got rc="
+            f"{result.returncode}\n{result.stderr}"
+        )
 
 
 def test_update_plan_delegates_to_pip_upgrade():
@@ -184,6 +225,7 @@ def test_failing_delegated_command_propagates_nonzero_exit(tmp_path):
     stub = tmp_path / "fail_python.sh"
     stub.write_text("#!/bin/sh\nexit 7\n")
     stub.chmod(0o755)
+    _bash_or_skip()
     result = subprocess.run(
         [BASH, str(INSTALL_SH)],  # real exec path, NOT --print-plan
         capture_output=True,
@@ -208,6 +250,7 @@ def test_space_containing_interpreter_path_is_one_token_in_plan(tmp_path):
     interp.parent.mkdir()
     interp.write_text("#!/bin/sh\nexit 0\n")
     interp.chmod(0o755)
+    _bash_or_skip()
     result = subprocess.run(
         [BASH, str(INSTALL_SH), "--print-plan"],
         capture_output=True,
@@ -220,8 +263,10 @@ def test_space_containing_interpreter_path_is_one_token_in_plan(tmp_path):
     pip_line = next(line for line in result.stdout.splitlines() if PIP_INSTALL in line)
     # The full path appears verbatim, single-quoted as ONE token...
     assert f"'{interp}'" in pip_line
-    # ...and is NOT split into "<dir>/with" + "space/python" two-word form.
-    assert f"{interp.parent}/with" not in pip_line.replace(f"'{interp}'", "")
+    # ...and is NOT split at the space into a separate "space/python" word: with
+    # the full path correctly single-quoted, removing that token leaves no
+    # "space/python" residue; a bad two-word split would leave it behind.
+    assert "space/python" not in pip_line.replace(f"'{interp}'", "")
 
 
 def test_space_containing_interpreter_path_execs_as_one_token(tmp_path):
@@ -234,6 +279,7 @@ def test_space_containing_interpreter_path_execs_as_one_token(tmp_path):
     interp.parent.mkdir()
     interp.write_text('#!/bin/sh\necho "LAUNCHED_AS:[$0]"\nexit 0\n')
     interp.chmod(0o755)
+    _bash_or_skip()
     result = subprocess.run(
         [BASH, str(INSTALL_SH)],  # real exec path, install mode
         capture_output=True,
@@ -302,7 +348,18 @@ def test_powershell_uninstall_is_deferred_not_destructive():
     # Must route to the documented manual steps, never auto-run pip uninstall
     # outside the quoted guidance block.
     assert "docs/INSTALL.md#uninstall" in text
-    assert "Invoke-Expression" not in text.split("'uninstall'")[1].split("}")[0]
+    # Inspect the actual `'uninstall' {` switch-case BODY, not the
+    # `$mode = 'uninstall'` assignment (the old `split("'uninstall'")` landed on
+    # the assignment line, so it guarded almost nothing). The case ends at its
+    # closing brace, the first `\n    }` at case indentation.
+    uninstall_body = text.split("'uninstall' {", 1)[1].split("\n    }", 1)[0]
+    # Deferred + non-destructive: the body must never auto-run an uninstall.
+    assert "Invoke-Expression" not in uninstall_body
+    assert "Start-Process" not in uninstall_body
+    # `pip uninstall` may appear ONLY as documented manual guidance text, never
+    # as an executed call (no call operator `&` / `Invoke-Expression` on it).
+    assert "& 'pip'" not in uninstall_body
+    assert "& pip" not in uninstall_body
 
 
 def test_powershell_does_not_whitespace_split_the_interpreter_override():

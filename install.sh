@@ -241,7 +241,10 @@ print_cmd() {
   local out="" word
   for word in "$@"; do
     case "$word" in
-      *[[:space:]]*) word="'${word}'" ;;
+      # Quote any token with whitespace OR an embedded single quote, escaping
+      # the quote via the '\'' idiom so the printed plan is valid, copy-paste
+      # shell even for an odd interpreter path like /O'Brien/python.
+      *[[:space:]]*|*\'*) word="'${word//\'/\'\\\'\'}'" ;;
     esac
     if [[ -n "$out" ]]; then
       out="${out} ${word}"

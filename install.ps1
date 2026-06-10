@@ -133,7 +133,11 @@ if ($Doctor) { $mode = 'doctor' }
 if ($Uninstall) { $mode = 'uninstall' }
 
 $hostFlagValue = ''
-if (-not [string]::IsNullOrEmpty($TargetHost)) {
+# Validate whenever -Host was supplied at all — including an explicit empty
+# string — so `-Host ''` is rejected like any other unverified value (parity
+# with install.sh, which exits 2 on an empty host). Omitting -Host entirely
+# leaves $PSBoundParameters without the key and falls through to all-host.
+if ($PSBoundParameters.ContainsKey('TargetHost')) {
     if (-not $HostFlag.ContainsKey($TargetHost)) {
         Write-ErrLine @"
 Unverified host '$TargetHost'.
@@ -162,7 +166,10 @@ function Add-Cmd { param([string[]]$Argv) $plan.Add([string[]]$Argv) }
 function Format-CmdLine {
     param([string[]]$Argv)
     ($Argv | ForEach-Object {
-        if ($_ -match '\s') { "'$_'" } else { $_ }
+        # Single-quote any token with whitespace OR an embedded single quote,
+        # doubling the quote ('') so the rendered line is valid, copy-paste
+        # PowerShell even for an odd interpreter path like C:\O'Brien\python.
+        if ($_ -match "[\s']") { "'" + ($_ -replace "'", "''") + "'" } else { $_ }
     }) -join ' '
 }
 
