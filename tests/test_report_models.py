@@ -162,6 +162,18 @@ def test_readiness_stale_evidence_fact_is_stale_evidence():
     assert derive_readiness(artifacts, risks, evidence).state == "stale_evidence"
 
 
+@pytest.mark.parametrize("freshness", ["unknown", "absent"])
+def test_readiness_untrustworthy_passing_evidence_is_stale_evidence(freshness):
+    """A passing result whose freshness is unknown/absent is NOT
+    safety-supporting (the context-bundle trust contract) — the roll-up must
+    not let it read as ready while the evidence table says trustworthy=no."""
+    artifacts, risks, evidence = _green_inputs()
+    evidence[0] = _evidence("tests", status="passing", freshness=freshness, trustworthy=False)
+    readiness = derive_readiness(artifacts, risks, evidence)
+    assert readiness.state == "stale_evidence"
+    assert any("tests" in reason for reason in readiness.reasons)
+
+
 def test_readiness_stale_wins_over_incomplete():
     """A stale repo-map plus a missing ledger must read stale_evidence — the
     re-verify signal outranks the gather-more-data signal."""

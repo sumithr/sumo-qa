@@ -123,8 +123,31 @@ def test_invalid_inline_rows_return_error_envelope(tool, tmp_path):
     assert isinstance(out, dict)
     assert out["isError"] is True
     assert "error" in out and out["error"]["actionable_hint"]
-    # Validation precedes any write: nothing lands on disk.
     assert not (tmp_path / ".sumo-qa").exists()
+
+
+def test_validation_precedes_write(tool, tmp_path):
+    """The discriminating ordering case: invalid inline rows WITH a write_to
+    request must return an envelope and leave nothing on disk."""
+    out = tool(
+        root=str(tmp_path),
+        risk_ledger_rows=[{"risk_id": ""}],
+        write_to=".sumo-qa/qa-report.html",
+    )
+    assert isinstance(out, dict)
+    assert out["isError"] is True
+    assert not (tmp_path / ".sumo-qa").exists()
+
+
+def test_relative_write_to_escaping_the_root_is_refused(tool, tmp_path):
+    """A relative write_to is confined to the target root: `..` traversal is
+    an error envelope, and nothing is written outside the repo."""
+    target_repo = tmp_path / "repo"
+    target_repo.mkdir()
+    out = tool(root=str(target_repo), write_to="../escaped.html")
+    assert isinstance(out, dict)
+    assert out["isError"] is True
+    assert not (tmp_path / "escaped.html").exists()
 
 
 def test_missing_root_returns_error_envelope(tool, tmp_path):

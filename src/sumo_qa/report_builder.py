@@ -35,7 +35,11 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
-from sumo_qa.context_bundle_models import ContextBundle, detect_local_conflict
+from sumo_qa.context_bundle_models import (
+    ContextBundle,
+    _sha_equivalent,
+    detect_local_conflict,
+)
 from sumo_qa.context_bundle_validation import load_context_bundle
 from sumo_qa.ledger_models import RiskLedger
 from sumo_qa.ledger_validation import load_ledger
@@ -119,7 +123,9 @@ def _load_json_artifact(
         return None, ArtifactSource()
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
+        # RecursionError: a hostile deeply-nested file overflows the recursive
+        # JSON parser — an honest invalid state, never a crash.
         return None, ArtifactSource(path=relpath, error=f"[malformed_json] {_first_line(exc)}")
     if not isinstance(data, dict):
         return None, ArtifactSource(
@@ -217,7 +223,13 @@ def _repo_map_artifact(inputs: ReportInputs, now: datetime) -> ReportArtifact:
         )
     recorded = repo_map.project.git_commit
     current = inputs.current_commit
-    is_stale = recorded is not None and current is not None and recorded != current
+    # Prefix-aware (the context-bundle `_sha_equivalent` contract): an
+    # abbreviated recorded sha naming the SAME commit is not stale. No signal
+    # on either side (non-git root) means staleness is undetectable — the
+    # rendered age_days is the mitigating signal there.
+    is_stale = (
+        recorded is not None and current is not None and not _sha_equivalent(recorded, current)
+    )
     detail = (
         f"recorded commit {recorded[:8]} differs from current HEAD {current[:8]}"
         if is_stale and recorded is not None and current is not None

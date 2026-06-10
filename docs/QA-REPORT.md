@@ -47,7 +47,7 @@ table — **most severe state wins**:
 | State | When |
 |---|---|
 | `blocked` | an uncovered blocker risk row, a failing risk row, or failing/mixed test/CI evidence |
-| `stale_evidence` | a stale artifact, a stale risk row, or stale evidence — re-verify before trusting anything |
+| `stale_evidence` | a stale artifact, a stale risk row, stale evidence, or a passing result that is not trustworthy (unknown/absent freshness — only a fresh pass backs safety) — re-verify before trusting anything |
 | `incomplete` | a core artifact (repo-map, risk ledger, context bundle) missing/invalid, a planned-but-not-executed risk row, an available ledger with zero rows, or test/CI evidence that never ran |
 | `ready_with_residuals` | green, but accepted residuals or not-yet-mitigated residual decisions are on record |
 | `ready` | everything green |
@@ -84,9 +84,10 @@ sumo_qa_generate_qa_report(root, write_to=None, risk_ledger_rows=None, context_b
 The response is a compact readiness summary (`GenerateQAReportOutput`) — the
 HTML body never rides back to the host. Pass
 `write_to=".sumo-qa/qa-report.html"` to persist the page; a relative path
-resolves against the **target root**, not the MCP server's cwd, so the
-artifact lands under the repo being reported on. Without `write_to` the tool
-is side-effect free.
+resolves against the **target root**, not the MCP server's cwd, and is
+confined to it — `..` traversal that escapes the root is refused. An absolute
+path is caller-explicit and taken as-is. Without `write_to` the tool is
+side-effect free.
 
 `risk_ledger_rows` / `context_bundle` are **inline overrides** for the chat
 flow: when the ledger or bundle was built in-conversation (via

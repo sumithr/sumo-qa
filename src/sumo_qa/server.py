@@ -1576,7 +1576,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         ``write_to`` is optional — when set, the page is written there; a
         relative path resolves against the TARGET root (so the conventional
         ``.sumo-qa/qa-report.html`` lands under the repo being reported on,
-        not the server's cwd). Without it the tool is side-effect free.
+        not the server's cwd) and is CONFINED to it — ``..`` traversal that
+        escapes the root is refused. An absolute path is caller-explicit and
+        taken as-is. Without ``write_to`` the tool is side-effect free.
         """
         from sumo_qa.context_bundle_validation import load_context_bundle as _load_bundle
         from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION as _LEDGER_SCHEMA_VERSION
@@ -1608,11 +1610,20 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             if write_to is not None:
                 # Resolve a relative write_to against the TARGET root, not the
                 # MCP server's cwd — the conventional `.sumo-qa/qa-report.html`
-                # must land under the repo being reported on (the scan_repo
-                # write_to precedent).
+                # must land under the repo being reported on. Unlike the
+                # scan_repo precedent, a relative path is CONFINED to that
+                # root: a `..`/symlink escape is refused, so a relative
+                # request can never write outside the repo it names. An
+                # absolute path stays caller-explicit.
                 target = Path(write_to)
                 if not target.is_absolute():
-                    target = root_path / target
+                    target = (root_path / target).resolve()
+                    if not target.is_relative_to(root_path):
+                        raise ValueError(
+                            f"write_to resolves to {target}, outside the "
+                            f"target root {root_path}; pass a path under the "
+                            "repo or an explicit absolute path"
+                        )
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(_render_report_html(report), encoding="utf-8")
                 artifact_path = str(target.resolve())

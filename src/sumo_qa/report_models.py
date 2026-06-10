@@ -17,8 +17,12 @@ issue's missing-data-is-not-passing-evidence acceptance criterion).
 
 1. ``blocked``               — an uncovered blocker risk, a failing risk row,
                                or failing/mixed evidence.
-2. ``stale_evidence``        — a stale artifact, a stale risk row, or stale
-                               evidence (re-verify before trusting anything).
+2. ``stale_evidence``        — a stale artifact, a stale risk row, stale
+                               evidence, or a passing result that is not
+                               trustworthy (unknown/absent freshness — the
+                               context-bundle trust contract says only a
+                               fresh pass backs safety). Re-verify before
+                               trusting anything.
 3. ``incomplete``            — a core artifact missing/invalid, a planned-only
                                risk row, an empty risk ledger, or core
                                evidence that never ran.
@@ -237,6 +241,14 @@ def derive_readiness(
     for fact in evidence:
         if fact.freshness == "stale":
             stale.append(f"{fact.name} evidence is stale")
+        elif fact.status == "passing" and not fact.trustworthy:
+            # A pass with unknown/absent freshness is not safety-supporting
+            # (the context-bundle trust contract) — without this arm the
+            # banner could read ready while the evidence table says
+            # trustworthy=no.
+            stale.append(
+                f"{fact.name} evidence is passing but not trustworthy (freshness: {fact.freshness})"
+            )
     if stale:
         return ReportReadiness(state="stale_evidence", reasons=stale)
 

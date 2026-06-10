@@ -269,9 +269,13 @@ def render_report_html(report: QAReport) -> str:
     """
     project = report.project
     state = report.readiness.state
-    reasons = "".join(f"<li>{_esc(reason)}</li>" for reason in report.readiness.reasons)
+    shown_reasons, hidden_reasons = _bounded(report.readiness.reasons)
+    reasons = "".join(f"<li>{_esc(reason)}</li>" for reason in shown_reasons)
+    more_reasons = (
+        f'<li class="more">+ {hidden_reasons} more not shown</li>' if hidden_reasons else ""
+    )
     reasons_block = (
-        f'<ul class="reasons">{reasons}</ul>'
+        f'<ul class="reasons">{reasons}{more_reasons}</ul>'
         if reasons
         else '<p class="reasons-none">All composed signals are green.</p>'
     )

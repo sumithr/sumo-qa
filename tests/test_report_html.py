@@ -195,3 +195,16 @@ def test_long_component_tables_truncate_with_notice():
     assert "src/mod_000.py" in html
     assert "src/mod_119.py" not in html
     assert "more" in html.lower()  # an explicit "+N more" style notice
+
+
+def test_long_readiness_reason_lists_truncate_with_notice():
+    """Reasons scale 1:1 with ledger rows — the banner is a list like any
+    other and must honour the same bound."""
+    from sumo_qa.report_models import ReportReadiness
+
+    reasons = [f"risk R{i} is an uncovered blocker" for i in range(120)]
+    report = _minimal_report(readiness=ReportReadiness(state="blocked", reasons=reasons))
+    html = render_report_html(report)
+    assert "risk R0 is an uncovered blocker" in html
+    assert "risk R119 is an uncovered blocker" not in html
+    assert "more" in html.lower()

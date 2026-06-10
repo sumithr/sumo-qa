@@ -769,11 +769,10 @@ class GenerateQAReportOutput(_StrictBase):
         description="Tool discriminator; always the literal tool name.",
     )
     root: str = Field(description="Absolute, resolved root path the report was composed for.")
-    readiness_state: str = Field(
-        description=(
-            "Derived readiness roll-up: one of ready / ready_with_residuals / "
-            "stale_evidence / blocked / incomplete (most severe state wins)."
-        )
+    readiness_state: Literal[
+        "ready", "ready_with_residuals", "stale_evidence", "blocked", "incomplete"
+    ] = Field(
+        description="Derived readiness roll-up (most severe state wins).",
     )
     readiness_reasons: list[str] = Field(
         default_factory=list,
