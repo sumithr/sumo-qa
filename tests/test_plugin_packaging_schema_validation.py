@@ -6,6 +6,8 @@ Covers:
   T2 — Generated hooks/hooks-codex.json validates against vendored schema
   T3 — validate_plugins.main() exits 0 on a clean tree
   T4 — Injecting a wrong-typed field surfaces SchemaValidationError
+  T5 — Generated .claude-plugin/marketplace.json validates against vendored schema
+  T6 — A marketplace plugin entry missing `source` surfaces SchemaValidationError
 """
 
 from __future__ import annotations
@@ -52,6 +54,24 @@ def test_claude_code_manifest_validates(fresh_repo: Path) -> None:
 def test_codex_hooks_validates(fresh_repo: Path) -> None:
     """T2 — Codex hooks file validates against the Codex hooks schema."""
     validate_plugins.validate_codex_hooks(fresh_repo)
+
+
+def test_marketplace_validates(fresh_repo: Path) -> None:
+    """T5 — marketplace.json validates against the published JSON Schema."""
+    validate_plugins.validate_marketplace(fresh_repo)
+
+
+def test_marketplace_missing_source_fails(fresh_repo: Path) -> None:
+    """T6 — dropping the required `source` from the plugin entry fails
+    validation. `source` is one of the two schema-required plugin-entry
+    fields; this proves the marketplace gate actually constrains the
+    catalog shape, not just smoke-passes a happy file."""
+    mp_path = fresh_repo / ".claude-plugin" / "marketplace.json"
+    data = json.loads(mp_path.read_text(encoding="utf-8"))
+    del data["plugins"][0]["source"]
+    mp_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    with pytest.raises(validate_plugins.SchemaValidationError):
+        validate_plugins.validate_marketplace(fresh_repo)
 
 
 def test_main_returns_zero_on_clean_tree(fresh_repo: Path) -> None:

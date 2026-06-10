@@ -76,7 +76,14 @@ claude --plugin-dir /path/to/sumo-qa
 
 Session-scoped: every `claude` invocation needs the flag — plain `claude` (no flag) starts a session with no sumo-qa loaded. Use `/reload-plugins` inside the session to pick up edits without restarting.
 
-> Persistent marketplace install (one-time setup, no flag on every launch) is on the roadmap — until then, the pip path above is the canonical persistent install. Full architecture + dev-iteration detail: [docs/INSTALL.md#plugin-format-install-claude-code--codex](docs/INSTALL.md#plugin-format-install-claude-code--codex).
+> Persistent marketplace install (one-time setup, no flag on every launch): add this repo as a Claude Code plugin marketplace and install the plugin —
+>
+> ```text
+> /plugin marketplace add sumithr/sumo-qa
+> /plugin install sumo-qa@sumo-qa
+> ```
+>
+> The marketplace catalog (`.claude-plugin/marketplace.json`) is generated from the canonical source and schema-validated in CI. **This flow is wired but the live `marketplace add` → `install` round-trip has not yet been verified end-to-end in a Claude Code session** — until that is confirmed, the `pip install sumo-qa && sumo-qa-install` path above remains the recommended persistent install. Full architecture + dev-iteration detail: [docs/INSTALL.md#plugin-format-install-claude-code--codex](docs/INSTALL.md#plugin-format-install-claude-code--codex).
 
 ### Something not working?
 
@@ -196,7 +203,7 @@ Natural language works everywhere. *"Review my changes"*, *"plan QA for this sto
 
 | Host | Manifest | Install status today | Source-of-truth contract |
 |---|---|---|---|
-| Claude Code | `.claude-plugin/plugin.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | `claude --plugin-dir /path/to/sumo-qa` (session-scoped); marketplace install on roadmap | Schema-validated against the published JSON Schema in CI |
+| Claude Code | `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | `claude --plugin-dir /path/to/sumo-qa` (session-scoped), or `/plugin marketplace add sumithr/sumo-qa` → `/plugin install sumo-qa@sumo-qa` (persistent; wired + schema-valid, live install not yet verified) | Both schema-validated against the published JSON Schemas in CI |
 | OpenAI Codex | `.codex-plugin/plugin.json` | Not verified end-to-end yet — treat as TBD | MCP `initialize` handshake smoke in CI (no published schema) |
 
 Adding a new host is one new template under `plugin_packaging/templates/` plus the canonical-source line that describes it. The `plugin-packaging` CI workflow re-runs the generator on every PR and fails if any committed adapter file diverges from the canonical source.

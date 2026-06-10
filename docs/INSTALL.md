@@ -135,7 +135,7 @@ After install, `uv --version` should print ≥0.4 and `uvx --version` should res
 
 ### Install commands
 
-**What works today (Claude Code, session-scoped local-dev):**
+**Session-scoped local-dev (Claude Code):**
 
 ```bash
 git clone https://github.com/sumithr/sumo-qa.git
@@ -144,9 +144,20 @@ claude --plugin-dir /path/to/sumo-qa
 
 Every `claude` invocation needs the `--plugin-dir` flag — plain `claude` (no flag) starts a session with no sumo-qa loaded. `/reload-plugins` picks up edits inside the session. See [Anthropic's documented local-dev mode](https://code.claude.com/docs/en/plugins#test-your-plugins-locally) for the underlying mechanism.
 
-**Roadmap (not yet shipped):**
+**Persistent marketplace install (Claude Code):**
 
-- Marketplace publication for persistent install via Claude Code's plugin manager. Tracked separately; until it ships, `--plugin-dir` is the only plugin-path install vehicle. The `pip install sumo-qa && sumo-qa-install` flow remains the canonical persistent install.
+```text
+/plugin marketplace add sumithr/sumo-qa
+/plugin install sumo-qa@sumo-qa
+```
+
+Claude Code clones this repo, reads `.claude-plugin/marketplace.json`, and installs the single plugin it lists (the repo root itself). The plugin's `.mcp.json` resolves the MCP server via `uvx --from ${CLAUDE_PLUGIN_ROOT} sumo-qa` against the marketplace cache, so `uv` must be on PATH (see [Prerequisite: `uv`](#prerequisite-uv)).
+
+> **Verification status (honest):** `.claude-plugin/marketplace.json` is generated from the canonical source, passes the published [marketplace JSON Schema](https://json.schemastore.org/claude-code-marketplace.json) in CI, and is covered by the drift gate. The **live** `marketplace add` → `install` round-trip — managed clone, `${CLAUDE_PLUGIN_ROOT}` resolution, MCP handshake, and a skill route inside a real Claude Code session — has **not yet been verified end-to-end** at the time of writing. Until that confirmation is recorded, prefer the `pip install sumo-qa && sumo-qa-install` flow above for a guaranteed-working persistent install. The `--plugin-dir` and pip/uvx paths are unaffected and remain green in CI.
+
+**Roadmap / not yet verified:**
+
+- **Official Anthropic plugin directory submission — deferred.** The canonical metadata, assets, and a schema-valid `marketplace.json` are in place, so sumo-qa is self-hostable as a marketplace (`/plugin marketplace add sumithr/sumo-qa`) without any external listing. Submission to Anthropic's curated/official directory is intentionally deferred: it requires an external review step outside this repo's control and adds no capability over the self-hosted marketplace for users who have the repo slug. Revisit once the live end-to-end install above is verified and a stable tagged release is published. (Recorded per issue #382; #84 already scoped external submission out.)
 - OpenAI Codex plugin install (`/plugins install ...`) is not yet verified — the `.codex-plugin/` manifest exists but the install + MCP-server-launch flow hasn't been confirmed end-to-end. Treat as TBD.
 
 ### Doctor for plugin-install users
@@ -447,7 +458,7 @@ python -m sumo_qa.installer --claude-code   # or your host flag of choice
 
 #### Test the Claude Code plugin install path
 
-The pip flow above exercises the `sumo-qa-install` (host-config) path. To validate the **Claude Code plugin** install path from a local checkout — the alternative install vector available today, prior to marketplace publication — use Claude Code's [`--plugin-dir` flag](https://code.claude.com/docs/en/plugins#test-your-plugins-locally):
+The pip flow above exercises the `sumo-qa-install` (host-config) path. To validate the **Claude Code plugin** install path from a local checkout — the install vector that runs THIS branch's code rather than the published repo (the [marketplace install](#install-commands) always pulls the repo's default branch) — use Claude Code's [`--plugin-dir` flag](https://code.claude.com/docs/en/plugins#test-your-plugins-locally):
 
 ```bash
 claude --plugin-dir /path/to/sumo-qa

@@ -256,6 +256,15 @@ also_copy = [
   # root-level-resource pattern as `release-please-config.json`. NOT
   # shipped in the wheel — mutmut-local-only.
   "assets/",
+  # tests/test_plugin_packaging_marketplace.py (added in #382) resolves
+  # `REPO_ROOT / ".claude-plugin" / "marketplace.json"`, which under mutmut
+  # becomes `mutants/.claude-plugin/marketplace.json`. Without this entry the
+  # committed-output tests fail during collection, mutmut's `-x` aborts stats
+  # collection, and the pre-push mutmut hook fails on every push whose delta
+  # touches any test file. The whole dir is copied (the committed generated
+  # plugin/marketplace JSON). Same root-level-resource pattern as `assets/`.
+  # NOT mutated — mutmut-local mirror only.
+  ".claude-plugin/",
 ]
 
 # ---------------------------------------------------------------------------
