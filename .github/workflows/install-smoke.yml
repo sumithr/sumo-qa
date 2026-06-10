@@ -127,7 +127,9 @@ jobs:
           echo "$plan"
           echo "$plan" | grep -q -- "-m pip install sumo-qa"
           echo "$plan" | grep -q -- "-m sumo_qa.installer"
-          echo "$plan" | grep -q "sumo-qa-doctor"
+          # Doctor runs via the resolved interpreter (-m sumo_qa.doctor), not
+          # the bare console script, so verification is PATH-independent.
+          echo "$plan" | grep -q -- "-m sumo_qa.doctor"
           # --update routes to the upgrade path.
           bash install.sh --print-plan --update | grep -q -- "-m pip install --upgrade sumo-qa"
           # A verified host is forwarded; an unverified host is rejected.
@@ -148,7 +150,7 @@ jobs:
           $plan
           if ($plan -notmatch '-m pip install sumo-qa') { throw 'plan missing pip install' }
           if ($plan -notmatch '-m sumo_qa.installer') { throw 'plan missing installer' }
-          if ($plan -notmatch 'sumo-qa-doctor') { throw 'plan missing doctor' }
+          if ($plan -notmatch 'sumo_qa\.doctor') { throw 'plan missing doctor' }
           $upd = (& .\install.ps1 -PrintPlan -Update) -join "`n"
           if ($upd -notmatch '-m pip install --upgrade sumo-qa') { throw 'update plan missing upgrade' }
           # -Host must still bind (it is preserved as an alias of -TargetHost)
