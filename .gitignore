@@ -33,6 +33,7 @@ mutants/
 # want shared lookup tables can negate this line, but for sumo-qa's own repo
 # the artifact is generator output, not source. See docs/REPO-MAP.md.
 .sumo-qa/repo-map.json
+.sumo-qa/qa-report.html
 
 # Per-machine MCP config written by sumo-qa-install
 .vscode/mcp.json

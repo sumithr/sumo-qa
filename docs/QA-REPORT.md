@@ -32,12 +32,13 @@ appears in the artifact inventory with one of four distinct states:
 
 - `available` — present, validated, current
 - `missing` — no producer ran; renders "not available"
-- `invalid` — a file exists but cannot be read (malformed JSON, schema
-  drift, bad vocabulary); the row carries the loader's `[kind]`-prefixed
-  detail
+- `invalid` — a file exists but cannot be used (malformed JSON, schema
+  drift, bad vocabulary, or a repo-map describing a different repository);
+  the row carries the loader's `[kind]`-prefixed detail
 - `stale` — present but no longer reflecting the current state (repo-map
-  recorded commit differs from `HEAD`; diff-impact persisted a stale warning;
-  context bundle describes a different commit than the local head)
+  recorded commit differs from `HEAD`; diff-impact persisted a stale warning
+  or was derived from a now-stale repo-map; context bundle describes a
+  different commit than the local head)
 
 ## Readiness roll-up
 

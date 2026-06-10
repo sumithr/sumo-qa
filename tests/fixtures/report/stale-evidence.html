@@ -65,17 +65,17 @@
 <dt>root</dt><dd>/fixtures/stale-evidence</dd>
 <dt>head commit</dt><dd>ffffffffffffffffffffffffffffffffffffffff</dd>
 <dt>generated</dt><dd>2026-06-08T08:00:00+00:00</dd>
-<dt>artifacts</dt><dd>3 of 6 available &#183; 2 risks &#183; 0 uncovered blockers &#183; 0 warnings</dd>
+<dt>artifacts</dt><dd>2 of 6 available &#183; 2 risks &#183; 0 uncovered blockers &#183; 0 warnings</dd>
 </dl>
 </header>
 <main>
 <section class="banner state-warm">
 <p class="verdict-label">stale evidence</p>
-<ul class="reasons"><li>repo_map artifact is stale</li><li>risk R4 evidence is stale</li><li>tests evidence is stale</li></ul>
+<ul class="reasons"><li>repo_map artifact is stale</li><li>diff_impact artifact is stale</li><li>risk R4 evidence is stale</li><li>tests evidence is stale</li></ul>
 </section>
 <section>
 <h2>Artifact inventory</h2>
-<table><thead><tr><th>artifact</th><th>status</th><th>path</th><th>age</th><th>notes</th></tr></thead><tbody><tr><td>repo map</td><td><span class="badge warm">stale</span></td><td>.sumo-qa/repo-map.json</td><td>6 days</td><td>recorded commit 00000000 differs from current HEAD ffffffff</td></tr><tr><td>diff impact</td><td><span class="badge ok">available</span></td><td>.sumo-qa/diff-impact.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>risk ledger</td><td><span class="badge ok">available</span></td><td>.sumo-qa/risk-ledger.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>context bundle</td><td><span class="badge ok">available</span></td><td>.sumo-qa/context-bundle.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>readiness scorecard</td><td><span class="badge off">not available</span></td><td>&#8212;</td><td>&#8212;</td><td>not produced yet — the readiness scorecard lands with #151</td></tr><tr><td>coverage mutation</td><td><span class="badge off">not available</span></td><td>&#8212;</td><td>&#8212;</td><td>not produced yet — coverage/mutation evidence lands with #147</td></tr></tbody></table>
+<table><thead><tr><th>artifact</th><th>status</th><th>path</th><th>age</th><th>notes</th></tr></thead><tbody><tr><td>repo map</td><td><span class="badge warm">stale</span></td><td>.sumo-qa/repo-map.json</td><td>6 days</td><td>recorded commit 00000000 differs from current HEAD ffffffff</td></tr><tr><td>diff impact</td><td><span class="badge warm">stale</span></td><td>.sumo-qa/diff-impact.json</td><td>&#8212;</td><td>repo-map is stale relative to HEAD; this overlay likely predates the current state</td></tr><tr><td>risk ledger</td><td><span class="badge ok">available</span></td><td>.sumo-qa/risk-ledger.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>context bundle</td><td><span class="badge ok">available</span></td><td>.sumo-qa/context-bundle.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>readiness scorecard</td><td><span class="badge off">not available</span></td><td>&#8212;</td><td>&#8212;</td><td>not produced yet — the readiness scorecard lands with #151</td></tr><tr><td>coverage mutation</td><td><span class="badge off">not available</span></td><td>&#8212;</td><td>&#8212;</td><td>not produced yet — coverage/mutation evidence lands with #147</td></tr></tbody></table>
 </section>
 <section>
 <h2>Change impact</h2>

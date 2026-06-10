@@ -15,7 +15,7 @@ so a user can run the QA-native repo-understanding loop from a terminal:
   into the static ``.sumo-qa/qa-report.html`` page via the #157 report
   builder/renderer, with honest not-available states for anything missing.
 
-Both take ``--json`` for automation; the JSON shape is INTERNAL until
+All take ``--json`` for automation; the JSON shape is INTERNAL until
 sumo-qa 1.0 but its keys are kept stable within the 1.x line so scripts can
 rely on them.
 

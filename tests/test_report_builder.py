@@ -240,6 +240,20 @@ def test_invalid_bundle_is_invalid_state(tmp_path):
     assert entry.status == "invalid"
 
 
+def test_foreign_root_repo_map_is_invalid_not_evidence(tmp_path):
+    """A repo-map copied from ANOTHER repository measures a different tree —
+    composing it would present foreign evidence as local. Mirror the
+    `_load_map_with_fallback` rejection precedent (server.py)."""
+    foreign = tmp_path / "elsewhere"
+    foreign.mkdir()
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(foreign))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "repo_map")
+    assert entry.status == "invalid"
+    assert entry.detail is not None and "foreign_root" in entry.detail
+    assert report.readiness.state == "incomplete"
+
+
 def test_pathologically_nested_artifact_is_invalid_not_a_crash(tmp_path):
     """A hostile deeply-nested JSON file overflows the recursive parser —
     that must surface as an honest invalid state, never a RecursionError."""
@@ -363,6 +377,21 @@ def test_diff_impact_with_persisted_stale_warning_is_stale(tmp_path):
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "diff_impact")
     assert entry.status == "stale"
+
+
+def test_diff_impact_inherits_staleness_from_a_stale_repo_map(tmp_path):
+    """The overlay carries no provenance of its own (schema 1.x): persisted
+    warnings are frozen at generation time, so an overlay generated at commit
+    A would read available after the repo moves to commit B. When the repo-map
+    it was derived from is stale, the overlay is at least as suspect."""
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    _git_init_commit(tmp_path)
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path, git_commit="0" * 40))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())  # no persisted warning
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "stale"
+    assert entry.detail is not None and "repo-map" in entry.detail.lower()
 
 
 def test_bundle_head_sha_conflict_surfaces_warning_and_stale(tmp_path):

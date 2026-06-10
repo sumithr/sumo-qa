@@ -48,6 +48,7 @@ from sumo_qa.repo_map_scanner import _detect_git_commit
 from sumo_qa.repo_map_validation import load_repo_map
 from sumo_qa.report_models import (
     REPORT_SCHEMA_VERSION,
+    ArtifactKind,
     QAReport,
     ReportArtifact,
     ReportComponent,
@@ -160,6 +161,19 @@ def load_report_inputs(
     current_commit = _detect_git_commit(root_path)
 
     repo_map, repo_map_source = _load_json_artifact(root_path, REPO_MAP_RELPATH, load_repo_map)
+    if repo_map is not None and Path(repo_map.project.root).resolve() != root_path:
+        # A repo-map copied from ANOTHER repository measures a different tree —
+        # composing it would present foreign evidence as local. Mirror the
+        # `_load_map_with_fallback` rejection precedent (server.py); here the
+        # honest state is invalid (the report has no live-scan fallback).
+        repo_map_source = ArtifactSource(
+            path=REPO_MAP_RELPATH,
+            error=(
+                f"[foreign_root] artifact describes root {repo_map.project.root!r}, "
+                f"not {root_path!s} — regenerate with `sumo-qa analyze`"
+            ),
+        )
+        repo_map = None
     diff_impact, diff_impact_source = _load_json_artifact(
         root_path, DIFF_IMPACT_RELPATH, DiffImpact.model_validate
     )
@@ -201,7 +215,7 @@ def load_report_inputs(
 
 
 def _artifact_from_source(
-    kind: str,
+    kind: ArtifactKind,
     source: ArtifactSource,
     *,
     missing_detail: str,
@@ -213,7 +227,20 @@ def _artifact_from_source(
     return ReportArtifact(kind=kind, status="missing", path=None, detail=missing_detail)
 
 
-def _repo_map_artifact(inputs: ReportInputs, now: datetime) -> ReportArtifact:
+def _repo_map_is_stale(inputs: ReportInputs) -> bool:
+    """Prefix-aware (the context-bundle `_sha_equivalent` contract): an
+    abbreviated recorded sha naming the SAME commit is not stale. No signal
+    on either side (non-git root) means staleness is undetectable — the
+    rendered age_days is the mitigating signal there."""
+    repo_map = inputs.repo_map
+    if repo_map is None:
+        return False
+    recorded = repo_map.project.git_commit
+    current = inputs.current_commit
+    return recorded is not None and current is not None and not _sha_equivalent(recorded, current)
+
+
+def _repo_map_artifact(inputs: ReportInputs, now: datetime, *, map_stale: bool) -> ReportArtifact:
     repo_map = inputs.repo_map
     if repo_map is None:
         return _artifact_from_source(
@@ -223,22 +250,15 @@ def _repo_map_artifact(inputs: ReportInputs, now: datetime) -> ReportArtifact:
         )
     recorded = repo_map.project.git_commit
     current = inputs.current_commit
-    # Prefix-aware (the context-bundle `_sha_equivalent` contract): an
-    # abbreviated recorded sha naming the SAME commit is not stale. No signal
-    # on either side (non-git root) means staleness is undetectable — the
-    # rendered age_days is the mitigating signal there.
-    is_stale = (
-        recorded is not None and current is not None and not _sha_equivalent(recorded, current)
-    )
     detail = (
         f"recorded commit {recorded[:8]} differs from current HEAD {current[:8]}"
-        if is_stale and recorded is not None and current is not None
+        if map_stale and recorded is not None and current is not None
         else inputs.repo_map_source.detail
     )
     generated_at = repo_map.project.generated_at
     return ReportArtifact(
         kind="repo_map",
-        status="stale" if is_stale else "available",
+        status="stale" if map_stale else "available",
         path=inputs.repo_map_source.path,
         detail=detail,
         generated_at=generated_at,
@@ -246,7 +266,7 @@ def _repo_map_artifact(inputs: ReportInputs, now: datetime) -> ReportArtifact:
     )
 
 
-def _diff_impact_artifact(inputs: ReportInputs) -> ReportArtifact:
+def _diff_impact_artifact(inputs: ReportInputs, *, map_stale: bool) -> ReportArtifact:
     diff_impact = inputs.diff_impact
     if diff_impact is None:
         return _artifact_from_source(
@@ -255,6 +275,16 @@ def _diff_impact_artifact(inputs: ReportInputs) -> ReportArtifact:
             missing_detail="no diff-impact overlay — run the diff-impact analysis to create one",
         )
     stale_messages = [w.message for w in diff_impact.warnings if w.kind == "stale"]
+    if not stale_messages and map_stale:
+        # The overlay carries no provenance of its own (schema 1.x): persisted
+        # warnings are frozen at generation time, so they cannot reflect later
+        # commits. When the repo-map the overlay was derived from is stale,
+        # the overlay is at least as suspect. (A fresh map with an older
+        # overlay remains undetectable until the overlay schema records
+        # provenance.)
+        stale_messages = [
+            "repo-map is stale relative to HEAD; this overlay likely predates the current state"
+        ]
     return ReportArtifact(
         kind="diff_impact",
         status="stale" if stale_messages else "available",
@@ -378,10 +408,11 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
         if inputs.bundle is not None
         else None
     )
+    map_stale = _repo_map_is_stale(inputs)
 
     artifacts = [
-        _repo_map_artifact(inputs, now),
-        _diff_impact_artifact(inputs),
+        _repo_map_artifact(inputs, now, map_stale=map_stale),
+        _diff_impact_artifact(inputs, map_stale=map_stale),
         _ledger_artifact(inputs),
         _bundle_artifact(inputs, conflict),
         _scorecard_artifact(inputs),
