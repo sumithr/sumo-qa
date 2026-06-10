@@ -329,18 +329,18 @@ def main() -> int:
         print(f"Uninstalling from: {hosts_str}\n")
 
         workspace = args.workspace.resolve() if args.workspace else Path.cwd()
-        results = []
+        uninstall_results: list[HostResult] = []
         if do_claude:
-            results.append(_uninstall_claude_code(system))
+            uninstall_results.append(_uninstall_claude_code(system))
         if do_vscode:
-            results.append(_uninstall_vscode(workspace))
+            uninstall_results.append(_uninstall_vscode(workspace))
         if do_jetbrains:
-            results.append(_uninstall_intellij(system))
+            uninstall_results.append(_uninstall_intellij(system))
         if do_claude_desktop:
-            results.append(_uninstall_claude_desktop(system))
+            uninstall_results.append(_uninstall_claude_desktop(system))
 
         print("Host removal:")
-        for r in results:
+        for r in uninstall_results:
             print(r.render())
         print()
         print("Uninstall complete. Restart any host you just changed. Run")
