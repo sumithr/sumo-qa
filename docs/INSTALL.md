@@ -44,6 +44,8 @@ Prefer a single command that installs, configures, and verifies in one shot? The
 
 Safety: the wrappers never use `sudo`/admin escalation, never delete your `.sumo-qa/` repo artifacts, and never remove a host config entry they can't prove they own. On any failure they print the exact command that failed plus the next safe manual command, and re-running is always safe.
 
+The post-install `sumo-qa-doctor` check is **advisory** in install/update modes: a successful install (pip + host config written) is reported as success even if the doctor flags something — most commonly the VS Code workspace check when you ran the install outside a VS Code workspace (which the installer correctly skips). The doctor's findings are still printed for you to act on, and a non-zero result prints a clear `NOTE`. Run `./install.sh --doctor` (or `.\install.ps1 -Doctor`) for a **strict** verification-only run whose exit code reflects the doctor's verdict. The doctor is invoked through the resolved interpreter (`-m sumo_qa.doctor`), so it works even when pip's scripts dir isn't on `PATH`.
+
 Verified in CI: the `install-smoke` workflow runs `install.sh --print-plan` on Linux/macOS/Windows and `install.ps1 -PrintPlan` on Windows, asserting the wrapper routes to the canonical pip + installer + doctor commands (and rejects unverified hosts) on every push and PR. `--uninstall` routes to the installer's ownership-aware removal — see [Uninstall](#uninstall) below.
 
 The per-host installer flags (`python -m sumo_qa.installer --vscode`, etc.) remain fully supported for users who don't want the wrapper — see [Per-host flags](#per-host-flags).

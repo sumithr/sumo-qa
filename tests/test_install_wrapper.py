@@ -330,6 +330,54 @@ def test_space_containing_interpreter_path_execs_as_one_token(tmp_path):
     )
 
 
+def _doctor_failing_stub(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A stub interpreter that succeeds for pip/installer but exits 3 for the
+    doctor — so a real exec reaches the doctor step with the rest already OK."""
+    stub = tmp_path / "stub_python.sh"
+    stub.write_text(
+        '#!/bin/sh\ncase "$*" in\n  *sumo_qa.doctor*) exit 3 ;;\n  *) exit 0 ;;\nesac\n'
+    )
+    stub.chmod(0o755)
+    return stub
+
+
+def test_install_doctor_failure_is_advisory_not_install_failure(tmp_path):
+    # P1 regression: a SUCCESSFUL install (pip + installer OK) must NOT be
+    # reported as failed just because the post-install doctor exits non-zero —
+    # e.g. its VS Code check FAILs in a non-workspace dir, which the installer
+    # correctly skipped. In install mode the doctor is advisory.
+    _bash_or_skip()
+    result = subprocess.run(
+        [BASH, str(INSTALL_SH)],  # real exec path, NOT --print-plan
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(_doctor_failing_stub(tmp_path))},
+    )
+    assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    combined = (result.stdout + result.stderr).lower()
+    assert "note:" in combined and "advisory" in combined
+    # It must NOT print the hard install-failure block for the doctor step.
+    assert "command failed" not in combined
+
+
+def test_doctor_only_mode_propagates_the_doctor_exit(tmp_path):
+    # Standalone --doctor: the doctor's exit code IS the requested output, so a
+    # non-zero doctor exit must PROPAGATE (strict), not be swallowed as advisory.
+    _bash_or_skip()
+    result = subprocess.run(
+        [BASH, str(INSTALL_SH), "--doctor"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(_doctor_failing_stub(tmp_path))},
+    )
+    assert result.returncode == 3, (result.returncode, result.stdout, result.stderr)
+    assert "command failed" in result.stderr.lower()
+
+
 # --- install.ps1 (Windows PowerShell parity) -----------------------------
 #
 # pwsh is rarely available on the dev/CI runners that gate this repo, so the
@@ -485,3 +533,13 @@ def test_powershell_wrapper_parses():
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_powershell_install_doctor_is_advisory():
+    # Parity with install.sh: in install/update the doctor is added via
+    # Add-Advisory (a doctor FAIL is a warning, not an install failure) and the
+    # advisory note is emitted; standalone -Doctor stays strict (Add-Cmd).
+    text = INSTALL_PS1.read_text()
+    assert "Add-Advisory (Get-DoctorArgv)" in text
+    assert "Write-AdvisoryNote" in text
+    assert "Add-Cmd (Get-DoctorArgv)" in text

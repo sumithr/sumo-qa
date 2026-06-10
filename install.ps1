@@ -157,19 +157,25 @@ docs/INSTALL.md (other MCP hosts section).
 # via the call operator (&) with splatting — no Invoke-Expression, so a
 # SUMO_QA_PYTHON value with PS metacharacters cannot inject.
 $plan = New-Object System.Collections.Generic.List[object]
+# Parallel flags: $advisory[$i] is $true when a non-zero exit of $plan[$i] is a
+# WARNING, not an install failure (the post-install doctor in install/update).
+$advisory = New-Object System.Collections.Generic.List[bool]
 
-# Helper: append one command's argv to the plan as a flat string[].
-function Add-Cmd { param([string[]]$Argv) $plan.Add([string[]]$Argv) }
+# Helper: append one command's argv to the plan as a flat string[] (strict).
+function Add-Cmd { param([string[]]$Argv) $plan.Add([string[]]$Argv); $advisory.Add($false) }
 
-# Add-Doctor — append the post-install verification step. Run via the RESOLVED
+# Add-Advisory — like Add-Cmd, but a non-zero exit is reported as a warning, not
+# treated as an install failure.
+function Add-Advisory { param([string[]]$Argv) $plan.Add([string[]]$Argv); $advisory.Add($true) }
+
+# Get-DoctorArgv — the post-install verification command. Run via the RESOLVED
 # interpreter (`-m sumo_qa.doctor`), not the bare `sumo-qa-doctor` console
 # script, so verification doesn't depend on pip's Scripts dir being on PATH (a
 # case documented in docs/INSTALL.md). Forward the selected host so a
-# host-scoped install isn't failed by an unrelated host's check (e.g. the VS
-# Code workspace check FAILing when there's no .vscode/mcp.json in cwd).
-function Add-Doctor {
-    if ($TargetHost) { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.doctor', '--host', $TargetHost)) }
-    else { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.doctor')) }
+# host-scoped install only verifies that host.
+function Get-DoctorArgv {
+    if ($TargetHost) { return $pythonArgv + @('-m', 'sumo_qa.doctor', '--host', $TargetHost) }
+    else { return $pythonArgv + @('-m', 'sumo_qa.doctor') }
 }
 
 # Render an argv array as a human-readable, copy-pasteable command line. Any
@@ -191,16 +197,21 @@ switch ($mode) {
         Add-Cmd ($pythonArgv + @('-m', 'pip', 'install', 'sumo-qa'))
         if ($hostFlagValue) { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer', $hostFlagValue)) }
         else { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer')) }
-        Add-Doctor
+        # Doctor is ADVISORY: pip + installer already succeeded, so a doctor FAIL
+        # (e.g. VS Code not configured because cwd isn't a workspace) must not
+        # report the install itself as failed.
+        Add-Advisory (Get-DoctorArgv)
     }
     'update' {
         Add-Cmd ($pythonArgv + @('-m', 'pip', 'install', '--upgrade', 'sumo-qa'))
         if ($hostFlagValue) { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer', $hostFlagValue)) }
         else { Add-Cmd ($pythonArgv + @('-m', 'sumo_qa.installer')) }
-        Add-Doctor
+        Add-Advisory (Get-DoctorArgv)
     }
     'doctor' {
-        Add-Doctor
+        # Standalone -Doctor: the doctor's exit code IS the requested output, so
+        # run it STRICTLY (a FAIL propagates as the wrapper's exit).
+        Add-Cmd (Get-DoctorArgv)
     }
     'uninstall' {
         # Route to the canonical installer's ownership-aware --uninstall path.
@@ -239,7 +250,23 @@ re-running .\install.ps1 is safe.
 # command + next safe step, then stop. Handles BOTH a native non-zero exit
 # AND a command-not-found / launch error (which throws under
 # $ErrorActionPreference='Stop'), and propagates the real exit code.
-foreach ($cmd in $plan) {
+# Emit the advisory warning (post-install doctor reported issues but the install
+# itself completed). Mirrors install.sh's run_advisory NOTE.
+function Write-AdvisoryNote {
+    param([int]$Code)
+    Write-Host @"
+
+NOTE: post-install verification reported issues (exit ${Code}); see the doctor
+output above. The install itself completed — this step is advisory. A common
+cause is a host you don't use here simply not being configured (e.g. the VS Code
+check when you're not in a VS Code workspace). Re-run the doctor command above
+yourself for the per-check detail.
+"@
+}
+
+for ($i = 0; $i -lt $plan.Count; $i++) {
+    $cmd = $plan[$i]
+    $isAdvisory = $advisory[$i]
     $cmdLine = Format-CmdLine $cmd
     Write-Output "+ $cmdLine"
     $prog = $cmd[0]
@@ -253,9 +280,11 @@ foreach ($cmd in $plan) {
         # invoking $prog. Preserve a native exit code if one was set; else 127
         # (the conventional "command not found" code).
         $code = if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 127 }
+        if ($isAdvisory) { Write-AdvisoryNote -Code $code; continue }
         Stop-WithFailure -CmdLine $cmdLine -Code $code -Detail $_.Exception.Message
     }
     if ($LASTEXITCODE -ne 0) {
+        if ($isAdvisory) { Write-AdvisoryNote -Code $LASTEXITCODE; continue }
         Stop-WithFailure -CmdLine $cmdLine -Code $LASTEXITCODE
     }
 }

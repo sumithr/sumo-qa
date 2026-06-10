@@ -166,7 +166,8 @@ python_argv=("${PYTHON}")
 # a human-readable plan (--print-plan) and execute each command directly as
 # argv (no eval / no string re-splitting at exec time). The sentinel is an
 # internal token that never appears in a real argument.
-CMD_SEP=$'\x1f'   # ASCII unit separator — not a valid argv word here
+CMD_SEP=$'\x1f'        # ASCII unit separator — strict step (failure aborts)
+ADVISORY_SEP=$'\x1e'   # ASCII record separator — advisory step (failure warns)
 plan_argv=()
 
 # add_cmd <word>...  — append one command (its words) plus the separator.
@@ -178,17 +179,27 @@ add_cmd() {
   plan_argv+=("$CMD_SEP")
 }
 
-# add_doctor — append the post-install verification step. Run via the RESOLVED
-# interpreter (`$PYTHON -m sumo_qa.doctor`), not the bare `sumo-qa-doctor`
-# console script, so verification doesn't depend on pip's scripts dir being on
-# PATH (the documented `pip install --user` case). Forward the selected host so
-# a host-scoped install isn't failed by an unrelated host's check (e.g. the VS
-# Code workspace check FAILing when there's no .vscode/mcp.json in cwd).
-add_doctor() {
+# add_advisory <word>... — like add_cmd, but the command is marked advisory:
+# a non-zero exit is reported as a warning, NOT treated as an install failure.
+add_advisory() {
+  local w
+  for w in "$@"; do
+    plan_argv+=("$w")
+  done
+  plan_argv+=("$ADVISORY_SEP")
+}
+
+# build_doctor_argv — set the global doctor_argv to the post-install
+# verification command. Run via the RESOLVED interpreter (`$PYTHON -m
+# sumo_qa.doctor`), not the bare `sumo-qa-doctor` console script, so it doesn't
+# depend on pip's scripts dir being on PATH (the documented `pip install --user`
+# case). Forward the selected host so a host-scoped install only verifies that
+# host.
+doctor_argv=()
+build_doctor_argv() {
+  doctor_argv=("${python_argv[@]}" -m sumo_qa.doctor)
   if [[ -n "$host" ]]; then
-    add_cmd "${python_argv[@]}" -m sumo_qa.doctor --host "$host"
-  else
-    add_cmd "${python_argv[@]}" -m sumo_qa.doctor
+    doctor_argv+=(--host "$host")
   fi
 }
 
@@ -200,7 +211,11 @@ case "$mode" in
     else
       add_cmd "${python_argv[@]}" -m sumo_qa.installer
     fi
-    add_doctor
+    # Doctor is ADVISORY here: pip + installer already succeeded, so a doctor
+    # FAIL (e.g. VS Code not configured because cwd isn't a workspace, which the
+    # installer correctly skipped) must NOT report the install itself as failed.
+    build_doctor_argv
+    add_advisory "${doctor_argv[@]}"
     ;;
   update)
     add_cmd "${python_argv[@]}" -m pip install --upgrade sumo-qa
@@ -209,10 +224,14 @@ case "$mode" in
     else
       add_cmd "${python_argv[@]}" -m sumo_qa.installer
     fi
-    add_doctor
+    build_doctor_argv
+    add_advisory "${doctor_argv[@]}"
     ;;
   doctor)
-    add_doctor
+    # Standalone --doctor: the doctor's exit code IS the requested output, so
+    # run it STRICTLY (a FAIL propagates as the wrapper's exit).
+    build_doctor_argv
+    add_cmd "${doctor_argv[@]}"
     ;;
   uninstall)
     # Route to the canonical installer's ownership-aware --uninstall path.
@@ -281,6 +300,28 @@ run_cmd() {
   fi
 }
 
+# run_advisory: execute an ADVISORY command (the post-install doctor). The
+# command's output is shown, but a non-zero exit is surfaced as a WARNING and
+# does NOT abort the script — the preceding strict steps (pip + installer)
+# already succeeded, so verification findings are informational, not an install
+# failure. (Standalone --doctor mode uses run_cmd, so there the exit propagates.)
+run_advisory() {
+  printf '+ '
+  print_cmd "$@"
+  set +e
+  "$@"
+  local status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    echo "" >&2
+    echo "NOTE: post-install verification reported issues (exit ${status}); see the" >&2
+    echo "doctor output above. The install itself completed — this step is advisory." >&2
+    echo "A common cause is a host you don't use here simply not being configured" >&2
+    echo "(e.g. the VS Code check when you're not in a VS Code workspace). Re-run the" >&2
+    echo "doctor command above yourself for the per-check detail." >&2
+  fi
+}
+
 # --print-plan only PRINTS the commands and exits 0 — it never executes. A
 # reader auditing the plan with `grep -q`/`head` closes the pipe after the
 # first match, so a later write gets SIGPIPE (exit 141) or a broken-pipe
@@ -293,16 +334,27 @@ if [[ "$print_plan" -eq 1 ]]; then
 fi
 
 for word in "${plan_argv[@]}"; do
-  if [[ "$word" == "$CMD_SEP" ]]; then
-    if [[ "$print_plan" -eq 1 ]]; then
-      print_cmd "${cmd_words[@]}"
-    else
-      run_cmd "${cmd_words[@]}"
-    fi
-    cmd_words=()
-  else
-    cmd_words+=("$word")
-  fi
+  case "$word" in
+    "$CMD_SEP")
+      if [[ "$print_plan" -eq 1 ]]; then
+        print_cmd "${cmd_words[@]}"
+      else
+        run_cmd "${cmd_words[@]}"
+      fi
+      cmd_words=()
+      ;;
+    "$ADVISORY_SEP")
+      if [[ "$print_plan" -eq 1 ]]; then
+        print_cmd "${cmd_words[@]}"
+      else
+        run_advisory "${cmd_words[@]}"
+      fi
+      cmd_words=()
+      ;;
+    *)
+      cmd_words+=("$word")
+      ;;
+  esac
 done
 
 if [[ "$print_plan" -eq 1 ]]; then
