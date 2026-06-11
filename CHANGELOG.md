@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.0](https://github.com/sumithr/sumo-qa/compare/v0.42.0...v0.43.0) (2026-06-11)
+
+
+### Features
+
+* **scorecard:** add evidence-based QA readiness scorecard ([#151](https://github.com/sumithr/sumo-qa/issues/151)) ([#392](https://github.com/sumithr/sumo-qa/issues/392)) ([ad561d7](https://github.com/sumithr/sumo-qa/commit/ad561d72e40e0c374a443491d2017e32b51d5872))
+
 ## [0.42.0](https://github.com/sumithr/sumo-qa/compare/v0.41.0...v0.42.0) (2026-06-10)
 
 
