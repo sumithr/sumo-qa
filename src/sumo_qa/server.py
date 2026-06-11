@@ -76,6 +76,7 @@ from sumo_qa.server_schemas import (
     ExecuteExternalSkillOutput,
     ExportTestCasesOutput,
     FormatContextBundleOutput,
+    FormatQaScorecardOutput,
     FormatRiskLedgerOutput,
     InstallExternalSkillOutput,
     RepoMapQueryOutput,
@@ -146,6 +147,15 @@ _HINT_FORMAT_CONTEXT_BUNDLE = (
     "source is one of manual/local_git/github/ci_provider/other. Everything but "
     "schema is optional — a partial bundle is fine. Supply local_head_sha to "
     "detect a bundle-vs-local-state conflict. No network call; gather facts yourself."
+)
+_HINT_FORMAT_SCORECARD = (
+    "Compose the scorecard from already-produced artifacts (identify nothing "
+    "here): ledger_rows=[...] (the #144 risk rows), context_bundle={...} (the "
+    "#149 bundle), and optional coverage={line_percent, freshness} / "
+    "mutation={survivors, killed, freshness}. freshness is one of "
+    "fresh/stale/unknown/absent. Every part is optional — an empty payload "
+    "derives insufficient_evidence. The recommendation is DERIVED, never "
+    "asserted; you cannot pass 'ready'."
 )
 _HINT_EXPORT_TEST_CASES = (
     "Pass test_cases=[{id, title, preconditions, steps, expected_result, "
@@ -1335,6 +1345,93 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         return maybe_capture(  # type: ignore[return-value]
             tool="sumo_qa_format_context_bundle",
             args={"bundle": bundle, "local_head_sha": local_head_sha, "max_files": max_files},
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_read_only_local)
+    def sumo_qa_format_qa_scorecard(
+        ledger_rows: list[dict[str, Any]] | None = None,
+        context_bundle: dict[str, Any] | None = None,
+        coverage: dict[str, Any] | None = None,
+        mutation: dict[str, Any] | None = None,
+        scope: str | None = None,
+        local_head_sha: str | None = None,
+        max_reasons: int = 25,
+    ) -> FormatQaScorecardOutput | ErrorEnvelope:
+        """Compose a QA READINESS SCORECARD from already-produced evidence and
+        DERIVE a readiness recommendation (issue #151). EVIDENCE SUMMARY, NOT a
+        predictive quality score — it infers no risk, invents no numeric score,
+        and the host can never assert "ready": the verdict is computed.
+
+        Common natural-language phrasings that map to this tool:
+        "is this ready to merge/release", "give me a readiness scorecard",
+        "summarise QA readiness", "release review summary".
+
+        Inputs are all optional and reuse the existing artifacts — nothing is
+        re-defined here:
+        * ``ledger_rows`` — the #144 risk-to-test rows (same shape as
+          ``sumo_qa_format_risk_ledger``); supplies risk coverage + blockers.
+        * ``context_bundle`` — the #149 bundle (same shape as
+          ``sumo_qa_format_context_bundle``); supplies test/CI evidence freshness.
+        * ``coverage`` / ``mutation`` — optional ``{..., freshness}`` signals;
+          absent ⇒ reported as "not measured", never assumed passing, and never
+          allowed to outweigh an uncovered high-impact risk.
+        * ``scope`` — optional label (a PR title, a release name).
+        * ``local_head_sha`` — optional live local head, to flag a stale bundle.
+
+        Returns the four-state recommendation (ready / ready_with_accepted_
+        residuals / blocked / insufficient_evidence), ``is_ready`` (true only for
+        the two ready states), the uncovered-blocker / residual counts, the
+        stale-evidence and not-measured dimension lists, the rendered markdown,
+        a one-line ``compact_summary`` to drop inline in short answers, and a
+        JSON-able ``serialized`` snapshot a downstream report (#157) can render.
+        Readiness is refused whenever a risk is an uncovered blocker or evidence
+        is stale — that guarantee is structural, not advisory.
+        """
+        from sumo_qa.scorecard_format import (
+            compact_summary,
+            format_scorecard_markdown,
+            serialize_scorecard,
+        )
+        from sumo_qa.scorecard_validation import load_scorecard
+
+        output: FormatQaScorecardOutput | dict[str, Any]
+        try:
+            card = load_scorecard(
+                ledger_rows=ledger_rows,
+                context_bundle=context_bundle,
+                coverage=coverage,
+                mutation=mutation,
+                scope=scope,
+            )
+            serialized = serialize_scorecard(card, local_head_sha=local_head_sha)
+            output = FormatQaScorecardOutput(
+                recommendation=serialized["recommendation"],
+                is_ready=serialized["is_ready"],
+                uncovered_blocker_count=serialized["uncovered_blocker_count"],
+                open_residual_count=serialized["open_residual_count"],
+                accepted_residual_count=serialized["accepted_residual_count"],
+                stale_evidence=serialized["stale_evidence"],
+                not_measured=serialized["not_measured"],
+                markdown=format_scorecard_markdown(
+                    card, local_head_sha=local_head_sha, max_reasons=max_reasons
+                ),
+                compact_summary=compact_summary(card, local_head_sha=local_head_sha),
+                serialized=serialized,
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_FORMAT_SCORECARD)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_format_qa_scorecard",
+            args={
+                "ledger_rows": ledger_rows,
+                "context_bundle": context_bundle,
+                "coverage": coverage,
+                "mutation": mutation,
+                "scope": scope,
+                "local_head_sha": local_head_sha,
+                "max_reasons": max_reasons,
+            },
             output=output,  # type: ignore[arg-type]
         )
 

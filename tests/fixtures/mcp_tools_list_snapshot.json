@@ -15,6 +15,7 @@
     "sumo_qa_finding_test_data",
     "sumo_qa_finishing_qa_work",
     "sumo_qa_format_context_bundle",
+    "sumo_qa_format_qa_scorecard",
     "sumo_qa_format_risk_ledger",
     "sumo_qa_implementing_with_tdd",
     "sumo_qa_ingest_knowledge_pack",
@@ -385,6 +386,91 @@
         "required": [
           "bundle"
         ],
+        "type": "object"
+      },
+      "outputSchema": null
+    },
+    "sumo_qa_format_qa_scorecard": {
+      "inputSchema": {
+        "properties": {
+          "context_bundle": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "ledger_rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "local_head_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "max_reasons": {
+            "default": 25,
+            "type": "integer"
+          },
+          "mutation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
         "type": "object"
       },
       "outputSchema": null

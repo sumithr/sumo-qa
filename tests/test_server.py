@@ -54,6 +54,10 @@ _CONTEXT_BUNDLE_TOOL_NAMES = {
     "sumo_qa_format_context_bundle",
 }
 
+_SCORECARD_TOOL_NAMES = {
+    "sumo_qa_format_qa_scorecard",
+}
+
 _EXPORT_TOOL_NAMES = {
     "sumo_qa_export_test_cases",
 }
@@ -139,6 +143,7 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
         | _REPO_MAP_TOOL_NAMES
         | _LEDGER_TOOL_NAMES
         | _CONTEXT_BUNDLE_TOOL_NAMES
+        | _SCORECARD_TOOL_NAMES
         | _EXPORT_TOOL_NAMES
         | _INGESTION_TOOL_NAMES
         | _FEEDBACK_MEMORY_TOOL_NAMES
