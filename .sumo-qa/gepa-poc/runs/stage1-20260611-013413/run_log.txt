@@ -1,0 +1,69 @@
+Iteration 0: Base program full valset score: 0.18807811258653953 over 3 / 3 examples
+Iteration 1: Selected program 0 score: 0.18807811258653953
+Iteration 1: Proposed new text for skill_md: # Task: Compress the `sumo-qa-reviewing-before-merge` SKILL.md to a token budget
+
+You are rewriting ONE SKILL.md so it is **as short as possible while losing ZERO behaviour**. The skill is a "code review before merge" discipline for an LLM QA agent. It is scored by a promptfoo minibatch (shape / grounding / anti-pattern / javascript assertions). The winning candidate is the one that keeps the minibatch GREEN at the smallest token count. You will be handed the current SKILL.md text to compress; rewrite it in place.
+
+This is PURE COMPRESSION, not authoring. Do not add behaviour, do not "improve" the rules, do not reorder in ways that change meaning. Cut words, keep every rule.
+
+## The numbers (hard target — this is the success metric)
+- Seed length: **15664 tokens**.
+- Current best candidate: **11041 tokens** — minibatch passes, but it is still TOO LONG.
+- **Target: ≤ 7832 tokens** (exactly HALF the seed). You must cut ~30% more from the 11k candidate.
+- Shorter is better ONLY when no behaviour is lost. Report the final token count.
+
+## The iron rule of this compression
+Preserve EVERY one of: behavioural rule, trigger phrase, named check, gate, verdict literal, ledger column, status literal, and format token. Cut ONLY: redundancy, duplicated/restated rules, "(pinned)" patches that repeat an earlier rule, repeated stock phrases, worked-example bloat, and filler prose. If you cannot tell whether a sentence is load-bearing, it IS — keep its RULE and shorten its WORDS.
+
+**Never loosen behaviour to hit the budget.** Dropping a rule, weakening a gate, or softening a verdict condition to save tokens is gaming the metric and will fail grounding/anti-pattern assertions. Token savings come from saying each rule ONCE, not from saying fewer rules.
+
+## Conform to the writing-skills authoring standard
+- Frontmatter: `name` (letters/numbers/hyphens only) + `description`.
+- `description` = "Use when…" **triggering conditions ONLY**, third person, **no workflow summary** (a workflow summary makes the agent follow the description instead of the body). Keep all existing trigger phrases (see below).
+- Prefer tables/lists over prose. One excellent example per concept, never several. Cross-reference, never restate.
+
+## Trigger phrases that MUST stay in the description (drive discovery)
+"review my changes" / "is this safe to merge" / "what could break" / "code review please" / "anything I missed in this diff".
+
+## Load-bearing inventory — these rules/structures must all survive (shorten wording, never delete the rule)
+- Announce line, Output discipline inheritance from `using-sumo-qa`, the `<HARD-GATE>` (tests run THIS turn — "CI was green earlier" is not fresh evidence), and **The Iron Law** (never claim SAFE-TO-MERGE without fresh verification evidence; every named risk needs a fresh test on its exact failure path).
+- **THE SHAPE BAR**: every named risk carries all three — (1) named defect class, (2) exact `file:line` anchor, (3) concrete observable consequence. Template: `<named defect class> at <file:line> — <concrete observable failure>`. Missing any = SHAPE FAIL. Generic risks ("possible edge cases", "untested paths") are automatic SHAPE FAILs.
+- **The seeded-defect catalogue** (keep every row's code-shape signal → named class → consequence): stale-entry-from-deleted-path; rollback data-loss; cleanup-time flakiness; platform-branch asymmetry; tautological (non-discriminating) assertion; contract-vs-signature contradiction; external-contract dependency.
+- The **10-step checklist** in order: read diff via host git → read changed files → classify + load standards → adversarial discovery sweep (3–7 named risks) → confirm scope (one question, ambiguous parts only) → present risks + ask → run full suite (show actual counts) → run targeted tests → map risk coverage → deliver verdict.
+- **Branch on diff shape**: test-files-only (`test_change` → test-only-diff probe; green suite ≠ pass); genuinely non-executable (docs/inert static config → trivial-change exemption, invent NO runtime risk = the negative-control failure); else full runtime sweep. **Runtime keys on executable behaviour, NOT path prefix** — a hook/script/automation under `.claude/hooks/`, `scripts/`, `.claude/` gets the full sweep.
+- The extra probes (each at SHAPE bar): reordered write/persist statements; removed/loosened/inverted guard; documented count/inventory/version/generated-artifact drift; cwd-relative path check (security boundary); widened type/schema; retry/async/timeout/teardown; CI/merge-gate change; stateful fenced-code-block / marker parser (the discriminating input is a **variable-length nested fence: a 4-tick fence wrapping a 3-tick block**; `~~~`-vs-backtick and unclosed-at-EOF do NOT discriminate).
+- Coverage-mapping rules: module-match rule (`app/<module>/` risk needs `tests/<module>/` test); integration/e2e exception; external-contract exception; the **producer test** (self-produced/round-trip value = INTERNAL, declare it, raise no external-contract risk); external-contract rule (green matcher proves LOGIC not reality; hand-authored fixture = UNPROVEN, real-run-traceable fixture = COVERED); anti-over-discovery (no speculative format-variant hunting once discharged); test-only-diff probe (tautology / matcher-coverage); documented-inventory drift rule (each stale path its own anchor); acceptance-criteria coverage; verification-evidence discipline (i–iv); discharged-check discipline (anti-over-fire).
+- Retry/Duplicate/Idempotency risks require an assertion showing the op invoked >1 time; Concurrent/Race/Lock require overlapping execution. A single non-overlapping invocation proves none → UNPROVEN.
+- The **verdict-format discipline**: ordered items 1–8 plus extensions 2a (inventory drift), 2b (UNPROVEN escalation — prescribed discriminating input or named deferral; a bare UNPROVEN row is a violation), 2c (external-contract), 2d (internal/self-produced declination); trivial-change exemption (skip item 2, mark anchors `COVERED BY VERIFICATION`); test-only-diff discipline (`Test probe:` lines replace item 2). The verdict line is the LAST line.
+- AC-coverage: classify each supplied criterion MET / UNMET / UNVERIFIED; surfacing every supplied criterion is mandatory; host-neutral (never fetch issue / call `gh`); graceful fallback line when none supplied.
+- Verification-evidence checks (i) surface verifier ran in right runtime/env/scope/tree — **eval-surface skill changes (`skills/*/SKILL.md` or `tests/evals/promptfoo/*.yaml`) keep promptfoo REQUIRED, run with Node 24 + the configured OpenAI key, named VERBATIM**; (ii) primary feature flow exercised end-to-end; (iii) added guard's eval exercises BOTH directions; (iv) eval-driven A/B control is structurally load-bearing (single A0-FAIL = variance; NAME the pre-existing rule).
+- The Red Flags table, the Good/Bad examples, the review-feedback memory advisory-hint rule, the risk-to-test ledger appendix, and "Next skill in the chain → `sumo-qa-finishing-qa-work`".
+
+## Strings eval rubrics match verbatim — NEVER reword or truncate these
+- Verdict literals: `SAFE TO MERGE`, `NOT SAFE TO MERGE`, `NEEDS WORK`.
+- Coverage statuses: `COVERED`, `UNPROVEN`, `UNCOVERED`, `COVERED BY VERIFICATION`.
+- AC classes: `MET`, `UNMET`, `UNVERIFIED`. Evidence statuses: `UNVERIFIED (surface verifier)`, `UNVERIFIED (feature flow)`, `DISCHARGED`, `VERIFIED`, `LOAD-BEARING`, `SAFE-blocker`.
+- Named defect classes (verbatim): `stale-entry-from-deleted-path`, `rollback data-loss`, `cleanup-time flakiness`, `platform-branch asymmetry`, `tautological (non-discriminating) assertion`, `contract-vs-signature contradiction`, `external-contract dependency`.
+- Ledger appendix column header exactly: `| Risk | Statement | Source | Test / check | Evidence | Residual |`; evidence_status values `passing` / `failing` / `planned` / `stale` / `accepted_residual`.
+- The announce line, the SHAPE-BAR template, and every `sumo_qa_*` MCP tool name referenced (e.g. `sumo_qa_analyze_diff_impact`, `sumo_qa_format_context_bundle`, `sumo_qa_load_classifications`, `sumo_qa_load_standards`, `sumo_qa_load_rules`, `sumo_qa_load_techniques`, `sumo_qa_query_repo_map`, `sumo_qa_capture_review_feedback`, `sumo_qa_format_risk_ledger`).
+- "Node 24", the OpenAI-key requirement, "promptfoo".
+
+## Where the ~30% lives (apply these dedup moves — this is the strategy)
+1. **The Red Flags table is the single biggest duplication.** Almost every row restates a catalogue row or a ledger rule as "Thought | Reality." KEEP only rows that add a rationalization-counter not already stated elsewhere; for rows that merely echo the catalogue/ledger, delete them. Do not delete a UNIQUE counter.
+2. **State each cross-cutting rule ONCE, then stop repeating it.** "anchor to the exact line", "SAFE-blocker", "fresh path-matching test", "(pinned)" — define each principle once (anchor → in THE SHAPE BAR; "any UNCOVERED/UNPROVEN/UNMET/UNVERIFIED is a SAFE-blocker → NOT SAFE" → once in the verdict gate) and drop the per-rule restatements.
+3. The catalogue table, the "probes beyond the catalogue", and the Red Flags describe the SAME defect classes three times. Make the **catalogue table the single source**; probes keep only rows NOT in the table; Red Flags fold in per move 1.
+4. **Merge overlapping "(pinned)" rules** that say the same thing (e.g. the discovery→verdict demotion ban appears in step 4, step 9, and Red Flags — state once).
+5. **One worked example per distinct concept.** Keep the same-domain-≠-proof contrast once; cut duplicate refund/billing illustrations.
+6. The verdict items 1–8 and the ledger appendix both define coverage status — define status once, reference from both.
+7. "Discharged-check discipline" largely repeats the anti-over-fire counters inside (i)–(iv) — compress to ONE anti-over-fire paragraph.
+8. Collapse multi-sentence rules into a single dense sentence; convert prose lists to compact tables/bullets; remove restated motivation ("this is the failure this pass exists to prevent") where the rule already implies it — keep at most one motivation line per gate.
+
+## Rubric constraint (hard)
+You MUST NOT edit, loosen, or propose edits inside eval rubrics or test YAML. If you believe a rubric should be **TIGHTENED**, emit exactly ONE line starting `RUBRIC-PROPOSAL:` describing it, placed OUTSIDE any code fence. Otherwise do not mention rubrics.
+
+## Output contract
+- Return the COMPLETE rewritten SKILL.md (frontmatter + body) inside a single code fence. Nothing else inside the fence.
+- Outside the fence: only the final token count, and an optional `RUBRIC-PROPOSAL:` line if warranted.
+- Self-check before finishing: every literal in "Strings eval rubrics match verbatim" still present; every item in "Load-bearing inventory" still has its rule; token count ≤ 7832 (or, if you cannot reach it without losing behaviour, the smallest count you can prove keeps every rule, plus a one-line note on the binding constraint).
+Iteration 1: New subsample score 0.0 is not better than old score 0.897567671092952, skipping
+Iteration 2: Selected program 0 score: 0.18807811258653953

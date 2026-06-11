@@ -1,0 +1,375 @@
+Iteration 0: Base program full valset score: 0.18807811258653953 over 3 / 3 examples
+Iteration 1: Selected program 0 score: 0.18807811258653953
+Iteration 1: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 1: Reflective mutation did not propose a new candidate
+Iteration 2: Selected program 0 score: 0.18807811258653953
+Iteration 2: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 2: Reflective mutation did not propose a new candidate
+Iteration 3: Selected program 0 score: 0.18807811258653953
+Iteration 3: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 3: Reflective mutation did not propose a new candidate
+Iteration 4: Selected program 0 score: 0.18807811258653953
+Iteration 4: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 4: Reflective mutation did not propose a new candidate
+Iteration 5: Selected program 0 score: 0.18807811258653953
+Iteration 5: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 5: Reflective mutation did not propose a new candidate
+Iteration 6: Selected program 0 score: 0.18807811258653953
+Iteration 6: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 6: Reflective mutation did not propose a new candidate
+Iteration 7: Selected program 0 score: 0.18807811258653953
+Iteration 7: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 7: Reflective mutation did not propose a new candidate
+Iteration 8: Selected program 0 score: 0.18807811258653953
+Iteration 8: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 8: Reflective mutation did not propose a new candidate
+Iteration 9: Selected program 0 score: 0.18807811258653953
+Iteration 9: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 9: Reflective mutation did not propose a new candidate
+Iteration 10: Selected program 0 score: 0.18807811258653953
+Iteration 10: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 10: Reflective mutation did not propose a new candidate
+Iteration 11: Selected program 0 score: 0.18807811258653953
+Iteration 11: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 11: Reflective mutation did not propose a new candidate
+Iteration 12: Selected program 0 score: 0.18807811258653953
+Iteration 12: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 12: Reflective mutation did not propose a new candidate
+Iteration 13: Selected program 0 score: 0.18807811258653953
+Iteration 13: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 13: Reflective mutation did not propose a new candidate
+Iteration 14: Selected program 0 score: 0.18807811258653953
+Iteration 14: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 14: Reflective mutation did not propose a new candidate
+Iteration 15: Selected program 0 score: 0.18807811258653953
+Iteration 15: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 15: Reflective mutation did not propose a new candidate
+Iteration 16: Selected program 0 score: 0.18807811258653953
+Iteration 16: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 16: Reflective mutation did not propose a new candidate
+Iteration 17: Selected program 0 score: 0.18807811258653953
+Iteration 17: Exception during reflection/proposal: claude -p failed every attempt
+Traceback (most recent call last):
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 297, in propose
+    new_texts = self.propose_new_texts(curr_prog, reflective_dataset, predictor_names_to_update)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/reflective_mutation.py", line 128, in propose_new_texts
+    new_texts[name] = InstructionProposalSignature.run(
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        lm=self.reflection_lm,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        },
+        ^^
+    )["new_instruction"]
+    ^
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/venv/lib/python3.14/site-packages/gepa/proposer/reflective_mutation/base.py", line 48, in run
+    lm_res = lm(full_prompt)
+  File "/Users/SumithRamsookbhai/Desktop/repos/apo/sumo-qa/.sumo-qa/gepa-poc/reflect.py", line 80, in reflection_lm
+    raise RuntimeError("claude -p failed every attempt")
+RuntimeError: claude -p failed every attempt
+
+Iteration 17: Reflective mutation did not propose a new candidate

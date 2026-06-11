@@ -1,0 +1,8 @@
+[watchdog] 11:13:26 attempt 1 starting (run_dir=runs/stage1-20260611-111326)
+[watchdog] 11:26:37 run exited nonzero; probing candidate model before resume
+[watchdog] 11:26:51 candidate model back (probe 1)
+[watchdog] 11:26:51 attempt 2 starting (run_dir=runs/stage1-20260611-111326)
+[watchdog] 13:23:50 run exited nonzero; probing candidate model before resume
+[watchdog] 13:23:54 candidate model back (probe 1)
+[watchdog] 13:23:54 attempt 3 starting (run_dir=runs/stage1-20260611-111326)
+[watchdog] 13:31:44 run exited nonzero; probing candidate model before resume
