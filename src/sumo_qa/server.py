@@ -1562,10 +1562,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
         ``root`` is the repository to report on (absolute or relative to the
         MCP server's working directory). Every artifact is OPTIONAL: a missing,
-        invalid, or stale source renders an explicit honest state and feeds the
-        readiness derivation (most severe wins: blocked > stale_evidence >
-        incomplete > ready_with_residuals > ready) — missing data is never
-        reported as passing evidence.
+        invalid, or stale source renders an explicit honest state. The readiness
+        verdict (ready / ready_with_accepted_residuals / blocked /
+        insufficient_evidence) is derived by #151's QaScorecard engine from the
+        risk ledger + context bundle — missing data is never reported as passing
+        evidence.
 
         ``risk_ledger_rows`` / ``context_bundle`` are inline overrides for the
         chat flow where the ledger/bundle was built in-conversation and never

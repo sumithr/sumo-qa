@@ -18,11 +18,13 @@ snapshot-tested byte-for-byte:
 
 Artifact conventions: ``repo-map.json`` and ``diff-impact.json`` are written
 by the #155/#156 producers. ``risk-ledger.json`` and ``context-bundle.json``
-have NO persisting producer yet (#144/#149 are chat-only formatters) — they
-are opt-in conventional paths validated by the existing loaders, so a host
-that chooses to persist them gets them composed into the report.
-``readiness-scorecard.json`` (#151) and coverage/mutation evidence (#147)
-have no format yet; they appear in the inventory as honest pending states.
+are opt-in conventional paths (the #144/#149 formatters are chat-only, so a
+host persists them only if it chooses to) validated by the existing loaders.
+The readiness scorecard (#151) is NOT a persisted artifact — it is derived
+in-report from the risk ledger + context bundle via :class:`QaScorecard`, the
+single source of truth for the readiness verdict. Coverage/mutation (#147) are
+optional scorecard signals, not a persisted artifact; absent ones appear in the
+inventory as honest not-supplied states.
 """
 
 from __future__ import annotations
@@ -54,15 +56,15 @@ from sumo_qa.report_models import (
     ReportComponent,
     ReportEvidence,
     ReportProject,
+    ReportReadiness,
     ReportRisk,
-    derive_readiness,
 )
+from sumo_qa.scorecard_models import QaScorecard
 
 REPO_MAP_RELPATH = ".sumo-qa/repo-map.json"
 DIFF_IMPACT_RELPATH = ".sumo-qa/diff-impact.json"
 RISK_LEDGER_RELPATH = ".sumo-qa/risk-ledger.json"
 CONTEXT_BUNDLE_RELPATH = ".sumo-qa/context-bundle.json"
-READINESS_SCORECARD_RELPATH = ".sumo-qa/readiness-scorecard.json"
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -99,7 +101,6 @@ class ReportInputs(BaseModel):
     ledger_source: ArtifactSource
     bundle: ContextBundle | None = None
     bundle_source: ArtifactSource
-    scorecard_source: ArtifactSource
 
 
 def _first_line(exc: Exception) -> str:
@@ -209,13 +210,6 @@ def load_report_inputs(
             root_path, CONTEXT_BUNDLE_RELPATH, load_context_bundle
         )
 
-    scorecard_path = root_path / READINESS_SCORECARD_RELPATH
-    scorecard_source = (
-        ArtifactSource(path=READINESS_SCORECARD_RELPATH)
-        if scorecard_path.is_file()
-        else ArtifactSource()
-    )
-
     return ReportInputs(
         root=str(root_path),
         current_commit=current_commit,
@@ -227,7 +221,6 @@ def load_report_inputs(
         ledger_source=ledger_source,
         bundle=bundle,
         bundle_source=bundle_source,
-        scorecard_source=scorecard_source,
     )
 
 
@@ -347,20 +340,22 @@ def _bundle_artifact(inputs: ReportInputs, conflict: str | None) -> ReportArtifa
 
 
 def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
-    # No scorecard format exists until #151 lands: a present file is
-    # unsupported (invalid), an absent one is the expected pending state.
-    if inputs.scorecard_source.path is not None:
+    # The readiness scorecard (#151) is composed in-report from the risk ledger
+    # + context bundle — it is not a persisted artifact (#151's tool has no
+    # write_to, and no deserializer exists). Available when there is enough to
+    # derive a verdict, missing otherwise.
+    if inputs.ledger is not None or inputs.bundle is not None:
         return ReportArtifact(
             kind="readiness_scorecard",
-            status="invalid",
-            path=inputs.scorecard_source.path,
-            detail="file present but no reader exists yet — the scorecard format lands with #151",
+            status="available",
+            path=None,
+            detail="derived in-report from the risk ledger + context bundle (#151 engine)",
         )
     return ReportArtifact(
         kind="readiness_scorecard",
         status="missing",
         path=None,
-        detail="not produced yet — the readiness scorecard lands with #151",
+        detail="not derivable — supply a risk ledger and/or context bundle",
     )
 
 
@@ -408,10 +403,47 @@ def _evidence_streams(inputs: ReportInputs) -> list[ReportEvidence]:
                 name=name,
                 status="missing",
                 trustworthy=False,
-                detail="no producer yet — coverage/mutation evidence lands with #147",
+                detail="not supplied — coverage/mutation are optional readiness-scorecard signals (#147 is guidance, not a persisted artifact)",
             )
         )
     return streams
+
+
+def _readiness_from_scorecard(
+    ledger: RiskLedger | None,
+    bundle: ContextBundle | None,
+    *,
+    scope: str | None,
+    local_head_sha: str | None,
+) -> ReportReadiness:
+    """Single source of truth: #151's :class:`QaScorecard` derives the verdict;
+    the report only maps it onto :class:`ReportReadiness`.
+
+    ``coverage``/``mutation`` are ``None`` — the report has no persisted producer
+    for them (#147 is guidance-only). The four scorecard states are adopted
+    verbatim as the report's ``ReadinessState``, so the report and the scorecard
+    can never disagree.
+    """
+    card = QaScorecard(
+        scope=scope,
+        ledger=ledger,
+        context_bundle=bundle,
+        coverage=None,
+        mutation=None,
+    )
+    state = card.recommendation(local_head_sha=local_head_sha)
+    if state == "blocked":
+        reasons = card.blocking_reasons(local_head_sha=local_head_sha)
+    elif state == "insufficient_evidence":
+        reasons = card.insufficiency_reasons(local_head_sha=local_head_sha)
+    elif state == "ready_with_accepted_residuals":
+        reasons = [
+            f"{row.risk_id}: {row.risk} — accepted residual"
+            for row in card.accepted_residual_rows()
+        ]
+    else:  # ready
+        reasons = []
+    return ReportReadiness(state=state, reasons=reasons)
 
 
 def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str) -> QAReport:
@@ -437,7 +469,7 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
             kind="coverage_mutation",
             status="missing",
             path=None,
-            detail="not produced yet — coverage/mutation evidence lands with #147",
+            detail="not supplied — coverage/mutation are optional readiness-scorecard signals (#147 is guidance, not a persisted artifact)",
         ),
     ]
 
@@ -483,7 +515,12 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
         uncovered_blocker_count=sum(1 for risk in risks if risk.uncovered_blocker),
         evidence=evidence,
         warnings=[conflict] if conflict is not None else [],
-        readiness=derive_readiness(artifacts, risks, evidence),
+        readiness=_readiness_from_scorecard(
+            inputs.ledger,
+            inputs.bundle,
+            scope=project_name,
+            local_head_sha=inputs.current_commit,
+        ),
     )
 
 

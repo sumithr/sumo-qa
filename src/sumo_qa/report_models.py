@@ -5,35 +5,19 @@ The QA report is a *projection*: it composes the persisted ``.sumo-qa``
 artifacts (repo-map #155, diff-impact #156, risk ledger #144, context bundle
 #149) into one render-ready document. No inference lives here — the host LLM
 (or the artifacts themselves) supplied every fact; this module only locks the
-shape and derives the one piece of deterministic logic the report owns:
-the readiness roll-up.
+shape of the document.
 
 Missing data is a first-class state, never an error: every consumable source
 appears in the artifact inventory with an explicit status, so an absent
 artifact renders "not available" instead of silently dropping out (the
 issue's missing-data-is-not-passing-evidence acceptance criterion).
 
-``derive_readiness`` is an ordered decision table — most severe state first:
-
-1. ``blocked``               — an uncovered blocker risk, a failing risk row,
-                               or failing/mixed evidence.
-2. ``stale_evidence``        — a stale artifact, a stale risk row, stale
-                               evidence, or a passing result that is not
-                               trustworthy (unknown/absent freshness — the
-                               context-bundle trust contract says only a
-                               fresh pass backs safety). Re-verify before
-                               trusting anything.
-3. ``incomplete``            — a core artifact missing/invalid, a planned-only
-                               risk row, an empty risk ledger, or core
-                               evidence that never ran.
-4. ``ready_with_residuals``  — green, but with accepted residuals or
-                               not-yet-mitigated residual decisions on record.
-5. ``ready``                 — everything green.
-
-The ordering is load-bearing: a blocker plus stale evidence must read
-``blocked`` (the more severe state wins), and stale-but-present data must
-read ``stale_evidence`` rather than ``incomplete`` (re-verify outranks
-gather-more-data).
+The readiness verdict is NOT derived here. It is derived by #151's
+:class:`~sumo_qa.scorecard_models.QaScorecard` (the single source of truth)
+from the risk ledger + context bundle, and mapped onto :class:`ReportReadiness`
+by ``report_builder._readiness_from_scorecard``. ``ReadinessState`` is the
+scorecard's four-state ``ScorecardRecommendation`` adopted verbatim, so the
+report and the scorecard can never disagree.
 """
 
 from __future__ import annotations
@@ -73,33 +57,24 @@ ArtifactKind = Literal[
 #: or outdated data masquerade as evidence.
 ArtifactStatus = Literal["available", "missing", "invalid", "stale"]
 
+#: The report's readiness verdict — adopted verbatim from #151's
+#: ``ScorecardRecommendation`` so the report and the scorecard can never
+#: disagree. The verdict itself is derived by ``QaScorecard`` (the single
+#: source of truth); the report only maps it onto :class:`ReportReadiness`.
 ReadinessState = Literal[
     "ready",
-    "ready_with_residuals",
-    "stale_evidence",
+    "ready_with_accepted_residuals",
     "blocked",
-    "incomplete",
+    "insufficient_evidence",
 ]
 
 #: Roll-up status of one evidence stream. The first four mirror the context
 #: bundle's ``EvidenceResult``; ``missing`` means the stream was never
-#: supplied at all (no bundle, or no producer yet for coverage/mutation).
+#: supplied at all (no bundle, or no coverage/mutation signals — #147 is
+#: guidance, not a persisted artifact).
 EvidenceStreamStatus = Literal["passing", "failing", "mixed", "not_run", "missing"]
 
 EvidenceStreamFreshness = Literal["fresh", "stale", "unknown", "absent"]
-
-#: Artifact kinds whose absence makes the report unable to claim readiness.
-#: ``diff_impact`` is situational (a clean tree has no diff to analyse) and
-#: ``readiness_scorecard`` / ``coverage_mutation`` have no producer yet
-#: (#151 / #147), so none of those three forces ``incomplete``.
-_CORE_ARTIFACT_KINDS: Final[frozenset[str]] = frozenset(
-    {"repo_map", "risk_ledger", "context_bundle"}
-)
-
-#: Evidence streams that gate readiness. ``coverage`` / ``mutation`` have no
-#: producer yet (#147), so their ``missing`` status must not drag an
-#: otherwise-green repo to ``incomplete``.
-_CORE_EVIDENCE_NAMES: Final[frozenset[str]] = frozenset({"tests", "ci"})
 
 
 class ReportProject(BaseModel):
@@ -206,77 +181,3 @@ class QAReport(BaseModel):
     evidence: list[ReportEvidence] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     readiness: ReportReadiness
-
-
-def derive_readiness(
-    artifacts: list[ReportArtifact],
-    risks: list[ReportRisk],
-    evidence: list[ReportEvidence],
-) -> ReportReadiness:
-    """Roll the report's signals up into one readiness state, most severe first.
-
-    Deterministic: reasons are collected in stable input order, and the first
-    severity tier with any reason wins. See the module docstring for the
-    decision table and why the ordering is load-bearing.
-    """
-    blocked: list[str] = []
-    for risk in risks:
-        if risk.uncovered_blocker:
-            blocked.append(f"risk {risk.risk_id} is an uncovered blocker")
-        elif risk.evidence_status == "failing":
-            blocked.append(f"risk {risk.risk_id} has failing evidence")
-    for fact in evidence:
-        if fact.status in ("failing", "mixed"):
-            blocked.append(f"{fact.name} evidence is {fact.status}")
-    if blocked:
-        return ReportReadiness(state="blocked", reasons=blocked)
-
-    stale: list[str] = []
-    for artifact in artifacts:
-        if artifact.status == "stale":
-            stale.append(f"{artifact.kind} artifact is stale")
-    for risk in risks:
-        if risk.evidence_status == "stale":
-            stale.append(f"risk {risk.risk_id} evidence is stale")
-    for fact in evidence:
-        if fact.freshness == "stale":
-            stale.append(f"{fact.name} evidence is stale")
-        elif fact.status == "passing" and not fact.trustworthy:
-            # A pass with unknown/absent freshness is not safety-supporting
-            # (the context-bundle trust contract) — without this arm the
-            # banner could read ready while the evidence table says
-            # trustworthy=no.
-            stale.append(
-                f"{fact.name} evidence is passing but not trustworthy (freshness: {fact.freshness})"
-            )
-    if stale:
-        return ReportReadiness(state="stale_evidence", reasons=stale)
-
-    incomplete: list[str] = []
-    ledger_status = next((a.status for a in artifacts if a.kind == "risk_ledger"), "missing")
-    for artifact in artifacts:
-        if artifact.kind in _CORE_ARTIFACT_KINDS and artifact.status in ("missing", "invalid"):
-            incomplete.append(f"{artifact.kind} is {artifact.status}")
-    for risk in risks:
-        if risk.evidence_status == "planned":
-            incomplete.append(f"risk {risk.risk_id} is planned but not executed")
-    if not risks and ledger_status == "available":
-        # An available ledger with zero recorded risks is weak evidence, not a
-        # green light — somebody opened the ledger and wrote nothing down.
-        incomplete.append("risk ledger records no risks")
-    for fact in evidence:
-        if fact.name in _CORE_EVIDENCE_NAMES and fact.status in ("not_run", "missing"):
-            incomplete.append(f"{fact.name} evidence is {fact.status}")
-    if incomplete:
-        return ReportReadiness(state="incomplete", reasons=incomplete)
-
-    residuals: list[str] = []
-    for risk in risks:
-        if risk.evidence_status == "accepted_residual":
-            residuals.append(f"risk {risk.risk_id} is an accepted residual")
-        elif risk.residual != "mitigated":
-            residuals.append(f"risk {risk.risk_id} residual decision is {risk.residual}")
-    if residuals:
-        return ReportReadiness(state="ready_with_residuals", reasons=residuals)
-
-    return ReportReadiness(state="ready", reasons=[])

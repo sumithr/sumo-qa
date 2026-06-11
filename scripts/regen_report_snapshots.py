@@ -196,7 +196,6 @@ def _inputs(case: str, **overrides) -> ReportInputs:
         "ledger_source": _on_disk(".sumo-qa/risk-ledger.json"),
         "bundle": _bundle(),
         "bundle_source": _on_disk(".sumo-qa/context-bundle.json"),
-        "scorecard_source": _absent(),
     }
     data.update(overrides)
     return ReportInputs.model_validate(data)

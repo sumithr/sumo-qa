@@ -137,7 +137,7 @@ A deterministic exporter for already-structured QA test cases — markdown prose
 
 ## Local QA report
 
-A deterministic composer/renderer for the local QA report — one polished, self-contained static HTML page (`.sumo-qa/qa-report.html`) summarising repo health, change impact, risk-to-test coverage, and evidence freshness from the persisted `.sumo-qa` artifacts. Every source is optional: missing, invalid, or stale artifacts render explicit honest states (missing data is never reported as passing evidence), and the derived readiness roll-up picks the most severe state (blocked > stale_evidence > incomplete > ready_with_residuals > ready). No inference, no network, no hosted service. The CLI mirror is `sumo-qa report`. See [QA-REPORT.md](QA-REPORT.md) for the artifact conventions, the readiness decision table, and the snapshot/determinism contract.
+A deterministic composer/renderer for the local QA report — one polished, self-contained static HTML page (`.sumo-qa/qa-report.html`) summarising repo health, change impact, risk-to-test coverage, and evidence freshness from the persisted `.sumo-qa` artifacts. Every source is optional: missing, invalid, or stale artifacts render explicit honest states (missing data is never reported as passing evidence). The readiness verdict (ready / ready_with_accepted_residuals / blocked / insufficient_evidence) is derived by #151's `QaScorecard` engine from the risk ledger + context bundle — the single source of truth, so the report and the scorecard can never disagree. No inference, no network, no hosted service. The CLI mirror is `sumo-qa report`. See [QA-REPORT.md](QA-REPORT.md) for the artifact conventions, the readiness states, and the snapshot/determinism contract.
 
 | Tool | What it returns |
 |---|---|

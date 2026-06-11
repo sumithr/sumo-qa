@@ -1,12 +1,11 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Tests for sumo_qa.report_models — the render-ready QA report model (#157).
 
-The readiness derivation is the highest-risk logic in the report: a wrong
-severity ordering would let a blocked repo read as ready, or let missing data
-masquerade as passing evidence (the exact distinction the issue's acceptance
-criteria require). The derivation is specified here as a decision table —
-every rule row plus the default arm — so each condition combination has an
-enumerated expected state.
+The readiness verdict is NOT derived here — it is derived by #151's
+``QaScorecard`` and mapped onto :class:`ReportReadiness` by
+``report_builder._readiness_from_scorecard`` (tested in test_report_builder).
+This module pins the document model's shape: the artifact inventory, the
+four-state ``ReadinessState`` vocabulary, and the strict-validation contracts.
 """
 
 from __future__ import annotations
@@ -21,11 +20,8 @@ from sumo_qa.report_models import (
     REPORT_SCHEMA_VERSION,
     QAReport,
     ReportArtifact,
-    ReportEvidence,
     ReportProject,
     ReportReadiness,
-    ReportRisk,
-    derive_readiness,
 )
 
 _NOW = datetime(2026, 6, 8, 8, 0, 0, tzinfo=timezone.utc)
@@ -38,220 +34,42 @@ def _artifact(kind: str, status: str, **overrides) -> ReportArtifact:
 
 
 def _baseline_artifacts(**status_overrides) -> list[ReportArtifact]:
-    """All-green artifact inventory; coverage/mutation and the scorecard stay
-    'missing' because no producer for them exists yet (#147 / #151 open)."""
+    """All-green artifact inventory. The scorecard is ``available`` (derived
+    in-report from the ledger + bundle); coverage/mutation stay ``missing``
+    (#147 is guidance, not a persisted artifact)."""
     statuses = {
         "repo_map": "available",
         "diff_impact": "available",
         "risk_ledger": "available",
         "context_bundle": "available",
-        "readiness_scorecard": "missing",
+        "readiness_scorecard": "available",
         "coverage_mutation": "missing",
     }
     statuses.update(status_overrides)
     return [_artifact(kind, status) for kind, status in statuses.items()]
 
 
-def _risk(
-    risk_id: str = "R1",
-    evidence_status: str = "passing",
-    residual: str = "mitigated",
-    uncovered_blocker: bool = False,
-) -> ReportRisk:
-    return ReportRisk(
-        risk_id=risk_id,
-        risk="demo risk",
-        source_anchor="src/demo.py:1",
-        test="tests/test_demo.py::test_demo",
-        evidence_status=evidence_status,
-        residual=residual,
-        repo_map_node_id=None,
-        uncovered_blocker=uncovered_blocker,
-    )
-
-
-def _evidence(
-    name: str = "tests",
-    status: str = "passing",
-    freshness: str | None = "fresh",
-    trustworthy: bool = True,
-) -> ReportEvidence:
-    return ReportEvidence(
-        name=name,
-        status=status,
-        freshness=freshness,
-        trustworthy=trustworthy,
-        source="ci_provider",
-        captured_at=None,
-        detail=None,
-    )
-
-
-def _green_inputs() -> tuple[list[ReportArtifact], list[ReportRisk], list[ReportEvidence]]:
-    """The all-green baseline: every rule test perturbs exactly one signal."""
-    return (
-        _baseline_artifacts(),
-        [_risk()],
-        [_evidence("tests"), _evidence("ci")],
-    )
-
-
 # ---------------------------------------------------------------------------
-# derive_readiness — decision table
+# ReadinessState vocabulary — adopted verbatim from #151's scorecard
 # ---------------------------------------------------------------------------
 
 
-def test_readiness_all_green_is_ready():
-    artifacts, risks, evidence = _green_inputs()
-    readiness = derive_readiness(artifacts, risks, evidence)
-    assert readiness.state == "ready"
+@pytest.mark.parametrize(
+    "state",
+    ["ready", "ready_with_accepted_residuals", "blocked", "insufficient_evidence"],
+)
+def test_readiness_state_vocabulary_matches_the_scorecard(state):
+    """ReportReadiness accepts exactly the scorecard's four recommendation
+    states — the report and the scorecard can never disagree on vocabulary."""
+    assert ReportReadiness(state=state, reasons=[]).state == state
 
 
-def test_readiness_uncovered_blocker_is_blocked():
-    artifacts, risks, evidence = _green_inputs()
-    risks.append(_risk("R2", evidence_status="planned", residual="blocker", uncovered_blocker=True))
-    readiness = derive_readiness(artifacts, risks, evidence)
-    assert readiness.state == "blocked"
-    assert any("R2" in reason for reason in readiness.reasons)
-
-
-def test_readiness_failing_risk_row_is_blocked():
-    artifacts, risks, evidence = _green_inputs()
-    risks.append(_risk("R2", evidence_status="failing", residual="open"))
-    assert derive_readiness(artifacts, risks, evidence).state == "blocked"
-
-
-def test_readiness_failing_evidence_is_blocked():
-    artifacts, risks, evidence = _green_inputs()
-    evidence[0] = _evidence("tests", status="failing", trustworthy=False)
-    assert derive_readiness(artifacts, risks, evidence).state == "blocked"
-
-
-def test_readiness_mixed_evidence_is_blocked():
-    artifacts, risks, evidence = _green_inputs()
-    evidence[1] = _evidence("ci", status="mixed", trustworthy=False)
-    assert derive_readiness(artifacts, risks, evidence).state == "blocked"
-
-
-def test_readiness_blocked_wins_over_stale():
-    """Severity ordering: a blocker plus stale evidence must read blocked, not
-    stale — the more severe state wins."""
-    artifacts, risks, evidence = _green_inputs()
-    artifacts = _baseline_artifacts(repo_map="stale")
-    risks.append(_risk("R2", evidence_status="failing", residual="blocker", uncovered_blocker=True))
-    assert derive_readiness(artifacts, risks, evidence).state == "blocked"
-
-
-def test_readiness_stale_repo_map_is_stale_evidence():
-    artifacts, risks, evidence = _green_inputs()
-    artifacts = _baseline_artifacts(repo_map="stale")
-    readiness = derive_readiness(artifacts, risks, evidence)
-    assert readiness.state == "stale_evidence"
-    assert any("repo_map" in reason for reason in readiness.reasons)
-
-
-def test_readiness_stale_risk_row_is_stale_evidence():
-    artifacts, risks, evidence = _green_inputs()
-    risks.append(_risk("R2", evidence_status="stale", residual="open"))
-    assert derive_readiness(artifacts, risks, evidence).state == "stale_evidence"
-
-
-def test_readiness_stale_evidence_fact_is_stale_evidence():
-    artifacts, risks, evidence = _green_inputs()
-    evidence[0] = _evidence("tests", status="passing", freshness="stale", trustworthy=False)
-    assert derive_readiness(artifacts, risks, evidence).state == "stale_evidence"
-
-
-@pytest.mark.parametrize("freshness", ["unknown", "absent"])
-def test_readiness_untrustworthy_passing_evidence_is_stale_evidence(freshness):
-    """A passing result whose freshness is unknown/absent is NOT
-    safety-supporting (the context-bundle trust contract) — the roll-up must
-    not let it read as ready while the evidence table says trustworthy=no."""
-    artifacts, risks, evidence = _green_inputs()
-    evidence[0] = _evidence("tests", status="passing", freshness=freshness, trustworthy=False)
-    readiness = derive_readiness(artifacts, risks, evidence)
-    assert readiness.state == "stale_evidence"
-    assert any("tests" in reason for reason in readiness.reasons)
-
-
-def test_readiness_stale_wins_over_incomplete():
-    """A stale repo-map plus a missing ledger must read stale_evidence — the
-    re-verify signal outranks the gather-more-data signal."""
-    artifacts, risks, evidence = _green_inputs()
-    artifacts = _baseline_artifacts(repo_map="stale", risk_ledger="missing")
-    assert derive_readiness(artifacts, [], evidence).state == "stale_evidence"
-
-
-@pytest.mark.parametrize("kind", ["repo_map", "risk_ledger", "context_bundle"])
-@pytest.mark.parametrize("status", ["missing", "invalid"])
-def test_readiness_core_artifact_gap_is_incomplete(kind, status):
-    """Missing or unreadable core artifacts mean the report cannot claim
-    readiness — missing data is NOT passing evidence (AC)."""
-    artifacts, risks, evidence = _green_inputs()
-    artifacts = _baseline_artifacts(**{kind: status})
-    readiness = derive_readiness(artifacts, risks, evidence)
-    assert readiness.state == "incomplete"
-    assert any(kind in reason for reason in readiness.reasons)
-
-
-def test_readiness_planned_risk_row_is_incomplete():
-    artifacts, risks, evidence = _green_inputs()
-    risks.append(_risk("R2", evidence_status="planned", residual="open"))
-    assert derive_readiness(artifacts, risks, evidence).state == "incomplete"
-
-
-def test_readiness_empty_ledger_rows_is_incomplete():
-    """An available ledger with zero recorded risks is weak evidence, not a
-    green light."""
-    artifacts, _, evidence = _green_inputs()
-    readiness = derive_readiness(artifacts, [], evidence)
-    assert readiness.state == "incomplete"
-    assert any("no risks" in reason for reason in readiness.reasons)
-
-
-@pytest.mark.parametrize("status", ["not_run", "missing"])
-def test_readiness_unrun_core_evidence_is_incomplete(status):
-    artifacts, risks, evidence = _green_inputs()
-    evidence[0] = _evidence("tests", status=status, freshness="absent", trustworthy=False)
-    assert derive_readiness(artifacts, risks, evidence).state == "incomplete"
-
-
-def test_readiness_missing_coverage_does_not_block_ready():
-    """coverage/mutation have no producer yet (#147) — their 'missing' status
-    must not drag an otherwise-green repo to incomplete."""
-    artifacts, risks, evidence = _green_inputs()
-    evidence.append(_evidence("coverage", status="missing", freshness=None, trustworthy=False))
-    evidence.append(_evidence("mutation", status="missing", freshness=None, trustworthy=False))
-    assert derive_readiness(artifacts, risks, evidence).state == "ready"
-
-
-def test_readiness_accepted_residual_row_is_ready_with_residuals():
-    artifacts, risks, evidence = _green_inputs()
-    risks.append(_risk("R2", evidence_status="accepted_residual", residual="accepted"))
-    readiness = derive_readiness(artifacts, risks, evidence)
-    assert readiness.state == "ready_with_residuals"
-    assert any("R2" in reason for reason in readiness.reasons)
-
-
-def test_readiness_open_residual_on_passing_row_is_ready_with_residuals():
-    artifacts, risks, evidence = _green_inputs()
-    risks.append(_risk("R2", evidence_status="passing", residual="open"))
-    assert derive_readiness(artifacts, risks, evidence).state == "ready_with_residuals"
-
-
-def test_readiness_reasons_are_deterministic():
-    artifacts, risks, evidence = _green_inputs()
-    risks.append(_risk("R2", evidence_status="failing", residual="blocker", uncovered_blocker=True))
-    first = derive_readiness(artifacts, risks, evidence)
-    second = derive_readiness(artifacts, risks, evidence)
-    assert first == second
-    assert first.reasons  # a non-ready state must say why
-
-
-def test_readiness_ready_state_has_reasonless_or_explanatory_shape():
-    artifacts, risks, evidence = _green_inputs()
-    readiness = derive_readiness(artifacts, risks, evidence)
-    assert isinstance(readiness, ReportReadiness)
+@pytest.mark.parametrize("state", ["stale_evidence", "incomplete", "ready_with_residuals"])
+def test_readiness_rejects_the_retired_report_only_states(state):
+    """The old report-only vocabulary (folded into the scorecard's states) is
+    no longer valid — guards against a stale snapshot or caller drifting back."""
+    with pytest.raises(ValidationError):
+        ReportReadiness(state=state, reasons=[])
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +106,7 @@ def test_qa_report_requires_schema_version():
         QAReport(
             project=project,
             artifacts=_baseline_artifacts(),
-            readiness=ReportReadiness(state="incomplete", reasons=[]),
+            readiness=ReportReadiness(state="insufficient_evidence", reasons=[]),
         )
 
 
@@ -305,7 +123,7 @@ def test_qa_report_rejects_unknown_fields():
             schema_version=REPORT_SCHEMA_VERSION,
             project=project,
             artifacts=_baseline_artifacts(),
-            readiness=ReportReadiness(state="incomplete", reasons=[]),
+            readiness=ReportReadiness(state="insufficient_evidence", reasons=[]),
             surprise="nope",
         )
 

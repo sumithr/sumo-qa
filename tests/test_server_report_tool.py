@@ -63,7 +63,7 @@ def test_default_call_is_side_effect_free(tool, tmp_path):
 
 def test_summary_shape_is_compact_and_complete(tool, tmp_path):
     out = tool(root=str(tmp_path))
-    assert out.readiness_state == "incomplete"
+    assert out.readiness_state == "insufficient_evidence"
     assert isinstance(out.readiness_reasons, list) and out.readiness_reasons
     assert set(out.artifact_statuses) == {
         "repo_map",

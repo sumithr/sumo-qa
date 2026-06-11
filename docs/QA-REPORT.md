@@ -22,8 +22,8 @@ report is the durable, shareable snapshot of the same state.
 | Diff impact | `.sumo-qa/diff-impact.json` | `sumo_qa_analyze_diff_impact` with `write_overlay=True` (#156) |
 | Risk ledger | `.sumo-qa/risk-ledger.json` | opt-in conventional path (#144 is a chat formatter; persist the same rows there, or pass them inline to the MCP tool) |
 | Context bundle | `.sumo-qa/context-bundle.json` | opt-in conventional path (#149 is a chat formatter; persist the same bundle there, or pass it inline) |
-| Readiness scorecard | `.sumo-qa/readiness-scorecard.json` | pending — lands with #151; a present file renders `invalid` (no reader exists yet) |
-| Coverage / mutation | — | pending — lands with #147; always an explicit not-available state |
+| Readiness scorecard | — (derived) | composed in-report from the risk ledger + context bundle via #151's `QaScorecard` engine — not a persisted artifact |
+| Coverage / mutation | — | optional `QaScorecard` signals (#147 is guidance, not a persisted artifact); an explicit not-available state when unsupplied |
 
 **Every source is optional.** The report works with any subset of artifacts —
 an empty repo still produces a valid page. That is the load-bearing honesty
@@ -42,24 +42,26 @@ appears in the artifact inventory with one of four distinct states:
 
 ## Readiness roll-up
 
-The one piece of deterministic logic the report owns. An ordered decision
-table — **most severe state wins**:
+The readiness verdict is **not** derived in the report. It is derived by
+#151's `QaScorecard` (the single source of truth) from the risk ledger +
+context bundle, and mapped straight onto the report — so the report and the
+scorecard can never disagree. The four states are `QaScorecard`'s own
+recommendation, adopted verbatim (first match wins):
 
 | State | When |
 |---|---|
-| `blocked` | an uncovered blocker risk row, a failing risk row, or failing/mixed test/CI evidence |
-| `stale_evidence` | a stale artifact, a stale risk row, stale evidence, or a passing result that is not trustworthy (unknown/absent freshness — only a fresh pass backs safety) — re-verify before trusting anything |
-| `incomplete` | a core artifact (repo-map, risk ledger, context bundle) missing/invalid, a planned-but-not-executed risk row, an available ledger with zero rows, or test/CI evidence that never ran |
-| `ready_with_residuals` | green, but accepted residuals or not-yet-mitigated residual decisions are on record |
-| `ready` | everything green |
+| `blocked` | an uncovered high-impact risk, a ledger row whose covering test is failing, or failing/mixed test/CI evidence |
+| `insufficient_evidence` | readiness cannot be asserted — no QA evidence supplied, a stale or planned-only risk row, evidence that is not fresh-passing, or a context bundle that conflicts with the local head |
+| `ready_with_accepted_residuals` | no blockers and the evidence is sufficient, but one or more risks are recorded accepted residuals |
+| `ready` | no blockers and the evidence supports it |
 
-The ordering is load-bearing: a blocker plus stale evidence reads `blocked`,
-and stale-but-present data reads `stale_evidence` rather than `incomplete`
-(the re-verify signal outranks gather-more-data). Diff-impact absence never
-forces `incomplete` (a clean tree has no diff), and the not-yet-buildable
-scorecard / coverage sources (#151 / #147) never drag an otherwise-green repo
-down. Every non-`ready` state carries explicit reasons on the page and in the
-tool/CLI output.
+The verdict can never short-circuit to `ready`: it is only reached when nothing
+blocks **and** the evidence is sufficient. Stale or unknown-freshness evidence
+lands in `insufficient_evidence` (the re-verify signal), so a passing-but-stale
+result never reads ready. Coverage/mutation are optional `QaScorecard` signals
+(#147 is guidance, not a persisted artifact); their absence is reported as
+not-measured and never assumed passing. Every non-`ready` state carries
+explicit reasons on the page and in the tool/CLI output.
 
 ## Generate it
 

@@ -151,17 +151,17 @@
 <p class="verdict-kicker">Readiness</p>
 <p class="verdict-label">blocked</p>
 <p class="verdict-gloss">Do not merge — unresolved blockers are present.</p>
-<ul class="reasons"><li>risk R3 is an uncovered blocker</li></ul>
+<ul class="reasons"><li>R3: Currency rounding regresses on multi-line refunds — uncovered high-impact risk</li></ul>
 </section>
 <section class="statband">
-<div class="stat"><span class="stat-num">4/6</span><span class="stat-label">sources available</span></div>
+<div class="stat"><span class="stat-num">5/6</span><span class="stat-label">sources available</span></div>
 <div class="stat"><span class="stat-num">2</span><span class="stat-label">risks tracked</span></div>
 <div class="stat alert"><span class="stat-num">1</span><span class="stat-label">uncovered blockers</span></div>
 <div class="stat"><span class="stat-num">0</span><span class="stat-label">warnings</span></div>
 </section>
 <section>
 <h2>Artifact inventory</h2>
-<table><thead><tr><th>artifact</th><th>status</th><th>path</th><th>age</th><th>notes</th></tr></thead><tbody><tr><td>repo map</td><td><span class="badge ok">available</span></td><td>.sumo-qa/repo-map.json</td><td>6 days</td><td>&#8212;</td></tr><tr><td>diff impact</td><td><span class="badge ok">available</span></td><td>.sumo-qa/diff-impact.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>risk ledger</td><td><span class="badge ok">available</span></td><td>.sumo-qa/risk-ledger.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>context bundle</td><td><span class="badge ok">available</span></td><td>.sumo-qa/context-bundle.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>readiness scorecard</td><td><span class="badge off">not available</span></td><td>&#8212;</td><td>&#8212;</td><td>not produced yet — the readiness scorecard lands with #151</td></tr><tr><td>coverage mutation</td><td><span class="badge off">not available</span></td><td>&#8212;</td><td>&#8212;</td><td>not produced yet — coverage/mutation evidence lands with #147</td></tr></tbody></table>
+<table><thead><tr><th>artifact</th><th>status</th><th>path</th><th>age</th><th>notes</th></tr></thead><tbody><tr><td>repo map</td><td><span class="badge ok">available</span></td><td>.sumo-qa/repo-map.json</td><td>6 days</td><td>&#8212;</td></tr><tr><td>diff impact</td><td><span class="badge ok">available</span></td><td>.sumo-qa/diff-impact.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>risk ledger</td><td><span class="badge ok">available</span></td><td>.sumo-qa/risk-ledger.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>context bundle</td><td><span class="badge ok">available</span></td><td>.sumo-qa/context-bundle.json</td><td>&#8212;</td><td>&#8212;</td></tr><tr><td>readiness scorecard</td><td><span class="badge ok">available</span></td><td>&#8212;</td><td>&#8212;</td><td>derived in-report from the risk ledger + context bundle (#151 engine)</td></tr><tr><td>coverage mutation</td><td><span class="badge off">not available</span></td><td>&#8212;</td><td>&#8212;</td><td>not supplied — coverage/mutation are optional readiness-scorecard signals (#147 is guidance, not a persisted artifact)</td></tr></tbody></table>
 </section>
 <section>
 <h2>Change impact</h2>
@@ -173,7 +173,7 @@
 </section>
 <section>
 <h2>Evidence</h2>
-<table><thead><tr><th>stream</th><th>status</th><th>freshness</th><th>trustworthy</th><th>source</th><th>captured at</th><th>detail</th></tr></thead><tbody><tr><td>tests</td><td>passing</td><td>fresh</td><td>yes</td><td>local_git</td><td>2026-06-08T07:30:00+00:00</td><td>&#8212;</td></tr><tr><td>ci</td><td>passing</td><td>fresh</td><td>yes</td><td>ci_provider</td><td>2026-06-08T07:45:00+00:00</td><td>&#8212;</td></tr><tr><td>coverage</td><td>not available</td><td>&#8212;</td><td>no</td><td>&#8212;</td><td>&#8212;</td><td>no producer yet — coverage/mutation evidence lands with #147</td></tr><tr><td>mutation</td><td>not available</td><td>&#8212;</td><td>no</td><td>&#8212;</td><td>&#8212;</td><td>no producer yet — coverage/mutation evidence lands with #147</td></tr></tbody></table>
+<table><thead><tr><th>stream</th><th>status</th><th>freshness</th><th>trustworthy</th><th>source</th><th>captured at</th><th>detail</th></tr></thead><tbody><tr><td>tests</td><td>passing</td><td>fresh</td><td>yes</td><td>local_git</td><td>2026-06-08T07:30:00+00:00</td><td>&#8212;</td></tr><tr><td>ci</td><td>passing</td><td>fresh</td><td>yes</td><td>ci_provider</td><td>2026-06-08T07:45:00+00:00</td><td>&#8212;</td></tr><tr><td>coverage</td><td>not available</td><td>&#8212;</td><td>no</td><td>&#8212;</td><td>&#8212;</td><td>not supplied — coverage/mutation are optional readiness-scorecard signals (#147 is guidance, not a persisted artifact)</td></tr><tr><td>mutation</td><td>not available</td><td>&#8212;</td><td>no</td><td>&#8212;</td><td>&#8212;</td><td>not supplied — coverage/mutation are optional readiness-scorecard signals (#147 is guidance, not a persisted artifact)</td></tr></tbody></table>
 </section>
 <section>
 <h2>Warnings</h2>

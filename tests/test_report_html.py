@@ -66,7 +66,7 @@ def _minimal_report(**overrides) -> QAReport:
                 "coverage_mutation",
             )
         ],
-        "readiness": ReportReadiness(state="incomplete", reasons=["nothing recorded"]),
+        "readiness": ReportReadiness(state="insufficient_evidence", reasons=["nothing recorded"]),
     }
     data.update(overrides)
     return QAReport(**data)
@@ -114,10 +114,10 @@ def test_missing_states_are_visibly_distinct_from_passing():
 def test_readiness_state_is_prominent_per_case():
     expectations = {
         "full-data-ready": "ready",
-        "ready-with-residuals": "ready with residuals",
-        "stale-evidence": "stale evidence",
+        "ready-with-residuals": "ready with accepted residuals",
+        "stale-evidence": "insufficient evidence",
         "blocked": "blocked",
-        "partial-data": "incomplete",
+        "partial-data": "insufficient evidence",
     }
     for case, label in expectations.items():
         assert label in render_report_html(_CASE_REPORTS[case]).lower()

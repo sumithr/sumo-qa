@@ -19,7 +19,12 @@ import pytest
 
 from sumo_qa.context_bundle_models import ContextBundle
 from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION, RiskLedger, RiskLedgerRow
-from sumo_qa.report_builder import build_report, generate_report, load_report_inputs
+from sumo_qa.report_builder import (
+    _readiness_from_scorecard,
+    build_report,
+    generate_report,
+    load_report_inputs,
+)
 
 _NOW = datetime(2026, 6, 8, 8, 0, 0, tzinfo=timezone.utc)
 _VERSION = "sumo-qa 0.0.0-test"
@@ -169,7 +174,7 @@ def test_empty_repo_reports_all_sources_missing(tmp_path):
         "readiness_scorecard": "missing",
         "coverage_mutation": "missing",
     }
-    assert report.readiness.state == "incomplete"
+    assert report.readiness.state == "insufficient_evidence"
     assert report.changed_components == []
     assert report.risks == []
     # Missing data is reported as missing — never as passing evidence (AC).
@@ -182,7 +187,7 @@ def test_subset_only_repo_map_present(tmp_path):
     statuses = _statuses(report)
     assert statuses["repo_map"] == "available"
     assert statuses["diff_impact"] == "missing"
-    assert report.readiness.state == "incomplete"
+    assert report.readiness.state == "insufficient_evidence"
     repo_map_entry = next(a for a in report.artifacts if a.kind == "repo_map")
     assert repo_map_entry.generated_at is not None
     assert repo_map_entry.age_days == 6  # 2026-06-01T12:00 → 2026-06-08T08:00
@@ -251,7 +256,7 @@ def test_foreign_root_repo_map_is_invalid_not_evidence(tmp_path):
     entry = next(a for a in report.artifacts if a.kind == "repo_map")
     assert entry.status == "invalid"
     assert entry.detail is not None and "foreign_root" in entry.detail
-    assert report.readiness.state == "incomplete"
+    assert report.readiness.state == "insufficient_evidence"
 
 
 def test_foreign_root_repo_map_also_rejects_its_diff_impact_overlay(tmp_path):
@@ -287,26 +292,98 @@ def test_pathologically_nested_artifact_is_invalid_not_a_crash(tmp_path):
     assert entry.status == "invalid"
 
 
-def test_present_scorecard_file_is_unsupported_until_151(tmp_path):
+def test_present_scorecard_file_is_ignored_not_read(tmp_path):
+    """The scorecard is derived in-report (#151 engine) from the ledger +
+    bundle, not read from disk — there is no readiness-scorecard.json
+    convention. A leftover file is ignored, NOT treated as an artifact, so with
+    no ledger/bundle the row is 'missing' (not derivable), never 'invalid'."""
     _write_artifact(tmp_path, "readiness-scorecard.json", {"anything": 1})
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
-    assert entry.status == "invalid"
+    assert entry.status == "missing"
+    assert entry.path is None
+    assert entry.detail is not None and "not derivable" in entry.detail
+
+
+def test_scorecard_is_available_when_derived_from_ledger(tmp_path):
+    """A risk ledger (or bundle) is enough to derive the scorecard, so the
+    inventory row reads 'available' and names the #151 engine."""
+    _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
+    assert entry.status == "available"
     assert entry.detail is not None and "#151" in entry.detail
 
 
-def test_absent_scorecard_names_the_pending_issue(tmp_path):
+def test_absent_scorecard_reports_not_derivable(tmp_path):
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
     assert entry.status == "missing"
-    assert entry.detail is not None and "#151" in entry.detail
+    assert entry.detail is not None and "not derivable" in entry.detail
 
 
-def test_coverage_mutation_names_the_pending_issue(tmp_path):
+def test_coverage_mutation_is_an_optional_scorecard_signal(tmp_path):
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
     assert entry.status == "missing"
     assert entry.detail is not None and "#147" in entry.detail
+
+
+# ---------------------------------------------------------------------------
+# readiness verdict — sourced from #151's QaScorecard engine
+# ---------------------------------------------------------------------------
+
+_CLEAN_BUNDLE = ContextBundle.model_validate(
+    {
+        "schema_version": "1.0",
+        "head_sha": _SHA_A,
+        "changed_files": [{"path": "src/demo.py", "change_kind": "modified"}],
+        "test_evidence": {"result": "passing", "freshness": "fresh", "source": "local_git"},
+        "ci_status": {"result": "passing", "freshness": "fresh", "source": "ci_provider"},
+    }
+)
+
+
+def _row(risk_id: str, evidence_status: str, residual: str) -> RiskLedgerRow:
+    return RiskLedgerRow(
+        risk_id=risk_id,
+        risk="demo risk",
+        source_anchor="src/demo.py:1",
+        test="tests/test_demo.py::test_demo",
+        evidence_status=evidence_status,
+        residual=residual,
+    )
+
+
+def _ledger(*rows: RiskLedgerRow) -> RiskLedger:
+    return RiskLedger(schema_version=LEDGER_SCHEMA_VERSION, rows=list(rows))
+
+
+@pytest.mark.parametrize(
+    "ledger,bundle,head,expected",
+    [
+        (_ledger(_row("R1", "passing", "mitigated")), _CLEAN_BUNDLE, _SHA_A, "ready"),
+        (
+            _ledger(
+                _row("R1", "passing", "mitigated"), _row("R2", "accepted_residual", "accepted")
+            ),
+            _CLEAN_BUNDLE,
+            _SHA_A,
+            "ready_with_accepted_residuals",
+        ),
+        (_ledger(_row("R3", "planned", "blocker")), None, None, "blocked"),
+        (None, None, None, "insufficient_evidence"),
+    ],
+)
+def test_readiness_from_scorecard_maps_each_state(ledger, bundle, head, expected):
+    """The report's verdict is exactly #151's QaScorecard.recommendation() for
+    the same ledger + bundle — single source of truth, no re-derivation."""
+    readiness = _readiness_from_scorecard(ledger, bundle, scope="demo", local_head_sha=head)
+    assert readiness.state == expected
+    if expected == "ready":
+        assert readiness.reasons == []
+    else:
+        assert readiness.reasons  # a non-ready verdict must explain itself
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +445,7 @@ def test_repo_map_stale_when_recorded_commit_differs_from_head(tmp_path):
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "repo_map")
     assert entry.status == "stale"
-    assert report.readiness.state == "stale_evidence"
+    assert report.readiness.state == "insufficient_evidence"
 
 
 def test_repo_map_fresh_when_recorded_commit_matches_head(tmp_path):
@@ -424,7 +501,7 @@ def test_bundle_head_sha_conflict_surfaces_warning_and_stale(tmp_path):
     _write_artifact(tmp_path, "context-bundle.json", payload)
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     assert any("head" in w.lower() for w in report.warnings)
-    assert report.readiness.state == "stale_evidence"
+    assert report.readiness.state == "insufficient_evidence"
 
 
 # ---------------------------------------------------------------------------

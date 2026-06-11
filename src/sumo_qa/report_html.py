@@ -35,18 +35,16 @@ _MAX_TABLE_ROWS = 50
 
 _STATE_LABELS = {
     "ready": "ready",
-    "ready_with_residuals": "ready with residuals",
-    "stale_evidence": "stale evidence",
+    "ready_with_accepted_residuals": "ready with accepted residuals",
     "blocked": "blocked",
-    "incomplete": "incomplete",
+    "insufficient_evidence": "insufficient evidence",
 }
 
 _STATE_CLASSES = {
     "ready": "state-good",
-    "ready_with_residuals": "state-warm",
-    "stale_evidence": "state-warm",
+    "ready_with_accepted_residuals": "state-warm",
     "blocked": "state-bad",
-    "incomplete": "state-neutral",
+    "insufficient_evidence": "state-neutral",
 }
 
 #: A plain-language reading of each readiness state — the one line that says
@@ -54,10 +52,9 @@ _STATE_CLASSES = {
 #: labels. Static per state, so the render stays deterministic.
 _STATE_GLOSS = {
     "ready": "Safe to merge on the evidence composed here.",
-    "ready_with_residuals": "Mergeable — the remaining risks are recorded and accepted.",
-    "stale_evidence": "Re-verify before trusting this — some evidence may be out of date.",
+    "ready_with_accepted_residuals": "Mergeable — the remaining risks are recorded and accepted.",
     "blocked": "Do not merge — unresolved blockers are present.",
-    "incomplete": "Not enough evidence to judge yet — generate the missing sources.",
+    "insufficient_evidence": "Not enough fresh evidence to judge — see the reasons below.",
 }
 
 _STATUS_LABELS = {

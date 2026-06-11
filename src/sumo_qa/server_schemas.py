@@ -770,9 +770,9 @@ class GenerateQAReportOutput(_StrictBase):
     )
     root: str = Field(description="Absolute, resolved root path the report was composed for.")
     readiness_state: Literal[
-        "ready", "ready_with_residuals", "stale_evidence", "blocked", "incomplete"
+        "ready", "ready_with_accepted_residuals", "blocked", "insufficient_evidence"
     ] = Field(
-        description="Derived readiness roll-up (most severe state wins).",
+        description="Readiness verdict, derived by #151's QaScorecard engine.",
     )
     readiness_reasons: list[str] = Field(
         default_factory=list,

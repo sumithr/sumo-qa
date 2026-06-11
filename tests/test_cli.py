@@ -315,7 +315,7 @@ def test_report_writes_html_artifact_and_reports_next_command(tmp_path, capsys):
     assert ".sumo-qa/qa-report.html" in out
     # No repo-map yet → the actionable next step is analyze.
     assert "sumo-qa analyze" in out
-    assert "incomplete" in out.lower()
+    assert "insufficient evidence" in out.lower()
 
 
 def test_report_json_is_schema_stable(tmp_path, capsys):
@@ -346,7 +346,7 @@ def test_report_json_is_schema_stable(tmp_path, capsys):
         assert key in payload, f"missing stable key {key!r}"
     assert payload["artifact_path"].endswith(".sumo-qa/qa-report.html")
     assert payload["artifacts"]["repo_map"] == "missing"
-    assert payload["readiness_state"] == "incomplete"
+    assert payload["readiness_state"] == "insufficient_evidence"
 
 
 def test_report_after_analyze_consumes_the_repo_map(tmp_path, capsys):
@@ -366,8 +366,9 @@ def test_report_after_analyze_consumes_the_repo_map(tmp_path, capsys):
 
 
 def test_report_flags_stale_repo_map_and_suggests_reanalyze(tmp_path, capsys):
-    """A stale repo-map (recorded commit != HEAD) downgrades readiness and the
-    next command points back at analyze."""
+    """A stale repo-map (recorded commit != HEAD) is flagged in the inventory
+    and the next command points back at analyze. Readiness stays
+    insufficient_evidence here (no risk ledger / context bundle to assess)."""
     _make_repo(tmp_path)
     _git_init_commit(tmp_path)
     cli.main(["analyze", str(tmp_path)])
@@ -380,7 +381,7 @@ def test_report_flags_stale_repo_map_and_suggests_reanalyze(tmp_path, capsys):
 
     assert rc == 0
     assert payload["artifacts"]["repo_map"] == "stale"
-    assert payload["readiness_state"] == "stale_evidence"
+    assert payload["readiness_state"] == "insufficient_evidence"
     assert payload["next_command"] == f"sumo-qa analyze {tmp_path.resolve().as_posix()}"
 
 
