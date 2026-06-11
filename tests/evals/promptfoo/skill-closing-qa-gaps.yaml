@@ -19,8 +19,10 @@ defaultTest:
     - type: javascript
       # The skill's announce line — deterministic proof the candidate is
       # running the loop discipline rather than answering ad hoc. Every turn
-      # of the loop (including a refusal turn) opens with it.
-      value: 'output.match(/closing one qa gap/i) !== null'
+      # of the loop (including a refusal turn) OPENS with it, so the match is
+      # anchored to the start (allowing leading whitespace/markdown emphasis/
+      # quote markers) — a mention buried mid-response does not count.
+      value: '/^[\s>*_"'']{0,8}closing one qa gap at a time/i.test(output)'
       threshold: 1
     - type: llm-rubric
       value: |
@@ -70,8 +72,10 @@ defaultTest:
          recorded descriptions always; file paths and evidence text WHEN the
          context supplies them. Demand only what the context contains — a
          context that supplies no file paths cannot be failed for not citing
-         paths. Invented paths, invented test output, or generic advice that
-         ignores the context fail this axis.
+         paths. Invented paths, invented test output, claiming an EXISTING
+         test or run result the context does not supply (proposing a NEW
+         test to be created is fine), or generic advice that ignores the
+         context fail this axis.
 
       C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
          ABSENT or PRESENT. PRESENT = the response actually exhibits it.
@@ -231,13 +235,16 @@ tests:
         changed, citing the fresh green run
         (`tests/billing/test_refund.py::test_refund_over_balance_rejected
         PASSED`) and the wider regression result (41 passed) supplied in
-        context. EXPLICITLY DECLINES to call the change safe to merge — that
+        context, and resolves the row's residual as it flips (`blocker` does
+        not remain on a passing row — it becomes `mitigated`).
+        EXPLICITLY DECLINES to call the change safe to merge — that
         verdict belongs to the merge-review workflow against fresh evidence —
         and routes there instead. Does not start another gap unprompted.
       anti_patterns:
         - Says the change is safe to merge (in any phrasing) instead of routing to the merge-review workflow.
         - Marks the risk covered without citing the supplied red-to-green evidence.
         - Marks any OTHER ledger row covered (R2, R3) when only R1's evidence changed.
+        - Leaves residual `blocker` on the row it flips to passing.
         - Starts the next gap's loop without the developer asking.
       ground_truth_context: |
         ## Loop state (this session)

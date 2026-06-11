@@ -94,9 +94,9 @@ Recommended cadence:
 
 | Trigger | What runs | Why |
 |---|---|---|
-| **Pre-release manual** | Full 39 evals against the candidate sumo-qa version + a pinned host LLM (e.g. Claude Sonnet 4.6) | Catch a regression in skill or tool descriptions before users do. |
+| **Pre-release manual** | Full 47 evals against the candidate sumo-qa version + a pinned host LLM (e.g. Claude Sonnet 4.6) | Catch a regression in skill or tool descriptions before users do. |
 | **Touched skill / tool description** | Just the affected scenarios (subset by skill name or tool name) | Cheap incremental signal on a PR that edits SKILL.md or `server.py` tool descriptions. |
-| **Quarterly drift-check** | Full 39 evals against the *latest* host LLM version, even if sumo-qa hasn't changed | Catch host-LLM-side drift (a model upgrade that changes how tools get picked). |
+| **Quarterly drift-check** | Full 47 evals against the *latest* host LLM version, even if sumo-qa hasn't changed | Catch host-LLM-side drift (a model upgrade that changes how tools get picked). |
 | **On scenario-spec change** | Just the changed scenario | Sanity-check the new spec is judge-able before adding it to the suite. |
 
 `pytest` is **not** the right runner. Pytest is for code-level correctness (what the 431 unit tests in `tests/` already cover); these evals are for skill-level discipline and are deliberately decoupled — they don't gate merges, they audit drift.

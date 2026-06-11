@@ -37,7 +37,7 @@ Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario belo
 
 **Expected tool:** `sumo_qa_load_approaches` (no args).
 
-**Expected use of result:** the LLM cites the approach by its catalogue entry, including when-to-use guidance. Names the 8 approaches (strategy-orchestration, tdd-scaffold, regression-first, coverage-first-then-refactor, strengthen-test-coverage, verify-existing, no-tests-recommended, spike-first-then-tests).
+**Expected use of result:** the LLM cites the approach by its catalogue entry, including when-to-use guidance. Names every approach returned by the catalogue verbatim — from `strategy-orchestration` through the most recently added (`recommend-removal`, `closed-loop-gap-fix`) — rather than a remembered subset.
 
 **Anti-pick:** training-data recall ("coverage-first means add tests then refactor — common practice"); calls `sumo_qa_load_principles` instead.
 

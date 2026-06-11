@@ -14,7 +14,7 @@ QA evidence — a review's uncovered risk, an unmet acceptance criterion, a muta
 Inherits the global discipline from `using-sumo-qa`: output discipline (no internal taxonomy labels), output economy (findings not framing; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit.
 
 <HARD-GATE>
-Do NOT start a loop you cannot evidence. Three inspectable prerequisites: (a) ONE concretely named behaviour gap from real QA evidence (review verdict, mutation report, graded-scenario failure, or a defect the user described) — a service or module name is not a gap; the gap is a specific behaviour with no covering test; (b) readable production AND test files; (c) a way to run the relevant tests locally. If ANY is missing, STOP: check (a)–(c) one by one, name EVERY absent prerequisite, ask for them, and do nothing else. Never substitute assumption for inspection — no invented paths or contents, no fabricated test output, no generic test plan in place of the pause.
+Do NOT start a loop you cannot evidence. Three inspectable prerequisites: (a) ONE concretely named behaviour gap from real QA evidence (review verdict, mutation report, graded-scenario failure, or a defect the user described) — a service or module name is not a gap; the gap is a specific behaviour with no covering test; (b) readable production AND test files; (c) a known way to run the relevant tests — locally, or, when no local run is possible, the user's explicit go-ahead on the step-4 no-local-run fallback. If ANY is missing, STOP: check (a)–(c) one by one, name EVERY absent prerequisite, ask for them, and do nothing else. Never substitute assumption for inspection — no invented paths or contents, no fabricated test output, no generic test plan in place of the pause.
 </HARD-GATE>
 
 ## The Iron Law
@@ -72,9 +72,9 @@ See the Checklist above — that's the flow.
 
 > Review names three uncovered risks; user: *"close them."*
 >
-> **AI:** *"Closing one QA gap at a time. Starting with R1 — `apply_refund` accepts an over-balance amount (R2, R3 parked as later loops). Test idea: `tests/billing/test_refund.py::test_refund_over_balance_rejected`, refund of 150.00 against a 100.00 remaining balance, expecting `RefundError` — boundary value analysis on the remaining-balance edge. Writing it and capturing the red run before any production change."*
+> **AI:** *"Closing one QA gap at a time. Starting with R1 — `apply_refund` accepts an over-balance amount (R2, R3 parked as later loops). Test idea: `tests/billing/test_refund.py::test_refund_over_balance_rejected`, refund of 150.00 against a 100.00 remaining balance, expecting `RefundError` — boundary value analysis on the remaining-balance edge. **Is `RefundError` the agreed contract for over-balance, or should it clamp to the remaining balance?**"*
 >
-> Runs it, surfaces the `FAILED … RefundError not raised` output, hands off for the green change.
+> On confirm (per the TDD discipline's idea→confirm→write gate): writes the test, runs it, surfaces the `FAILED … RefundError not raised` output BEFORE any production change, hands off for the green change.
 
 ### Good (mutation survivor, production locked)
 
