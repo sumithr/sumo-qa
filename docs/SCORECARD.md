@@ -35,7 +35,10 @@ than redefining them.
 
 Every input is optional — an empty payload derives `insufficient_evidence`. An
 **absent** coverage/mutation signal is reported as `not measured`, **never assumed
-passing**, so it can never outweigh an uncovered high-impact risk.
+passing**, so it can never outweigh an uncovered high-impact risk. A coverage/mutation
+payload supplied with no actual measurement (an empty `{}`, or `freshness`/`detail`
+metadata but no `line_percent` / `survivors` / `killed`) is treated as absent — it
+too is reported as `not measured`, never as a measured dimension.
 
 ## The four recommendation states
 

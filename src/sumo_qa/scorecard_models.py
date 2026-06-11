@@ -62,7 +62,7 @@ risks) carries its own status so the markdown table and the serialized snapshot
 
 from __future__ import annotations
 
-from typing import Final, Literal
+from typing import ClassVar, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -96,7 +96,26 @@ DimensionStatus = Literal[
 ]
 
 
-class CoverageSignal(BaseModel):
+class _MeasurementSignal(BaseModel):
+    """Shared base for the optional coverage/mutation signals.
+
+    A signal is only *evidence* when it carries an actual measurement; the
+    ``freshness`` and ``detail`` fields are metadata about a measurement, not a
+    measurement themselves. ``has_measurement`` lets the load envelope collapse a
+    payload that carries no measurement (an empty ``{}`` or freshness/detail
+    only) to ``None`` so the dimension reports ``not_measured`` rather than
+    claiming an unmeasured dimension was measured.
+    """
+
+    #: Subclass-declared names of the fields that carry an actual measurement.
+    MEASUREMENT_FIELDS: ClassVar[tuple[str, ...]] = ()
+
+    def has_measurement(self) -> bool:
+        """True when at least one measurement field is populated (a zero counts)."""
+        return any(getattr(self, name) is not None for name in self.MEASUREMENT_FIELDS)
+
+
+class CoverageSignal(_MeasurementSignal):
     """An OPTIONAL line/branch-coverage signal (issue #147 artifacts).
 
     Reported, never gated on a threshold: the scorecard names the number and its
@@ -106,6 +125,8 @@ class CoverageSignal(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    MEASUREMENT_FIELDS: ClassVar[tuple[str, ...]] = ("line_percent",)
 
     line_percent: float | None = Field(
         default=None, description="Optional line-coverage percentage in [0, 100]."
@@ -124,7 +145,7 @@ class CoverageSignal(BaseModel):
         return value
 
 
-class MutationSignal(BaseModel):
+class MutationSignal(_MeasurementSignal):
     """An OPTIONAL mutation-testing signal (surviving / killed mutants).
 
     Like coverage: reported with its freshness, never turned into a gate or a
@@ -132,6 +153,8 @@ class MutationSignal(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    MEASUREMENT_FIELDS: ClassVar[tuple[str, ...]] = ("survivors", "killed")
 
     survivors: int | None = Field(
         default=None, description="Optional count of surviving mutants (>= 0)."

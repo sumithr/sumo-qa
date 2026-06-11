@@ -13,14 +13,21 @@ context-bundle envelopes provide.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from sumo_qa.context_bundle_validation import load_context_bundle
 from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION
 from sumo_qa.ledger_validation import load_ledger
-from sumo_qa.scorecard_models import CoverageSignal, MutationSignal, QaScorecard
+from sumo_qa.scorecard_models import (
+    CoverageSignal,
+    MutationSignal,
+    QaScorecard,
+    _MeasurementSignal,
+)
+
+_SignalT = TypeVar("_SignalT", bound=_MeasurementSignal)
 
 # Note the kinds are a subset of the ledger/context-bundle envelopes': the
 # coverage/mutation signals this envelope validates have NO required fields, so a
@@ -87,13 +94,13 @@ def load_scorecard(
 
 def _load_signal(
     data: dict[str, Any] | None,
-    model_cls: type[BaseModel],
+    model_cls: type[_SignalT],
     field_name: str,
-) -> Any:
+) -> _SignalT | None:
     if data is None:
         return None
     try:
-        return model_cls.model_validate(data)
+        signal = model_cls.model_validate(data)
     except ValidationError as exc:
         first = exc.errors()[0]
         location = "/".join([field_name, *(str(p) for p in first["loc"])])
@@ -102,6 +109,13 @@ def _load_signal(
             message=first["msg"],
             path=location,
         ) from exc
+    # A payload that validates but carries no actual measurement (an empty {} or
+    # freshness/detail metadata only) is not evidence — normalize it to None so
+    # the dimension reports `not_measured`, never claiming an unmeasured
+    # dimension was measured.
+    if not signal.has_measurement():
+        return None
+    return signal
 
 
 def _classify(error_type: str) -> ScorecardValidationErrorKind:

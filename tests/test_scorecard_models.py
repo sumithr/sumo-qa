@@ -325,3 +325,19 @@ def test_coverage_percent_out_of_range_rejected():
 def test_negative_mutant_count_rejected():
     with pytest.raises(ValueError, match="non-negative"):
         MutationSignal(survivors=-1)
+
+
+def test_coverage_has_measurement_only_with_a_number():
+    # freshness/detail are metadata, not a measurement; a zero is a measurement.
+    assert CoverageSignal(line_percent=0.0).has_measurement() is True
+    assert CoverageSignal(line_percent=80.0).has_measurement() is True
+    assert CoverageSignal(freshness="fresh").has_measurement() is False
+    assert CoverageSignal(detail="ran, no number").has_measurement() is False
+    assert CoverageSignal().has_measurement() is False
+
+
+def test_mutation_has_measurement_only_with_a_count():
+    assert MutationSignal(survivors=0).has_measurement() is True
+    assert MutationSignal(killed=5).has_measurement() is True
+    assert MutationSignal(freshness="fresh").has_measurement() is False
+    assert MutationSignal().has_measurement() is False
