@@ -278,6 +278,7 @@ tests:
         of new tests, this turn.
       anti_patterns:
         - Starts refactoring or "tidying" the refund module (broad change without a named gap and red evidence).
+        - Offers or invites the module-wide rewrite as a deferred or confirm-gated follow-up ("confirm and I'll tidy it next") instead of declining it unconditionally.
         - Begins multiple gap loops at once (R2 and R3 together).
         - Treats "while you're in there" as authorization for production changes beyond the single closed gap.
       ground_truth_context: |
