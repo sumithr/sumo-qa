@@ -343,10 +343,19 @@ def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
     # The readiness scorecard (#151) is composed in-report from the risk ledger
     # + context bundle — it is not a persisted artifact (#151's tool has no
     # write_to, and no deserializer exists). "available" requires real evidence
-    # to derive from: a ledger with rows OR a context bundle. An empty ledger
-    # (zero rows) is not evidence, so on its own it stays "missing" — the row
-    # never counts as an available source while the verdict reads insufficient.
-    if (inputs.ledger is not None and inputs.ledger.rows) or inputs.bundle is not None:
+    # to derive from: a ledger with rows OR a bundle carrying actual signal
+    # (test evidence, CI status, or changed files — the same predicate
+    # QaScorecard.insufficiency_reasons uses). An empty ledger or an
+    # evidence-free bundle is not evidence, so on its own it stays "missing" —
+    # the row never counts as an available source while the verdict reads
+    # insufficient.
+    bundle = inputs.bundle
+    has_bundle_signal = bundle is not None and (
+        bundle.test_evidence is not None
+        or bundle.ci_status is not None
+        or bool(bundle.changed_files)
+    )
+    if (inputs.ledger is not None and inputs.ledger.rows) or has_bundle_signal:
         return ReportArtifact(
             kind="readiness_scorecard",
             status="available",

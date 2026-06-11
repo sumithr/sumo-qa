@@ -326,6 +326,18 @@ def test_empty_ledger_does_not_mark_scorecard_available(tmp_path):
     assert report.readiness.state == "insufficient_evidence"
 
 
+def test_evidence_free_bundle_does_not_mark_scorecard_available(tmp_path):
+    """A valid but evidence-free context bundle (no test evidence, no CI
+    status, no changed files) is not QA evidence either — the bundle twin of
+    the empty-ledger case. The derived scorecard stays 'missing' so it never
+    counts as an available source while the verdict reads insufficient."""
+    _write_artifact(tmp_path, "context-bundle.json", {"schema_version": "1.0"})
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
+    assert entry.status == "missing"
+    assert report.readiness.state == "insufficient_evidence"
+
+
 def test_absent_scorecard_reports_not_derivable(tmp_path):
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
