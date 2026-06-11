@@ -34,28 +34,28 @@ Production code is locked. The job is to make the EXISTING tests stronger.
 
 ## Checklist
 
-You MUST work through these in order. Steps 1–3 are AI-only homework (no user questions). The user's confirmation gates steps 4 onward, and steps 5–7 repeat per surviving mutant.
+You MUST work through these in order. Steps 1–3 are AI-only homework (no user questions). The user's confirmation gates steps 4 onward, and steps 5–7 repeat per target (each surviving mutant, or — when no report exists — each weak assertion the user named, which skips straight to step 7).
 
-1. **Identify the target and the report** *(no user question)* — re-read the user's intent. Identify the target module/file. If the user supplied a mutation-testing report path or pasted output, parse it; otherwise note the report is missing.
+1. **Identify the target and the report** *(no user question)* — re-read the user's intent. Identify the target module/file. Use the report the user supplied (a path or pasted output); if none was pasted, DISCOVER the repo's own mutation report with the host's file tools and read it — any tool's format (a Stryker `mutation.json`, a PIT `mutations.xml`, mutmut output) — scoped to the target (the changed code when a diff is in play). Reading a SAVED report is on-demand evidence, NOT a competing run-time hook: the repo's live-run hook/router that fires on a `mutmut run` command keeps that job, so don't re-run the tool just to GENERATE the report here (step 9's post-change re-run to confirm the survivor count dropped is a separate, later step). If no mutation report exists — a coverage report alone does NOT enumerate survivors, so it can't substitute — note that there are no enumerated survivors to walk, and STOP at step 4's gate to ask the user to run mutation testing or name the specific weak assertions to target. Named weak assertions (or a "raise coverage" target) ARE valid walk items: each skips the step 5–6 mutant triage and enters step 7 directly. Stop the walk ONLY when there are neither survivors nor named targets; never INVENT survivors no report named.
 
 2. **Read prod + test files** *(no user question, READ-ONLY on prod)* — read the production file (do NOT edit it) and the matching test file. Note the existing test style (framework, fixtures, parameterise vs separate tests).
 
 3. **Triage the survivor list** *(no user question)* — for each surviving mutant, classify provisionally: (a) likely **tautological / equivalent** (e.g. `i++` → `i--` where only the final value is observable and already asserted); (b) likely **real** (assertion gap is meaningful — e.g. boundary mutated from `>` to `>=` and no test exercises the boundary). User gates the call in step 5.
 
-4. **Confirm target + report scope, only for the AMBIGUOUS parts** — present what you found (target file, test file, survivor count, provisional split). Then ONE focused question for what wasn't clear. If unambiguous, move to step 5.
+4. **Confirm target + report scope, only for the AMBIGUOUS parts** — present what you found (target file, test file, survivor count, provisional split — or, on the named-target path, the weak assertions the user named). Then ONE focused question for what wasn't clear. If unambiguous, move to step 5 — or straight to step 7 on the named-target path (no survivors for the 5–6 triage).
 
 5. **Walk one mutant at a time — confirm tautology vs real** — for each survivor, present line + mutation + your call + rationale, then ask: *"Agree, or is this equivalent given how it's constructed upstream?"* Wait for confirmation. Equivalent → step 6; real → step 7.
 
 6. **Suppress equivalent mutants — config-side if the tool supports it, otherwise source annotation** — preferred: a tool config exclusion (e.g. `pitest.xml` `<excludedMutations>`, Stryker `mutate` exclusions). When the tool has no per-mutant config mechanism (mutmut 3.x, for example — only line-level `# pragma: no mutate` is supported), an inline source annotation is acceptable: it's tooling metadata, not a behaviour change, and the Iron Law's intent (don't reshape production behaviour to make testing easier) is preserved. Each annotation MUST be paired with a one-line rationale comment naming the mutant ID and why the mutation is observably equivalent. Anything else fails review.
   - M21  # x * 1 == x for all numeric inputs
 
-7. **Pick a technique + draft the strengthening test, confirm before writing** — call `sumo_qa_load_techniques()` if not loaded. Pick ONE from the catalogue per real mutant, naming the technique using the VERBATIM catalogue heading (e.g. `boundary value analysis`, NOT `boundary` / `boundary mutant`) (boundary-value for `>` / `>=`; decision-table for branch-condition; property-based for invariants). Present the test name + the assertion idea, wait for confirmation, then write. Match the existing test style.
+7. **Pick a technique + draft the strengthening test, confirm before writing** — call `sumo_qa_load_techniques()` if not loaded. Pick ONE from the catalogue per real mutant (or per user-named weak-assertion target), naming the technique using the VERBATIM catalogue heading (e.g. `boundary value analysis`, NOT `boundary` / `boundary mutant`) (boundary-value for `>` / `>=`; decision-table for branch-condition; property-based for invariants). Present the test name + the assertion idea, wait for confirmation, then write. Match the existing test style.
 
 8. **After all survivors are processed, run the existing suite** — confirm it's still green. Your changes are additive; a pre-existing red means you touched a shared fixture. Surface the count.
 
-9. **Re-run the mutation tool (if user can)** — confirm the survivor count dropped by the number of real mutants addressed. Surface the new count + which survivors remain.
+9. **Re-run the mutation tool (if user can)** — confirm the survivor count dropped by the number of real mutants addressed. Surface the new count + which survivors remain. The named-target path has no baseline survivor count — instead confirm each named target now has its strengthening test in place (run mutation testing now only if the user wants a baseline going forward).
 
-10. **Final report** — list: strengthening tests added (file + name + technique), equivalent mutants suppressed (config + ID + rationale), new survivor count, residual concerns.
+10. **Final report** — list: strengthening tests added (file + name + technique), equivalent mutants suppressed (config + ID + rationale), new survivor count (or, on the named-target path, that each named target is now covered — no baseline existed), residual concerns.
 
 ## Process Flow
 
@@ -76,6 +76,7 @@ Production code stays unchanged throughout this skill, and the final report must
 | "I'll ask the user which test framework / fixture style" | Read the test file. The repo answers that. |
 | "Equivalent mutants: suppress all of them silently" | Each suppression needs a one-line rationale in the config (or as a comment next to the source annotation). Otherwise the next reviewer can't tell whether you suppressed a real one. |
 | "I'll add `# pragma: no mutate` because writing tests is harder" | Wrong direction. Source annotations are for genuinely equivalent mutants only — those where no observable behaviour distinguishes mutant from original. If you can articulate a test that would kill it, it's not equivalent. |
+| "No report was pasted, so there's nothing to work from" | Look for the repo's own mutation report (any tool's format) and read it; only when none exists do you say "not available" and ask for a report or the specific weak assertions to target — never INVENT survivors (a coverage report alone has no survivors). Reading a SAVED report is not the live-run hook/router's job — don't duplicate it or re-run the tool to generate the report (step 9's verification re-run is separate). |
 
 ## Examples
 
