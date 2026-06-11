@@ -1,0 +1,245 @@
+description: >
+  Coverage/mutation-artifact eval for sumo-qa-reviewing-before-merge (issue
+  #147). Measures that a locally-produced coverage/mutation artifact is folded
+  in as SUPPORTING evidence, ASYMMETRICALLY: a gap the artifact surfaces on a
+  CHANGED line — an uncovered line (coverage artifact) or a surviving mutant on
+  the changed line (mutation artifact) — becomes a NAMED risk, but a line the
+  artifact marks "covered/executed", or a high coverage %, never discharges a
+  risk and is never a safe-to-merge criterion on its own. Only a fresh
+  path-matching test with a verbatim assertion discharges a risk; the verdict
+  stays NOT SAFE TO MERGE while the changed-code risk has no such test.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    expected_shape: >-
+      Merge-review verdict that READS the supplied coverage/mutation artifact and
+      uses it as SUPPORTING evidence scoped to the CHANGED code. It surfaces the
+      gap the artifact names on a changed line as a NAMED RISK — whichever applies
+      in this scenario: an uncovered changed line (coverage artifact), or a
+      surviving mutant on a changed line that proves the green suite's assertion
+      does not pin that behaviour (mutation artifact). It does NOT mark that risk
+      covered just because the line is "covered/executed" in the artifact or the
+      suite is green, and it does NOT treat a coverage percentage as a pass/fail
+      gate. Because no fresh path-matching test with a verbatim assertion
+      discharges that changed-code risk, the verdict is NOT SAFE TO MERGE. The
+      artifact is support for the risk-coverage judgement, never the sole
+      safe-to-merge criterion, and a high coverage % is never read as low risk.
+    anti_patterns:
+      - Treats the coverage percentage or the artifact as a safe-to-merge criterion (e.g. "96% covered, suite green -> SAFE").
+      - Marks a risk COVERED because the artifact shows the line covered/executed, with no fresh path-matching test asserting that failure path.
+      - Reads "high coverage" as "low risk" or invents a numeric coverage threshold that decides readiness.
+      - Ignores the supplied coverage/mutation artifact entirely when reasoning about the changed code.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      --- REPO CONTEXT THE CANDIDATE SAW (ground truth — use it to tell which gap
+      the artifact actually surfaces on the changed code, and to check the named
+      risk traces to that artifact + diff) ---
+
+      {{ground_truth_context}}
+
+      --- END REPO CONTEXT ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response use the supplied coverage/mutation artifact as
+         SUPPORTING evidence about the CHANGED code, and reach a NOT SAFE TO MERGE
+         verdict driven by the changed-code gap the artifact surfaces — whichever
+         this scenario supplies: an uncovered changed line (coverage artifact), or
+         a surviving mutant on a changed line that shows the green suite's
+         assertion does not pin that behaviour (mutation artifact) — with NO fresh
+         path-matching test discharging it? Treating the coverage % or a
+         "covered/executed" marker as proof of safety, marking the risk covered on
+         the green suite alone, or replacing the risk-coverage judgement with the
+         artifact -> SHAPE FAIL.
+
+      B. GROUNDING - the named risk and the verdict must trace to the SPECIFIC
+         changed line / surviving mutant in the supplied artifact and diff, not a
+         generic "add more tests". The artifact must be read as support, scoped to
+         the changed code, never as the sole safe-to-merge criterion.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repository diff, the local coverage/mutation artifact the host already read
+    for you, and fresh verification evidence for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill and deliver the safe-to-merge verdict for this diff,
+    using the supplied artifact as evidence where the skill says it applies. No
+    confirmation gate — this is the final verdict turn.
+tests:
+  - description: SEED - artifact shows the changed error-branch UNCOVERED; high % + green suite must NOT be read as SAFE
+    vars:
+      user_prompt: >-
+        Review this — is it safe to merge? I attached the coverage report.
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/services/billing/refund.py b/services/billing/refund.py
+        @@ services/billing/refund.py:40-58 @@
+         def refund(amount, account):
+        -    charge = gateway.refund(account, amount)
+        -    return RefundResult(charge)
+        +    if amount <= 0:
+        +        # NEW error branch: reject invalid amounts with 422
+        +        raise RefundAmountInvalid(amount)
+        +    charge = gateway.refund(account, amount)
+        +    return RefundResult(charge)
+        ```
+
+        ## Coverage artifact (host read .sumo-qa/coverage.json this turn)
+        ```json
+        {
+          "meta": {"format": 3, "version": "7.6.1", "timestamp": "2026-06-11T09:02:00"},
+          "files": {
+            "services/billing/refund.py": {
+              "summary": {"covered_lines": 23, "num_statements": 25, "percent_covered": 92.0, "missing_lines": 2, "excluded_lines": 0},
+              "executed_lines": [41, 45, 46, 47, 48],
+              "missing_lines": [43, 44],
+              "excluded_lines": []
+            }
+          },
+          "totals": {"covered_lines": 23, "num_statements": 25, "percent_covered": 92.0, "missing_lines": 2, "excluded_lines": 0}
+        }
+        ```
+        Lines 43-44 are the new `if amount <= 0: raise RefundAmountInvalid(...)`
+        branch — UNCOVERED in this run.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/billing/test_refund.py -q
+        tests/billing/test_refund.py::test_refund_happy_path PASSED
+        1 passed in 0.18s
+        ```
+        The only fresh test drives the happy path (positive amount). No fresh
+        test exercises the new invalid-amount branch (lines 43-44).
+  - description: SEED - changed line marked "covered/executed" with a surviving mutant; "covered" must NOT discharge the weak-assertion risk
+    vars:
+      user_prompt: >-
+        Is this safe to merge? Coverage and mutation reports are attached.
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/domain/pricing.py b/domain/pricing.py
+        @@ domain/pricing.py:1-2 @@
+         def line_total(price, qty):
+        -    return price * qty
+        +    return round(price * qty * (1 - bulk_discount(qty)), 2)
+        ```
+
+        ## Coverage artifact (host read .sumo-qa/coverage.json this turn)
+        ```json
+        {
+          "meta": {"format": 3, "version": "7.6.1"},
+          "files": {
+            "domain/pricing.py": {
+              "summary": {"covered_lines": 2, "num_statements": 2, "percent_covered": 100.0, "missing_lines": 0, "excluded_lines": 0},
+              "executed_lines": [2],
+              "missing_lines": [],
+              "excluded_lines": []
+            }
+          },
+          "totals": {"covered_lines": 2, "num_statements": 2, "percent_covered": 100.0, "missing_lines": 0, "excluded_lines": 0}
+        }
+        ```
+        Line 2 (the changed `line_total` body) is marked executed/covered.
+
+        ## Mutation artifact (host read reports/mutation/mutation.json this turn — Stryker schema)
+        ```json
+        {
+          "schemaVersion": "1.0",
+          "thresholds": {"high": 80, "low": 60},
+          "files": {
+            "domain/pricing.py": {
+              "language": "python",
+              "source": "def line_total(price, qty):\n    return round(price * qty * (1 - bulk_discount(qty)), 2)\n",
+              "mutants": [
+                {"id": "7", "mutatorName": "ArithmeticOperator", "status": "Survived",
+                 "location": {"start": {"line": 2, "column": 18}, "end": {"line": 2, "column": 29}},
+                 "description": "price * qty -> price + qty"},
+                {"id": "8", "mutatorName": "ArithmeticOperator", "status": "Survived",
+                 "location": {"start": {"line": 2, "column": 33}, "end": {"line": 2, "column": 55}},
+                 "description": "1 - bulk_discount(qty) -> 1 + bulk_discount(qty)"}
+              ]
+            }
+          }
+        }
+        ```
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/domain/test_pricing.py -q
+        tests/domain/test_pricing.py::test_line_total_is_positive PASSED
+        1 passed in 0.10s
+        ```
+        The one fresh test on the changed function is
+        `test_line_total_is_positive`, whose body is `assert line_total(5, 4) > 0`.

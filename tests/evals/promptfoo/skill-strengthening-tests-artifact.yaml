@@ -1,0 +1,207 @@
+description: >
+  Mutation-artifact eval for sumo-qa-strengthening-tests (issue #147).
+  Measures that when the user does NOT paste a mutation report, the skill
+  DISCOVERS and reads the repo's own mutation report (any tool's format) and
+  seeds the survivor walk from it scoped to the target (seed 1) — and when NO
+  mutation report exists, gives a concise "not available" and asks for a report
+  or specific weak-assertion targets rather than blocking or fabricating
+  survivors (seed 2). Production code stays UNCHANGED, and reading a SAVED report
+  never duplicates the live-run PostToolUse router.
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-strengthening-tests/SKILL.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+    expected_shape: >-
+      A strengthening homework + FIRST confirmation-gate turn (skill steps 1-4),
+      NOT the later technique/test-writing turn. The response USES whatever
+      mutation evidence the repo actually provides in THIS scenario, judged from
+      the supplied repo context: WHEN a mutation artifact exists in the repo (even
+      if the user pasted nothing), it READS that artifact and presents the
+      surviving mutants it names from the report (identifying each one clearly —
+      by its mutated expression, and OPTIONALLY its id or line; expression-only
+      identification is sufficient), with a provisional tautology-vs-real triage,
+      then ONE focused
+      confirmation question, production code untouched — it must NOT claim the
+      report is missing or ask the user to paste one. WHEN no artifact exists
+      anywhere in the repo, it says so concisely and asks the user to run mutation
+      testing or name the specific weak assertions to target — it may note
+      untested AREAS as observations but must NOT present invented survivors as
+      confirmed, and must NOT stall silently. In neither case does it write the
+      strengthening test, name the final catalogue technique (a later turn after
+      confirmation), propose to RUN the mutation tool, or install a hook.
+    anti_patterns:
+      - When a mutation artifact IS present in the supplied repo context, claims the report is missing or asks the user to paste/run one instead of reading it.
+      - Modifies production code to kill a mutant (Iron Law violation).
+      - When NO artifact exists, presents invented/specific surviving mutants (named lines/mutations) as confirmed, OR stalls without asking for a report or specific targets.
+      - Lists surviving mutants for the target that the supplied artifact does not name.
+      - Proposes to RUN mutmut/Stryker/PIT or install a PostToolUse hook instead of reading the already-produced artifact.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      --- REPO CONTEXT THE CANDIDATE SAW (ground truth — use it to tell whether a
+      mutation artifact was actually present, and whether the survivors the
+      candidate names match it) ---
+
+      {{ground_truth_context}}
+
+      --- END REPO CONTEXT ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - this is the homework + FIRST confirmation-gate turn, not the
+         technique/test-writing turn. FIRST determine from the supplied repo
+         context whether a mutation artifact EXISTS. If it DOES: does the response
+         READ it and list the artifact-named survivors for the target (identifying
+         each clearly — its mutated expression, optionally its id or line;
+         expression-only is sufficient, do NOT require line numbers) with a
+         provisional tautology-vs-real triage and ONE confirmation question,
+         production code untouched? If NO
+         artifact exists: does it give a concise "not available" and ASK the user
+         to run mutation testing or name the weak assertions, without presenting
+         invented survivors as confirmed? Writing the test or naming a final
+         catalogue technique is NOT required in this turn. Claiming "no report"
+         when an artifact IS present, touching prod code, or presenting fabricated
+         survivors as confirmed -> SHAPE FAIL.
+
+      B. GROUNDING - when an artifact is present, the survivors discussed must be
+         the ones the supplied artifact actually names for the target module, not
+         invented. When no artifact exists, the "not available" must be honest
+         about the absence, not a fabricated list. (Naming a verbatim catalogue
+         technique is NOT required in this turn — do not grade for it here.)
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the techniques catalogue:
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    What the host's file tools surfaced in the repo for this turn:
+
+    --- REPO CONTEXT ---
+    {{ground_truth_context}}
+    --- END REPO CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. Do the AI-only homework (identify the target + the
+    report) and present what you found, then the first confirmation gate.
+tests:
+  - description: SEED - no report pasted, but a Stryker mutation report exists in the repo
+    vars:
+      user_prompt: >-
+        Strengthen the tests on order_pricing.py — I think the assertions are weak.
+      ground_truth_context: |
+        The developer pasted NO mutation report. Scanning the repo with the file
+        tools, you find a mutation report the team already produced:
+
+        ## reports/mutation/mutation.json  (Stryker mutation-testing-elements schema)
+        ```json
+        {
+          "schemaVersion": "1.0",
+          "thresholds": {"high": 80, "low": 60},
+          "files": {
+            "src/order_pricing.py": {
+              "language": "python",
+              "source": "def line_total(price, qty):\n    return price * qty\n\ndef qualifies_for_bulk(subtotal):\n    return subtotal > 10000\n",
+              "mutants": [
+                {"id": "1", "mutatorName": "ConditionalBoundary", "status": "Survived",
+                 "location": {"start": {"line": 5, "column": 12}, "end": {"line": 5, "column": 28}},
+                 "description": "subtotal > 10000 -> subtotal >= 10000"},
+                {"id": "2", "mutatorName": "ArithmeticOperator", "status": "Survived",
+                 "location": {"start": {"line": 2, "column": 12}, "end": {"line": 2, "column": 23}},
+                 "description": "price * qty -> price + qty"},
+                {"id": "3", "mutatorName": "ArithmeticOperator", "status": "Killed",
+                 "location": {"start": {"line": 2, "column": 12}, "end": {"line": 2, "column": 23}},
+                 "description": "price * qty -> price / qty"}
+              ]
+            }
+          }
+        }
+        ```
+        (`src/order_pricing.py` is the `source` above: `line_total` is line 2,
+        `qualifies_for_bulk` is line 5. Tests in `tests/test_order_pricing.py`
+        use pytest + parametrize.)
+  - description: SEED - no report pasted and no mutation artifact anywhere in the repo
+    vars:
+      user_prompt: >-
+        Can you strengthen the tests on tax_calculator.py? Mutation testing flagged it as weak.
+      ground_truth_context: |
+        The developer pasted NO mutation report. Scanning the repo with the file
+        tools, you find NO mutation or coverage artifact anywhere (no
+        reports/mutation/, no coverage.json, no mutmut cache, no Stryker/PIT
+        output). The only relevant files are:
+
+        ## src/tax_calculator.py (excerpt)
+        ```python
+        8:     def tax(amount, region):
+        9:         rate = RATES.get(region, DEFAULT_RATE)
+        10:        return round(amount * rate, 2)
+        ```
+
+        ## tests/test_tax_calculator.py uses pytest; one test asserts tax(100, "US") == 8.0.

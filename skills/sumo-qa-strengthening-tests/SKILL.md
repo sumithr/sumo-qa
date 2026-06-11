@@ -36,7 +36,7 @@ Production code is locked. The job is to make the EXISTING tests stronger.
 
 You MUST work through these in order. Steps 1–3 are AI-only homework (no user questions). The user's confirmation gates steps 4 onward, and steps 5–7 repeat per surviving mutant.
 
-1. **Identify the target and the report** *(no user question)* — re-read the user's intent. Identify the target module/file. If the user supplied a mutation-testing report path or pasted output, parse it; otherwise note the report is missing.
+1. **Identify the target and the report** *(no user question)* — re-read the user's intent. Identify the target module/file. Use the report the user supplied (a path or pasted output); if none was pasted, DISCOVER the repo's own mutation report with the host's file tools and read it — any tool's format (a Stryker `mutation.json`, a PIT `mutations.xml`, mutmut output) — scoped to the target (the changed code when a diff is in play). Reading a SAVED report is on-demand evidence, NOT a competing run-time hook: the repo's live-run hook/router that fires on a `mutmut run` command keeps that job, so don't re-run the tool just to GENERATE the report here (step 9's post-change re-run to confirm the survivor count dropped is a separate, later step). If no mutation report exists — a coverage report alone does NOT enumerate survivors, so it can't substitute — note that there are no enumerated survivors to walk, and STOP at step 4's gate to ask the user to run mutation testing or name the specific weak assertions to target; never proceed into the per-survivor walk (steps 5+) with no survivors, and never INVENT survivors no report named.
 
 2. **Read prod + test files** *(no user question, READ-ONLY on prod)* — read the production file (do NOT edit it) and the matching test file. Note the existing test style (framework, fixtures, parameterise vs separate tests).
 
@@ -76,6 +76,7 @@ Production code stays unchanged throughout this skill, and the final report must
 | "I'll ask the user which test framework / fixture style" | Read the test file. The repo answers that. |
 | "Equivalent mutants: suppress all of them silently" | Each suppression needs a one-line rationale in the config (or as a comment next to the source annotation). Otherwise the next reviewer can't tell whether you suppressed a real one. |
 | "I'll add `# pragma: no mutate` because writing tests is harder" | Wrong direction. Source annotations are for genuinely equivalent mutants only — those where no observable behaviour distinguishes mutant from original. If you can articulate a test that would kill it, it's not equivalent. |
+| "No report was pasted, so there's nothing to work from" | Look for the repo's own mutation report (any tool's format) and read it; only when none exists do you say "not available" and ask for a report or the specific weak assertions to target — never INVENT survivors (a coverage report alone has no survivors). Reading a SAVED report is not the live-run hook/router's job — don't duplicate it or re-run the tool to generate the report (step 9's verification re-run is separate). |
 
 ## Examples
 
