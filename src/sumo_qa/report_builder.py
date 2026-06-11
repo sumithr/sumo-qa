@@ -342,9 +342,11 @@ def _bundle_artifact(inputs: ReportInputs, conflict: str | None) -> ReportArtifa
 def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
     # The readiness scorecard (#151) is composed in-report from the risk ledger
     # + context bundle — it is not a persisted artifact (#151's tool has no
-    # write_to, and no deserializer exists). Available when there is enough to
-    # derive a verdict, missing otherwise.
-    if inputs.ledger is not None or inputs.bundle is not None:
+    # write_to, and no deserializer exists). "available" requires real evidence
+    # to derive from: a ledger with rows OR a context bundle. An empty ledger
+    # (zero rows) is not evidence, so on its own it stays "missing" — the row
+    # never counts as an available source while the verdict reads insufficient.
+    if (inputs.ledger is not None and inputs.ledger.rows) or inputs.bundle is not None:
         return ReportArtifact(
             kind="readiness_scorecard",
             status="available",

@@ -315,6 +315,17 @@ def test_scorecard_is_available_when_derived_from_ledger(tmp_path):
     assert entry.detail is not None and "#151" in entry.detail
 
 
+def test_empty_ledger_does_not_mark_scorecard_available(tmp_path):
+    """An empty ledger (zero rows) is not QA evidence: the derived scorecard
+    stays 'missing' so it never counts as an available source, while the verdict
+    honestly reads insufficient_evidence."""
+    _write_artifact(tmp_path, "risk-ledger.json", {"schema_version": "1.0", "rows": []})
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
+    assert entry.status == "missing"
+    assert report.readiness.state == "insufficient_evidence"
+
+
 def test_absent_scorecard_reports_not_derivable(tmp_path):
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
