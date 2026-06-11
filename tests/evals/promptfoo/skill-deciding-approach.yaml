@@ -1,7 +1,8 @@
 description: >
-  Skill-isolation eval for sumo-qa-deciding-approach. ONE seed test defines
+  Skill-isolation eval for sumo-qa-deciding-approach. Two seed tests define
   the internal router shape: catalogue-grounded classification, catalogue-
-  grounded approach, and exact downstream skill route.
+  grounded approach, and exact downstream skill route — one per routing
+  branch under guard (regression-first, and #146's closed-loop-gap-fix).
 providers:
   - id: openai:chat:gpt-4o-mini
     label: candidate-gpt-4o-mini
@@ -14,20 +15,6 @@ defaultTest:
     classifications: file://../../../knowledge/classifications.md
     approaches: file://../../../knowledge/approaches.md
     principles: file://../../../knowledge/principles.md
-    expected_shape: >-
-      Internal router decision. Names the verbatim catalogue classification
-      `business_logic_change`, names the verbatim catalogue approach
-      `regression-first`, gives a short rationale tied to the billing bug and
-      new regression tests, and routes to the exact next skill
-      `sumo-qa-implementing-with-tdd`. This is internal routing data, so
-      verbatim catalogue names are required and must not be treated as a
-      user-facing taxonomy leak in this eval.
-    anti_patterns:
-      - Invents a classification not present in knowledge/classifications.md.
-      - Invents an approach not present in knowledge/approaches.md.
-      - Routes to any skill other than `sumo-qa-implementing-with-tdd`.
-      - Omits the exact verbatim classification or approach name.
-      - Performs downstream TDD or test-writing work instead of returning the route.
   assert:
     - type: llm-rubric
       value: |
@@ -93,9 +80,7 @@ defaultTest:
 
 
       A. SHAPE - does the response include classification, approach, and
-         next-skill routing? For this seed, the classification must be
-         `business_logic_change`, the approach must be `regression-first`, and
-         the next skill must be `sumo-qa-implementing-with-tdd`.
+         next-skill routing? {{expected_routing}}
 
       B. GROUNDING - classification and approach names must match catalogue
          entries verbatim. Verbatim catalogue wording is required for this
@@ -152,3 +137,46 @@ tests:
     vars:
       user_prompt: >-
         I need to fix a billing bug and add some new tests for it
+      expected_routing: >-
+        For this seed, the classification must be `business_logic_change`,
+        the approach must be `regression-first`, and the next skill must be
+        `sumo-qa-implementing-with-tdd`.
+      expected_shape: >-
+        Internal router decision. Names the verbatim catalogue classification
+        `business_logic_change`, names the verbatim catalogue approach
+        `regression-first`, gives a short rationale tied to the billing bug and
+        new regression tests, and routes to the exact next skill
+        `sumo-qa-implementing-with-tdd`. This is internal routing data, so
+        verbatim catalogue names are required and must not be treated as a
+        user-facing taxonomy leak in this eval.
+      anti_patterns:
+        - Invents a classification not present in knowledge/classifications.md.
+        - Invents an approach not present in knowledge/approaches.md.
+        - Routes to any skill other than `sumo-qa-implementing-with-tdd`.
+        - Omits the exact verbatim classification or approach name.
+        - Performs downstream TDD or test-writing work instead of returning the route.
+
+  - description: SEED - review-named uncovered gap routes closed-loop-gap-fix
+    vars:
+      user_prompt: >-
+        The merge review flagged an uncovered risk on the refund flow — close
+        this gap, drive it to a regression test with evidence.
+      expected_routing: >-
+        For this seed, the approach must be `closed-loop-gap-fix` and the next
+        skill must be `sumo-qa-closing-qa-gaps`. The classification must be a
+        verbatim catalogue entry that fits a review-named uncovered behaviour
+        gap (`test_change` or `business_logic_change` are both acceptable).
+      expected_shape: >-
+        Internal router decision. Names a verbatim catalogue classification,
+        names the verbatim catalogue approach `closed-loop-gap-fix`, gives a
+        short rationale tied to the review-named uncovered refund-flow risk
+        being driven to an evidenced regression test, and routes to the exact
+        next skill `sumo-qa-closing-qa-gaps`. This is internal routing data, so
+        verbatim catalogue names are required and must not be treated as a
+        user-facing taxonomy leak in this eval.
+      anti_patterns:
+        - Invents a classification not present in knowledge/classifications.md.
+        - Invents an approach not present in knowledge/approaches.md.
+        - Routes to any skill other than `sumo-qa-closing-qa-gaps` (e.g. `sumo-qa-implementing-with-tdd` or `sumo-qa-strengthening-tests` would miss the closed-loop intent).
+        - Omits the exact verbatim approach name `closed-loop-gap-fix`.
+        - Performs downstream test-writing or gap-closing work instead of returning the route.
