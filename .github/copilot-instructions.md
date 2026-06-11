@@ -31,6 +31,7 @@ hyphens replaced by underscores):
 - `sumo_qa_executing_qa_rollout` — dispatch a signed-off plan task-by-task to fresh subagents
 - `sumo_qa_finishing_qa_work` — capture evidence and write a PR-ready summary
 - `sumo_qa_suggesting_external_skill` — fallback when no native skill fits the intent
+- `sumo_qa_closing_qa_gaps` — close a named uncovered-behavior gap, one evidenced loop at a time
 
 The skills carry the senior-QA discipline (Iron Laws, checklists, Red Flags).
 Knowledge catalogues are accessed via the `sumo_qa_load_*` tools — use them

@@ -1,8 +1,8 @@
 # Canonical QA approaches
 
-Nine canonical approaches the host LLM picks from when deciding the shape
+Ten canonical approaches the host LLM picks from when deciding the shape
 of QA work. The LLM may invent a new approach if the situation genuinely
-needs one, but it must explain why none of these nine fit.
+needs one, but it must explain why none of these ten fit.
 
 ## strategy-orchestration
 Repo-wide / policy-shaped ask: "design a test strategy", "audit our coverage",
@@ -50,3 +50,10 @@ Orphan code: zero callers, no CI/docs/test refs, no entry-point
 declaration. Propose deletion, not tests. Cite reachability in the
 rationale. If ambiguous (external cron, public CLI), ask one question
 first. STOP.
+
+## closed-loop-gap-fix
+QA evidence (review, mutation run, graded scenario) already names a
+concrete uncovered behaviour gap; close it one evidenced loop per gap --
+red, minimum change, green + regression, ledger update -- pausing on
+insufficient repo context. Next step is loading the
+`sumo-qa-closing-qa-gaps` skill.

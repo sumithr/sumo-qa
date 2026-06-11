@@ -55,7 +55,7 @@ body:
       label: Do sumo-qa skills appear?
       description: In Claude Code, `/sumo-qa-...` entries. In other hosts, however that host surfaces skills.
       options:
-        - "Yes — all 14 skills visible"
+        - "Yes — all 15 skills visible"
         - "Yes — some visible, some missing"
         - "No — none visible"
         - "Host does not surface skills separately from tools"

@@ -5,6 +5,7 @@
     "sumo_qa_capabilities",
     "sumo_qa_capture_review_feedback",
     "sumo_qa_check_external_skill_installed",
+    "sumo_qa_closing_qa_gaps",
     "sumo_qa_creating_test_plan",
     "sumo_qa_deciding_approach",
     "sumo_qa_execute_external_skill",
@@ -164,6 +165,13 @@
         "required": [
           "skill"
         ],
+        "type": "object"
+      },
+      "outputSchema": null
+    },
+    "sumo_qa_closing_qa_gaps": {
+      "inputSchema": {
+        "properties": {},
         "type": "object"
       },
       "outputSchema": null

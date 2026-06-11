@@ -130,6 +130,20 @@ triggers:
       - "capture evidence"
     note: "Evidence-capture + PR-summary writer; iron-law gate on fresh suite run."
 
+  - prompt: "the review flagged an uncovered risk — close this gap"
+    expected_skill: sumo_qa_closing_qa_gaps
+    expected_phrases:
+      - "close this gap"
+      - "drive this uncovered risk to a regression test"
+    note: "Closed-loop entry from a review-named gap (issue #146); one loop per gap."
+
+  - prompt: "take this surviving mutant through the loop end to end"
+    expected_skill: sumo_qa_closing_qa_gaps
+    expected_phrases:
+      - "fix this surviving mutant end to end"
+      - "closed loop per gap"
+    note: "Mutation-survivor entry into the closed loop — strengthening discipline binds first."
+
 non_triggers:
   - prompt: "how do I install Python 3.14 on macOS?"
     must_not_match_skill: sumo_qa_reviewing_before_merge
@@ -142,3 +156,7 @@ non_triggers:
   - prompt: "what's the weather in London?"
     must_not_match_skill: sumo_qa_strategising
     note: "Off-topic prompt — strategising must not over-match on 'what's'."
+
+  - prompt: "kill this surviving mutant in the calculator module"
+    must_not_match_skill: sumo_qa_closing_qa_gaps
+    note: "A bare survivor-kill ask is strengthening-tests territory; the closed loop triggers on end-to-end closure intent, not on 'surviving mutant' alone."

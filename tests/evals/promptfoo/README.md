@@ -621,12 +621,12 @@ OpenAI pricing as of 2026-05:
 
 - Candidate (`gpt-4o-mini`): ~$0.001 per scenario
 - Judge (`gpt-5.5`): ~$0.005 per scenario
-- Full sweep of 14 skills: ~$0.10 per run with `seed: 42` determinism
+- Full sweep of 15 skills: ~$0.10 per run with `seed: 42` determinism
 - The `reviewing-before-merge-adversarial` corpus pins a `gpt-5-mini` candidate
   (reasoning tokens → a few cents per full run, still negligible) — see
   "Adversarial discovery corpus" above for why.
 
-Running a single skill: pennies. Running all 14 skills with `--repeat 5`:
+Running a single skill: pennies. Running all 15 skills with `--repeat 5`:
 ~$0.30 — still negligible, but worth tracking if you iterate frequently.
 
 If cost becomes a concern, swap the judge to `gpt-4o-mini` in
@@ -635,7 +635,7 @@ adversarial).
 
 ## Architecture
 
-All 14 skill YAMLs use `seed: 42` + `temperature: 0.0` for both candidate and judge providers, so runs are reproducible across machines. `disableVarExpansion: true` is set in defaultTest.options to prevent array vars (anti_patterns) from being expanded into per-element tests.
+All 15 skill YAMLs use `seed: 42` + `temperature: 0.0` for both candidate and judge providers, so runs are reproducible across machines. `disableVarExpansion: true` is set in defaultTest.options to prevent array vars (anti_patterns) from being expanded into per-element tests.
 
 Two patterns are used depending on the skill's shape:
 

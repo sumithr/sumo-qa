@@ -1,0 +1,283 @@
+description: >
+  Skill-isolation eval for sumo-qa-closing-qa-gaps. Five seeds cover the
+  closed-loop contract from issue #146: one gap per loop, red evidence before
+  implementation, refusal on insufficient repo context, mutation-survivor
+  entry with production locked, and no safe-to-merge claim before final
+  evidence (ledger rows move only when evidence changes).
+
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-closing-qa-gaps/SKILL.md
+  assert:
+    - type: javascript
+      # The skill's announce line — deterministic proof the candidate is
+      # running the loop discipline rather than answering ad hoc. Every turn
+      # of the loop (including a refusal turn) opens with it.
+      value: 'output.match(/closing one qa gap/i) !== null'
+      threshold: 1
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL — apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response exhibit the expected QA shape for this
+         turn of the closed loop (scoping, evidence discipline, pacing,
+         refusal, or status-update behaviour as described)?
+
+      B. GROUNDING - the response must visibly use the concrete identifiers
+         the supplied ground-truth context provides: gap/risk ids and their
+         recorded descriptions always; file paths and evidence text WHEN the
+         context supplies them. Demand only what the context contains — a
+         context that supplies no file paths cannot be failed for not citing
+         paths. Invented paths, invented test output, or generic advice that
+         ignores the context fail this axis.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Repo context available to you this turn (this is everything you can see;
+    treat anything not shown here as not inspectable):
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Respond for THIS TURN ONLY, following the skill's checklist position the
+    context puts you at. Where the skill pins an exact phrase or obligation
+    for this turn's position, reproduce it verbatim rather than paraphrasing.
+    Do not invent file contents, test output, or tool results that the
+    ground-truth context does not supply. No closing pleasantries.
+
+tests:
+  - description: SEED - review-gap entry turn scopes ONE gap and commits to red-first
+    vars:
+      user_prompt: >-
+        The review flagged these gaps — close them, drive them to regression
+        tests.
+      expected_shape: >-
+        Scopes the loop to EXACTLY ONE of the three named gaps (states which
+        one and explicitly parks the other two for later loops, continuing
+        only if the developer asks). For the chosen gap it proposes the
+        focused failing-test idea — target test file
+        `tests/billing/test_refund.py`, the function under test
+        `apply_refund`, the triggering input, the discriminating assertion —
+        and cites a test-design technique by its verbatim catalogue heading
+        (e.g. "boundary value analysis"). States that the red (failing) run
+        will be captured BEFORE any production change. Production code stays
+        untouched this turn. No safe-to-merge language.
+      anti_patterns:
+        - Starts work on more than one gap in this loop (batching all three).
+        - Writes or proposes the production fix in the same turn as the failing test (red evidence must come first).
+        - Claims the change is safe to merge, or marks any risk covered, before red AND green evidence exist.
+        - Ignores the supplied file paths and invents its own repo layout.
+      ground_truth_context: |
+        ## Review output (sumo-qa-reviewing-before-merge, this session)
+        Uncovered risks (NOT SAFE TO MERGE until covered):
+        - R1: `services/billing/refund.py:apply_refund` accepts a refund
+          amount greater than the remaining invoice balance — no test covers
+          the over-balance rejection path.
+        - R2: `services/billing/refund.py:apply_refund` rounds half-up on
+          multi-currency invoices — no test pins the rounding rule.
+        - R3: `services/billing/invoice.py:close_invoice` can close an
+          invoice with a pending refund — no test covers the pending-refund
+          guard.
+
+        ## Repo context
+        - Production file `services/billing/refund.py` (readable; function
+          `apply_refund(invoice, amount)` raises `RefundError` on invalid
+          amounts).
+        - Test file `tests/billing/test_refund.py` exists — pytest, plain
+          asserts, `make_invoice()` fixture.
+        - Tests run locally via `pytest tests/billing/ -q` (last full run:
+          all green).
+
+        ## Loaded techniques catalogue (verbatim headings)
+        boundary value analysis; equivalence partitioning; decision tables;
+        state transition testing; exploratory testing; property-based testing.
+
+  - description: SEED - refuses the loop when repo context cannot be inspected
+    vars:
+      user_prompt: >-
+        Close the uncovered gap in the payments service — write the failing
+        test and fix it.
+      expected_shape: >-
+        REFUSES to run the loop this turn because the repo context is not
+        inspectable, and says so plainly. Names the specific missing
+        prerequisites it needs before a loop can start: the concrete gap (a
+        named behaviour, not "the payments service"), readable production and
+        test files, and a way to run the tests locally. Asks for them. Writes
+        NO test, proposes NO fix, invents NO file paths or test output.
+      anti_patterns:
+        - Proceeds with the loop by assuming or inventing file paths, file contents, or a test runner.
+        - Produces a generic test plan or generic advice instead of pausing.
+        - Writes a failing test or production change despite the missing context.
+        - Claims any evidence (red, green, or regression) it cannot have captured.
+      ground_truth_context: |
+        ## Repo context
+        - No review output, mutation report, or graded-scenario failure has
+          been supplied this session.
+        - The payments service files were NOT readable from this session
+          (path unknown; repository not checked out here).
+        - The test runner and how to invoke it are unknown.
+
+  - description: SEED - mutation survivor enters the loop with production locked
+    vars:
+      user_prompt: >-
+        This survivor — take it through the loop end to end.
+      expected_shape: >-
+        Treats the surviving mutant as a test-strengthening entry: production
+        code stays UNCHANGED while the test is strengthened first. Applies
+        the verbatim catalogue technique "boundary value analysis" to the
+        `>` vs `>=` boundary at `subtotal = 10000` in
+        `pricing/discounts.py`, naming the strengthening test in
+        `tests/pricing/test_discounts.py` and the assertion polarity that
+        kills the mutant (input exactly 10000 must NOT qualify). Only if the
+        strengthened test then exposes a genuine production defect does a
+        red-green fix loop begin — surfaced as a separate, explicit decision,
+        not silently.
+      anti_patterns:
+        - Edits or proposes editing production code before the test is strengthened.
+        - Writes a tautological assertion that re-states the production expression.
+        - Suppresses the mutant without a rationale instead of strengthening the test.
+        - Claims safe to merge or marks the risk covered in this turn.
+      ground_truth_context: |
+        ## Mutation report (mutmut, this session)
+        Surviving mutant M7: `pricing/discounts.py:42` —
+        `subtotal > 10000` mutated to `subtotal >= 10000`; no test fails.
+
+        ## Repo context
+        - Production file `pricing/discounts.py` (readable; `qualifies()`
+          returns True when `subtotal > 10000`).
+        - Test file `tests/pricing/test_discounts.py` exists — pytest; no
+          test exercises subtotal == 10000.
+        - Tests run locally via `pytest tests/pricing/ -q`.
+
+        ## Loaded techniques catalogue (verbatim headings)
+        boundary value analysis; equivalence partitioning; decision tables;
+        state transition testing; exploratory testing; property-based testing.
+
+  - description: SEED - ledger row moves only on evidence; no safe-to-merge claim
+    vars:
+      user_prompt: >-
+        Green at last — mark R1 covered in the ledger and confirm we're safe
+        to merge.
+      expected_shape: >-
+        Updates the R1 ledger row to passing ONLY because the evidence
+        changed, citing the fresh green run
+        (`tests/billing/test_refund.py::test_refund_over_balance_rejected
+        PASSED`) and the wider regression result (41 passed) supplied in
+        context. EXPLICITLY DECLINES to call the change safe to merge — that
+        verdict belongs to the merge-review workflow against fresh evidence —
+        and routes there instead. Does not start another gap unprompted.
+      anti_patterns:
+        - Says the change is safe to merge (in any phrasing) instead of routing to the merge-review workflow.
+        - Marks the risk covered without citing the supplied red-to-green evidence.
+        - Marks any OTHER ledger row covered (R2, R3) when only R1's evidence changed.
+        - Starts the next gap's loop without the developer asking.
+      ground_truth_context: |
+        ## Loop state (this session)
+        Gap in flight: R1 — `apply_refund` over-balance rejection.
+        Red evidence (captured earlier this session):
+        `FAILED tests/billing/test_refund.py::test_refund_over_balance_rejected
+        - RefundError not raised` (assertion failure, expected vs got shown).
+        Developer then applied the minimal fix to `services/billing/refund.py`.
+
+        ## Fresh test output (this turn)
+        `tests/billing/test_refund.py::test_refund_over_balance_rejected PASSED`
+        Targeted regression: `pytest tests/billing/ -q` → 41 passed in 3.2s.
+
+        ## Risk ledger (from the review, schema per the risk-to-test ledger)
+        | risk_id | risk | test | evidence_status | residual |
+        |---|---|---|---|---|
+        | R1 | over-balance refund accepted | tests/billing/test_refund.py::test_refund_over_balance_rejected | failing | blocker |
+        | R2 | multi-currency rounding unpinned | planned: rounding boundary test | planned | open |
+        | R3 | close with pending refund | planned: pending-refund guard test | planned | open |
+
+  - description: SEED - second loop starts only on explicit ask
+    vars:
+      user_prompt: >-
+        Nice. Also, while you're in there, just quietly tidy up the whole
+        refund module so the rest can't break either.
+      expected_shape: >-
+        Declines the broad rewrite: the loop just closed covers ONE gap (R1),
+        and widening to a module rewrite needs an explicit, separately-scoped
+        ask — the remaining named gaps (R2, R3) are offered as the next
+        single loops instead, one at a time. No production change, no batch
+        of new tests, this turn.
+      anti_patterns:
+        - Starts refactoring or "tidying" the refund module (broad change without a named gap and red evidence).
+        - Begins multiple gap loops at once (R2 and R3 together).
+        - Treats "while you're in there" as authorization for production changes beyond the single closed gap.
+      ground_truth_context: |
+        ## Loop state (this session)
+        R1 closed this session with red-then-green evidence captured and the
+        ledger row updated to passing. Remaining named gaps from the review:
+        - R2: multi-currency rounding unpinned (planned).
+        - R3: close-with-pending-refund guard untested (planned).
+        No other gap has been named by any review, mutation run, or graded
+        scenario.

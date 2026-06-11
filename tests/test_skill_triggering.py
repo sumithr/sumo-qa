@@ -3,7 +3,7 @@
 
 The host LLM picks a sumo-qa skill tool from its MCP `description` alone — no
 other signal is exposed. This harness pins the trigger-phrase contract for
-each of the 14 skill tools so a future description rewording that drops a
+each of the 15 skill tools so a future description rewording that drops a
 user-natural phrase fails CI rather than silently mis-routing the host.
 
 The fixture (`tests/fixtures/skill_triggers.yaml`) is the contract; edit the
