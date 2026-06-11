@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.0](https://github.com/sumithr/sumo-qa/compare/v0.41.0...v0.42.0) (2026-06-10)
+
+
+### Features
+
+* **install:** add one-command install/update/doctor wrappers (install.sh + install.ps1) ([#390](https://github.com/sumithr/sumo-qa/issues/390)) ([bbf81ab](https://github.com/sumithr/sumo-qa/commit/bbf81abaeb5b0fa65061b7b970aeb326b86f9385))
+
 ## [0.41.0](https://github.com/sumithr/sumo-qa/compare/v0.40.0...v0.41.0) (2026-06-10)
 
 
