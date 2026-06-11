@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.0](https://github.com/sumithr/sumo-qa/compare/v0.43.0...v0.44.0) (2026-06-11)
+
+
+### Features
+
+* **skills:** consume coverage/mutation artifacts as supporting QA evidence ([#147](https://github.com/sumithr/sumo-qa/issues/147)) ([#397](https://github.com/sumithr/sumo-qa/issues/397)) ([38a0d05](https://github.com/sumithr/sumo-qa/commit/38a0d059dca374a3583bfbee4f236f09f21c3ddd))
+
 ## [0.43.0](https://github.com/sumithr/sumo-qa/compare/v0.42.0...v0.43.0) (2026-06-11)
 
 
