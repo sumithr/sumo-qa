@@ -526,8 +526,8 @@ def test_old_overlay_migrates_to_em_dash_in_rendered_html(tmp_path):
     _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())  # test row: False
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     html = render_report_html(report)
-    assert "<td>tests/test_demo.py</td><td>&#8212;</td>" in html
-    assert "<td>tests/test_demo.py</td><td>no</td>" not in html
+    assert '<td class="brk">tests/test_demo.py</td><td>&#8212;</td>' in html
+    assert '<td class="brk">tests/test_demo.py</td><td>no</td>' not in html
 
 
 def test_ledger_rows_become_risks_with_blocker_count(tmp_path):

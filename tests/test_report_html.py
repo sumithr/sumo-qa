@@ -206,8 +206,8 @@ def test_mapped_tests_renders_em_dash_for_non_source_rows():
     ]
     report = _minimal_report(changed_components=components)
     html = render_report_html(report)
-    assert "<td>src/a.py</td><td>no</td>" in html
-    assert "<td>README.md</td><td>&#8212;</td>" in html
+    assert '<td class="brk">src/a.py</td><td>no</td>' in html
+    assert '<td class="brk">README.md</td><td>&#8212;</td>' in html
     assert html.count("<td>no</td>") == 1
 
 
@@ -242,7 +242,7 @@ def test_change_impact_sections_collapse_by_default():
     assert "<summary>2 related tests</summary>" in html
     assert "<summary>1 unmapped file</summary>" in html
     # The full rows are still there, one click away.
-    assert "<td>src/a.py</td><td>yes</td>" in html
+    assert '<td class="brk">src/a.py</td><td>yes</td>' in html
     assert "<li>tests/test_b.py</li>" in html
     # The risk surface is NOT collapsed — it must indict at first glance.
     risk_pos = html.find("Risk surface")

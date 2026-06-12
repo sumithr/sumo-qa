@@ -183,6 +183,11 @@ _STYLE = """
   }
   td { padding: 0.5rem 0.7rem 0.5rem 0; border-bottom: 1px solid var(--rule); vertical-align: top;
     font-variant-numeric: tabular-nums; }
+  /* Long unbreakable tokens (paths, anchors, pytest node ids) wrap inside
+     their column instead of setting a hard min-width that pushes the table
+     off-screen. Applied per-cell — a global rule lets auto-layout crush
+     short columns to one character. */
+  td.brk, li { overflow-wrap: anywhere; }
   tbody tr:nth-child(even) td { background: rgba(226,217,200,0.18); }
   td.more, li.more { font-style: italic; color: var(--label); background: none; }
   .badge {
@@ -253,9 +258,9 @@ def _artifact_section(artifacts: list[ReportArtifact]) -> str:
             f"<td>{_esc(artifact.kind.replace('_', ' '))}</td>"
             f'<td><span class="badge {_STATUS_CLASSES[artifact.status]}">'
             f"{_STATUS_LABELS[artifact.status]}</span></td>"
-            f"<td>{_dash(artifact.path)}</td>"
+            f'<td class="brk">{_dash(artifact.path)}</td>'
             f"<td>{age}</td>"
-            f"<td>{_dash(artifact.detail)}</td>"
+            f'<td class="brk">{_dash(artifact.detail)}</td>'
             "</tr>"
         )
     return (
@@ -278,8 +283,8 @@ def _component_table(components: list[ReportComponent]) -> str:
     shown, hidden = _bounded(components)
     rows = "".join(
         "<tr>"
-        f"<td>{_esc(component.id)}</td><td>{_esc(component.type)}</td>"
-        f"<td>{_esc(component.path)}</td>"
+        f'<td class="brk">{_esc(component.id)}</td><td>{_esc(component.type)}</td>'
+        f'<td class="brk">{_esc(component.path)}</td>'
         f"<td>{_mapped_tests_cell(component.has_mapped_tests)}</td>"
         "</tr>"
         for component in shown
@@ -395,9 +400,9 @@ def _risk_section(risks: list[ReportRisk]) -> str:
         rows.append(
             "<tr>"
             f"<td>{_esc(risk.risk_id)}</td><td>{_esc(risk.risk)}</td>"
-            f"<td>{_esc(risk.source_anchor)}</td><td>{_esc(risk.test)}</td>"
+            f'<td class="brk">{_esc(risk.source_anchor)}</td><td class="brk">{_esc(risk.test)}</td>'
             f"<td>{_esc(risk.evidence_status.replace('_', ' '))}</td>"
-            f"<td>{residual}</td><td>{_dash(risk.repo_map_node_id)}</td>"
+            f'<td>{residual}</td><td class="brk">{_dash(risk.repo_map_node_id)}</td>'
             "</tr>"
         )
     return (
@@ -417,7 +422,7 @@ def _evidence_section(evidence: list[ReportEvidence]) -> str:
             f"<td>{_dash(fact.freshness)}</td>"
             f"<td>{'yes' if fact.trustworthy else 'no'}</td>"
             f"<td>{_dash(fact.source)}</td><td>{_dash(fact.captured_at)}</td>"
-            f"<td>{_dash(fact.detail)}</td>"
+            f'<td class="brk">{_dash(fact.detail)}</td>'
             "</tr>"
         )
     return (
