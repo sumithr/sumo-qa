@@ -451,6 +451,34 @@ def test_diff_impact_components_are_mapped_and_sorted(tmp_path):
     assert report.unmapped_files == ["docs/notes.md"]
 
 
+def test_blocked_verdict_leads_with_falsifiable_threshold_reason(tmp_path):
+    """Reasons are falsifiable, SonarQube-style: count vs required threshold
+    first, the engine's per-risk itemisation after."""
+    _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())  # R2 = blocker
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "blocked"
+    assert report.readiness.reasons[0] == "uncovered blocker risks: 1 of 2 (required: 0)"
+    assert any(r.startswith("R2:") for r in report.readiness.reasons[1:])
+
+
+def test_insufficient_verdict_leads_with_evidence_count_when_ledger_present(tmp_path):
+    payload = _ledger_payload()
+    payload["rows"][1]["evidence_status"] = "stale"
+    payload["rows"][1]["residual"] = "mitigated"
+    _write_artifact(tmp_path, "risk-ledger.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "insufficient_evidence"
+    assert (
+        report.readiness.reasons[0] == "risks without fresh passing evidence: 1 of 2 (required: 0)"
+    )
+
+
+def test_no_ledger_insufficiency_reason_stays_unprefixed(tmp_path):
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "insufficient_evidence"
+    assert report.readiness.reasons == ["no QA evidence supplied — cannot assess readiness"]
+
+
 def test_mapping_gap_warning_reaches_the_report(tmp_path):
     """A diff-impact 'probable mapping gap' warning is honesty-critical (the
     whole risk surface may be a missed convention, not zero coverage) — it

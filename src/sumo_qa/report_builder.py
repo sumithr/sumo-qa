@@ -449,14 +449,30 @@ def _readiness_from_scorecard(
         mutation=None,
     )
     state = card.recommendation(local_head_sha=local_head_sha)
+    rows = ledger.rows if ledger is not None else []
     if state == "blocked":
         reasons = card.blocking_reasons(local_head_sha=local_head_sha)
+        if rows:
+            # Falsifiable headline (SonarQube's gate style): the count vs the
+            # threshold first, the engine's per-risk itemisation after.
+            blockers = sum(1 for row in rows if row.is_uncovered_blocker())
+            reasons = [
+                f"uncovered blocker risks: {blockers} of {len(rows)} (required: 0)",
+                *reasons,
+            ]
     elif state == "insufficient_evidence":
         reasons = card.insufficiency_reasons(local_head_sha=local_head_sha)
+        lacking = sum(1 for row in rows if row.evidence_status != "passing")
+        if lacking:
+            reasons = [
+                f"risks without fresh passing evidence: {lacking} of {len(rows)} (required: 0)",
+                *reasons,
+            ]
     elif state == "ready_with_accepted_residuals":
+        accepted = card.accepted_residual_rows()
         reasons = [
-            f"{row.risk_id}: {row.risk} — accepted residual"
-            for row in card.accepted_residual_rows()
+            f"accepted residual risks: {len(accepted)} of {len(rows)}",
+            *(f"{row.risk_id}: {row.risk} — accepted residual" for row in accepted),
         ]
     else:  # ready
         reasons = []
