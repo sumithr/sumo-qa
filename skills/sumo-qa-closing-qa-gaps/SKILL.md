@@ -25,13 +25,13 @@ Do NOT start a loop you cannot evidence. Three inspectable prerequisites: (a) ON
 
 `sumo-qa-deciding-approach` routes here for `closed-loop-gap-fix`: *"close this gap"*, *"drive this uncovered risk to a regression test"*, *"take this survivor through the loop"*.
 
-NOT for: feature work with no named gap (`tdd-scaffold` / `regression-first` directly); a batch or module-wide rewrite (no single named gap); the merge verdict itself (`sumo-qa-reviewing-before-merge`).
+NOT for: feature work with no named gap (`tdd-scaffold` / `regression-first` directly); a batch or module-wide rewrite; the merge verdict itself (`sumo-qa-reviewing-before-merge`).
 
 ## Checklist
 
 You MUST work through these in order, tracked as an ordered work list. Steps 4–7 are one loop; the loop body repeats only via step 8's explicit-ask gate.
 
-1. **Name the ONE gap and its source** — restate the gap as a single concrete behaviour (file/function + the uncovered behaviour) and where it came from (review risk or AC row, mutation survivor, graded-scenario failure, user-described defect). If the evidence names several gaps, pick exactly one — the user's stated priority, else the first — and park the rest BY ID, out loud, in a sentence of this shape: *"R2 and R3 are parked as later loops — I'll start the next one only when you ask."* Never batch.
+1. **Name the ONE gap and its source** — restate the gap as a single concrete behaviour (file/function + the uncovered behaviour) and where it came from (review risk or AC row, mutation survivor, graded-scenario failure, user-described defect). If the evidence names several gaps, pick exactly one — the user's stated priority, else the first — and park the rest BY ID, out loud, in the exact parking sentence the Good example models. Never batch.
 
 2. **Inspect the loop's prerequisites** — open the production file and the matching test file; confirm the command that runs the relevant tests. Any prerequisite not inspectable → the HARD-GATE fires: stop and ask, this turn.
 
@@ -72,9 +72,9 @@ The Checklist above is the flow.
 
 > Review names three uncovered risks; user: *"close them."*
 >
-> **AI:** *"Closing one QA gap at a time. Starting with R1 — `apply_refund` accepts an over-balance amount (R2, R3 parked as later loops). Test idea: `tests/billing/test_refund.py::test_refund_over_balance_rejected`, refund of 150.00 against a 100.00 remaining balance, expecting `RefundError` — boundary value analysis on the remaining-balance edge. **Is `RefundError` the agreed contract for over-balance, or should it clamp to the remaining balance?**"*
+> **AI:** *"Closing one QA gap at a time. Starting with R1 — `apply_refund` accepts an over-balance amount. R2 and R3 are parked as later loops — I'll start the next one only when you ask. Test idea: `tests/billing/test_refund.py::test_refund_over_balance_rejected`, refund of 150.00 against a 100.00 remaining balance, expecting `RefundError` — boundary value analysis on the remaining-balance edge. I'll capture the red (failing) run before any production change. **Is `RefundError` the agreed contract for over-balance, or should it clamp to the remaining balance?**"*
 >
-> On confirm: writes the test, runs it, surfaces the `FAILED … RefundError not raised` output before any production change, hands off for the green change.
+> On confirm: writes the test, runs it, surfaces the `FAILED … RefundError not raised` output, hands off for the green change.
 
 ### Good (mutation survivor, production locked)
 
