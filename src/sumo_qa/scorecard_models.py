@@ -75,6 +75,20 @@ from sumo_qa.ledger_models import RiskLedger, RiskLedgerRow
 
 SCORECARD_SCHEMA_VERSION: Final[Literal["1.0"]] = "1.0"
 
+#: Plain-language labels + freshness words for the human-facing recommendation
+#: reasons. The reasons surface verbatim in the scorecard output AND in the
+#: #157 QA report's verdict block, so a raw field name (``test_evidence``) or a
+#: ``key=value`` debug fragment must never reach them.
+_EVIDENCE_LABELS: Final[dict[str, str]] = {
+    "test_evidence": "test evidence",
+    "ci_status": "CI",
+}
+_FRESHNESS_WORDS: Final[dict[str, str]] = {
+    "stale": "stale",
+    "unknown": "of unknown freshness",
+    "absent": "not yet captured",
+}
+
 #: The final readiness verdict. Four DISTINCT states (issue #151 AC + the #154
 #: scope comment) — see the module docstring for the derivation order.
 ScorecardRecommendation = Literal[
@@ -281,7 +295,8 @@ class QaScorecard(BaseModel):
                 ("CI", bundle.ci_status),
             ):
                 if fact is not None and fact.result in ("failing", "mixed"):
-                    reasons.append(f"{label} reports failures (result={fact.result})")
+                    outcome = "failing" if fact.result == "failing" else "mixed (some failures)"
+                    reasons.append(f"{label} is {outcome}")
         return reasons
 
     def insufficiency_reasons(self, *, local_head_sha: str | None = None) -> list[str]:
@@ -323,9 +338,11 @@ class QaScorecard(BaseModel):
                 if fact is not None and fact.result in ("failing", "mixed"):
                     continue
                 assert fact is not None  # untrustworthy fields are always present
+                label = _EVIDENCE_LABELS.get(name, name.replace("_", " "))
+                freshness_word = _FRESHNESS_WORDS.get(fact.freshness, fact.freshness)
                 reasons.append(
-                    f"{name} is not fresh-passing "
-                    f"(freshness={fact.freshness}, result={fact.result})"
+                    f"{label} is {fact.result} but {freshness_word}, "
+                    "so it cannot support a ready verdict"
                 )
             if detect_local_conflict(bundle, local_head_sha) is not None:
                 reasons.append("context bundle is stale relative to the local tree")
