@@ -15,6 +15,7 @@ same PR.
 from __future__ import annotations
 
 import importlib.util
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -101,6 +102,19 @@ def test_report_is_self_contained_static_html(case):
     assert lowered.startswith("<!doctype html>")
     for forbidden in ("<script", "<link", "<img", "src=", "@import", "url(", "http://", "https://"):
         assert forbidden not in lowered, f"{forbidden!r} found in rendered report"
+
+
+@pytest.mark.parametrize("case", sorted(_CASE_REPORTS), ids=lambda c: c)
+def test_report_carries_no_tracker_issue_references(case):
+    """The page is product output rendered on ANY target repo: a bare '#N'
+    reads as the TARGET repo's issue number, so sumo-qa's internal tracker
+    references must never leak into it. The stylesheet is stripped first (CSS
+    hex colours) and HTML character entities (&#183;) are excluded via the
+    (?<!&) guard — everything else containing '#digits' is a leak."""
+    html = render_report_html(_CASE_REPORTS[case])
+    body = re.sub(r"<style>.*?</style>", "", html, flags=re.S)
+    leaked = re.findall(r"(?<!&)#\d+", body)
+    assert not leaked, f"tracker references leaked into the rendered page: {leaked}"
 
 
 def test_missing_states_are_visibly_distinct_from_passing():

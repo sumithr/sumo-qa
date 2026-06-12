@@ -1550,9 +1550,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         risk_ledger_rows: list[dict[str, Any]] | None = None,
         context_bundle: dict[str, Any] | None = None,
     ) -> GenerateQAReportOutput | ErrorEnvelope:
-        """Compose the persisted ``.sumo-qa`` artifacts (repo-map #155,
-        diff-impact #156, risk ledger #144, context bundle #149) into the local
-        QA report (issue #157) and return a compact readiness summary. The
+        """Compose the persisted ``.sumo-qa`` artifacts (repo map, diff
+        impact, risk ledger, context bundle) into the local QA report and
+        return a compact readiness summary. The
         rendered HTML body never rides back to the host — pass ``write_to`` to
         persist the self-contained static page and open it from disk.
 
@@ -1564,9 +1564,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         MCP server's working directory). Every artifact is OPTIONAL: a missing,
         invalid, or stale source renders an explicit honest state. The readiness
         verdict (ready / ready_with_accepted_residuals / blocked /
-        insufficient_evidence) is derived by #151's QaScorecard engine from the
-        risk ledger + context bundle — missing data is never reported as passing
-        evidence.
+        insufficient_evidence) is derived by the QaScorecard readiness engine
+        from the risk ledger + context bundle — missing data is never reported
+        as passing evidence.
 
         ``risk_ledger_rows`` / ``context_bundle`` are inline overrides for the
         chat flow where the ledger/bundle was built in-conversation and never

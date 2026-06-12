@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -307,12 +308,13 @@ def test_present_scorecard_file_is_ignored_not_read(tmp_path):
 
 def test_scorecard_is_available_when_derived_from_ledger(tmp_path):
     """A risk ledger (or bundle) is enough to derive the scorecard, so the
-    inventory row reads 'available' and names the #151 engine."""
+    inventory row reads 'available' and says it was derived in-report — in
+    product terms, never internal tracker references."""
     _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
     assert entry.status == "available"
-    assert entry.detail is not None and "#151" in entry.detail
+    assert entry.detail is not None and "derived in-report" in entry.detail
 
 
 def test_empty_ledger_does_not_mark_scorecard_available(tmp_path):
@@ -349,7 +351,21 @@ def test_coverage_mutation_is_an_optional_scorecard_signal(tmp_path):
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
     assert entry.status == "missing"
-    assert entry.detail is not None and "#147" in entry.detail
+    assert entry.detail is not None and "optional readiness-scorecard signals" in entry.detail
+
+
+def test_artifact_details_carry_no_tracker_issue_references(tmp_path):
+    """Inventory detail strings are product copy rendered on ANY target repo —
+    a '#N' there reads as the TARGET repo's issue number, so sumo-qa's internal
+    tracker references must never leak into them (provenance lives in code
+    comments and repo docs instead)."""
+    _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    for artifact in report.artifacts:
+        assert artifact.detail is None or not re.search(r"#\d+", artifact.detail), (
+            f"{artifact.kind}: tracker reference leaked into user-facing detail: "
+            f"{artifact.detail!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -360,7 +360,7 @@ def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
             kind="readiness_scorecard",
             status="available",
             path=None,
-            detail="derived in-report from the risk ledger + context bundle (#151 engine)",
+            detail="derived in-report from the risk ledger + context bundle (readiness engine)",
         )
     return ReportArtifact(
         kind="readiness_scorecard",
@@ -414,7 +414,7 @@ def _evidence_streams(inputs: ReportInputs) -> list[ReportEvidence]:
                 name=name,
                 status="missing",
                 trustworthy=False,
-                detail="not supplied — coverage/mutation are optional readiness-scorecard signals (#147 is guidance, not a persisted artifact)",
+                detail="not supplied — coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
             )
         )
     return streams
@@ -480,7 +480,7 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
             kind="coverage_mutation",
             status="missing",
             path=None,
-            detail="not supplied — coverage/mutation are optional readiness-scorecard signals (#147 is guidance, not a persisted artifact)",
+            detail="not supplied — coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
         ),
     ]
 
