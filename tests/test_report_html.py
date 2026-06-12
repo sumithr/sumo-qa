@@ -414,6 +414,49 @@ def test_mapped_tests_renders_em_dash_for_non_source_rows():
     assert html.count("<td>no</td>") == 1
 
 
+def test_machine_tokens_are_humanized_on_the_page():
+    """The page is editorial: no raw snake_case enum or machine node-id prefix
+    reaches the reader. Component rows read the type as plain words and a short
+    name (the full path is its own column); evidence reads its source and
+    freshness humanized — ``absent`` becomes the same 'not available' the
+    inventory uses, never the bare enum the user would otherwise see."""
+    report = _minimal_report(
+        changed_components=[
+            ReportComponent(
+                id="file:src/billing/refund.py",
+                path="src/billing/refund.py",
+                type="source_file",
+                has_mapped_tests=True,
+            ),
+        ],
+        affected_components=[
+            ReportComponent(
+                id="file:tests/test_refund.py", path="tests/test_refund.py", type="test_file"
+            ),
+        ],
+        evidence=[
+            ReportEvidence(
+                name="coverage",
+                status="missing",
+                freshness="absent",
+                trustworthy=False,
+                source="local_git",
+            ),
+        ],
+    )
+    html = render_report_html(report)
+    # No raw machine tokens anywhere on the rendered page.
+    for token in ("source_file", "test_file", "file:", "local_git", ">absent<"):
+        assert token not in html, f"machine token {token!r} leaked to the page"
+    # Component type reads as plain words; the short name leads, full path stays.
+    assert "<td>source</td>" in html and "<td>test</td>" in html
+    assert '<td class="brk">refund.py</td>' in html  # short name in the component column
+    assert '<td class="brk">src/billing/refund.py</td>' in html  # full path retained
+    # Evidence source de-underscored; absent freshness reads as 'not available'.
+    assert '<td class="meta">local git</td>' in html
+    assert "<td>not available</td>" in html
+
+
 def test_change_impact_sections_collapse_by_default():
     """The page is a summary of findings, not an enumeration: the changed /
     affected / related-tests / unmapped sections render as native <details>

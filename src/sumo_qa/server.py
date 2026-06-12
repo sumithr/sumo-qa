@@ -1118,8 +1118,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                     RepoMapWarning(
                         kind="stale",
                         message=(
-                            f"repo-map git_commit {repo_map.project.git_commit} "
-                            f"differs from HEAD {current}"
+                            f"repo-map commit {(repo_map.project.git_commit or '')[:8]} "
+                            f"differs from HEAD {(current or '')[:8]}"
                         ),
                     )
                 )
@@ -1223,8 +1223,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                     RepoMapWarning(
                         kind="stale",
                         message=(
-                            f"repo-map git_commit {repo_map.project.git_commit} "
-                            f"differs from HEAD {current}"
+                            f"repo-map commit {(repo_map.project.git_commit or '')[:8]} "
+                            f"differs from HEAD {(current or '')[:8]}"
                         ),
                     )
                 )

@@ -71,6 +71,22 @@ _STATUS_CLASSES = {
     "stale": "warm",
 }
 
+#: Plain-language node-type labels for the component tables. ``source_file`` /
+#: ``test_file`` read as the bare words the type-breakdown line already uses
+#: ("source", "test"); everything else just loses its underscores. Keeps the
+#: machine enum off the polished page.
+_NODE_TYPE_LABELS = {
+    "source_file": "source",
+    "test_file": "test",
+    "ci_workflow": "ci workflow",
+}
+
+#: Plain-language evidence-stream freshness labels. ``absent`` reads as the same
+#: "not available" the inventory uses for a missing stream, not the raw enum.
+_FRESHNESS_LABELS = {
+    "absent": "not available",
+}
+
 _STYLE = """
   :root {
     color-scheme: light;
@@ -243,6 +259,38 @@ def _dash(value: object | None) -> str:
     return _esc(value) if value not in (None, "") else "&#8212;"
 
 
+def _humanize(value: object | None) -> str:
+    """Escaped value with machine underscores read as spaces (``local_git`` ->
+    ``local git``), or the em-dash for an absent field. The page is editorial —
+    no raw snake_case enum or identifier should reach the reader."""
+    if value in (None, ""):
+        return "&#8212;"
+    return _esc(str(value).replace("_", " "))
+
+
+def _type_label(node_type: str) -> str:
+    """Plain-language component type — mapped where the bare enum reads wrong
+    (``source_file`` -> ``source``), otherwise just de-underscored."""
+    return _esc(_NODE_TYPE_LABELS.get(node_type, node_type.replace("_", " ")))
+
+
+def _component_label(component_id: str) -> str:
+    """The component column shows the short, scannable identity: the node id
+    without its machine ``file:`` (or other ``<kind>:``) prefix, reduced to the
+    final path segment — the full path lives in its own column, so this stays
+    a name, not a duplicate."""
+    _, sep, rest = component_id.partition(":")
+    identity = rest if sep else component_id
+    return _esc(identity.rsplit("/", 1)[-1])
+
+
+def _freshness_label(freshness: object | None) -> str:
+    """Plain-language evidence freshness, or the em-dash when unset."""
+    if freshness in (None, ""):
+        return "&#8212;"
+    return _esc(_FRESHNESS_LABELS.get(str(freshness), str(freshness)))
+
+
 def _bounded(items: list) -> tuple[list, int]:
     """Cap a list at the table bound; the second element is the hidden count."""
     over = len(items) - _MAX_TABLE_ROWS
@@ -291,7 +339,7 @@ def _component_table(components: list[ReportComponent]) -> str:
     shown, hidden = _bounded(components)
     rows = "".join(
         "<tr>"
-        f'<td class="brk">{_esc(component.id)}</td><td>{_esc(component.type)}</td>'
+        f'<td class="brk">{_component_label(component.id)}</td><td>{_type_label(component.type)}</td>'
         f'<td class="brk">{_esc(component.path)}</td>'
         f"<td>{_mapped_tests_cell(component.has_mapped_tests)}</td>"
         "</tr>"
@@ -610,9 +658,9 @@ def _evidence_section(evidence: list[ReportEvidence]) -> str:
         rows.append(
             "<tr>"
             f"<td>{_esc(fact.name)}</td><td>{_esc(status)}</td>"
-            f"<td>{_dash(fact.freshness)}</td>"
+            f"<td>{_freshness_label(fact.freshness)}</td>"
             f"<td>{'yes' if fact.trustworthy else 'no'}</td>"
-            f'<td class="meta">{_dash(fact.source)}</td>'
+            f'<td class="meta">{_humanize(fact.source)}</td>'
             f'<td class="meta">{_dash(fact.captured_at)}</td>'
             f'<td class="brk">{_dash(fact.detail)}</td>'
             "</tr>"
