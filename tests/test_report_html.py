@@ -211,6 +211,67 @@ def test_mapped_tests_renders_em_dash_for_non_source_rows():
     assert html.count("<td>no</td>") == 1
 
 
+def test_change_impact_sections_collapse_by_default():
+    """The page is a summary of findings, not an enumeration: the changed /
+    affected / related-tests / unmapped sections render as native <details>
+    collapsed by default, each summarised to a count line with a type
+    breakdown. The risk surface — the indictment — stays open."""
+    report = _minimal_report(
+        changed_components=[
+            ReportComponent(
+                id="file:src/a.py", path="src/a.py", type="source_file", has_mapped_tests=True
+            ),
+            ReportComponent(id="file:README.md", path="README.md", type="docs"),
+            ReportComponent(id="file:conf.yml", path="conf.yml", type="config"),
+        ],
+        affected_components=[
+            ReportComponent(id="file:tests/test_a.py", path="tests/test_a.py", type="test_file"),
+        ],
+        related_tests=["tests/test_a.py", "tests/test_b.py"],
+        risk_surface=["src/lonely.py"],
+        unmapped_files=["new.py"],
+    )
+    html = render_report_html(report)
+    # Collapsed by default: <details> without the open attribute.
+    assert "<details>" in html
+    assert "<details open" not in html
+    # Count-line summaries with type breakdowns (source/test/docs named,
+    # everything else bucketed as other).
+    assert "<summary>3 files changed: 1 source &#183; 1 docs &#183; 1 other</summary>" in html
+    assert "<summary>1 affected component (one hop): 1 test</summary>" in html
+    assert "<summary>2 related tests</summary>" in html
+    assert "<summary>1 unmapped file</summary>" in html
+    # The full rows are still there, one click away.
+    assert "<td>src/a.py</td><td>yes</td>" in html
+    assert "<li>tests/test_b.py</li>" in html
+    # The risk surface is NOT collapsed — it must indict at first glance.
+    risk_pos = html.find("Risk surface")
+    assert risk_pos != -1
+    assert "<h3>" in html[risk_pos - 4 : risk_pos]
+    assert "<li>src/lonely.py</li>" in html
+
+
+def test_empty_collapsed_sections_are_omitted_but_risk_surface_keeps_empty_state():
+    """An empty enumeration earns no collapsed stub; the risk surface keeps
+    its honest 'none recorded' line even when empty."""
+    report = _minimal_report(
+        changed_components=[
+            ReportComponent(
+                id="file:src/a.py", path="src/a.py", type="source_file", has_mapped_tests=True
+            )
+        ],
+        affected_components=[],
+        related_tests=[],
+        unmapped_files=[],
+        risk_surface=[],
+    )
+    html = render_report_html(report)
+    assert "affected component" not in html
+    assert "related test" not in html
+    assert "unmapped file" not in html
+    assert "Risk surface" in html and "none recorded" in html
+
+
 def test_long_component_tables_truncate_with_notice():
     components = [
         ReportComponent(

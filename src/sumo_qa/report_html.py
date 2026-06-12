@@ -161,6 +161,12 @@ _STYLE = """
     color: var(--label); font-weight: 400;
   }
   h3 { font-size: 0.95rem; margin: 1.5rem 0 0.3rem; font-weight: 600; }
+  details { margin: 1.1rem 0 0; }
+  summary {
+    cursor: pointer; font-size: 0.95rem; font-weight: 600;
+    padding: 0.15rem 0; color: var(--ink);
+  }
+  summary:hover { color: var(--crimson); }
   table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; }
   th {
     text-align: left; font-size: 0.66rem; letter-spacing: 0.16em;
@@ -260,7 +266,7 @@ def _mapped_tests_cell(verdict: bool | None) -> str:
     return "yes" if verdict else "no"
 
 
-def _component_table(caption: str, components: list[ReportComponent]) -> str:
+def _component_table(components: list[ReportComponent]) -> str:
     shown, hidden = _bounded(components)
     rows = "".join(
         "<tr>"
@@ -271,21 +277,52 @@ def _component_table(caption: str, components: list[ReportComponent]) -> str:
         for component in shown
     )
     return (
-        f"<h3>{_esc(caption)}</h3>"
         "<table><thead><tr><th>component</th><th>type</th><th>path</th>"
         f"<th>mapped tests</th></tr></thead><tbody>{rows}{_more_row(hidden, 4)}</tbody></table>"
     )
 
 
-def _path_list(caption: str, paths: list[str]) -> str:
+def _path_items(paths: list[str]) -> str:
     shown, hidden = _bounded(paths)
     items = "".join(f"<li>{_esc(path)}</li>" for path in shown)
     more = f'<li class="more">+ {hidden} more not shown</li>' if hidden else ""
-    body = f"<ul>{items}{more}</ul>" if items else '<p class="empty">none recorded</p>'
+    return f"<ul>{items}{more}</ul>"
+
+
+def _path_list(caption: str, paths: list[str]) -> str:
+    body = _path_items(paths) if paths else '<p class="empty">none recorded</p>'
     return f"<h3>{_esc(caption)}</h3>{body}"
 
 
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
+def _type_breakdown(components: list[ReportComponent]) -> str:
+    """Count line for a component set: source / test / docs named, everything
+    else bucketed as 'other' — the summary a reader scans instead of rows."""
+    named = (("source", "source_file"), ("test", "test_file"), ("docs", "docs"))
+    parts = []
+    remaining = len(components)
+    for label, node_type in named:
+        count = sum(1 for c in components if c.type == node_type)
+        if count:
+            parts.append(f"{count} {label}")
+            remaining -= count
+    if remaining:
+        parts.append(f"{remaining} other")
+    return " &#183; ".join(parts)
+
+
+def _collapsed(summary: str, body: str) -> str:
+    """A natively collapsed disclosure — no scripts, summary-first reading."""
+    return f"<details><summary>{summary}</summary>{body}</details>"
+
+
 def _impact_section(report: QAReport) -> str:
+    """Summary-first change impact: each enumeration collapses to a count
+    line (full rows one click away); only the risk surface — the indictment —
+    stays open. Empty enumerations earn no collapsed stub."""
     has_impact_data = bool(
         report.changed_components
         or report.affected_components
@@ -298,13 +335,42 @@ def _impact_section(report: QAReport) -> str:
             '<p class="empty">Diff-impact data is not available &#8212; '
             "change-impact tables are omitted.</p>"
         )
-    return (
-        _component_table("Changed components", report.changed_components)
-        + _component_table("Affected components (one hop)", report.affected_components)
-        + _path_list("Related tests", report.related_tests)
-        + _path_list("Risk surface (changed sources with no mapped test)", report.risk_surface)
-        + _path_list("Unmapped files", report.unmapped_files)
+    parts: list[str] = []
+    changed = report.changed_components
+    if changed:
+        parts.append(
+            _collapsed(
+                f"{_plural(len(changed), 'file')} changed: {_type_breakdown(changed)}",
+                _component_table(changed),
+            )
+        )
+    affected = report.affected_components
+    if affected:
+        parts.append(
+            _collapsed(
+                f"{_plural(len(affected), 'affected component')} (one hop): "
+                f"{_type_breakdown(affected)}",
+                _component_table(affected),
+            )
+        )
+    if report.related_tests:
+        parts.append(
+            _collapsed(
+                _plural(len(report.related_tests), "related test"),
+                _path_items(report.related_tests),
+            )
+        )
+    parts.append(
+        _path_list("Risk surface (changed sources with no mapped test)", report.risk_surface)
     )
+    if report.unmapped_files:
+        parts.append(
+            _collapsed(
+                _plural(len(report.unmapped_files), "unmapped file"),
+                _path_items(report.unmapped_files),
+            )
+        )
+    return "".join(parts)
 
 
 def _risk_section(risks: list[ReportRisk]) -> str:

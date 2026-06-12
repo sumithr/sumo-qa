@@ -122,6 +122,13 @@ same PR — the snapshot exists to make drift visible.
 Artifact content is host-LLM- and repo-supplied text — attacker-ish input to
 the page — so **every dynamic string is HTML-escaped**. Tables and lists
 truncate past a hard cap with an explicit "+ N more not shown" notice, so a
-giant diff cannot produce an unbounded page. The report schema itself is
+giant diff cannot produce an unbounded page.
+
+The page is also summary-first, not an enumeration: the changed / affected /
+related-tests / unmapped sections render as natively collapsed disclosures
+(`<details>`, no scripts), each summarised to a count line with a type
+breakdown (e.g. "33 files changed: 10 source &middot; 9 test &middot; 8 docs
+&middot; 6 other") — the full rows are one click away. Only the risk surface,
+the finding a reader must see, stays open. The report schema itself is
 versioned (`schema_version: "1.0"`, required-not-defaulted, the
 ledger/repo-map pattern).
