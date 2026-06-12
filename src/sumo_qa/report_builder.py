@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from sumo_qa.context_bundle_models import (
     ContextBundle,
@@ -43,6 +43,7 @@ from sumo_qa.context_bundle_models import (
     detect_local_conflict,
 )
 from sumo_qa.context_bundle_validation import load_context_bundle
+from sumo_qa.coverage_models import load_coverage_artifact, load_mutation_artifact
 from sumo_qa.ledger_models import RiskLedger
 from sumo_qa.ledger_validation import load_ledger
 from sumo_qa.repo_map_models import DiffImpact, RepoMap
@@ -51,6 +52,7 @@ from sumo_qa.repo_map_validation import load_repo_map
 from sumo_qa.report_models import (
     REPORT_SCHEMA_VERSION,
     ArtifactKind,
+    ArtifactStatus,
     QAReport,
     ReportArtifact,
     ReportComponent,
@@ -60,12 +62,14 @@ from sumo_qa.report_models import (
     ReportReadiness,
     ReportRisk,
 )
-from sumo_qa.scorecard_models import QaScorecard
+from sumo_qa.scorecard_models import CoverageSignal, MutationSignal, QaScorecard
 
 REPO_MAP_RELPATH = ".sumo-qa/repo-map.json"
 DIFF_IMPACT_RELPATH = ".sumo-qa/diff-impact.json"
 RISK_LEDGER_RELPATH = ".sumo-qa/risk-ledger.json"
 CONTEXT_BUNDLE_RELPATH = ".sumo-qa/context-bundle.json"
+COVERAGE_RELPATH = ".sumo-qa/coverage.json"
+MUTATION_RELPATH = ".sumo-qa/mutation.json"
 RUN_SUMMARY_RELPATH = ".sumo-qa/qa-report-summary.json"
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
@@ -103,6 +107,10 @@ class ReportInputs(BaseModel):
     ledger_source: ArtifactSource
     bundle: ContextBundle | None = None
     bundle_source: ArtifactSource
+    coverage: CoverageSignal | None = None
+    coverage_source: ArtifactSource = Field(default_factory=ArtifactSource)
+    mutation: MutationSignal | None = None
+    mutation_source: ArtifactSource = Field(default_factory=ArtifactSource)
     previous: ReportPreviousRun | None = None
 
 
@@ -213,6 +221,16 @@ def load_report_inputs(
             root_path, CONTEXT_BUNDLE_RELPATH, load_context_bundle
         )
 
+    # Persisted coverage/mutation producers (#147 follow-up): the host skill
+    # runs the tools and the LLM collects the result into these artifacts. Each
+    # loads independently — coverage without mutation (or neither) is first-class.
+    coverage, coverage_source = _load_json_artifact(
+        root_path, COVERAGE_RELPATH, lambda d: load_coverage_artifact(d).to_signal()
+    )
+    mutation, mutation_source = _load_json_artifact(
+        root_path, MUTATION_RELPATH, lambda d: load_mutation_artifact(d).to_signal()
+    )
+
     previous, _previous_source = _load_json_artifact(
         root_path, RUN_SUMMARY_RELPATH, _load_run_summary
     )
@@ -228,6 +246,10 @@ def load_report_inputs(
         ledger_source=ledger_source,
         bundle=bundle,
         bundle_source=bundle_source,
+        coverage=coverage,
+        coverage_source=coverage_source,
+        mutation=mutation,
+        mutation_source=mutation_source,
         previous=previous,
     )
 
@@ -407,6 +429,51 @@ def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
     )
 
 
+def _coverage_mutation_artifact(inputs: ReportInputs) -> ReportArtifact:
+    """The persisted coverage/mutation producers (#147 follow-up), aggregated
+    into the single ``coverage_mutation`` row.
+
+    A signal that loaded but is not fresh is honestly ``stale`` (evidence the
+    verdict must not trust); a present file that failed to validate is
+    ``invalid``; nothing on disk is ``missing``. Coverage/mutation never gate the
+    verdict — this row reports their presence + freshness only.
+    """
+    parts: list[str] = []
+    loaded_fresh = False
+    loaded_any = False
+    for label, signal, source in (
+        ("coverage", inputs.coverage, inputs.coverage_source),
+        ("mutation", inputs.mutation, inputs.mutation_source),
+    ):
+        if signal is not None and signal.has_measurement():
+            loaded_any = True
+            loaded_fresh = loaded_fresh or signal.freshness == "fresh"
+            parts.append(f"{label}: {signal.freshness}")
+        elif source.error is not None:
+            parts.append(f"{label}: unreadable ({_first_line_text(source.error)})")
+        else:
+            parts.append(f"{label}: not supplied")
+
+    has_error = inputs.coverage_source.error is not None or inputs.mutation_source.error is not None
+    if loaded_any:
+        status: ArtifactStatus = "available" if loaded_fresh else "stale"
+    elif has_error:
+        status = "invalid"
+    else:
+        status = "missing"
+    return ReportArtifact(
+        kind="coverage_mutation",
+        status=status,
+        path=None,
+        detail="; ".join(parts) + " — reported, not gated",
+    )
+
+
+def _first_line_text(text: str) -> str:
+    """First line of a (possibly multi-line) artifact-source error message."""
+    return text.strip().splitlines()[0] if text.strip() else text
+
+
 def _components(nodes: list) -> list[ReportComponent]:
     return sorted(
         (
@@ -451,16 +518,51 @@ def _evidence_streams(inputs: ReportInputs) -> list[ReportEvidence]:
                 detail=fact.detail,
             )
         )
-    for name in ("coverage", "mutation"):
-        streams.append(
-            ReportEvidence(
-                name=name,
-                status="missing",
-                trustworthy=False,
-                detail="not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
-            )
-        )
+    # Coverage/mutation are now persisted producers (#147 follow-up) — but they
+    # are REPORTED, never gated, so they carry no pass/fail status. A present
+    # signal is `not_run` (no gate verdict) with the measurement + freshness in
+    # the trust columns; an absent one stays `missing`.
+    streams.append(_measurement_stream("coverage", _coverage_measure(inputs.coverage)))
+    streams.append(_measurement_stream("mutation", _mutation_measure(inputs.mutation)))
     return streams
+
+
+def _coverage_measure(signal: CoverageSignal | None) -> tuple[str | None, str] | None:
+    if signal is None or not signal.has_measurement():
+        return None
+    measure = f"{signal.line_percent:g}% lines" if signal.line_percent is not None else "measured"
+    return signal.freshness, measure
+
+
+def _mutation_measure(signal: MutationSignal | None) -> tuple[str | None, str] | None:
+    if signal is None or not signal.has_measurement():
+        return None
+    bits: list[str] = []
+    if signal.survivors is not None:
+        bits.append(f"{signal.survivors} survivor(s)")
+    if signal.killed is not None:
+        bits.append(f"{signal.killed} killed")
+    return signal.freshness, ", ".join(bits) or "measured"
+
+
+def _measurement_stream(name: str, measure: tuple[str | None, str] | None) -> ReportEvidence:
+    """Project a coverage/mutation signal into an evidence row. ``measure`` is
+    ``(freshness, text)`` when measured, else ``None`` (absent ⇒ missing)."""
+    if measure is None:
+        return ReportEvidence(
+            name=name,
+            status="missing",
+            trustworthy=False,
+            detail="not supplied — optional readiness-scorecard signal (run sumo-qa-measuring-coverage)",
+        )
+    freshness, text = measure
+    return ReportEvidence(
+        name=name,
+        status="not_run",  # reported, never gated — no pass/fail verdict on coverage
+        freshness=freshness,  # type: ignore[arg-type]
+        trustworthy=freshness == "fresh",
+        detail=f"{text} — reported, not gated",
+    )
 
 
 def _readiness_from_scorecard(
@@ -469,21 +571,25 @@ def _readiness_from_scorecard(
     *,
     scope: str | None,
     local_head_sha: str | None,
+    coverage: CoverageSignal | None = None,
+    mutation: MutationSignal | None = None,
 ) -> ReportReadiness:
     """Single source of truth: #151's :class:`QaScorecard` derives the verdict;
     the report only maps it onto :class:`ReportReadiness`.
 
-    ``coverage``/``mutation`` are ``None`` — the report has no persisted producer
-    for them (#147 is guidance-only). The four scorecard states are adopted
-    verbatim as the report's ``ReadinessState``, so the report and the scorecard
-    can never disagree.
+    ``coverage``/``mutation`` are the persisted producers' signals (#147
+    follow-up) when present, else ``None``. They are REPORTED, never gated — the
+    scorecard surfaces them as dimensions but they do not move the recommendation
+    (a 100% coverage signal can never flip a blocked/insufficient verdict). The
+    four scorecard states are adopted verbatim as the report's ``ReadinessState``,
+    so the report and the scorecard can never disagree.
     """
     card = QaScorecard(
         scope=scope,
         ledger=ledger,
         context_bundle=bundle,
-        coverage=None,
-        mutation=None,
+        coverage=coverage,
+        mutation=mutation,
     )
     state = card.recommendation(local_head_sha=local_head_sha)
     rows = ledger.rows if ledger is not None else []
@@ -544,12 +650,7 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
         _ledger_artifact(inputs),
         _bundle_artifact(inputs, conflict),
         _scorecard_artifact(inputs),
-        ReportArtifact(
-            kind="coverage_mutation",
-            status="missing",
-            path=None,
-            detail="not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
-        ),
+        _coverage_mutation_artifact(inputs),
     ]
 
     diff_impact = inputs.diff_impact
@@ -608,6 +709,8 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
             inputs.bundle,
             scope=project_name,
             local_head_sha=inputs.current_commit,
+            coverage=inputs.coverage,
+            mutation=inputs.mutation,
         ),
         previous_run=inputs.previous,
     )

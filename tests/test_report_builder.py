@@ -351,7 +351,102 @@ def test_coverage_mutation_is_an_optional_scorecard_signal(tmp_path):
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
     assert entry.status == "missing"
-    assert entry.detail is not None and "optional readiness-scorecard signals" in entry.detail
+    assert entry.detail is not None
+    assert "not supplied" in entry.detail
+    assert "reported, not gated" in entry.detail
+
+
+def _coverage_payload(**overrides) -> dict:
+    payload = {
+        "schema_version": "1.0",
+        "generated_at": "2026-06-08T00:00:00Z",
+        "source_tool": "pytest-cov",
+        "line_percent": 100.0,
+        "freshness": "fresh",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _mutation_payload(**overrides) -> dict:
+    payload = {
+        "schema_version": "1.0",
+        "generated_at": "2026-06-08T00:00:00Z",
+        "source_tool": "mutmut",
+        "survivors": 2,
+        "killed": 145,
+        "freshness": "fresh",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_fresh_coverage_artifact_renders_available(tmp_path):
+    _write_artifact(tmp_path, "coverage.json", _coverage_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    assert entry.status == "available"
+    assert entry.detail is not None and "coverage: fresh" in entry.detail
+    # The evidence stream carries the measurement, reported never gated.
+    stream = next(s for s in report.evidence if s.name == "coverage")
+    assert stream.status == "not_run"
+    assert stream.trustworthy is True
+    assert stream.detail is not None and "100% lines" in stream.detail
+
+
+def test_stale_coverage_artifact_renders_stale(tmp_path):
+    _write_artifact(tmp_path, "coverage.json", _coverage_payload(freshness="stale"))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    assert entry.status == "stale"
+    stream = next(s for s in report.evidence if s.name == "coverage")
+    assert stream.trustworthy is False
+
+
+def test_both_coverage_and_mutation_render_available(tmp_path):
+    _write_artifact(tmp_path, "coverage.json", _coverage_payload())
+    _write_artifact(tmp_path, "mutation.json", _mutation_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    assert entry.status == "available"
+    assert "mutation: fresh" in (entry.detail or "")
+    mstream = next(s for s in report.evidence if s.name == "mutation")
+    assert mstream.status == "not_run"
+    assert mstream.detail is not None and "2 survivor(s)" in mstream.detail
+
+
+def test_invalid_coverage_artifact_renders_invalid(tmp_path):
+    _write_artifact(tmp_path, "coverage.json", _coverage_payload(line_percent=150.0))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    assert entry.status == "invalid"
+    assert "unreadable" in (entry.detail or "")
+
+
+def test_measurementless_coverage_artifact_stays_missing(tmp_path):
+    # A payload with provenance + freshness but no line_percent carries no
+    # measurement, so the dimension is not_measured and the row stays missing.
+    _write_artifact(
+        tmp_path,
+        "coverage.json",
+        {
+            "schema_version": "1.0",
+            "generated_at": "2026-06-08T00:00:00Z",
+            "source_tool": "pytest-cov",
+            "freshness": "fresh",
+        },
+    )
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    assert entry.status == "missing"
+
+
+def test_coverage_never_flips_an_insufficient_verdict(tmp_path):
+    # No risk ledger / bundle ⇒ insufficient_evidence. A fresh 100% coverage
+    # signal must NOT move it — coverage is reported, never gated.
+    _write_artifact(tmp_path, "coverage.json", _coverage_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "insufficient_evidence"
 
 
 def test_artifact_details_carry_no_tracker_issue_references(tmp_path):
