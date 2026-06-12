@@ -140,6 +140,18 @@ def test_record_mutation_missing_root_returns_envelope(record_mutation, tmp_path
     assert out["isError"] is True
 
 
+def test_record_coverage_explicit_none_write_to_uses_default(record_coverage, tmp_path):
+    # An explicit None must fall back to the conventional path, not produce an
+    # opaque TypeError envelope.
+    out = record_coverage(
+        root=str(tmp_path),
+        coverage={"source_tool": "x", "generated_at": "x", "freshness": "fresh"},
+        write_to=None,
+    )
+    assert isinstance(out, RecordCoverageOutput)
+    assert (tmp_path / ".sumo-qa" / "coverage.json").exists()
+
+
 def test_record_coverage_relative_write_to_confined_to_root(record_coverage, tmp_path):
     out = record_coverage(
         root=str(tmp_path),

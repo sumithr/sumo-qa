@@ -423,6 +423,30 @@ def test_invalid_coverage_artifact_renders_invalid(tmp_path):
     assert "unreadable" in (entry.detail or "")
 
 
+def test_fresh_coverage_plus_stale_mutation_aggregates_to_stale(tmp_path):
+    # Weakest-wins: a fresh coverage signal must not badge the row "available"
+    # while its mutation sibling is stale.
+    _write_artifact(tmp_path, "coverage.json", _coverage_payload(freshness="fresh"))
+    _write_artifact(tmp_path, "mutation.json", _mutation_payload(freshness="stale"))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    assert entry.status == "stale"
+    assert "coverage: fresh" in (entry.detail or "")
+    assert "mutation: stale" in (entry.detail or "")
+
+
+def test_fresh_coverage_plus_invalid_mutation_aggregates_to_invalid(tmp_path):
+    # A present-but-corrupt sibling artifact must not be masked by a fresh
+    # signal: the row badges "invalid" and names the unreadable artifact.
+    _write_artifact(tmp_path, "coverage.json", _coverage_payload(freshness="fresh"))
+    _write_artifact(tmp_path, "mutation.json", _mutation_payload(survivors=-5))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    assert entry.status == "invalid"
+    assert "mutation: unreadable" in (entry.detail or "")
+    assert "coverage: fresh" in (entry.detail or "")
+
+
 def test_measurementless_coverage_artifact_stays_missing(tmp_path):
     # A payload with provenance + freshness but no line_percent carries no
     # measurement, so the dimension is not_measured and the row stays missing.

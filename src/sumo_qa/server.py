@@ -1726,7 +1726,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             artifact = load_coverage_artifact(
                 {"schema_version": COVERAGE_SCHEMA_VERSION, **coverage}
             )
-            target = _resolve_artifact_target(root_path, write_to)
+            target = _resolve_artifact_target(root_path, write_to or ".sumo-qa/coverage.json")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(artifact.model_dump_json(indent=2), encoding="utf-8")
             summary = (
@@ -1783,7 +1783,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             artifact = load_mutation_artifact(
                 {"schema_version": COVERAGE_SCHEMA_VERSION, **mutation}
             )
-            target = _resolve_artifact_target(root_path, write_to)
+            target = _resolve_artifact_target(root_path, write_to or ".sumo-qa/mutation.json")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(artifact.model_dump_json(indent=2), encoding="utf-8")
             bits = []

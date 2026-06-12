@@ -439,26 +439,30 @@ def _coverage_mutation_artifact(inputs: ReportInputs) -> ReportArtifact:
     verdict — this row reports their presence + freshness only.
     """
     parts: list[str] = []
-    loaded_fresh = False
-    loaded_any = False
+    loaded: list[CoverageSignal | MutationSignal] = []
+    has_error = False
     for label, signal, source in (
         ("coverage", inputs.coverage, inputs.coverage_source),
         ("mutation", inputs.mutation, inputs.mutation_source),
     ):
         if signal is not None and signal.has_measurement():
-            loaded_any = True
-            loaded_fresh = loaded_fresh or signal.freshness == "fresh"
+            loaded.append(signal)
             parts.append(f"{label}: {signal.freshness}")
         elif source.error is not None:
+            has_error = True
             parts.append(f"{label}: unreadable ({_first_line_text(source.error)})")
         else:
             parts.append(f"{label}: not supplied")
 
-    has_error = inputs.coverage_source.error is not None or inputs.mutation_source.error is not None
-    if loaded_any:
-        status: ArtifactStatus = "available" if loaded_fresh else "stale"
-    elif has_error:
+    # Weakest-wins, so the badge never reads healthier than the evidence (the
+    # report's honesty ethos): a present-but-corrupt artifact is `invalid` even
+    # when its sibling loaded fresh; any loaded-but-non-fresh signal makes the
+    # row `stale`. The detail line always carries the per-signal specifics.
+    status: ArtifactStatus
+    if has_error:
         status = "invalid"
+    elif loaded:
+        status = "available" if all(s.freshness == "fresh" for s in loaded) else "stale"
     else:
         status = "missing"
     return ReportArtifact(
