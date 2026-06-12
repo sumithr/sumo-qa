@@ -440,39 +440,38 @@ exits non-zero whenever any assertion fails — that's "not 100 % green", not a 
 read the pass-rate, not the exit code.
 
 We grade `message.content` only (`showThinking: false`), so a candidate can REASON
-(body-faithful discrimination) while the judge sees a clean verdict. The **cheap-tier
-models are the 2026-06 judge/candidate bake-off winners** (tooling in `bakeoff/` +
-`validate-local-judge/`): candidate `gemma4-e4b-bounded` on the 4060, judge
-`gemma4-12b-bounded` on the laptop. Headline vs stored gpt-5.5 verdicts: the judge agrees
-**92 %** (vs ~56 % for the old reasoning-off qwen3.5:9b) and is **binary-deterministic**
-on fixed input; the `gemma4-e4b` candidate is the only 4060 model that lifts all three
-`.ab` control types. The rep-to-rep wobble is **candidate-side** (the e4b regenerates near
-the pass threshold at temp 0), so pair with `--repeat 3`. Still a *relative* signal; cloud
-(gpt-5.5) is the merge gate. The 4090 `gpt-oss:20b` judge was tested and **rejected for
-now** (too strict — 0/3 separation, beaten by the laptop judge); revisit with a tuned 20B.
-The old instant `sumo-cheap-judge-9b` remains available via `SUMO_CHEAP_JUDGE`.
+(body-faithful discrimination) while the judge sees a clean verdict. Models are the
+**`pi-*` raw single-host Ollama tags from the 2026-06-09 pi gen/grade experiment** — the
+pairing validated as the best candidate/judge balance (the judge
+`pi-gpt-oss-20b-16k` graded the 2026-06-10 reviewing-before-merge reasoning runs).
+Raw tags replace the earlier OWUI *workspace aliases* (`gemma4-e4b-bounded` /
+`gemma4-12b-bounded`, the 2026-06 bake-off winners — tooling in `bakeoff/` +
+`validate-local-judge/`): a workspace alias can silently vanish from OWUI ("Model not
+found" while still listed), which broke every cheap-tier run on 2026-06-12; a raw tag
+routes as long as its host is up. Candidate-side rep-to-rep wobble near the pass
+threshold remains, so pair with `--repeat 3`. Still a *relative* signal; cloud
+(gpt-5.5) is the merge gate.
 
 | Tier | Scope | Candidate (host) | Judge (host) | 4090? |
 |---|---|---|---|---|
-| cheap | gpt-4o-mini files | `gemma4-e4b-bounded` — bounded Gemma 4 e4b (4060) | `gemma4-12b-bounded` — bounded Gemma 4 12B (laptop), 92% gpt-5.5 agreement | no |
-| reasoning | gpt-5-mini files | `gemma4-12b-bounded` — OWUI alias for bounded Gemma 4 12B on the laptop | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
-| quality | **all** skills | `gemma4-12b-bounded` (laptop) — or another model via `SUMO_QUALITY_CANDIDATE` | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
+| cheap | gpt-4o-mini files | `pi-qwen35-4b-32k` — Qwen3.5 4b, 32k ctx (4060) | `pi-gemma4-12b-16k` — Gemma 4 12B, 16k ctx (laptop) | no |
+| reasoning | gpt-5-mini files | `pi-gemma4-12b-16k` — Gemma 4 12B (laptop) | `pi-gpt-oss-20b-16k` — gpt-oss:20b (4090) | yes |
+| quality | **all** skills | `pi-gemma4-12b-16k` (laptop) — or another model via `SUMO_QUALITY_CANDIDATE` | `pi-gpt-oss-20b-16k` — gpt-oss:20b (4090) | yes |
 
 The **quality** tier is the highest-fidelity local option — the laptop reasoning candidate +
 the bigger, different-family 4090 judge across *every* skill, for when the 4090 is free. It's
 slow (both sides reason) and uses the 4090, so it's opt-in; it's still a relative signal, not
-the merge gate. Validate its judge before relying on it: `npm run eval:validate-judge -- --judge sumo-rjudge-20b`.
+the merge gate. Validate its judge before relying on it: `npm run eval:validate-judge -- --judge pi-gpt-oss-20b-16k:latest`.
 
-`gemma4-12b-bounded` is an OpenWebUI workspace alias, so it appears in the chat model
-picker rather than as a separately managed Ollama model. Promptfoo addresses it directly
-by that stable model ID through `$SUMO_OWUI_BASE/chat/completions`. The alias persists
-`think=medium`; its underlying `gemma4-12b-bounded:latest` laptop tag persists the 128K
-context, Gemma sampling parameters, anti-loop system prompt, and 4096-token hard cap.
+Each `pi-*` tag bakes its bounded params (`num_ctx`/`num_predict` per the `-16k`/`-32k`
+suffix) into the modelfile on its host; the runner's generated provider configs still
+force `temperature: 0` per request. Promptfoo addresses each tag directly through
+`$SUMO_OWUI_BASE/chat/completions`; OWUI routes by which box holds the tag.
 
-Override any default via the `SUMO_CHEAP_*` / `SUMO_REASON_*` env vars in `run-eval.sh`.
-Each model needs a **16k+-num_ctx variant** (`ollama create <m> --from <base>` with
-`num_ctx 16384`) — the ~14k-token skill prompts 400-error at Ollama's 4096 default.
-Tags pinned 2026-06; revisit when the hardware or Ollama version changes.
+Override any default via the `SUMO_CHEAP_*` / `SUMO_REASON_*` / `SUMO_QUALITY_*` env vars
+in `run-eval.sh`. Each model needs a **16k+-num_ctx variant** (`ollama create <m> --from
+<base>` with `num_ctx 16384`) — the ~14k-token skill prompts 400-error at Ollama's 4096
+default. Tags pinned 2026-06-12; revisit when the hardware or Ollama version changes.
 
 `SUMO_EVAL_CONCURRENCY` sets promptfoo's `-j` (number of test cases in flight; defaults
 **1** local, **4** cloud). Raising local `-j` looks tempting — overlap candidate-gen on one

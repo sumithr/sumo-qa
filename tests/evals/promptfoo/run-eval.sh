@@ -12,42 +12,33 @@
 #     grade message.content only (showThinking:false) so a candidate can REASON
 #     (body-faithful discrimination) while the judge sees a clean verdict.
 #
-#   The cheap-tier JUDGE is gemma4-12b-bounded (bounded Gemma 4 12B on the 5070 laptop),
-#   picked by the 2026-06 judge/candidate bake-off: 92% absolute agreement with cloud
-#   gpt-5.5 (vs ~56% for the old reasoning-off qwen3.5:9b) and binary-deterministic on
-#   fixed input. It reasons (think=medium), so it is slower per grade than the old 9B —
-#   the instant reasoning-off sumo-cheap-judge-9b is still available via SUMO_CHEAP_JUDGE
-#   if you need speed over fidelity.
+#   Models are the `pi-*` raw single-host Ollama tags from the 2026-06-09 pi gen/grade
+#   experiment — the validated best candidate/judge balance. Raw tags (not OWUI
+#   workspace aliases) so a vanished alias can't break the tier; each bakes bounded
+#   num_ctx/num_predict in its modelfile.
 #
-#     cheap tier  (gpt-4o-mini files): candidate gemma4-e4b-bounded (bounded Gemma 4 e4b)
-#       on the 4060; judge gemma4-12b-bounded (bounded Gemma 4 12B) on the 5070 laptop.
-#       Bake-off winner (best 4060+laptop pairing vs gpt-5.5; the e4b candidate is the
-#       only 4060 model that lifts the hard unproven-escalation control). => 4060 + laptop
-#       only. NEVER the 4090. Run any time (gemma12b reasons -> slower than the old 9B).
+#     cheap tier  (gpt-4o-mini files): candidate pi-qwen35-4b-32k (Qwen3.5 4b, 32k ctx)
+#       on the 4060; judge pi-gemma4-12b-16k (Gemma 4 12B, 16k ctx) on the 5070 laptop.
+#       Cross-family pairing, JUDGE > CANDIDATE. => 4060 + laptop
+#       only. NEVER the 4090. Run any time.
 #
 #     reasoning tier (gpt-5-mini files + .ab controls): candidate =
-#       gemma4-12b-bounded (OWUI workspace alias -> gemma4-12b-bounded:latest)
-#       on the 5070 laptop; judge sumo-rjudge-20b (gpt-oss:20b — bigger + different
-#       family, so JUDGE >= CANDIDATE) on the 4090.
+#       pi-gemma4-12b-16k (Gemma 4 12B) on the 5070 laptop; judge pi-gpt-oss-20b-16k
+#       (gpt-oss:20b — bigger + different family, so JUDGE >= CANDIDATE) on the 4090.
 #       => laptop + 4090. USES THE 4090 — only run when the 4090 is free.
 #
 #     quality tier (ALL skills): the SAME laptop-candidate + 4090-judge pairing as the
 #       reasoning tier, but applied to EVERY skill-*.yaml — highest fidelity for when the
-#       4090 is free (both sides reason, so it's slow). Candidate gemma4-12b-bounded; judge
-#       sumo-rjudge-20b. => laptop + 4090. USES THE 4090 — only run when it's free.
+#       4090 is free (both sides reason, so it's slow). Candidate pi-gemma4-12b-16k; judge
+#       pi-gpt-oss-20b-16k. => laptop + 4090. USES THE 4090 — only run when it's free.
 #
 # Why split: the 4090 is a personal machine. `eval:local:cheap` keeps off it;
 # `eval:local:reasoning` and `eval:local:quality` are the paths that use it, so you choose when.
 #
-# Why Gemma 4 12B for the hard tier: it completed the bounded reasoning suite 5/5.
-# The tuned Qwen 3.5 9B completed 4/5 and exhausted its output budget on the
-# inconsistent-constraints case. The gpt-oss judge remains larger and cross-family.
-# Models pinned 2026-06. Tags are single-host (OWUI routes by which box holds them).
-# gemma4-12b-bounded is an OWUI workspace alias that persists think=medium and wraps the
-# laptop-only gemma4-12b-bounded:latest tag (128k context, 4096-token output cap).
-# Recreate tags with: ollama create <name> --from <base> (num_ctx as noted),
-# and sumo-cheap-4b is an OWUI workspace model on sumo-cand-4b-32k with
-# params.chat_template_kwargs.enable_thinking=false.
+# Models pinned 2026-06-12 (pi experiment pairing; judge pi-gpt-oss-20b-16k graded the
+# 2026-06-10 reviewing-before-merge reasoning runs). Tags are single-host (OWUI routes
+# by which box holds them). Recreate with: ollama create <name> --from <base>
+# (PARAMETER num_ctx/num_predict per the -16k/-32k suffix) on the host noted above.
 #
 # Usage:
 #   bash run-eval.sh                         # cloud, default single file
@@ -78,25 +69,27 @@ PROMPTFOO="$ROOT/node_modules/.bin/promptfoo"
 # OpenWebUI proxy + key are loaded by _owui-env.sh in the local branch below
 # (single source shared with validate-local-judge/run.sh; key never echoed).
 
-# Per-tier models (override via env if hardware moves). Cheap-tier models are the
-# 2026-06 bake-off winners: gemma4-e4b candidate (4060) + gemma4-12b-bounded judge
-# (laptop). gemma4-12b-bounded is also the reasoning/quality-tier CANDIDATE.
-CHEAP_CAND="${SUMO_CHEAP_CANDIDATE:-gemma4-e4b-bounded}"        # bounded Gemma 4 e4b -> 4060 (bake-off winner)
-CHEAP_JUDGE="${SUMO_CHEAP_JUDGE:-gemma4-12b-bounded}"           # bounded Gemma 4 12B -> laptop (92% gpt-5.5 agreement)
-REASON_CAND="${SUMO_REASON_CANDIDATE:-gemma4-12b-bounded}"      # OWUI alias -> bounded Gemma 4 12B on laptop
-REASON_JUDGE="${SUMO_REASON_JUDGE:-sumo-rjudge-20b:latest}"     # gpt-oss:20b reasoning -> 4090
+# Per-tier models (override via env if hardware moves). Pinned 2026-06-12 to the
+# `pi-*` raw single-host Ollama tags from the pi gen/grade experiment — the pairing
+# the user validated as the best candidate/judge balance. Raw tags also remove the
+# OWUI *workspace-alias* dependency: the `gemma4-12b-bounded` alias silently vanished
+# from OWUI ("Model not found" while still listed), which broke every cheap-tier run;
+# a raw tag routes as long as its host is up. Each pi tag bakes bounded params in its
+# modelfile (num_ctx/num_predict); the provider configs below still force temp 0.
+CHEAP_CAND="${SUMO_CHEAP_CANDIDATE:-pi-qwen35-4b-32k:latest}"     # Qwen3.5 4b, 32k ctx -> 4060
+CHEAP_JUDGE="${SUMO_CHEAP_JUDGE:-pi-gemma4-12b-16k:latest}"       # Gemma 4 12B, 16k ctx -> laptop
+REASON_CAND="${SUMO_REASON_CANDIDATE:-pi-gemma4-12b-16k:latest}"  # Gemma 4 12B, 16k ctx -> laptop
+REASON_JUDGE="${SUMO_REASON_JUDGE:-pi-gpt-oss-20b-16k:latest}"    # gpt-oss:20b, 16k ctx -> 4090
 # QUALITY tier (see header): reasoning pairing applied to ALL skills.
-QUALITY_CAND="${SUMO_QUALITY_CANDIDATE:-gemma4-12b-bounded}"    # OWUI alias -> bounded Gemma 4 12B on laptop
-QUALITY_JUDGE="${SUMO_QUALITY_JUDGE:-sumo-rjudge-20b:latest}"   # gpt-oss:20b reasoning -> 4090
-# Cheap-tier models picked by the 2026-06 judge/candidate bake-off (results gitignored;
-# tooling in bakeoff/ + validate-local-judge/). Headline vs STORED gpt-5.5 verdicts:
-# gemma4-12b-bounded judges at 92% absolute agreement and is binary-deterministic on fixed
-# input; the gemma4-e4b candidate is the only 4060 model that lifts all three .ab control
-# types. The rep-to-rep wobble is CANDIDATE-side (the e4b regenerates near the pass
-# threshold at temp 0), so --repeat 3 majority is needed to settle it. Still a RELATIVE
-# signal; cloud (gpt-5.5) stays the merge gate. The 4090 gpt-oss:20b judge was tested and
-# REJECTED for now (too strict: 0/3 separation, beaten by the laptop gemma12b) — revisit
-# with a tuned 20B judge (showThinking:false may be clipping its analysis).
+QUALITY_CAND="${SUMO_QUALITY_CANDIDATE:-pi-gemma4-12b-16k:latest}"  # Gemma 4 12B -> laptop
+QUALITY_JUDGE="${SUMO_QUALITY_JUDGE:-pi-gpt-oss-20b-16k:latest}"    # gpt-oss:20b -> 4090
+# History: the 2026-06 bake-off (tooling in bakeoff/ + validate-local-judge/, results
+# gitignored) picked gemma4-e4b (4060 candidate) + gemma4-12b-bounded (laptop judge,
+# 92% gpt-5.5 agreement) via OWUI workspace aliases; the 2026-06-09 pi experiment then
+# proved candidate-host and judge-host run concurrently and settled the pi-tag pairing
+# above (judge pi-gpt-oss-20b-16k graded the 2026-06-10 reviewing-before-merge runs).
+# Candidate-side rep-to-rep wobble near the pass threshold remains -> keep --repeat 3
+# majority. Still a RELATIVE signal; cloud (gpt-5.5) stays the merge gate.
 
 if [ "$BACKEND" = "cloud" ]; then
   echo "[eval] backend=CLOUD (OpenAI pinned models — authoritative merge gate)"
