@@ -339,10 +339,18 @@ class QaScorecard(BaseModel):
                     continue
                 assert fact is not None  # untrustworthy fields are always present
                 label = _EVIDENCE_LABELS.get(name, name.replace("_", " "))
-                freshness_word = _FRESHNESS_WORDS.get(fact.freshness, fact.freshness)
+                # A fact is untrustworthy either because its freshness is not
+                # trustworthy (stale/unknown/absent) OR because it is fresh+passing
+                # but was captured against a different commit (sha mismatch). The
+                # `_FRESHNESS_WORDS` keys ARE the non-trustworthy freshness values,
+                # so a freshness outside them can only be the sha-mismatch case —
+                # never describe a fresh fact as "but fresh".
+                if fact.freshness in _FRESHNESS_WORDS:
+                    why = _FRESHNESS_WORDS[fact.freshness]
+                else:
+                    why = "was captured against a different commit"
                 reasons.append(
-                    f"{label} is {fact.result} but {freshness_word}, "
-                    "so it cannot support a ready verdict"
+                    f"{label} is {fact.result} but {why}, so it cannot support a ready verdict"
                 )
             if detect_local_conflict(bundle, local_head_sha) is not None:
                 reasons.append("context bundle is stale relative to the local tree")

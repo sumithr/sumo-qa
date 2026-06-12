@@ -187,6 +187,23 @@ def test_recommendation_reasons_are_human_readable_not_machine_tokens():
     assert any("test evidence is failing" in r for r in failing_reasons)
     assert "result=" not in " ".join(failing_reasons)
 
+    # A fresh+passing fact captured against a DIFFERENT commit is untrustworthy
+    # too — the reason must not read the self-contradiction "passing but fresh".
+    sha_mismatch = QaScorecard(
+        context_bundle=ContextBundle(
+            head_sha="bbbbbbbb",
+            test_evidence=EvidenceFact(
+                result="passing",
+                freshness="fresh",
+                source="local_git",
+                captured_against_sha="aaaaaaaa",
+            ),
+        )
+    )
+    mismatch_reasons = sha_mismatch.insufficiency_reasons()
+    assert any("captured against a different commit" in r for r in mismatch_reasons)
+    assert not any("but fresh" in r for r in mismatch_reasons)
+
 
 def test_bundle_local_conflict_is_an_insufficiency():
     # Fresh passing evidence, but the bundle's head differs from the live local
