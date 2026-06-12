@@ -5,7 +5,7 @@ description: Use when a review, mutation run, or graded scenario has already nam
 
 # Closing QA gaps
 
-QA evidence — a review's uncovered risk, an unmet acceptance criterion, a mutation survivor, a graded-scenario failure — has named a concrete behaviour with no covering test. This skill drives it to closure one loop at a time (failing test → red → minimum change → green → status update), orchestrating the existing disciplines — never replacing them, never an autonomous fixer.
+QA evidence — a review's uncovered risk, an unmet acceptance criterion, a mutation survivor, a graded-scenario failure — has named a concrete behaviour with no covering test. This skill drives it to closure one loop at a time (red → minimum change → green → status update), orchestrating the existing disciplines — never replacing them.
 
 **Announce at the start of EVERY turn while this skill is active** — entry, red, green, status-update, refusal, and decline turns all open with: *"Closing one QA gap at a time."* A turn that skips the announce has left the loop discipline.
 
@@ -33,15 +33,15 @@ You MUST work through these in order, tracked as an ordered work list. Steps 4�
 
 1. **Name the ONE gap and its source** — restate the gap as a single concrete behaviour (file/function + the uncovered behaviour) and where it came from (review risk or AC row, mutation survivor, graded-scenario failure, user-described defect). If the evidence names several gaps, pick exactly one — the user's stated priority, else the first — and park the rest BY ID, out loud, in a sentence of this shape: *"R2 and R3 are parked as later loops — I'll start the next one only when you ask."* Never batch.
 
-2. **Inspect the loop's prerequisites** — open the production file and the matching test file with the host's file tools; confirm the command that runs the relevant tests. Any prerequisite not inspectable → the HARD-GATE fires: stop and ask, this turn.
+2. **Inspect the loop's prerequisites** — open the production file and the matching test file; confirm the command that runs the relevant tests. Any prerequisite not inspectable → the HARD-GATE fires: stop and ask, this turn.
 
 3. **Route the entry by its kind** —
-   - **Mutation survivor** → `sumo-qa-strengthening-tests` discipline FIRST: production code stays UNCHANGED while the test is strengthened to kill the survivor (that skill's Iron Law binds here, unweakened). The strengthening proposal carries the SAME obligations as step 4, anchored at both ends: name the survivor by its production location and mutation (e.g. `pricing/discounts.py:42` — `subtotal > 10000` mutated to `>=`), cite the technique by its verbatim loaded-catalogue heading (e.g. "boundary value analysis"), AND name the target test file and test (e.g. `tests/pricing/test_discounts.py::test_no_discount_at_exact_threshold`). Only if the strengthened test then exposes a genuine production defect does this loop continue into a fix — surfaced as a separate, explicit decision, never silently.
+   - **Mutation survivor** → `sumo-qa-strengthening-tests` discipline FIRST: production code stays UNCHANGED while the test is strengthened to kill the survivor (that skill's Iron Law binds here, unweakened). Here red (step 4) is the strengthened test failing against the MUTANT (unchanged production passes it), and green (step 5) is that test passing with production still unchanged — no production change. The strengthening proposal carries the SAME obligations as step 4: name the survivor by its production location and mutation (e.g. `pricing/discounts.py:42` — `subtotal > 10000` mutated to `>=`), cite the technique by its verbatim loaded-catalogue heading (e.g. "boundary value analysis"), AND name the target test file and test. Only if the strengthened test then exposes a genuine production defect does this loop continue into a fix — surfaced as a separate, explicit decision, never silently.
    - **Review risk / AC row / graded-scenario failure / described defect** → `sumo-qa-implementing-with-tdd` discipline (`regression-first`): its red-first Iron Law, stub allowance, and confirmation gates apply unchanged.
 
-4. **Red — capture the failing evidence before anything changes** — write (or request) the focused failing test for THIS gap only, citing the technique by its verbatim loaded-catalogue heading (load the techniques catalogue if not already loaded). Never name a test file or function the supplied context has not shown — a test path the context can't ground is fabrication; ask for the files instead. Run it; capture the real assertion failure verbatim. Import/syntax/fixture errors are not red. When the test cannot be run locally (missing runtime, remote-only suite), say so explicitly, record what evidence IS available, and get the user's go-ahead before any change — never claim a red you didn't see.
+4. **Red — capture the failing evidence before anything changes** — write (or request) the focused failing test for THIS gap only, citing the technique by its verbatim loaded-catalogue heading. Never name a test file or function the supplied context has not shown — a test path the context can't ground is fabrication; ask for the files instead. Run it; capture the real assertion failure verbatim. Import/syntax/fixture errors are not red. When the test cannot be run locally (missing runtime, remote-only suite), say so explicitly, record what evidence IS available, and get the user's go-ahead before any change — never claim a red you didn't see.
 
-5. **Green — minimum change, re-run, capture** — the smallest production change that closes THIS gap (or the user makes it, per the TDD skill's handoff). Re-run the test; capture the green output verbatim. A pass for the wrong reason (weakened assertion) is not green.
+5. **Green — minimum change, re-run, capture** — the smallest production change that closes THIS gap (none on a survivor entry — step 3; or the user makes it, per the TDD skill's handoff). Re-run the test; capture the green output verbatim. A pass for the wrong reason (weakened assertion) is not green.
 
 6. **Targeted regression** — run the changed module's tests plus closest siblings; capture pass/fail counts. Any green-to-red elsewhere reopens the loop: surface it and do NOT move the gap's status.
 
@@ -51,7 +51,7 @@ You MUST work through these in order, tracked as an ordered work list. Steps 4�
 
 ## Process Flow
 
-See the Checklist above — that's the flow.
+The Checklist above is the flow.
 
 ## Red Flags — STOP and rework
 
