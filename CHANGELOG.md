@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.0](https://github.com/sumithr/sumo-qa/compare/v0.44.0...v0.45.0) (2026-06-12)
+
+
+### Features
+
+* **report:** add polished local QA report (CLI + MCP) ([#381](https://github.com/sumithr/sumo-qa/issues/381)) ([a00f07b](https://github.com/sumithr/sumo-qa/commit/a00f07b6ad6045540971fbe55e1ccd8766ea23bd))
+
 ## [0.44.0](https://github.com/sumithr/sumo-qa/compare/v0.43.0...v0.44.0) (2026-06-11)
 
 
