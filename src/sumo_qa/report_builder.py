@@ -531,7 +531,16 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
         risks=risks,
         uncovered_blocker_count=sum(1 for risk in risks if risk.uncovered_blocker),
         evidence=evidence,
-        warnings=[conflict] if conflict is not None else [],
+        # Page-level warnings: the bundle-vs-local conflict plus the overlay's
+        # non-stale warnings (probable mapping gap, live-scan provenance).
+        # kind="stale" entries are excluded — they already drive the
+        # diff-impact artifact's stale STATE and must not render twice.
+        warnings=([conflict] if conflict is not None else [])
+        + (
+            [w.message for w in diff_impact.warnings if w.kind != "stale"]
+            if diff_impact is not None
+            else []
+        ),
         readiness=_readiness_from_scorecard(
             inputs.ledger,
             inputs.bundle,

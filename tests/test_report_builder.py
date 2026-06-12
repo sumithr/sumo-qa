@@ -451,6 +451,38 @@ def test_diff_impact_components_are_mapped_and_sorted(tmp_path):
     assert report.unmapped_files == ["docs/notes.md"]
 
 
+def test_mapping_gap_warning_reaches_the_report(tmp_path):
+    """A diff-impact 'probable mapping gap' warning is honesty-critical (the
+    whole risk surface may be a missed convention, not zero coverage) — it
+    must surface in the report's warnings, not silently vanish."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    payload = _diff_impact_payload()
+    payload["probable_mapping_gap"] = True
+    payload["warnings"].append(
+        {
+            "kind": "other",
+            "message": (
+                "probable mapping gap, not zero coverage: test files are present but "
+                "the repo-map has no likely_tests edges"
+            ),
+        }
+    )
+    _write_artifact(tmp_path, "diff-impact.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert any("probable mapping gap" in w for w in report.warnings)
+
+
+def test_stale_impact_warnings_do_not_duplicate_into_report_warnings(tmp_path):
+    """kind='stale' overlay warnings drive the diff-impact artifact's stale
+    STATE — they must not render a second time as page-level warnings."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload(stale_warning=True))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "stale"
+    assert not any("git_commit differs" in w for w in report.warnings)
+
+
 def test_tristate_mapped_tests_carries_through_from_overlay(tmp_path):
     """A persisted overlay's ``has_mapped_tests: null`` on a non-source node
     survives the projection into report components — the builder must not
