@@ -47,6 +47,25 @@ nodes in the overlay and tool output). A docs or fixture row can never read as
 a coverage gap; `risk_surface` (changed source files with no mapped test)
 stays the headline gap signal.
 
+## Reading the page
+
+The page is verdict-first and colour-scannable (the information architecture
+follows the strongest report genres — Lighthouse's drill-down, audit-report
+summary tables, quality-gate reasons):
+
+- **Counts navigate.** Stat-band numbers anchor to the section that proves
+  them; a verdict reason naming a risk id links to that ledger row.
+- **Section headings carry a state badge** (uncovered blockers, stale counts,
+  "all covered"), so a scroll reads as a colour scan.
+- **Each section leads with a one-sentence finding**; the table below is the
+  appendix. Rows sort severity-first, so the row cap truncates the safe end.
+- **Green folds away**: a fully available inventory and fully trusted
+  evidence collapse to their summary line; the risk surface and warnings stay
+  open.
+- **Verdict reasons are falsifiable** — count vs required threshold
+  ("uncovered blocker risks: 1 of 2 (required: 0)"), then the per-risk
+  itemisation.
+
 ## Readiness roll-up
 
 The readiness verdict is **not** derived in the report. It is derived by
@@ -81,7 +100,11 @@ sumo-qa report [path] --json   # stable JSON summary for automation
 
 `report` always succeeds on an existing directory (exit 0 means "report
 written", never "everything is green") and overwrites the previous page — it
-is a regenerated artifact, like the repo-map. The output names the readiness
+is a regenerated artifact, like the repo-map. Each page-writing run also
+persists a compact run summary (`.sumo-qa/qa-report-summary.json`); the next
+run reads it and the page's dateline carries the run-over-run delta ("verdict
+blocked → ready · risks 3 → 1"). A missing or corrupt summary simply means no
+delta line. The output names the readiness
 state, per-artifact statuses, and the next command (`sumo-qa analyze` when
 the repo-map is missing or stale, `sumo-qa status` otherwise).
 

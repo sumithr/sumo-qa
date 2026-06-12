@@ -166,6 +166,8 @@ _STYLE = """
   a.stat { text-decoration: none; color: inherit; }
   a.stat:hover .stat-num { color: var(--crimson); }
   p.lead { margin: 1rem 0 0.2rem; font-style: italic; }
+  p.delta { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--label);
+    font-variant-numeric: tabular-nums; }
   td.meta { font-size: 0.8rem; color: var(--label); }
   .verdict a { color: inherit; }
   details { margin: 1.1rem 0 0; }
@@ -438,6 +440,32 @@ def _evidence_lead(evidence: list[ReportEvidence]) -> str:
     return f'<p class="lead">{head}; not trusted: {_esc(rest)}.</p>'
 
 
+def _delta_line(report: QAReport) -> str:
+    """Run-over-run trend under the dateline — only the quantities that
+    changed, verdict first; honest 'no change' otherwise."""
+    prev = report.previous_run
+    if prev is None:
+        return ""
+    available = sum(1 for a in report.artifacts if a.status == "available")
+    uncovered = sum(1 for r in report.risks if r.uncovered_blocker)
+    parts: list[str] = []
+    if prev.readiness_state != report.readiness.state:
+        parts.append(
+            f"verdict {_esc(_STATE_LABELS[prev.readiness_state])} &#8594; "
+            f"{_esc(_STATE_LABELS[report.readiness.state])}"
+        )
+    if prev.risk_count != len(report.risks):
+        parts.append(f"risks {prev.risk_count} &#8594; {len(report.risks)}")
+    if prev.uncovered_blocker_count != uncovered:
+        parts.append(f"uncovered blockers {prev.uncovered_blocker_count} &#8594; {uncovered}")
+    if prev.sources_available != available:
+        parts.append(f"sources available {prev.sources_available} &#8594; {available}")
+    when = _esc(prev.generated_at.isoformat())
+    if not parts:
+        return f'<p class="delta">no change since previous run ({when})</p>'
+    return f'<p class="delta">since previous run ({when}): {" &#183; ".join(parts)}</p>'
+
+
 def _inventory_block(artifacts: list[ReportArtifact]) -> str:
     """Green folds away: a fully available inventory collapses to its lead
     sentence; any other state stays open above the table."""
@@ -647,7 +675,7 @@ def render_report_html(report: QAReport) -> str:
 <p class="dateline"><b>root</b> <code>{_esc(project.root)}</code>\
 <span class="sep">&#183;</span><b>head</b> <code>{_dash(project.head_commit)}</code>\
 <span class="sep">&#183;</span><b>generated</b> {_esc(project.generated_at.isoformat())}</p>
-</header>
+{_delta_line(report)}</header>
 <main>
 <section class="verdict {_STATE_CLASSES[state]}">
 <p class="verdict-kicker">Readiness</p>

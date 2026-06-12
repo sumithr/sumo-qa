@@ -451,6 +451,49 @@ def test_diff_impact_components_are_mapped_and_sorted(tmp_path):
     assert report.unmapped_files == ["docs/notes.md"]
 
 
+def test_run_summary_round_trips_into_next_report(tmp_path):
+    """Move 7 (delta): generating writes a compact run summary; the next
+    generation reads it back as previous_run so the page can show the trend."""
+    from sumo_qa.report_builder import write_run_summary
+
+    first = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert first.previous_run is None
+    write_run_summary(tmp_path, first)
+    assert (tmp_path / ".sumo-qa" / "qa-report-summary.json").is_file()
+
+    _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
+    second = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert second.previous_run is not None
+    assert second.previous_run.readiness_state == "insufficient_evidence"
+    assert second.previous_run.risk_count == 0
+    assert second.previous_run.generated_at == _NOW
+
+
+def test_corrupt_run_summary_is_ignored(tmp_path):
+    target = tmp_path / ".sumo-qa" / "qa-report-summary.json"
+    target.parent.mkdir(parents=True)
+    target.write_text("{not json", encoding="utf-8")
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.previous_run is None
+
+
+def test_unsupported_run_summary_schema_is_ignored(tmp_path):
+    _write_artifact(
+        tmp_path,
+        "qa-report-summary.json",
+        {
+            "schema_version": "9.9",
+            "generated_at": "2026-06-07T08:00:00+00:00",
+            "readiness_state": "ready",
+            "risk_count": 0,
+            "uncovered_blocker_count": 0,
+            "sources_available": 0,
+        },
+    )
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.previous_run is None
+
+
 def test_blocked_verdict_leads_with_falsifiable_threshold_reason(tmp_path):
     """Reasons are falsifiable, SonarQube-style: count vs required threshold
     first, the engine's per-risk itemisation after."""

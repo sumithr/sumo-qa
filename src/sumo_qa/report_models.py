@@ -127,6 +127,21 @@ class ReportComponent(BaseModel):
     has_mapped_tests: bool | None = None
 
 
+class ReportPreviousRun(BaseModel):
+    """Compact summary of the previous report run — the source of the page's
+    run-over-run delta line. Persisted as ``.sumo-qa/qa-report-summary.json``
+    by whatever writes the page; absent/corrupt summaries simply mean no
+    delta."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    generated_at: datetime
+    readiness_state: ReadinessState
+    risk_count: int
+    uncovered_blocker_count: int
+    sources_available: int
+
+
 class ReportRisk(BaseModel):
     """A risk-ledger row projected for rendering, with the derived blocker flag."""
 
@@ -186,3 +201,4 @@ class QAReport(BaseModel):
     evidence: list[ReportEvidence] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     readiness: ReportReadiness
+    previous_run: ReportPreviousRun | None = None

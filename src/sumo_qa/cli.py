@@ -41,7 +41,7 @@ from typing import Any
 # CLI adds no parsing/scanning logic of its own; it composes these.
 from sumo_qa.repo_map_scanner import _detect_git_commit, scan_repo
 from sumo_qa.repo_map_validation import RepoMapValidationError, load_repo_map
-from sumo_qa.report_builder import generate_report
+from sumo_qa.report_builder import generate_report, write_run_summary
 from sumo_qa.report_html import render_report_html
 from sumo_qa.server import _build_scan_summary, _package_version
 
@@ -251,6 +251,8 @@ def _cmd_report(root: Path, *, as_json: bool) -> int:
     artifact = root / QA_REPORT_RELPATH
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(render_report_html(report), encoding="utf-8")
+    # Persist the compact run summary the NEXT report's delta line reads.
+    write_run_summary(root, report)
 
     statuses = {a.kind: a.status for a in report.artifacts}
     # A usable repo-map points forward to status; anything else (missing,

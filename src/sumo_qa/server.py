@@ -1582,6 +1582,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION as _LEDGER_SCHEMA_VERSION
         from sumo_qa.ledger_validation import load_ledger as _load_ledger
         from sumo_qa.report_builder import generate_report as _generate_report
+        from sumo_qa.report_builder import write_run_summary as _write_run_summary
         from sumo_qa.report_html import render_report_html as _render_report_html
 
         output: GenerateQAReportOutput | dict[str, Any]
@@ -1626,6 +1627,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 target.write_text(_render_report_html(report), encoding="utf-8")
                 artifact_path = str(target.resolve())
                 artifact_bytes = target.stat().st_size
+                # A page-writing call also persists the compact run summary
+                # the NEXT report's delta line reads; the side-effect-free
+                # call (no write_to) writes neither.
+                _write_run_summary(root_path, report)
             output = GenerateQAReportOutput(
                 root=str(root_path),
                 readiness_state=report.readiness.state,

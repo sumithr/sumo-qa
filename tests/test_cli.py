@@ -300,6 +300,19 @@ def test_status_json_missing_artifact(tmp_path, capsys):
 # ---------------------------------------------------------------------------
 
 
+def test_report_persists_run_summary_and_second_run_shows_delta(tmp_path, capsys):
+    """Each report run persists a compact run summary; the next run reads it
+    and the page carries the run-over-run delta line."""
+    _make_repo(tmp_path)
+    assert cli.main(["report", str(tmp_path)]) == 0
+    summary = tmp_path / ".sumo-qa" / "qa-report-summary.json"
+    assert summary.is_file()
+    capsys.readouterr()
+    assert cli.main(["report", str(tmp_path)]) == 0
+    html = (tmp_path / ".sumo-qa" / "qa-report.html").read_text(encoding="utf-8")
+    assert 'class="delta"' in html
+
+
 def test_report_writes_html_artifact_and_reports_next_command(tmp_path, capsys):
     """report generates `.sumo-qa/qa-report.html` and points the user at the
     next command; a repo with no artifacts still succeeds (exit 0) with honest

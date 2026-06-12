@@ -326,6 +326,57 @@ def test_ledger_demotes_provenance_and_evidence_meta_is_quiet():
     assert 'class="meta"' in render_report_html(with_evidence)
 
 
+def test_delta_line_shows_what_changed_since_previous_run():
+    """Move 7: the dateline carries the run-over-run trend — only the
+    quantities that changed, verdict first."""
+    from sumo_qa.report_models import ReportPreviousRun
+
+    report = _minimal_report(
+        readiness=ReportReadiness(state="ready", reasons=[]),
+        previous_run=ReportPreviousRun(
+            generated_at=datetime(2026, 6, 7, 8, 0, 0, tzinfo=timezone.utc),
+            readiness_state="blocked",
+            risk_count=3,
+            uncovered_blocker_count=1,
+            sources_available=0,
+        ),
+    )
+    html = render_report_html(report)
+    assert '<p class="delta">' in html
+    assert "verdict blocked &#8594; ready" in html
+    assert "risks 3 &#8594; 0" in html
+    assert "uncovered blockers 1 &#8594; 0" in html
+
+    available = _minimal_report(
+        artifacts=[ReportArtifact(kind="repo_map", status="available", path=None, detail=None)],
+        previous_run=ReportPreviousRun(
+            generated_at=datetime(2026, 6, 7, 8, 0, 0, tzinfo=timezone.utc),
+            readiness_state="insufficient_evidence",
+            risk_count=0,
+            uncovered_blocker_count=0,
+            sources_available=0,
+        ),
+    )
+    assert "sources available 0 &#8594; 1" in render_report_html(available)
+
+
+def test_delta_line_reports_no_change_and_is_absent_without_previous():
+    from sumo_qa.report_models import ReportPreviousRun
+
+    unchanged = _minimal_report(
+        previous_run=ReportPreviousRun(
+            generated_at=datetime(2026, 6, 7, 8, 0, 0, tzinfo=timezone.utc),
+            readiness_state="insufficient_evidence",
+            risk_count=0,
+            uncovered_blocker_count=0,
+            sources_available=0,
+        )
+    )
+    html = render_report_html(unchanged)
+    assert "no change since previous run" in html
+    assert 'class="delta"' not in render_report_html(_minimal_report())
+
+
 def test_mapped_tests_renders_em_dash_for_non_source_rows():
     """'no' must only ever appear where it indicts: source_file rows keep
     their yes/no verdict; every other type renders an em-dash, so a docs or

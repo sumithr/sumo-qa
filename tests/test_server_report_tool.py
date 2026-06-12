@@ -61,6 +61,15 @@ def test_default_call_is_side_effect_free(tool, tmp_path):
     assert not (tmp_path / ".sumo-qa").exists()
 
 
+def test_write_to_also_persists_the_run_summary(tool, tmp_path):
+    """A page-writing call persists the compact run summary beside it, so the
+    NEXT report can render the run-over-run delta; the side-effect-free call
+    (no write_to) writes neither (pinned by the side-effect-free test)."""
+    out = tool(root=str(tmp_path), write_to="qa-report.html")
+    assert out.artifact_path is not None
+    assert (tmp_path / ".sumo-qa" / "qa-report-summary.json").is_file()
+
+
 def test_summary_shape_is_compact_and_complete(tool, tmp_path):
     out = tool(root=str(tmp_path))
     assert out.readiness_state == "insufficient_evidence"

@@ -55,6 +55,7 @@ from sumo_qa.report_models import (
     ReportArtifact,
     ReportComponent,
     ReportEvidence,
+    ReportPreviousRun,
     ReportProject,
     ReportReadiness,
     ReportRisk,
@@ -65,6 +66,7 @@ REPO_MAP_RELPATH = ".sumo-qa/repo-map.json"
 DIFF_IMPACT_RELPATH = ".sumo-qa/diff-impact.json"
 RISK_LEDGER_RELPATH = ".sumo-qa/risk-ledger.json"
 CONTEXT_BUNDLE_RELPATH = ".sumo-qa/context-bundle.json"
+RUN_SUMMARY_RELPATH = ".sumo-qa/qa-report-summary.json"
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -101,6 +103,7 @@ class ReportInputs(BaseModel):
     ledger_source: ArtifactSource
     bundle: ContextBundle | None = None
     bundle_source: ArtifactSource
+    previous: ReportPreviousRun | None = None
 
 
 def _first_line(exc: Exception) -> str:
@@ -210,6 +213,10 @@ def load_report_inputs(
             root_path, CONTEXT_BUNDLE_RELPATH, load_context_bundle
         )
 
+    previous, _previous_source = _load_json_artifact(
+        root_path, RUN_SUMMARY_RELPATH, _load_run_summary
+    )
+
     return ReportInputs(
         root=str(root_path),
         current_commit=current_commit,
@@ -221,7 +228,37 @@ def load_report_inputs(
         ledger_source=ledger_source,
         bundle=bundle,
         bundle_source=bundle_source,
+        previous=previous,
     )
+
+
+def _load_run_summary(data: dict) -> ReportPreviousRun:
+    if data.get("schema_version") != "1.0":
+        raise ValueError(f"[schema_version] unsupported: {data.get('schema_version')!r}")
+    return ReportPreviousRun.model_validate(
+        {k: v for k, v in data.items() if k != "schema_version"}
+    )
+
+
+def write_run_summary(root: Path | str, report: QAReport) -> Path:
+    """Persist the compact run summary the NEXT report's delta line reads.
+
+    Called by whatever writes the page (CLI always; MCP only with
+    ``write_to``) — a side-effect-free composition must stay side-effect-free.
+    """
+    target = Path(root).resolve() / RUN_SUMMARY_RELPATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    available = sum(1 for a in report.artifacts if a.status == "available")
+    payload = {
+        "schema_version": "1.0",
+        "generated_at": report.project.generated_at.isoformat(),
+        "readiness_state": report.readiness.state,
+        "risk_count": len(report.risks),
+        "uncovered_blocker_count": report.uncovered_blocker_count,
+        "sources_available": available,
+    }
+    target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return target
 
 
 def _artifact_from_source(
@@ -563,6 +600,7 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
             scope=project_name,
             local_head_sha=inputs.current_commit,
         ),
+        previous_run=inputs.previous,
     )
 
 
