@@ -132,6 +132,14 @@ def test_record_mutation_bad_input_returns_envelope(record_mutation, tmp_path):
     assert not (tmp_path / ".sumo-qa" / "mutation.json").exists()
 
 
+def test_record_mutation_missing_root_returns_envelope(record_mutation, tmp_path):
+    out = record_mutation(
+        root=str(tmp_path / "does-not-exist"),
+        mutation={"source_tool": "x", "generated_at": "x", "freshness": "fresh"},
+    )
+    assert out["isError"] is True
+
+
 def test_record_coverage_relative_write_to_confined_to_root(record_coverage, tmp_path):
     out = record_coverage(
         root=str(tmp_path),

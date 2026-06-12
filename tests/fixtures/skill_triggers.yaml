@@ -144,6 +144,14 @@ triggers:
       - "closed loop per gap"
     note: "Mutation-survivor entry into the closed loop — strengthening discipline binds first."
 
+  - prompt: "run coverage and get the numbers into the QA report"
+    expected_skill: sumo_qa_measuring_coverage
+    expected_phrases:
+      - "measure coverage"
+      - "mutation"
+      - "qa report"
+    note: "Coverage/mutation producer; host runs the tool, LLM collects, persists the .sumo-qa artifacts the report loads."
+
 non_triggers:
   - prompt: "how do I install Python 3.14 on macOS?"
     must_not_match_skill: sumo_qa_reviewing_before_merge

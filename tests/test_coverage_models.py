@@ -166,3 +166,20 @@ def test_mutation_schema_version_mismatch_int() -> None:
     with pytest.raises(MutationArtifactError) as exc:
         load_mutation_artifact({"schema_version": 2, "generated_at": "x", "source_tool": "x"})
     assert exc.value.kind == "schema_version_mismatch"
+
+
+def test_coverage_wrong_type_classified_as_type_error() -> None:
+    # A non-numeric line_percent fails Pydantic type parsing (not the range
+    # validator), exercising the _classify default branch.
+    with pytest.raises(CoverageArtifactError) as exc:
+        load_coverage_artifact(
+            {
+                "schema_version": "1.0",
+                "generated_at": "x",
+                "source_tool": "x",
+                "line_percent": "not-a-number",
+                "freshness": "fresh",
+            }
+        )
+    assert exc.value.kind == "type_error"
+    assert exc.value.path == "line_percent"

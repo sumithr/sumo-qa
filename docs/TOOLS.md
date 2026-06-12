@@ -141,7 +141,16 @@ A deterministic composer/renderer for the local QA report — one polished, self
 
 | Tool | What it returns |
 |---|---|
-| `sumo_qa_generate_qa_report(root, write_to=None, risk_ledger_rows=None, context_bundle=None)` | Composes the persisted `.sumo-qa` artifacts (repo-map, diff-impact, risk-ledger, context-bundle) into the QA report and returns a compact readiness summary — the derived `readiness_state` with its reasons, per-source `artifact_statuses` (available / missing / invalid / stale), change-impact and risk counts, and the uncovered-blocker count (`GenerateQAReportOutput`). The HTML body never rides back to the host: side-effect free without `write_to`; with it, the page is written (a relative path resolves against the **target root** and is confined to it — `..` escape refused; an absolute path is caller-explicit) and `artifact_path` / `artifact_bytes` report the result. `risk_ledger_rows` / `context_bundle` are inline overrides for chat-built artifacts (same shapes as the formatters); they take precedence over disk and are validated before any write. |
+| `sumo_qa_generate_qa_report(root, write_to=None, risk_ledger_rows=None, context_bundle=None)` | Composes the persisted `.sumo-qa` artifacts (repo-map, diff-impact, risk-ledger, context-bundle, coverage, mutation) into the QA report and returns a compact readiness summary — the derived `readiness_state` with its reasons, per-source `artifact_statuses` (available / missing / invalid / stale), change-impact and risk counts, and the uncovered-blocker count (`GenerateQAReportOutput`). The HTML body never rides back to the host: side-effect free without `write_to`; with it, the page is written (a relative path resolves against the **target root** and is confined to it — `..` escape refused; an absolute path is caller-explicit) and `artifact_path` / `artifact_bytes` report the result. `risk_ledger_rows` / `context_bundle` are inline overrides for chat-built artifacts (same shapes as the formatters); they take precedence over disk and are validated before any write. |
+
+## Coverage / mutation producers
+
+The `sumo-qa-measuring-coverage` skill runs the repo's already-configured coverage/mutation tooling, the host LLM reads the output (any format), and these tools persist a compact validated summary into the `.sumo-qa` artifacts the QA report loads. Coverage/mutation are **reported, never gated** — they surface as scorecard dimensions but never move the readiness verdict. No tool runs inside the server; no inference. Absent ⇒ the report renders "not available".
+
+| Tool | What it returns |
+|---|---|
+| `sumo_qa_record_coverage(root, coverage, write_to=".sumo-qa/coverage.json")` | Validates a host-collected coverage summary (`source_tool`, `generated_at`, optional `line_percent` 0–100, `freshness`, `detail`) and writes `.sumo-qa/coverage.json`, returning the path + a compact summary (`RecordCoverageOutput`). Validation fails before any write; a relative `write_to` is confined to `root`. Omit `line_percent` for a not-measured signal. |
+| `sumo_qa_record_mutation(root, mutation, write_to=".sumo-qa/mutation.json")` | Validates a host-collected mutation summary (`source_tool`, `generated_at`, optional `survivors`/`killed` ≥ 0, `freshness`, `detail`) and writes `.sumo-qa/mutation.json`, returning the path + a compact summary (`RecordMutationOutput`). Validation fails before any write; a relative `write_to` is confined to `root`. Omit the counts for a not-measured signal. |
 
 ## Test-data tools
 

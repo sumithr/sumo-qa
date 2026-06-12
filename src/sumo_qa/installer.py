@@ -120,6 +120,9 @@ REQUIRED_TOOL_NAMES: tuple[str, ...] = (
     "sumo_qa_export_test_cases",
     # Local QA report (#157)
     "sumo_qa_generate_qa_report",
+    # Coverage/mutation producers (#147 follow-up)
+    "sumo_qa_record_coverage",
+    "sumo_qa_record_mutation",
     # Ingestion
     "sumo_qa_ingest_knowledge_pack",
     # Review-feedback memory (#145)
