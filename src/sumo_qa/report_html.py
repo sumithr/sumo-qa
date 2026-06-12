@@ -20,6 +20,7 @@ type, no icons or pictograms.
 from __future__ import annotations
 
 import html as _html
+import re as _re
 
 from sumo_qa.report_models import (
     QAReport,
@@ -161,6 +162,12 @@ _STYLE = """
     color: var(--label); font-weight: 400;
   }
   h3 { font-size: 0.95rem; margin: 1.5rem 0 0.3rem; font-weight: 600; }
+  h2 .badge { margin-left: auto; font-weight: 500; }
+  a.stat { text-decoration: none; color: inherit; }
+  a.stat:hover .stat-num { color: var(--crimson); }
+  p.lead { margin: 1rem 0 0.2rem; font-style: italic; }
+  td.meta { font-size: 0.8rem; color: var(--label); }
+  .verdict a { color: inherit; }
   details { margin: 1.1rem 0 0; }
   summary {
     cursor: pointer; font-size: 0.95rem; font-weight: 600;
@@ -332,6 +339,142 @@ def _collapsed(summary: str, body: str) -> str:
     return f"<details><summary>{summary}</summary>{body}</details>"
 
 
+def _rollup(label: str, cls: str) -> str:
+    """The short state badge a section heading carries — a scroll down the
+    page reads as a colour scan (the Lighthouse gauge-per-category move in
+    this page's idiom)."""
+    return f'<span class="badge {cls}">{_esc(label)}</span>'
+
+
+def _inventory_rollup(artifacts: list[ReportArtifact]) -> str:
+    invalid = sum(1 for a in artifacts if a.status == "invalid")
+    stale = sum(1 for a in artifacts if a.status == "stale")
+    available = sum(1 for a in artifacts if a.status == "available")
+    if invalid:
+        return _rollup(f"{invalid} invalid", "bad")
+    if stale:
+        return _rollup(f"{stale} stale", "warm")
+    if available == len(artifacts):
+        return _rollup("all available", "ok")
+    return _rollup(f"{available} of {len(artifacts)} available", "off")
+
+
+def _impact_rollup(report: QAReport) -> str:
+    if report.risk_surface:
+        return _rollup(_plural(len(report.risk_surface), "uncovered source"), "bad")
+    if not (report.changed_components or report.affected_components or report.related_tests):
+        return _rollup("no data", "off")
+    return _rollup("clean", "ok")
+
+
+def _risk_rollup(risks: list[ReportRisk]) -> str:
+    uncovered = sum(1 for r in risks if r.uncovered_blocker)
+    if uncovered:
+        return _rollup(_plural(uncovered, "uncovered blocker"), "bad")
+    if not risks:
+        return _rollup("none recorded", "off")
+    pending = sum(1 for r in risks if r.evidence_status != "passing")
+    if pending:
+        return _rollup(f"{pending} without passing evidence", "warm")
+    return _rollup("all covered", "ok")
+
+
+def _evidence_rollup(evidence: list[ReportEvidence]) -> str:
+    if not evidence:
+        return _rollup("none recorded", "off")
+    untrusted = sum(1 for fact in evidence if not fact.trustworthy)
+    if untrusted:
+        return _rollup(f"{untrusted} not trusted", "warm")
+    return _rollup("trusted", "ok")
+
+
+def _warning_rollup(warnings: list[str]) -> str:
+    if warnings:
+        return _rollup(_plural(len(warnings), "warning"), "warm")
+    return _rollup("none", "ok")
+
+
+def _risk_lead(risks: list[ReportRisk]) -> str:
+    """One-sentence finding before the ledger — the sentence is the report,
+    the table is the appendix."""
+    if not risks:
+        return ""
+    n = len(risks)
+    uncovered = sum(1 for r in risks if r.uncovered_blocker)
+    if uncovered:
+        ids = ", ".join(r.risk_id for r in risks if r.uncovered_blocker)
+        verb = "is an uncovered blocker" if uncovered == 1 else "are uncovered blockers"
+        return f'<p class="lead">{uncovered} of {_plural(n, "risk")} {verb}: {_esc(ids)}.</p>'
+    pending = [r.risk_id for r in risks if r.evidence_status != "passing"]
+    if pending:
+        return (
+            f'<p class="lead">{len(pending)} of {_plural(n, "risk")} await passing '
+            f"evidence: {_esc(', '.join(pending))}.</p>"
+        )
+    return f'<p class="lead">All {_plural(n, "risk")} carry passing evidence.</p>'
+
+
+def _inventory_lead(artifacts: list[ReportArtifact]) -> str:
+    available = sum(1 for a in artifacts if a.status == "available")
+    if available == len(artifacts):
+        return f'<p class="lead">All {len(artifacts)} sources are available.</p>'
+    missing = ", ".join(
+        f"{a.kind.replace('_', ' ')} {_STATUS_LABELS[a.status]}"
+        for a in artifacts
+        if a.status != "available"
+    )
+    return (
+        f'<p class="lead">{available} of {len(artifacts)} sources available; {_esc(missing)}.</p>'
+    )
+
+
+def _evidence_lead(evidence: list[ReportEvidence]) -> str:
+    # Only called from _evidence_block when evidence exists and at least one
+    # stream is untrusted (the all-trusted case collapses instead).
+    trusted = [fact.name for fact in evidence if fact.trustworthy]
+    rest = ", ".join(fact.name for fact in evidence if not fact.trustworthy)
+    head = f"{len(trusted)} of {len(evidence)} streams trusted"
+    head += f" ({_esc(', '.join(trusted))})" if trusted else ""
+    return f'<p class="lead">{head}; not trusted: {_esc(rest)}.</p>'
+
+
+def _inventory_block(artifacts: list[ReportArtifact]) -> str:
+    """Green folds away: a fully available inventory collapses to its lead
+    sentence; any other state stays open above the table."""
+    lead = _inventory_lead(artifacts)
+    if all(a.status == "available" for a in artifacts):
+        return _collapsed(
+            f"All {len(artifacts)} sources are available", _artifact_section(artifacts)
+        )
+    return f"{lead}{_artifact_section(artifacts)}"
+
+
+def _evidence_block(evidence: list[ReportEvidence]) -> str:
+    if not evidence:
+        return _evidence_section(evidence)
+    if all(fact.trustworthy for fact in evidence):
+        return _collapsed(
+            f"All {len(evidence)} evidence streams are trusted", _evidence_section(evidence)
+        )
+    return f"{_evidence_lead(evidence)}{_evidence_section(evidence)}"
+
+
+def _impact_lead(report: QAReport) -> str:
+    if report.risk_surface:
+        shown = ", ".join(report.risk_surface[:3])
+        extra = len(report.risk_surface) - 3
+        tail = f" (+ {extra} more)" if extra > 0 else ""
+        n = len(report.risk_surface)
+        verb = "has" if n == 1 else "have"
+        return (
+            f'<p class="lead">{_plural(n, "changed source")} {verb} no mapped test: '
+            f"{_esc(shown)}{tail}.</p>"
+        )
+    if report.changed_components:
+        return '<p class="lead">All changed sources have mapped tests.</p>'
+    return ""
+
+
 def _impact_section(report: QAReport) -> str:
     """Summary-first change impact: each enumeration collapses to a count
     line (full rows one click away); only the risk surface — the indictment —
@@ -386,10 +529,23 @@ def _impact_section(report: QAReport) -> str:
     return "".join(parts)
 
 
+def _risk_severity(risk: ReportRisk) -> tuple[int, str]:
+    """Severity-first ordering: uncovered blockers, then rows without passing
+    evidence, then the covered rest — so the row cap truncates the safe end,
+    never the findings."""
+    if risk.uncovered_blocker:
+        rank = 0
+    elif risk.evidence_status != "passing":
+        rank = 1
+    else:
+        rank = 2
+    return (rank, risk.risk_id)
+
+
 def _risk_section(risks: list[ReportRisk]) -> str:
     if not risks:
         return '<p class="empty">No risks recorded.</p>'
-    shown, hidden = _bounded(risks)
+    shown, hidden = _bounded(sorted(risks, key=_risk_severity))
     rows = []
     for risk in shown:
         residual = (
@@ -398,17 +554,17 @@ def _risk_section(risks: list[ReportRisk]) -> str:
             else _esc(risk.residual)
         )
         rows.append(
-            "<tr>"
+            f'<tr id="risk-{_esc(risk.risk_id)}">'
             f"<td>{_esc(risk.risk_id)}</td><td>{_esc(risk.risk)}</td>"
             f'<td class="brk">{_esc(risk.source_anchor)}</td><td class="brk">{_esc(risk.test)}</td>'
             f"<td>{_esc(risk.evidence_status.replace('_', ' '))}</td>"
-            f'<td>{residual}</td><td class="brk">{_dash(risk.repo_map_node_id)}</td>'
+            f"<td>{residual}</td>"
             "</tr>"
         )
     return (
         "<table><thead><tr><th>id</th><th>risk</th><th>anchor</th><th>test</th>"
-        "<th>evidence</th><th>residual</th><th>repo-map node</th></tr></thead>"
-        f"<tbody>{''.join(rows)}{_more_row(hidden, 7)}</tbody></table>"
+        "<th>evidence</th><th>residual</th></tr></thead>"
+        f"<tbody>{''.join(rows)}{_more_row(hidden, 6)}</tbody></table>"
     )
 
 
@@ -421,7 +577,8 @@ def _evidence_section(evidence: list[ReportEvidence]) -> str:
             f"<td>{_esc(fact.name)}</td><td>{_esc(status)}</td>"
             f"<td>{_dash(fact.freshness)}</td>"
             f"<td>{'yes' if fact.trustworthy else 'no'}</td>"
-            f"<td>{_dash(fact.source)}</td><td>{_dash(fact.captured_at)}</td>"
+            f'<td class="meta">{_dash(fact.source)}</td>'
+            f'<td class="meta">{_dash(fact.captured_at)}</td>'
             f'<td class="brk">{_dash(fact.detail)}</td>'
             "</tr>"
         )
@@ -447,7 +604,21 @@ def render_report_html(report: QAReport) -> str:
     project = report.project
     state = report.readiness.state
     shown_reasons, hidden_reasons = _bounded(report.readiness.reasons)
-    reasons = "".join(f"<li>{_esc(reason)}</li>" for reason in shown_reasons)
+    risk_ids = {risk.risk_id for risk in report.risks}
+
+    def _reason_item(reason: str) -> str:
+        # A reason that opens with a ledger risk id links to that row — the
+        # verdict is wired to the evidence that proves it.
+        match = _re.match(r"^([A-Za-z][\w-]*\d+): ", reason)
+        if match and match.group(1) in risk_ids:
+            rid = match.group(1)
+            return (
+                f'<li><a href="#risk-{_esc(rid)}">{_esc(rid)}</a>: '
+                f"{_esc(reason[match.end() :])}</li>"
+            )
+        return f"<li>{_esc(reason)}</li>"
+
+    reasons = "".join(_reason_item(reason) for reason in shown_reasons)
     more_reasons = (
         f'<li class="more">+ {hidden_reasons} more not shown</li>' if hidden_reasons else ""
     )
@@ -485,33 +656,33 @@ def render_report_html(report: QAReport) -> str:
 {reasons_block}
 </section>
 <section class="statband">
-<div class="stat"><span class="stat-num">{available}/{len(report.artifacts)}</span>\
-<span class="stat-label">sources available</span></div>
-<div class="stat"><span class="stat-num">{len(report.risks)}</span>\
-<span class="stat-label">risks tracked</span></div>
-<div class="stat{blocker_class}"><span class="stat-num">{report.uncovered_blocker_count}</span>\
-<span class="stat-label">uncovered blockers</span></div>
-<div class="stat"><span class="stat-num">{len(report.warnings)}</span>\
-<span class="stat-label">warnings</span></div>
+<a class="stat" href="#inventory"><span class="stat-num">{available}/{len(report.artifacts)}</span>\
+<span class="stat-label">sources available</span></a>
+<a class="stat" href="#risks"><span class="stat-num">{len(report.risks)}</span>\
+<span class="stat-label">risks tracked</span></a>
+<a class="stat{blocker_class}" href="#risks"><span class="stat-num">{report.uncovered_blocker_count}</span>\
+<span class="stat-label">uncovered blockers</span></a>
+<a class="stat" href="#warnings"><span class="stat-num">{len(report.warnings)}</span>\
+<span class="stat-label">warnings</span></a>
 </section>
-<section>
-<h2>Artifact inventory</h2>
-{_artifact_section(report.artifacts)}
+<section id="inventory">
+<h2>Artifact inventory {_inventory_rollup(report.artifacts)}</h2>
+{_inventory_block(report.artifacts)}
 </section>
-<section>
-<h2>Change impact</h2>
-{_impact_section(report)}
+<section id="impact">
+<h2>Change impact {_impact_rollup(report)}</h2>
+{_impact_lead(report)}{_impact_section(report)}
 </section>
-<section>
-<h2>Risk ledger</h2>
-{_risk_section(report.risks)}
+<section id="risks">
+<h2>Risk ledger {_risk_rollup(report.risks)}</h2>
+{_risk_lead(report.risks)}{_risk_section(report.risks)}
 </section>
-<section>
-<h2>Evidence</h2>
-{_evidence_section(report.evidence)}
+<section id="evidence">
+<h2>Evidence {_evidence_rollup(report.evidence)}</h2>
+{_evidence_block(report.evidence)}
 </section>
-<section>
-<h2>Warnings</h2>
+<section id="warnings">
+<h2>Warnings {_warning_rollup(report.warnings)}</h2>
 {_warning_section(report.warnings)}
 </section>
 </main>

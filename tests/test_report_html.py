@@ -26,6 +26,7 @@ from sumo_qa.report_models import (
     QAReport,
     ReportArtifact,
     ReportComponent,
+    ReportEvidence,
     ReportProject,
     ReportReadiness,
     ReportRisk,
@@ -192,6 +193,137 @@ def test_hostile_project_strings_are_escaped():
 # ---------------------------------------------------------------------------
 # bounded output
 # ---------------------------------------------------------------------------
+
+
+def _risk(risk_id, *, evidence="passing", residual="mitigated", blocker=False) -> ReportRisk:
+    return ReportRisk(
+        risk_id=risk_id,
+        risk=f"risk {risk_id}",
+        source_anchor=f"src/{risk_id}.py:1",
+        test=f"tests/test_{risk_id}.py::t",
+        evidence_status=evidence,
+        residual=residual,
+        repo_map_node_id=f"file:src/{risk_id}.py",
+        uncovered_blocker=blocker,
+    )
+
+
+def test_stat_band_cells_link_to_their_sections():
+    """Counts navigate (move 1): every stat cell is an anchor to the section
+    that proves its number."""
+    html = render_report_html(_minimal_report())
+    for target in ("#inventory", "#risks", "#warnings"):
+        assert f'href="{target}"' in html
+    assert '<a class="stat' in html
+
+
+def test_risk_rows_carry_anchors_and_verdict_reasons_link_to_them():
+    """A verdict reason that names a risk id links to that ledger row."""
+    report = _minimal_report(
+        readiness=ReportReadiness(state="blocked", reasons=["R2: risk R2 — planned but not run"]),
+        risks=[_risk("R1"), _risk("R2", evidence="planned", residual="blocker", blocker=True)],
+    )
+    html = render_report_html(report)
+    assert 'id="risk-R2"' in html
+    assert '<a href="#risk-R2">R2</a>' in html
+
+
+def test_verdict_reason_without_matching_risk_stays_plain():
+    report = _minimal_report(
+        readiness=ReportReadiness(
+            state="insufficient_evidence", reasons=["no QA evidence supplied"]
+        ),
+    )
+    html = render_report_html(report)
+    assert "no QA evidence supplied" in html
+    assert 'href="#risk-' not in html
+
+
+def test_section_headings_carry_status_rollups():
+    """Move 2: a scroll is a colour scan — each section heading carries a
+    short state badge."""
+    report = _minimal_report(
+        risks=[_risk("R1", evidence="planned", residual="blocker", blocker=True)],
+        warnings=["bundle conflict"],
+    )
+    html = render_report_html(report)
+    assert "1 uncovered blocker" in html
+    assert "0 of 6 available" in html
+    assert "1 warning" in html
+    # An invalid artifact outranks stale/missing in the inventory rollup.
+    invalid = [
+        ReportArtifact(kind="repo_map", status="invalid", path=None, detail="[x] bad"),
+        ReportArtifact(kind="diff_impact", status="stale", path=None, detail=None),
+    ]
+    assert "1 invalid" in render_report_html(_minimal_report(artifacts=invalid))
+
+
+def test_risk_rows_sort_severity_first_before_the_cap():
+    """Move 3: uncovered blockers sort to the top, then rows without passing
+    evidence — the row cap must truncate the SAFE end, never the findings."""
+    report = _minimal_report(
+        risks=[_risk("R1"), _risk("R2", evidence="planned"), _risk("R3", blocker=True)]
+    )
+    html = render_report_html(report)
+    assert html.find('id="risk-R3"') < html.find('id="risk-R2"') < html.find('id="risk-R1"')
+
+
+def test_clean_sections_collapse_green():
+    """Move 3: a fully clean section folds away (Lighthouse's passed-audits
+    move); a section with any non-available state stays open."""
+    clean_artifacts = [
+        ReportArtifact(kind=kind, status="available", path=None, detail=None)
+        for kind in (
+            "repo_map",
+            "diff_impact",
+            "risk_ledger",
+            "context_bundle",
+            "readiness_scorecard",
+            "coverage_mutation",
+        )
+    ]
+    html = render_report_html(_minimal_report(artifacts=clean_artifacts))
+    inv = html[html.find('id="inventory"') :]
+    assert inv.index("<details>") < inv.index("<table>")
+    # default report has missing artifacts -> inventory stays open
+    html_open = render_report_html(_minimal_report())
+    inv_open = html_open[html_open.find('id="inventory"') : html_open.find('id="impact"')]
+    assert "<table>" in inv_open and "<details>" not in inv_open
+
+
+def test_sections_lead_with_one_sentence_findings():
+    """Move 5: the sentence is the report; the table is the appendix."""
+    report = _minimal_report(
+        risks=[_risk("R1"), _risk("R2", evidence="planned", residual="blocker", blocker=True)]
+    )
+    html = render_report_html(report)
+    assert '<p class="lead">' in html
+    assert "1 of 2 risks is an uncovered blocker" in html
+
+
+def test_ledger_demotes_provenance_and_evidence_meta_is_quiet():
+    """Move 6: provenance never competes with signal — the repo-map node
+    column is gone from the ledger (it duplicates the anchor), and the
+    evidence table's source/captured-at cells render in the quiet meta
+    style."""
+    report = _minimal_report(risks=[_risk("R1")])
+    html = render_report_html(report)
+    assert "repo-map node" not in html
+    assert "file:src/R1.py" not in html
+    with_evidence = _minimal_report(
+        evidence=[
+            ReportEvidence(
+                name="tests",
+                status="passing",
+                freshness="fresh",
+                trustworthy=True,
+                source="local_git",
+                captured_at="2026-06-08T07:30:00+00:00",
+                detail=None,
+            )
+        ]
+    )
+    assert 'class="meta"' in render_report_html(with_evidence)
 
 
 def test_mapped_tests_renders_em_dash_for_non_source_rows():
