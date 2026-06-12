@@ -1574,12 +1574,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         ``sumo_qa_format_context_bundle`` accept). They take precedence over
         any on-disk file and are validated BEFORE anything is written.
 
-        ``write_to`` is optional — when set, the page is written there; a
-        relative path resolves against the TARGET root (so the conventional
-        ``.sumo-qa/qa-report.html`` lands under the repo being reported on,
-        not the server's cwd) and is CONFINED to it — ``..`` traversal that
-        escapes the root is refused. An absolute path is caller-explicit and
-        taken as-is. Without ``write_to`` the tool is side-effect free.
+        ``write_to`` is optional — when set, the page is written there
+        (relative paths land under the target repo; the conventional value is
+        ``.sumo-qa/qa-report.html``). Without it the tool writes nothing.
         """
         from sumo_qa.context_bundle_validation import load_context_bundle as _load_bundle
         from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION as _LEDGER_SCHEMA_VERSION
