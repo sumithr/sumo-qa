@@ -228,6 +228,26 @@ def test_risk_rows_carry_anchors_and_verdict_reasons_link_to_them():
     assert '<a href="#risk-R2">R2</a>' in html
 
 
+def test_verdict_reason_links_risk_ids_with_unusual_characters():
+    """Ledger ids only need to be nonblank — linkification matches the exact
+    id by string, not a tidy-identifier regex."""
+    report = _minimal_report(
+        readiness=ReportReadiness(state="blocked", reasons=["R 2: spaced id — failing"]),
+        risks=[_risk("R 2", evidence="failing", residual="blocker", blocker=True)],
+    )
+    html = render_report_html(report)
+    assert '<a href="#risk-R 2">R 2</a>' in html
+
+
+def test_unmapped_only_impact_is_not_badged_no_data():
+    """unmapped_files IS impact data: the rollup badge must not say 'no data'
+    above a section that renders rows."""
+    html = render_report_html(_minimal_report(unmapped_files=["mystery.py"]))
+    section = html[html.find('id="impact"') : html.find('id="risks"')]
+    assert "no data" not in section
+    assert "mystery.py" in section
+
+
 def test_verdict_reason_without_matching_risk_stays_plain():
     report = _minimal_report(
         readiness=ReportReadiness(

@@ -489,14 +489,23 @@ def _readiness_from_scorecard(
     rows = ledger.rows if ledger is not None else []
     if state == "blocked":
         reasons = card.blocking_reasons(local_head_sha=local_head_sha)
-        if rows:
-            # Falsifiable headline (SonarQube's gate style): the count vs the
-            # threshold first, the engine's per-risk itemisation after.
-            blockers = sum(1 for row in rows if row.is_uncovered_blocker())
-            reasons = [
-                f"uncovered blocker risks: {blockers} of {len(rows)} (required: 0)",
-                *reasons,
-            ]
+        # Falsifiable headlines (SonarQube's gate style): the count vs the
+        # threshold first, the engine's per-risk itemisation after. Each
+        # headline only appears for a NONZERO count — a blocked verdict must
+        # never sit under a passing '0 of N (required: 0)' line (blocking can
+        # also come from failing covering tests or failing bundle facts).
+        headlines = []
+        blockers = sum(1 for row in rows if row.is_uncovered_blocker())
+        failing = sum(
+            1 for row in rows if row.evidence_status == "failing" and not row.is_uncovered_blocker()
+        )
+        if blockers:
+            headlines.append(f"uncovered blocker risks: {blockers} of {len(rows)} (required: 0)")
+        if failing:
+            headlines.append(
+                f"risks with failing covering tests: {failing} of {len(rows)} (required: 0)"
+            )
+        reasons = [*headlines, *reasons]
     elif state == "insufficient_evidence":
         reasons = card.insufficiency_reasons(local_head_sha=local_head_sha)
         lacking = sum(1 for row in rows if row.evidence_status != "passing")

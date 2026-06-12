@@ -504,6 +504,22 @@ def test_blocked_verdict_leads_with_falsifiable_threshold_reason(tmp_path):
     assert any(r.startswith("R2:") for r in report.readiness.reasons[1:])
 
 
+def test_blocked_by_failing_test_never_claims_zero_blockers(tmp_path):
+    """A report blocked by a FAILING covering test (no uncovered blockers)
+    must not carry the contradictory 'uncovered blocker risks: 0 of N
+    (required: 0)' headline — the headline names what actually blocks."""
+    payload = _ledger_payload()
+    payload["rows"][1]["evidence_status"] = "failing"
+    payload["rows"][1]["residual"] = "mitigated"
+    _write_artifact(tmp_path, "risk-ledger.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "blocked"
+    assert report.readiness.reasons[0] == (
+        "risks with failing covering tests: 1 of 2 (required: 0)"
+    )
+    assert not any("uncovered blocker risks: 0" in r for r in report.readiness.reasons)
+
+
 def test_insufficient_verdict_leads_with_evidence_count_when_ledger_present(tmp_path):
     payload = _ledger_payload()
     payload["rows"][1]["evidence_status"] = "stale"

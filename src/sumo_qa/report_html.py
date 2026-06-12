@@ -20,7 +20,6 @@ type, no icons or pictograms.
 from __future__ import annotations
 
 import html as _html
-import re as _re
 
 from sumo_qa.report_models import (
     QAReport,
@@ -364,7 +363,12 @@ def _inventory_rollup(artifacts: list[ReportArtifact]) -> str:
 def _impact_rollup(report: QAReport) -> str:
     if report.risk_surface:
         return _rollup(_plural(len(report.risk_surface), "uncovered source"), "bad")
-    if not (report.changed_components or report.affected_components or report.related_tests):
+    if not (
+        report.changed_components
+        or report.affected_components
+        or report.related_tests
+        or report.unmapped_files
+    ):
         return _rollup("no data", "off")
     return _rollup("clean", "ok")
 
@@ -560,7 +564,8 @@ def _impact_section(report: QAReport) -> str:
 def _risk_severity(risk: ReportRisk) -> tuple[int, str]:
     """Severity-first ordering: uncovered blockers, then rows without passing
     evidence, then the covered rest — so the row cap truncates the safe end,
-    never the findings."""
+    never the findings. Ties break on risk_id, deliberately: deterministic,
+    reproducible row order regardless of artifact insertion order."""
     if risk.uncovered_blocker:
         rank = 0
     elif risk.evidence_status != "passing":
@@ -636,14 +641,12 @@ def render_report_html(report: QAReport) -> str:
 
     def _reason_item(reason: str) -> str:
         # A reason that opens with a ledger risk id links to that row — the
-        # verdict is wired to the evidence that proves it.
-        match = _re.match(r"^([A-Za-z][\w-]*\d+): ", reason)
-        if match and match.group(1) in risk_ids:
-            rid = match.group(1)
-            return (
-                f'<li><a href="#risk-{_esc(rid)}">{_esc(rid)}</a>: '
-                f"{_esc(reason[match.end() :])}</li>"
-            )
+        # verdict is wired to the evidence that proves it. Exact string match
+        # against the rendered ids (ledger ids only need to be nonblank, so a
+        # tidy-identifier regex would skip ids with spaces or punctuation).
+        prefix, sep, rest = reason.partition(": ")
+        if sep and prefix in risk_ids:
+            return f'<li><a href="#risk-{_esc(prefix)}">{_esc(prefix)}</a>: {_esc(rest)}</li>'
         return f"<li>{_esc(reason)}</li>"
 
     reasons = "".join(_reason_item(reason) for reason in shown_reasons)
