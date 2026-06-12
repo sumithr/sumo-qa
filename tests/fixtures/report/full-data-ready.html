@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA report: full-data-ready</title>
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #FAF7F2; --ink: #1B1B1B; --crimson: #7A1F1F; --crimson-deep: #5E1717;
+    --label: #8A7B5C; --rule: #E2D9C8; --rule-soft: #EDE6D8;
+    --olive: #3F4A2E; --olive-bg: #E8EDDF; --ochre-bg: #F0EAE0; --note-bg: #F4EFE6;
+    --display: "Hoefler Text", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --body: Charter, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 3rem 1.5rem 4rem;
+    color: var(--ink);
+    background:
+      radial-gradient(120% 60% at 50% -10%, rgba(122,31,31,0.05), rgba(122,31,31,0) 60%),
+      linear-gradient(180deg, #FCFAF6 0%, var(--paper) 28%);
+    background-color: var(--paper);
+    font-family: var(--body); font-size: 16px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet { max-width: 62rem; margin: 0 auto; }
+  header.masthead { border-bottom: 3px double var(--crimson); padding-bottom: 0.9rem; }
+  header.masthead .kicker {
+    margin: 0 0 0.5rem; font-size: 0.72rem; letter-spacing: 0.32em;
+    text-transform: uppercase; color: var(--label);
+  }
+  header.masthead h1 {
+    margin: 0; font-family: var(--display); font-size: 2.7rem; line-height: 1.04;
+    color: var(--crimson); font-weight: 700; letter-spacing: -0.012em;
+    word-break: break-word;
+  }
+  .dateline {
+    margin: 0.7rem 0 0; font-size: 0.8rem; letter-spacing: 0.02em; color: var(--label);
+    font-variant-numeric: tabular-nums;
+  }
+  .dateline b { color: var(--label); font-weight: 400; text-transform: uppercase;
+    letter-spacing: 0.12em; font-size: 0.68rem; }
+  .dateline .sep { color: var(--rule); margin: 0 0.55rem; }
+  .dateline code { font-family: var(--body); }
+  main { counter-reset: sec; }
+  section { margin-top: 2.4rem; }
+  /* Verdict hero */
+  .verdict {
+    margin-top: 2.2rem; padding: 1.5rem 1.6rem 1.6rem;
+    border: 1px solid var(--rule); border-left: 0.6rem solid var(--crimson);
+    background: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0) 70%), var(--ochre-bg);
+  }
+  .verdict-kicker { margin: 0 0 0.2rem; font-size: 0.7rem; letter-spacing: 0.28em;
+    text-transform: uppercase; opacity: 0.8; }
+  .verdict-label {
+    margin: 0; font-family: var(--display); font-size: 2.4rem; line-height: 1;
+    font-weight: 700; text-transform: lowercase; letter-spacing: -0.01em;
+  }
+  .verdict-gloss { margin: 0.55rem 0 0; font-size: 1.05rem; font-style: italic; max-width: 44rem; }
+  .verdict ul.reasons { margin: 0.9rem 0 0; padding-left: 1.1rem; }
+  .verdict ul.reasons li { margin: 0.15rem 0; }
+  .verdict p.reasons-none { margin: 0.9rem 0 0; font-style: italic; opacity: 0.85; }
+  .verdict.state-good { border-left-color: var(--olive); background:
+    linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0) 70%), var(--olive-bg); }
+  .verdict.state-good .verdict-label, .verdict.state-good .verdict-kicker { color: var(--olive); }
+  .verdict.state-warm { border-left-color: #9A7B2E; }
+  .verdict.state-warm .verdict-label, .verdict.state-warm .verdict-kicker { color: #7A5E1E; }
+  .verdict.state-bad { border: 1px solid var(--crimson-deep); border-left: 0.6rem solid var(--ink);
+    background: linear-gradient(180deg, #7A1F1F, #641A1A); color: var(--paper); }
+  .verdict.state-bad .verdict-label, .verdict.state-bad .verdict-kicker { color: var(--paper); }
+  .verdict.state-neutral .verdict-label, .verdict.state-neutral .verdict-kicker { color: var(--crimson); }
+  /* Stat band */
+  .statband {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    margin-top: 1px; background: var(--rule); border: 1px solid var(--rule);
+  }
+  .stat { background: var(--paper); padding: 1rem 1.1rem; }
+  .stat-num { display: block; font-family: var(--display); font-size: 1.9rem;
+    line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .stat-label { display: block; margin-top: 0.35rem; font-size: 0.66rem;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--label); }
+  .stat.alert .stat-num { color: var(--crimson); }
+  .stat.alert .stat-label { color: var(--crimson); }
+  /* Sections */
+  h2 {
+    font-size: 0.86rem; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--crimson); border-bottom: 1px solid var(--rule); padding-bottom: 0.35rem;
+    display: flex; align-items: baseline; gap: 0.7rem;
+  }
+  h2::before {
+    counter-increment: sec; content: counter(sec, decimal-leading-zero);
+    font-family: var(--display); font-size: 0.9rem; letter-spacing: 0;
+    color: var(--label); font-weight: 400;
+  }
+  h3 { font-size: 0.95rem; margin: 1.5rem 0 0.3rem; font-weight: 600; }
+  h2 .badge { margin-left: auto; font-weight: 500; }
+  a.stat { text-decoration: none; color: inherit; }
+  a.stat:hover .stat-num { color: var(--crimson); }
+  p.lead { margin: 1rem 0 0.2rem; font-style: italic; }
+  p.delta { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--label);
+    font-variant-numeric: tabular-nums; }
+  td.meta { font-size: 0.8rem; color: var(--label); }
+  .na { color: var(--label); font-variant: small-caps; letter-spacing: 0.03em; }
+  .verdict a { color: inherit; }
+  details { margin: 1.1rem 0 0; }
+  summary {
+    cursor: pointer; font-size: 0.95rem; font-weight: 600;
+    padding: 0.15rem 0; color: var(--ink);
+    list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "+"; display: inline-block; width: 1.1rem;
+    color: var(--label); font-variant-numeric: tabular-nums;
+  }
+  details[open] > summary::before { content: "3"; }
+  summary:hover, summary:hover::before { color: var(--crimson); }
+  summary:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; }
+  th {
+    text-align: left; font-size: 0.66rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--label);
+    border-bottom: 2px solid var(--crimson); padding: 0.4rem 0.7rem 0.4rem 0; white-space: nowrap;
+  }
+  td { padding: 0.5rem 0.7rem 0.5rem 0; border-bottom: 1px solid var(--rule); vertical-align: top;
+    font-variant-numeric: tabular-nums; }
+  /* Long unbreakable tokens (paths, anchors, pytest node ids) wrap inside
+     their column instead of setting a hard min-width that pushes the table
+     off-screen. Applied per-cell, since a global rule lets auto-layout crush
+     short columns to one character. */
+  td.brk, li { overflow-wrap: anywhere; }
+  tbody tr:nth-child(even) td { background: rgba(226,217,200,0.18); }
+  td.more, li.more { font-style: italic; color: var(--label); background: none; }
+  .badge {
+    display: inline-block; padding: 0.08rem 0.55rem; font-size: 0.66rem;
+    letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--display);
+    border: 1px solid; border-radius: 1px; white-space: nowrap;
+  }
+  .badge.ok { color: var(--olive); background: var(--olive-bg); border-color: var(--olive); }
+  .badge.warm { color: #7A5E1E; background: var(--ochre-bg); border-color: #9A7B2E; }
+  .badge.bad { color: var(--paper); background: var(--crimson); border-color: var(--crimson-deep); }
+  .badge.off { color: var(--label); background: var(--note-bg); border-color: var(--rule); }
+  p.empty {
+    color: var(--label); font-style: italic; margin-top: 0.6rem;
+    padding: 0.85rem 1rem; background: var(--note-bg);
+    border: 1px solid var(--rule); border-left: 3px solid #C9BDA3;
+  }
+  ul { padding-left: 1.2rem; }
+  ul.warnings { list-style: none; padding-left: 0; }
+  ul.warnings li { color: var(--crimson); padding: 0.4rem 0.8rem; border-left: 3px solid var(--crimson);
+    background: var(--note-bg); margin-top: 0.4rem; }
+  footer.colophon { margin-top: 3.5rem; border-top: 1px solid var(--rule); padding-top: 0.7rem;
+    font-size: 0.74rem; letter-spacing: 0.08em; color: var(--label); text-transform: uppercase; }
+  @media (max-width: 46rem) {
+    body { padding: 1.75rem 1rem 3rem; }
+    header.masthead h1 { font-size: 2rem; }
+    .verdict-label { font-size: 1.9rem; }
+    .statband { grid-template-columns: repeat(2, 1fr); }
+    table { font-size: 0.86rem; }
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .verdict.state-bad { background: #fff; color: var(--ink); border-left-color: var(--crimson); }
+    .verdict.state-bad .verdict-label, .verdict.state-bad .verdict-kicker { color: var(--crimson); }
+    .badge.bad { color: var(--crimson); background: #fff; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+<header class="masthead">
+<p class="kicker">sumo-qa &#183; local QA report</p>
+<h1>full-data-ready</h1>
+<p class="dateline"><b>root</b> <code>/fixtures/full-data-ready</code><span class="sep">&#183;</span><b>head</b> <code>ffffffffffffffffffffffffffffffffffffffff</code><span class="sep">&#183;</span><b>generated</b> 2026-06-08T08:00:00+00:00</p>
+</header>
+<main>
+<section class="verdict state-good">
+<p class="verdict-kicker">Readiness</p>
+<p class="verdict-label">ready</p>
+<p class="verdict-gloss">Safe to merge on the evidence composed here.</p>
+<p class="reasons-none">All composed signals are green.</p>
+</section>
+<section class="statband">
+<a class="stat" href="#inventory"><span class="stat-num">5/6</span><span class="stat-label">sources available</span></a>
+<a class="stat" href="#risks"><span class="stat-num">1</span><span class="stat-label">risks tracked</span></a>
+<a class="stat" href="#risks"><span class="stat-num">0</span><span class="stat-label">uncovered blockers</span></a>
+<a class="stat" href="#warnings"><span class="stat-num">0</span><span class="stat-label">warnings</span></a>
+</section>
+<section id="inventory">
+<h2>Artifact inventory <span class="badge off">5 of 6 available</span></h2>
+<p class="lead">5 of 6 sources available; coverage mutation not available.</p><table><thead><tr><th>artifact</th><th>status</th><th>path</th><th>age</th><th>notes</th></tr></thead><tbody><tr><td>repo map</td><td><span class="badge ok">available</span></td><td class="brk">.sumo-qa/repo-map.json</td><td>6 days</td><td class="brk"><span class="na">n/a</span></td></tr><tr><td>diff impact</td><td><span class="badge ok">available</span></td><td class="brk">.sumo-qa/diff-impact.json</td><td><span class="na">n/a</span></td><td class="brk"><span class="na">n/a</span></td></tr><tr><td>risk ledger</td><td><span class="badge ok">available</span></td><td class="brk">.sumo-qa/risk-ledger.json</td><td><span class="na">n/a</span></td><td class="brk"><span class="na">n/a</span></td></tr><tr><td>context bundle</td><td><span class="badge ok">available</span></td><td class="brk">.sumo-qa/context-bundle.json</td><td><span class="na">n/a</span></td><td class="brk"><span class="na">n/a</span></td></tr><tr><td>readiness scorecard</td><td><span class="badge ok">available</span></td><td class="brk"><span class="na">n/a</span></td><td><span class="na">n/a</span></td><td class="brk">derived in-report from the risk ledger + context bundle (readiness engine)</td></tr><tr><td>coverage mutation</td><td><span class="badge off">not available</span></td><td class="brk"><span class="na">n/a</span></td><td><span class="na">n/a</span></td><td class="brk">not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)</td></tr></tbody></table>
+</section>
+<section id="impact">
+<h2>Change impact <span class="badge bad">1 uncovered source</span></h2>
+<p class="lead">1 changed source has no mapped test: src/billing/refund.py.</p><details><summary>1 file changed: 1 source</summary><table><thead><tr><th>component</th><th>type</th><th>path</th><th>mapped tests</th></tr></thead><tbody><tr><td class="brk">refund.py</td><td>source</td><td class="brk">src/billing/refund.py</td><td>yes</td></tr></tbody></table></details><details><summary>1 affected component (one hop): 1 test</summary><table><thead><tr><th>component</th><th>type</th><th>path</th><th>mapped tests</th></tr></thead><tbody><tr><td class="brk">test_refund.py</td><td>test</td><td class="brk">tests/test_refund.py</td><td><span class="na">n/a</span></td></tr></tbody></table></details><details><summary>1 related test</summary><ul><li>tests/test_refund.py</li></ul></details><h3>Risk surface (changed sources with no mapped test)</h3><ul><li>src/billing/refund.py</li></ul><details><summary>1 unmapped file</summary><ul><li>docs/refund-notes.md</li></ul></details>
+</section>
+<section id="risks">
+<h2>Risk ledger <span class="badge ok">all covered</span></h2>
+<p class="lead">All 1 risk carry passing evidence.</p><table><thead><tr><th>id</th><th>risk</th><th>anchor</th><th>test</th><th>evidence</th><th>residual</th></tr></thead><tbody><tr id="risk-R1"><td>R1</td><td>Refund applied twice on a retried request</td><td class="brk">src/billing/refund.py:42</td><td class="brk">tests/test_refund.py::test_refund_is_idempotent</td><td>passing</td><td>mitigated</td></tr></tbody></table>
+</section>
+<section id="evidence">
+<h2>Evidence <span class="badge warm">2 not trusted</span></h2>
+<p class="lead">2 of 4 streams trusted (tests, ci); not trusted: coverage, mutation.</p><table><thead><tr><th>stream</th><th>status</th><th>freshness</th><th>trustworthy</th><th>source</th><th>captured at</th><th>detail</th></tr></thead><tbody><tr><td>tests</td><td>passing</td><td>fresh</td><td>yes</td><td class="meta">local git</td><td class="meta">2026-06-08T07:30:00+00:00</td><td class="brk"><span class="na">n/a</span></td></tr><tr><td>ci</td><td>passing</td><td>fresh</td><td>yes</td><td class="meta">ci provider</td><td class="meta">2026-06-08T07:45:00+00:00</td><td class="brk"><span class="na">n/a</span></td></tr><tr><td>coverage</td><td>not available</td><td><span class="na">n/a</span></td><td>no</td><td class="meta"><span class="na">n/a</span></td><td class="meta"><span class="na">n/a</span></td><td class="brk">not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)</td></tr><tr><td>mutation</td><td>not available</td><td><span class="na">n/a</span></td><td>no</td><td class="meta"><span class="na">n/a</span></td><td class="meta"><span class="na">n/a</span></td><td class="brk">not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)</td></tr></tbody></table>
+</section>
+<section id="warnings">
+<h2>Warnings <span class="badge ok">none</span></h2>
+<p class="empty">No warnings.</p>
+</section>
+</main>
+<footer class="colophon">
+Generated by sumo-qa 0.0.0-fixture &#183; report schema 1.0
+</footer>
+</div>
+</body>
+</html>

@@ -75,6 +75,20 @@ from sumo_qa.ledger_models import RiskLedger, RiskLedgerRow
 
 SCORECARD_SCHEMA_VERSION: Final[Literal["1.0"]] = "1.0"
 
+#: Plain-language labels + freshness words for the human-facing recommendation
+#: reasons. The reasons surface verbatim in the scorecard output AND in the
+#: #157 QA report's verdict block, so a raw field name (``test_evidence``) or a
+#: ``key=value`` debug fragment must never reach them.
+_EVIDENCE_LABELS: Final[dict[str, str]] = {
+    "test_evidence": "test evidence",
+    "ci_status": "CI",
+}
+_FRESHNESS_WORDS: Final[dict[str, str]] = {
+    "stale": "stale",
+    "unknown": "of unknown freshness",
+    "absent": "not yet captured",
+}
+
 #: The final readiness verdict. Four DISTINCT states (issue #151 AC + the #154
 #: scope comment) — see the module docstring for the derivation order.
 ScorecardRecommendation = Literal[
@@ -268,12 +282,12 @@ class QaScorecard(BaseModel):
         """
         reasons: list[str] = []
         for row in self.uncovered_blocker_rows():
-            reasons.append(f"{row.risk_id}: {row.risk} — uncovered high-impact risk")
+            reasons.append(f"{row.risk_id}: {row.risk} (uncovered high-impact risk)")
         for row in self._ledger_rows():
             # A failing covering test blocks even when residual != blocker; skip
             # rows already reported as uncovered blockers to avoid double-listing.
             if row.evidence_status == "failing" and not row.is_uncovered_blocker():
-                reasons.append(f"{row.risk_id}: {row.risk} — covering test is failing")
+                reasons.append(f"{row.risk_id}: {row.risk} (covering test is failing)")
         bundle = self.context_bundle
         if bundle is not None:
             for label, fact in (
@@ -281,7 +295,8 @@ class QaScorecard(BaseModel):
                 ("CI", bundle.ci_status),
             ):
                 if fact is not None and fact.result in ("failing", "mixed"):
-                    reasons.append(f"{label} reports failures (result={fact.result})")
+                    outcome = "failing" if fact.result == "failing" else "mixed (some failures)"
+                    reasons.append(f"{label} is {outcome}")
         return reasons
 
     def insufficiency_reasons(self, *, local_head_sha: str | None = None) -> list[str]:
@@ -302,7 +317,7 @@ class QaScorecard(BaseModel):
             or bool(bundle.changed_files)
         )
         if not has_ledger and not has_bundle_signal:
-            return ["no QA evidence supplied — cannot assess readiness"]
+            return ["no QA evidence supplied, so readiness cannot be assessed"]
 
         reasons: list[str] = []
         accepted_ids = {row.risk_id for row in self.accepted_residual_rows()}
@@ -310,10 +325,10 @@ class QaScorecard(BaseModel):
             if row.risk_id in accepted_ids:
                 continue
             if row.evidence_status == "stale":
-                reasons.append(f"{row.risk_id}: {row.risk} — covering evidence is stale")
+                reasons.append(f"{row.risk_id}: {row.risk} (covering evidence is stale)")
             elif row.evidence_status == "planned":
                 reasons.append(
-                    f"{row.risk_id}: {row.risk} — covering test only planned, not executed"
+                    f"{row.risk_id}: {row.risk} (covering test only planned, not executed)"
                 )
 
         if bundle is not None:
@@ -323,9 +338,19 @@ class QaScorecard(BaseModel):
                 if fact is not None and fact.result in ("failing", "mixed"):
                     continue
                 assert fact is not None  # untrustworthy fields are always present
+                label = _EVIDENCE_LABELS.get(name, name.replace("_", " "))
+                # A fact is untrustworthy either because its freshness is not
+                # trustworthy (stale/unknown/absent) OR because it is fresh+passing
+                # but was captured against a different commit (sha mismatch). The
+                # `_FRESHNESS_WORDS` keys ARE the non-trustworthy freshness values,
+                # so a freshness outside them can only be the sha-mismatch case —
+                # never describe a fresh fact as "but fresh".
+                if fact.freshness in _FRESHNESS_WORDS:
+                    why = _FRESHNESS_WORDS[fact.freshness]
+                else:
+                    why = "was captured against a different commit"
                 reasons.append(
-                    f"{name} is not fresh-passing "
-                    f"(freshness={fact.freshness}, result={fact.result})"
+                    f"{label} is {fact.result} but {why}, so it cannot support a ready verdict"
                 )
             if detect_local_conflict(bundle, local_head_sha) is not None:
                 reasons.append("context bundle is stale relative to the local tree")

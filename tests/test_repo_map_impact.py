@@ -120,6 +120,48 @@ def test_dangling_edge_endpoint_is_ignored():
     assert out.affected_nodes == []
 
 
+def test_mapped_tests_is_tristate_only_source_files_carry_a_verdict():
+    """``has_mapped_tests`` answers a question that is only meaningful for
+    source_file nodes. Every other node type carries None — a docs or fixture
+    node must never read as a vacuous coverage 'no' alongside a meaningful
+    'no' on a source file (that inflates ~1 real gap into ~22 apparent ones)."""
+    docs = RepoMapNode(id="file:README.md", type="docs", path="README.md")
+    fixture = RepoMapNode(
+        id="file:tests/fixtures/x.json", type="fixture", path="tests/fixtures/x.json"
+    )
+    rm = _map(
+        [_src("src/a.py"), _src("src/lonely.py"), _test("tests/test_a.py"), docs, fixture],
+        [_likely("tests/test_a.py", "src/a.py")],
+    )
+    out = analyze_diff_impact(
+        rm,
+        ["src/a.py", "src/lonely.py", "README.md", "tests/fixtures/x.json", "tests/test_a.py"],
+    )
+    verdicts = {n.path: n.has_mapped_tests for n in out.changed_nodes}
+    assert verdicts == {
+        "src/a.py": True,
+        "src/lonely.py": False,
+        "README.md": None,
+        "tests/fixtures/x.json": None,
+        "tests/test_a.py": None,
+    }
+    # risk_surface semantics are untouched: changed source files with no
+    # mapped test, and ONLY those.
+    assert out.risk_surface == ["src/lonely.py"]
+
+
+def test_affected_nodes_obey_the_same_tristate():
+    rm = _map(
+        [_src("src/a.py"), _test("tests/test_a.py")], [_likely("tests/test_a.py", "src/a.py")]
+    )
+    # Changed source -> affected test_file row carries None, not a vacuous bool.
+    out = analyze_diff_impact(rm, ["src/a.py"])
+    assert [(n.path, n.has_mapped_tests) for n in out.affected_nodes] == [("tests/test_a.py", None)]
+    # Changed test -> affected source_file row keeps its real verdict.
+    out = analyze_diff_impact(rm, ["tests/test_a.py"])
+    assert [(n.path, n.has_mapped_tests) for n in out.affected_nodes] == [("src/a.py", True)]
+
+
 def test_empty_changeset_returns_empty_result():
     rm = _map([_src("src/a.py")], [])
     out = analyze_diff_impact(rm, [])

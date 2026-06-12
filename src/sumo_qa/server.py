@@ -78,6 +78,7 @@ from sumo_qa.server_schemas import (
     FormatContextBundleOutput,
     FormatQaScorecardOutput,
     FormatRiskLedgerOutput,
+    GenerateQAReportOutput,
     InstallExternalSkillOutput,
     RepoMapQueryOutput,
     RepoMapScanOutput,
@@ -167,6 +168,14 @@ _HINT_EXPORT_TEST_CASES = (
     "never infers a case. Without output_path it is side-effect free: it returns "
     "text and writes nothing. output_path is optional; when given it must be under "
     "the project export root and must not overwrite an existing file."
+)
+_HINT_GENERATE_QA_REPORT = (
+    "Pass an existing repo directory. Every artifact is optional — missing ones "
+    "render as honest not-available states, never an error. risk_ledger_rows "
+    "takes the same row shape as sumo_qa_format_risk_ledger; context_bundle the "
+    "same dict as sumo_qa_format_context_bundle. Without write_to nothing is "
+    "written; pass write_to='.sumo-qa/qa-report.html' to persist the page under "
+    "the target repo."
 )
 
 
@@ -1109,8 +1118,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                     RepoMapWarning(
                         kind="stale",
                         message=(
-                            f"repo-map git_commit {repo_map.project.git_commit} "
-                            f"differs from HEAD {current}"
+                            f"repo-map commit {(repo_map.project.git_commit or '')[:8]} "
+                            f"differs from HEAD {(current or '')[:8]}"
                         ),
                     )
                 )
@@ -1214,8 +1223,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                     RepoMapWarning(
                         kind="stale",
                         message=(
-                            f"repo-map git_commit {repo_map.project.git_commit} "
-                            f"differs from HEAD {current}"
+                            f"repo-map commit {(repo_map.project.git_commit or '')[:8]} "
+                            f"differs from HEAD {(current or '')[:8]}"
                         ),
                     )
                 )
@@ -1530,6 +1539,121 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "format": format,
                 "export_title": export_title,
                 "output_path": output_path,
+            },
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_writer_local)
+    def sumo_qa_generate_qa_report(
+        root: str,
+        write_to: str | None = None,
+        risk_ledger_rows: list[dict[str, Any]] | None = None,
+        context_bundle: dict[str, Any] | None = None,
+    ) -> GenerateQAReportOutput | ErrorEnvelope:
+        """Compose the persisted ``.sumo-qa`` artifacts (repo map, diff
+        impact, risk ledger, context bundle) into the local QA report and
+        return a compact readiness summary. The
+        rendered HTML body never rides back to the host — pass ``write_to`` to
+        persist the self-contained static page and open it from disk.
+
+        Common natural-language phrasings that map to this tool:
+        "generate the QA report", "build the QA dashboard for this repo",
+        "give me the local QA readiness report", "render qa-report.html".
+
+        ``root`` is the repository to report on (absolute or relative to the
+        MCP server's working directory). Every artifact is OPTIONAL: a missing,
+        invalid, or stale source renders an explicit honest state. The readiness
+        verdict (ready / ready_with_accepted_residuals / blocked /
+        insufficient_evidence) is derived by the QaScorecard readiness engine
+        from the risk ledger + context bundle — missing data is never reported
+        as passing evidence.
+
+        ``risk_ledger_rows`` / ``context_bundle`` are inline overrides for the
+        chat flow where the ledger/bundle was built in-conversation and never
+        persisted (the same shapes ``sumo_qa_format_risk_ledger`` /
+        ``sumo_qa_format_context_bundle`` accept). They take precedence over
+        any on-disk file and are validated BEFORE anything is written.
+
+        ``write_to`` is optional — when set, the page is written there
+        (relative paths land under the target repo; the conventional value is
+        ``.sumo-qa/qa-report.html``). Without it the tool writes nothing.
+        """
+        from sumo_qa.context_bundle_validation import load_context_bundle as _load_bundle
+        from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION as _LEDGER_SCHEMA_VERSION
+        from sumo_qa.ledger_validation import load_ledger as _load_ledger
+        from sumo_qa.report_builder import generate_report as _generate_report
+        from sumo_qa.report_builder import write_run_summary as _write_run_summary
+        from sumo_qa.report_html import render_report_html as _render_report_html
+
+        output: GenerateQAReportOutput | dict[str, Any]
+        try:
+            root_path = Path(root).resolve()
+            if not root_path.is_dir():
+                raise NotADirectoryError(f"root must be an existing directory: {root!s}")
+            # Validate inline overrides FIRST so a bad payload is an error
+            # envelope before any disk read or write happens.
+            ledger_override = (
+                _load_ledger({"schema_version": _LEDGER_SCHEMA_VERSION, "rows": risk_ledger_rows})
+                if risk_ledger_rows is not None
+                else None
+            )
+            bundle_override = _load_bundle(context_bundle) if context_bundle is not None else None
+            report = _generate_report(
+                root_path,
+                generator_version=_package_version(),
+                ledger_override=ledger_override,
+                bundle_override=bundle_override,
+            )
+            artifact_path: str | None = None
+            artifact_bytes: int | None = None
+            if write_to is not None:
+                # Resolve a relative write_to against the TARGET root, not the
+                # MCP server's cwd — the conventional `.sumo-qa/qa-report.html`
+                # must land under the repo being reported on. Unlike the
+                # scan_repo precedent, a relative path is CONFINED to that
+                # root: a `..`/symlink escape is refused, so a relative
+                # request can never write outside the repo it names. An
+                # absolute path stays caller-explicit.
+                target = Path(write_to)
+                if not target.is_absolute():
+                    target = (root_path / target).resolve()
+                    if not target.is_relative_to(root_path):
+                        raise ValueError(
+                            f"write_to resolves to {target}, outside the "
+                            f"target root {root_path}; pass a path under the "
+                            "repo or an explicit absolute path"
+                        )
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(_render_report_html(report), encoding="utf-8")
+                artifact_path = str(target.resolve())
+                artifact_bytes = target.stat().st_size
+                # A page-writing call also persists the compact run summary
+                # the NEXT report's delta line reads; the side-effect-free
+                # call (no write_to) writes neither.
+                _write_run_summary(root_path, report)
+            output = GenerateQAReportOutput(
+                root=str(root_path),
+                readiness_state=report.readiness.state,
+                readiness_reasons=list(report.readiness.reasons),
+                artifact_statuses={a.kind: a.status for a in report.artifacts},
+                changed_component_count=len(report.changed_components),
+                affected_component_count=len(report.affected_components),
+                related_test_count=len(report.related_tests),
+                risk_count=len(report.risks),
+                uncovered_blocker_count=report.uncovered_blocker_count,
+                warning_count=len(report.warnings),
+                artifact_path=artifact_path,
+                artifact_bytes=artifact_bytes,
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_GENERATE_QA_REPORT)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_generate_qa_report",
+            args={
+                "root": root,
+                "write_to": write_to,
+                "risk_ledger_rows": risk_ledger_rows,
+                "context_bundle": context_bundle,
             },
             output=output,  # type: ignore[arg-type]
         )

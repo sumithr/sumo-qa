@@ -1,7 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """sumo-qa — the product-grade command surface (issue #160, first slice).
 
-Two subcommands wrap the same deterministic #155 services the MCP tools use,
+Three subcommands wrap the same deterministic services the MCP tools use,
 so a user can run the QA-native repo-understanding loop from a terminal:
 
 - ``sumo-qa analyze [path]`` — walk the repo via
@@ -11,8 +11,11 @@ so a user can run the QA-native repo-understanding loop from a terminal:
 - ``sumo-qa status [path]`` — report whether the artifact exists, its schema
   version, freshness (recorded ``git_commit`` vs current HEAD), and the next
   recommended command.
+- ``sumo-qa report [path]`` — compose the persisted ``.sumo-qa`` artifacts
+  into the static ``.sumo-qa/qa-report.html`` page via the #157 report
+  builder/renderer, with honest not-available states for anything missing.
 
-Both take ``--json`` for automation; the JSON shape is INTERNAL until
+All take ``--json`` for automation; the JSON shape is INTERNAL until
 sumo-qa 1.0 but its keys are kept stable within the 1.x line so scripts can
 rely on them.
 
@@ -34,15 +37,20 @@ import sys as _sys
 from pathlib import Path
 from typing import Any
 
-# Shared #155 service layer — the SAME functions the MCP tools call. The CLI
-# adds no parsing/scanning logic of its own; it composes these.
+# Shared #155/#157 service layer — the SAME functions the MCP tools call. The
+# CLI adds no parsing/scanning logic of its own; it composes these.
 from sumo_qa.repo_map_scanner import _detect_git_commit, scan_repo
 from sumo_qa.repo_map_validation import RepoMapValidationError, load_repo_map
+from sumo_qa.report_builder import generate_report, write_run_summary
+from sumo_qa.report_html import render_report_html
 from sumo_qa.server import _build_scan_summary, _package_version
 
 # The conventional artifact location under a scanned repo. Mirrors the
 # ``.sumo-qa/repo-map.json`` default the MCP scan / diff-impact tools use.
 REPO_MAP_RELPATH = ".sumo-qa/repo-map.json"
+
+# The conventional QA-report location, mirrored by sumo_qa_generate_qa_report.
+QA_REPORT_RELPATH = ".sumo-qa/qa-report.html"
 
 # Memorable next-step commands surfaced in human + JSON output.
 _NEXT_AFTER_ANALYZE = "sumo-qa status"
@@ -223,6 +231,73 @@ def _cmd_status(root: Path, *, as_json: bool) -> int:
     return 0
 
 
+def _cmd_report(root: Path, *, as_json: bool) -> int:
+    """Compose the persisted ``.sumo-qa`` artifacts into the static QA report.
+
+    Writes (or overwrites — it is a regenerated artifact, like the repo-map)
+    ``.sumo-qa/qa-report.html`` under ``root`` via the #157 builder/renderer.
+    A repo with no artifacts at all still succeeds: every absent source renders
+    an honest not-available state, so exit 0 means "report written", never
+    "everything is green". The missing-directory guard mirrors analyze/status.
+    """
+    if not root.is_dir():
+        _sys.stderr.write(
+            f"sumo-qa report: {root} is not a directory. "
+            f"Pass an existing repository path (or omit it to use the current directory).\n"
+        )
+        return 2
+
+    report = generate_report(root, generator_version=_package_version())
+    artifact = root / QA_REPORT_RELPATH
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(render_report_html(report), encoding="utf-8")
+    # Persist the compact run summary the NEXT report's delta line reads.
+    write_run_summary(root, report)
+
+    statuses = {a.kind: a.status for a in report.artifacts}
+    # A usable repo-map points forward to status; anything else (missing,
+    # invalid, stale) points back at analyze to (re)generate it.
+    next_command = (
+        f"{_NEXT_AFTER_ANALYZE} {root.as_posix()}"
+        if statuses["repo_map"] == "available"
+        else f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"
+    )
+    state = report.readiness.state
+    state_label = state.replace("_", " ")
+
+    payload: dict[str, Any] = {
+        "command": "report",
+        "root": str(root),
+        # ``as_posix()`` keeps the --json automation contract OS-independent,
+        # mirroring analyze/status.
+        "artifact_path": artifact.as_posix(),
+        "artifact_bytes": artifact.stat().st_size,
+        "readiness_state": state,
+        "readiness_reasons": list(report.readiness.reasons),
+        "artifacts": statuses,
+        "changed_component_count": len(report.changed_components),
+        "affected_component_count": len(report.affected_components),
+        "related_test_count": len(report.related_tests),
+        "risk_count": len(report.risks),
+        "uncovered_blocker_count": report.uncovered_blocker_count,
+        "warning_count": len(report.warnings),
+        "next_command": next_command,
+        "summary": f"QA report written to {QA_REPORT_RELPATH}; readiness is {state_label}.",
+    }
+
+    statuses_line = ", ".join(f"{kind}={status}" for kind, status in statuses.items())
+    reasons_line = "; ".join(report.readiness.reasons) or "all composed signals are green"
+    human = (
+        f"QA report for {root}\n"
+        f"  wrote {QA_REPORT_RELPATH} ({payload['artifact_bytes']} bytes)\n"
+        f"  readiness: {state_label} ({reasons_line})\n"
+        f"  artifacts: {statuses_line}\n"
+        f"  next: {next_command}"
+    )
+    _emit(payload, as_json=as_json, human=human)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sumo-qa",
@@ -232,7 +307,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "for install diagnostics."
         ),
     )
-    sub = parser.add_subparsers(dest="command", metavar="{analyze,status}")
+    sub = parser.add_subparsers(dest="command", metavar="{analyze,status,report}")
 
     p_analyze = sub.add_parser(
         "analyze",
@@ -273,6 +348,27 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit a JSON document instead of human-readable text.",
     )
+
+    p_report = sub.add_parser(
+        "report",
+        help="Generate the static QA report at .sumo-qa/qa-report.html.",
+        description=(
+            "Compose the persisted .sumo-qa artifacts (repo-map, diff-impact, "
+            "risk-ledger, context-bundle) into a self-contained static HTML QA "
+            "report, with honest not-available states for anything missing."
+        ),
+    )
+    p_report.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Repository path to report on (defaults to the current directory).",
+    )
+    p_report.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a JSON document instead of human-readable text.",
+    )
     return parser
 
 
@@ -293,9 +389,11 @@ def main(argv: list[str] | None = None) -> int:
     root = _resolve_root(args.path)
     if args.command == "analyze":
         return _cmd_analyze(root, as_json=args.json)
+    if args.command == "status":
+        return _cmd_status(root, as_json=args.json)
     # argparse restricts ``command`` to the registered subparsers, so the only
-    # remaining value here is "status".
-    return _cmd_status(root, as_json=args.json)
+    # remaining value here is "report".
+    return _cmd_report(root, as_json=args.json)
 
 
 def console_main() -> None:

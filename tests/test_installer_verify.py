@@ -179,10 +179,11 @@ def test_required_tool_names_constant_is_defined() -> None:
     # 4 test-data + 6 knowledge loaders + 1 per-entry/compact catalogue loader
     # (#287) + 1 capabilities + 3 repo-map (scan + diff-impact + query) + 1
     # risk-to-test ledger (#144) + 1 context bundle (#149) + 1 readiness
-    # scorecard (#151) + 1 QA-artifact export (#148) + 1 review-feedback memory
-    # (#145) + 1 ingestion + 4 external skills + 2 progressive skill loading
-    # (#285: list_skill_manifests + load_skill_context) = 27.
-    assert len(installer.REQUIRED_TOOL_NAMES) == 27
+    # scorecard (#151) + 1 QA-artifact export (#148) + 1 QA report (#157) + 1
+    # review-feedback memory (#145) + 1 ingestion + 4 external skills + 2
+    # progressive skill loading
+    # (#285: list_skill_manifests + load_skill_context) = 28.
+    assert len(installer.REQUIRED_TOOL_NAMES) == 28
     assert "sumo_qa_explain_test_data_requirements" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_load_classifications" in installer.REQUIRED_TOOL_NAMES
     assert "sumo_qa_capabilities" in installer.REQUIRED_TOOL_NAMES

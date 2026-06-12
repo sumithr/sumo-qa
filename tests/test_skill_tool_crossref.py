@@ -100,6 +100,11 @@ _STANDALONE_UTILITY_TOOLS = {
     # (test_export_token_budget.py) pins that no SKILL.md references it. So it is
     # a standalone utility, not cross-referenced from a skill body.
     "sumo_qa_export_test_cases",
+    # Local QA report (#157) is the same shape as export: opt-in artifact
+    # plumbing the user explicitly asks for ("generate the QA report"), not a
+    # step in any default skill reasoning flow. The host discovers it from its
+    # tool description; the CLI mirror is `sumo-qa report`.
+    "sumo_qa_generate_qa_report",
 }
 # #156 wired the repo-map tools into the skill chain: `sumo_qa_analyze_diff_impact`
 # and `sumo_qa_query_repo_map` are referenced from `sumo-qa-reviewing-before-merge`,

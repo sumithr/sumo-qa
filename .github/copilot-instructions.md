@@ -41,6 +41,9 @@ Repo-map accelerators: when a `.sumo-qa/repo-map.json` artifact is present,
 `sumo_qa_scan_repo`, `sumo_qa_analyze_diff_impact`, and `sumo_qa_query_repo_map`
 provide fast, deterministic evidence over the codebase (inventory, changed-file
 impact, ranked search) for the review, strategy, and prepare-for-work skills.
+`sumo_qa_generate_qa_report` composes the persisted `.sumo-qa` artifacts into
+the static local QA report (`.sumo-qa/qa-report.html`) when the user asks for
+a QA report or dashboard.
 
 When creating GitHub issues, use the closest template in `.github/ISSUE_TEMPLATE/`
 and include every required field in the issue body. For implementation tasks

@@ -82,9 +82,11 @@ mutation=None, scope=None, local_head_sha=None, max_reasons=25)` returns
   bounded by `max_reasons` with a `… +N more` notice so a large scorecard stays
   inside the host token budget.
 - `compact_summary` — a one-line roll-up to drop inline in short answers.
-- `serialized` — a JSON-able snapshot of every fact above, so a downstream report
-  (the planned local QA report, #157) can render the scorecard without
-  re-deriving anything.
+- `serialized` — a JSON-able snapshot of every fact above, for any downstream
+  consumer that wants the rendered scorecard's facts. (The #157 local QA report
+  does not read this snapshot — it composes its own `QaScorecard` from the same
+  ledger + bundle, making this module the single source of truth for the
+  readiness verdict.)
 
 A payload can also be validated directly through
 `sumo_qa.scorecard_validation.load_scorecard`, which reuses the ledger and

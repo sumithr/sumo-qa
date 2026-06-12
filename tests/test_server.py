@@ -62,6 +62,13 @@ _EXPORT_TOOL_NAMES = {
     "sumo_qa_export_test_cases",
 }
 
+# Local QA report (issue #157). Composes the persisted .sumo-qa artifacts into
+# a static HTML page; compact readiness summary in the response, the page body
+# only on disk via write_to.
+_QA_REPORT_TOOL_NAMES = {
+    "sumo_qa_generate_qa_report",
+}
+
 # Progressive skill loading (issue #285) — deterministic, read-only, local-only
 # manifest index + partial skill-context loader. The existing zero-argument
 # skill tools still return full bodies unchanged; these add a slice-loading path.
@@ -145,6 +152,7 @@ def test_registers_only_test_data_knowledge_and_skill_tools() -> None:
         | _CONTEXT_BUNDLE_TOOL_NAMES
         | _SCORECARD_TOOL_NAMES
         | _EXPORT_TOOL_NAMES
+        | _QA_REPORT_TOOL_NAMES
         | _INGESTION_TOOL_NAMES
         | _FEEDBACK_MEMORY_TOOL_NAMES
         | _EXTERNAL_SKILL_TOOL_NAMES

@@ -169,6 +169,42 @@ def test_insufficiency_does_not_relist_a_failing_bundle_fact():
     assert card.blocking_reasons()  # it is a blocker
 
 
+def test_recommendation_reasons_are_human_readable_not_machine_tokens():
+    """The reasons surface verbatim in the #157 QA report's verdict block, so
+    they must read as plain English — no raw field name (``test_evidence``) and
+    no ``key=value`` debug fragment (``freshness=stale, result=passing``)."""
+    stale = QaScorecard(
+        context_bundle=_bundle(test_evidence=_fact(result="passing", freshness="stale"))
+    )
+    stale_reasons = stale.insufficiency_reasons()
+    assert any("test evidence is passing but stale" in r for r in stale_reasons)
+    blob = " ".join(stale_reasons)
+    assert "test_evidence" not in blob
+    assert "freshness=" not in blob and "result=" not in blob
+
+    failing = QaScorecard(context_bundle=_bundle(test_evidence=_fact(result="failing")))
+    failing_reasons = failing.blocking_reasons()
+    assert any("test evidence is failing" in r for r in failing_reasons)
+    assert "result=" not in " ".join(failing_reasons)
+
+    # A fresh+passing fact captured against a DIFFERENT commit is untrustworthy
+    # too — the reason must not read the self-contradiction "passing but fresh".
+    sha_mismatch = QaScorecard(
+        context_bundle=ContextBundle(
+            head_sha="bbbbbbbb",
+            test_evidence=EvidenceFact(
+                result="passing",
+                freshness="fresh",
+                source="local_git",
+                captured_against_sha="aaaaaaaa",
+            ),
+        )
+    )
+    mismatch_reasons = sha_mismatch.insufficiency_reasons()
+    assert any("captured against a different commit" in r for r in mismatch_reasons)
+    assert not any("but fresh" in r for r in mismatch_reasons)
+
+
 def test_bundle_local_conflict_is_an_insufficiency():
     # Fresh passing evidence, but the bundle's head differs from the live local
     # head → the bundle is stale relative to the tree → cannot assert ready.
