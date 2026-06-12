@@ -20,6 +20,7 @@ from sumo_qa.report_models import (
     REPORT_SCHEMA_VERSION,
     QAReport,
     ReportArtifact,
+    ReportComponent,
     ReportProject,
     ReportReadiness,
 )
@@ -149,3 +150,14 @@ def test_report_artifact_rejects_unknown_status():
 def test_report_artifact_rejects_unknown_kind():
     with pytest.raises(ValidationError):
         _artifact("crystal_ball", "missing")
+
+
+def test_component_mapped_tests_is_tristate():
+    """``has_mapped_tests`` is a verdict only for source files; any other
+    node type carries None (rendered as an em-dash, never a vacuous 'no')."""
+    doc = ReportComponent(id="file:README.md", path="README.md", type="docs")
+    assert doc.has_mapped_tests is None
+    src = ReportComponent(
+        id="file:src/a.py", path="src/a.py", type="source_file", has_mapped_tests=False
+    )
+    assert src.has_mapped_tests is False

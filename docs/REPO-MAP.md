@@ -246,6 +246,14 @@ It reports:
   stale map).
 - **`is_stale`** — true when the map's `git_commit` differs from current HEAD.
 
+Each changed/affected node carries a tri-state `has_mapped_tests`: a real
+true/false verdict **only for `source_file` nodes**; `null` (the key is always
+present) for every other node type, in both the tool result and the persisted
+`diff-impact.json` overlay. The mapped-tests question is meaningless for docs,
+fixtures, config, or test files themselves — a vacuous "no" there must never
+read as a coverage gap. `risk_surface` stays the headline signal and is
+unchanged: changed source files with no mapped test, and only those.
+
 Changed files come from either an explicit list or a git base ref. For a base
 ref the diff is taken against the **merge-base** of the ref and `HEAD` (the
 fork point — the same set GitHub's "Files changed" shows), so changes that

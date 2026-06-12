@@ -41,6 +41,14 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
     def _has_mapped_tests(node_id: str) -> bool:
         return any(e.type == "likely_tests" and e.target == node_id for e in edges)
 
+    def _mapped_tests_verdict(node) -> bool | None:
+        # Tri-state: the mapped-tests question is only meaningful for source
+        # files. Every other node type carries None so a vacuous "no" on a
+        # docs/fixture/test row can never render as a coverage gap.
+        if node.type != "source_file":
+            return None
+        return _has_mapped_tests(node.id)
+
     changed_ids = {node_by_path[p].id for p in changed if p in node_by_path}
 
     changed_nodes: list[ImpactNode] = []
@@ -53,14 +61,14 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
         if node is None:
             unmapped_files.append(path)
             continue
-        has_tests = _has_mapped_tests(node.id)
+        verdict = _mapped_tests_verdict(node)
         changed_nodes.append(
-            ImpactNode(id=node.id, type=node.type, path=node.path, has_mapped_tests=has_tests)
+            ImpactNode(id=node.id, type=node.type, path=node.path, has_mapped_tests=verdict)
         )
         for e in edges:
             if e.type == "likely_tests" and e.target == node.id:
                 related_tests.add(node_by_id[e.source].path)
-        if node.type == "source_file" and not has_tests:
+        if verdict is False:
             risk_surface.append(node.path)
 
     affected_ids: set[str] = set()
@@ -75,7 +83,7 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
             id=node_by_id[nid].id,
             type=node_by_id[nid].type,
             path=node_by_id[nid].path,
-            has_mapped_tests=_has_mapped_tests(nid),
+            has_mapped_tests=_mapped_tests_verdict(node_by_id[nid]),
         )
         for nid in affected_ids
     ]

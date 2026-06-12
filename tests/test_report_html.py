@@ -194,6 +194,23 @@ def test_hostile_project_strings_are_escaped():
 # ---------------------------------------------------------------------------
 
 
+def test_mapped_tests_renders_em_dash_for_non_source_rows():
+    """'no' must only ever appear where it indicts: source_file rows keep
+    their yes/no verdict; every other type renders an em-dash, so a docs or
+    fixture row can never read as a coverage gap."""
+    components = [
+        ReportComponent(
+            id="file:src/a.py", path="src/a.py", type="source_file", has_mapped_tests=False
+        ),
+        ReportComponent(id="file:README.md", path="README.md", type="docs"),
+    ]
+    report = _minimal_report(changed_components=components)
+    html = render_report_html(report)
+    assert "<td>src/a.py</td><td>no</td>" in html
+    assert "<td>README.md</td><td>&#8212;</td>" in html
+    assert html.count("<td>no</td>") == 1
+
+
 def test_long_component_tables_truncate_with_notice():
     components = [
         ReportComponent(

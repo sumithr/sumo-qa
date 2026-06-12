@@ -40,6 +40,13 @@ appears in the artifact inventory with one of four distinct states:
   or was derived from a now-stale repo-map; context bundle describes a
   different commit than the local head)
 
+The same honesty rule governs the change-impact tables: the **mapped tests**
+column shows a real yes/no verdict only for `source_file` rows and an em-dash
+for every other type (`has_mapped_tests` is tri-state — `null` on non-source
+nodes in the overlay and tool output). A docs or fixture row can never read as
+a coverage gap; `risk_surface` (changed source files with no mapped test)
+stays the headline gap signal.
+
 ## Readiness roll-up
 
 The readiness verdict is **not** derived in the report. It is derived by

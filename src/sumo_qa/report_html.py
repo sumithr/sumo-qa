@@ -251,13 +251,22 @@ def _artifact_section(artifacts: list[ReportArtifact]) -> str:
     )
 
 
+def _mapped_tests_cell(verdict: bool | None) -> str:
+    """Tri-state mapped-tests cell: yes/no only for source rows (where the
+    verdict is real); the em-dash for None so 'no' only appears where it
+    indicts."""
+    if verdict is None:
+        return "&#8212;"
+    return "yes" if verdict else "no"
+
+
 def _component_table(caption: str, components: list[ReportComponent]) -> str:
     shown, hidden = _bounded(components)
     rows = "".join(
         "<tr>"
         f"<td>{_esc(component.id)}</td><td>{_esc(component.type)}</td>"
         f"<td>{_esc(component.path)}</td>"
-        f"<td>{'yes' if component.has_mapped_tests else 'no'}</td>"
+        f"<td>{_mapped_tests_cell(component.has_mapped_tests)}</td>"
         "</tr>"
         for component in shown
     )

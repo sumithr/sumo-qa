@@ -165,8 +165,12 @@ class RepoMap(BaseModel):
 class ImpactNode(BaseModel):
     """A node projected into a diff-impact result.
 
-    A minimal view of a :class:`RepoMapNode` (#156 diff-impact). ``has_mapped_tests``
-    is true when at least one ``likely_tests`` edge targets this node.
+    A minimal view of a :class:`RepoMapNode` (#156 diff-impact).
+    ``has_mapped_tests`` is tri-state: for ``source_file`` nodes it is true
+    when at least one ``likely_tests`` edge targets the node, false otherwise;
+    for every other node type it is None (serialised as JSON ``null``) — the
+    mapped-tests question is meaningless there, and a vacuous "no" on a docs
+    or fixture row must never read as a coverage gap.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -174,7 +178,7 @@ class ImpactNode(BaseModel):
     id: str
     type: NodeType
     path: str
-    has_mapped_tests: bool
+    has_mapped_tests: bool | None = None
 
 
 class DiffImpact(BaseModel):

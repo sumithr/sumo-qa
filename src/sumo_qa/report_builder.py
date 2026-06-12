@@ -374,7 +374,13 @@ def _components(nodes: list) -> list[ReportComponent]:
     return sorted(
         (
             ReportComponent(
-                id=node.id, path=node.path, type=node.type, has_mapped_tests=node.has_mapped_tests
+                id=node.id,
+                path=node.path,
+                type=node.type,
+                # Normalise to tri-state on projection: a pre-tri-state overlay
+                # carries a vacuous bool on non-source rows; "no" must only
+                # ever render where it indicts, for any input vintage.
+                has_mapped_tests=(node.has_mapped_tests if node.type == "source_file" else None),
             )
             for node in nodes
         ),

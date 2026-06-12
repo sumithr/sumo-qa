@@ -112,14 +112,19 @@ class ReportArtifact(BaseModel):
 
 
 class ReportComponent(BaseModel):
-    """A changed/affected component projected from the diff-impact artifact."""
+    """A changed/affected component projected from the diff-impact artifact.
+
+    ``has_mapped_tests`` is tri-state (mirrors ``ImpactNode``): a real yes/no
+    verdict only for ``source_file`` rows, None for every other type —
+    rendered as an em-dash, never a vacuous "no".
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     id: str
     path: str
     type: str
-    has_mapped_tests: bool
+    has_mapped_tests: bool | None = None
 
 
 class ReportRisk(BaseModel):

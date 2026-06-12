@@ -94,10 +94,12 @@ def _diff_impact() -> DiffImpact:
             ],
             "affected_nodes": [
                 {
+                    # Tri-state: non-source rows carry null (the mapped-tests
+                    # question only means something for source files).
                     "id": "tests/test_refund.py",
                     "type": "test_file",
                     "path": "tests/test_refund.py",
-                    "has_mapped_tests": False,
+                    "has_mapped_tests": None,
                 }
             ],
             "related_tests": ["tests/test_refund.py"],

@@ -144,6 +144,37 @@ def test_writes_overlay_when_requested(tool, tmp_path):
     json.loads(overlay.read_text(encoding="utf-8"))
 
 
+def test_mapped_tests_tristate_in_tool_output_and_overlay(tool, tmp_path):
+    """Tri-state ``has_mapped_tests``: a real verdict only on source_file
+    nodes; every other node type emits ``null`` — present, not omitted — in
+    BOTH the tool result and the persisted overlay, so a vacuous 'no' on a
+    docs/test row can never masquerade as a coverage gap."""
+    _seed_repo(tmp_path)
+    (tmp_path / "README.md").write_text("# readme\n")
+    out = tool(
+        root=str(tmp_path),
+        changed_files=["src/a.py", "src/lonely.py", "README.md", "tests/test_a.py"],
+        write_overlay=True,
+    )
+    assert isinstance(out, DiffImpactOutput)
+    verdicts = {n.path: n.has_mapped_tests for n in out.changed_nodes}
+    assert verdicts["src/a.py"] is True
+    assert verdicts["src/lonely.py"] is False
+    assert verdicts["README.md"] is None
+    assert verdicts["tests/test_a.py"] is None
+    # risk_surface stays the headline signal, source files only.
+    assert out.risk_surface == ["src/lonely.py"]
+    # The overlay JSON carries a literal null (key present), matching the
+    # tool result — consumers' absence-checks stay unambiguous.
+    overlay = json.loads((tmp_path / ".sumo-qa" / "diff-impact.json").read_text(encoding="utf-8"))
+    persisted = {n["path"]: n for n in overlay["changed_nodes"]}
+    assert "has_mapped_tests" in persisted["README.md"]
+    assert persisted["README.md"]["has_mapped_tests"] is None
+    assert persisted["tests/test_a.py"]["has_mapped_tests"] is None
+    assert persisted["src/a.py"]["has_mapped_tests"] is True
+    assert persisted["src/lonely.py"]["has_mapped_tests"] is False
+
+
 def test_error_envelope_on_missing_root(tool, tmp_path):
     out = tool(root=str(tmp_path / "nope"), changed_files=[])
     assert isinstance(out, dict)

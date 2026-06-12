@@ -451,6 +451,53 @@ def test_diff_impact_components_are_mapped_and_sorted(tmp_path):
     assert report.unmapped_files == ["docs/notes.md"]
 
 
+def test_tristate_mapped_tests_carries_through_from_overlay(tmp_path):
+    """A persisted overlay's ``has_mapped_tests: null`` on a non-source node
+    survives the projection into report components — the builder must not
+    coerce it back into a vacuous bool."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    payload = _diff_impact_payload()
+    payload["changed_nodes"].append(
+        {"id": "file:README.md", "type": "docs", "path": "README.md", "has_mapped_tests": None}
+    )
+    _write_artifact(tmp_path, "diff-impact.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    by_path = {c.path: c.has_mapped_tests for c in report.changed_components}
+    assert by_path["README.md"] is None
+    assert by_path["src/demo.py"] is True
+
+
+def test_builder_normalises_vacuous_bool_from_old_overlays(tmp_path):
+    """An overlay persisted before the tri-state change carries a vacuous
+    bool on non-source rows. The builder normalises it to None on projection,
+    so 'no' only ever appears where it indicts — for ANY input vintage."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    payload = _diff_impact_payload()
+    payload["changed_nodes"].append(
+        {"id": "file:README.md", "type": "docs", "path": "README.md", "has_mapped_tests": False}
+    )
+    _write_artifact(tmp_path, "diff-impact.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    by_path = {c.path: c.has_mapped_tests for c in report.changed_components}
+    assert by_path["README.md"] is None
+    affected = {c.path: c.has_mapped_tests for c in report.affected_components}
+    assert affected["tests/test_demo.py"] is None  # old-shape False on a test row
+
+
+def test_old_overlay_migrates_to_em_dash_in_rendered_html(tmp_path):
+    """End-to-end vintage migration: a pre-tri-state overlay (vacuous bool on
+    a test_file row) loaded from disk renders an em-dash in the page, not
+    'no' — load → projection → HTML, the full path."""
+    from sumo_qa.report_html import render_report_html
+
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())  # test row: False
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    html = render_report_html(report)
+    assert "<td>tests/test_demo.py</td><td>&#8212;</td>" in html
+    assert "<td>tests/test_demo.py</td><td>no</td>" not in html
+
+
 def test_ledger_rows_become_risks_with_blocker_count(tmp_path):
     _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)

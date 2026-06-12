@@ -465,8 +465,14 @@ class _ImpactNodeSummary(_StrictBase):
     id: str = Field(description="Node id, e.g. 'file:src/app.py'.")
     type: str = Field(description="Node type from the repo-map vocabulary.")
     path: str = Field(description="Repo-relative path.")
-    has_mapped_tests: bool = Field(
-        description="True when at least one likely_tests edge targets this node."
+    has_mapped_tests: bool | None = Field(
+        default=None,
+        description=(
+            "Tri-state: for source_file nodes, true when at least one "
+            "likely_tests edge targets the node, false otherwise; null for "
+            "every other node type (the question is meaningless there — do "
+            "not read null as a coverage gap)."
+        ),
     )
 
 
