@@ -176,7 +176,7 @@ def load_report_inputs(
             path=REPO_MAP_RELPATH,
             error=(
                 f"[foreign_root] artifact describes root {repo_map.project.root!r}, "
-                f"not {root_path!s} — regenerate with `sumo-qa analyze`"
+                f"not {root_path!s}; regenerate with `sumo-qa analyze`"
             ),
         )
         repo_map = None
@@ -194,7 +194,7 @@ def load_report_inputs(
             path=DIFF_IMPACT_RELPATH,
             error=(
                 "[foreign_root] overlay derives from a repo-map describing a different "
-                "repository — regenerate with `sumo-qa analyze`"
+                "repository; regenerate with `sumo-qa analyze`"
             ),
         )
         diff_impact = None
@@ -293,7 +293,7 @@ def _repo_map_artifact(inputs: ReportInputs, now: datetime, *, map_stale: bool) 
         return _artifact_from_source(
             "repo_map",
             inputs.repo_map_source,
-            missing_detail="not generated yet — run `sumo-qa analyze` to create it",
+            missing_detail="not generated yet; run `sumo-qa analyze` to create it",
         )
     recorded = repo_map.project.git_commit
     current = inputs.current_commit
@@ -319,7 +319,7 @@ def _diff_impact_artifact(inputs: ReportInputs, *, map_stale: bool) -> ReportArt
         return _artifact_from_source(
             "diff_impact",
             inputs.diff_impact_source,
-            missing_detail="no diff-impact overlay — run the diff-impact analysis to create one",
+            missing_detail="no diff-impact overlay; run the diff-impact analysis to create one",
         )
     stale_messages = [w.message for w in diff_impact.warnings if w.kind == "stale"]
     if not stale_messages and map_stale:
@@ -346,7 +346,7 @@ def _ledger_artifact(inputs: ReportInputs) -> ReportArtifact:
             "risk_ledger",
             inputs.ledger_source,
             missing_detail=(
-                "no persisted risk ledger — persist one to .sumo-qa/risk-ledger.json "
+                "no persisted risk ledger; persist one to .sumo-qa/risk-ledger.json "
                 "or pass rows inline"
             ),
         )
@@ -364,7 +364,7 @@ def _bundle_artifact(inputs: ReportInputs, conflict: str | None) -> ReportArtifa
             "context_bundle",
             inputs.bundle_source,
             missing_detail=(
-                "no persisted context bundle — persist one to .sumo-qa/context-bundle.json "
+                "no persisted context bundle; persist one to .sumo-qa/context-bundle.json "
                 "or pass it inline"
             ),
         )
@@ -403,7 +403,7 @@ def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
         kind="readiness_scorecard",
         status="missing",
         path=None,
-        detail="not derivable — supply a risk ledger and/or context bundle",
+        detail="not derivable; supply a risk ledger and/or context bundle",
     )
 
 
@@ -457,7 +457,7 @@ def _evidence_streams(inputs: ReportInputs) -> list[ReportEvidence]:
                 name=name,
                 status="missing",
                 trustworthy=False,
-                detail="not supplied — coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
+                detail="not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
             )
         )
     return streams
@@ -518,7 +518,7 @@ def _readiness_from_scorecard(
         accepted = card.accepted_residual_rows()
         reasons = [
             f"accepted residual risks: {len(accepted)} of {len(rows)}",
-            *(f"{row.risk_id}: {row.risk} — accepted residual" for row in accepted),
+            *(f"{row.risk_id}: {row.risk} (accepted residual)" for row in accepted),
         ]
     else:  # ready
         reasons = []
@@ -548,7 +548,7 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
             kind="coverage_mutation",
             status="missing",
             path=None,
-            detail="not supplied — coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
+            detail="not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
         ),
     ]
 

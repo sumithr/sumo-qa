@@ -535,7 +535,7 @@ def test_insufficient_verdict_leads_with_evidence_count_when_ledger_present(tmp_
 def test_no_ledger_insufficiency_reason_stays_unprefixed(tmp_path):
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     assert report.readiness.state == "insufficient_evidence"
-    assert report.readiness.reasons == ["no QA evidence supplied — cannot assess readiness"]
+    assert report.readiness.reasons == ["no QA evidence supplied, so readiness cannot be assessed"]
 
 
 def test_mapping_gap_warning_reaches_the_report(tmp_path):
@@ -603,17 +603,17 @@ def test_builder_normalises_vacuous_bool_from_old_overlays(tmp_path):
     assert affected["tests/test_demo.py"] is None  # old-shape False on a test row
 
 
-def test_old_overlay_migrates_to_em_dash_in_rendered_html(tmp_path):
+def test_old_overlay_migrates_to_na_marker_in_rendered_html(tmp_path):
     """End-to-end vintage migration: a pre-tri-state overlay (vacuous bool on
-    a test_file row) loaded from disk renders an em-dash in the page, not
-    'no' — load → projection → HTML, the full path."""
+    a test_file row) loaded from disk renders the muted 'n/a' marker in the
+    page, not 'no': load -> projection -> HTML, the full path."""
     from sumo_qa.report_html import render_report_html
 
     _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
     _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())  # test row: False
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     html = render_report_html(report)
-    assert '<td class="brk">tests/test_demo.py</td><td>&#8212;</td>' in html
+    assert '<td class="brk">tests/test_demo.py</td><td><span class="na">n/a</span></td>' in html
     assert '<td class="brk">tests/test_demo.py</td><td>no</td>' not in html
 
 

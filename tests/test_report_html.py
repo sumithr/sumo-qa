@@ -397,10 +397,10 @@ def test_delta_line_reports_no_change_and_is_absent_without_previous():
     assert 'class="delta"' not in render_report_html(_minimal_report())
 
 
-def test_mapped_tests_renders_em_dash_for_non_source_rows():
+def test_mapped_tests_renders_na_for_non_source_rows():
     """'no' must only ever appear where it indicts: source_file rows keep
-    their yes/no verdict; every other type renders an em-dash, so a docs or
-    fixture row can never read as a coverage gap."""
+    their yes/no verdict; every other type renders the muted 'n/a' marker (never
+    an em-dash), so a docs or fixture row can never read as a coverage gap."""
     components = [
         ReportComponent(
             id="file:src/a.py", path="src/a.py", type="source_file", has_mapped_tests=False
@@ -410,8 +410,10 @@ def test_mapped_tests_renders_em_dash_for_non_source_rows():
     report = _minimal_report(changed_components=components)
     html = render_report_html(report)
     assert '<td class="brk">src/a.py</td><td>no</td>' in html
-    assert '<td class="brk">README.md</td><td>&#8212;</td>' in html
+    assert '<td class="brk">README.md</td><td><span class="na">n/a</span></td>' in html
     assert html.count("<td>no</td>") == 1
+    # No em-dash anywhere on the page — it reads as an unfinished/AI-slop tell.
+    assert "—" not in html and "&#8212;" not in html
 
 
 def test_machine_tokens_are_humanized_on_the_page():

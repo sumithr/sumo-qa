@@ -110,7 +110,7 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
                 message=(
                     "probable mapping gap, not zero coverage: test files are present but "
                     "the repo-map has no likely_tests edges, so all changed sources appear "
-                    "as risk surface — the test-to-source mapping likely missed this repo's "
+                    "as risk surface. The test-to-source mapping likely missed this repo's "
                     "conventions. Inspect the test tree directly before treating these as "
                     "uncovered."
                 ),

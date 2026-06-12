@@ -52,9 +52,9 @@ _STATE_CLASSES = {
 #: labels. Static per state, so the render stays deterministic.
 _STATE_GLOSS = {
     "ready": "Safe to merge on the evidence composed here.",
-    "ready_with_accepted_residuals": "Mergeable — the remaining risks are recorded and accepted.",
-    "blocked": "Do not merge — unresolved blockers are present.",
-    "insufficient_evidence": "Not enough fresh evidence to judge — see the reasons below.",
+    "ready_with_accepted_residuals": "Mergeable. The remaining risks are recorded and accepted.",
+    "blocked": "Do not merge. Unresolved blockers are present.",
+    "insufficient_evidence": "Not enough fresh evidence to judge. See the reasons below.",
 }
 
 _STATUS_LABELS = {
@@ -184,6 +184,7 @@ _STYLE = """
   p.delta { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--label);
     font-variant-numeric: tabular-nums; }
   td.meta { font-size: 0.8rem; color: var(--label); }
+  .na { color: var(--label); font-variant: small-caps; letter-spacing: 0.03em; }
   .verdict a { color: inherit; }
   details { margin: 1.1rem 0 0; }
   summary {
@@ -209,7 +210,7 @@ _STYLE = """
     font-variant-numeric: tabular-nums; }
   /* Long unbreakable tokens (paths, anchors, pytest node ids) wrap inside
      their column instead of setting a hard min-width that pushes the table
-     off-screen. Applied per-cell — a global rule lets auto-layout crush
+     off-screen. Applied per-cell, since a global rule lets auto-layout crush
      short columns to one character. */
   td.brk, li { overflow-wrap: anywhere; }
   tbody tr:nth-child(even) td { background: rgba(226,217,200,0.18); }
@@ -250,21 +251,28 @@ _STYLE = """
 """
 
 
+#: The explicit "no value here" marker for an absent cell. A muted "n/a", NOT
+#: an em-dash: the page is editorial and an em-dash placeholder reads as an
+#: unfinished/AI-slop tell. The status pills and labels carry the meaningful
+#: "not available" verdict; this just fills a genuinely empty field.
+_NA = '<span class="na">n/a</span>'
+
+
 def _esc(value: object) -> str:
     return _html.escape(str(value), quote=True)
 
 
 def _dash(value: object | None) -> str:
-    """Escaped value, or an explicit em-dash placeholder for absent fields."""
-    return _esc(value) if value not in (None, "") else "&#8212;"
+    """Escaped value, or the muted ``n/a`` marker for an absent field."""
+    return _esc(value) if value not in (None, "") else _NA
 
 
 def _humanize(value: object | None) -> str:
     """Escaped value with machine underscores read as spaces (``local_git`` ->
-    ``local git``), or the em-dash for an absent field. The page is editorial —
-    no raw snake_case enum or identifier should reach the reader."""
+    ``local git``), or the ``n/a`` marker for an absent field. The page is
+    editorial: no raw snake_case enum or identifier should reach the reader."""
     if value in (None, ""):
-        return "&#8212;"
+        return _NA
     return _esc(str(value).replace("_", " "))
 
 
@@ -285,9 +293,9 @@ def _component_label(component_id: str) -> str:
 
 
 def _freshness_label(freshness: object | None) -> str:
-    """Plain-language evidence freshness, or the em-dash when unset."""
+    """Plain-language evidence freshness, or the ``n/a`` marker when unset."""
     if freshness in (None, ""):
-        return "&#8212;"
+        return _NA
     return _esc(_FRESHNESS_LABELS.get(str(freshness), str(freshness)))
 
 
@@ -308,7 +316,7 @@ def _more_row(hidden: int, colspan: int) -> str:
 def _artifact_section(artifacts: list[ReportArtifact]) -> str:
     rows = []
     for artifact in artifacts:
-        age = f"{artifact.age_days} days" if artifact.age_days is not None else "&#8212;"
+        age = f"{artifact.age_days} days" if artifact.age_days is not None else _NA
         rows.append(
             "<tr>"
             f"<td>{_esc(artifact.kind.replace('_', ' '))}</td>"
@@ -328,10 +336,10 @@ def _artifact_section(artifacts: list[ReportArtifact]) -> str:
 
 def _mapped_tests_cell(verdict: bool | None) -> str:
     """Tri-state mapped-tests cell: yes/no only for source rows (where the
-    verdict is real); the em-dash for None so 'no' only appears where it
+    verdict is real); the ``n/a`` marker for None so 'no' only appears where it
     indicts."""
     if verdict is None:
-        return "&#8212;"
+        return _NA
     return "yes" if verdict else "no"
 
 
@@ -570,7 +578,7 @@ def _impact_section(report: QAReport) -> str:
     )
     if not has_impact_data:
         return (
-            '<p class="empty">Diff-impact data is not available &#8212; '
+            '<p class="empty">Diff-impact data is not available; '
             "change-impact tables are omitted.</p>"
         )
     parts: list[str] = []
@@ -632,7 +640,7 @@ def _risk_section(risks: list[ReportRisk]) -> str:
     rows = []
     for risk in shown:
         residual = (
-            '<span class="badge bad">blocker &#8212; uncovered</span>'
+            '<span class="badge bad">uncovered blocker</span>'
             if risk.uncovered_blocker
             else _esc(risk.residual)
         )
@@ -717,7 +725,7 @@ def render_report_html(report: QAReport) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QA report &#8212; {title}</title>
+<title>QA report: {title}</title>
 <style>{_STYLE}</style>
 </head>
 <body>

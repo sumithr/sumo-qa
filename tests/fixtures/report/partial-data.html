@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QA report &#8212; partial-data</title>
+<title>QA report: partial-data</title>
 <style>
   :root {
     color-scheme: light;
@@ -101,6 +101,7 @@
   p.delta { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--label);
     font-variant-numeric: tabular-nums; }
   td.meta { font-size: 0.8rem; color: var(--label); }
+  .na { color: var(--label); font-variant: small-caps; letter-spacing: 0.03em; }
   .verdict a { color: inherit; }
   details { margin: 1.1rem 0 0; }
   summary {
@@ -126,7 +127,7 @@
     font-variant-numeric: tabular-nums; }
   /* Long unbreakable tokens (paths, anchors, pytest node ids) wrap inside
      their column instead of setting a hard min-width that pushes the table
-     off-screen. Applied per-cell — a global rule lets auto-layout crush
+     off-screen. Applied per-cell, since a global rule lets auto-layout crush
      short columns to one character. */
   td.brk, li { overflow-wrap: anywhere; }
   tbody tr:nth-child(even) td { background: rgba(226,217,200,0.18); }
@@ -171,14 +172,14 @@
 <header class="masthead">
 <p class="kicker">sumo-qa &#183; local QA report</p>
 <h1>partial-data</h1>
-<p class="dateline"><b>root</b> <code>/fixtures/partial-data</code><span class="sep">&#183;</span><b>head</b> <code>&#8212;</code><span class="sep">&#183;</span><b>generated</b> 2026-06-08T08:00:00+00:00</p>
+<p class="dateline"><b>root</b> <code>/fixtures/partial-data</code><span class="sep">&#183;</span><b>head</b> <code><span class="na">n/a</span></code><span class="sep">&#183;</span><b>generated</b> 2026-06-08T08:00:00+00:00</p>
 </header>
 <main>
 <section class="verdict state-neutral">
 <p class="verdict-kicker">Readiness</p>
 <p class="verdict-label">insufficient evidence</p>
-<p class="verdict-gloss">Not enough fresh evidence to judge — see the reasons below.</p>
-<ul class="reasons"><li>no QA evidence supplied — cannot assess readiness</li></ul>
+<p class="verdict-gloss">Not enough fresh evidence to judge. See the reasons below.</p>
+<ul class="reasons"><li>no QA evidence supplied, so readiness cannot be assessed</li></ul>
 </section>
 <section class="statband">
 <a class="stat" href="#inventory"><span class="stat-num">1/6</span><span class="stat-label">sources available</span></a>
@@ -188,11 +189,11 @@
 </section>
 <section id="inventory">
 <h2>Artifact inventory <span class="badge off">1 of 6 available</span></h2>
-<p class="lead">1 of 6 sources available; diff impact not available, risk ledger not available, context bundle not available, readiness scorecard not available, coverage mutation not available.</p><table><thead><tr><th>artifact</th><th>status</th><th>path</th><th>age</th><th>notes</th></tr></thead><tbody><tr><td>repo map</td><td><span class="badge ok">available</span></td><td class="brk">.sumo-qa/repo-map.json</td><td>6 days</td><td class="brk">&#8212;</td></tr><tr><td>diff impact</td><td><span class="badge off">not available</span></td><td class="brk">&#8212;</td><td>&#8212;</td><td class="brk">no diff-impact overlay — run the diff-impact analysis to create one</td></tr><tr><td>risk ledger</td><td><span class="badge off">not available</span></td><td class="brk">&#8212;</td><td>&#8212;</td><td class="brk">no persisted risk ledger — persist one to .sumo-qa/risk-ledger.json or pass rows inline</td></tr><tr><td>context bundle</td><td><span class="badge off">not available</span></td><td class="brk">&#8212;</td><td>&#8212;</td><td class="brk">no persisted context bundle — persist one to .sumo-qa/context-bundle.json or pass it inline</td></tr><tr><td>readiness scorecard</td><td><span class="badge off">not available</span></td><td class="brk">&#8212;</td><td>&#8212;</td><td class="brk">not derivable — supply a risk ledger and/or context bundle</td></tr><tr><td>coverage mutation</td><td><span class="badge off">not available</span></td><td class="brk">&#8212;</td><td>&#8212;</td><td class="brk">not supplied — coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)</td></tr></tbody></table>
+<p class="lead">1 of 6 sources available; diff impact not available, risk ledger not available, context bundle not available, readiness scorecard not available, coverage mutation not available.</p><table><thead><tr><th>artifact</th><th>status</th><th>path</th><th>age</th><th>notes</th></tr></thead><tbody><tr><td>repo map</td><td><span class="badge ok">available</span></td><td class="brk">.sumo-qa/repo-map.json</td><td>6 days</td><td class="brk"><span class="na">n/a</span></td></tr><tr><td>diff impact</td><td><span class="badge off">not available</span></td><td class="brk"><span class="na">n/a</span></td><td><span class="na">n/a</span></td><td class="brk">no diff-impact overlay; run the diff-impact analysis to create one</td></tr><tr><td>risk ledger</td><td><span class="badge off">not available</span></td><td class="brk"><span class="na">n/a</span></td><td><span class="na">n/a</span></td><td class="brk">no persisted risk ledger; persist one to .sumo-qa/risk-ledger.json or pass rows inline</td></tr><tr><td>context bundle</td><td><span class="badge off">not available</span></td><td class="brk"><span class="na">n/a</span></td><td><span class="na">n/a</span></td><td class="brk">no persisted context bundle; persist one to .sumo-qa/context-bundle.json or pass it inline</td></tr><tr><td>readiness scorecard</td><td><span class="badge off">not available</span></td><td class="brk"><span class="na">n/a</span></td><td><span class="na">n/a</span></td><td class="brk">not derivable; supply a risk ledger and/or context bundle</td></tr><tr><td>coverage mutation</td><td><span class="badge off">not available</span></td><td class="brk"><span class="na">n/a</span></td><td><span class="na">n/a</span></td><td class="brk">not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)</td></tr></tbody></table>
 </section>
 <section id="impact">
 <h2>Change impact <span class="badge off">no data</span></h2>
-<p class="empty">Diff-impact data is not available &#8212; change-impact tables are omitted.</p>
+<p class="empty">Diff-impact data is not available; change-impact tables are omitted.</p>
 </section>
 <section id="risks">
 <h2>Risk ledger <span class="badge off">none recorded</span></h2>
@@ -200,7 +201,7 @@
 </section>
 <section id="evidence">
 <h2>Evidence <span class="badge warm">4 not trusted</span></h2>
-<p class="lead">0 of 4 streams trusted; not trusted: tests, ci, coverage, mutation.</p><table><thead><tr><th>stream</th><th>status</th><th>freshness</th><th>trustworthy</th><th>source</th><th>captured at</th><th>detail</th></tr></thead><tbody><tr><td>tests</td><td>not available</td><td>&#8212;</td><td>no</td><td class="meta">&#8212;</td><td class="meta">&#8212;</td><td class="brk">&#8212;</td></tr><tr><td>ci</td><td>not available</td><td>&#8212;</td><td>no</td><td class="meta">&#8212;</td><td class="meta">&#8212;</td><td class="brk">&#8212;</td></tr><tr><td>coverage</td><td>not available</td><td>&#8212;</td><td>no</td><td class="meta">&#8212;</td><td class="meta">&#8212;</td><td class="brk">not supplied — coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)</td></tr><tr><td>mutation</td><td>not available</td><td>&#8212;</td><td>no</td><td class="meta">&#8212;</td><td class="meta">&#8212;</td><td class="brk">not supplied — coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)</td></tr></tbody></table>
+<p class="lead">0 of 4 streams trusted; not trusted: tests, ci, coverage, mutation.</p><table><thead><tr><th>stream</th><th>status</th><th>freshness</th><th>trustworthy</th><th>source</th><th>captured at</th><th>detail</th></tr></thead><tbody><tr><td>tests</td><td>not available</td><td><span class="na">n/a</span></td><td>no</td><td class="meta"><span class="na">n/a</span></td><td class="meta"><span class="na">n/a</span></td><td class="brk"><span class="na">n/a</span></td></tr><tr><td>ci</td><td>not available</td><td><span class="na">n/a</span></td><td>no</td><td class="meta"><span class="na">n/a</span></td><td class="meta"><span class="na">n/a</span></td><td class="brk"><span class="na">n/a</span></td></tr><tr><td>coverage</td><td>not available</td><td><span class="na">n/a</span></td><td>no</td><td class="meta"><span class="na">n/a</span></td><td class="meta"><span class="na">n/a</span></td><td class="brk">not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)</td></tr><tr><td>mutation</td><td>not available</td><td><span class="na">n/a</span></td><td>no</td><td class="meta"><span class="na">n/a</span></td><td class="meta"><span class="na">n/a</span></td><td class="brk">not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)</td></tr></tbody></table>
 </section>
 <section id="warnings">
 <h2>Warnings <span class="badge ok">none</span></h2>

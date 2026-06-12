@@ -282,12 +282,12 @@ class QaScorecard(BaseModel):
         """
         reasons: list[str] = []
         for row in self.uncovered_blocker_rows():
-            reasons.append(f"{row.risk_id}: {row.risk} — uncovered high-impact risk")
+            reasons.append(f"{row.risk_id}: {row.risk} (uncovered high-impact risk)")
         for row in self._ledger_rows():
             # A failing covering test blocks even when residual != blocker; skip
             # rows already reported as uncovered blockers to avoid double-listing.
             if row.evidence_status == "failing" and not row.is_uncovered_blocker():
-                reasons.append(f"{row.risk_id}: {row.risk} — covering test is failing")
+                reasons.append(f"{row.risk_id}: {row.risk} (covering test is failing)")
         bundle = self.context_bundle
         if bundle is not None:
             for label, fact in (
@@ -317,7 +317,7 @@ class QaScorecard(BaseModel):
             or bool(bundle.changed_files)
         )
         if not has_ledger and not has_bundle_signal:
-            return ["no QA evidence supplied — cannot assess readiness"]
+            return ["no QA evidence supplied, so readiness cannot be assessed"]
 
         reasons: list[str] = []
         accepted_ids = {row.risk_id for row in self.accepted_residual_rows()}
@@ -325,10 +325,10 @@ class QaScorecard(BaseModel):
             if row.risk_id in accepted_ids:
                 continue
             if row.evidence_status == "stale":
-                reasons.append(f"{row.risk_id}: {row.risk} — covering evidence is stale")
+                reasons.append(f"{row.risk_id}: {row.risk} (covering evidence is stale)")
             elif row.evidence_status == "planned":
                 reasons.append(
-                    f"{row.risk_id}: {row.risk} — covering test only planned, not executed"
+                    f"{row.risk_id}: {row.risk} (covering test only planned, not executed)"
                 )
 
         if bundle is not None:

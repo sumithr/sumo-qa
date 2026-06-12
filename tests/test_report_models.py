@@ -154,7 +154,7 @@ def test_report_artifact_rejects_unknown_kind():
 
 def test_component_mapped_tests_is_tristate():
     """``has_mapped_tests`` is a verdict only for source files; any other
-    node type carries None (rendered as an em-dash, never a vacuous 'no')."""
+    node type carries None (rendered as a muted 'n/a', never a vacuous 'no')."""
     doc = ReportComponent(id="file:README.md", path="README.md", type="docs")
     assert doc.has_mapped_tests is None
     src = ReportComponent(
