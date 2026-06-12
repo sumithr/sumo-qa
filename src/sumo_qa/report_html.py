@@ -165,8 +165,16 @@ _STYLE = """
   summary {
     cursor: pointer; font-size: 0.95rem; font-weight: 600;
     padding: 0.15rem 0; color: var(--ink);
+    list-style: none;
   }
-  summary:hover { color: var(--crimson); }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "+"; display: inline-block; width: 1.1rem;
+    color: var(--label); font-variant-numeric: tabular-nums;
+  }
+  details[open] > summary::before { content: "\2013"; }
+  summary:hover, summary:hover::before { color: var(--crimson); }
+  summary:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
   table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; }
   th {
     text-align: left; font-size: 0.66rem; letter-spacing: 0.16em;
