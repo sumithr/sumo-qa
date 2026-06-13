@@ -8,7 +8,7 @@ Install in one line. Verify the wiring. Then run the QA loop on your own repo: m
 ## Prerequisites
 
 - Python 3.10 or newer. Check with `python --version` (or `py --version` on Windows).
-- An MCP-capable host. Verified end-to-end: Claude Code, VS Code + GitHub Copilot (Agent mode, with Claude Sonnet 4.5 or GPT-5 full), JetBrains AI Assistant, and JetBrains Junie. Other MCP hosts (Cursor, Codex, OpenCode, Gemini CLI) speak the same protocol and should work, but we haven't verified them end-to-end.
+- An MCP-capable host. Verified end-to-end: Claude Code, VS Code + GitHub Copilot (Agent mode, Claude Sonnet 4.5 or equivalent), JetBrains AI Assistant, and JetBrains Junie. Other MCP hosts (Cursor, Codex, OpenCode, Gemini CLI) speak the same protocol and should work, but we haven't verified them end-to-end.
 
 ## Step 1: install and wire it
 
@@ -34,7 +34,7 @@ Windows PowerShell (`&&` isn't supported in Windows PowerShell, and pip's script
 py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 ```
 
-`pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator). It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
+`pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator). It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. For JetBrains Junie, drop the JSON that `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project). If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
 
 **Cursor, Codex, OpenCode, Gemini CLI and other MCP hosts:** `sumo-qa` is a standard stdio MCP server, but we haven't verified these hosts end-to-end ourselves. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script.
 
@@ -44,7 +44,7 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 sumo-qa-doctor
 ```
 
-Read-only setup diagnostics: Python and sumo-qa version, install mode, the MCP handshake, and every host config the installer touches. Each failure prints the exact `Fix:` command to run. When doctor is green, restart your host (or open a fresh chat) and ask:
+Read-only setup diagnostics: Python and sumo-qa version, install mode, the MCP handshake, and every host config the installer touches. Failures print the exact `Fix:` command where one applies. When doctor is green, restart your host (or open a fresh chat) and ask:
 
 > load the QA classifications
 
@@ -190,7 +190,7 @@ subagents to execute it in parallel.
 }}}%%
 flowchart TD
     U(["User prompt"])
-    Plan["<b>planning-qa-rollout</b><br/><i>writes plan · 6–12 bite-sized tasks</i>"]
+    Plan["<b>planning-qa-rollout</b><br/><i>writes plan · bite-sized tasks</i>"]
 
     subgraph Exec ["executing-qa-rollout &nbsp;·&nbsp; parallel waves"]
         direction LR
@@ -224,7 +224,7 @@ flowchart TD
 
 Three skills run in sequence:
 
-1. **`sumo-qa-planning-qa-rollout`** writes `docs/qa/plans/YYYY-MM-DD-<feature>.md` with 6–12 bite-sized tasks, each tagged with its approach and the named risk it covers.
+1. **`sumo-qa-planning-qa-rollout`** writes `docs/qa/plans/YYYY-MM-DD-<feature>.md` with bite-sized tasks, each tagged with its approach and the named risk it covers.
 2. **`sumo-qa-executing-qa-rollout`** dispatches one fresh subagent per task in parallel waves. Each output goes through two-stage review (spec-correctness, then test-quality) before the task counts as done.
 3. **`sumo-qa-finishing-qa-work`** runs the full suite once more, builds the risk-to-test coverage map, lists any uncovered risks honestly, and writes a PR-ready summary to `docs/qa/runs/...`.
 

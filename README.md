@@ -102,7 +102,7 @@ sumo-qa-doctor                  # or `python -m sumo_qa.doctor` if not on PATH
 uvx --from /path/to/plugin/source sumo-qa-doctor
 ```
 
-Read-only setup diagnostics — checks Python + sumo-qa version, install mode, the MCP `initialize` + `tools/list` handshake, and every host config the installer touches (Claude Code, Claude Desktop, VS Code workspace, JetBrains detection, Codex plugin). Each failure prints the exact `Fix:` command. `--json` for machine output. Details: [docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor](docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor).
+Read-only setup diagnostics — checks Python + sumo-qa version, install mode, the MCP `initialize` + `tools/list` handshake, and every host config the installer touches (Claude Code, Claude Desktop, VS Code workspace, JetBrains detection, Codex plugin). Failures print the exact `Fix:` command where one applies. `--json` for machine output. Details: [docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor](docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor).
 
 Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md). Want to install from a local clone — to try an unreleased branch or run with your team's standards / knowledge packs editable in place? See [docs/INSTALL.md#install-from-a-local-clone](docs/INSTALL.md#install-from-a-local-clone). For the pip path use `python scripts/dev_install.py`; for the Claude Code plugin path use `claude --plugin-dir /path/to/sumo-qa` ([Anthropic's documented local-dev mode](https://code.claude.com/docs/en/plugins#test-your-plugins-locally)).
 
