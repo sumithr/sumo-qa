@@ -62,7 +62,7 @@ Open a fresh chat afterwards. The host re-reads `~/.claude/skills/` (Claude Code
 
 ## Step 2: run the QA loop on your repo
 
-Two commands and one prompt take you from "unknown repo" to a QA report you can open in a browser.
+A few minutes takes you from "unknown repo" to a QA report you can open in a browser.
 
 **1. Map the repo** (terminal, from the repo root):
 
@@ -80,7 +80,15 @@ Review my changes — is this safe to merge?
 
 With a map present, the review starts from your actual diff impact: the affected modules, the tests most likely to cover them, and the risk surface (changed code with no mapped test). Your suite still runs fresh in the same turn; the map accelerates the review but never substitutes for evidence. Risks without a covering test are named UNCOVERED with the test to add, not waved through.
 
-**3. Compose the report** (terminal):
+**3. Record coverage and mutation** (in your host, optional):
+
+```
+Measure coverage and run mutation testing, then record the results for the QA report.
+```
+
+sumo-qa runs the repo's configured coverage and mutation tooling (it never installs any), reads whatever output format the tools produce, and persists compact summaries to `.sumo-qa/coverage.json` and `.sumo-qa/mutation.json` for the report to cite. Reported, never gated: the numbers inform the report but never move the readiness verdict on their own.
+
+**4. Compose the report** (terminal):
 
 ```bash
 sumo-qa report
