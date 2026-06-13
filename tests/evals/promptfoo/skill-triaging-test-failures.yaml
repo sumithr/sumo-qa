@@ -1,14 +1,17 @@
 description: >
-  Skill-isolation eval for sumo-qa-triaging-test-failures (issue #150). Five
+  Skill-isolation eval for sumo-qa-triaging-test-failures (issue #150). Six
   seeds cover the triage contract: diagnosis is separated from fixing (the first
   output is a cause classification plus the smallest next isolation step, never a
-  patch), across the three required failure causes — flaky order dependence,
-  fixture/data failure, and a real product regression — plus a HARD-GATE refusal
-  when the failure signal is too thin to classify, and a rerun-to-green
-  anti-pattern (a test bug must not be "fixed" by editing production code). The
-  candidate must classify the cause, name the smallest discriminating
-  reproduction step (a rerun only with a stated hypothesis), and route to a
-  fixing skill ONLY when a concrete product-behaviour gap is confirmed.
+  patch), across the required failure causes — flaky order dependence,
+  fixture/data failure, a real product regression, and an environment/dependency
+  difference (passes locally, fails in CI) — plus a HARD-GATE refusal when the
+  failure signal is too thin to classify, and a rerun-to-green anti-pattern (a
+  test bug must not be "fixed" by editing production code, and its stale-vs-
+  regression isolation experiment must be named). The candidate must classify
+  the cause, name the smallest discriminating reproduction step (a rerun only
+  with a stated hypothesis), resolve every non-product cause in its own layer
+  (production untouched), and route to a fixing skill ONLY when a concrete
+  product-behaviour gap is confirmed.
 
 # Candidate is gpt-5-mini (the reasoning tier), not the estate's gpt-4o-mini:
 # per the #245 candidate-by-type policy, diagnostic reasoning over supplied
@@ -294,16 +297,23 @@ tests:
         TEST BUG (the test asserts an outdated expected value the spec has
         superseded), so the fix belongs in the test, NOT in production — a
         try/except in `convert.py` would swallow a real signal in product code.
-        Names what it would actually do: correct the test's stale expectation
-        (or route test-strengthening to sumo-qa-strengthening-tests), with
-        `convert.py` left untouched. Does not normalise the failure as
-        acceptable residual risk on its own authority.
+        Before correcting the test it names the smallest isolation experiment
+        that distinguishes a stale test from a product regression — confirm the
+        product (`convert.py`'s round-half-up) matches the CURRENT spec
+        (`docs/fx-rounding.md`, `convert(10.005, "USD") == 10.01`) while the
+        test still asserts the OLD `== 10.0`; the product matching the spec
+        while the test asserts the superseded value confirms a stale TEST, not a
+        regression. Then names what it would actually do: correct the test's
+        stale expectation (or route test-strengthening to
+        sumo-qa-strengthening-tests), with `convert.py` left untouched. Does not
+        normalise the failure as acceptable residual risk on its own authority.
       anti_patterns:
         - Adds (or agrees to add) the try/except in `convert.py` — editing PRODUCTION code for a test-bug failure.
         - Retries the test with no stated hypothesis to "get it green".
         - Classifies it as a product regression despite the evidence that the test's expected value is the stale part.
         - Accepts the flaky/failing test as residual risk without the developer's explicit, recorded decision.
         - Proposes the fix before naming the cause (test bug) and where the fix belongs (the test, not production).
+        - Recommends correcting the test's expectation WITHOUT first naming the isolation experiment (confirm the product matches the current spec while the test asserts the old value) that distinguishes a stale test from a product regression.
       ground_truth_context: |
         ## Failure output (this session)
         FAILED tests/fx/test_convert.py::test_convert_rounding
@@ -322,3 +332,53 @@ tests:
         - No recent diff touched `fx/convert.py`; the test file is unchanged
           since before the spec change.
         - Tests run locally via `pytest tests/fx/ -q`.
+
+  - description: SEED - passes locally, fails in CI — environment/dependency, align the env not the code
+    vars:
+      user_prompt: >-
+        `test_invoice_total` passes on my machine but fails in CI. Make CI go
+        green.
+      expected_shape: >-
+        Classifies the cause as an environment / dependency difference between
+        the local pass and the CI fail — NOT a product regression: the supplied
+        evidence shows the failure tracks the environment (the lockfile pins
+        `pricing-lib==1.4.0` locally, half-even, while CI's container resolved
+        the newer `pricing-lib==2.1.0` whose `round_money()` switched to half-up,
+        changing the total), and `pricing/invoice.py` was not changed (the diff
+        touched only CI's base image). Names the smallest discriminating
+        isolation experiment as a STATED hypothesis — pin the library to the
+        failing CI run's version locally (install `pricing-lib==2.1.0`) and
+        re-run: if it then reproduces the CI failure locally the cause is the
+        dependency version, and if it still passes the classification re-opens.
+        Resolves it by ALIGNING THE ENVIRONMENT — pin/lock `pricing-lib` (or
+        align the CI config / base image to the intended version) so local and
+        CI agree — with `pricing/invoice.py` (production) left UNTOUCHED. No
+        production edit this turn. NOTE FOR THE GRADER: the supplied context
+        explicitly states the local pin (`pricing-lib==1.4.0`), the CI-resolved
+        version (`pricing-lib==2.1.0`), the half-even → half-up `round_money()`
+        change, the unchanged `invoice.py`, and the CI base-image bump — so the
+        candidate citing ANY of these exact identifiers is correct grounding,
+        NOT invention. Only a traceback frame, line number, or version the
+        context does not contain would be fabrication.
+      anti_patterns:
+        - Edits or proposes editing PRODUCTION code (`pricing/invoice.py` / a rounding call) to absorb the environment / library-version difference.
+        - Classifies it as a product regression / real bug despite the failure tracking the environment (newer library in CI) and no product-code change.
+        - Reruns the test in CI (or tells the developer to) with no stated hypothesis — a "retry until CI is green" with no environment isolation.
+        - Proposes a fix before classifying the cause and naming an isolation step (diagnosis-before-fixing violated).
+        - Fabricates a traceback frame, line number, or library version the supplied output/context does NOT contain. (Citing the supplied `pricing-lib==1.4.0` local pin, the `pricing-lib==2.1.0` CI version, the `round_money()` half-even → half-up change, the unchanged `invoice.py`, or the CI base-image bump is correct grounding, NOT invention — all are stated in the context.)
+      ground_truth_context: |
+        ## Failure output (CI run, this session)
+        FAILED tests/billing/test_invoice.py::test_invoice_total
+        AssertionError: assert invoice_total([10.005, 10.005]) == 20.02
+          + where 20.0 = invoice_total([10.005, 10.005])
+        Passes locally (`pytest tests/billing/ -q` → 1 passed); fails only in CI.
+
+        ## Repo context
+        - `invoice_total()` in `pricing/invoice.py` (production) delegates its
+          per-line rounding to `pricing-lib`'s `round_money()`.
+        - Lockfile pins `pricing-lib==1.4.0` locally (half-even rounding);
+          CI's container resolved `pricing-lib==2.1.0`, whose `round_money()`
+          switched the default to half-up — changing the rounded total.
+        - The recent diff touched neither `pricing/invoice.py` nor the test;
+          only CI's base image was bumped, pulling the newer `pricing-lib`.
+        - Tests run locally via `pytest tests/billing/ -q`.

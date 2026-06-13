@@ -199,7 +199,7 @@ Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario belo
 
 **Expected tool:** `sumo_qa_capabilities()` (no args).
 
-**Expected use of result:** the LLM lists the core workflows from the returned map (review changes, regression-first fix, QA prep, formal test plan, mutation strengthening, test-data discovery, repo strategy, external-skill discovery) with their sample prompts and target skills — drawn from the tool output, not training-data recall.
+**Expected use of result:** the LLM lists the core workflows from the returned map (review changes, regression-first fix, QA prep, formal test plan, mutation strengthening, test-data discovery, failing/flaky-test triage, repo strategy, external-skill discovery) with their sample prompts and target skills — drawn from the tool output, not training-data recall.
 
 **Anti-pick:** recites a tool list from training data; calls `using_sumo_qa` or `sumo_qa_deciding_approach` (those route a concrete QA intent — capabilities is pure discovery, no intent to route); dumps full skill bodies.
 

@@ -32,7 +32,7 @@ _CORE_WORKFLOWS: tuple[tuple[str, str, str, str], ...] = (
         "Prep QA for a change",
         "what should I test for this change?",
         "sumo-qa-preparing-for-work",
-        "Named risks anchored in the change plus minimal tests.",
+        "Named risks in the change plus minimal tests.",
     ),
     (
         "Write a formal test plan",
@@ -68,7 +68,7 @@ _CORE_WORKFLOWS: tuple[tuple[str, str, str, str], ...] = (
         "Discover an external skill or tool",
         "is there a tool or skill for X?",
         "sumo-qa-suggesting-external-skill",
-        "A fitting external skill found, installed, run via the MCP.",
+        "A fitting external skill found, installed + run via the MCP, gated.",
     ),
 )
 
