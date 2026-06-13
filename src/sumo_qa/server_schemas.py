@@ -832,9 +832,12 @@ class GenerateQAReportOutput(_StrictBase):
     artifact_statuses: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Per-source inventory status (available / missing / invalid / stale) "
-            "for every consumable artifact kind — missing data is an explicit "
-            "state, never silently dropped."
+            "Per-source inventory status for every consumable artifact kind: "
+            "available (on-disk artifact), inline (caller-supplied, not "
+            "persisted), derived (computed in-report, e.g. the readiness "
+            "scorecard), missing, invalid, or stale. Coverage and mutation are "
+            "separate kinds. Missing data is an explicit state, never silently "
+            "dropped."
         ),
     )
     changed_component_count: int = Field(
