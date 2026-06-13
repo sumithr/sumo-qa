@@ -34,7 +34,7 @@ Windows PowerShell (`&&` isn't supported in Windows PowerShell, and pip's script
 py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 ```
 
-`pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator). It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. For JetBrains Junie, drop the JSON that `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project). If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
+`pip install sumo-qa` puts the script wrappers on your PATH — including `sumo-qa` (the MCP server), `sumo-qa-install` (the configurator), and `sumo-qa-doctor` (setup diagnostics). The installer symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. For JetBrains Junie, drop the JSON that `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project). If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
 
 **Cursor, Codex, OpenCode, Gemini CLI and other MCP hosts:** `sumo-qa` is a standard stdio MCP server, but we haven't verified these hosts end-to-end ourselves. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script.
 
@@ -70,7 +70,7 @@ A few minutes takes you from "unknown repo" to a QA report you can open in a bro
 sumo-qa analyze
 ```
 
-Writes the schema-validated repo map to `.sumo-qa/repo-map.json` and prints a summary: what the repo contains and which tests map to which sources. `sumo-qa status` tells you whether the map is present, current, and fresh, and what to run next.
+Writes the schema-validated repo map to `.sumo-qa/repo-map.json` (including which tests map to which sources) and prints a summary of what it found. `sumo-qa status` tells you whether the map is present and current against `HEAD`, and what to run next.
 
 **2. Review a change against the map** (in your host, with uncommitted or branch changes):
 
@@ -79,6 +79,8 @@ Review my changes — is this safe to merge?
 ```
 
 With a map present, the review starts from your actual diff impact: the affected modules, the tests most likely to cover them, and the risk surface (changed code with no mapped test). Your suite still runs fresh in the same turn; the map accelerates the review but never substitutes for evidence. Risks without a covering test are named UNCOVERED with the test to add, not waved through.
+
+To carry the review's risk-to-test map into the report, ask it to save the risk ledger to `.sumo-qa/risk-ledger.json` — otherwise the report honestly marks that section not available.
 
 **3. Record coverage and mutation** (in your host, optional):
 

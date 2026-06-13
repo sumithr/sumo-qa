@@ -34,6 +34,10 @@ mutants/
 # the artifact is generator output, not source. See docs/REPO-MAP.md.
 .sumo-qa/repo-map.json
 .sumo-qa/qa-report.html
+# Risk-ledger / context-bundle conventional paths the report loads from
+# (docs/QA-REPORT.md): per-run evidence artifacts, never committed.
+.sumo-qa/risk-ledger.json
+.sumo-qa/context-bundle.json
 
 # Per-machine MCP config written by sumo-qa-install
 .vscode/mcp.json
