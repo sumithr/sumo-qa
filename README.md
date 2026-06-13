@@ -9,17 +9,19 @@
 [![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.46.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
-An MCP server that brings senior-QA discipline to AI coding assistants — test planning, TDD, mutation testing, code review.
+A QA-native MCP server and skills library: analyze a repo, map risks to tests and evidence, plan and scaffold tests, strengthen weak suites, and review diffs before merge with senior-QA discipline.
 
 > [!IMPORTANT]
 > sumo-qa is an advisor, not an oracle. Like any AI tool it can be wrong. Your judgment and your team's standards are the final word.
 
 > ### 🚀 New here? **[5-minute demo →](DEMO.md)**
-> One install line, one prompt on your repo, the workflow runs on real code.
+> One install line, then the QA loop on your own repo: map it, review a change against the map, open the report.
 
 ## Why it exists
 
-Ask a stock AI assistant to QA a change and you get the junior answer: "add unit tests, consider edge cases, maybe test performance." That's a checklist.
+Point your AI assistant at any repo and get QA it can defend: the repo understood well enough to test it, risks tied to specific files and lines, and a safe-to-merge answer backed by tests that ran this turn.
+
+Ask a stock AI assistant to QA a change instead and you get the junior answer: "add unit tests, consider edge cases, maybe test performance." That's a checklist.
 
 sumo-qa makes the agent work the way a senior QA does:
 
@@ -132,6 +134,43 @@ pip install --upgrade sumo-qa && sumo-qa-install
 
 Restart the host. The SessionStart hook re-injects the latest content; skills and knowledge refresh from the upgraded package.
 
+## Host support
+
+Every host calls the same MCP server and reads the same SKILL.md files. What differs is how each host exposes them — that's a host-API difference, not a sumo-qa choice.
+
+These hosts are verified end-to-end with `sumo-qa-install`:
+
+| Host | Slash | Setup |
+|---|---|---|
+| **Claude Code** | `/sumo-qa-deciding-approach` (hyphens) | `sumo-qa-install --claude-code` |
+| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language | `sumo-qa-install --vscode --workspace <repo>` writes `.vscode/mcp.json` |
+| **JetBrains AI Assistant** | `/sumo_qa_deciding_approach` (underscores) | One-time UI setup; `sumo-qa-install --jetbrains` prints the fields to paste |
+| **JetBrains Junie** | Natural language | Drop the JSON `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) |
+
+In Claude Code, type `/` then `sumo-qa-` to see the skills as hyphenated entries (symlinked into `~/.claude/skills/`). The same skills are also registered through MCP with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`); both routes call the same SKILL.md.
+
+Natural language works everywhere. *"Review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths produce the same result.
+
+**Other MCP hosts** (Cursor, Codex, OpenCode, Gemini CLI, etc.): `pip install sumo-qa` ships a standard stdio MCP server, so it should work with anything that speaks MCP. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script. These hosts are explicitly not yet verified end-to-end by us, so we don't ship per-host instructions for them.
+
+### Host adapter folders
+
+`sumo-qa` ships first-class plugin manifest folders for hosts that consume them directly. Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) — see [docs/host-adapters.md](docs/host-adapters.md) for the architecture.
+
+| Host | Manifest | Install status today | Source-of-truth contract |
+|---|---|---|---|
+| Claude Code | `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | `claude --plugin-dir /path/to/sumo-qa` (session-scoped), or `/plugin marketplace add sumithr/sumo-qa` → `/plugin install sumo-qa@sumo-qa` (persistent; wired + schema-valid, live install not yet verified) | Both schema-validated against the published JSON Schemas in CI |
+| OpenAI Codex | `.codex-plugin/plugin.json` | Not verified end-to-end yet — treat as TBD | MCP `initialize` handshake smoke in CI (no published schema) |
+
+Adding a new host is one new template under `plugin_packaging/templates/` plus the canonical-source line that describes it. The `plugin-packaging` CI workflow re-runs the generator on every PR and fails if any committed adapter file diverges from the canonical source.
+
+## See it in action
+
+Transcripts showing the workflow on real code — diff reviews refusing to call safe-to-merge from stale CI, TDD cycles with the red output surfaced verbatim, mutation survivors walked one at a time, formal test plans gated on entry/exit criteria, and the case where the right answer is "no tests needed, stop here":
+
+- [tests/scenarios/worked-examples/](tests/scenarios/worked-examples/) — start with [02 — review my changes](tests/scenarios/worked-examples/02-review-my-changes.md) for a representative end-to-end
+- [tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md) — the scenario specs (prompt → expected shape → anti-patterns the skill prevents)
+
 ## What's included
 
 ```mermaid
@@ -180,43 +219,6 @@ flowchart LR
 | **MCP entry points** | A thin tool surface — skill tools, knowledge loaders, a capabilities-discovery tool, repo-map tools, test-data tools, an ingestion tool, and external-skill lifecycle tools. Each is file IO or small deterministic logic; no inference. |
 | **Progressive skill loading** | A read-only loader (`sumo_qa_list_skill_manifests` + `sumo_qa_load_skill_context`) that fetches a skill in slices — a routing manifest, one section, one lazy module, or the full body — so a host pays the routing slice on each revisit instead of the whole body every time. `section`/`module`/`full` are **canonical** (verbatim from the file — cite/follow them); the **manifest** paths are *compact navigation aids*, not a substitute for the procedure text. Load the full body (or the exact section) when a workflow actually needs the wording. See [docs/TOOLS.md](docs/TOOLS.md#which-path-to-use--canonical-vs-compact) and [docs/SKILLS.md](docs/SKILLS.md#progressive-loading--manifest--section--module--full). |
 | **Knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques. The agent picks from these instead of recalling from training data. Editable as plain markdown. Specialty-tool picks are deliberately not catalogued — the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
-
-## Host support
-
-Every host calls the same MCP server and reads the same SKILL.md files. What differs is how each host exposes them — that's a host-API difference, not a sumo-qa choice.
-
-These hosts are verified end-to-end with `sumo-qa-install`:
-
-| Host | Slash | Setup |
-|---|---|---|
-| **Claude Code** | `/sumo-qa-deciding-approach` (hyphens) | `sumo-qa-install --claude-code` |
-| **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language | `sumo-qa-install --vscode --workspace <repo>` writes `.vscode/mcp.json` |
-| **JetBrains AI Assistant** | `/sumo_qa_deciding_approach` (underscores) | One-time UI setup; `sumo-qa-install --jetbrains` prints the fields to paste |
-| **JetBrains Junie** | Natural language | Drop the JSON `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) |
-
-In Claude Code, type `/` then `sumo-qa-` to see the skills as hyphenated entries (symlinked into `~/.claude/skills/`). The same skills are also registered through MCP with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`); both routes call the same SKILL.md.
-
-Natural language works everywhere. *"Review my changes"*, *"plan QA for this story"*, *"load the QA classifications"* — the agent routes by tool description. Slash and natural-language paths produce the same result.
-
-**Other MCP hosts** (Cursor, Codex, OpenCode, etc.): `pip install sumo-qa` ships a standard stdio MCP server, so it should work with anything that speaks MCP. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script. Not verified end-to-end by us, so we don't ship instructions.
-
-### Host adapter folders
-
-`sumo-qa` ships first-class plugin manifest folders for hosts that consume them directly. Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) — see [docs/host-adapters.md](docs/host-adapters.md) for the architecture.
-
-| Host | Manifest | Install status today | Source-of-truth contract |
-|---|---|---|---|
-| Claude Code | `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | `claude --plugin-dir /path/to/sumo-qa` (session-scoped), or `/plugin marketplace add sumithr/sumo-qa` → `/plugin install sumo-qa@sumo-qa` (persistent; wired + schema-valid, live install not yet verified) | Both schema-validated against the published JSON Schemas in CI |
-| OpenAI Codex | `.codex-plugin/plugin.json` | Not verified end-to-end yet — treat as TBD | MCP `initialize` handshake smoke in CI (no published schema) |
-
-Adding a new host is one new template under `plugin_packaging/templates/` plus the canonical-source line that describes it. The `plugin-packaging` CI workflow re-runs the generator on every PR and fails if any committed adapter file diverges from the canonical source.
-
-## See it in action
-
-Ten transcripts showing the workflow on real code — diff reviews refusing to call safe-to-merge from stale CI, TDD cycles with the red output surfaced verbatim, mutation survivors walked one at a time, formal test plans gated on entry/exit criteria, and the case where the right answer is "no tests needed, stop here":
-
-- [tests/scenarios/worked-examples/](tests/scenarios/worked-examples/) — start with [02 — review my changes](tests/scenarios/worked-examples/02-review-my-changes.md) for a representative end-to-end
-- [tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md) — the scenario specs (prompt → expected shape → anti-patterns the skill prevents)
 
 ## When sumo-qa doesn't fit
 

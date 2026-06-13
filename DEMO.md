@@ -1,6 +1,6 @@
 # 5-minute sumo-qa demo
 
-Install in one line. Run one prompt on your repo. Watch the senior-QA workflow happen on real code.
+Install in one line. Verify the wiring. Then run the QA loop on your own repo: map it, review a change against the map, and get a QA report backed by evidence.
 
 > [!IMPORTANT]
 > sumo-qa is an advisor, not an oracle. Like any AI tool it can be wrong. Your judgment and your team's standards are the final word.
@@ -8,7 +8,7 @@ Install in one line. Run one prompt on your repo. Watch the senior-QA workflow h
 ## Prerequisites
 
 - Python 3.10 or newer. Check with `python --version` (or `py --version` on Windows).
-- An MCP-capable host: Claude Code, Cursor, Codex, OpenCode, JetBrains AI Assistant or Junie, or VS Code + GitHub Copilot (Agent mode, with Claude Sonnet 4.5 or GPT-5 full).
+- An MCP-capable host. Verified end-to-end: Claude Code, VS Code + GitHub Copilot (Agent mode, with Claude Sonnet 4.5 or GPT-5 full), JetBrains AI Assistant, and JetBrains Junie. Other MCP hosts (Cursor, Codex, OpenCode, Gemini CLI) speak the same protocol and should work, but we haven't verified them end-to-end.
 
 ## Step 1: install and wire it
 
@@ -18,7 +18,7 @@ Install and wire every host it detects, or target one:
 # Every host detected on this machine
 pip install sumo-qa && sumo-qa-install
 
-# Claude Code only
+# Target just Claude Code
 pip install sumo-qa && sumo-qa-install --claude-code
 
 # VS Code + GitHub Copilot
@@ -36,9 +36,19 @@ py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 
 `pip install sumo-qa` creates two script wrappers: `sumo-qa` (the MCP server) and `sumo-qa-install` (the configurator). It symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
 
-Restart your host or open a fresh chat afterwards.
+**Cursor, Codex, OpenCode, Gemini CLI and other MCP hosts:** `sumo-qa` is a standard stdio MCP server, but we haven't verified these hosts end-to-end ourselves. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script.
 
-**Cursor, Codex, OpenCode and other MCP hosts:** `sumo-qa` is a standard stdio MCP server. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script.
+### Verify the wiring
+
+```bash
+sumo-qa-doctor
+```
+
+Read-only setup diagnostics: Python and sumo-qa version, install mode, the MCP handshake, and every host config the installer touches. Each failure prints the exact `Fix:` command to run. When doctor is green, restart your host (or open a fresh chat) and ask:
+
+> load the QA classifications
+
+Canonical change-classification names back means you're wired.
 
 ### Updating
 
@@ -46,13 +56,43 @@ Restart your host or open a fresh chat afterwards.
 pip install --upgrade sumo-qa && sumo-qa-install
 ```
 
-Open a fresh chat afterwards. The host re-reads `~/.claude/skills/` (Claude Code) and the MCP tool list on the next session. If you installed sumo-qa as a Claude Code or Cursor plugin, the SessionStart hook re-fires automatically.
+Open a fresh chat afterwards. The host re-reads `~/.claude/skills/` (Claude Code) and the MCP tool list on the next session. If you installed sumo-qa as a plugin, the SessionStart hook re-fires automatically.
 
 ---
 
-## Step 2: try one of these prompts
+## Step 2: run the QA loop on your repo
 
-Open your repo in the configured host. Pick the prompt that matches your situation.
+Two commands and one prompt take you from "unknown repo" to a QA report you can open in a browser.
+
+**1. Map the repo** (terminal, from the repo root):
+
+```bash
+sumo-qa analyze
+```
+
+Writes the schema-validated repo map to `.sumo-qa/repo-map.json` and prints a summary: what the repo contains and which tests map to which sources. `sumo-qa status` tells you whether the map is present, current, and fresh, and what to run next.
+
+**2. Review a change against the map** (in your host, with uncommitted or branch changes):
+
+```
+Review my changes — is this safe to merge?
+```
+
+With a map present, the review starts from your actual diff impact: the affected modules, the tests most likely to cover them, and the risk surface (changed code with no mapped test). Your suite still runs fresh in the same turn; the map accelerates the review but never substitutes for evidence. Risks without a covering test are named UNCOVERED with the test to add, not waved through.
+
+**3. Compose the report** (terminal):
+
+```bash
+sumo-qa report
+```
+
+Composes the persisted `.sumo-qa` artifacts into a self-contained static page at `.sumo-qa/qa-report.html`: risk-to-test coverage, evidence freshness, a readiness verdict, and honest not-available states for anything that hasn't been produced yet.
+
+---
+
+## Step 3: pick the prompt that matches your situation
+
+Open your repo in the configured host. Every prompt below is copy-paste ready.
 
 ---
 
@@ -95,7 +135,34 @@ The red phase is mandatory. sumo-qa won't write the test and the fix in the same
 
 ---
 
-### 4. Repo-wide audit + QA strategy
+### 4. Strengthen tests against mutation survivors
+
+```
+Mutation testing left surviving mutants in <module>. Strengthen the tests.
+Production code stays unchanged.
+```
+
+sumo-qa reads the mutation report, then walks the survivors one at a time, never as a batch: triage whether each mutant is real or only killable by a tautological assertion, pick a design technique from the loaded catalogue, write the strengthening test, run it, and confirm the kill before moving on. Production code is read-only the whole way; equivalent mutants get suppressed in tool config rather than chased.
+
+See [worked example 05](tests/scenarios/worked-examples/05-strengthen-tests-mutation.md).
+
+---
+
+### 5. Find validated test data
+
+```
+Find me a refund-eligible invoice for the partial-refund flow test in staging.
+```
+
+(Swap in your own record shape, flow, and environment.)
+
+sumo-qa pins down what the test actually needs from the data (the preconditions that make a record eligible), checks the known-good catalogue first, proposes discovery queries for your stack when nothing registered fits, and validates the candidate fresh before handing it over. Found something good? It offers to register it as known-good for next time.
+
+See [worked example 07](tests/scenarios/worked-examples/07-find-test-data.md) and [docs/TEST-DATA.md](docs/TEST-DATA.md).
+
+---
+
+### 6. Repo-wide audit + QA strategy
 
 ```
 Audit our test coverage and design a QA strategy.
@@ -107,7 +174,7 @@ Expect honest findings like *"this service that 'feels well-tested' has 12 unit 
 
 ---
 
-### 5. Multi-task QA rollout with parallel agents
+### 7. Multi-task QA rollout with parallel agents
 
 ```
 Plan QA for the <feature> across <module1>, <module2>, <module3> — then dispatch
@@ -165,9 +232,23 @@ Watching parallel subagents write tests against different risks at once, each re
 
 ---
 
+### 8. When sumo-qa doesn't fit: discover an external skill
+
+```
+Add Playwright end-to-end tests for the checkout flow.
+```
+
+Browser E2E isn't a native sumo-qa capability, and that's the point of this prompt: sumo-qa recognises the miss, searches for an external skill through its MCP server, shows you the candidates, and gates the install behind an explicit `[y/N]`. After install it loads the skill into the conversation and carries on. sumo-qa's setup standard stays in force: any global install the external skill suggests is translated to a repo-pinned, CI-reproducible equivalent.
+
+See [README: When sumo-qa doesn't fit](README.md#when-sumo-qa-doesnt-fit).
+
+---
+
 ## Going deeper
 
 - [tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md) — every scenario sumo-qa handles, with expected shape and anti-patterns
 - [tests/scenarios/worked-examples/](tests/scenarios/worked-examples/) — full multi-turn transcripts for each scenario
 - [skills/](skills/) — the skills (a router plus sub-skills) with Iron Laws and HARD-GATEs
+- [docs/REPO-MAP.md](docs/REPO-MAP.md) — the QA-native repo-map artifact behind `sumo-qa analyze`
+- [docs/QA-REPORT.md](docs/QA-REPORT.md) — the local QA report behind `sumo-qa report`
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the layers fit together
