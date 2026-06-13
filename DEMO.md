@@ -16,7 +16,7 @@ Install in one line. Verify the wiring. Then run the QA loop on your own repo: m
 pip install sumo-qa && sumo-qa-install
 ```
 
-Restart your host or open a fresh chat. That's it — `sumo-qa-install` wires every MCP host it detects.
+Restart your host or open a fresh chat. That's it: `sumo-qa-install` wires every MCP host it detects.
 
 > Windows, targeting one host, the one-command `install.sh` / `install.ps1` wrappers, plugin installs, updating: all in **[docs/INSTALL.md](docs/INSTALL.md)**.
 
@@ -26,18 +26,18 @@ Restart your host or open a fresh chat. That's it — `sumo-qa-install` wires ev
 sumo-qa-doctor
 ```
 
-Green means you're wired — read-only diagnostics, and each failure prints the exact `Fix:` to run. Then ask your host *"load the QA classifications"*; canonical names back confirms it end to end.
+Green means you're wired. The checks are read-only, and each failure prints the exact `Fix:` to run. Then ask your host *"load the QA classifications"*; canonical names back confirms it end to end.
 
 ---
 
-## Step 2: run the QA loop on your repo — just by asking
+## Step 2: run the QA loop on your repo, just by asking
 
 Each step is a plain prompt in your host; the `.sumo-qa/` artifacts appear as a side effect of the conversation.
 
-**1. Understand the repo** — works on any repo, no changes needed:
+**1. Understand the repo** (works on any repo, no changes needed):
 
 ```
-Map this repo for QA — what's here, and which tests cover which sources?
+Map this repo for QA, what's here, and which tests cover which sources?
 ```
 
 sumo-qa walks the repository and writes the schema-validated repo map to `.sumo-qa/repo-map.json`, then summarises what it found. You never told it where the tests live or what framework you use.
@@ -47,18 +47,18 @@ sumo-qa walks the repository and writes the schema-validated repo map to `.sumo-
 Working on a change? Get a merge verdict:
 
 ```
-Review my changes — is this safe to merge?
+Review my changes, is this safe to merge?
 ```
 
-It works from your real diff impact (affected modules, the tests most likely to cover them, the risk surface of changed code with no mapped test), runs your suite fresh in the same turn, and names every uncovered risk with the test to add — never waved through. Ask it to save the risk ledger to `.sumo-qa/risk-ledger.json`, then turn it into a shareable page:
+It works from your real diff impact (affected modules, the tests most likely to cover them, the risk surface of changed code with no mapped test), runs your suite fresh in the same turn, and names every uncovered risk with the test to add, never waved through. Ask it to save the risk ledger to `.sumo-qa/risk-ledger.json`, then turn it into a shareable page:
 
 ```
 Generate the QA report.
 ```
 
-That composes the `.sumo-qa` artifacts into a self-contained `.sumo-qa/qa-report.html` — risk-to-test coverage, evidence freshness, a readiness verdict, and honest not-available states for anything not yet produced.
+That composes the `.sumo-qa` artifacts into a self-contained `.sumo-qa/qa-report.html`: risk-to-test coverage, evidence freshness, a readiness verdict, and honest not-available states for anything not yet produced.
 
-No pending changes — a fresh clone you just want to understand? Skip the diff and assess the whole repo instead:
+No pending changes, just a fresh clone you want to understand? Skip the diff and assess the whole repo instead:
 
 ```
 Audit our test coverage and design a QA strategy.
@@ -66,7 +66,7 @@ Audit our test coverage and design a QA strategy.
 
 sumo-qa walks the repo area by area, names risks tied to file paths, and builds a risk-prioritised, phased plan with you (written to `docs/qa-strategy.md`). No changes required.
 
-Prefer the terminal? The map-and-report half of the loop is also wired as CLI commands — `sumo-qa analyze`, `sumo-qa status`, `sumo-qa report` — see [Run it from the terminal](README.md#run-it-from-the-terminal).
+Prefer the terminal? The map-and-report half of the loop is also wired as CLI commands (`sumo-qa analyze`, `sumo-qa status`, `sumo-qa report`); see [Run it from the terminal](README.md#run-it-from-the-terminal).
 
 ---
 
@@ -79,12 +79,12 @@ Open your repo in the configured host. Every prompt below is copy-paste ready.
 ### 1. Pre-merge safety check
 
 ```
-Review my changes — is this safe to merge?
+Review my changes, is this safe to merge?
 ```
 
-sumo-qa reads your `git diff` directly (no asking what changed), classifies the change shape, names 3–7 risks tied to file and line, asks one focused question if anything's ambiguous, **runs your test suite right now**, maps each risk to a covering test, then delivers SAFE / NOT SAFE / NEEDS WORK with the evidence.
+sumo-qa reads your `git diff` directly (no asking what changed), classifies the change shape, names 3-7 risks tied to file and line, asks one focused question if anything's ambiguous, **runs your test suite right now**, maps each risk to a covering test, then delivers SAFE / NOT SAFE / NEEDS WORK with the evidence.
 
-It refuses to call safe-to-merge from "CI was green earlier" — fresh run only. If a named risk has no covering test, it tells you what test to add by file, function, and assertion shape.
+It refuses to call safe-to-merge from "CI was green earlier"; fresh run only. If a named risk has no covering test, it tells you what test to add by file, function, and assertion shape.
 
 See [worked example 02](tests/scenarios/worked-examples/02-review-my-changes.md).
 
@@ -97,7 +97,7 @@ Plan QA for this story before I start coding: <paste the ticket / one-liner>.
 Files likely touch <main_module.py> and <related_module.py>.
 ```
 
-sumo-qa reads the files, names 3–7 risks specific to this change, picks one design technique per risk from the loaded ISTQB-grounded catalogue, proposes the smallest useful test set tied to those risks, and asks you to confirm any open assumptions. No code yet — this is the prep.
+sumo-qa reads the files, names 3-7 risks specific to this change, picks one design technique per risk from the loaded ISTQB-grounded catalogue, proposes the smallest useful test set tied to those risks, and asks you to confirm any open assumptions. No code yet; this is the prep.
 
 Expect risks at the level of *"currency conversion at the GBP→USD boundary rounds incorrectly when the rate is supplied with >6 decimal places"*, not *"input validation breaks"*.
 
@@ -109,9 +109,9 @@ Expect risks at the level of *"currency conversion at the GBP→USD boundary rou
 Fix this bug regression-first: <describe the bug + the likely file>.
 ```
 
-sumo-qa walks the repo to find the production file and its sibling tests (it picks up your test conventions — it won't ask "what framework do you use?"), picks the smallest failing test idea, confirms the one ambiguous detail, writes the test, runs it, and surfaces the red output verbatim. Then it hands off for you to make it green.
+sumo-qa walks the repo to find the production file and its sibling tests (it picks up your test conventions, so it won't ask "what framework do you use?"), picks the smallest failing test idea, confirms the one ambiguous detail, writes the test, runs it, and surfaces the red output verbatim. Then it hands off for you to make it green.
 
-The red phase is mandatory. sumo-qa won't write the test and the fix in the same turn — the proof that the test catches the bug has to come before the fix. Most assistants skip this.
+The red phase is mandatory. sumo-qa won't write the test and the fix in the same turn; the proof that the test catches the bug has to come before the fix. Most assistants skip this.
 
 ---
 
@@ -150,14 +150,14 @@ Audit our test coverage and design a QA strategy.
 
 sumo-qa walks the repo with its file tools (services, modules, test directories, CI config), produces a per-area provisional analysis with risks tied to file paths, then walks you through confirmation gates one section at a time: scope → risks → specialty tool fit → prioritisation → target pyramid → phased rollout → residual risks. Offers to write the result to `docs/qa-strategy.md`.
 
-Expect honest findings like *"this service that 'feels well-tested' has 12 unit tests and zero mutation coverage on its highest-branching function"* — with a 3-phase rollout gated by measurable criteria, not a calendar.
+Expect honest findings like *"this service that 'feels well-tested' has 12 unit tests and zero mutation coverage on its highest-branching function"*, with a 3-phase rollout gated by measurable criteria, not a calendar.
 
 ---
 
 ### 7. Multi-task QA rollout with parallel agents
 
 ```
-Plan QA for the <feature> across <module1>, <module2>, <module3> — then dispatch
+Plan QA for the <feature> across <module1>, <module2>, <module3>, then dispatch
 subagents to execute it in parallel.
 ```
 
@@ -226,9 +226,9 @@ See [README: When sumo-qa doesn't fit](README.md#when-sumo-qa-doesnt-fit).
 
 ## Going deeper
 
-- [tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md) — every scenario sumo-qa handles, with expected shape and anti-patterns
-- [tests/scenarios/worked-examples/](tests/scenarios/worked-examples/) — full multi-turn transcripts for each scenario
-- [skills/](skills/) — the skills (a router plus sub-skills) with Iron Laws and HARD-GATEs
-- [docs/REPO-MAP.md](docs/REPO-MAP.md) — the QA-native repo-map artifact behind `sumo-qa analyze`
-- [docs/QA-REPORT.md](docs/QA-REPORT.md) — the local QA report behind `sumo-qa report`
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the layers fit together
+- [tests/scenarios/SCENARIOS.md](tests/scenarios/SCENARIOS.md): every scenario sumo-qa handles, with expected shape and anti-patterns
+- [tests/scenarios/worked-examples/](tests/scenarios/worked-examples/): full multi-turn transcripts for each scenario
+- [skills/](skills/): the skills (a router plus sub-skills) with Iron Laws and HARD-GATEs
+- [docs/REPO-MAP.md](docs/REPO-MAP.md): the QA-native repo-map artifact behind `sumo-qa analyze`
+- [docs/QA-REPORT.md](docs/QA-REPORT.md): the local QA report behind `sumo-qa report`
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the layers fit together
