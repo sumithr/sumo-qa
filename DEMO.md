@@ -34,7 +34,7 @@ Windows PowerShell (`&&` isn't supported in Windows PowerShell, and pip's script
 py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 ```
 
-`pip install sumo-qa` puts the script wrappers on your PATH — including `sumo-qa` (the MCP server), `sumo-qa-install` (the configurator), and `sumo-qa-doctor` (setup diagnostics). The installer symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. For JetBrains Junie, drop the JSON that `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project). If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
+`pip install sumo-qa` installs the script wrappers — including `sumo-qa` (the MCP server), `sumo-qa-install` (the configurator), and `sumo-qa-doctor` (setup diagnostics). The installer symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. For JetBrains Junie, drop the JSON that `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project). If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
 
 **Cursor, Codex, OpenCode, Gemini CLI and other MCP hosts:** `sumo-qa` is a standard stdio MCP server, but we haven't verified these hosts end-to-end ourselves. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script.
 
