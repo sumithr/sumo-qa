@@ -201,6 +201,9 @@ def _resolve_artifact_target(root_path: Path, write_to: str) -> Path:
     under the target repo (not the MCP server's cwd) and a ``..``/symlink escape
     is refused; an absolute path stays caller-explicit.
     """
+    # Resolve the root so the relative-to comparison is symlink-safe even if a
+    # future caller passes an unresolved root (current callers already resolve).
+    root_path = root_path.resolve()
     target = Path(write_to)
     if not target.is_absolute():
         target = (root_path / target).resolve()

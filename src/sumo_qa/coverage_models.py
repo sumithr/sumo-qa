@@ -73,8 +73,12 @@ class CoverageArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["1.0"] = COVERAGE_SCHEMA_VERSION
-    generated_at: str = Field(description="ISO-8601 timestamp the host stamped at collection.")
-    source_tool: str = Field(description="The tool the host ran (e.g. 'pytest-cov (coverage.py)').")
+    generated_at: str = Field(
+        min_length=1, description="ISO-8601 timestamp the host stamped at collection."
+    )
+    source_tool: str = Field(
+        min_length=1, description="The tool the host ran (e.g. 'pytest-cov (coverage.py)')."
+    )
     line_percent: float | None = Field(
         default=None, description="Optional line-coverage percentage in [0, 100]."
     )
@@ -109,8 +113,12 @@ class MutationArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["1.0"] = COVERAGE_SCHEMA_VERSION
-    generated_at: str = Field(description="ISO-8601 timestamp the host stamped at collection.")
-    source_tool: str = Field(description="The tool the host ran (e.g. 'mutmut', 'Stryker').")
+    generated_at: str = Field(
+        min_length=1, description="ISO-8601 timestamp the host stamped at collection."
+    )
+    source_tool: str = Field(
+        min_length=1, description="The tool the host ran (e.g. 'mutmut', 'Stryker')."
+    )
     survivors: int | None = Field(
         default=None, description="Optional count of surviving mutants (>= 0)."
     )

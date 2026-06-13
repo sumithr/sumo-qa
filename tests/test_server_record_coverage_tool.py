@@ -160,3 +160,29 @@ def test_record_coverage_relative_write_to_confined_to_root(record_coverage, tmp
     )
     assert out["isError"] is True
     assert not (tmp_path.parent / "escape.json").exists()
+
+
+def test_record_mutation_relative_write_to_confined_to_root(record_mutation, tmp_path):
+    # Mutation shares _resolve_artifact_target with coverage; pin the escape
+    # refusal independently so a future split of the confinement logic can't
+    # leave the mutation path silently unguarded.
+    out = record_mutation(
+        root=str(tmp_path),
+        mutation={"source_tool": "x", "generated_at": "x", "freshness": "fresh"},
+        write_to="../escape.json",
+    )
+    assert out["isError"] is True
+    assert not (tmp_path.parent / "escape.json").exists()
+
+
+def test_record_coverage_blank_provenance_returns_envelope_and_writes_nothing(
+    record_coverage, tmp_path
+):
+    # Empty-string provenance is rejected before any write (min_length=1),
+    # mirroring the ledger's required-string discipline.
+    out = record_coverage(
+        root=str(tmp_path),
+        coverage={"source_tool": "", "generated_at": "", "freshness": "fresh"},
+    )
+    assert out["isError"] is True
+    assert not (tmp_path / ".sumo-qa" / "coverage.json").exists()
