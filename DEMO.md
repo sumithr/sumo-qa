@@ -152,7 +152,7 @@ Mutation testing left surviving mutants in <module>. Strengthen the tests.
 Production code stays unchanged.
 ```
 
-sumo-qa reads the mutation report, then walks the survivors one at a time, never as a batch: triage whether each mutant is real or only killable by a tautological assertion, pick a design technique from the loaded catalogue, write the strengthening test, run it, and confirm the kill before moving on. Production behaviour stays untouched the whole way; equivalent mutants get suppressed with a recorded rationale (tool config where the tool supports it) rather than chased with tautological tests.
+sumo-qa reads the mutation report, then walks the survivors one at a time (class-by-class where several share a mechanism): triage whether each mutant is real or only killable by a tautological assertion, pick a design technique from the loaded catalogue, write the strengthening test, run it, and confirm the kill before moving on. Production behaviour stays untouched the whole way; equivalent mutants get suppressed with a recorded rationale (tool config where the tool supports it) rather than chased with tautological tests.
 
 See [worked example 05](tests/scenarios/worked-examples/05-strengthen-tests-mutation.md).
 
