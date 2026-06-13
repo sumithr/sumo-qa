@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.0](https://github.com/sumithr/sumo-qa/compare/v0.45.0...v0.46.0) (2026-06-13)
+
+
+### Features
+
+* **skills:** add closed-loop regression workflow for concrete QA gaps ([#403](https://github.com/sumithr/sumo-qa/issues/403)) ([f2d0033](https://github.com/sumithr/sumo-qa/commit/f2d00339fce42c3f5f50ab74f84ed97d67210c3b))
+
 ## [0.45.0](https://github.com/sumithr/sumo-qa/compare/v0.44.0...v0.45.0) (2026-06-12)
 
 
