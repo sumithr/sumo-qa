@@ -60,43 +60,43 @@ Open a fresh chat afterwards. The host re-reads `~/.claude/skills/` (Claude Code
 
 ---
 
-## Step 2: run the QA loop on your repo
+## Step 2: run the QA loop on your repo — just by asking
 
-A few minutes takes you from "unknown repo" to a QA report you can open in a browser.
+Every step below is a plain prompt in your host. The `.sumo-qa/` artifacts appear as a side effect of the conversation — you ask in natural language, sumo-qa writes the files. A few minutes takes you from "unknown repo" to a QA report you can open in a browser.
 
-**1. Map the repo** (terminal, from the repo root):
+**1. Understand the repo:**
 
-```bash
-sumo-qa analyze
+```
+Map this repo for QA — what's here, and which tests cover which sources?
 ```
 
-Writes the schema-validated repo map to `.sumo-qa/repo-map.json` (including which tests map to which sources) and prints a summary of what it found. `sumo-qa status` tells you whether the map is present and current against `HEAD`, and what to run next.
+sumo-qa walks the repository and writes the schema-validated repo map to `.sumo-qa/repo-map.json`, then summarises what it found. You never told it where the tests live or what framework you use.
 
-**2. Review a change against the map** (in your host, with uncommitted or branch changes):
+**2. Review a change:**
 
 ```
 Review my changes — is this safe to merge?
 ```
 
-With a map present, the review starts from your actual diff impact: the affected modules, the tests most likely to cover them, and the risk surface (changed code with no mapped test). Your suite still runs fresh in the same turn; the map accelerates the review but never substitutes for evidence. Risks without a covering test are named UNCOVERED with the test to add, not waved through.
+The review starts from your actual diff impact — the affected modules, the tests most likely to cover them, and the risk surface (changed code with no mapped test) — reusing the map from step 1, or scanning and persisting one on the spot if you skipped it. Your suite still runs fresh in the same turn; the map accelerates the review but never substitutes for evidence. Risks without a covering test are named UNCOVERED with the test to add, not waved through. Ask it to save the risk ledger to `.sumo-qa/risk-ledger.json` so the report can cite the coverage map.
 
-To carry the review's risk-to-test map into the report, ask it to save the risk ledger to `.sumo-qa/risk-ledger.json` — otherwise the report honestly marks that section not available.
-
-**3. Record coverage and mutation** (in your host, optional):
+**3. Record coverage and mutation (optional):**
 
 ```
 Measure coverage and run mutation testing, then record the results for the QA report.
 ```
 
-sumo-qa runs the repo's configured coverage and mutation tooling (it never installs any), reads whatever output format the tools produce, and persists compact summaries to `.sumo-qa/coverage.json` and `.sumo-qa/mutation.json` for the report to cite. Reported, never gated: the numbers inform the report but never move the readiness verdict on their own.
+sumo-qa runs the repo's configured coverage and mutation tooling (it never installs any), reads whatever output format the tools produce, and persists compact summaries to `.sumo-qa/coverage.json` and `.sumo-qa/mutation.json`. Reported, never gated: the numbers inform the report but never move the readiness verdict on their own.
 
-**4. Compose the report** (terminal):
+**4. Open the report:**
 
-```bash
-sumo-qa report
+```
+Generate the QA report.
 ```
 
-Composes the persisted `.sumo-qa` artifacts into a self-contained static page at `.sumo-qa/qa-report.html`: risk-to-test coverage, evidence freshness, a readiness verdict, and honest not-available states for anything that hasn't been produced yet.
+sumo-qa composes the persisted `.sumo-qa` artifacts into a self-contained static page at `.sumo-qa/qa-report.html`: risk-to-test coverage, evidence freshness, a readiness verdict, and honest not-available states for anything not yet produced.
+
+Prefer the terminal? The same loop is wired as CLI commands — `sumo-qa analyze`, `sumo-qa status`, `sumo-qa report` — see [Run it from the terminal](README.md#run-it-from-the-terminal).
 
 ---
 
