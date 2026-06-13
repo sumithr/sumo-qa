@@ -4,9 +4,12 @@ description: >
   ordinary adversarial discovery sweep: a grounded security gap in the diff is
   named as a concrete, anchored risk (not invented), and a diff with NO
   security-relevant surface must NOT have security risk fabricated onto it. Two
-  seeds pin BOTH directions: (1) a diff that loosens an authorisation guard, where
-  the security gap MUST be called out, and (2) a presentational/markup diff, where
-  inventing a security risk is a false positive. Security flows through the
+  seeds pin BOTH directions: (1) a diff that ADDS a brand-new data-read endpoint
+  with NO authorisation check (a MISSING guard, not a removed/loosened/inverted
+  one - so the generic step-4 "removed/loosened/inverted guard" probe does NOT
+  key on it and the NEW explicit security-relevance probe is what catches it),
+  where the security gap MUST be called out, and (2) a presentational/markup diff,
+  where inventing a security risk is a false positive. Security flows through the
   EXISTING security_change classification + loaded change rules - no parallel
   taxonomy, no vulnerability-checklist dump, no vendor/tool-name dump.
 providers:
@@ -183,10 +186,15 @@ prompts:
     Apply the loaded skill. The developer has WAIVED the section-by-section
     confirmation gates and asked for a single-pass review: run the adversarial
     discovery pass yourself against the raw diff, name the concrete risks you
-    discover (anchored to file:line), and deliver the verdict in this one turn -
-    no confirmation question. Keep the response concise and evidence-led.
+    discover (anchored to file:line), and deliver the verdict in this one turn.
+    Do NOT end with a confirmation or clarifying question of ANY kind - not even
+    "was this intended?" or "should I check X?". If something looks possibly
+    intentional, name it as a risk to resolve in your next-actions list and let
+    the verdict stand; the developer wants a decision this turn, not a question.
+    Refer to any classification in plain risk language - do NOT surface the
+    internal taxonomy label itself. Keep the response concise and evidence-led.
 tests:
-  - description: "SEED (grounded inclusion) - loosened authorisation guard must be flagged as a security gap"
+  - description: "SEED (grounded inclusion) - a brand-new endpoint added with NO authorisation check (a MISSING guard) must be flagged as a security gap"
     vars:
       user_prompt: >-
         Is this safe to merge?
@@ -194,46 +202,66 @@ tests:
         ## git diff
         ```diff
         diff --git a/src/api/documents.py b/src/api/documents.py
-        @@ src/api/documents.py:40-52 @@
-         40 @router.get("/documents/{doc_id}")
-         41 def get_document(doc_id: str, user: User = Depends(current_user)):
-         42     doc = repo.load(doc_id)
-        -43     if doc.owner_id != user.id and not user.is_admin:
-        -44         raise Forbidden()
-        +43     # ownership check relaxed: any authenticated user may read
-         45     return doc.to_response()
+        @@ src/api/documents.py:38-48 @@
+         38 @router.get("/documents/{doc_id}")
+         39 def get_document(doc_id: str, user: User = Depends(current_user)):
+         40     doc = repo.load(doc_id)
+         41     if doc.owner_id != user.id and not user.is_admin:
+         42         raise Forbidden()
+         43     return doc.to_response()
+        +44
+        +45 @router.get("/documents/{doc_id}/raw")
+        +46 def get_document_raw(doc_id: str):
+        +47     doc = repo.load(doc_id)
+        +48     return doc.raw_bytes()
         ```
-        Context: `get_document` returns a document by id. The diff REMOVES the
-        ownership/authorisation guard, so any authenticated user can now read any
-        document by guessing or enumerating ids, not just the owner or an admin.
+        Context: this diff ADDS a brand-new endpoint `GET /documents/{doc_id}/raw`
+        that returns the raw document bytes. Unlike the existing `get_document`
+        above it (which depends on `current_user` and enforces an ownership/admin
+        check), the new handler has NO authentication dependency and NO
+        authorisation check at all - any unauthenticated caller can fetch any
+        document's raw bytes by id. No existing guard was removed, loosened, or
+        inverted; the guard is simply ABSENT from the newly-added route. The
+        endpoint is NOT meant to be public (raw document bytes are owner-private,
+        same as the guarded sibling route) - the missing guard is the defect to
+        assess, not an intentional design choice to query back.
 
         ## Fresh test run
         ```text
         $ pytest tests/api/test_documents.py -q
         tests/api/test_documents.py::test_owner_can_read_own_document PASSED
-        7 passed, 0 skipped in 0.63s
+        tests/api/test_documents.py::test_raw_endpoint_returns_bytes PASSED
+        8 passed, 0 skipped in 0.71s
         ```
-        (The tests only exercise the owner reading their OWN document; no test
-        asserts a non-owner is forbidden, so removing the guard stays green.)
+        (The new endpoint's only test asserts it returns bytes for a happy-path
+        id; no test asserts an unauthenticated or non-owner caller is rejected, so
+        the missing guard stays green.)
       security_must_appear: true
       expected_shape: >-
-        Evidence-led verdict that INDEPENDENTLY flags the removed authorisation
-        guard as a security gap: any authenticated user can now read any
-        document (broken object-level authorisation / IDOR-shaped), anchored to
-        src/api/documents.py:43, treated as an uncovered SAFE-blocker, mapped to
-        a normal next action (a negative-path test asserting a non-owner gets
-        Forbidden, plus a review of the relaxation). Notes the green tests only
-        cover the owner path so they cannot catch this. Delivers NOT SAFE TO
-        MERGE. Ends without a confirmation question.
+        Evidence-led verdict that INDEPENDENTLY flags the newly-added
+        `GET /documents/{doc_id}/raw` endpoint as a security gap: it has NO
+        authentication/authorisation check, so any (even unauthenticated) caller
+        can read any document's raw bytes by id (broken/missing object-level
+        authorisation, IDOR-shaped), anchored to src/api/documents.py:45-48,
+        mapped through the coverage ledger as an UNCOVERED SAFE-blocker (no fresh
+        test exercises the unauthorised-access path), and mapped to a normal next
+        action (a negative-path test asserting an unauthenticated / non-owner
+        caller gets Forbidden/Unauthorized, plus a review of why the new route
+        skips the guard the sibling route enforces). Notes the green tests only
+        cover the happy bytes path so they cannot catch this. Delivers NOT SAFE
+        TO MERGE. Ends without a confirmation question.
       security_expectation: >-
-        SECURITY SHOULD BE CALLED OUT. The diff removes an ownership/authorisation
-        check on a data-read endpoint - a concrete authorisation failure mode.
-        The review must name it, anchor it to the changed line, treat it as a
-        SAFE-blocker, and map it to a normal next action (a negative-path
-        authorisation test + a review). A vague "consider security" without the
-        concrete anchored gap does NOT satisfy this.
+        SECURITY SHOULD BE CALLED OUT. The diff ADDS a new data-read endpoint with
+        NO authentication or authorisation check - a concrete MISSING-guard
+        authorisation failure mode (note: nothing was removed/loosened/inverted,
+        so a probe that only keys on a changed guard would miss it; the security
+        surface must be recognised from the new unprotected route itself). The
+        review must name it, anchor it to the changed lines, map it through the
+        coverage ledger as an uncovered SAFE-blocker, and map it to a normal next
+        action (a negative-path authorisation test + a review). A vague "consider
+        security" without the concrete anchored gap does NOT satisfy this.
       anti_patterns:
-        - Declares SAFE because the suite is green, missing the removed authorisation guard.
+        - Declares SAFE because the suite is green, missing the unprotected new endpoint.
         - >-
           Vulnerability-checklist dumping - reciting OWASP Top 10 / generic
           security categories instead of naming the one concrete authorisation
@@ -241,7 +269,7 @@ tests:
         - >-
           Vendor / tool-name dumping - listing security scanners or vendor
           products without grounding them in the diff or the named gap.
-        - Only names generic API risks without anchoring to the removed ownership check.
+        - Only names generic API risks without anchoring to the unprotected new route.
         - Asking another confirmation question instead of delivering the verdict.
         - Surfacing literal taxonomy labels such as security_change.
   - description: "SEED (grounded omission) - presentational markup diff must NOT have security invented"

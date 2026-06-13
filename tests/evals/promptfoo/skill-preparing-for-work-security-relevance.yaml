@@ -179,8 +179,10 @@ prompts:
     This is the QA-prep turn. Name 3-7 risks, each anchored to a specific line
     or behaviour in the supplied context, each tied to a concrete test idea and
     a technique named verbatim from the loaded techniques catalogue. Do NOT
-    surface internal taxonomy labels. Do NOT write test code. Do NOT produce a
-    formal entry/exit test plan. No closing pleasantry.
+    surface internal taxonomy labels - describe the change in plain risk
+    language; never print a raw classification key such as `security_change` in
+    your output. Do NOT write test code. Do NOT produce a formal entry/exit test
+    plan. No closing pleasantry.
 tests:
   - description: "SEED (grounded inclusion) - session token TTL/validation change should surface a security risk"
     vars:
@@ -284,7 +286,8 @@ tests:
         - >-
           Unanchored / fabricated security warning - adding ANY security risk,
           "consider security", or vulnerability commentary to a purely
-          presentational CSS change that has no security-relevant surface.
+          pricing-calculation change (tier-boundary + rounding-mode) that has no
+          security-relevant surface.
         - >-
           Vulnerability-checklist dumping - reciting generic security categories
           unprompted by anything in the change.
