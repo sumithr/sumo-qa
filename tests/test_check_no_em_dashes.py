@@ -69,6 +69,39 @@ def test_tilde_fence_is_also_exempt():
     assert checker.prose_hits(text) == []
 
 
+def test_horizontal_bar_lookalike_is_detected():
+    # U+2015 renders like an em-dash; it must not slip past the guard.
+    hits = checker.prose_hits("The verdict ― and it is final.\n")
+    assert len(hits) == 1
+    assert hits[0][1] == "―"
+
+
+def test_mixed_delimiter_does_not_close_the_fence():
+    # A ~~~ line must NOT close a ```-opened fence; the dash stays exempt
+    # and the fence remains open through the ~~~ content line.
+    text = "```python\nsample — one\n~~~\nsample — two\n```\nprose — flagged\n"
+    hits = checker.prose_hits(text)
+    # Only line 6 (real prose) is flagged; the two fenced dashes and the
+    # non-closing ~~~ line stay exempt.
+    assert [h[0] for h in hits] == [6]
+    assert hits[0][1] == checker.EM_DASH
+
+
+def test_shorter_run_does_not_close_a_longer_fence():
+    # A 3-backtick line is content inside a 4-backtick fence, not a close.
+    text = "````\ninner — fenced\n```\nstill — fenced\n````\nprose — flagged\n"
+    hits = checker.prose_hits(text)
+    assert [h[0] for h in hits] == [6]
+
+
+def test_over_indented_fence_is_not_a_fence():
+    # 4+ spaces of indent is an indented code block, not a fenced one, so a
+    # ``` there does not open a fence and the following prose IS checked.
+    text = "        ```\nprose — flagged\n"
+    hits = checker.prose_hits(text)
+    assert any(h[0] == 2 for h in hits)
+
+
 def test_dash_in_a_table_row_is_prose_and_flagged():
     # Markdown tables are not fenced, so their cells are prose.
     text = "| col |\n|---|\n| value — note |\n"

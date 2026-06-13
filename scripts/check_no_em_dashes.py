@@ -28,11 +28,22 @@ import re
 import sys
 from pathlib import Path
 
-# Em-dash (U+2014) and en-dash (U+2013). The ordinary hyphen-minus is fine.
+# Dash characters that read as an em-dash-style slop tell. The ordinary
+# hyphen-minus (U+002D) is fine; these are the wide/look-alike dashes:
+#   U+2014 em-dash, U+2013 en-dash, U+2015 horizontal bar (em-dash look-alike),
+#   U+2012 figure dash.
+DASH_NAMES = {
+    "—": "em-dash",
+    "–": "en-dash",
+    "―": "horizontal bar",
+    "‒": "figure dash",
+}
 EM_DASH = "—"
 EN_DASH = "–"
-_DASHES = (EM_DASH, EN_DASH)
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+# A fenced-code delimiter is a run of >=3 backticks or tildes, indented 0-3
+# spaces (CommonMark; 4+ spaces is an indented code block, not a fence).
+_FENCE_RE = re.compile(r"^(?P<indent> {0,3})(?P<marker>`{3,}|~{3,})(?P<rest>.*)$")
 
 # Scanned when no explicit files are passed. Top-level docs/ only; nested
 # trees (e.g. docs/superpowers/) are local-only and not user-facing.
@@ -40,17 +51,35 @@ DEFAULT_GLOBS = ("README.md", "DEMO.md", "AGENTS.md", "docs/*.md")
 
 
 def prose_hits(text: str) -> list[tuple[int, str, str]]:
-    """Return ``(line_number, dash_char, stripped_line)`` for every em/en-dash
-    in prose, skipping fenced code blocks."""
+    """Return ``(line_number, dash_char, stripped_line)`` for every wide dash
+    in prose, skipping fenced code blocks.
+
+    The fence state machine follows CommonMark: a fence opens on a run of >=3
+    backticks or tildes (indent 0-3); it closes only on a later line using the
+    SAME character, a run at least as long, and no trailing content. A shorter
+    or different-character delimiter inside the block is content, not a close,
+    so mixed/nested-looking delimiters can't prematurely flip the state."""
     hits: list[tuple[int, str, str]] = []
-    in_fence = False
+    fence: tuple[str, int] | None = None  # (char, length) while inside a fence
     for line_no, line in enumerate(text.split("\n"), start=1):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
+        m = _FENCE_RE.match(line)
+        if m:
+            marker = m.group("marker")
+            char, length = marker[0], len(marker)
+            if fence is None:
+                # Opening fence (an info string may follow, e.g. ```python).
+                fence = (char, length)
+            else:
+                open_char, open_len = fence
+                closes = char == open_char and length >= open_len and m.group("rest").strip() == ""
+                if closes:
+                    fence = None
+            # A delimiter line is never prose, whether it opened, closed, or
+            # is a non-closing run inside the block.
             continue
-        if in_fence:
+        if fence is not None:
             continue
-        for ch in _DASHES:
+        for ch, _name in DASH_NAMES.items():
             if ch in line:
                 hits.append((line_no, ch, line.strip()))
                 break
@@ -83,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if failures:
         for md, line_no, ch, line in failures:
-            name = "em-dash" if ch == EM_DASH else "en-dash"
+            name = DASH_NAMES.get(ch, "wide dash")
             print(f"{md}:{line_no}: {name} in prose -> {line}", file=sys.stderr)
         print(
             f"\n{len(failures)} em/en-dash(es) found in user-facing prose. "
