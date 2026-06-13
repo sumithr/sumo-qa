@@ -6,13 +6,13 @@ All optional. Defaults work out of the box after `pip install sumo-qa && sumo-qa
 |---|---|---|
 | `QA_STANDARDS_PATH` | bundled `_data/standards/packs` / repo `standards/packs` | Override the team's loaded standards packs |
 | `QA_RULES_PATH` | bundled `_data/standards/rules/change_rules.yaml` / repo `standards/rules/change_rules.yaml` | Override the team's loaded change rules |
-| `QA_TEST_DATA_PATH` | `knowledge/test_data` (cwd) | Override the known-good test data catalogue. **No samples ship in the wheel** — the catalogue is empty on a fresh install; populate it per your team's domains. |
+| `QA_TEST_DATA_PATH` | `knowledge/test_data` (cwd) | Override the known-good test data catalogue. **No samples ship in the wheel**, the catalogue is empty on a fresh install; populate it per your team's domains. |
 | `QA_KNOWLEDGE_PATH` | bundled `_data/knowledge` / repo `knowledge` | Override the canonical knowledge catalogues (classifications, approaches, principles, techniques) |
 | `SUMO_QA_DEBUG_DIR` | unset | Directory to capture per-tool-call args + output as JSON for debugging / grading |
 
 These env vars are the lowest-level override and always win. For a no-clone way
 to add custom content, see [Adding custom knowledge without cloning the
-repo](#adding-custom-knowledge-without-cloning-the-repo) below — it inserts
+repo](#adding-custom-knowledge-without-cloning-the-repo) below, it inserts
 ingested project/global packs as middle tiers between the env vars and the
 bundled defaults.
 
@@ -35,16 +35,16 @@ bundled defaults.
 
 ## Adding custom knowledge without cloning the repo
 
-PyPI users can add or replace QA knowledge/standards/rules at runtime — no
+PyPI users can add or replace QA knowledge/standards/rules at runtime, no
 clone, fork, or hand-authored env-var tree required. Hand a native file (or a
 directory of them) to the ingestion tool and it validates, normalizes, and
 writes the content into a user-writable pack.
 
 **Two scopes** (the tool asks which to use, mirroring `sumo-qa-install`):
 
-- **`project`** → `<cwd>/.sumo-qa/` — applies to the current repo only.
+- **`project`** → `<cwd>/.sumo-qa/`: applies to the current repo only.
 - **`global`** → `$XDG_DATA_HOME/sumo-qa/` (else `~/.local/share/sumo-qa/`;
-  `%LOCALAPPDATA%\sumo-qa\` on Windows) — applies to every repo.
+  `%LOCALAPPDATA%\sumo-qa\` on Windows): applies to every repo.
 
 **Precedence** (highest wins, resolved per knowledge file):
 
@@ -54,7 +54,7 @@ explicit env var  >  project pack  >  global pack  >  bundled defaults  >  repo 
 
 So `QA_KNOWLEDGE_PATH` etc. still win over everything (the low-level override
 mechanism is unchanged), and a pack containing only `principles.md` overrides
-just principles — the other catalogues fall through to the bundled defaults.
+just principles, the other catalogues fall through to the bundled defaults.
 
 **In conversation** (the MCP tool): say *"add this to the knowledge base"* and
 the agent calls `sumo_qa_ingest_knowledge_pack(source, scope, content_type)`.
@@ -74,7 +74,7 @@ content fails with an actionable error and **writes nothing**.
 A directory source may be either **flat** (the native files sitting directly in
 it) or a **repo-shaped tree** that mirrors the bundled layout
 (`knowledge/*.md`, `standards/packs/*.yaml`, `standards/rules/change_rules.yaml`)
-— so you can export your team's existing tree and ingest it as-is. Scanning is
+- so you can export your team's existing tree and ingest it as-is. Scanning is
 limited to those canonical locations (it does not recurse arbitrarily), and
 symlinked files or subdirectories are skipped.
 
@@ -105,8 +105,8 @@ any URL fetch), then re-ingests the result with an explicit `--type` /
 
 ## Review feedback memory
 
-A team can promote a recurring review lesson — *"we always miss timezone
-boundaries in billing"* — into an explicit, inspectable, reversible **review
+A team can promote a recurring review lesson, *"we always miss timezone
+boundaries in billing"*, into an explicit, inspectable, reversible **review
 feedback memory** that the planning and review skills consult as an **advisory
 hint**. It is deliberately not automatic learning: nothing is saved without an
 explicit, user-confirmed capture, and sumo-qa never auto-captures from a review,
@@ -115,10 +115,10 @@ prompt, or tool trace.
 **Storage reuses the same `project`/`global` pack location as ingestion** (it is
 *not* a second hidden tree) under a `feedback/` subdir:
 
-- **`project`** → `<cwd>/.sumo-qa/feedback/review_feedback.yaml` — this repo only.
+- **`project`** → `<cwd>/.sumo-qa/feedback/review_feedback.yaml`: this repo only.
 - **`global`** → the user data dir (`$XDG_DATA_HOME/sumo-qa/feedback/…`, else
   `~/.local/share/sumo-qa/feedback/…`; `%LOCALAPPDATA%\sumo-qa\feedback\…` on
-  Windows) — every repo.
+  Windows): every repo.
 
 **Each saved item carries** `scope` (where the lesson applies), `trigger_signal`
 (the change shape that should surface it), `recommended_probe` (the QA check to
@@ -134,13 +134,13 @@ authority is the `sumo_qa_ingest_knowledge_pack` path above (a #92 custom pack).
 
 **Sensitive input is rejected, not stored.** A free-text field that looks like a
 raw diff hunk, a secret/credential, a code snippet, or a pasted full issue/PR
-body fails validation and **nothing is written** — only your own summary is kept.
+body fails validation and **nothing is written**, only your own summary is kept.
 
 **In conversation** (the MCP tool): *"remember that we always miss timezone
 boundaries in billing"* → the agent calls `sumo_qa_capture_review_feedback`
 after confirming with you. *"what review lessons have we saved?"* lists them.
 
-**Inspect and remove** (the console script — capture goes through a host that can
+**Inspect and remove** (the console script, capture goes through a host that can
 confirm with you, so the CLI exposes only listing and deletion):
 
 ```bash

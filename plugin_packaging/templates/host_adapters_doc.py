@@ -1,5 +1,5 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
-"""Renders docs/host-adapters.md — the user-facing reference for which
+"""Renders docs/host-adapters.md, the user-facing reference for which
 hosts sumo-qa supports as native plugins and how each adapter is wired.
 
 This file is GENERATED. Do not hand-edit; bump the canonical source
@@ -30,7 +30,7 @@ overlay in `pyproject.toml`.
 ## Marketplace copy
 
 Marketplace-facing copy is canonical in `pyproject.toml`
-`[tool.sumo-qa.plugin]` and propagates ONLY through the generator — no
+`[tool.sumo-qa.plugin]` and propagates ONLY through the generator; no
 host template duplicates it. `short_description` (capped at 200 chars by
 the canonical loader) is available to any host field that wants short
 copy; the `[project]` description stays the default `description` in the
@@ -56,15 +56,14 @@ The canonical source is `pyproject.toml`:
 The generator (`python -m plugin_packaging.plugin_generator sync`)
 reads this canonical source, emits every committed plugin folder, and
 writes a SHA256 sidecar at `plugin_packaging/generated/manifest.json`.
-CI runs `python -m plugin_packaging.plugin_generator check` on every PR
-— if any emitted file drifts from the canonical source, the gate
-fails.
+CI runs `python -m plugin_packaging.plugin_generator check` on every PR;
+if any emitted file drifts from the canonical source, the gate fails.
 
 ## Wheel-vs-repo path resolution
 
-- `pip install sumo-qa && sumo-qa-install` — installer resolves bundled
+- `pip install sumo-qa && sumo-qa-install`: installer resolves bundled
   content from `<site-packages>/sumo_qa/_data/{{skills,hooks,assets}}/`.
-- `claude plugin install <repo>` / git clone — content lives at repo
+- `claude plugin install <repo>` / git clone: content lives at repo
   root; plugin manifests use repo-root-relative paths (`./skills/`,
   `./hooks/hooks.json`).
 
@@ -85,9 +84,9 @@ out of the box.
 
 ## Supported adapters
 
-- **Claude Code** — `.claude-plugin/plugin.json` auto-discovers `skills/`,
+- **Claude Code**: `.claude-plugin/plugin.json` auto-discovers `skills/`,
   `hooks/`, and `.mcp.json`. Two load paths: `claude --plugin-dir <repo>`
-  (session-scoped local-dev), or persistent marketplace install — add this
+  (session-scoped local-dev), or persistent marketplace install; add this
   repo as a marketplace and install the plugin:
 
       /plugin marketplace add sumithr/sumo-qa
@@ -99,7 +98,7 @@ out of the box.
   flow is wired and schema-valid but has not yet been run end-to-end in a
   live Claude Code session; treat the live install as unverified until that
   confirmation is recorded.
-- **Codex** — `.codex-plugin/plugin.json` declares explicit `skills` /
+- **Codex**: `.codex-plugin/plugin.json` declares explicit `skills` /
   `mcpServers` / `hooks` paths. The install + MCP-server-launch flow
   hasn't been verified end-to-end yet; treat as TBD until confirmed.
 
