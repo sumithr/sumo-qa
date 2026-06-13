@@ -10,10 +10,10 @@ This is a **design doc**, not a runnable harness. It specifies the rubric, the s
 
 | Scenario class | Source | Count |
 |---|---|---|
-| Skill behaviour | [`SCENARIOS.md`](SCENARIOS.md) §1–17 | 17 (covers all 15 skills; sub-skills #3 + #4 share `sumo-qa-implementing-with-tdd` with two approaches, and #16 + #17 share `sumo-qa-closing-qa-gaps` with two entry kinds) |
+| Skill behaviour | [`SCENARIOS.md`](SCENARIOS.md) §1–18 | 18 (covers all 16 skills; sub-skills #3 + #4 share `sumo-qa-implementing-with-tdd` with two approaches, and #16 + #17 share `sumo-qa-closing-qa-gaps` with two entry kinds) |
 | Tool selection — atomic tools | [`TOOL-SELECTION.md`](TOOL-SELECTION.md) §TS-1 to TS-15 | 15 (6 knowledge loaders + 4 test-data tools + 4 external-skill lifecycle tools + 1 capabilities-discovery tool) |
-| Tool selection — skill tools | [`TOOL-SELECTION.md`](TOOL-SELECTION.md) §"Skill tools (15)" | 15 (transitive — same scenarios as the skill behaviour evals; the *selection* assertion is independent of the *behaviour* assertion) |
-| **Total** | | **47 distinct evals** (30 tool-selection evals + 17 skill-behaviour scenarios; 15 skill scenarios double as their own tool-selection evals; `sumo_qa_ingest_knowledge_pack` has no selection scenario) |
+| Tool selection — skill tools | [`TOOL-SELECTION.md`](TOOL-SELECTION.md) §"Skill tools (16)" | 16 (transitive — same scenarios as the skill behaviour evals; the *selection* assertion is independent of the *behaviour* assertion) |
+| **Total** | | **49 distinct evals** (31 tool-selection evals + 18 skill-behaviour scenarios; 16 skill scenarios double as their own tool-selection evals; `sumo_qa_ingest_knowledge_pack` has no selection scenario) |
 
 ## Why LLM-as-judge, not pattern matching
 

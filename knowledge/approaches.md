@@ -1,8 +1,8 @@
 # Canonical QA approaches
 
-Ten canonical approaches the host LLM picks from when deciding the shape
+Eleven canonical approaches the host LLM picks from when deciding the shape
 of QA work. The LLM may invent a new approach if the situation genuinely
-needs one, but it must explain why none of these ten fit.
+needs one, but it must explain why none of these eleven fit.
 
 ## strategy-orchestration
 Repo-wide / policy-shaped ask: "design a test strategy", "audit our coverage",
@@ -57,3 +57,13 @@ concrete uncovered behaviour gap; close it one evidenced loop per gap --
 red, minimum change, green + regression, ledger update -- pausing on
 insufficient repo context. Next step is loading the
 `sumo-qa-closing-qa-gaps` skill.
+
+## triage-test-failure
+A test is failing or flaky and the cause is not yet known. Read the failure
+output, classify the cause (product regression, test bug, fixture/data,
+environment/dependency, timing/order, external service), and name the
+smallest next isolation/reproduction step BEFORE any fix. Diagnosis only --
+reruns only with a stated hypothesis; production code is touched only once a
+concrete product-behaviour gap is confirmed (then route to `regression-first`
+/ `closed-loop-gap-fix`). Next step is loading the
+`sumo-qa-triaging-test-failures` skill.
