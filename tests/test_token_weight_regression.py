@@ -62,10 +62,13 @@ PER_CALL_BUDGET = 1500
 # check on a wheel/sdist/package, container image, or bundle — assert the BUILT
 # artifact's required/forbidden members, not the source tree), raising techniques
 # to ~1301 approx-tokens (still well under PER_CALL_BUDGET) and the flow baseline
-# to ~3218. Budget gives a small regression cushion above the current catalogue.
+# to ~3218. #146 then added the 10th canonical approach (`closed-loop-gap-fix`,
+# the closed-loop regression workflow routing to `sumo-qa-closing-qa-gaps`),
+# raising the flow baseline to ~3297. Budget gives a small regression cushion
+# above the current catalogue.
 # For comparison the old heavy single-shot path emitted >10k tokens for one call,
 # which is what broke IntelliJ AI Assistant in the first place.
-PER_FLOW_BUDGET = 3250
+PER_FLOW_BUDGET = 3350
 
 
 def test_thin_catalogues_stay_under_per_call_budget():

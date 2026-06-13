@@ -8,7 +8,7 @@ body:
     attributes:
       value: |
         Use this template when natural-language routing picked the wrong skill,
-        invoked no skill when one of the 14 should have run, or chained skills in
+        invoked no skill when one of the 15 should have run, or chained skills in
         an unexpected order. For complaints about a skill's *output* once it ran,
         use **QA output quality issue** instead.
 

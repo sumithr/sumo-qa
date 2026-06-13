@@ -58,6 +58,7 @@ Anti-patterns:
 | regression-first | sumo-qa-implementing-with-tdd |
 | coverage-first-then-refactor | sumo-qa-implementing-with-tdd |
 | strengthen-test-coverage | sumo-qa-strengthening-tests |
+| closed-loop-gap-fix | sumo-qa-closing-qa-gaps |
 | verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
 | recommend-removal | (stop — propose deletion, no sub-skill) |
@@ -126,7 +127,7 @@ User: "create a test plan for refactoring the pricing pipeline". Pick `tdd-scaff
 
 ## Next skill in the chain
 
-Route to exactly ONE skill. For approach-based routing, use the **Routing table** above (`tdd-scaffold`/`regression-first`/`coverage-first-then-refactor` → `sumo-qa-implementing-with-tdd`; `strengthen-test-coverage` → `sumo-qa-strengthening-tests`; `verify-existing` → `sumo-qa-reviewing-before-merge`; `strategy-orchestration` → `sumo-qa-strategising`; `n/a` external surface → `sumo-qa-suggesting-external-skill`). Intent-shaped routing on top of that:
+Route to exactly ONE skill. For approach-based routing, use the **Routing table** above (`tdd-scaffold`/`regression-first`/`coverage-first-then-refactor` → `sumo-qa-implementing-with-tdd`; `strengthen-test-coverage` → `sumo-qa-strengthening-tests`; `closed-loop-gap-fix` → `sumo-qa-closing-qa-gaps`; `verify-existing` → `sumo-qa-reviewing-before-merge`; `strategy-orchestration` → `sumo-qa-strategising`; `n/a` external surface → `sumo-qa-suggesting-external-skill`). Intent-shaped routing on top of that:
 
 - *"plan QA for this story"* → `sumo-qa-preparing-for-work`; a formal test plan with entry/exit criteria → `sumo-qa-creating-test-plan`.
 - generic *"how do I test X"* → `sumo-qa-answering-testing-question`; test-data-shaped → `sumo-qa-finding-test-data`.

@@ -1,6 +1,6 @@
 # Real-world QA scenarios
 
-Ten scenarios sumo-qa is designed to handle. Each one captures: the user's actual prompt, which skill activates, the *shape* of the interaction the user should see, and what would tell you the interaction has gone wrong.
+Real-world scenarios sumo-qa is designed to handle. Each one captures: the user's actual prompt, which skill activates, the *shape* of the interaction the user should see, and what would tell you the interaction has gone wrong.
 
 These aren't pytest assertions — they're an interaction-quality reference. The runtime test is in [`tests/test_session_start_hook.py`](../test_session_start_hook.py) (verifies the using-sumo-qa router gets injected on every session). The interaction-quality test is human-in-the-loop: dispatch sumo-qa on these prompts and check the response matches the pattern below.
 
@@ -328,6 +328,49 @@ For each scenario, an agent role-play of the expected interaction is captured un
 - Runs `npx skills ...` directly from the host shell instead of the sumo-qa MCP tools.
 - Routes to `sumo-qa-implementing-with-tdd` and tries to scaffold Playwright tests inline (wrong shape — the user asked for skill discovery, not in-place TDD).
 - Tries `sudo` to install Node.js without consent.
+
+---
+
+## 16. Close a review-named gap, one evidenced loop at a time
+
+**User prompt:** *"Your review flagged three uncovered risks on the refund flow — close them, drive them to regression tests."*
+
+**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-closing-qa-gaps`.
+
+**Expected interaction shape:**
+1. Scopes the loop to EXACTLY ONE of the three named gaps and parks the others by id, out loud (*"R2 and R3 are parked as later loops — I'll start the next one only when you ask."*).
+2. Inspects the loop prerequisites with the host's file tools: the production file, the matching test file, and how to run the tests. **HARD GATE:** if any of the three cannot be inspected (no named gap, unreadable files, unknown test command), it refuses to start the loop this turn, names every missing prerequisite, and asks — no invented paths, no fabricated output, no generic plan in place of the pause.
+3. Runs the inner cycle under the TDD skill's red-first discipline: focused failing-test idea (file, function, input, assertion, verbatim catalogue technique), red output captured verbatim BEFORE any production change.
+4. After the minimum green change: green output + targeted regression counts captured; only then does the gap's recorded status move (a ledger row's `evidence_status` flips `failing`→`passing` quoting both evidence lines, with its `residual` resolved).
+5. Closes the loop by offering — not starting — the next parked gap, in conditional form. The second loop begins only on an explicit ask.
+6. Never says "safe to merge" — routes any merge question to `sumo-qa-reviewing-before-merge`.
+
+**Anti-patterns:**
+- Batches all three gaps in one pass (no per-loop evidence trail).
+- Writes the production fix in the same turn as the failing test (no captured red).
+- Marks a ledger row covered on wording alone, or flips a row whose evidence didn't change.
+- Proceeds on assumed repo context instead of pausing when files can't be inspected.
+- Treats "while you're in there, tidy the module" as authorization for a broad rewrite.
+
+---
+
+## 17. Take a mutation survivor through the closed loop
+
+**User prompt:** *"mutmut left a survivor on `pricing/discounts.py:42` (`>` mutated to `>=`) — take it through the loop end to end."*
+
+**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-closing-qa-gaps` (mutation-survivor entry).
+
+**Expected interaction shape:**
+1. Enters under the strengthening skill's Iron Law: **production code stays unchanged** while the test is strengthened to kill the survivor.
+2. Anchors the survivor at both ends: its production location and mutation (`pricing/discounts.py:42` — `subtotal > 10000` → `>=`) AND the named strengthening test (file + test name), with the technique cited by its verbatim catalogue heading (boundary value analysis at `subtotal = 10000`, assertion polarity that the original passes and the mutant fails).
+3. Only if the strengthened test exposes a genuine production defect does the loop continue into a red→green fix — surfaced as a separate, explicit decision, never silently.
+4. Evidence discipline is unchanged from scenario 16: red captured before any change, green + regression before the status moves, one survivor per loop, next survivor only on explicit ask.
+
+**Anti-patterns:**
+- Edits production code before the test is strengthened ("easiest way to kill it").
+- Tautological assertion that re-states the production expression.
+- Walks every survivor in one batch.
+- Claims the module is now safe to merge after one survivor is killed.
 
 ---
 

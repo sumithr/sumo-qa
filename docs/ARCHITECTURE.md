@@ -74,7 +74,7 @@ See [TOOLS.md](TOOLS.md) for the full list.
 Plain markdown under `knowledge/`:
 
 - `classifications.md` — 10 canonical change classifications
-- `approaches.md` — 9 canonical QA approaches
+- `approaches.md` — 10 canonical QA approaches
 - `principles.md` — ISTQB Foundation, Advanced, ISO/IEC 25010
 - `techniques.md` — black-box / white-box / experience / static / property-based / mutation
 - `test_data/` — known-good test data entries

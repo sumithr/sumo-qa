@@ -34,10 +34,10 @@ To regenerate or extend an example after changing a skill, dispatch an agent wit
 
 ## Coverage gap (open follow-up)
 
-The 10 worked examples cover skills #1–10 in `SCENARIOS.md`. Scenarios #11–15 (router invocation, planning-rollout, executing-rollout, finishing-work, suggesting-external-skill) were added to the spec by the LLM-evals design pass; their worked examples are an open follow-up — write them by dispatching an agent against each scenario prompt with the matching skill loaded.
+The 10 worked examples cover skills #1–10 in `SCENARIOS.md`. Scenarios #11–15 (router invocation, planning-rollout, executing-rollout, finishing-work, suggesting-external-skill) were added to the spec by the LLM-evals design pass, and #16–17 (closing-qa-gaps review-gap loop + mutation-survivor loop) by issue #146; their worked examples are an open follow-up — write them by dispatching an agent against each scenario prompt with the matching skill loaded.
 
 ## Related design docs
 
-- [`../SCENARIOS.md`](../SCENARIOS.md) — 15 skill behaviour scenarios (input, expected interaction shape, anti-patterns).
-- [`../TOOL-SELECTION.md`](../TOOL-SELECTION.md) — 10 atomic-tool selection scenarios (which tool the host LLM should pick for which intent) + a transitive map for the 14 skill-tool selections.
+- [`../SCENARIOS.md`](../SCENARIOS.md) — 17 skill behaviour scenarios (input, expected interaction shape, anti-patterns).
+- [`../TOOL-SELECTION.md`](../TOOL-SELECTION.md) — 10 atomic-tool selection scenarios (which tool the host LLM should pick for which intent) + a transitive map for the 15 skill-tool selections.
 - [`../LLM-EVALS.md`](../LLM-EVALS.md) — design for turning the scenario specs above into LLM-as-judge evals (rubric templates, cadence, costs, open design questions).
