@@ -51,6 +51,7 @@ Track these as an ordered work list, in order:
    - **Safety-critical / regulated / healthcare / aviation / finance domain** → technique: MC-DC, decision tables, review (walkthrough / technical review / inspection), or static analysis. NOT state transition testing unless the user describes a state machine. Principle: `Testing is context-dependent` (regulated context drives the technique mix) or `Early testing saves time and money — shift left.` (safety-critical defects are 10x cheaper caught in review than production).
    - **"Is X worth it?" effort/value question about mutation testing** → technique: mutation testing, framed as a targeted risk tradeoff (not a blanket mandate); the answer MUST contain the literal phrases *"assertion gap"* and *"equivalent mutant"* (or *"equivalent mutants"*) and explain surviving mutants are signals to inspect — either an assertion gap (real test weakness) OR an equivalent mutant (suppress in config). Omitting either phrase fails relevance. Principle: `Pesticide paradox` (green tests stop finding defects — mutation refreshes assertions) or `Exhaustive testing is impossible; use risk and prioritisation.` (focus mutation on critical logic).
    - **Boundary / threshold / range question** → technique: boundary value analysis + equivalence partitioning. Principle: `Defects cluster` (off-by-one and limit defects cluster at boundaries — that's why the technique exists).
+   - **Security-relevant surface (auth/authorisation, secrets/token, input sanitisation, rate limiting, a "security checklist / what tools" question)** → run the grounded security-relevance pass from `using-sumo-qa`: name the CONCRETE failure mode the described change actually creates (a non-owner reaching a protected path, a reset token that never expires or is replayable, an unsanitised input reaching a sink) and map it to a normal next action (a negative-path test, a review, static/dynamic analysis). Technique: `decision tables` (valid/expired/tampered/replayed conditions), `state transition testing` (token lifecycle), `boundary value analysis` (TTL/expiry), `error guessing`, `review`, or `static analysis` — verbatim from the catalogue. Principle: `Testing is context-dependent` or `Early testing saves time and money — shift left.` NEVER recite a vulnerability checklist or dump vendor/tool names; if the user asks for a "checklist" or "tool list", REFRAME to the concrete failure modes and pick any tool by the discovery discipline (grounded in the stack). If the change has no grounded security surface, do not raise security at all.
 6. If the question implies a specialty surface, follow the discovery discipline from `using-sumo-qa` (observe the surface, reason from first principles, web-search current options, recommend with citation; "I don't know" is acceptable — no internal tool catalogue). Offer to install and scaffold the first tests; confirm before installing deps.
 7. Synthesise: 3-7 sentences naming the principle/technique/tool; conversational, not a JSON blob.
 8. If the question is a prep/plan/review/strategy in disguise, stop and route to the matching skill.
@@ -64,7 +65,7 @@ See the Checklist above — that's the flow.
 | Thought | Reality |
 |---|---|
 | "Just say 'add unit tests and integration tests'" | Generic. Pick a technique from the catalogue (boundary value, decision table, etc.). |
-| "Mention security as a consideration" | Name the actual surface AND the right tool for it (HTTP DAST scanner / SAST tool / token-validation harness — pick from your knowledge by fit). Bare "consider security" is not senior-QA. |
+| "Mention security as a consideration" / "dump the OWASP checklist they asked for" | Name the CONCRETE grounded failure mode the change creates and map it to a next action (test/review/static/dynamic check); reframe a "checklist/tool list" request rather than dumping one. Bare "consider security", a vulnerability-category list, or a vendor/tool-name dump is not senior-QA. If no grounded security surface, don't raise it. |
 | "I'll cite a principle by paraphrasing — saves loading the catalogue" | Principles are catalogue-authoritative. Use the catalogue's wording. (Tool brand picks are different — those come from your knowledge of the ecosystem.) |
 | "I'll restrict myself to tool categories I already know" | Wrong. Specialty tooling exists for functional surfaces too, and new categories emerge constantly. Reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 | "User asked a planning question — I'll answer inline" | Route to `sumo-qa-preparing-for-work` or `sumo-qa-creating-test-plan`. Don't reinvent. |
@@ -82,9 +83,18 @@ Answer cites ISTQB Principle 4 (defects cluster — feed ordering is a hotspot),
 User: "Is mutation testing worth the effort for our small Go service?"
 Answer cites `Pesticide paradox` (green tests stop finding defects — mutation refreshes assertions), names `mutation testing` verbatim, then anchors three claims: (1) focus on critical logic, not a blanket mandate; (2) surviving mutants are signals to inspect, not auto-triggers to rewrite production code; (3) each survivor is either an assertion gap (real) or an equivalent mutant (suppress in config) — the developer's call. Suggests Gremlins (Go mutation tooling) and asks which package carries the most release risk before scoping a run.
 
+### Good — "give me the security checklist / tool list" (refuse the dump, reframe to grounded gaps)
+
+User: "Give me the full security testing checklist and the list of security tools for my new password-reset email flow."
+Do NOT hand over a generic checklist or a vendor tool list. Reframe to the CONCRETE failure modes the password-reset flow actually creates: a reset token that never expires or is replayable (single-use not enforced), or valid-email enumeration via the response. Name `decision tables` (valid / expired / already-used / replayed token) and `state transition testing` (token lifecycle ISSUED → CONSUMED → EXPIRED), cite `Testing is context-dependent`, and map each to a next action — a negative-path test that an expired or already-used token is rejected, plus a review of the enumeration response. Pick any scanner by the discovery discipline (grounded in the stack), or ask ONE question about the stack first — never recite OWASP categories or a tool roster.
+
 ### Bad
 
 "You should add unit tests, integration tests, and consider edge cases. Maybe test performance too." — no cited principle, no named technique, no specialty tool named by fit.
+
+### Bad — security checklist dump
+
+"Run the OWASP Top 10 checklist: injection, broken auth, XSS, CSRF… and use ZAP, Burp, and a SAST scanner." — a vulnerability-category recital plus a vendor tool roster, neither grounded in the password-reset flow's concrete failure modes. The reframe to token-expiry / single-use / replay / enumeration is what senior QA owes here.
 
 ## Next skill in the chain
 

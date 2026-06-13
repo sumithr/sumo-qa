@@ -1,0 +1,297 @@
+description: >
+  Security-relevance eval for sumo-qa-reviewing-before-merge (#282). A review
+  pass performs a LIGHTWEIGHT INTERNAL security-relevance check as part of the
+  ordinary adversarial discovery sweep: a grounded security gap in the diff is
+  named as a concrete, anchored risk (not invented), and a diff with NO
+  security-relevant surface must NOT have security risk fabricated onto it. Two
+  seeds pin BOTH directions: (1) a diff that loosens an authorisation guard, where
+  the security gap MUST be called out, and (2) a presentational/markup diff, where
+  inventing a security risk is a false positive. Security flows through the
+  EXISTING security_change classification + loaded change rules - no parallel
+  taxonomy, no vulnerability-checklist dump, no vendor/tool-name dump.
+providers:
+  # Review discovery + remediation-prescription is a reasoning-tier surface, so
+  # this config pins gpt-5-mini like its sibling skill-reviewing-before-merge-adversarial.yaml
+  # (gpt-4o-mini under-prescribes the next-action on the authorisation seed).
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+  assert:
+    # Decisive #282 security-axis gate, isolated from unrelated SHAPE/GROUNDING
+    # wobble. The INCLUSION seed must call out the grounded security gap; the
+    # OMISSION seed must NOT invent one. Strengthens — never loosens — the
+    # llm-rubric below.
+    - type: javascript
+      value: |
+        const out = String(output || '').toLowerCase();
+        const securityTerms = /(security|securit|vulnerab|owasp|\bxss\b|\bcsrf\b|\bsqli\b|injection|authoris|authoriz|authentic|ownership|\btoken\b|\bsecret\b|sanitis|sanitiz|replay|tamper|privilege escalation|idor|forbidden)/;
+        const mentionsSecurity = securityTerms.test(out);
+        if (context.vars.security_must_appear === true) {
+          return mentionsSecurity
+            ? { pass: true, score: 1, reason: 'Security-axis gate: grounded security gap called out (required for this seed).' }
+            : { pass: false, score: 0, reason: 'Security-axis gate FAIL: a grounded security gap was required but the review raised none.' };
+        }
+        // Omission direction: the precise "fabricated security RISK vs correctly
+        // DECLINING security" distinction is left to the llm-rubric's
+        // fabricated-security anti-pattern (a decline legitimately uses the word
+        // "security"), so this gate does not hard-fail on mere term presence.
+        return { pass: true, score: 1, reason: 'Security-axis gate: omission seed - fabricated-security check delegated to the llm-rubric anti-pattern.' };
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Security-relevance contract for THIS seed:** {{security_expectation}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate INDEPENDENTLY
+      handled the security-relevance contract from a raw diff (no risks were
+      pre-supplied) AND avoided the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate has loaded the canonical change classifications and the
+      team's change rules below for your verification:
+
+
+      --- LOADED CLASSIFICATIONS ---
+
+      {{loaded_classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      --- LOADED RULES ---
+
+      {{loaded_rules}}
+
+      --- END LOADED RULES ---
+
+
+      Evaluate FOUR axes independently:
+
+
+      This is a SECURITY-RELEVANCE eval: the GATING axes are C (security
+      relevance) and D (anti-patterns). For the INCLUSION seed, C also requires
+      the security gap to be treated as a SAFE-blocker (a NOT SAFE / NEEDS WORK
+      verdict driven BY the security gap). For the OMISSION seed, C is satisfied
+      by NOT fabricating a security risk; the SAFE-vs-NEEDS-WORK direction on
+      unrelated PRESENTATIONAL residuals is OUT OF SCOPE for this security eval
+      (the reviewing skill's general trivial-change behaviour is graded
+      elsewhere) - do NOT fail C or D on the omission seed merely because the
+      candidate is cautious about a non-security residual, only if it INVENTS a
+      security risk. A and B are sanity checks. NEVER relax C or D.
+
+      A. SHAPE (sanity) - is this an evidence-led, diff-anchored verdict (not
+         generic "edge cases")? PASS unless it is clearly not a real review.
+
+      B. GROUNDING (sanity) - does it cite the specific changed file:line? PASS
+         unless wholly unanchored.
+
+      C. SECURITY-RELEVANCE (gating) - apply the security-relevance contract for this seed:
+         - If a security gap SHOULD be called out: the review must name the
+           CONCRETE security failure mode in the diff (e.g. the loosened
+           authorisation guard now reachable by an unintended caller), anchor it
+           to the changed line, treat it as a SAFE-blocker / uncovered risk, and
+           map it to a normal next action (a negative-path test, a review, a
+           static check, a config/dependency check). Missing it, or only a vague
+           "consider security", FAILS this axis.
+         - If security SHOULD NOT be invented: the diff has no
+           authentication/authorisation/secrets/input-sanitisation/config/
+           dependency surface, so adding a security risk is a fabricated risk.
+           Omission is the CORRECT call; inventing security FAILS this axis.
+
+      D. ANTI-PATTERNS (gating) - for each anti-pattern listed in the rubric,
+         mark ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table (C and D gate; A/B only fail when it is not a real
+      evidence-led diff-anchored review):
+         | C SECURITY | Any anti-pattern PRESENT? | A/B genuine review? | Verdict |
+         | PASS       | No                        | Yes                 | PASS    |
+         | PASS       | Yes                       | *                   | FAIL    |
+         | FAIL       | *                         | *                   | FAIL    |
+         | *          | *                         | No (not a review)   | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C/D then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical change classifications:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    ...and the team's change rules (keyed by classification):
+
+    --- LOADED RULES ---
+    {{loaded_rules}}
+    --- END LOADED RULES ---
+
+    Raw repository diff and fresh verification evidence for this turn. The risks
+    have NOT been named or confirmed for you - you must discover them yourself
+    from the raw diff. You have just read the diff and run the tests shown below.
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass review: run the adversarial
+    discovery pass yourself against the raw diff, name the concrete risks you
+    discover (anchored to file:line), and deliver the verdict in this one turn -
+    no confirmation question. Keep the response concise and evidence-led.
+tests:
+  - description: "SEED (grounded inclusion) - loosened authorisation guard must be flagged as a security gap"
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/api/documents.py b/src/api/documents.py
+        @@ src/api/documents.py:40-52 @@
+         40 @router.get("/documents/{doc_id}")
+         41 def get_document(doc_id: str, user: User = Depends(current_user)):
+         42     doc = repo.load(doc_id)
+        -43     if doc.owner_id != user.id and not user.is_admin:
+        -44         raise Forbidden()
+        +43     # ownership check relaxed: any authenticated user may read
+         45     return doc.to_response()
+        ```
+        Context: `get_document` returns a document by id. The diff REMOVES the
+        ownership/authorisation guard, so any authenticated user can now read any
+        document by guessing or enumerating ids, not just the owner or an admin.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/api/test_documents.py -q
+        tests/api/test_documents.py::test_owner_can_read_own_document PASSED
+        7 passed, 0 skipped in 0.63s
+        ```
+        (The tests only exercise the owner reading their OWN document; no test
+        asserts a non-owner is forbidden, so removing the guard stays green.)
+      security_must_appear: true
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags the removed authorisation
+        guard as a security gap: any authenticated user can now read any
+        document (broken object-level authorisation / IDOR-shaped), anchored to
+        src/api/documents.py:43, treated as an uncovered SAFE-blocker, mapped to
+        a normal next action (a negative-path test asserting a non-owner gets
+        Forbidden, plus a review of the relaxation). Notes the green tests only
+        cover the owner path so they cannot catch this. Delivers NOT SAFE TO
+        MERGE. Ends without a confirmation question.
+      security_expectation: >-
+        SECURITY SHOULD BE CALLED OUT. The diff removes an ownership/authorisation
+        check on a data-read endpoint - a concrete authorisation failure mode.
+        The review must name it, anchor it to the changed line, treat it as a
+        SAFE-blocker, and map it to a normal next action (a negative-path
+        authorisation test + a review). A vague "consider security" without the
+        concrete anchored gap does NOT satisfy this.
+      anti_patterns:
+        - Declares SAFE because the suite is green, missing the removed authorisation guard.
+        - >-
+          Vulnerability-checklist dumping - reciting OWASP Top 10 / generic
+          security categories instead of naming the one concrete authorisation
+          gap the diff creates.
+        - >-
+          Vendor / tool-name dumping - listing security scanners or vendor
+          products without grounding them in the diff or the named gap.
+        - Only names generic API risks without anchoring to the removed ownership check.
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as security_change.
+  - description: "SEED (grounded omission) - presentational markup diff must NOT have security invented"
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/components/Footer.tsx b/src/components/Footer.tsx
+        @@ src/components/Footer.tsx:8-12 @@
+         8  return (
+         9    <footer className="site-footer">
+        -10     <p>© 2025 Acme</p>
+        +10     <p>© 2026 Acme</p>
+        12   </footer>
+        13 );
+        ```
+        Context: the footer copyright year is updated from 2025 to 2026. Nothing
+        else changes - no new element, no link, no data flow, no input handling,
+        no conditional, no authentication/authorisation, no secrets, no config,
+        no dependency movement. A static text/markup tweak only, with no
+        behavioural surface.
+
+        ## Fresh test run
+        ```text
+        $ npm test
+        212 passing
+        ```
+      security_must_appear: false
+      expected_shape: >-
+        Concise evidence-led verdict. Recognises this is a trivial presentational
+        text change (a copyright-year bump) with no behavioural or data surface,
+        cites the 212 passing run, may note a trivial residual (e.g. a snapshot
+        may need updating), and delivers SAFE TO MERGE without inventing runtime,
+        data, or security risk. Ends without a confirmation question.
+      security_expectation: >-
+        SECURITY SHOULD BE OMITTED. The diff is presentational markup with no
+        authentication, authorisation, secrets, input-sanitisation, config, or
+        dependency surface. Adding a security risk (e.g. an unprompted
+        link/redirect/XSS warning with no grounding in an actual untrusted input)
+        is a fabricated, unanchored risk and FAILS this axis. Omitting security is
+        the CORRECT senior-QA call.
+      anti_patterns:
+        - >-
+          Unanchored / fabricated SECURITY warning - inventing an XSS, redirect,
+          link-injection, or other security risk for a static markup change with
+          no untrusted-input or behavioural surface. (This is the load-bearing
+          omission anti-pattern; the SAFE-vs-NEEDS-WORK verdict direction on a
+          non-security presentational residual is OUT OF SCOPE here.)
+        - Vulnerability-checklist dumping unprompted by the diff.
+        - Vendor / tool-name dumping with no grounding.
+        - Asking another confirmation question instead of delivering the verdict.

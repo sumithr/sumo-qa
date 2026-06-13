@@ -1,0 +1,268 @@
+description: >
+  Security-relevance eval for sumo-qa-answering-testing-question (#282). A
+  generic "what should I test / where are the gaps" question gets a LIGHTWEIGHT
+  INTERNAL security-relevance pass: security appears as a concrete, anchored gap
+  ONLY when grounded in the described change, and is OMITTED when the change has
+  no security-relevant surface. Three seeds: grounded inclusion (an authorisation
+  check), grounded omission (a copy/formatting tweak), and an explicit
+  anti-pattern probe (the question invites a checklist dump / tool-name dump, and
+  the candidate must refuse both). Security flows through the loaded principles +
+  techniques catalogue - no vulnerability checklist, no vendor/tool catalogue.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-answering-testing-question/SKILL.md
+    loaded_principles: file://../../../knowledge/principles.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+  assert:
+    # Decisive #282 security-axis gate, isolated from unrelated SHAPE/GROUNDING
+    # wobble. INCLUSION seeds (security_must_appear: true) must raise a grounded
+    # security gap; the OMISSION seed (false) must introduce no security
+    # commentary. Strengthens — never loosens — the llm-rubric below.
+    - type: javascript
+      value: |
+        const out = String(output || '').toLowerCase();
+        const securityTerms = /(security|securit|vulnerab|owasp|\bxss\b|\bcsrf\b|\bsqli\b|injection|authoris|authoriz|authentic|\btoken\b|\bsecret\b|sanitis|sanitiz|replay|tamper|enumerat|privilege escalation|idor)/;
+        const mentionsSecurity = securityTerms.test(out);
+        if (context.vars.security_must_appear === true) {
+          return mentionsSecurity
+            ? { pass: true, score: 1, reason: 'Security-axis gate: grounded security gap present (required for this seed).' }
+            : { pass: false, score: 0, reason: 'Security-axis gate FAIL: a grounded security gap was required but the answer raised none.' };
+        }
+        // Omission direction: the precise "fabricated security RISK vs correctly
+        // DECLINING security" distinction is left to the llm-rubric's
+        // fabricated-security anti-pattern (a decline legitimately uses the word
+        // "security"), so this gate does not hard-fail on mere term presence.
+        return { pass: true, score: 1, reason: 'Security-axis gate: omission seed - fabricated-security check delegated to the llm-rubric anti-pattern.' };
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Security-relevance contract for THIS seed:** {{security_expectation}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape, honours the security-relevance contract, AND
+      avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate has loaded the FULL principles + techniques catalogues -
+      contents below for your verification:
+
+
+      --- LOADED PRINCIPLES (full catalogue) ---
+
+      {{loaded_principles}}
+
+      --- END LOADED PRINCIPLES ---
+
+
+      --- LOADED TECHNIQUES (full catalogue) ---
+
+      {{loaded_techniques}}
+
+      --- END LOADED TECHNIQUES ---
+
+
+      Evaluate FOUR axes independently:
+
+
+      This is a SECURITY-RELEVANCE eval: the GATING axes are C (security
+      relevance) and D (anti-patterns). A and B are sanity checks - the answer
+      must still be a real, catalogue-grounded inline answer - but a minor
+      wobble on a NON-security part (e.g. one non-verbatim technique name on a
+      non-security gap) must NOT by itself fail the test when C and D pass. Fail
+      on A/B only if the answer is not a genuine cited-principle/technique answer
+      at all, or cites a SECURITY principle/technique not in the catalogue.
+      NEVER relax C or D.
+
+      A. SHAPE (sanity) - is this a concise inline answer citing a principle + a
+         technique, anchored to the described surface? PASS unless it is clearly
+         not a real cited answer (pure generic prose, or a multi-section dump).
+
+      B. GROUNDING (sanity) - principles/techniques cited for the SECURITY point
+         must appear verbatim in the loaded catalogues. A single non-verbatim
+         technique name on a NON-security point is a NOTE, not a B FAIL, when C/D
+         pass.
+
+      C. SECURITY-RELEVANCE (gating) - apply the security-relevance contract for this seed:
+         - If security SHOULD appear: the answer names a CONCRETE, anchored
+           security testing gap tied to the described change (e.g. an
+           authorisation bypass, a missing negative-path/expiry check), mapped to
+           a normal next action (a test, a review, a static check, a dynamic
+           check, a config check, a dependency check, or a routed specialist
+           follow-up). A bare "consider security" with no concrete gap does NOT
+           satisfy this and is itself an anti-pattern.
+         - If security SHOULD be omitted: the answer must NOT add generic security
+           commentary; the described change has no security-relevant surface, so
+           omission is the CORRECT senior-QA call.
+
+      D. ANTI-PATTERNS (gating) - for each anti-pattern listed in the rubric,
+         mark ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+         (Checklist-dumping and vendor/tool-name-dumping are the load-bearing
+         anti-patterns for this eval.)
+
+      Decision table (C and D gate; A/B only fail when the answer is not a real
+      cited inline answer at all):
+         | C SECURITY | Any anti-pattern PRESENT? | A/B genuine cited answer? | Verdict |
+         | PASS       | No                        | Yes                       | PASS    |
+         | PASS       | Yes                       | *                         | FAIL    |
+         | FAIL       | *                         | *                         | FAIL    |
+         | *          | *                         | No (not a cited answer)   | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C/D then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. The developer is asking a
+    generic testing question that should be answered inline. You have loaded the
+    following sumo-qa skill and must follow its discipline:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have ALSO loaded the FULL principles and techniques catalogues:
+
+    --- LOADED PRINCIPLES ---
+    {{loaded_principles}}
+    --- END LOADED PRINCIPLES ---
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    CRITICAL RULE - Principle citations: when you cite a principle, you MUST
+    quote the loaded principles catalogue's exact wording. Do NOT extend or
+    paraphrase the principle name. If a principle wording isn't in the loaded
+    catalogue, pick a different principle.
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Answer inline in 3-7 sentences. Cite at least one named principle AND one
+    named technique from the loaded catalogues. Anchor the recommendation to the
+    specific risk surface the developer described. Do NOT route to a sub-skill.
+    If the question is genuinely ambiguous, ask ONE focused clarifying question.
+tests:
+  - description: "SEED (grounded inclusion) - testing-gaps question on an authorisation check"
+    vars:
+      user_prompt: >-
+        I just added an admin-only bulk-delete endpoint that checks
+        `if user.role == 'admin'` before deleting. What are the testing gaps
+        here - what should I make sure I cover?
+      security_must_appear: true
+      expected_shape: >-
+        Concise inline answer naming concrete testing gaps for the authorisation
+        check, citing a principle + a technique verbatim, anchored to the
+        described role check and delete behaviour.
+      security_expectation: >-
+        SECURITY SHOULD APPEAR. The change is an authorisation gate on a
+        destructive endpoint, so a senior pass must name a CONCRETE authorisation
+        gap - e.g. a non-admin (or unauthenticated, or role-spoofed) caller
+        reaching the delete path, or the negative-path/forbidden case being
+        untested - and map it to a normal next action (a negative-path test, a
+        review, or a static check). A bare "consider security" does NOT count.
+      anti_patterns:
+        - >-
+          Vulnerability-checklist dumping - reciting OWASP Top 10 or a list of
+          generic security categories instead of the one concrete authorisation
+          gap the described change creates.
+        - >-
+          Vendor / tool-name dumping - listing security scanners or vendor
+          products without grounding them in the described stack or the named gap.
+        - 20+ sentence essay or multi-section dump.
+        - Training-data drift - cites a principle or technique not in the loaded catalogues.
+        - Routes to a heavier sub-skill instead of answering inline.
+  - description: "SEED (grounded omission) - testing-gaps question on a copy/formatting tweak"
+    vars:
+      user_prompt: >-
+        I changed a button label from "Submit" to "Place order" and fixed a
+        date-format string in a receipt template. What are the testing gaps?
+      security_must_appear: false
+      expected_shape: >-
+        Concise inline answer naming the actual gaps for a copy/format change
+        (rendered-output / formatting / snapshot verification), citing a
+        principle + technique verbatim, anchored to the described change.
+      security_expectation: >-
+        SECURITY SHOULD BE OMITTED. A label rename and a date-format string carry
+        no authentication, authorisation, secrets, input-sanitisation, config, or
+        dependency surface. The answer must NOT add generic security commentary;
+        omitting security is the CORRECT senior-QA call here.
+      anti_patterns:
+        - >-
+          Unanchored / fabricated security warning - adding any security gap or
+          "consider security" to a pure copy/formatting change with no security
+          surface.
+        - Vulnerability-checklist dumping unprompted by the change.
+        - Vendor / tool-name dumping with no grounding.
+        - 20+ sentence essay or multi-section dump.
+        - Training-data drift - cites a principle or technique not in the loaded catalogues.
+        - Routes to a heavier sub-skill instead of answering inline.
+  - description: "SEED (anti-pattern probe) - question invites a checklist/tool dump; candidate must refuse both"
+    vars:
+      user_prompt: >-
+        Give me the full security testing checklist and the list of security
+        tools I should run for my new password-reset email flow.
+      security_must_appear: true
+      expected_shape: >-
+        Concise inline answer that REFRAMES the request: instead of a generic
+        checklist or tool list, it names the one or two CONCRETE security failure
+        modes the password-reset flow actually creates (e.g. a reset token that
+        does not expire or is single-use-bypassable), cites a principle + a
+        technique verbatim, and follows the discovery discipline for any tool
+        (reason from the surface, do not dump a vendor list). It may ask ONE
+        clarifying question about the stack before naming a tool.
+      security_expectation: >-
+        SECURITY SHOULD APPEAR but as a CONCRETE, anchored gap for the
+        password-reset flow (token expiry / single-use / replay / enumeration of
+        valid emails), NOT as a generic checklist. The concrete gap maps to a
+        normal next action (a negative-path test, a review, a static/dynamic
+        check). Reciting a generic checklist or a vendor tool list FAILS this
+        axis even though the topic is security.
+      anti_patterns:
+        - >-
+          Vulnerability-checklist dumping - producing the requested generic
+          security checklist (OWASP Top 10 / a list of categories) instead of the
+          concrete failure modes the password-reset flow creates.
+        - >-
+          Vendor / tool-name dumping - producing the requested list of security
+          tools/scanners without first grounding a recommendation in the stack
+          and a named risk (the skill carries no tool catalogue).
+        - 20+ sentence essay or multi-section dump.
+        - Training-data drift - cites a principle or technique not in the loaded catalogues.
+        - Routes to a heavier sub-skill instead of answering inline.

@@ -1,0 +1,297 @@
+description: >
+  Security-relevance eval for sumo-qa-preparing-for-work (#282). A senior QA
+  prep pass performs a LIGHTWEIGHT INTERNAL security-relevance check as part of
+  ordinary risk-naming — security appears as a named, anchored risk ONLY when
+  grounded in the change (auth/token/secret/input-sanitisation/config/dependency
+  movement), and is OMITTED when the change has no security-relevant surface.
+  Two seeds pin BOTH directions: grounded inclusion (a session-token change) and
+  grounded omission (a presentational CSS-only change). Security must flow through
+  the EXISTING security_change classification + loaded rules/techniques — no
+  parallel taxonomy, no vulnerability checklist, no vendor/tool-name dumping.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-preparing-for-work/SKILL.md
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_techniques: file://../../../knowledge/techniques.md
+  assert:
+    # Decisive #282 security-axis gate, isolated from unrelated SHAPE/GROUNDING
+    # wobble on non-security risks. For an INCLUSION seed the brief must raise an
+    # anchored, grounded security failure mode; for an OMISSION seed it must NOT
+    # introduce any security/vulnerability commentary. This NEVER loosens the
+    # llm-rubric below - it sharpens the signal the four-axis holistic grade can
+    # otherwise mask when a candidate strays on a non-security technique name.
+    - type: javascript
+      value: |
+        const out = String(output || '').toLowerCase();
+        const securityTerms = /(security|securit|vulnerab|owasp|\bxss\b|\bcsrf\b|\bsqli\b|injection|authoris|authoriz|authentic|\btoken\b|\bsecret\b|sanitis|sanitiz|replay|tamper|privilege escalation|idor)/;
+        const mentionsSecurity = securityTerms.test(out);
+        if (context.vars.security_must_appear === true) {
+          return mentionsSecurity
+            ? { pass: true, score: 1, reason: 'Security-axis gate: grounded security failure mode present (required for this seed).' }
+            : { pass: false, score: 0, reason: 'Security-axis gate FAIL: a grounded security risk was required but the brief raised none.' };
+        }
+        // Omission direction: the precise "fabricated security RISK vs correctly
+        // DECLINING security" distinction is left to the llm-rubric's
+        // fabricated-security anti-pattern (a decline legitimately uses the word
+        // "security"), so this gate does not hard-fail on mere term presence.
+        return { pass: true, score: 1, reason: 'Security-axis gate: omission seed - fabricated-security check delegated to the llm-rubric anti-pattern.' };
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Security-relevance contract for THIS seed:** {{security_expectation}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape, honours the security-relevance contract, AND
+      avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate has loaded the canonical classifications and techniques
+      catalogues below for your verification:
+
+
+      --- LOADED CLASSIFICATIONS ---
+
+      {{loaded_classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      --- LOADED TECHNIQUES ---
+
+      {{loaded_techniques}}
+
+      --- END LOADED TECHNIQUES ---
+
+
+      Evaluate FOUR axes independently:
+
+
+      This is a SECURITY-RELEVANCE eval: the GATING axes are C (security
+      relevance) and D (anti-patterns). A and B are sanity checks - a response
+      must still be a real, grounded QA prep brief - but a minor wobble on a
+      NON-security risk (e.g. one non-verbatim technique name, or a test idea
+      that could be more concrete on a non-security risk) must NOT by itself fail
+      the test when C and D pass. Fail on A/B only if the brief is not a genuine
+      risk-anchored QA brief at all (no real anchored risks, or wholly ungrounded
+      from the supplied snippet). NEVER relax C or D.
+
+      A. SHAPE (sanity) - is this a genuine risk-shaped prep brief: several named
+         risks anchored to the supplied context, tied to test ideas, with named
+         techniques? PASS unless it is clearly NOT a real QA brief.
+
+      B. GROUNDING (sanity) - do the risks visibly use the supplied snippet?
+         PASS unless the brief is wholly ungrounded. A single non-verbatim
+         technique name on a non-security risk is a NOTE, not a B FAIL, when C/D
+         pass.
+
+      C. SECURITY-RELEVANCE (gating) - apply the security-relevance contract for this seed:
+         - If the contract says security SHOULD appear: the brief must name at
+           least one CONCRETE, anchored security failure mode (e.g. a specific
+           token/expiry/replay/authorisation gap tied to the supplied code), each
+           mapped to a normal next action (a test, a review, a static check, a
+           dynamic check, a config check, a dependency check, or a routed
+           specialist follow-up). A generic "consider security" line with no
+           anchor does NOT satisfy this and is itself an anti-pattern.
+         - If the contract says security SHOULD be omitted: the brief must NOT
+           add any security section, generic security warning, or vulnerability
+           commentary; the change has no security-relevant surface, so naming one
+           is a fabricated risk. Omission here is CORRECT, not a gap.
+
+      D. ANTI-PATTERNS (gating) - for each anti-pattern listed in the rubric,
+         mark ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table (C and D gate; A/B only fail when the brief is not a real
+      grounded QA brief at all):
+         | C SECURITY | Any anti-pattern PRESENT? | A/B genuine QA brief? | Verdict |
+         | PASS       | No                        | Yes                   | PASS    |
+         | PASS       | Yes                       | *                     | FAIL    |
+         | FAIL       | *                         | *                     | FAIL    |
+         | *          | *                         | No (not a real brief) | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C/D then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical change classifications and the test
+    design techniques catalogue:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    Repository state for this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    This is the QA-prep turn. Name 3-7 risks, each anchored to a specific line
+    or behaviour in the supplied context, each tied to a concrete test idea and
+    a technique named verbatim from the loaded techniques catalogue. Do NOT
+    surface internal taxonomy labels. Do NOT write test code. Do NOT produce a
+    formal entry/exit test plan. No closing pleasantry.
+tests:
+  - description: "SEED (grounded inclusion) - session token TTL/validation change should surface a security risk"
+    vars:
+      user_prompt: >-
+        I'm reworking how we issue and validate the session token in the auth
+        service. Help me prep QA before I start.
+      ground_truth_context: |
+        ## src/auth/session.py
+        ```python
+         1 def issue_token(user_id: str) -> str:
+         2     payload = {"sub": user_id, "exp": now() + timedelta(hours=12)}
+         3     return jwt.encode(payload, SECRET, algorithm="HS256")
+         4
+         5 def validate_token(token: str) -> str | None:
+         6     try:
+         7         claims = jwt.decode(token, SECRET, algorithms=["HS256"])
+         8     except jwt.InvalidTokenError:
+         9         return None
+        10     return claims["sub"]
+        ```
+
+        ## Change sketch
+        Add a refresh flow: a token can be exchanged for a new one before it
+        expires. Old tokens are NOT currently revoked on refresh, so a token
+        refreshed at time T still validates at T+1h after the old one should be
+        dead. Add an `aud` (audience) claim and start checking it on validate.
+      security_must_appear: true
+      expected_shape: >-
+        Risk-shaped prep brief. 3-5 named risks anchored to session.py lines or
+        the refresh/audience change, each tied to a concrete test idea, each
+        with a technique named verbatim from the loaded catalogue.
+      security_expectation: >-
+        SECURITY SHOULD APPEAR. This change touches authentication and token
+        lifecycle (issue/refresh, expiry, signature/audience validation), so a
+        senior QA pass must name at least one CONCRETE, anchored security failure
+        mode - e.g. a not-revoked old token still validating after refresh
+        (replay), an expired token boundary, or the new audience claim not being
+        enforced on every accept path - and map it to a normal next action (a
+        negative-path test, a review, a static check, or a config/dependency
+        check). Generic "security is important" with no anchor does NOT count.
+      anti_patterns:
+        - >-
+          Vulnerability-checklist dumping - reciting OWASP Top 10 / generic
+          security categories (CSRF, XSS, SQLi, etc.) that the supplied token
+          change does not actually create.
+        - >-
+          Unanchored security warning - a generic "consider security" / "security
+          could be an issue" line not tied to a specific line or behaviour in the
+          supplied code.
+        - >-
+          Vendor / tool-name dumping - naming security scanners or vendor products
+          without grounding them in the supplied stack or a named risk.
+        - Generic "add unit tests" advice not tied to specific risks.
+        - Jumping straight to writing test code.
+        - Producing a formal test plan with entry/exit criteria.
+        - Surfacing literal taxonomy labels such as security_change.
+  - description: "SEED (grounded omission) - discount-rounding/quantity-band change should NOT invent a security risk"
+    vars:
+      user_prompt: >-
+        I'm changing how the bulk-discount tier is picked and how the discounted
+        price is rounded in the cart total. Help me prep QA before I start.
+      ground_truth_context: |
+        ## src/pricing/discount.py
+        ```python
+         1 def discount_rate(qty: int) -> float:
+         2     if qty >= 10:        # was qty > 10
+         3         return 0.15
+         4     if qty >= 5:
+         5         return 0.10
+         6     return 0.0
+         7
+         8 def discounted_price(unit: float, qty: int) -> float:
+         9     gross = unit * qty
+        10     net = gross * (1 - discount_rate(qty))
+        11     return round(net, 2)   # was math.floor(net * 100) / 100
+        ```
+
+        ## Change sketch
+        Two pricing tweaks: the 15% tier boundary moves from `qty > 10` to
+        `qty >= 10`, and the discounted total is now rounded half-up to 2dp
+        instead of floored. No authentication, authorisation, secrets, input
+        sanitisation, rate limiting, audit logging, config, or dependency
+        movement - it is purely a pricing-calculation change.
+      security_must_appear: false
+      expected_shape: >-
+        Risk-shaped prep brief on the pricing change: tier-boundary off-by-one
+        risks (qty 10 now gets 15%, qty 5 boundary) and rounding-vs-floor drift
+        on the total, anchored to discount.py lines, each tied to a concrete test
+        idea with a technique named verbatim from the loaded catalogue (boundary
+        value analysis, equivalence partitioning, decision tables fit here).
+      security_expectation: >-
+        SECURITY SHOULD BE OMITTED. This is a pricing-calculation change (a tier
+        boundary move and a rounding-mode change) with no authentication,
+        authorisation, secrets, input sanitisation, rate limiting, audit logging,
+        config, or dependency movement - there is no grounded security surface.
+        The brief must NOT add any security section, generic security warning, or
+        vulnerability commentary. Omitting security here is the CORRECT senior-QA
+        call; inventing a security risk is a fabricated, unanchored risk and FAILS
+        this axis.
+      anti_patterns:
+        - >-
+          Unanchored / fabricated security warning - adding ANY security risk,
+          "consider security", or vulnerability commentary to a purely
+          presentational CSS change that has no security-relevant surface.
+        - >-
+          Vulnerability-checklist dumping - reciting generic security categories
+          unprompted by anything in the change.
+        - >-
+          Vendor / tool-name dumping - naming security scanners or vendor products
+          with no grounding in the change.
+        - Generic "add unit tests" advice not tied to specific risks.
+        - Jumping straight to writing test code.
+        - Producing a formal test plan with entry/exit criteria.
+        - Surfacing literal taxonomy labels such as business_logic_change.
