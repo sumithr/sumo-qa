@@ -15,7 +15,7 @@ A QA-native MCP server and skills library: analyze a repo, map risks to tests an
 > sumo-qa is an advisor, not an oracle. Like any AI tool it can be wrong. Your judgment and your team's standards are the final word.
 
 > ### 🚀 New here? **[5-minute demo →](DEMO.md)**
-> One install line, then the QA loop on your own repo: map it, review a change against the map, open the report.
+> One install line, then the QA loop on your own repo: map it, then review a change for a merge verdict or audit the whole repo for a strategy.
 
 ## Why it exists
 

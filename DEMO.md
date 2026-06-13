@@ -1,6 +1,6 @@
 # 5-minute sumo-qa demo
 
-Install in one line. Verify the wiring. Then run the QA loop on your own repo: map it, review a change against the map, and get a QA report backed by evidence.
+Install in one line. Verify the wiring. Then run the QA loop on your own repo: map it, then review a change for a merge verdict or audit the whole repo for a QA strategy.
 
 > [!IMPORTANT]
 > sumo-qa is an advisor, not an oracle. Like any AI tool it can be wrong. Your judgment and your team's standards are the final word.
@@ -32,9 +32,9 @@ Green means you're wired — read-only diagnostics, and each failure prints the 
 
 ## Step 2: run the QA loop on your repo — just by asking
 
-Every step below is a plain prompt in your host. The `.sumo-qa/` artifacts appear as a side effect of the conversation — you ask in natural language, sumo-qa writes the files. A few minutes takes you from "unknown repo" to a QA report you can open in a browser.
+Each step is a plain prompt in your host; the `.sumo-qa/` artifacts appear as a side effect of the conversation.
 
-**1. Understand the repo:**
+**1. Understand the repo** — works on any repo, no changes needed:
 
 ```
 Map this repo for QA — what's here, and which tests cover which sources?
@@ -42,31 +42,31 @@ Map this repo for QA — what's here, and which tests cover which sources?
 
 sumo-qa walks the repository and writes the schema-validated repo map to `.sumo-qa/repo-map.json`, then summarises what it found. You never told it where the tests live or what framework you use.
 
-**2. Review a change:**
+**2. Then point it at what you're actually doing.**
+
+Working on a change? Get a merge verdict:
 
 ```
 Review my changes — is this safe to merge?
 ```
 
-The review starts from your actual diff impact — the affected modules, the tests most likely to cover them, and the risk surface (changed code with no mapped test) — reusing the map from step 1, or scanning and persisting one on the spot if you skipped it. Your suite still runs fresh in the same turn; the map accelerates the review but never substitutes for evidence. Risks without a covering test are named UNCOVERED with the test to add, not waved through. Ask it to save the risk ledger to `.sumo-qa/risk-ledger.json` so the report can cite the coverage map.
-
-**3. Record coverage and mutation (optional):**
-
-```
-Measure coverage and run mutation testing, then record the results for the QA report.
-```
-
-sumo-qa runs the repo's configured coverage and mutation tooling (it never installs any), reads whatever output format the tools produce, and persists compact summaries to `.sumo-qa/coverage.json` and `.sumo-qa/mutation.json`. Reported, never gated: the numbers inform the report but never move the readiness verdict on their own.
-
-**4. Open the report:**
+It works from your real diff impact (affected modules, the tests most likely to cover them, the risk surface of changed code with no mapped test), runs your suite fresh in the same turn, and names every uncovered risk with the test to add — never waved through. Ask it to save the risk ledger to `.sumo-qa/risk-ledger.json`, then turn it into a shareable page:
 
 ```
 Generate the QA report.
 ```
 
-sumo-qa composes the persisted `.sumo-qa` artifacts into a self-contained static page at `.sumo-qa/qa-report.html`: risk-to-test coverage, evidence freshness, a readiness verdict, and honest not-available states for anything not yet produced.
+That composes the `.sumo-qa` artifacts into a self-contained `.sumo-qa/qa-report.html` — risk-to-test coverage, evidence freshness, a readiness verdict, and honest not-available states for anything not yet produced.
 
-Prefer the terminal? The same loop is wired as CLI commands — `sumo-qa analyze`, `sumo-qa status`, `sumo-qa report` — see [Run it from the terminal](README.md#run-it-from-the-terminal).
+No pending changes — a fresh clone you just want to understand? Skip the diff and assess the whole repo instead:
+
+```
+Audit our test coverage and design a QA strategy.
+```
+
+sumo-qa walks the repo area by area, names risks tied to file paths, and builds a risk-prioritised, phased plan with you (written to `docs/qa-strategy.md`). No changes required.
+
+Prefer the terminal? The map-and-report half of the loop is also wired as CLI commands — `sumo-qa analyze`, `sumo-qa status`, `sumo-qa report` — see [Run it from the terminal](README.md#run-it-from-the-terminal).
 
 ---
 
