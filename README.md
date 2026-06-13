@@ -40,21 +40,16 @@ The discipline lives in a library of [skill files](skills/), each followed liter
 pip install sumo-qa && sumo-qa-install
 ```
 
-`sumo-qa-install` with no flag configures every host it detects. Target a single host with `--claude-code`, `--vscode --workspace <path-to-repo>`, or `--jetbrains`.
+Then restart your host or open a fresh chat. With no flag, `sumo-qa-install` configures every host it detects; target one with `--claude-code`, `--vscode --workspace <repo>`, or `--jetbrains`.
 
-On Windows PowerShell, use (`&&` isn't a valid separator in Windows PowerShell, and pip's script directory is often off PATH, so use the module form):
+Other ways in:
 
-```powershell
-py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
-```
-
-If `sumo-qa-install` isn't on your PATH (e.g. `pip install --user` without `~/.local/bin` exported), use the PATH-proof module form: `python -m pip install sumo-qa && python -m sumo_qa.installer`.
-
-Prefer one command that installs, configures, and verifies in a single shot? From a clone of this repo, run `./install.sh` (macOS/Linux) or `.\install.ps1` (Windows) — thin wrappers that route to the same `pip install` + `python -m sumo_qa.installer` + `sumo-qa-doctor` steps, with `--update`, `--doctor`, per-host `--host`, and an ownership-aware `--uninstall` flag. CI-verified on Linux/macOS/Windows. Details: [docs/INSTALL.md#one-command-wrapper-installsh--installps1](docs/INSTALL.md#one-command-wrapper-installsh--installps1).
-
-Restart your host or open a fresh chat afterwards.
-
-Other install paths — plugin-format for Claude Code (needs [`uv`](docs/INSTALL.md#prerequisite-uv) on PATH; load this checkout with `claude --plugin-dir`, or the persistent marketplace flow), and install-from-a-clone to try an unreleased branch or edit standards in place — are in [docs/INSTALL.md](docs/INSTALL.md#plugin-format-install-claude-code--codex). The marketplace round-trip is wired and schema-valid but not yet verified end-to-end, so the pip path above stays the recommended persistent install.
+| If you're on… | Use |
+|---|---|
+| Windows PowerShell | `py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }` |
+| a shell where `sumo-qa-install` isn't on PATH | `python -m pip install sumo-qa && python -m sumo_qa.installer` |
+| a clone, wanting install + configure + verify in one shot | `./install.sh` (macOS/Linux) or `.\install.ps1` (Windows) — [details](docs/INSTALL.md#one-command-wrapper-installsh--installps1) |
+| a plugin or local-clone install | see [docs/INSTALL.md](docs/INSTALL.md#plugin-format-install-claude-code--codex) — the Claude Code plugin needs [`uv`](docs/INSTALL.md#prerequisite-uv); the marketplace round-trip is wired but unverified, so pip stays the recommended persistent path |
 
 ### Something not working?
 
