@@ -40,52 +40,15 @@ The discipline lives in a library of [skill files](skills/), each followed liter
 pip install sumo-qa && sumo-qa-install
 ```
 
-Then restart your host or open a fresh chat. With no flag, `sumo-qa-install` configures every host it detects; target one with `--claude-code`, `--vscode --workspace <repo>`, or `--jetbrains`.
+Then restart your host or open a fresh chat. `sumo-qa-install` configures every MCP host it detects. Windows, single-host targeting, the one-command `install.sh` / `install.ps1` wrappers, plugin installs, and updating are all in **[docs/INSTALL.md](docs/INSTALL.md)**.
 
-Other ways in:
-
-| If you're on… | Use |
-|---|---|
-| Windows PowerShell | `py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }` |
-| a shell where `sumo-qa-install` isn't on PATH | `python -m pip install sumo-qa && python -m sumo_qa.installer` |
-| a clone, wanting install + configure + verify in one shot | `./install.sh` (macOS/Linux) or `.\install.ps1` (Windows) — [details](docs/INSTALL.md#one-command-wrapper-installsh--installps1) |
-| a plugin or local-clone install | see [docs/INSTALL.md](docs/INSTALL.md#plugin-format-install-claude-code--codex) — the Claude Code plugin needs [`uv`](docs/INSTALL.md#prerequisite-uv); the marketplace round-trip is wired but unverified, so pip stays the recommended persistent path |
-
-### Something not working?
+### Verify
 
 ```bash
-sumo-qa-doctor                  # or `python -m sumo_qa.doctor` if not on PATH
+sumo-qa-doctor
 ```
 
-Read-only setup diagnostics — checks Python + sumo-qa version, install mode, the MCP handshake, and every host config the installer touches; each failure prints the exact `Fix:` command where one applies. `--json` for machine output. Plugin-path invocations, per-host flags, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor).
-
-### Verify it's wired
-
-In any host, ask:
-
-> load the QA classifications
-
-You should get the canonical change-classification names back. If you do, you're wired.
-
-### Run it from the terminal
-
-Beyond the host integration, sumo-qa ships terminal commands for the QA-native repo loop:
-
-```bash
-sumo-qa analyze            # map the current repo into .sumo-qa/repo-map.json
-sumo-qa status             # is the map present and current against HEAD? what next?
-sumo-qa report             # compose the .sumo-qa artifacts into qa-report.html
-```
-
-All take an optional `[path]` and `--json`; `report` renders honest not-available states for anything missing. (Bare `sumo-qa` launches the MCP server; `sumo-qa-doctor` runs diagnostics.)
-
-### Update
-
-```bash
-pip install --upgrade sumo-qa && sumo-qa-install
-```
-
-Restart the host. The SessionStart hook re-injects the latest content; skills and knowledge refresh from the upgraded package.
+Green means you're wired — read-only diagnostics, and each failure prints the exact `Fix:` to run. Then ask any host *"load the QA classifications"*; the canonical names back confirm it end to end. ([Troubleshooting →](docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor))
 
 ## Host support
 
@@ -127,6 +90,18 @@ Three layers: the host LLM follows skills, which cite knowledge and standards to
 | **MCP entry points** | A thin tool surface — skill tools, knowledge loaders, a capabilities-discovery tool, repo-map tools, test-data tools, an ingestion tool, and external-skill lifecycle tools. Each is file IO or small deterministic logic; no inference. |
 | **Progressive skill loading** | A read-only loader that fetches a skill in slices — routing manifest → section → module → full body — so a host pays the routing slice on each revisit, not the whole body. See [docs/TOOLS.md](docs/TOOLS.md#which-path-to-use--canonical-vs-compact) and [docs/SKILLS.md](docs/SKILLS.md#progressive-loading--manifest--section--module--full). |
 | **Knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques the agent picks from instead of recalling from training data. Editable as plain markdown. (Specialty-tool picks are deliberately not catalogued — observe the risk surface and web-search current options instead.) |
+
+## Run it from the terminal
+
+Beyond the host integration, sumo-qa ships terminal commands for the QA-native repo loop:
+
+```bash
+sumo-qa analyze            # map the current repo into .sumo-qa/repo-map.json
+sumo-qa status             # is the map present and current against HEAD? what next?
+sumo-qa report             # compose the .sumo-qa artifacts into qa-report.html
+```
+
+All take an optional `[path]` and `--json`; `report` renders honest not-available states for anything missing. (Bare `sumo-qa` launches the MCP server; `sumo-qa-doctor` runs diagnostics.)
 
 ## When sumo-qa doesn't fit
 

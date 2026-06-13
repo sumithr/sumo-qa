@@ -10,53 +10,23 @@ Install in one line. Verify the wiring. Then run the QA loop on your own repo: m
 - Python 3.10 or newer. Check with `python --version` (or `py --version` on Windows).
 - An MCP-capable host. Verified end-to-end: Claude Code, VS Code + GitHub Copilot (Agent mode, Claude Sonnet 4.5 or equivalent), JetBrains AI Assistant, and JetBrains Junie. Other MCP hosts (Cursor, Codex, OpenCode, Gemini CLI) speak the same protocol and should work, but we haven't verified them end-to-end.
 
-## Step 1: install and wire it
-
-Install and wire every host it detects, or target one:
+## Step 1: install
 
 ```bash
-# Every host detected on this machine
 pip install sumo-qa && sumo-qa-install
-
-# Target just Claude Code
-pip install sumo-qa && sumo-qa-install --claude-code
-
-# VS Code + GitHub Copilot
-pip install sumo-qa && sumo-qa-install --vscode --workspace <path-to-your-repo>
-
-# JetBrains AI Assistant
-pip install sumo-qa && sumo-qa-install --jetbrains
 ```
 
-Windows PowerShell (`&&` isn't supported in Windows PowerShell, and pip's script directory is often off PATH, so use the module form):
+Restart your host or open a fresh chat. That's it — `sumo-qa-install` wires every MCP host it detects.
 
-```powershell
-py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
-```
+> Windows, targeting one host, the one-command `install.sh` / `install.ps1` wrappers, plugin installs, updating: all in **[docs/INSTALL.md](docs/INSTALL.md)**.
 
-`pip install sumo-qa` installs the script wrappers — including `sumo-qa` (the MCP server), `sumo-qa-install` (the configurator), and `sumo-qa-doctor` (setup diagnostics). The installer symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. For JetBrains Junie, create `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) with the command path that `sumo-qa-install --jetbrains` prints — see [docs/INSTALL.md](docs/INSTALL.md#jetbrains-ai-assistant--junie). If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
-
-**Cursor, Codex, OpenCode, Gemini CLI and other MCP hosts:** `sumo-qa` is a standard stdio MCP server, but we haven't verified these hosts end-to-end ourselves. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script.
-
-### Verify the wiring
+### Verify
 
 ```bash
 sumo-qa-doctor
 ```
 
-Read-only setup diagnostics: Python and sumo-qa version, install mode, the MCP handshake, and every host config the installer touches. Failures print the exact `Fix:` command where one applies. When doctor is green, restart your host (or open a fresh chat) and ask:
-
-> load the QA classifications
-
-Canonical change-classification names back means you're wired.
-
-### Updating
-
-```bash
-pip install --upgrade sumo-qa && sumo-qa-install
-```
-
-Open a fresh chat afterwards. The host re-reads `~/.claude/skills/` (Claude Code) and the MCP tool list on the next session. If you installed sumo-qa as a plugin, the SessionStart hook re-fires automatically.
+Green means you're wired — read-only diagnostics, and each failure prints the exact `Fix:` to run. Then ask your host *"load the QA classifications"*; canonical names back confirms it end to end.
 
 ---
 
