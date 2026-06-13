@@ -145,7 +145,7 @@ These hosts are verified end-to-end with `sumo-qa-install`:
 | **Claude Code** | `/sumo-qa-deciding-approach` (hyphens) | `sumo-qa-install --claude-code` |
 | **VS Code + Copilot** (Agent mode, Claude Sonnet 4.5 or equivalent) | Natural language | `sumo-qa-install --vscode --workspace <repo>` writes `.vscode/mcp.json` |
 | **JetBrains AI Assistant** | `/sumo_qa_deciding_approach` (underscores) | One-time UI setup; `sumo-qa-install --jetbrains` prints the fields to paste |
-| **JetBrains Junie** | Natural language | Drop the JSON `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) |
+| **JetBrains Junie** | Natural language | Create `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) with the command path `sumo-qa-install --jetbrains` prints ([details](docs/INSTALL.md#jetbrains-ai-assistant--junie)) |
 
 In Claude Code, type `/` then `sumo-qa-` to see the skills as hyphenated entries (symlinked into `~/.claude/skills/`). The same skills are also registered through MCP with underscores (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`); both routes call the same SKILL.md.
 

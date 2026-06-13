@@ -34,7 +34,7 @@ Windows PowerShell (`&&` isn't supported in Windows PowerShell, and pip's script
 py -m pip install sumo-qa; if ($?) { py -m sumo_qa.installer }
 ```
 
-`pip install sumo-qa` installs the script wrappers — including `sumo-qa` (the MCP server), `sumo-qa-install` (the configurator), and `sumo-qa-doctor` (setup diagnostics). The installer symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. For JetBrains Junie, drop the JSON that `sumo-qa-install --jetbrains` prints into `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project). If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
+`pip install sumo-qa` installs the script wrappers — including `sumo-qa` (the MCP server), `sumo-qa-install` (the configurator), and `sumo-qa-doctor` (setup diagnostics). The installer symlinks skills into `~/.claude/skills/`, writes `claude_desktop_config.json` or `.vscode/mcp.json`, or prints the JetBrains UI steps, whichever the flag asks for. For JetBrains Junie, create `~/.junie/mcp/sumo-qa.json` (global) or `<repo>/.junie/mcp/` (per project) with the command path that `sumo-qa-install --jetbrains` prints — see [docs/INSTALL.md](docs/INSTALL.md#jetbrains-ai-assistant--junie). If `sumo-qa-install` isn't on your PATH, the PATH-proof equivalent is `python -m pip install sumo-qa && python -m sumo_qa.installer`.
 
 **Cursor, Codex, OpenCode, Gemini CLI and other MCP hosts:** `sumo-qa` is a standard stdio MCP server, but we haven't verified these hosts end-to-end ourselves. Follow your host's MCP-server setup docs and point it at the absolute path of the `sumo-qa` script.
 
@@ -152,7 +152,7 @@ Mutation testing left surviving mutants in <module>. Strengthen the tests.
 Production code stays unchanged.
 ```
 
-sumo-qa reads the mutation report, then walks the survivors one at a time, never as a batch: triage whether each mutant is real or only killable by a tautological assertion, pick a design technique from the loaded catalogue, write the strengthening test, run it, and confirm the kill before moving on. Production code is read-only the whole way; equivalent mutants get suppressed in tool config rather than chased.
+sumo-qa reads the mutation report, then walks the survivors one at a time, never as a batch: triage whether each mutant is real or only killable by a tautological assertion, pick a design technique from the loaded catalogue, write the strengthening test, run it, and confirm the kill before moving on. Production behaviour stays untouched the whole way; equivalent mutants get suppressed with a recorded rationale (tool config where the tool supports it) rather than chased with tautological tests.
 
 See [worked example 05](tests/scenarios/worked-examples/05-strengthen-tests-mutation.md).
 
