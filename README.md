@@ -19,18 +19,17 @@ A QA-native MCP server and skills library: analyze a repo, map risks to tests an
 
 ## Why it exists
 
-Point your AI assistant at any repo and get QA it can defend: the repo understood well enough to test it, risks tied to specific files and lines, and a safe-to-merge answer backed by tests that ran this turn.
+AI writes more of the code every month — but it's still the weakest link in testing it. It calls work done without running anything, writes tests that pass by restating the code they're meant to check, and labels a change safe to merge off CI that ran an hour ago. As the writing gets cheaper, that's where the real risk moves: not "can it build the feature" but "did anyone actually verify what it shipped."
 
-Ask a stock AI assistant to QA a change instead and you get the junior answer: "add unit tests, consider edge cases, maybe test performance." That's a checklist.
+sumo-qa makes any AI agent — in any host, on any stack — hold itself to a senior QA's discipline on its own work: understand the code well enough to test it, tie risks to specific files and lines, and prove a change is safe with tests that ran this turn. The same principles every time, instead of each model freelancing its own idea of "tested."
 
-sumo-qa makes the agent work the way a senior QA does:
+Ask a stock assistant to QA a change and you get the junior answer: "add unit tests, consider edge cases, maybe test performance." sumo-qa makes it work like the senior who's seen what ships broken:
 
-- Names 3–7 risks tied to specific files and lines, not categories
-- Picks one design technique per risk from an ISTQB-grounded catalogue (boundary-value, decision-table, property-based, mutation)
-- Runs your test suite fresh in the current turn before any "safe to merge" claim
-- Holds TDD's red phase before any production code is written
-- Keeps production code locked while strengthening tests against mutation survivors
-- Won't ship a plan without measurable entry and exit criteria
+- Reads the repo first — what it does, which tests cover which code — then names risks tied to specific files and lines, not vague categories
+- Picks a real design technique per risk from an ISTQB-grounded catalogue, instead of generating tests by vibe
+- Runs your suite fresh in the current turn before any "safe to merge" claim, and refuses "CI was green earlier"
+- Holds TDD's red phase before any production code, and keeps production code locked while it strengthens tests against mutation survivors
+- Won't ship a plan or a verdict without measurable, checkable criteria — and will say "no tests needed here" when that's the honest call
 
 The discipline lives in a library of [skill files](skills/), each followed literally — every one has an Iron Law and a HARD-GATE callout the LLM can't talk past. Skills route automatically from natural-language prompts; you don't need to remember to invoke them.
 
