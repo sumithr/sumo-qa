@@ -13,11 +13,12 @@ description: >
   EXISTING security_change classification + loaded change rules - no parallel
   taxonomy, no vulnerability-checklist dump, no vendor/tool-name dump.
 providers:
-  # Review discovery + remediation-prescription is a reasoning-tier surface, so
-  # this config pins gpt-5-mini like its sibling skill-reviewing-before-merge-adversarial.yaml
-  # (gpt-4o-mini under-prescribes the next-action on the authorisation seed).
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
+  # candidate pinned to gpt-4o-mini so this eval is LOAD-BEARING — the pre-edit
+  # skill (no security-relevance probe) FAILs the inclusion seed on this weaker
+  # model; gpt-5-mini caught the gap unaided and was not load-bearing (issue #282
+  # review finding).
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
     config:
       temperature: 0.0
       seed: 42
