@@ -54,57 +54,15 @@ Prefer one command that installs, configures, and verifies in a single shot? Fro
 
 Restart your host or open a fresh chat afterwards.
 
-### Plugin install from a local clone (Claude Code, session-scoped)
-
-Prefer the plugin experience over pip? Clone the repo and pass `--plugin-dir` to `claude` on each invocation. This loads the `.claude-plugin/plugin.json` manifest directly — no pip install needed, skills + hooks + MCP server come from this checkout.
-
-**Prerequisite:** `uv` on PATH (Astral's package runner — one-line install, no Python prerequisite). Skip if `uv --version` already resolves:
-
-```bash
-# macOS / Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# Homebrew
-brew install uv
-```
-
-Then clone and launch:
-
-```bash
-git clone https://github.com/sumithr/sumo-qa.git
-claude --plugin-dir /path/to/sumo-qa
-```
-
-Session-scoped: every `claude` invocation needs the flag — plain `claude` (no flag) starts a session with no sumo-qa loaded. Use `/reload-plugins` inside the session to pick up edits without restarting.
-
-> Persistent marketplace install (one-time setup, no flag on every launch): add this repo as a Claude Code plugin marketplace and install the plugin —
->
-> ```text
-> /plugin marketplace add sumithr/sumo-qa
-> /plugin install sumo-qa@sumo-qa
-> ```
->
-> The marketplace catalog (`.claude-plugin/marketplace.json`) is generated from the canonical source and schema-validated in CI. **This flow is wired but the live `marketplace add` → `install` round-trip has not yet been verified end-to-end in a Claude Code session** — until that is confirmed, the `pip install sumo-qa && sumo-qa-install` path above remains the recommended persistent install. Full architecture + dev-iteration detail: [docs/INSTALL.md#plugin-format-install-claude-code--codex](docs/INSTALL.md#plugin-format-install-claude-code--codex).
+Other install paths — plugin-format for Claude Code (needs [`uv`](docs/INSTALL.md#prerequisite-uv) on PATH; load this checkout with `claude --plugin-dir`, or the persistent marketplace flow), and install-from-a-clone to try an unreleased branch or edit standards in place — are in [docs/INSTALL.md](docs/INSTALL.md#plugin-format-install-claude-code--codex). The marketplace round-trip is wired and schema-valid but not yet verified end-to-end, so the pip path above stays the recommended persistent install.
 
 ### Something not working?
 
 ```bash
-# pip-install path (after `pip install sumo-qa`)
 sumo-qa-doctor                  # or `python -m sumo_qa.doctor` if not on PATH
-
-# plugin-install path (no pip install required) — inside a Claude Code session
-!sumo-qa-doctor                 # the plugin ships bin/sumo-qa-doctor on PATH
-
-# plugin-install path from outside Claude Code
-uvx --from /path/to/plugin/source sumo-qa-doctor
 ```
 
-Read-only setup diagnostics — checks Python + sumo-qa version, install mode, the MCP `initialize` + `tools/list` handshake, and every host config the installer touches (Claude Code, Claude Desktop, VS Code workspace, JetBrains detection, Codex plugin). Failures print the exact `Fix:` command where one applies. `--json` for machine output. Details: [docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor](docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor).
-
-Per-host flags, schema differences, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md). Want to install from a local clone — to try an unreleased branch or run with your team's standards / knowledge packs editable in place? See [docs/INSTALL.md#install-from-a-local-clone](docs/INSTALL.md#install-from-a-local-clone). For the pip path use `python scripts/dev_install.py`; for the Claude Code plugin path use `claude --plugin-dir /path/to/sumo-qa` ([Anthropic's documented local-dev mode](https://code.claude.com/docs/en/plugins#test-your-plugins-locally)).
+Read-only setup diagnostics — checks Python + sumo-qa version, install mode, the MCP handshake, and every host config the installer touches; each failure prints the exact `Fix:` command where one applies. `--json` for machine output. Plugin-path invocations, per-host flags, and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md#diagnosing-setup-with-sumo-qa-doctor).
 
 ### Verify it's wired
 
@@ -116,15 +74,15 @@ You should get the canonical change-classification names back. If you do, you're
 
 ### Run it from the terminal
 
-Beyond the host integration, sumo-qa ships memorable commands for the QA-native repo loop:
+Beyond the host integration, sumo-qa ships terminal commands for the QA-native repo loop:
 
 ```bash
 sumo-qa analyze            # map the current repo into .sumo-qa/repo-map.json
-sumo-qa status             # is the map present, current, and fresh? what next?
+sumo-qa status             # is the map present and current against HEAD? what next?
 sumo-qa report             # compose the .sumo-qa artifacts into qa-report.html
 ```
 
-`analyze [path]` writes the schema-validated `.sumo-qa/repo-map.json` artifact and prints a concise summary; `status [path]` reports the artifact's presence, schema version, freshness against `HEAD`, and the next command to run; `report [path]` composes the persisted `.sumo-qa` artifacts into a self-contained static HTML QA report at `.sumo-qa/qa-report.html`, with honest not-available states for anything missing. All take `--json` for automation. (Bare `sumo-qa` launches the MCP server for hosts; `sumo-qa-doctor` runs setup diagnostics.)
+All take an optional `[path]` and `--json`; `report` renders honest not-available states for anything missing. (Bare `sumo-qa` launches the MCP server; `sumo-qa-doctor` runs diagnostics.)
 
 ### Update
 
@@ -155,14 +113,7 @@ Natural language works everywhere. *"Review my changes"*, *"plan QA for this sto
 
 ### Host adapter folders
 
-`sumo-qa` ships first-class plugin manifest folders for hosts that consume them directly. Both folders are generated from a single canonical source (`pyproject.toml`'s `[tool.sumo-qa.plugin]` overlay) — see [docs/host-adapters.md](docs/host-adapters.md) for the architecture.
-
-| Host | Manifest | Install status today | Source-of-truth contract |
-|---|---|---|---|
-| Claude Code | `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (requires `uv` — see [INSTALL.md](docs/INSTALL.md#prerequisite-uv)) | `claude --plugin-dir /path/to/sumo-qa` (session-scoped), or `/plugin marketplace add sumithr/sumo-qa` → `/plugin install sumo-qa@sumo-qa` (persistent; wired + schema-valid, live install not yet verified) | Both schema-validated against the published JSON Schemas in CI |
-| OpenAI Codex | `.codex-plugin/plugin.json` | Not verified end-to-end yet — treat as TBD | MCP `initialize` handshake smoke in CI (no published schema) |
-
-Adding a new host is one new template under `plugin_packaging/templates/` plus the canonical-source line that describes it. The `plugin-packaging` CI workflow re-runs the generator on every PR and fails if any committed adapter file diverges from the canonical source.
+`sumo-qa` ships generated plugin manifest folders — `.claude-plugin/` (Claude Code) and `.codex-plugin/` (Codex, not yet verified end-to-end) — built from a single canonical source in `pyproject.toml` and drift-checked in CI on every PR. Architecture, per-host install status, and how to add a host: [docs/host-adapters.md](docs/host-adapters.md).
 
 ## See it in action
 
@@ -173,94 +124,20 @@ Transcripts showing the workflow on real code — diff reviews refusing to call 
 
 ## What's included
 
-```mermaid
-%%{init: {'theme':'base', 'themeVariables': {
-  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
-  'fontSize':'15px',
-  'primaryTextColor':'#1B1B1B',
-  'lineColor':'#1B1B1B'
-}}}%%
-flowchart LR
-    LLM{{"Host LLM"}}
-
-    subgraph Inputs ["sumo-qa content"]
-        direction TB
-        Knowledge[("Knowledge")]
-        Standards[("Standards")]
-    end
-
-    Skills["<b>Skills</b>"]
-    Output(["Output"])
-
-    Knowledge -- cited by --> Skills
-    Standards -- cited by --> Skills
-    LLM == follows ==> Skills
-    Skills == produces ==> Output
-
-    classDef host fill:#7A1F1F,stroke:#1B1B1B,stroke-width:2px,color:#FAF7F2
-    classDef skills fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
-    classDef data fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
-    classDef out fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
-    classDef group fill:none,stroke:#8A7B5C,stroke-width:1px,color:#5C4D00,stroke-dasharray: 4 4
-
-    class LLM host
-    class Skills skills
-    class Knowledge,Standards data
-    class Output out
-    class Inputs group
-
-    linkStyle 0,1 stroke:#8A7B5C,stroke-width:1.2px,stroke-dasharray:5 4
-    linkStyle 2,3 stroke:#1B1B1B,stroke-width:2.5px
-```
+Three layers: the host LLM follows skills, which cite knowledge and standards to produce the output. The [architecture doc](docs/ARCHITECTURE.md) has the diagram and the full data flow.
 
 | Layer | What |
 |---|---|
 | **Skills** ([`skills/`](skills/)) | Iron-Law procedures across the QA lifecycle: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, finding test data, answering testing questions, repo strategy — plus the planning → parallel subagent execution → finishing chain. |
 | **MCP entry points** | A thin tool surface — skill tools, knowledge loaders, a capabilities-discovery tool, repo-map tools, test-data tools, an ingestion tool, and external-skill lifecycle tools. Each is file IO or small deterministic logic; no inference. |
-| **Progressive skill loading** | A read-only loader (`sumo_qa_list_skill_manifests` + `sumo_qa_load_skill_context`) that fetches a skill in slices — a routing manifest, one section, one lazy module, or the full body — so a host pays the routing slice on each revisit instead of the whole body every time. `section`/`module`/`full` are **canonical** (verbatim from the file — cite/follow them); the **manifest** paths are *compact navigation aids*, not a substitute for the procedure text. Load the full body (or the exact section) when a workflow actually needs the wording. See [docs/TOOLS.md](docs/TOOLS.md#which-path-to-use--canonical-vs-compact) and [docs/SKILLS.md](docs/SKILLS.md#progressive-loading--manifest--section--module--full). |
-| **Knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques. The agent picks from these instead of recalling from training data. Editable as plain markdown. Specialty-tool picks are deliberately not catalogued — the discipline is observe the risk surface, web-search current options for the user's stack, cite when naming a tool. |
+| **Progressive skill loading** | A read-only loader that fetches a skill in slices — routing manifest → section → module → full body — so a host pays the routing slice on each revisit, not the whole body. See [docs/TOOLS.md](docs/TOOLS.md#which-path-to-use--canonical-vs-compact) and [docs/SKILLS.md](docs/SKILLS.md#progressive-loading--manifest--section--module--full). |
+| **Knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques the agent picks from instead of recalling from training data. Editable as plain markdown. (Specialty-tool picks are deliberately not catalogued — observe the risk surface and web-search current options instead.) |
 
 ## When sumo-qa doesn't fit
 
 If your QA intent has no native fit (Playwright E2E, accessibility audits, k6 load testing, type checking), sumo-qa searches for an external skill through its MCP server, offers a `[y/N]` install gate, installs through the Skills CLI, then loads the installed `SKILL.md` back into the conversation.
 
-```mermaid
-%%{init: {'theme':'base', 'themeVariables': {
-  'fontFamily':'Charter, "Iowan Old Style", Georgia, serif',
-  'fontSize':'13px',
-  'primaryTextColor':'#1B1B1B',
-  'lineColor':'#1B1B1B'
-}}}%%
-flowchart LR
-    Intent(["QA intent<br/><i>no native fit</i>"])
-    Search["<b>search</b><br/><i>sumo_qa_search_external_skills</i>"]
-    Gate{"<b>[y/N]</b>"}
-    Install["<b>install</b><br/><i>sumo_qa_install_external_skill</i>"]
-    Locate["<b>locate &amp; load</b><br/><i>check_installed · execute</i>"]
-    Out(["external SKILL.md<br/>in the conversation"])
-    Stop(["stop"])
-
-    Intent ==> Search ==> Gate
-    Gate -->|y| Install ==> Locate ==> Out
-    Gate -->|N| Stop
-
-    classDef io fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2px,color:#1B1B1B
-    classDef step fill:#FAF7F2,stroke:#1B1B1B,stroke-width:2.5px,color:#1B1B1B
-    classDef gate fill:#7A1F1F,stroke:#1B1B1B,stroke-width:2px,color:#FAF7F2
-    classDef stop fill:#F0EAE0,stroke:#8A7B5C,stroke-width:1.5px,color:#1B1B1B
-    classDef done fill:#E8EDDF,stroke:#3F4A2E,stroke-width:2px,color:#1B1B1B
-
-    class Intent io
-    class Search,Install,Locate step
-    class Gate gate
-    class Stop stop
-    class Out done
-```
-
-- The host does not run `npx` directly; `sumo_qa_search_external_skills`, `sumo_qa_check_external_skill_installed`, `sumo_qa_install_external_skill`, and `sumo_qa_execute_external_skill` own the lifecycle.
-- Search returns the Skills CLI's text output verbatim (ANSI stripped); the host LLM reads it as the user would. No structured parser to drift out of date.
-- Node.js is required for the Skills CLI. If `npx` is missing, the MCP tool returns an actionable error and stops. It doesn't elevate via sudo.
-- The external skill suggests tool-specific setup, but sumo-qa's setup standard overrides it — any machine-level / global install in the returned skill body is translated to a repo-pinned + CI-reproducible equivalent — while sumo-qa keeps the confirmation gates, test evidence, and risk-to-test mapping.
+The host never runs `npx` directly — four MCP tools own the lifecycle (search → `[y/N]` gate → install → load), and search returns the Skills CLI output verbatim, so there's no parser to drift. Node.js is required; if `npx` is missing the tool returns an actionable error rather than elevating. Any machine-level install the external skill suggests is translated to sumo-qa's repo-pinned, CI-reproducible standard, and sumo-qa keeps its confirmation gates, test evidence, and risk-to-test mapping.
 
 ## Support
 
