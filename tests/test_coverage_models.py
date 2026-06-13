@@ -126,11 +126,16 @@ def test_mutation_artifact_maps_to_signal() -> None:
             "survivors": 2,
             "killed": 145,
             "freshness": "fresh",
+            "detail": "survivors in scorecard_models",
         }
     )
     assert isinstance(art, MutationArtifact)
     sig = art.to_signal()
     assert (sig.survivors, sig.killed) == (2, 145)
+    assert sig.freshness == "fresh"
+    # The detail must map through — a dropped/None detail loses the survivor
+    # location the report surfaces.
+    assert sig.detail == "survivors in scorecard_models"
     assert sig.has_measurement() is True
 
 
@@ -159,6 +164,9 @@ def test_mutation_negative_count_rejected() -> None:
         )
     assert exc.value.kind == "value_error"
     assert exc.value.path == "survivors"
+    # The underlying validator message must survive into the error, not be
+    # dropped — the host reads it to know WHY the artifact was rejected.
+    assert "non-negative" in exc.value.message
 
 
 def test_mutation_schema_version_mismatch_int() -> None:
@@ -166,6 +174,9 @@ def test_mutation_schema_version_mismatch_int() -> None:
     with pytest.raises(MutationArtifactError) as exc:
         load_mutation_artifact({"schema_version": 2, "generated_at": "x", "source_tool": "x"})
     assert exc.value.kind == "schema_version_mismatch"
+    # The mismatch message names both the found and expected versions.
+    assert "schema_version is 2" in exc.value.message
+    assert "this build expects" in exc.value.message
 
 
 def test_coverage_wrong_type_classified_as_type_error() -> None:
@@ -183,3 +194,23 @@ def test_coverage_wrong_type_classified_as_type_error() -> None:
         )
     assert exc.value.kind == "type_error"
     assert exc.value.path == "line_percent"
+
+
+def test_artifact_error_formats_kind_path_and_message() -> None:
+    # The error string is what the MCP envelope surfaces; assert every part
+    # (kind, the " at <path>" location, the message) so the construction can't
+    # silently drop one and still "pass".
+    err = CoverageArtifactError(kind="value_error", message="bad value", path="line_percent")
+    assert err.kind == "value_error"
+    assert err.message == "bad value"
+    assert err.path == "line_percent"
+    assert str(err) == "[value_error] at line_percent: bad value"
+
+
+def test_artifact_error_without_path_omits_location() -> None:
+    # A path-less error renders no " at ..." segment — pins the empty-string
+    # branch so a non-empty placeholder can't sneak in.
+    err = MutationArtifactError(kind="type_error", message="boom", path=None)
+    assert err.path is None
+    assert str(err) == "[type_error]: boom"
+    assert " at " not in str(err)

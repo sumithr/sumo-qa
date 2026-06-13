@@ -164,6 +164,11 @@ paths_to_mutate = [
   "src/sumo_qa/rules.py",
   "src/sumo_qa/standards.py",
   "src/sumo_qa/tdm_validation.py",
+  # #147 follow-up: the coverage/mutation artifact validation is decision logic
+  # (schema-version gate, range/vocab/type classification, signal mapping), so
+  # it earns mutation coverage. Strengthened to 0 survivors (1 equivalent
+  # join-separator mutant carries a `# pragma: no mutate`).
+  "src/sumo_qa/coverage_models.py",
 ]
 # --no-cov: bypasses --cov-fail-under=100 addopts (fails every mutated run)
 # -x: stop at first failure for speed

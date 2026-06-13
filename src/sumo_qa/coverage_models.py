@@ -183,7 +183,10 @@ def _load(
         return model.model_validate(data)
     except ValidationError as exc:
         first = exc.errors()[0]
-        location = "/".join(str(p) for p in first["loc"])
+        # Equivalent mutant: CoverageArtifact/MutationArtifact are flat models, so
+        # a pydantic error `loc` is always a single element — the join separator
+        # is never exercised and mutating it cannot be killed by any valid input.
+        location = "/".join(str(p) for p in first["loc"])  # pragma: no mutate
         raise error(
             kind=_classify(first["type"]),
             message=first["msg"],
