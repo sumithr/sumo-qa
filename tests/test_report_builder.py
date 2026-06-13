@@ -173,7 +173,8 @@ def test_empty_repo_reports_all_sources_missing(tmp_path):
         "risk_ledger": "missing",
         "context_bundle": "missing",
         "readiness_scorecard": "missing",
-        "coverage_mutation": "missing",
+        "coverage": "missing",
+        "mutation": "missing",
     }
     assert report.readiness.state == "insufficient_evidence"
     assert report.changed_components == []
@@ -306,14 +307,15 @@ def test_present_scorecard_file_is_ignored_not_read(tmp_path):
     assert entry.detail is not None and "not derivable" in entry.detail
 
 
-def test_scorecard_is_available_when_derived_from_ledger(tmp_path):
+def test_scorecard_is_derived_when_composed_from_ledger(tmp_path):
     """A risk ledger (or bundle) is enough to derive the scorecard, so the
-    inventory row reads 'available' and says it was derived in-report — in
-    product terms, never internal tracker references."""
+    inventory row reads 'derived' (computed in-report, never an on-disk
+    artifact) and says so — in product terms, never internal tracker
+    references."""
     _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
-    assert entry.status == "available"
+    assert entry.status == "derived"
     assert entry.detail is not None and "derived in-report" in entry.detail
 
 
@@ -347,13 +349,17 @@ def test_absent_scorecard_reports_not_derivable(tmp_path):
     assert entry.detail is not None and "not derivable" in entry.detail
 
 
-def test_coverage_mutation_is_an_optional_scorecard_signal(tmp_path):
+def test_coverage_and_mutation_are_separate_optional_rows(tmp_path):
+    # Two persisted producers = two inventory rows, not one combined row.
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
-    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
-    assert entry.status == "missing"
-    assert entry.detail is not None
-    assert "not supplied" in entry.detail
-    assert "reported, not gated" in entry.detail
+    kinds = [a.kind for a in report.artifacts]
+    assert "coverage" in kinds and "mutation" in kinds and "coverage_mutation" not in kinds
+    for kind in ("coverage", "mutation"):
+        entry = next(a for a in report.artifacts if a.kind == kind)
+        assert entry.status == "missing"
+        assert entry.detail is not None
+        assert "not supplied" in entry.detail
+        assert "reported, not gated" in entry.detail
 
 
 def _coverage_payload(**overrides) -> dict:
@@ -384,9 +390,12 @@ def _mutation_payload(**overrides) -> dict:
 def test_fresh_coverage_artifact_renders_available(tmp_path):
     _write_artifact(tmp_path, "coverage.json", _coverage_payload())
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
-    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    entry = next(a for a in report.artifacts if a.kind == "coverage")
     assert entry.status == "available"
-    assert entry.detail is not None and "coverage: fresh" in entry.detail
+    # The split row carries its own file path and the per-signal measurement.
+    assert entry.path == ".sumo-qa/coverage.json"
+    assert entry.detail is not None
+    assert "100% lines" in entry.detail and "freshness=fresh" in entry.detail
     # The evidence stream carries the measurement, reported never gated.
     stream = next(s for s in report.evidence if s.name == "coverage")
     assert stream.status == "not_run"
@@ -397,7 +406,7 @@ def test_fresh_coverage_artifact_renders_available(tmp_path):
 def test_stale_coverage_artifact_renders_stale(tmp_path):
     _write_artifact(tmp_path, "coverage.json", _coverage_payload(freshness="stale"))
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
-    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    entry = next(a for a in report.artifacts if a.kind == "coverage")
     assert entry.status == "stale"
     stream = next(s for s in report.evidence if s.name == "coverage")
     assert stream.trustworthy is False
@@ -407,9 +416,11 @@ def test_both_coverage_and_mutation_render_available(tmp_path):
     _write_artifact(tmp_path, "coverage.json", _coverage_payload())
     _write_artifact(tmp_path, "mutation.json", _mutation_payload())
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
-    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
-    assert entry.status == "available"
-    assert "mutation: fresh" in (entry.detail or "")
+    cov = next(a for a in report.artifacts if a.kind == "coverage")
+    mut = next(a for a in report.artifacts if a.kind == "mutation")
+    assert cov.status == "available" and mut.status == "available"
+    assert mut.path == ".sumo-qa/mutation.json"
+    assert "2 survivor(s)" in (mut.detail or "")
     mstream = next(s for s in report.evidence if s.name == "mutation")
     assert mstream.status == "not_run"
     assert mstream.detail is not None and "2 survivor(s)" in mstream.detail
@@ -418,33 +429,37 @@ def test_both_coverage_and_mutation_render_available(tmp_path):
 def test_invalid_coverage_artifact_renders_invalid(tmp_path):
     _write_artifact(tmp_path, "coverage.json", _coverage_payload(line_percent=150.0))
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
-    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    entry = next(a for a in report.artifacts if a.kind == "coverage")
     assert entry.status == "invalid"
     assert "unreadable" in (entry.detail or "")
 
 
-def test_fresh_coverage_plus_stale_mutation_aggregates_to_stale(tmp_path):
-    # Weakest-wins: a fresh coverage signal must not badge the row "available"
-    # while its mutation sibling is stale.
+def test_coverage_and_mutation_rows_are_independent_no_aggregation(tmp_path):
+    # The split's whole point: two separate files = two independent rows. A
+    # fresh coverage signal stays `available` on its own row while a stale
+    # mutation sibling is `stale` on its — no combined row can mask which
+    # sibling is which (the old weakest-wins aggregation is gone).
     _write_artifact(tmp_path, "coverage.json", _coverage_payload(freshness="fresh"))
     _write_artifact(tmp_path, "mutation.json", _mutation_payload(freshness="stale"))
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
-    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
-    assert entry.status == "stale"
-    assert "coverage: fresh" in (entry.detail or "")
-    assert "mutation: stale" in (entry.detail or "")
+    cov = next(a for a in report.artifacts if a.kind == "coverage")
+    mut = next(a for a in report.artifacts if a.kind == "mutation")
+    assert cov.status == "available"
+    assert mut.status == "stale"
 
 
-def test_fresh_coverage_plus_invalid_mutation_aggregates_to_invalid(tmp_path):
-    # A present-but-corrupt sibling artifact must not be masked by a fresh
-    # signal: the row badges "invalid" and names the unreadable artifact.
+def test_corrupt_mutation_sibling_does_not_drag_down_fresh_coverage(tmp_path):
+    # A present-but-corrupt mutation artifact is `invalid` on ITS row only; the
+    # fresh coverage row stays `available` instead of being masked into one
+    # combined "invalid" verdict.
     _write_artifact(tmp_path, "coverage.json", _coverage_payload(freshness="fresh"))
     _write_artifact(tmp_path, "mutation.json", _mutation_payload(survivors=-5))
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
-    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
-    assert entry.status == "invalid"
-    assert "mutation: unreadable" in (entry.detail or "")
-    assert "coverage: fresh" in (entry.detail or "")
+    cov = next(a for a in report.artifacts if a.kind == "coverage")
+    mut = next(a for a in report.artifacts if a.kind == "mutation")
+    assert cov.status == "available"
+    assert mut.status == "invalid"
+    assert "unreadable" in (mut.detail or "")
 
 
 def test_measurementless_coverage_artifact_stays_missing(tmp_path):
@@ -461,7 +476,7 @@ def test_measurementless_coverage_artifact_stays_missing(tmp_path):
         },
     )
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
-    entry = next(a for a in report.artifacts if a.kind == "coverage_mutation")
+    entry = next(a for a in report.artifacts if a.kind == "coverage")
     assert entry.status == "missing"
 
 
@@ -852,7 +867,8 @@ def test_ledger_override_takes_precedence_over_disk(tmp_path):
         tmp_path, generator_version=_VERSION, now=_NOW, ledger_override=override
     )
     entry = next(a for a in report.artifacts if a.kind == "risk_ledger")
-    assert entry.status == "available"
+    # Caller-supplied (never on disk) → `inline`, not `available`.
+    assert entry.status == "inline"
     assert entry.path is None
     assert entry.detail is not None and "inline" in entry.detail.lower()
     assert [r.risk_id for r in report.risks] == ["R9"]
@@ -865,7 +881,8 @@ def test_bundle_override_takes_precedence_over_disk(tmp_path):
         tmp_path, generator_version=_VERSION, now=_NOW, bundle_override=override
     )
     entry = next(a for a in report.artifacts if a.kind == "context_bundle")
-    assert entry.status == "available"
+    # Caller-supplied (never on disk) → `inline`, not `available`.
+    assert entry.status == "inline"
     assert entry.path is None
     by_name = {e.name: e for e in report.evidence}
     assert by_name["tests"].status == "passing"

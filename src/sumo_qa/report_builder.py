@@ -33,7 +33,7 @@ import json
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -50,6 +50,7 @@ from sumo_qa.repo_map_models import DiffImpact, RepoMap
 from sumo_qa.repo_map_scanner import _detect_git_commit
 from sumo_qa.repo_map_validation import load_repo_map
 from sumo_qa.report_models import (
+    PRESENT_STATUSES,
     REPORT_SCHEMA_VERSION,
     ArtifactKind,
     ArtifactStatus,
@@ -270,14 +271,16 @@ def write_run_summary(root: Path | str, report: QAReport) -> Path:
     """
     target = Path(root).resolve() / RUN_SUMMARY_RELPATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    available = sum(1 for a in report.artifacts if a.status == "available")
+    # "sources_available" is the persisted key (kept for summary back-compat);
+    # it counts PRESENT sources (on-disk + inline + derived), matching the page.
+    present = sum(1 for a in report.artifacts if a.status in PRESENT_STATUSES)
     payload = {
         "schema_version": "1.0",
         "generated_at": report.project.generated_at.isoformat(),
         "readiness_state": report.readiness.state,
         "risk_count": len(report.risks),
         "uncovered_blocker_count": report.uncovered_blocker_count,
-        "sources_available": available,
+        "sources_available": present,
     }
     target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return target
@@ -374,7 +377,9 @@ def _ledger_artifact(inputs: ReportInputs) -> ReportArtifact:
         )
     return ReportArtifact(
         kind="risk_ledger",
-        status="available",
+        # An inline-supplied ledger is present and usable but never touched disk,
+        # so it is `inline`, not `available` (which means a persisted artifact).
+        status="inline" if inputs.ledger_source.inline else "available",
         path=inputs.ledger_source.path,
         detail=inputs.ledger_source.detail,
     )
@@ -390,9 +395,17 @@ def _bundle_artifact(inputs: ReportInputs, conflict: str | None) -> ReportArtifa
                 "or pass it inline"
             ),
         )
+    if conflict is not None:
+        status: ArtifactStatus = "stale"
+    elif inputs.bundle_source.inline:
+        # Caller-supplied bundle that never touched disk — present and usable,
+        # but not a persisted artifact, so `inline` rather than `available`.
+        status = "inline"
+    else:
+        status = "available"
     return ReportArtifact(
         kind="context_bundle",
-        status="stale" if conflict is not None else "available",
+        status=status,
         path=inputs.bundle_source.path,
         detail=conflict if conflict is not None else inputs.bundle_source.detail,
     )
@@ -417,7 +430,10 @@ def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
     if (inputs.ledger is not None and inputs.ledger.rows) or has_bundle_signal:
         return ReportArtifact(
             kind="readiness_scorecard",
-            status="available",
+            # Computed in-report by the readiness engine — there is no scorecard
+            # artifact on disk (#151's tool has no write_to), so the honest
+            # status is `derived`, never `available`.
+            status="derived",
             path=None,
             detail="derived in-report from the risk ledger + context bundle (readiness engine)",
         )
@@ -429,47 +445,37 @@ def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
     )
 
 
-def _coverage_mutation_artifact(inputs: ReportInputs) -> ReportArtifact:
-    """The persisted coverage/mutation producers (#147 follow-up), aggregated
-    into the single ``coverage_mutation`` row.
+def _measurement_artifact(
+    kind: Literal["coverage", "mutation"],
+    signal: CoverageSignal | MutationSignal | None,
+    source: ArtifactSource,
+    measure: str | None,
+) -> ReportArtifact:
+    """One persisted measurement producer (#147 follow-up) as its OWN inventory
+    row — coverage and mutation are two separate ``.sumo-qa`` files, so each
+    reports its own status/path independently. No aggregation across the two:
+    a corrupt mutation file is ``invalid`` on its own row while a fresh coverage
+    file stays ``available`` on its, instead of one combined row masking which
+    sibling is which. Both are REPORTED, never gated — the row carries presence
+    + freshness only and never moves the verdict.
 
-    A signal that loaded but is not fresh is honestly ``stale`` (evidence the
-    verdict must not trust); a present file that failed to validate is
-    ``invalid``; nothing on disk is ``missing``. Coverage/mutation never gate the
-    verdict — this row reports their presence + freshness only.
+    A signal that loaded but is not fresh is honestly ``stale``; a present file
+    that failed to validate is ``invalid``; nothing on disk is ``missing``.
     """
-    parts: list[str] = []
-    loaded: list[CoverageSignal | MutationSignal] = []
-    has_error = False
-    for label, signal, source in (
-        ("coverage", inputs.coverage, inputs.coverage_source),
-        ("mutation", inputs.mutation, inputs.mutation_source),
-    ):
-        if signal is not None and signal.has_measurement():
-            loaded.append(signal)
-            parts.append(f"{label}: {signal.freshness}")
-        elif source.error is not None:
-            has_error = True
-            parts.append(f"{label}: unreadable ({_first_line_text(source.error)})")
-        else:
-            parts.append(f"{label}: not supplied")
-
-    # Weakest-wins, so the badge never reads healthier than the evidence (the
-    # report's honesty ethos): a present-but-corrupt artifact is `invalid` even
-    # when its sibling loaded fresh; any loaded-but-non-fresh signal makes the
-    # row `stale`. The detail line always carries the per-signal specifics.
-    status: ArtifactStatus
-    if has_error:
+    if signal is not None and signal.has_measurement():
+        detail = f"{measure}, freshness={signal.freshness}" if measure else signal.freshness
+        status: ArtifactStatus = "available" if signal.freshness == "fresh" else "stale"
+    elif source.error is not None:
+        detail = f"unreadable ({_first_line_text(source.error)})"
         status = "invalid"
-    elif loaded:
-        status = "available" if all(s.freshness == "fresh" for s in loaded) else "stale"
     else:
+        detail = "not supplied"
         status = "missing"
     return ReportArtifact(
-        kind="coverage_mutation",
+        kind=kind,
         status=status,
-        path=None,
-        detail="; ".join(parts) + " — reported, not gated",
+        path=source.path,
+        detail=f"{detail} — reported, not gated",
     )
 
 
@@ -648,13 +654,26 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
     )
     map_stale = _repo_map_is_stale(inputs)
 
+    cov_measure = _coverage_measure(inputs.coverage)
+    mut_measure = _mutation_measure(inputs.mutation)
     artifacts = [
         _repo_map_artifact(inputs, now, map_stale=map_stale),
         _diff_impact_artifact(inputs, map_stale=map_stale),
         _ledger_artifact(inputs),
         _bundle_artifact(inputs, conflict),
         _scorecard_artifact(inputs),
-        _coverage_mutation_artifact(inputs),
+        _measurement_artifact(
+            "coverage",
+            inputs.coverage,
+            inputs.coverage_source,
+            cov_measure[1] if cov_measure else None,
+        ),
+        _measurement_artifact(
+            "mutation",
+            inputs.mutation,
+            inputs.mutation_source,
+            mut_measure[1] if mut_measure else None,
+        ),
     ]
 
     diff_impact = inputs.diff_impact
