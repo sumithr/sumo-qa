@@ -19,11 +19,11 @@ A QA-native MCP server and skills library: analyze a repo, map risks to tests an
 
 ## Why it exists
 
-AI writes more of the code every month — but it's still the weakest link in testing it. It calls work done without running anything, writes tests that pass by restating the code they're meant to check, and labels a change safe to merge off CI that ran an hour ago. As the writing gets cheaper, that's where the real risk moves: not "can it build the feature" but "did anyone actually verify what it shipped."
+AI writes more of your code every month, and it's confident about all of it — "done", "looks good", "safe to merge". But confidence isn't evidence. It will call a change safe off CI that ran an hour ago, write tests that pass by restating the code they're meant to check, and declare work finished without running anything. You can't tell what was actually verified from what merely sounds verified — and you're still the one who has to answer for what shipped.
 
-sumo-qa makes any AI agent — in any host, on any stack — hold itself to a senior QA's discipline on its own work: understand the code well enough to test it, tie risks to specific files and lines, and prove a change is safe with tests that ran this turn. The same principles every time, instead of each model freelancing its own idea of "tested."
+sumo-qa exists to make AI-written code something you can stand behind. It holds any agent — in any host, on any stack — to a senior QA's discipline on its own work, and makes it show the evidence: risks tied to specific files and lines, each mapped to a test that ran this turn, and a safe-to-merge verdict you could hand a reviewer instead of "the model said it was fine". The same standard every time, not each model's own idea of "tested".
 
-Ask a stock assistant to QA a change and you get the junior answer: "add unit tests, consider edge cases, maybe test performance." sumo-qa makes it work like the senior who's seen what ships broken:
+Ask a stock assistant to QA a change and you get the junior answer: "add unit tests, consider edge cases, maybe test performance." sumo-qa makes it work like the senior who has to sign off on what ships:
 
 - Reads the repo first — what it does, which tests cover which code — then names risks tied to specific files and lines, not vague categories
 - Picks a real design technique per risk from an ISTQB-grounded catalogue, instead of generating tests by vibe
