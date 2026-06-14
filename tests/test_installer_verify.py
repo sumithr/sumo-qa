@@ -173,29 +173,53 @@ _POPEN_TARGET = "sumo_qa.installer.subprocess.Popen"
 
 
 def test_required_tool_names_constant_is_defined() -> None:
-    """The constant exists and lists the canonical (non-skill) sumo-qa tools."""
+    """The constant exists, is a sorted tuple of canonical (non-skill) names,
+    and surfaces the representative atomic tools.
+
+    The constant is DERIVED from the live registry (issue #352), so its EXACT
+    count is no longer hand-maintained here — that invariant lives in
+    ``test_required_tool_names_matches_live_registry`` (which compares the
+    derived set against an independent recomputation of the atomic surface).
+    This test pins the public shape (a non-empty sorted ``tuple[str, ...]``),
+    a sanity floor (the surface never collapses to a near-empty set if the
+    derivation breaks), and that every long-lived atomic tool is present and
+    no skill-prompt tool leaked in."""
     assert hasattr(installer, "REQUIRED_TOOL_NAMES")
-    assert isinstance(installer.REQUIRED_TOOL_NAMES, tuple)
-    # 4 test-data + 6 knowledge loaders + 1 per-entry/compact catalogue loader
-    # (#287) + 1 capabilities + 3 repo-map (scan + diff-impact + query) + 1
-    # risk-to-test ledger (#144) + 1 context bundle (#149) + 1 readiness
-    # scorecard (#151) + 1 QA-artifact export (#148) + 1 QA report (#157) + 1
-    # review-feedback memory (#145) + 1 ingestion + 4 external skills + 2
-    # progressive skill loading
-    # (#285: list_skill_manifests + load_skill_context) = 28.
-    assert len(installer.REQUIRED_TOOL_NAMES) == 28
-    assert "sumo_qa_explain_test_data_requirements" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_load_classifications" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_capabilities" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_scan_repo" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_analyze_diff_impact" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_format_risk_ledger" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_format_context_bundle" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_ingest_knowledge_pack" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_capture_review_feedback" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_install_external_skill" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_list_skill_manifests" in installer.REQUIRED_TOOL_NAMES
-    assert "sumo_qa_load_skill_context" in installer.REQUIRED_TOOL_NAMES
+    names = installer.REQUIRED_TOOL_NAMES
+    assert isinstance(names, tuple)
+    assert all(isinstance(n, str) for n in names)
+    # Sorted + deduplicated: the derivation builds from a set and sorts it.
+    assert list(names) == sorted(set(names))
+    # Sanity floor: the atomic surface is substantial. A broken derivation
+    # (empty registry, wrong subtraction) collapses well below this; the exact
+    # count is asserted against the live registry elsewhere.
+    assert len(names) >= 20
+    # Representative members across every atomic group (test-data, knowledge
+    # loaders, capabilities, repo-map, formatters, export, report, ingestion,
+    # feedback memory, external skills, progressive skill loading).
+    for expected in (
+        "sumo_qa_explain_test_data_requirements",
+        "sumo_qa_load_classifications",
+        "sumo_qa_load_catalogue_entry",
+        "sumo_qa_capabilities",
+        "sumo_qa_scan_repo",
+        "sumo_qa_analyze_diff_impact",
+        "sumo_qa_query_repo_map",
+        "sumo_qa_format_risk_ledger",
+        "sumo_qa_format_context_bundle",
+        "sumo_qa_format_qa_scorecard",
+        "sumo_qa_export_test_cases",
+        "sumo_qa_generate_qa_report",
+        "sumo_qa_ingest_knowledge_pack",
+        "sumo_qa_capture_review_feedback",
+        "sumo_qa_install_external_skill",
+        "sumo_qa_list_skill_manifests",
+        "sumo_qa_load_skill_context",
+    ):
+        assert expected in names, expected
+    # No filesystem-driven skill-prompt tool leaked into the atomic surface.
+    for skill_tool in ("using_sumo_qa", "sumo_qa_deciding_approach", "sumo_qa_closing_qa_gaps"):
+        assert skill_tool not in names, f"skill tool leaked into atomic surface: {skill_tool}"
 
 
 def test_verify_timeout_constant_matches_legacy() -> None:
@@ -843,15 +867,17 @@ def test_verify_dumps_non_dict_batch_elements_on_failure(capsys) -> None:
 
 
 def test_required_tool_names_matches_live_registry() -> None:
-    """If someone adds an @mcp.tool to server.py, REQUIRED_TOOL_NAMES must
-    be updated in lock-step. The verify-fn's subset check would silently
-    accept a missing entry today — this test prevents that drift.
+    """REQUIRED_TOOL_NAMES is DERIVED from the live registry (issue #352), so
+    it can no longer drift when an @mcp.tool is added/renamed/removed. This
+    test pins that the derivation is CORRECT: it must equal an INDEPENDENT
+    recomputation of the atomic surface — the live registry minus the
+    filesystem-driven skill-prompt tools.
 
-    Skill-prompt tools (registered dynamically via register_skills_as_prompts,
-    one per skills/<name>/SKILL.md on disk) are excluded: they're filesystem-
-    driven, so enumerating them in a static tuple would churn on every skill
-    add. We compute the skill-prompt names from the same source the registrar
-    walks, then subtract them before comparing against REQUIRED_TOOL_NAMES."""
+    Recomputing here (rather than calling ``installer._derive_required_tool_names``)
+    is deliberate: a self-comparison would be a tautology. We rebuild the
+    registry and re-derive the skill-prompt names the same way the registrar
+    does (directory name with `-` -> `_`), so a bug in the production
+    derivation — wrong subtraction, missing sort, skill leakage — fails here."""
     from sumo_qa import skill_prompts
     from sumo_qa.server import build_mcp_server
 
@@ -874,11 +900,16 @@ def test_required_tool_names_matches_live_registry() -> None:
     extra_in_required = expected - static_tool_names
 
     assert missing_from_required == set(), (
-        f"server.py registers tools not in REQUIRED_TOOL_NAMES: "
-        f"{sorted(missing_from_required)}. Update installer.REQUIRED_TOOL_NAMES "
-        f"(and the dispatch comment groups) when adding new @mcp.tool decorators."
+        f"Derivation dropped atomic tools server.py registers: "
+        f"{sorted(missing_from_required)}. Check installer._derive_required_tool_names "
+        f"(skill-prompt subtraction or registry access)."
     )
     assert extra_in_required == set(), (
-        f"REQUIRED_TOOL_NAMES lists tools no longer registered in server.py: "
-        f"{sorted(extra_in_required)}. Remove from the tuple."
+        f"REQUIRED_TOOL_NAMES contains names not registered as atomic @mcp.tool "
+        f"surface (skill leakage or stale entry): {sorted(extra_in_required)}. "
+        f"Check installer._derive_required_tool_names."
     )
+    # The derived constant must be exactly the atomic surface — same membership
+    # AND ordering (sorted). This is the canonical home for the exact-count
+    # invariant now that the constant is no longer hand-maintained.
+    assert installer.REQUIRED_TOOL_NAMES == tuple(sorted(static_tool_names))

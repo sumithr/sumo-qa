@@ -18,6 +18,7 @@
     "sumo_qa_format_context_bundle",
     "sumo_qa_format_qa_scorecard",
     "sumo_qa_format_risk_ledger",
+    "sumo_qa_generate_qa_report",
     "sumo_qa_implementing_with_tdd",
     "sumo_qa_ingest_knowledge_pack",
     "sumo_qa_install_external_skill",
@@ -500,6 +501,58 @@
         },
         "required": [
           "rows"
+        ],
+        "type": "object"
+      },
+      "outputSchema": null
+    },
+    "sumo_qa_generate_qa_report": {
+      "inputSchema": {
+        "properties": {
+          "context_bundle": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "risk_ledger_rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "root": {
+            "type": "string"
+          },
+          "write_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "root"
         ],
         "type": "object"
       },
