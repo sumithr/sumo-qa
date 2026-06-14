@@ -56,16 +56,25 @@ MODULE_TOKEN_BUDGET = 1500  # epic #137: skill modules stay under a smaller glob
 # Budget for the SHIPPED DEFAULT payload — what ``sumo_qa_list_skill_manifests``
 # now returns with no args (detail="compact", #306): per-skill metadata WITHOUT
 # the section/module index arrays. This is the cheap all-skill routing slice a
-# host fetches to choose a skill. Measured at ~2,176 approx tokens today.
-COMPACT_MANIFEST_TOKEN_BUDGET = 2500  # epic #137 / #306: shipped compact default under 2,500
+# host fetches to choose a skill. Measured at ~2,176 approx tokens; #150's
+# sixteenth skill (sumo-qa-triaging-test-failures) raised it to ~2,545, so the
+# budget moves to 2,650 — each new skill legitimately adds one description to the
+# routing slice; the guard keeps that growth measured, not forbidden. #409's
+# sumo-qa-measuring-coverage (the seventeenth skill) raised it to ~2,692, so the
+# budget moves to 2,720.
+COMPACT_MANIFEST_TOKEN_BUDGET = 2720  # epic #137 / #306: shipped compact default under 2,720
 # Ceiling for the explicit ``detail="full_index"`` payload: the FULL index WITH
 # every skill's sections[]/modules[] arrays, serialized exactly as ``server.py``
 # emits it (json.dumps(..., ensure_ascii=False, indent=2)). Measured today at
-# ~11,219 approx tokens; ceiling set with ~16% headroom so future section/module
+# ~11,219 approx tokens; ceiling set with headroom so future section/module
 # -index bloat trips this guard rather than slipping through unmeasured. Since
 # #306 this is an OPT-IN payload (not the shipped default), but the guard still
-# matters so all-skill index bloat stays measured.
-FULL_INDEX_TOKEN_CEILING = 13000
+# matters so all-skill index bloat stays measured. #150's sixteenth skill
+# (sumo-qa-triaging-test-failures) raised it to ~13,033, so the ceiling moves to
+# 13,500 — a new skill legitimately adds its section index to the full opt-in.
+# #409's sumo-qa-measuring-coverage raised it to ~13,574, so the ceiling moves
+# to 13,700.
+FULL_INDEX_TOKEN_CEILING = 13700
 HEAVY_SKILL_FULL_FLOOR = 2500  # a skill is "heavy" once its full body exceeds this
 PARTIAL_LOAD_SAVING_FLOOR = 0.50  # manifest + routing-minimal sections >= 50% below full
 

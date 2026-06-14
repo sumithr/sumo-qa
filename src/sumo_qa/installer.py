@@ -84,58 +84,51 @@ _MODULE_DIR = Path(__file__).resolve().parent
 _BUNDLED_SKILLS = _MODULE_DIR / "_data" / "skills"
 
 # Canonical sumo-qa tool surface — exactly what the post-install handshake
-# expects to find in the MCP's tools/list response. Kept in lock-step with
-# the @mcp.tool decorators in src/sumo_qa/server.py; if a tool is added,
-# renamed or removed there, update this tuple (and the matching tests).
-REQUIRED_TOOL_NAMES: tuple[str, ...] = (
-    # Test-data
-    "sumo_qa_explain_test_data_requirements",
-    "sumo_qa_find_test_data",
-    "sumo_qa_validate_test_data",
-    "sumo_qa_register_known_good_test_data",
-    # Knowledge loaders
-    "sumo_qa_load_classifications",
-    "sumo_qa_load_approaches",
-    "sumo_qa_load_principles",
-    "sumo_qa_load_techniques",
-    "sumo_qa_load_standards",
-    "sumo_qa_load_rules",
-    # Per-entry / compact catalogue loader (#287, epic #137 Lever 4)
-    "sumo_qa_load_catalogue_entry",
-    # Capabilities discovery
-    "sumo_qa_capabilities",
-    # Repo-map scanner (#155 slice 3)
-    "sumo_qa_scan_repo",
-    # Repo-map diff-impact (#156 slice 4)
-    "sumo_qa_analyze_diff_impact",
-    # Repo-map query (#156)
-    "sumo_qa_query_repo_map",
-    # Risk-to-test ledger formatter (#144)
-    "sumo_qa_format_risk_ledger",
-    # Context-bundle formatter (#149)
-    "sumo_qa_format_context_bundle",
-    # QA readiness scorecard formatter (#151)
-    "sumo_qa_format_qa_scorecard",
-    # QA-artifact export (#148)
-    "sumo_qa_export_test_cases",
-    # Local QA report (#157)
-    "sumo_qa_generate_qa_report",
-    # Coverage/mutation producers (#147 follow-up)
-    "sumo_qa_record_coverage",
-    "sumo_qa_record_mutation",
-    # Ingestion
-    "sumo_qa_ingest_knowledge_pack",
-    # Review-feedback memory (#145)
-    "sumo_qa_capture_review_feedback",
-    # External skills
-    "sumo_qa_search_external_skills",
-    "sumo_qa_check_external_skill_installed",
-    "sumo_qa_install_external_skill",
-    "sumo_qa_execute_external_skill",
-    # Progressive skill loading (#285) — skill manifests + partial context loader
-    "sumo_qa_list_skill_manifests",
-    "sumo_qa_load_skill_context",
-)
+# expects to find in the MCP's tools/list response.
+#
+# SINGLE SOURCE OF TRUTH (issue #352): this is DERIVED from the live
+# ``build_mcp_server()`` registry, not hand-maintained. It is the atomic
+# (``@mcp.tool``-decorated) surface — i.e. every registered tool MINUS the
+# filesystem-driven skill-prompt tools (one per ``skills/<name>/SKILL.md``,
+# registered dynamically by ``register_skills_as_prompts``). Skill tools are
+# excluded because they churn on every skill add and the post-install verify
+# is a *superset* check anyway; the static atomic surface is the stable
+# contract the install/doctor handshake pins.
+#
+# Because this derives from the registry in-process while the install/doctor
+# verify validates a *separately spawned* ``python -m sumo_qa`` subprocess's
+# advertised tools/list, the check stays a meaningful cross-process handshake
+# (expected in-process registry vs. advertised subprocess surface) rather than
+# a tautology — and adding/renaming an ``@mcp.tool`` can no longer drift this
+# constant out of sync.
+
+
+def _derive_required_tool_names() -> tuple[str, ...]:
+    """Compute the canonical atomic tool surface from the live MCP registry.
+
+    Builds the server, then subtracts the dynamic skill-prompt tool names
+    (computed from the same directory walk the registrar uses) to leave only
+    the static ``@mcp.tool`` decorators. Returns a sorted tuple for a stable,
+    deterministic ordering. Raising here (e.g. MCP SDK missing) is correct:
+    the installer/doctor cannot verify a surface it cannot enumerate, and
+    ``mcp`` is a hard dependency of this package."""
+    from sumo_qa import skill_prompts
+    from sumo_qa.server import build_mcp_server
+
+    mcp = build_mcp_server()
+    live_tool_names = set(mcp._tool_manager._tools.keys())
+
+    skills_dir = skill_prompts._skills_dir()
+    skill_tool_names: set[str] = set()
+    if skills_dir.is_dir():
+        for skill_dir in skills_dir.iterdir():
+            if skill_dir.is_dir() and (skill_dir / "SKILL.md").is_file():
+                skill_tool_names.add(skill_dir.name.replace("-", "_"))
+
+    return tuple(sorted(live_tool_names - skill_tool_names))
+
+
+REQUIRED_TOOL_NAMES: tuple[str, ...] = _derive_required_tool_names()
 
 # Truncate stdout/stderr to keep installer output readable when the MCP
 # verification fails. 300 chars is enough to surface a Python traceback header

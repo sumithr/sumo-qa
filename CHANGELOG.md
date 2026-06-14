@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.47.0](https://github.com/sumithr/sumo-qa/compare/v0.46.1...v0.47.0) (2026-06-14)
+
+
+### Features
+
+* **skills:** add flaky/failing test triage workflow ([#150](https://github.com/sumithr/sumo-qa/issues/150)) ([#421](https://github.com/sumithr/sumo-qa/issues/421)) ([9ce3842](https://github.com/sumithr/sumo-qa/commit/9ce3842250e621628a84af7e157ce30dfa18a9fe))
+
+## [0.46.1](https://github.com/sumithr/sumo-qa/compare/v0.46.0...v0.46.1) (2026-06-14)
+
+
+### Bug Fixes
+
+* **installer:** derive REQUIRED_TOOL_NAMES from the live MCP registry ([#352](https://github.com/sumithr/sumo-qa/issues/352)) ([#419](https://github.com/sumithr/sumo-qa/issues/419)) ([95f0913](https://github.com/sumithr/sumo-qa/commit/95f0913a440f7548c10c7966370515929e0a3290))
+
 ## [0.46.0](https://github.com/sumithr/sumo-qa/compare/v0.45.0...v0.46.0) (2026-06-13)
 
 
