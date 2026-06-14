@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.48.1](https://github.com/sumithr/sumo-qa/compare/v0.48.0...v0.48.1) (2026-06-14)
+
+
+### Documentation
+
+* rework README and demo around outcome-led QA workflows ([#417](https://github.com/sumithr/sumo-qa/issues/417)) ([8615477](https://github.com/sumithr/sumo-qa/commit/861547711a7289f701d342c3a3b84da83282fa9c))
+
 ## [0.48.0](https://github.com/sumithr/sumo-qa/compare/v0.47.0...v0.48.0) (2026-06-14)
 
 
