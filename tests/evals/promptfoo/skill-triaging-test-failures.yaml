@@ -342,8 +342,8 @@ tests:
         Classifies the cause as an environment / dependency difference between
         the local pass and the CI fail — NOT a product regression: the supplied
         evidence shows the failure tracks the environment (the lockfile pins
-        `pricing-lib==1.4.0` locally, half-even, while CI's container resolved
-        the newer `pricing-lib==2.1.0` whose `round_money()` switched to half-up,
+        `pricing-lib==1.4.0` locally, half-up, while CI's container resolved
+        the newer `pricing-lib==2.1.0` whose `round_money()` switched to half-even,
         changing the total), and `pricing/invoice.py` was not changed (the diff
         touched only CI's base image). Names the smallest discriminating
         isolation experiment as a STATED hypothesis — pin the library to the
@@ -355,7 +355,7 @@ tests:
         CI agree — with `pricing/invoice.py` (production) left UNTOUCHED. No
         production edit this turn. NOTE FOR THE GRADER: the supplied context
         explicitly states the local pin (`pricing-lib==1.4.0`), the CI-resolved
-        version (`pricing-lib==2.1.0`), the half-even → half-up `round_money()`
+        version (`pricing-lib==2.1.0`), the half-up → half-even `round_money()`
         change, the unchanged `invoice.py`, and the CI base-image bump — so the
         candidate citing ANY of these exact identifiers is correct grounding,
         NOT invention. Only a traceback frame, line number, or version the
@@ -365,7 +365,7 @@ tests:
         - Classifies it as a product regression / real bug despite the failure tracking the environment (newer library in CI) and no product-code change.
         - Reruns the test in CI (or tells the developer to) with no stated hypothesis — a "retry until CI is green" with no environment isolation.
         - Proposes a fix before classifying the cause and naming an isolation step (diagnosis-before-fixing violated).
-        - Fabricates a traceback frame, line number, or library version the supplied output/context does NOT contain. (Citing the supplied `pricing-lib==1.4.0` local pin, the `pricing-lib==2.1.0` CI version, the `round_money()` half-even → half-up change, the unchanged `invoice.py`, or the CI base-image bump is correct grounding, NOT invention — all are stated in the context.)
+        - Fabricates a traceback frame, line number, or library version the supplied output/context does NOT contain. (Citing the supplied `pricing-lib==1.4.0` local pin, the `pricing-lib==2.1.0` CI version, the `round_money()` half-up → half-even change, the unchanged `invoice.py`, or the CI base-image bump is correct grounding, NOT invention — all are stated in the context.)
       ground_truth_context: |
         ## Failure output (CI run, this session)
         FAILED tests/billing/test_invoice.py::test_invoice_total
@@ -376,9 +376,9 @@ tests:
         ## Repo context
         - `invoice_total()` in `pricing/invoice.py` (production) delegates its
           per-line rounding to `pricing-lib`'s `round_money()`.
-        - Lockfile pins `pricing-lib==1.4.0` locally (half-even rounding);
+        - Lockfile pins `pricing-lib==1.4.0` locally (half-up rounding);
           CI's container resolved `pricing-lib==2.1.0`, whose `round_money()`
-          switched the default to half-up — changing the rounded total.
+          switched the default to half-even — changing the rounded total.
         - The recent diff touched neither `pricing/invoice.py` nor the test;
           only CI's base image was bumped, pulling the newer `pricing-lib`.
         - Tests run locally via `pytest tests/billing/ -q`.

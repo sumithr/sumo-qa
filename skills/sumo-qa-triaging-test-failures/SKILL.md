@@ -14,7 +14,7 @@ A test is failing or flaky and the cause is unknown. A senior QA assistant separ
 Inherits the global discipline from `using-sumo-qa`: output discipline (no internal taxonomy labels — say *"the test's own expectation is stale"*, not *"Cause: test_bug"*), output economy (findings not framing; one question per turn), knowledge authority hierarchy, specialty-tool fit.
 
 <HARD-GATE>
-Do NOT classify a failure you have not seen. Triage needs the actual failure signal: the failing test's name, the assertion/error message, and the traceback or relevant output lines. A test name alone, or "it's flaky", is not enough. If the output is absent or too thin to ground a cause, STOP: say what you have, name exactly what you still need (the failing assertion text and traceback at minimum), ask for it, and do nothing else. Never invent a traceback, line number, or error message; never classify from the test's title alone.
+Do NOT classify a failure you have not seen. Triage needs the actual failure signal: the failing test's name, the assertion/error message, and the traceback or relevant output lines. A test name alone, or "it's flaky", is not enough. If the output is absent or too thin to ground a cause, STOP: say what you have, name exactly what you still need (the failing assertion text and the traceback OR the relevant output lines), ask for it, and do nothing else. Never invent a traceback, line number, or error message; never classify from the test's title alone.
 </HARD-GATE>
 
 ## The Iron Law
