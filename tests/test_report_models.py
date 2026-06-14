@@ -44,7 +44,8 @@ def _baseline_artifacts(**status_overrides) -> list[ReportArtifact]:
         "risk_ledger": "available",
         "context_bundle": "available",
         "readiness_scorecard": "available",
-        "coverage_mutation": "missing",
+        "coverage": "missing",
+        "mutation": "missing",
     }
     statuses.update(status_overrides)
     return [_artifact(kind, status) for kind, status in statuses.items()]
@@ -83,15 +84,18 @@ def test_report_schema_version_is_1_0():
 
 
 def test_artifact_kinds_cover_the_issue_inventory():
-    """#157 names six consumable sources; the inventory must track all of them
-    so absent ones render an explicit 'not available' state."""
+    """#157 names the consumable sources; the inventory must track all of them
+    so absent ones render an explicit 'not available' state. Coverage and
+    mutation are SEPARATE artifacts (two .sumo-qa files), so each is its own
+    inventory kind rather than one combined row."""
     assert set(ARTIFACT_KINDS) == {
         "repo_map",
         "diff_impact",
         "risk_ledger",
         "context_bundle",
         "readiness_scorecard",
-        "coverage_mutation",
+        "coverage",
+        "mutation",
     }
 
 

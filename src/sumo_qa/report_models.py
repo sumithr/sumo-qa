@@ -39,7 +39,8 @@ ARTIFACT_KINDS: Final[tuple[str, ...]] = (
     "risk_ledger",
     "context_bundle",
     "readiness_scorecard",
-    "coverage_mutation",
+    "coverage",
+    "mutation",
 )
 
 ArtifactKind = Literal[
@@ -48,14 +49,29 @@ ArtifactKind = Literal[
     "risk_ledger",
     "context_bundle",
     "readiness_scorecard",
-    "coverage_mutation",
+    "coverage",
+    "mutation",
 ]
 
-#: ``missing`` (no producer ran), ``invalid`` (a file exists but cannot be
-#: read), and ``stale`` (present but no longer reflecting HEAD) are DISTINCT
-#: honest states — collapsing any of them into ``available`` would let absent
-#: or outdated data masquerade as evidence.
-ArtifactStatus = Literal["available", "missing", "invalid", "stale"]
+#: The honest inventory states. ``available`` means a persisted artifact was
+#: read from disk; ``missing`` (no producer ran), ``invalid`` (a file exists
+#: but cannot be read), and ``stale`` (present but no longer reflecting HEAD)
+#: are DISTINCT honest states — collapsing any of them into ``available`` would
+#: let absent or outdated data masquerade as evidence. ``inline`` and
+#: ``derived`` mark sources that are present and usable but were NOT read from
+#: disk: ``inline`` is caller-supplied (a ledger/bundle passed in-conversation,
+#: never persisted) and ``derived`` is computed in-report (the readiness
+#: scorecard, which has no artifact at all). They are not on-disk artifacts, so
+#: they never claim ``available``.
+ArtifactStatus = Literal["available", "inline", "derived", "missing", "invalid", "stale"]
+
+#: Statuses that mean "this source is present and usable" for the headline
+#: rollups: an on-disk artifact (``available``), a caller-supplied one
+#: (``inline``), or a computed one (``derived``). ``stale`` (present but
+#: untrustworthy), ``invalid`` (present but unreadable), and ``missing`` are
+#: NOT present. The stat band and inventory rollup count presence, so an inline
+#: ledger still counts toward "sources present" even though it is not on disk.
+PRESENT_STATUSES: Final[frozenset[str]] = frozenset({"available", "inline", "derived"})
 
 #: The report's readiness verdict — adopted verbatim from #151's
 #: ``ScorecardRecommendation`` so the report and the scorecard can never

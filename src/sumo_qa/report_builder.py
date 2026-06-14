@@ -33,9 +33,9 @@ import json
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from sumo_qa.context_bundle_models import (
     ContextBundle,
@@ -43,14 +43,17 @@ from sumo_qa.context_bundle_models import (
     detect_local_conflict,
 )
 from sumo_qa.context_bundle_validation import load_context_bundle
+from sumo_qa.coverage_models import load_coverage_artifact, load_mutation_artifact
 from sumo_qa.ledger_models import RiskLedger
 from sumo_qa.ledger_validation import load_ledger
 from sumo_qa.repo_map_models import DiffImpact, RepoMap
 from sumo_qa.repo_map_scanner import _detect_git_commit
 from sumo_qa.repo_map_validation import load_repo_map
 from sumo_qa.report_models import (
+    PRESENT_STATUSES,
     REPORT_SCHEMA_VERSION,
     ArtifactKind,
+    ArtifactStatus,
     QAReport,
     ReportArtifact,
     ReportComponent,
@@ -60,12 +63,14 @@ from sumo_qa.report_models import (
     ReportReadiness,
     ReportRisk,
 )
-from sumo_qa.scorecard_models import QaScorecard
+from sumo_qa.scorecard_models import CoverageSignal, MutationSignal, QaScorecard
 
 REPO_MAP_RELPATH = ".sumo-qa/repo-map.json"
 DIFF_IMPACT_RELPATH = ".sumo-qa/diff-impact.json"
 RISK_LEDGER_RELPATH = ".sumo-qa/risk-ledger.json"
 CONTEXT_BUNDLE_RELPATH = ".sumo-qa/context-bundle.json"
+COVERAGE_RELPATH = ".sumo-qa/coverage.json"
+MUTATION_RELPATH = ".sumo-qa/mutation.json"
 RUN_SUMMARY_RELPATH = ".sumo-qa/qa-report-summary.json"
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
@@ -103,6 +108,10 @@ class ReportInputs(BaseModel):
     ledger_source: ArtifactSource
     bundle: ContextBundle | None = None
     bundle_source: ArtifactSource
+    coverage: CoverageSignal | None = None
+    coverage_source: ArtifactSource = Field(default_factory=ArtifactSource)
+    mutation: MutationSignal | None = None
+    mutation_source: ArtifactSource = Field(default_factory=ArtifactSource)
     previous: ReportPreviousRun | None = None
 
 
@@ -165,7 +174,9 @@ def load_report_inputs(
     current_commit = _detect_git_commit(root_path)
 
     repo_map, repo_map_source = _load_json_artifact(root_path, REPO_MAP_RELPATH, load_repo_map)
-    repo_map_foreign = False
+    # mutmut_12 (False→None) is equivalent: both are falsy and this flag is only
+    # ever read in a boolean context.
+    repo_map_foreign = False  # pragma: no mutate
     if repo_map is not None and Path(repo_map.project.root).resolve() != root_path:
         # A repo-map copied from ANOTHER repository measures a different tree —
         # composing it would present foreign evidence as local. Mirror the
@@ -213,6 +224,16 @@ def load_report_inputs(
             root_path, CONTEXT_BUNDLE_RELPATH, load_context_bundle
         )
 
+    # Persisted coverage/mutation producers (#147 follow-up): the host skill
+    # runs the tools and the LLM collects the result into these artifacts. Each
+    # loads independently — coverage without mutation (or neither) is first-class.
+    coverage, coverage_source = _load_json_artifact(
+        root_path, COVERAGE_RELPATH, lambda d: load_coverage_artifact(d).to_signal()
+    )
+    mutation, mutation_source = _load_json_artifact(
+        root_path, MUTATION_RELPATH, lambda d: load_mutation_artifact(d).to_signal()
+    )
+
     previous, _previous_source = _load_json_artifact(
         root_path, RUN_SUMMARY_RELPATH, _load_run_summary
     )
@@ -228,6 +249,10 @@ def load_report_inputs(
         ledger_source=ledger_source,
         bundle=bundle,
         bundle_source=bundle_source,
+        coverage=coverage,
+        coverage_source=coverage_source,
+        mutation=mutation,
+        mutation_source=mutation_source,
         previous=previous,
     )
 
@@ -248,14 +273,16 @@ def write_run_summary(root: Path | str, report: QAReport) -> Path:
     """
     target = Path(root).resolve() / RUN_SUMMARY_RELPATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    available = sum(1 for a in report.artifacts if a.status == "available")
+    # "sources_available" is the persisted key (kept for summary back-compat);
+    # it counts PRESENT sources (on-disk + inline + derived), matching the page.
+    present = sum(1 for a in report.artifacts if a.status in PRESENT_STATUSES)
     payload = {
         "schema_version": "1.0",
         "generated_at": report.project.generated_at.isoformat(),
         "readiness_state": report.readiness.state,
         "risk_count": len(report.risks),
         "uncovered_blocker_count": report.uncovered_blocker_count,
-        "sources_available": available,
+        "sources_available": present,
     }
     target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return target
@@ -271,7 +298,9 @@ def _artifact_from_source(
     was present but unreadable, missing otherwise."""
     if source.error is not None:
         return ReportArtifact(kind=kind, status="invalid", path=source.path, detail=source.error)
-    return ReportArtifact(kind=kind, status="missing", path=None, detail=missing_detail)
+    # `path` omitted (defaults to None): a missing artifact has no source path. The
+    # missing detail is pinned by the per-artifact missing-detail assertions in tests.
+    return ReportArtifact(kind=kind, status="missing", detail=missing_detail)
 
 
 def _repo_map_is_stale(inputs: ReportInputs) -> bool:
@@ -352,7 +381,9 @@ def _ledger_artifact(inputs: ReportInputs) -> ReportArtifact:
         )
     return ReportArtifact(
         kind="risk_ledger",
-        status="available",
+        # An inline-supplied ledger is present and usable but never touched disk,
+        # so it is `inline`, not `available` (which means a persisted artifact).
+        status="inline" if inputs.ledger_source.inline else "available",
         path=inputs.ledger_source.path,
         detail=inputs.ledger_source.detail,
     )
@@ -368,9 +399,17 @@ def _bundle_artifact(inputs: ReportInputs, conflict: str | None) -> ReportArtifa
                 "or pass it inline"
             ),
         )
+    if conflict is not None:
+        status: ArtifactStatus = "stale"
+    elif inputs.bundle_source.inline:
+        # Caller-supplied bundle that never touched disk — present and usable,
+        # but not a persisted artifact, so `inline` rather than `available`.
+        status = "inline"
+    else:
+        status = "available"
     return ReportArtifact(
         kind="context_bundle",
-        status="stale" if conflict is not None else "available",
+        status=status,
         path=inputs.bundle_source.path,
         detail=conflict if conflict is not None else inputs.bundle_source.detail,
     )
@@ -395,16 +434,59 @@ def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
     if (inputs.ledger is not None and inputs.ledger.rows) or has_bundle_signal:
         return ReportArtifact(
             kind="readiness_scorecard",
-            status="available",
-            path=None,
+            # Computed in-report by the readiness engine — there is no scorecard
+            # artifact on disk (#151's tool has no write_to), so the honest
+            # status is `derived`, never `available`.
+            status="derived",
+            # `path` is omitted (defaults to None): the scorecard is derived
+            # in-report, never read from a file, so it has no source path.
             detail="derived in-report from the risk ledger + context bundle (readiness engine)",
         )
     return ReportArtifact(
         kind="readiness_scorecard",
         status="missing",
-        path=None,
+        # `path` is omitted (defaults to None): nothing on disk to point at.
         detail="not derivable; supply a risk ledger and/or context bundle",
     )
+
+
+def _measurement_artifact(
+    kind: Literal["coverage", "mutation"],
+    signal: CoverageSignal | MutationSignal | None,
+    source: ArtifactSource,
+    measure: str | None,
+) -> ReportArtifact:
+    """One persisted measurement producer (#147 follow-up) as its OWN inventory
+    row — coverage and mutation are two separate ``.sumo-qa`` files, so each
+    reports its own status/path independently. No aggregation across the two:
+    a corrupt mutation file is ``invalid`` on its own row while a fresh coverage
+    file stays ``available`` on its, instead of one combined row masking which
+    sibling is which. Both are REPORTED, never gated — the row carries presence
+    + freshness only and never moves the verdict.
+
+    A signal that loaded but is not fresh is honestly ``stale``; a present file
+    that failed to validate is ``invalid``; nothing on disk is ``missing``.
+    """
+    if signal is not None and signal.has_measurement():
+        detail = f"{measure}, freshness={signal.freshness}" if measure else signal.freshness
+        status: ArtifactStatus = "available" if signal.freshness == "fresh" else "stale"
+    elif source.error is not None:
+        detail = f"unreadable ({_first_line_text(source.error)})"
+        status = "invalid"
+    else:
+        detail = "not supplied"
+        status = "missing"
+    return ReportArtifact(
+        kind=kind,
+        status=status,
+        path=source.path,
+        detail=f"{detail} — reported, not gated",
+    )
+
+
+def _first_line_text(text: str) -> str:
+    """First line of a (possibly multi-line) artifact-source error message."""
+    return text.strip().splitlines()[0] if text.strip() else text
 
 
 def _components(nodes: list) -> list[ReportComponent]:
@@ -451,16 +533,61 @@ def _evidence_streams(inputs: ReportInputs) -> list[ReportEvidence]:
                 detail=fact.detail,
             )
         )
-    for name in ("coverage", "mutation"):
-        streams.append(
-            ReportEvidence(
-                name=name,
-                status="missing",
-                trustworthy=False,
-                detail="not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
-            )
-        )
+    # Coverage/mutation are now persisted producers (#147 follow-up) — but they
+    # are REPORTED, never gated, so they carry no pass/fail status. A present
+    # signal is `not_run` (no gate verdict) with the measurement + freshness in
+    # the trust columns; an absent one stays `missing`.
+    streams.append(_measurement_stream("coverage", _coverage_measure(inputs.coverage)))
+    streams.append(_measurement_stream("mutation", _mutation_measure(inputs.mutation)))
     return streams
+
+
+def _coverage_measure(signal: CoverageSignal | None) -> tuple[str | None, str] | None:
+    if signal is None or not signal.has_measurement():
+        return None
+    # The `else "measured"` arm is unreachable: has_measurement() is true iff
+    # line_percent is not None (CoverageSignal.MEASUREMENT_FIELDS == ("line_percent",)),
+    # so the ternary always takes the formatted branch. The dead arm's mutants
+    # (x__coverage_measure__mutmut_6/_7) are observably equivalent.
+    # fmt: skip keeps this one line so the pragma sits on the mutated node; without
+    # it the formatter wraps the line and the pragma no longer covers "measured".
+    measure = f"{signal.line_percent:g}% lines" if signal.line_percent is not None else "measured"  # pragma: no mutate  # fmt: skip
+    return signal.freshness, measure
+
+
+def _mutation_measure(signal: MutationSignal | None) -> tuple[str | None, str] | None:
+    if signal is None or not signal.has_measurement():
+        return None
+    bits: list[str] = []
+    if signal.survivors is not None:
+        bits.append(f"{signal.survivors} survivor(s)")
+    if signal.killed is not None:
+        bits.append(f"{signal.killed} killed")
+    # The `or "measured"` fallback is unreachable: has_measurement() is true iff
+    # survivors or killed is set (MEASUREMENT_FIELDS == ("survivors", "killed")),
+    # so `bits` is always non-empty here and the join is always truthy. The dead
+    # fallback's mutants (x__mutation_measure__mutmut_12/_13) are equivalent.
+    return signal.freshness, ", ".join(bits) or "measured"  # pragma: no mutate
+
+
+def _measurement_stream(name: str, measure: tuple[str | None, str] | None) -> ReportEvidence:
+    """Project a coverage/mutation signal into an evidence row. ``measure`` is
+    ``(freshness, text)`` when measured, else ``None`` (absent ⇒ missing)."""
+    if measure is None:
+        return ReportEvidence(
+            name=name,
+            status="missing",
+            trustworthy=False,
+            detail="not supplied — optional readiness-scorecard signal (run sumo-qa-measuring-coverage)",
+        )
+    freshness, text = measure
+    return ReportEvidence(
+        name=name,
+        status="not_run",  # reported, never gated — no pass/fail verdict on coverage
+        freshness=freshness,  # type: ignore[arg-type]
+        trustworthy=freshness == "fresh",
+        detail=f"{text} — reported, not gated",
+    )
 
 
 def _readiness_from_scorecard(
@@ -469,26 +596,41 @@ def _readiness_from_scorecard(
     *,
     scope: str | None,
     local_head_sha: str | None,
+    coverage: CoverageSignal | None = None,
+    mutation: MutationSignal | None = None,
 ) -> ReportReadiness:
     """Single source of truth: #151's :class:`QaScorecard` derives the verdict;
     the report only maps it onto :class:`ReportReadiness`.
 
-    ``coverage``/``mutation`` are ``None`` — the report has no persisted producer
-    for them (#147 is guidance-only). The four scorecard states are adopted
-    verbatim as the report's ``ReadinessState``, so the report and the scorecard
-    can never disagree.
+    ``coverage``/``mutation`` are the persisted producers' signals (#147
+    follow-up) when present, else ``None``. They are REPORTED, never gated — the
+    scorecard surfaces them as dimensions but they do not move the recommendation
+    (a 100% coverage signal can never flip a blocked/insufficient verdict). The
+    four scorecard states are adopted verbatim as the report's ``ReadinessState``,
+    so the report and the scorecard can never disagree.
     """
+    # scope/coverage/mutation feed only QaScorecard.dimensions(); this function
+    # consumes recommendation() + the *_reasons() methods, which never read them,
+    # so they do not move the ReportReadiness verdict. They are threaded anyway by
+    # contract (the scorecard stays the single source of truth for any future
+    # dimension consumer). The threading is verified at the call boundary by
+    # tests/test_report_builder.py::test_signals_and_scope_are_threaded_into_the_scorecard_engine
+    # (a `# pragma: no mutate` cannot reach these continuation-line kwargs — mutmut
+    # drops LibCST position metadata there, so the spy test is what holds the line).
     card = QaScorecard(
         scope=scope,
         ledger=ledger,
         context_bundle=bundle,
-        coverage=None,
-        mutation=None,
+        coverage=coverage,
+        mutation=mutation,
     )
     state = card.recommendation(local_head_sha=local_head_sha)
     rows = ledger.rows if ledger is not None else []
     if state == "blocked":
-        reasons = card.blocking_reasons(local_head_sha=local_head_sha)
+        # blocking_reasons() takes local_head_sha but never reads it (only
+        # insufficiency_reasons consults it via detect_local_conflict), so
+        # mutmut_20 (local_head_sha=None) is observably equivalent.
+        reasons = card.blocking_reasons(local_head_sha=local_head_sha)  # pragma: no mutate
         # Falsifiable headlines (SonarQube's gate style): the count vs the
         # threshold first, the engine's per-risk itemisation after. Each
         # headline only appears for a NONZERO count — a blocked verdict must
@@ -538,17 +680,25 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
     )
     map_stale = _repo_map_is_stale(inputs)
 
+    cov_measure = _coverage_measure(inputs.coverage)
+    mut_measure = _mutation_measure(inputs.mutation)
     artifacts = [
         _repo_map_artifact(inputs, now, map_stale=map_stale),
         _diff_impact_artifact(inputs, map_stale=map_stale),
         _ledger_artifact(inputs),
         _bundle_artifact(inputs, conflict),
         _scorecard_artifact(inputs),
-        ReportArtifact(
-            kind="coverage_mutation",
-            status="missing",
-            path=None,
-            detail="not supplied; coverage/mutation are optional readiness-scorecard signals (guidance-only, not a persisted artifact)",
+        _measurement_artifact(
+            "coverage",
+            inputs.coverage,
+            inputs.coverage_source,
+            cov_measure[1] if cov_measure else None,
+        ),
+        _measurement_artifact(
+            "mutation",
+            inputs.mutation,
+            inputs.mutation_source,
+            mut_measure[1] if mut_measure else None,
         ),
     ]
 
@@ -603,11 +753,17 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
             if diff_impact is not None
             else []
         ),
+        # scope/coverage/mutation do not move the readiness verdict (they feed only
+        # QaScorecard.dimensions(), unused by the report) but are threaded by
+        # contract; the threading is verified by the scorecard-spy test (see
+        # _readiness_from_scorecard above — pragma can't reach these kwargs).
         readiness=_readiness_from_scorecard(
             inputs.ledger,
             inputs.bundle,
             scope=project_name,
             local_head_sha=inputs.current_commit,
+            coverage=inputs.coverage,
+            mutation=inputs.mutation,
         ),
         previous_run=inputs.previous,
     )

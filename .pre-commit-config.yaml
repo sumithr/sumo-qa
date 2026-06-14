@@ -211,7 +211,7 @@ repos:
           - "tomli>=2,<3; python_version < '3.11'"
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
-        files: ^(src/sumo_qa/(knowledge_loaders|rules|standards|tdm_validation)\.py|tests/.*\.py)$
+        files: ^(src/sumo_qa/(knowledge_loaders|rules|standards|tdm_validation|coverage_models|report_builder)\.py|tests/.*\.py)$
         stages: [pre-push]
 
       - id: pytest
