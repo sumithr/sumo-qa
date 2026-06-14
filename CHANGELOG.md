@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.48.0](https://github.com/sumithr/sumo-qa/compare/v0.47.0...v0.48.0) (2026-06-14)
+
+
+### Features
+
+* **report:** persist coverage/mutation into the QA report ([#409](https://github.com/sumithr/sumo-qa/issues/409)) ([cd90cc8](https://github.com/sumithr/sumo-qa/commit/cd90cc872987034d83ed49af65fc17d50719815a))
+
 ## [0.47.0](https://github.com/sumithr/sumo-qa/compare/v0.46.1...v0.47.0) (2026-06-14)
 
 
