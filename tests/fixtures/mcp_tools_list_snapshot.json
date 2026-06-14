@@ -18,6 +18,7 @@
     "sumo_qa_format_context_bundle",
     "sumo_qa_format_qa_scorecard",
     "sumo_qa_format_risk_ledger",
+    "sumo_qa_generate_qa_report",
     "sumo_qa_implementing_with_tdd",
     "sumo_qa_ingest_knowledge_pack",
     "sumo_qa_install_external_skill",
@@ -40,6 +41,7 @@
     "sumo_qa_strategising",
     "sumo_qa_strengthening_tests",
     "sumo_qa_suggesting_external_skill",
+    "sumo_qa_triaging_test_failures",
     "sumo_qa_validate_test_data",
     "using_sumo_qa"
   ],
@@ -505,6 +507,58 @@
       },
       "outputSchema": null
     },
+    "sumo_qa_generate_qa_report": {
+      "inputSchema": {
+        "properties": {
+          "context_bundle": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "risk_ledger_rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "root": {
+            "type": "string"
+          },
+          "write_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "root"
+        ],
+        "type": "object"
+      },
+      "outputSchema": null
+    },
     "sumo_qa_implementing_with_tdd": {
       "inputSchema": {
         "properties": {},
@@ -889,6 +943,13 @@
       "outputSchema": null
     },
     "sumo_qa_suggesting_external_skill": {
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "outputSchema": null
+    },
+    "sumo_qa_triaging_test_failures": {
       "inputSchema": {
         "properties": {},
         "type": "object"
