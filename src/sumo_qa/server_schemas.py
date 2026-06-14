@@ -635,6 +635,51 @@ class FormatRiskLedgerOutput(_StrictBase):
     truncated: bool = Field(description="True when the rendered table omitted rows past max_rows.")
 
 
+class RecordCoverageOutput(_StrictBase):
+    """Compact result of ``sumo_qa_record_coverage``.
+
+    Pure file/format plumbing — the host runs the coverage tool and the LLM reads
+    its output; this tool validates the collected summary and persists the
+    ``.sumo-qa/coverage.json`` artifact the QA report loads. It runs no tool and
+    infers nothing. Coverage is *reported, never gated*.
+    """
+
+    tool: Literal["sumo_qa_record_coverage"] = Field(
+        default="sumo_qa_record_coverage",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    artifact_path: str = Field(description="Absolute path of the written coverage.json artifact.")
+    line_percent: float | None = Field(
+        description="The recorded line-coverage percentage, or null when not measured."
+    )
+    freshness: str = Field(description="Freshness of the recorded signal.")
+    compact_summary: str = Field(description="One-line roll-up of the recorded coverage signal.")
+
+
+class RecordMutationOutput(_StrictBase):
+    """Compact result of ``sumo_qa_record_mutation``.
+
+    Pure file/format plumbing — the host runs the mutation tool and the LLM reads
+    its output; this tool validates the collected summary and persists the
+    ``.sumo-qa/mutation.json`` artifact the QA report loads. It runs no tool and
+    infers nothing. Mutation evidence is *reported, never gated*.
+    """
+
+    tool: Literal["sumo_qa_record_mutation"] = Field(
+        default="sumo_qa_record_mutation",
+        description="Tool discriminator; always the literal tool name.",
+    )
+    artifact_path: str = Field(description="Absolute path of the written mutation.json artifact.")
+    survivors: int | None = Field(
+        description="The recorded surviving-mutant count, or null when not measured."
+    )
+    killed: int | None = Field(
+        description="The recorded killed-mutant count, or null when not measured."
+    )
+    freshness: str = Field(description="Freshness of the recorded signal.")
+    compact_summary: str = Field(description="One-line roll-up of the recorded mutation signal.")
+
+
 class FormatContextBundleOutput(_StrictBase):
     """Compact result of ``sumo_qa_format_context_bundle`` (issue #149).
 
@@ -787,9 +832,12 @@ class GenerateQAReportOutput(_StrictBase):
     artifact_statuses: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Per-source inventory status (available / missing / invalid / stale) "
-            "for every consumable artifact kind — missing data is an explicit "
-            "state, never silently dropped."
+            "Per-source inventory status for every consumable artifact kind: "
+            "available (on-disk artifact), inline (caller-supplied, not "
+            "persisted), derived (computed in-report, e.g. the readiness "
+            "scorecard), missing, invalid, or stale. Coverage and mutation are "
+            "separate kinds. Missing data is an explicit state, never silently "
+            "dropped."
         ),
     )
     changed_component_count: int = Field(

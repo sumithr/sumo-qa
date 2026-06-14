@@ -38,6 +38,11 @@ mutants/
 # (docs/QA-REPORT.md): per-run evidence artifacts, never committed.
 .sumo-qa/risk-ledger.json
 .sumo-qa/context-bundle.json
+# Coverage/mutation producer artifacts (#147 follow-up) + the report's
+# run-over-run summary: per-run generator output, never committed.
+.sumo-qa/coverage.json
+.sumo-qa/mutation.json
+.sumo-qa/qa-report-summary.json
 
 # Per-machine MCP config written by sumo-qa-install
 .vscode/mcp.json

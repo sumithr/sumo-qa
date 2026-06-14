@@ -1,4 +1,4 @@
-[OK] python_version — Python 3.14.4; sumo-qa 0.46.0
+[OK] python_version — Python 3.14.4; sumo-qa 0.48.0
 [OK] install_mode — editable install (skills/ under ~/sumo-qa)
 [OK] binary_discoverable — sumo-qa on PATH at ~/Desktop/repos/apo/sumo-qa/.venv/bin/sumo-qa
 [OK] uvx_available — uvx on PATH at ~/Desktop/repos/apo/sumo-qa/.venv/bin/uvx

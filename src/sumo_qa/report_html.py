@@ -22,6 +22,7 @@ from __future__ import annotations
 import html as _html
 
 from sumo_qa.report_models import (
+    PRESENT_STATUSES,
     QAReport,
     ReportArtifact,
     ReportComponent,
@@ -59,6 +60,8 @@ _STATE_GLOSS = {
 
 _STATUS_LABELS = {
     "available": "available",
+    "inline": "inline",
+    "derived": "derived",
     "missing": "not available",
     "invalid": "invalid",
     "stale": "stale",
@@ -66,6 +69,12 @@ _STATUS_LABELS = {
 
 _STATUS_CLASSES = {
     "available": "ok",
+    # inline (caller-supplied) and derived (computed in-report) evidence is
+    # present and usable but is NOT a persisted artifact — a distinct muted
+    # treatment so the eye separates them from on-disk artifacts without
+    # reading as "missing" (which is the `off` style below).
+    "inline": "note",
+    "derived": "note",
     "missing": "off",
     "invalid": "bad",
     "stale": "warm",
@@ -224,6 +233,7 @@ _STYLE = """
   .badge.warm { color: #7A5E1E; background: var(--ochre-bg); border-color: #9A7B2E; }
   .badge.bad { color: var(--paper); background: var(--crimson); border-color: var(--crimson-deep); }
   .badge.off { color: var(--label); background: var(--note-bg); border-color: var(--rule); }
+  .badge.note { color: var(--ink); background: var(--note-bg); border-color: var(--label); }
   p.empty {
     color: var(--label); font-style: italic; margin-top: 0.6rem;
     padding: 0.85rem 1rem; background: var(--note-bg);
@@ -406,14 +416,14 @@ def _rollup(label: str, cls: str) -> str:
 def _inventory_rollup(artifacts: list[ReportArtifact]) -> str:
     invalid = sum(1 for a in artifacts if a.status == "invalid")
     stale = sum(1 for a in artifacts if a.status == "stale")
-    available = sum(1 for a in artifacts if a.status == "available")
+    present = sum(1 for a in artifacts if a.status in PRESENT_STATUSES)
     if invalid:
         return _rollup(f"{invalid} invalid", "bad")
     if stale:
         return _rollup(f"{stale} stale", "warm")
-    if available == len(artifacts):
-        return _rollup("all available", "ok")
-    return _rollup(f"{available} of {len(artifacts)} available", "off")
+    if present == len(artifacts):
+        return _rollup("all present", "ok")
+    return _rollup(f"{present} of {len(artifacts)} present", "off")
 
 
 def _impact_rollup(report: QAReport) -> str:
@@ -477,17 +487,15 @@ def _risk_lead(risks: list[ReportRisk]) -> str:
 
 
 def _inventory_lead(artifacts: list[ReportArtifact]) -> str:
-    available = sum(1 for a in artifacts if a.status == "available")
-    if available == len(artifacts):
-        return f'<p class="lead">All {len(artifacts)} sources are available.</p>'
-    missing = ", ".join(
+    present = sum(1 for a in artifacts if a.status in PRESENT_STATUSES)
+    if present == len(artifacts):
+        return f'<p class="lead">All {len(artifacts)} sources are present.</p>'
+    gaps = ", ".join(
         f"{a.kind.replace('_', ' ')} {_STATUS_LABELS[a.status]}"
         for a in artifacts
-        if a.status != "available"
+        if a.status not in PRESENT_STATUSES
     )
-    return (
-        f'<p class="lead">{available} of {len(artifacts)} sources available; {_esc(missing)}.</p>'
-    )
+    return f'<p class="lead">{present} of {len(artifacts)} sources present; {_esc(gaps)}.</p>'
 
 
 def _evidence_lead(evidence: list[ReportEvidence]) -> str:
@@ -508,7 +516,7 @@ def _delta_line(report: QAReport) -> str:
     prev = report.previous_run
     if prev is None:
         return ""
-    available = sum(1 for a in report.artifacts if a.status == "available")
+    present = sum(1 for a in report.artifacts if a.status in PRESENT_STATUSES)
     uncovered = sum(1 for r in report.risks if r.uncovered_blocker)
     parts: list[str] = []
     if prev.readiness_state != report.readiness.state:
@@ -520,8 +528,8 @@ def _delta_line(report: QAReport) -> str:
         parts.append(f"risks {prev.risk_count} &#8594; {len(report.risks)}")
     if prev.uncovered_blocker_count != uncovered:
         parts.append(f"uncovered blockers {prev.uncovered_blocker_count} &#8594; {uncovered}")
-    if prev.sources_available != available:
-        parts.append(f"sources available {prev.sources_available} &#8594; {available}")
+    if prev.sources_available != present:
+        parts.append(f"sources present {prev.sources_available} &#8594; {present}")
     when = _esc(prev.generated_at.isoformat())
     if not parts:
         return f'<p class="delta">no change since previous run ({when})</p>'
@@ -532,10 +540,8 @@ def _inventory_block(artifacts: list[ReportArtifact]) -> str:
     """Green folds away: a fully available inventory collapses to its lead
     sentence; any other state stays open above the table."""
     lead = _inventory_lead(artifacts)
-    if all(a.status == "available" for a in artifacts):
-        return _collapsed(
-            f"All {len(artifacts)} sources are available", _artifact_section(artifacts)
-        )
+    if all(a.status in PRESENT_STATUSES for a in artifacts):
+        return _collapsed(f"All {len(artifacts)} sources are present", _artifact_section(artifacts))
     return f"{lead}{_artifact_section(artifacts)}"
 
 
@@ -716,7 +722,7 @@ def render_report_html(report: QAReport) -> str:
         if reasons
         else '<p class="reasons-none">All composed signals are green.</p>'
     )
-    available = sum(1 for artifact in report.artifacts if artifact.status == "available")
+    present = sum(1 for artifact in report.artifacts if artifact.status in PRESENT_STATUSES)
     blocker_class = " alert" if report.uncovered_blocker_count else ""
     title = _esc(project.name or project.root)
 
@@ -745,8 +751,8 @@ def render_report_html(report: QAReport) -> str:
 {reasons_block}
 </section>
 <section class="statband">
-<a class="stat" href="#inventory"><span class="stat-num">{available}/{len(report.artifacts)}</span>\
-<span class="stat-label">sources available</span></a>
+<a class="stat" href="#inventory"><span class="stat-num">{present}/{len(report.artifacts)}</span>\
+<span class="stat-label">sources present</span></a>
 <a class="stat" href="#risks"><span class="stat-num">{len(report.risks)}</span>\
 <span class="stat-label">risks tracked</span></a>
 <a class="stat{blocker_class}" href="#risks"><span class="stat-num">{report.uncovered_blocker_count}</span>\

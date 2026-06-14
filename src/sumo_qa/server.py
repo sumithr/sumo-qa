@@ -80,6 +80,8 @@ from sumo_qa.server_schemas import (
     FormatRiskLedgerOutput,
     GenerateQAReportOutput,
     InstallExternalSkillOutput,
+    RecordCoverageOutput,
+    RecordMutationOutput,
     RepoMapQueryOutput,
     RepoMapScanOutput,
     SearchExternalSkillsOutput,
@@ -177,6 +179,40 @@ _HINT_GENERATE_QA_REPORT = (
     "written; pass write_to='.sumo-qa/qa-report.html' to persist the page under "
     "the target repo."
 )
+_HINT_RECORD_COVERAGE = (
+    "Pass root + a coverage dict {source_tool, generated_at, line_percent (0-100), "
+    "freshness (fresh/stale/unknown/absent), detail}. The host runs the coverage tool and "
+    "the LLM reads its output; this tool only validates and writes .sumo-qa/coverage.json. "
+    "line_percent is optional — omit it for a not-measured signal. Coverage is reported, "
+    "never a gate."
+)
+_HINT_RECORD_MUTATION = (
+    "Pass root + a mutation dict {source_tool, generated_at, survivors (>=0), killed (>=0), "
+    "freshness (fresh/stale/unknown/absent), detail}. The host runs the tool and the LLM "
+    "reads its output; this tool only validates and writes .sumo-qa/mutation.json. Counts are "
+    "optional — omit them for a not-measured signal. Mutation evidence is reported, never a gate."
+)
+
+
+def _resolve_artifact_target(root_path: Path, write_to: str) -> Path:
+    """Resolve a write target under ``root_path``, confining relative paths.
+
+    Mirrors ``sumo_qa_generate_qa_report``'s rule: a relative ``write_to`` lands
+    under the target repo (not the MCP server's cwd) and a ``..``/symlink escape
+    is refused; an absolute path stays caller-explicit.
+    """
+    # Resolve the root so the relative-to comparison is symlink-safe even if a
+    # future caller passes an unresolved root (current callers already resolve).
+    root_path = root_path.resolve()
+    target = Path(write_to)
+    if not target.is_absolute():
+        target = (root_path / target).resolve()
+        if not target.is_relative_to(root_path):
+            raise ValueError(
+                f"write_to resolves to {target}, outside the target root {root_path}; "
+                "pass a path under the repo or an explicit absolute path"
+            )
+    return target
 
 
 def _error_envelope(exc: BaseException, actionable_hint: str) -> dict[str, Any]:
@@ -1655,6 +1691,122 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
                 "risk_ledger_rows": risk_ledger_rows,
                 "context_bundle": context_bundle,
             },
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_writer_local)
+    def sumo_qa_record_coverage(
+        root: str,
+        coverage: dict[str, Any],
+        write_to: str | None = ".sumo-qa/coverage.json",
+    ) -> RecordCoverageOutput | ErrorEnvelope:
+        """Validate a host-collected coverage summary and persist it as the
+        ``.sumo-qa/coverage.json`` artifact the QA report loads (issue #147
+        follow-up). FILE/FORMAT PLUMBING ONLY — the host skill runs the coverage
+        tool and the LLM reads its output (any format); this tool runs nothing
+        and infers nothing.
+
+        Common natural-language phrasings that map to this tool:
+        "record the coverage result", "save coverage into the QA report",
+        "persist the coverage summary".
+
+        ``coverage`` is a dict with optional ``line_percent`` (0–100),
+        ``freshness`` (fresh/stale/unknown/absent), ``detail`` (e.g. uncovered
+        changed files), plus ``source_tool`` and ``generated_at`` provenance.
+        Omit ``line_percent`` for a not-measured signal. Validation fails BEFORE
+        any write. Coverage is REPORTED, never gated — it cannot flip a verdict.
+
+        ``write_to`` defaults to the conventional ``.sumo-qa/coverage.json``
+        under the target repo; a relative path is confined to ``root``.
+        """
+        from sumo_qa.coverage_models import COVERAGE_SCHEMA_VERSION, load_coverage_artifact
+
+        output: RecordCoverageOutput | dict[str, Any]
+        try:
+            root_path = Path(root).resolve()
+            if not root_path.is_dir():
+                raise NotADirectoryError(f"root must be an existing directory: {root!s}")
+            artifact = load_coverage_artifact(
+                {"schema_version": COVERAGE_SCHEMA_VERSION, **coverage}
+            )
+            target = _resolve_artifact_target(root_path, write_to or ".sumo-qa/coverage.json")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(artifact.model_dump_json(indent=2), encoding="utf-8")
+            summary = (
+                f"coverage: {artifact.line_percent:g}% lines, freshness={artifact.freshness}"
+                if artifact.line_percent is not None
+                else f"coverage: not measured, freshness={artifact.freshness}"
+            )
+            output = RecordCoverageOutput(
+                artifact_path=str(target.resolve()),
+                line_percent=artifact.line_percent,
+                freshness=artifact.freshness,
+                compact_summary=summary,
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_RECORD_COVERAGE)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_record_coverage",
+            args={"root": root, "coverage": coverage, "write_to": write_to},
+            output=output,  # type: ignore[arg-type]
+        )
+
+    @mcp.tool(annotations=_writer_local)
+    def sumo_qa_record_mutation(
+        root: str,
+        mutation: dict[str, Any],
+        write_to: str | None = ".sumo-qa/mutation.json",
+    ) -> RecordMutationOutput | ErrorEnvelope:
+        """Validate a host-collected mutation summary and persist it as the
+        ``.sumo-qa/mutation.json`` artifact the QA report loads (issue #147
+        follow-up). FILE/FORMAT PLUMBING ONLY — the host skill runs the mutation
+        tool and the LLM reads its output (any format); this tool runs nothing
+        and infers nothing.
+
+        Common natural-language phrasings that map to this tool:
+        "record the mutation result", "save the survivors into the QA report",
+        "persist the mutation summary".
+
+        ``mutation`` is a dict with optional ``survivors`` (>= 0), ``killed``
+        (>= 0), ``freshness`` (fresh/stale/unknown/absent), ``detail`` (e.g.
+        where survivors live), plus ``source_tool`` and ``generated_at``
+        provenance. Omit the counts for a not-measured signal. Validation fails
+        BEFORE any write. Mutation evidence is REPORTED, never gated.
+
+        ``write_to`` defaults to the conventional ``.sumo-qa/mutation.json``
+        under the target repo; a relative path is confined to ``root``.
+        """
+        from sumo_qa.coverage_models import COVERAGE_SCHEMA_VERSION, load_mutation_artifact
+
+        output: RecordMutationOutput | dict[str, Any]
+        try:
+            root_path = Path(root).resolve()
+            if not root_path.is_dir():
+                raise NotADirectoryError(f"root must be an existing directory: {root!s}")
+            artifact = load_mutation_artifact(
+                {"schema_version": COVERAGE_SCHEMA_VERSION, **mutation}
+            )
+            target = _resolve_artifact_target(root_path, write_to or ".sumo-qa/mutation.json")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(artifact.model_dump_json(indent=2), encoding="utf-8")
+            bits = []
+            if artifact.survivors is not None:
+                bits.append(f"{artifact.survivors} survivor(s)")
+            if artifact.killed is not None:
+                bits.append(f"{artifact.killed} killed")
+            measure = ", ".join(bits) if bits else "not measured"
+            output = RecordMutationOutput(
+                artifact_path=str(target.resolve()),
+                survivors=artifact.survivors,
+                killed=artifact.killed,
+                freshness=artifact.freshness,
+                compact_summary=f"mutation: {measure}, freshness={artifact.freshness}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            output = _error_envelope(exc, _HINT_RECORD_MUTATION)
+        return maybe_capture(  # type: ignore[return-value]
+            tool="sumo_qa_record_mutation",
+            args={"root": root, "mutation": mutation, "write_to": write_to},
             output=output,  # type: ignore[arg-type]
         )
 

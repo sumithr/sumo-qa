@@ -374,6 +374,27 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 ---
 
+## 18. Triage an unknown-cause failing or flaky test
+
+**User prompt:** *"`test_user_cache_hit` keeps failing in the full run but passes when I run it alone — sort it out."*
+
+**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-triaging-test-failures` (approach: `triage-test-failure`).
+
+**Expected interaction shape:**
+1. Diagnosis is separated from fixing: the first output is a cause classification plus the smallest next isolation step, NOT a patch.
+2. Secures the failure signal (the failing test name, the assertion/error, the traceback); if it is absent or too thin to classify, the HARD-GATE fires — names what is still needed and asks, this turn.
+3. Classifies the cause against the six categories (product regression, test bug, fixture/data, environment/dependency, timing/order, external-service) with its evidence — here, passing alone but failing in the suite points at order/shared-state, not the product.
+4. Names the smallest discriminating experiment matched to the cause (run the tests in randomised/reversed order), stating the hypothesis and what each outcome means. A rerun is allowed only tied to that hypothesis, never "run it until green".
+5. Routes to a fixing skill (`regression-first` / `sumo-qa-closing-qa-gaps`) ONLY when the confirmed cause is a concrete product-behaviour gap; test/fixture/environment/order/external causes are resolved in their own layer with production untouched.
+
+**Anti-patterns:**
+- Reruns to green with no stated hypothesis, or normalises the flake as residual risk without the user's explicit acceptance.
+- Patches production code for a failure whose cause is a test/fixture/environment/order/external issue.
+- Classifies from the test name alone, or invents a traceback the context did not supply.
+- Proposes a fix before naming the cause and an isolation step.
+
+---
+
 ## How to validate these scenarios
 
 Three complementary paths:

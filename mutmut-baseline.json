@@ -16,7 +16,19 @@
     "1 _lowest_confidence rank-dict magnitude). PR #32 separately removed",
     "sumo_qa_load_specialty_tools (9 mutants) from knowledge_loaders' total.",
     "Survivor-mutant-name lists were dropped — they are stale across source",
-    "refactors and the workflow only reads 'killed'."
+    "refactors and the workflow only reads 'killed'.",
+    "2026-06-13 (#147 follow-up): added coverage_models — the persisted",
+    "coverage/mutation artifact validation. A local clean run killed all 87",
+    "mutants (0 survivors); 1 equivalent join-separator mutant carries a",
+    "# pragma: no mutate. Local macOS runs segfault non-deterministically, so",
+    "Linux CI is authoritative for the count.",
+    "2026-06-14 (#409): added report_builder — the QA-report ingestion +",
+    "render-ready projection. A local clean run killed all 793 mutants (0",
+    "survivors). Dead/redundant branches carry # pragma: no mutate with",
+    "rationale; the scorecard signal-threading kwargs sit on continuation",
+    "lines mutmut/LibCST cannot pragma, so a collaborator-spy test kills them",
+    "instead. Local macOS runs segfault/timeout non-deterministically, so",
+    "Linux CI is authoritative for the count."
   ],
   "per_module": {
     "knowledge_loaders": {
@@ -34,6 +46,14 @@
     "tdm_validation": {
       "file": "src/sumo_qa/tdm_validation.py",
       "killed": 162
+    },
+    "coverage_models": {
+      "file": "src/sumo_qa/coverage_models.py",
+      "killed": 87
+    },
+    "report_builder": {
+      "file": "src/sumo_qa/report_builder.py",
+      "killed": 793
     }
   }
 }
