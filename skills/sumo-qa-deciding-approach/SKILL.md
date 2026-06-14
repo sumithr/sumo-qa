@@ -59,6 +59,7 @@ Anti-patterns:
 | coverage-first-then-refactor | sumo-qa-implementing-with-tdd |
 | strengthen-test-coverage | sumo-qa-strengthening-tests |
 | closed-loop-gap-fix | sumo-qa-closing-qa-gaps |
+| triage-test-failure | sumo-qa-triaging-test-failures |
 | verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
 | recommend-removal | (stop — propose deletion, no sub-skill) |
@@ -95,6 +96,7 @@ When **no canonical approach fits**, decide whether the intent involves a tool, 
 | "User said 'design our strategy' — I'll still scaffold tests" | Strategy asks route to `strategy-orchestration`. Don't force per-change output. |
 | "Description says docs-only change but I'll add tests anyway" | `no-tests-recommended` is honest senior-QA. Adding tests where none are needed wastes signal. |
 | "Mutation testing follow-up needs new prod code" | No — that's `strengthen-test-coverage`. Production code stays unchanged. |
+| "A test is failing — that's a bug, route to `regression-first`" | Only if the CAUSE is already known to be a product defect. An unknown-cause or flaky failure routes to `triage-test-failure` first — it may be a test bug, fixture, environment, or order/timing issue, none of which fix production. |
 | "I'll ask the user 3 clarifying questions to be sure" | Ask ONE if needed. More than one means the skill is hoarding context; the LLM should infer. |
 | "User named a file and asked for tests — scaffold" / "orphan code is just no-tests-recommended" | Check reachability FIRST. Orphan code (zero callers/CI/docs refs + no entry-point declaration) → `recommend-removal` — NOT scaffolding, and NOT `no-tests-recommended` (that's for docs/typos / behaviour-less change). Scaffolding tests on dead code is wasted signal — the PR #68 install.sh failure mode. |
 
@@ -114,6 +116,10 @@ User: "audit our test coverage across the repo and design where to invest QA eff
 User: "add end-to-end browser tests with Playwright for checkout".
 - Internally return `{classification: "n/a", approach: "n/a", rationale: "Playwright E2E is a non-canonical external QA surface.", next_action: {skill: "sumo-qa-suggesting-external-skill", entry_kind: "qa"}}`.
 
+User: "this test keeps failing in CI but passes locally — what's going on?".
+- Internally: a failing/flaky test whose CAUSE is unknown — diagnosis precedes any fix. Not `regression-first` (presumes a known defect), not `closed-loop-gap-fix` (no named gap yet).
+- Internally return `{classification: "test_change", approach: "triage-test-failure", rationale: "Unknown-cause failure; classify and name the smallest isolation step before any fix.", next_action: {skill: "sumo-qa-triaging-test-failures"}}`.
+
 User: "Help me write tests for ./install.sh — nothing references it, no CI uses it, no docs mention it, no entry point points at it."
 - Reachability gate fires: zero callers/CI/docs refs, no entry-point declaration → orphaned.
 - Internally return `{classification: "n/a", approach: "recommend-removal", rationale: "install.sh orphaned — no callers/CI/docs/entry-point refs; recommend deletion over scaffolding tests on dead code.", next_action: {skill: "none"}}`.
@@ -131,6 +137,7 @@ Route to exactly ONE skill. For approach-based routing, use the **Routing table*
 
 - *"plan QA for this story"* → `sumo-qa-preparing-for-work`; a formal test plan with entry/exit criteria → `sumo-qa-creating-test-plan`.
 - generic *"how do I test X"* → `sumo-qa-answering-testing-question`; test-data-shaped → `sumo-qa-finding-test-data`.
+- an unknown-cause failing or flaky test (*"why does this keep failing"*, *"red in CI, green locally"*) → `triage-test-failure` → `sumo-qa-triaging-test-failures` (diagnose before any fix).
 - work with 3+ independent dispatchable tasks → `sumo-qa-planning-qa-rollout`.
 
 STOP cases have no handoff: `no-tests-recommended`, and `recommend-removal` (surface the deletion recommendation — file + reachability evidence + supplanting alternative if known — in the user-facing reply).

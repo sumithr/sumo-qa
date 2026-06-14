@@ -41,6 +41,7 @@
     "sumo_qa_strategising",
     "sumo_qa_strengthening_tests",
     "sumo_qa_suggesting_external_skill",
+    "sumo_qa_triaging_test_failures",
     "sumo_qa_validate_test_data",
     "using_sumo_qa"
   ],
@@ -942,6 +943,13 @@
       "outputSchema": null
     },
     "sumo_qa_suggesting_external_skill": {
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "outputSchema": null
+    },
+    "sumo_qa_triaging_test_failures": {
       "inputSchema": {
         "properties": {},
         "type": "object"

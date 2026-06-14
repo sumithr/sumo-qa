@@ -621,12 +621,12 @@ OpenAI pricing as of 2026-05:
 
 - Candidate (`gpt-4o-mini`): ~$0.001 per scenario
 - Judge (`gpt-5.5`): ~$0.005 per scenario
-- Full sweep of 15 skills: ~$0.10 per run with `seed: 42` determinism
+- Full sweep of 16 skills: ~$0.10 per run with `seed: 42` determinism
 - The `reviewing-before-merge-adversarial` corpus pins a `gpt-5-mini` candidate
   (reasoning tokens → a few cents per full run, still negligible) — see
   "Adversarial discovery corpus" above for why.
 
-Running a single skill: pennies. Running all 15 skills with `--repeat 5`:
+Running a single skill: pennies. Running all 16 skills with `--repeat 5`:
 ~$0.30 — still negligible, but worth tracking if you iterate frequently.
 
 If cost becomes a concern, swap the judge to `gpt-4o-mini` in
@@ -635,7 +635,7 @@ adversarial).
 
 ## Architecture
 
-All 15 skill YAMLs use `seed: 42` + `temperature: 0.0` for both candidate and judge providers, so runs are reproducible across machines. `disableVarExpansion: true` is set in defaultTest.options to prevent array vars (anti_patterns) from being expanded into per-element tests.
+All 16 skill YAMLs use `seed: 42` + `temperature: 0.0` for both candidate and judge providers, so runs are reproducible across machines. `disableVarExpansion: true` is set in defaultTest.options to prevent array vars (anti_patterns) from being expanded into per-element tests.
 
 Two patterns are used depending on the skill's shape:
 
@@ -711,7 +711,7 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 
 | File | Purpose |
 |---|---|
-| `skill-<name>.yaml` (×15) | One config per skill, all covered |
+| `skill-<name>.yaml` (×16) | One config per skill, all covered |
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
 | `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) load-bearing control (see "UNPROVEN-escalation corpus" above) |
 | `skill-reviewing-before-merge-external-contract.yaml` | Issue #263 external-contract corpus, three seeds: (1) a matcher/parser over external CLI/API/tool output validated only by a hand-authored fixture → external-contract risk UNPROVEN, withhold SAFE; (2) a fixture traceable to a real run → external-contract risk discharged, SAFE-eligible (over-trigger guard); (3) a matcher over an INTERNAL/self-produced value the same module emits → external-contract axis must NOT fire at all (true-negative over-trigger guard) |

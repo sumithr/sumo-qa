@@ -32,6 +32,7 @@ hyphens replaced by underscores):
 - `sumo_qa_finishing_qa_work` — capture evidence and write a PR-ready summary
 - `sumo_qa_suggesting_external_skill` — fallback when no native skill fits the intent
 - `sumo_qa_closing_qa_gaps` — close a named uncovered-behavior gap, one evidenced loop at a time
+- `sumo_qa_triaging_test_failures` — triage a failing/flaky test: classify the cause, name the smallest isolation step before any fix
 
 The skills carry the senior-QA discipline (Iron Laws, checklists, Red Flags).
 Knowledge catalogues are accessed via the `sumo_qa_load_*` tools — use them

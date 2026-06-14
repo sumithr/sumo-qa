@@ -144,6 +144,21 @@ triggers:
       - "closed loop per gap"
     note: "Mutation-survivor entry into the closed loop — strengthening discipline binds first."
 
+  - prompt: "this test keeps failing and I don't know why — figure it out before changing anything"
+    expected_skill: sumo_qa_triaging_test_failures
+    expected_phrases:
+      - "this test keeps failing"
+      - "classifies the likely cause"
+      - "smallest next isolation step"
+    note: "Unknown-cause failure triage (issue #150) — diagnosis before any fix; distinct from regression-first, which presumes a known defect."
+
+  - prompt: "red in CI but passes locally — this test is flaky, what's going on?"
+    expected_skill: sumo_qa_triaging_test_failures
+    expected_phrases:
+      - "this test is flaky"
+      - "red in CI"
+    note: "Flaky / environment-shaped failure — triage classifies the cause and names the isolation step, no rerun-to-green."
+
 non_triggers:
   - prompt: "how do I install Python 3.14 on macOS?"
     must_not_match_skill: sumo_qa_reviewing_before_merge
@@ -160,3 +175,7 @@ non_triggers:
   - prompt: "kill this surviving mutant in the calculator module"
     must_not_match_skill: sumo_qa_closing_qa_gaps
     note: "A bare survivor-kill ask is strengthening-tests territory; the closed loop triggers on end-to-end closure intent, not on 'surviving mutant' alone."
+
+  - prompt: "I know exactly which behaviour broke — write the failing regression test and fix it"
+    must_not_match_skill: sumo_qa_triaging_test_failures
+    note: "Cause already pinned to a known product defect — that's regression-first (implementing-with-tdd), not triage; triage is the unknown-cause step before it."
