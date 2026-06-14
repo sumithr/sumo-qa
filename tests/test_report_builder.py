@@ -21,10 +21,13 @@ import pytest
 from sumo_qa.context_bundle_models import ContextBundle
 from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION, RiskLedger, RiskLedgerRow
 from sumo_qa.report_builder import (
+    _load_run_summary,
     _readiness_from_scorecard,
+    _repo_map_is_stale,
     build_report,
     generate_report,
     load_report_inputs,
+    write_run_summary,
 )
 
 _NOW = datetime(2026, 6, 8, 8, 0, 0, tzinfo=timezone.utc)
@@ -920,3 +923,683 @@ def test_report_project_fields_are_threaded(tmp_path):
     assert report.project.generated_at == _NOW
     assert report.project.generator_version == _VERSION
     assert report.schema_version == "1.0"
+
+
+# ===========================================================================
+# Mutation-strengthening (bring report_builder.py under the mutation gate).
+# Each test below names the survivors it kills. Equivalent / dead-branch mutants
+# are suppressed at the source with `# pragma: no mutate` + rationale, never with
+# a tautological test (see report_builder.py). Production code is unchanged.
+# ===========================================================================
+
+
+# --- detail strings: exact product copy (equivalence partitioning) ----------
+
+
+def test_missing_artifact_details_are_exact(tmp_path):
+    """Each absent artifact's inventory detail is product copy the reader uses to
+    know what to run next; assert the EXACT string so wording/case mutants in the
+    missing_detail arguments can't survive (equivalence partitioning over the
+    absent class). Kills missing_detail mutants in _repo_map_artifact (_5/_11/_12),
+    _diff_impact_artifact (_5/_11/_12), _ledger_artifact (_4/_10/_11/_12/_13),
+    _bundle_artifact (_4/_10/_11/_12/_13)."""
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    by_kind = {a.kind: a for a in report.artifacts}
+    assert by_kind["repo_map"].detail == "not generated yet; run `sumo-qa analyze` to create it"
+    assert (
+        by_kind["diff_impact"].detail
+        == "no diff-impact overlay; run the diff-impact analysis to create one"
+    )
+    assert by_kind["risk_ledger"].detail == (
+        "no persisted risk ledger; persist one to .sumo-qa/risk-ledger.json or pass rows inline"
+    )
+    assert by_kind["context_bundle"].detail == (
+        "no persisted context bundle; persist one to .sumo-qa/context-bundle.json or pass it inline"
+    )
+
+
+# --- artifact path is threaded onto present / invalid rows -------------------
+
+
+def test_present_artifact_rows_carry_their_path(tmp_path):
+    """A present artifact row names the repo-relative path it was read from so the
+    page can point the reader at the file. Kills path mutants in _repo_map_artifact
+    (_25/_31), _diff_impact_artifact (_25/_29), _ledger_artifact (_16/_20),
+    _bundle_artifact (_26/_30)."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())
+    _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
+    _write_artifact(tmp_path, "context-bundle.json", _bundle_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    by_kind = {a.kind: a for a in report.artifacts}
+    assert by_kind["repo_map"].path == ".sumo-qa/repo-map.json"
+    assert by_kind["diff_impact"].path == ".sumo-qa/diff-impact.json"
+    assert by_kind["risk_ledger"].path == ".sumo-qa/risk-ledger.json"
+    assert by_kind["context_bundle"].path == ".sumo-qa/context-bundle.json"
+
+
+def test_invalid_artifact_row_keeps_path_and_real_parser_message(tmp_path):
+    """An invalid (present-but-unreadable) artifact still names its path and the
+    REAL parser message. Kills _artifact_from_source invalid-branch path mutants
+    (_4/_8), _load_json_artifact malformed path mutants (_9/_11) and the malformed
+    detail mutant (_13: `_first_line(None)` would render the literal 'None')."""
+    target = tmp_path / ".sumo-qa" / "repo-map.json"
+    target.parent.mkdir(parents=True)
+    target.write_text("{not json", encoding="utf-8")
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "repo_map")
+    assert entry.status == "invalid"
+    assert entry.path == ".sumo-qa/repo-map.json"
+    assert entry.detail is not None and entry.detail.startswith("[malformed_json] ")
+    # The real json error carries position info ("line 1 ..."); the _first_line(None)
+    # mutant would render "[malformed_json] None".
+    assert "line 1" in entry.detail
+
+
+def test_non_object_json_is_invalid_with_path_and_actual_type(tmp_path):
+    """Top-level JSON that is not an object (a list/scalar) is a type_error invalid
+    state naming its path and the ACTUAL type read. Kills _load_json_artifact
+    type_error path mutants (_15/_17) and the type-name mutant (_19: would say
+    'NoneType' instead of 'list')."""
+    target = tmp_path / ".sumo-qa" / "diff-impact.json"
+    target.parent.mkdir(parents=True)
+    target.write_text("[]", encoding="utf-8")
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "invalid"
+    assert entry.path == ".sumo-qa/diff-impact.json"
+    assert entry.detail == "[type_error] expected a JSON object, got list"
+
+
+def test_schema_drifted_artifact_keeps_path(tmp_path):
+    """A loader-rejected (schema-drift) artifact still names its path. Kills
+    _load_json_artifact loader-error path mutants (_22/_24)."""
+    _write_artifact(tmp_path, "repo-map.json", {"schema_version": "9.9"})
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "repo_map")
+    assert entry.status == "invalid"
+    assert entry.path == ".sumo-qa/repo-map.json"
+
+
+# --- read/write encoding is explicit lowercase utf-8 ------------------------
+
+
+def test_load_json_artifact_reads_with_explicit_lowercase_utf8(tmp_path, monkeypatch):
+    """Artifacts are read with encoding="utf-8" exactly — `None` silently mangles
+    UTF-8 bytes under Windows cp1252. Kills _load_json_artifact _6 (None) and _8
+    ("UTF-8", registry-equivalent but caught by the exact-literal assertion)."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    captured: list[object] = []
+    original_read_text = Path.read_text
+
+    def spy_read_text(self, *args, **kwargs):
+        captured.append(
+            kwargs.get("encoding") if "encoding" in kwargs else (args[0] if args else "MISSING")
+        )
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", spy_read_text)
+    generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert captured == ["utf-8"]
+
+
+def test_write_run_summary_writes_with_explicit_lowercase_utf8(tmp_path, monkeypatch):
+    """The run summary is written with encoding="utf-8" exactly. Kills
+    write_run_summary _29 (None), _31 (drop) and _38 ("UTF-8")."""
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    captured: list[object] = []
+    original_write_text = Path.write_text
+
+    def spy_write_text(self, *args, **kwargs):
+        captured.append(
+            kwargs.get("encoding")
+            if "encoding" in kwargs
+            else (args[1] if len(args) > 1 else "MISSING")
+        )
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", spy_write_text)
+    write_run_summary(tmp_path, report)
+    assert captured == ["utf-8"]
+
+
+# --- write_run_summary: parents, count, pretty-print ------------------------
+
+
+def test_write_run_summary_creates_nested_parents(tmp_path):
+    """write_run_summary must create intermediate dirs (mkdir parents=True); with
+    parents falsy a multi-level-missing root raises FileNotFoundError. Kills
+    write_run_summary _4 (None), _6 (drop->False), _8 (False)."""
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    nested = tmp_path / "deep" / "nested" / "root"  # none of these dirs exist yet
+    out = write_run_summary(nested, report)
+    assert out.is_file()
+
+
+def test_write_run_summary_counts_present_sources_not_missing(tmp_path):
+    """sources_available counts PRESENT artifacts only; doubling it or counting the
+    missing ones must fail. With just a ledger on disk exactly two rows are present
+    (the ledger + the derived scorecard). Kills write_run_summary _12 (sum 2 each)
+    and _13 (status NOT in PRESENT_STATUSES)."""
+    _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    write_run_summary(tmp_path, report)
+    data = json.loads(
+        (tmp_path / ".sumo-qa" / "qa-report-summary.json").read_text(encoding="utf-8")
+    )
+    assert data["sources_available"] == 2  # risk_ledger (available) + scorecard (derived)
+
+
+def test_write_run_summary_is_pretty_printed_two_space_indent(tmp_path):
+    """The persisted summary is indent=2 JSON (human-diffable). Kills
+    write_run_summary _33 (None), _35 (drop), _36 (indent=3)."""
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    write_run_summary(tmp_path, report)
+    text = (tmp_path / ".sumo-qa" / "qa-report-summary.json").read_text(encoding="utf-8")
+    assert '\n  "schema_version"' in text  # exactly two leading spaces
+    assert '\n   "schema_version"' not in text  # not three (indent=3)
+    assert '\n"schema_version"' not in text  # not zero/compact (indent=None)
+
+
+# --- _load_run_summary schema gate ------------------------------------------
+
+
+def test_load_run_summary_rejects_unsupported_schema_naming_the_value(tmp_path):
+    """_load_run_summary raises on a non-1.0 schema, naming the offending value so
+    a future-version summary is ignored, never half-parsed. Kills the schema-gate
+    mutants _6 (ValueError(None)), _7 (.get(None)), _8/_9 (wrong key -> value None)."""
+    with pytest.raises(ValueError) as exc:
+        _load_run_summary({"schema_version": "9.9", "readiness_state": "ready"})
+    assert "9.9" in str(exc.value)
+
+
+# --- _repo_map_is_stale -----------------------------------------------------
+
+
+def test_missing_repo_map_is_not_stale(tmp_path):
+    """A missing repo-map is not 'stale' — staleness is undetectable, not asserted.
+    Kills _repo_map_is_stale _3 (None map -> return True)."""
+    inputs = load_report_inputs(tmp_path)
+    assert inputs.repo_map is None
+    assert _repo_map_is_stale(inputs) is False
+
+
+# --- repo-map stale detail + sha boundary (boundary value analysis) ---------
+
+
+def test_stale_repo_map_detail_names_both_8char_shas(tmp_path):
+    """The stale repo-map detail names the recorded and current commits as 8-char
+    prefixes. Boundary value analysis on the [:8] slice: assert exactly 8 chars so
+    [:9]/None and the ternary-precedence mutants die. Kills _repo_map_artifact
+    _13/_14/_15/_16/_17/_20/_21 (and _26/_32 — the shared detail kwarg)."""
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    head = _git_init_commit(tmp_path)
+    recorded = "0123456789" + "a" * 30  # distinct chars so [:8] != [:9]
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path, git_commit=recorded))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "repo_map")
+    assert entry.status == "stale"
+    assert entry.detail == (f"recorded commit {recorded[:8]} differs from current HEAD {head[:8]}")
+    assert recorded[:9] not in entry.detail  # the [:9] mutant would include the 9th char
+
+
+def test_fresh_repo_map_detail_is_not_the_stale_differs_string(tmp_path):
+    """A fresh (matching-commit) repo-map must not claim the commits differ. Kills
+    the ternary-precedence mutants _repo_map_artifact _18/_19 that would render the
+    stale 'differs' string for a fresh map."""
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    head = _git_init_commit(tmp_path)
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path, git_commit=head))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "repo_map")
+    assert entry.status == "available"
+    assert "differs from current HEAD" not in (entry.detail or "")
+
+
+# --- diff-impact stale detail (equivalence partitioning + decision table) ----
+
+
+def test_diff_impact_inherited_stale_detail_is_exact(tmp_path):
+    """When a stale repo-map taints an overlay with no warning of its own, the
+    overlay's detail is the exact inherited message (case-sensitive 'HEAD'). Kills
+    _diff_impact_artifact _20/_21/_22."""
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    _git_init_commit(tmp_path)
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path, git_commit="0" * 40))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())  # no own warning
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "stale"
+    assert entry.detail == (
+        "repo-map is stale relative to HEAD; this overlay likely predates the current state"
+    )
+
+
+def test_overlay_own_stale_warning_survives_even_when_map_also_stale(tmp_path):
+    """An overlay with its OWN stale warning keeps that message even when the
+    repo-map is also stale — the inherited string only fills in for an overlay with
+    no warning of its own. Kills _diff_impact_artifact _17 (and->or)."""
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    _git_init_commit(tmp_path)
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path, git_commit="0" * 40))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload(stale_warning=True))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "stale"
+    assert entry.detail == "repo-map git_commit differs from HEAD"  # its OWN message
+    assert "predates the current state" not in entry.detail
+
+
+def test_diff_impact_multiple_stale_messages_join_with_semicolon(tmp_path):
+    """Two persisted stale warnings join with '; '. Kills _diff_impact_artifact
+    _38 (join separator) — observable only with more than one message."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    payload = _diff_impact_payload()
+    payload["warnings"] = [
+        {"kind": "stale", "message": "first stale reason"},
+        {"kind": "stale", "message": "second stale reason"},
+    ]
+    _write_artifact(tmp_path, "diff-impact.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "stale"
+    assert entry.detail == "first stale reason; second stale reason"
+
+
+# --- bundle conflict detail (decision table) --------------------------------
+
+
+def test_conflicted_bundle_artifact_detail_is_the_conflict_message(tmp_path):
+    """A bundle whose head conflicts with the local tree is stale, and its row
+    detail is the conflict message (not the source detail, not None). Kills
+    _bundle_artifact _27/_31/_34 and build_report _32 (drops the conflict arg, so
+    the row would read 'available')."""
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    _git_init_commit(tmp_path)
+    payload = _bundle_payload()
+    payload["head_sha"] = _SHA_B  # never a real local HEAD
+    _write_artifact(tmp_path, "context-bundle.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "context_bundle")
+    assert entry.status == "stale"
+    assert entry.detail is not None
+    assert entry.detail.startswith("Context bundle describes commit")
+
+
+# --- readiness scorecard derivation (decision table) ------------------------
+
+
+@pytest.mark.parametrize(
+    "signal_field,signal_value",
+    [
+        ("test_evidence", {"result": "passing", "freshness": "fresh", "source": "local_git"}),
+        ("ci_status", {"result": "passing", "freshness": "fresh", "source": "ci_provider"}),
+        ("changed_files", [{"path": "src/x.py", "change_kind": "modified"}]),
+    ],
+)
+def test_any_single_bundle_signal_derives_scorecard(tmp_path, signal_field, signal_value):
+    """Decision table over the bundle-signal predicate: ANY one of test_evidence /
+    ci_status / changed_files is enough to derive the scorecard. Kills
+    _scorecard_artifact _1 (bundle->None), _2 (signal->None), _5/_6 (or->and flips),
+    _9 (bool(changed_files)->bool(None))."""
+    payload = {"schema_version": "1.0", "head_sha": _SHA_A, signal_field: signal_value}
+    _write_artifact(tmp_path, "context-bundle.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
+    assert entry.status == "derived", signal_field
+
+
+def test_derived_scorecard_detail_is_exact(tmp_path):
+    """Kills _scorecard_artifact _24 (derived detail wording)."""
+    _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
+    assert entry.detail == (
+        "derived in-report from the risk ledger + context bundle (readiness engine)"
+    )
+
+
+def test_not_derivable_scorecard_detail_is_exact(tmp_path):
+    """Kills _scorecard_artifact _37 (missing detail wording)."""
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "readiness_scorecard")
+    assert entry.detail == "not derivable; supply a risk ledger and/or context bundle"
+
+
+def test_signals_and_scope_are_threaded_into_the_scorecard_engine(tmp_path, monkeypatch):
+    """report_builder must thread coverage, mutation and scope into the QaScorecard
+    engine — its docstring contract is that "the report and the scorecard can never
+    disagree" and the scorecard "surfaces them as dimensions", so a future scorecard
+    rule on those signals is reflected without touching the report. Spy on the
+    collaborator's constructor (an interaction contract, not the report's own output)
+    to kill the threading mutants in _readiness_from_scorecard (_2/_5/_6/_7/_10/_11)
+    and build_report (_5/_138/_140/_141/_146/_147), which pass None instead of the
+    real signal/scope."""
+    import sumo_qa.report_builder as rb
+
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))  # supplies the scope
+    _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
+    _write_artifact(tmp_path, "coverage.json", _coverage_payload())
+    _write_artifact(tmp_path, "mutation.json", _mutation_payload())
+
+    captured: dict[str, object] = {}
+    real_init = rb.QaScorecard.__init__
+
+    def spy_init(self, *args, **kwargs):
+        captured.update(kwargs)
+        return real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(rb.QaScorecard, "__init__", spy_init)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+
+    coverage = captured["coverage"]
+    mutation = captured["mutation"]
+    assert coverage is not None and coverage.line_percent == 100.0  # threaded, not None
+    assert mutation is not None and mutation.survivors == 2 and mutation.killed == 145
+    assert captured["scope"] == report.project.name  # the project scope, not None
+
+
+# --- evidence streams: trust, ordering, threading (branch coverage) ----------
+
+
+def test_all_missing_evidence_streams_are_untrustworthy(tmp_path):
+    """Absent evidence streams are never trustworthy. Kills _evidence_streams _33
+    and _measurement_stream _12 (missing stream trustworthy=True)."""
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    for stream in report.evidence:
+        assert stream.status == "missing"
+        assert stream.trustworthy is False
+
+
+def test_missing_test_evidence_still_emits_ci_stream(tmp_path):
+    """A bundle missing test_evidence but carrying ci_status must still emit BOTH
+    streams — a `break` instead of `continue` would drop ci. Kills _evidence_streams
+    _34."""
+    payload = {
+        "schema_version": "1.0",
+        "head_sha": _SHA_A,
+        "ci_status": {"result": "passing", "freshness": "fresh", "source": "ci_provider"},
+    }
+    _write_artifact(tmp_path, "context-bundle.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    names = [s.name for s in report.evidence]
+    assert "tests" in names and "ci" in names
+    assert next(s for s in report.evidence if s.name == "ci").status == "passing"
+
+
+def test_bundle_evidence_threads_source_captured_at_and_detail(tmp_path):
+    """A present evidence fact threads its source, captured_at and detail into the
+    stream. Kills _evidence_streams _40/_41/_42 (->None) and _47/_48/_49 (drop)."""
+    payload = _bundle_payload()
+    payload["test_evidence"] = {
+        "result": "passing",
+        "freshness": "fresh",
+        "source": "local_git",
+        "captured_at": "2026-06-07T10:00:00+00:00",
+        "detail": "42 passed in 3.1s",
+    }
+    _write_artifact(tmp_path, "context-bundle.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    tests = next(s for s in report.evidence if s.name == "tests")
+    assert tests.source == "local_git"
+    assert tests.captured_at == "2026-06-07T10:00:00+00:00"
+    assert tests.detail == "42 passed in 3.1s"
+
+
+def test_fresh_fact_not_in_stale_set_keeps_its_freshness(tmp_path):
+    """A fresh fact NOT in the bundle's stale set keeps 'fresh' (not coerced to
+    stale). Kills _evidence_streams _52 (stale-set membership inversion)."""
+    _write_artifact(tmp_path, "context-bundle.json", _bundle_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    tests = next(s for s in report.evidence if s.name == "tests")
+    assert tests.freshness == "fresh"
+
+
+# --- measurement streams + rows (equivalence partitioning) ------------------
+
+
+def test_missing_measurement_stream_detail_is_exact(tmp_path):
+    """The absent coverage/mutation stream detail is exact product copy. Kills
+    _measurement_stream _5/_9 (detail->None / drop) and _13/_14 (wording/case)."""
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    for name in ("coverage", "mutation"):
+        stream = next(s for s in report.evidence if s.name == name)
+        assert stream.detail == (
+            "not supplied — optional readiness-scorecard signal (run sumo-qa-measuring-coverage)"
+        )
+
+
+def test_available_measurement_stream_carries_freshness(tmp_path):
+    """A present coverage signal's stream reports its freshness. Kills
+    _measurement_stream _18/_23 (freshness->None / drop)."""
+    _write_artifact(tmp_path, "coverage.json", _coverage_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    stream = next(s for s in report.evidence if s.name == "coverage")
+    assert stream.freshness == "fresh"
+
+
+def test_missing_measurement_row_detail_is_exact(tmp_path):
+    """Absent coverage/mutation inventory rows say exactly 'not supplied — reported,
+    not gated'. Kills _measurement_artifact _19 (wording mutant slips the loose
+    substring check)."""
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    for name in ("coverage", "mutation"):
+        entry = next(a for a in report.artifacts if a.kind == name)
+        assert entry.detail == "not supplied — reported, not gated"
+
+
+def test_mutation_row_detail_lists_survivors_and_killed(tmp_path):
+    """A mutation row's detail lists survivors AND killed, joined with ', '. Kills
+    _mutation_measure _7 (killed-bit guard) and _11 (join separator)."""
+    _write_artifact(tmp_path, "mutation.json", _mutation_payload())  # survivors=2, killed=145
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    mut = next(a for a in report.artifacts if a.kind == "mutation")
+    assert mut.detail == "2 survivor(s), 145 killed, freshness=fresh — reported, not gated"
+
+
+# --- readiness reasons: falsifiable counts (boundary value analysis) ---------
+
+
+def test_blocked_failing_headline_counts_only_failing_rows(tmp_path):
+    """The 'failing covering tests' headline counts ONLY failing non-blocker rows.
+    A ledger with two failing + one passing row must read '2 of 3'. Kills
+    _readiness_from_scorecard _29 (== 'failing' inverted)."""
+    payload = {
+        "schema_version": "1.0",
+        "rows": [
+            {
+                "risk_id": "R1",
+                "risk": "a",
+                "source_anchor": "src/a.py:1",
+                "test": "t::a",
+                "evidence_status": "failing",
+                "residual": "mitigated",
+            },
+            {
+                "risk_id": "R2",
+                "risk": "b",
+                "source_anchor": "src/b.py:1",
+                "test": "t::b",
+                "evidence_status": "failing",
+                "residual": "mitigated",
+            },
+            {
+                "risk_id": "R3",
+                "risk": "c",
+                "source_anchor": "src/c.py:1",
+                "test": "t::c",
+                "evidence_status": "passing",
+                "residual": "mitigated",
+            },
+        ],
+    }
+    _write_artifact(tmp_path, "risk-ledger.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "blocked"
+    assert report.readiness.reasons[0] == "risks with failing covering tests: 2 of 3 (required: 0)"
+
+
+def test_insufficient_headline_counts_non_passing_rows(tmp_path):
+    """The 'without fresh passing evidence' headline counts NON-passing rows. A
+    ledger with two stale + one passing row must read '2 of 3'. Kills
+    _readiness_from_scorecard _44 (== 'passing' inverted)."""
+    payload = {
+        "schema_version": "1.0",
+        "rows": [
+            {
+                "risk_id": "R1",
+                "risk": "a",
+                "source_anchor": "src/a.py:1",
+                "test": "t::a",
+                "evidence_status": "stale",
+                "residual": "mitigated",
+            },
+            {
+                "risk_id": "R2",
+                "risk": "b",
+                "source_anchor": "src/b.py:1",
+                "test": "t::b",
+                "evidence_status": "stale",
+                "residual": "mitigated",
+            },
+            {
+                "risk_id": "R3",
+                "risk": "c",
+                "source_anchor": "src/c.py:1",
+                "test": "t::c",
+                "evidence_status": "passing",
+                "residual": "mitigated",
+            },
+        ],
+    }
+    _write_artifact(tmp_path, "risk-ledger.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "insufficient_evidence"
+    assert (
+        report.readiness.reasons[0] == "risks without fresh passing evidence: 2 of 3 (required: 0)"
+    )
+
+
+def test_head_conflict_surfaces_stale_bundle_readiness_reason(tmp_path):
+    """A bundle whose head conflicts with the local tree adds an explicit readiness
+    reason (sourced from QaScorecard with the real local head). Kills
+    _readiness_from_scorecard _4/_9 (bundle dropped) and _40 (local_head_sha dropped
+    from insufficiency_reasons), and build_report _137."""
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    _git_init_commit(tmp_path)
+    payload = _bundle_payload()
+    payload["head_sha"] = _SHA_B
+    payload["ci_status"]["freshness"] = "fresh"
+    _write_artifact(tmp_path, "context-bundle.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "insufficient_evidence"
+    assert "context bundle is stale relative to the local tree" in report.readiness.reasons
+
+
+# --- build_report: validation, projection, identity -------------------------
+
+
+def test_build_report_rejects_aware_datetime_with_none_utcoffset(tmp_path):
+    """`now` must carry a real UTC offset; a tzinfo whose utcoffset() returns None
+    is rejected too, not just a naive datetime. Kills build_report _1 (or->and) and
+    _4/_5/_6 (the error message)."""
+    from datetime import tzinfo
+
+    class _NoOffset(tzinfo):
+        def utcoffset(self, dt):
+            return None
+
+        def tzname(self, dt):
+            return "NOOFF"
+
+        def dst(self, dt):
+            return None
+
+    inputs = load_report_inputs(tmp_path)
+    bad = datetime(2026, 6, 8, 8, 0, 0, tzinfo=_NoOffset())
+    with pytest.raises(ValueError) as exc:
+        build_report(inputs, now=bad, generator_version=_VERSION)
+    # exact message (not a substring search) so the "XX...XX" wording mutant dies too
+    assert str(exc.value) == "now must be timezone-aware"
+
+
+def test_ledger_repo_map_node_id_threads_into_risk(tmp_path):
+    """A ledger row's repo_map_node_id threads into the projected risk. Kills
+    build_report _66 (->None) and _74 (drop)."""
+    payload = _ledger_payload()
+    payload["rows"][0]["repo_map_node_id"] = "src/demo.py"
+    _write_artifact(tmp_path, "risk-ledger.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.risks[0].repo_map_node_id == "src/demo.py"
+
+
+def test_project_name_prefers_repo_map_name(tmp_path):
+    """Project name comes from the repo-map's project.name when present. Kills
+    build_report _79 (repo_map->None), _80 (project_name->None), _114 (name->None),
+    _119 (drop name)."""
+    payload = _repo_map_payload(tmp_path)
+    payload["project"]["name"] = "my-cool-project"
+    _write_artifact(tmp_path, "repo-map.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.project.name == "my-cool-project"
+
+
+def test_project_name_falls_back_to_dir_name_without_repo_map(tmp_path):
+    """With no repo-map, project name falls back to the root directory name. Kills
+    build_report _83 (fallback -> None)."""
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.project.name == tmp_path.name
+
+
+def test_risk_surface_is_threaded(tmp_path):
+    """The diff-impact risk_surface threads into the report. Kills build_report _106
+    (drops risk_surface, which would default to [])."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.risk_surface == ["src/demo.py"]
+
+
+# --- load_report_inputs: foreign rejection + inline detail ------------------
+
+
+def test_foreign_repo_map_invalid_row_keeps_path(tmp_path):
+    """A foreign-root repo-map is invalid but still names its path. Kills
+    load_report_inputs _21 (->None) and _23 (drop)."""
+    foreign = tmp_path / "elsewhere"
+    foreign.mkdir()
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(foreign))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "repo_map")
+    assert entry.status == "invalid"
+    assert entry.path == ".sumo-qa/repo-map.json"
+
+
+def test_foreign_overlay_invalid_row_keeps_path_and_exact_detail(tmp_path):
+    """The diff-impact overlay rejected in lockstep with a foreign repo-map names
+    its path and the exact reason. Kills load_report_inputs _36/_38 (path) and
+    _40/_42/_43 (detail wording/case)."""
+    foreign = tmp_path / "elsewhere"
+    foreign.mkdir()
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(foreign))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "invalid"
+    assert entry.path == ".sumo-qa/diff-impact.json"
+    assert entry.detail == (
+        "[foreign_root] overlay derives from a repo-map describing a different "
+        "repository; regenerate with `sumo-qa analyze`"
+    )
+
+
+def test_inline_bundle_override_detail_marks_inline_source(tmp_path):
+    """An inline (caller-supplied) bundle's row carries the inline-source detail.
+    Kills load_report_inputs _64 (->None) and _66 (drop)."""
+    override = ContextBundle.model_validate(_bundle_payload())
+    report = generate_report(
+        tmp_path, generator_version=_VERSION, now=_NOW, bundle_override=override
+    )
+    entry = next(a for a in report.artifacts if a.kind == "context_bundle")
+    assert entry.status == "inline"
+    assert entry.detail == "supplied inline by the caller (not read from disk)"

@@ -174,7 +174,9 @@ def load_report_inputs(
     current_commit = _detect_git_commit(root_path)
 
     repo_map, repo_map_source = _load_json_artifact(root_path, REPO_MAP_RELPATH, load_repo_map)
-    repo_map_foreign = False
+    # mutmut_12 (False→None) is equivalent: both are falsy and this flag is only
+    # ever read in a boolean context.
+    repo_map_foreign = False  # pragma: no mutate
     if repo_map is not None and Path(repo_map.project.root).resolve() != root_path:
         # A repo-map copied from ANOTHER repository measures a different tree —
         # composing it would present foreign evidence as local. Mirror the
@@ -296,7 +298,9 @@ def _artifact_from_source(
     was present but unreadable, missing otherwise."""
     if source.error is not None:
         return ReportArtifact(kind=kind, status="invalid", path=source.path, detail=source.error)
-    return ReportArtifact(kind=kind, status="missing", path=None, detail=missing_detail)
+    # `path` omitted (defaults to None): a missing artifact has no source path. The
+    # missing detail is pinned by the per-artifact missing-detail assertions in tests.
+    return ReportArtifact(kind=kind, status="missing", detail=missing_detail)
 
 
 def _repo_map_is_stale(inputs: ReportInputs) -> bool:
@@ -434,13 +438,14 @@ def _scorecard_artifact(inputs: ReportInputs) -> ReportArtifact:
             # artifact on disk (#151's tool has no write_to), so the honest
             # status is `derived`, never `available`.
             status="derived",
-            path=None,
+            # `path` is omitted (defaults to None): the scorecard is derived
+            # in-report, never read from a file, so it has no source path.
             detail="derived in-report from the risk ledger + context bundle (readiness engine)",
         )
     return ReportArtifact(
         kind="readiness_scorecard",
         status="missing",
-        path=None,
+        # `path` is omitted (defaults to None): nothing on disk to point at.
         detail="not derivable; supply a risk ledger and/or context bundle",
     )
 
@@ -540,7 +545,13 @@ def _evidence_streams(inputs: ReportInputs) -> list[ReportEvidence]:
 def _coverage_measure(signal: CoverageSignal | None) -> tuple[str | None, str] | None:
     if signal is None or not signal.has_measurement():
         return None
-    measure = f"{signal.line_percent:g}% lines" if signal.line_percent is not None else "measured"
+    # The `else "measured"` arm is unreachable: has_measurement() is true iff
+    # line_percent is not None (CoverageSignal.MEASUREMENT_FIELDS == ("line_percent",)),
+    # so the ternary always takes the formatted branch. The dead arm's mutants
+    # (x__coverage_measure__mutmut_6/_7) are observably equivalent.
+    # fmt: skip keeps this one line so the pragma sits on the mutated node; without
+    # it the formatter wraps the line and the pragma no longer covers "measured".
+    measure = f"{signal.line_percent:g}% lines" if signal.line_percent is not None else "measured"  # pragma: no mutate  # fmt: skip
     return signal.freshness, measure
 
 
@@ -552,7 +563,11 @@ def _mutation_measure(signal: MutationSignal | None) -> tuple[str | None, str] |
         bits.append(f"{signal.survivors} survivor(s)")
     if signal.killed is not None:
         bits.append(f"{signal.killed} killed")
-    return signal.freshness, ", ".join(bits) or "measured"
+    # The `or "measured"` fallback is unreachable: has_measurement() is true iff
+    # survivors or killed is set (MEASUREMENT_FIELDS == ("survivors", "killed")),
+    # so `bits` is always non-empty here and the join is always truthy. The dead
+    # fallback's mutants (x__mutation_measure__mutmut_12/_13) are equivalent.
+    return signal.freshness, ", ".join(bits) or "measured"  # pragma: no mutate
 
 
 def _measurement_stream(name: str, measure: tuple[str | None, str] | None) -> ReportEvidence:
@@ -594,6 +609,14 @@ def _readiness_from_scorecard(
     four scorecard states are adopted verbatim as the report's ``ReadinessState``,
     so the report and the scorecard can never disagree.
     """
+    # scope/coverage/mutation feed only QaScorecard.dimensions(); this function
+    # consumes recommendation() + the *_reasons() methods, which never read them,
+    # so they do not move the ReportReadiness verdict. They are threaded anyway by
+    # contract (the scorecard stays the single source of truth for any future
+    # dimension consumer). The threading is verified at the call boundary by
+    # tests/test_report_builder.py::test_signals_and_scope_are_threaded_into_the_scorecard_engine
+    # (a `# pragma: no mutate` cannot reach these continuation-line kwargs — mutmut
+    # drops LibCST position metadata there, so the spy test is what holds the line).
     card = QaScorecard(
         scope=scope,
         ledger=ledger,
@@ -604,7 +627,10 @@ def _readiness_from_scorecard(
     state = card.recommendation(local_head_sha=local_head_sha)
     rows = ledger.rows if ledger is not None else []
     if state == "blocked":
-        reasons = card.blocking_reasons(local_head_sha=local_head_sha)
+        # blocking_reasons() takes local_head_sha but never reads it (only
+        # insufficiency_reasons consults it via detect_local_conflict), so
+        # mutmut_20 (local_head_sha=None) is observably equivalent.
+        reasons = card.blocking_reasons(local_head_sha=local_head_sha)  # pragma: no mutate
         # Falsifiable headlines (SonarQube's gate style): the count vs the
         # threshold first, the engine's per-risk itemisation after. Each
         # headline only appears for a NONZERO count — a blocked verdict must
@@ -727,6 +753,10 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
             if diff_impact is not None
             else []
         ),
+        # scope/coverage/mutation do not move the readiness verdict (they feed only
+        # QaScorecard.dimensions(), unused by the report) but are threaded by
+        # contract; the threading is verified by the scorecard-spy test (see
+        # _readiness_from_scorecard above — pragma can't reach these kwargs).
         readiness=_readiness_from_scorecard(
             inputs.ledger,
             inputs.bundle,

@@ -169,6 +169,13 @@ paths_to_mutate = [
   # it earns mutation coverage. Strengthened to 0 survivors (1 equivalent
   # join-separator mutant carries a `# pragma: no mutate`).
   "src/sumo_qa/coverage_models.py",
+  # The QA-report builder: artifact ingestion + the render-ready projection
+  # (honest absent/invalid/stale states, falsifiable readiness reasons, signal
+  # threading). Strengthened to 0 survivors. Dead/redundant branches carry a
+  # `# pragma: no mutate` with rationale; the scorecard signal-threading mutants
+  # (continuation-line kwargs that mutmut/LibCST can't pragma) are killed by a
+  # collaborator-spy test instead.
+  "src/sumo_qa/report_builder.py",
 ]
 # --no-cov: bypasses --cov-fail-under=100 addopts (fails every mutated run)
 # -x: stop at first failure for speed
