@@ -31,7 +31,7 @@ NOT for: a defect already pinned to a known product behaviour (`regression-first
 
 Work through these in order as an ordered work list. The classify→isolate body (steps 3–5) repeats per distinct failure; reruns happen only via step 4's hypothesis gate.
 
-1. **Secure the failure signal** — obtain the actual evidence: the failing test's full name, the assertion/error message, the traceback, and (when it matters) whether it fails every run or only sometimes. Take it from the user's paste, a saved log, or the host's command-running capability. If it is missing or too thin to classify, the HARD-GATE fires — pause and ask this turn. Preserve the load-bearing lines (the failing assertion, the exception type and message, the key traceback frames) so the diagnosis stays grounded and a later reviewer has what you saw; summarise the rest, never dump the whole log.
+1. **Secure the failure signal** — obtain the actual evidence: the failing test's full name, the assertion/error message, the traceback or relevant output lines, and (when it matters) whether it fails every run or only sometimes. Take it from the user's paste, a saved log, or the host's command-running capability. If it is missing or too thin to classify, the HARD-GATE fires — pause and ask this turn. Preserve the load-bearing lines (the failing assertion, the exception type and message, the key traceback frames) so the diagnosis stays grounded and a later reviewer has what you saw; summarise the rest, never dump the whole log.
 
 2. **Gather the cheap surrounding context — no fix yet** — read the failing test and the code it exercises; check what changed recently around the failure (the diff / recent commits on those paths) and whether the symptom is deterministic or intermittent. Read-only; authorises no edit.
 
@@ -58,7 +58,7 @@ The Checklist above is the flow.
 |---|---|
 | "It's flaky — just rerun it until it's green" | A rerun is an experiment, not a fix — allowed only tied to a named hypothesis (order? timing? service?). "Run again and hope" hides the cause. |
 | "The test is red, so the code is broken — patch it" | Maybe the TEST is wrong. Classify first: a test bug, stale fixture, or environment gap never licenses a production edit. |
-| "I'll classify from the test name — obviously the cache test" | HARD-GATE: classify from the actual assertion + traceback, never the title. |
+| "I'll classify from the test name — obviously the cache test" | HARD-GATE: classify from the actual assertion and traceback or output lines, never the title. |
 | "Passes locally, fails in CI — must be a real bug" | That points at environment/dependency or order/timing, not the product. Isolate before blaming the code. |
 | "Two causes fit — I'll fix both to be safe" | Name the likelier and the one observation that discriminates them; that's your isolation step. |
 | "Just one flaky test — mark it acceptable residual risk and move on" | Accepting a flake is the user's explicit, recorded call — not a default you make for them. |
