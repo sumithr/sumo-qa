@@ -13,12 +13,16 @@ description: >
   EXISTING security_change classification + loaded change rules - no parallel
   taxonomy, no vulnerability-checklist dump, no vendor/tool-name dump.
 providers:
-  # candidate pinned to gpt-4o-mini so this eval is LOAD-BEARING — the pre-edit
-  # skill (no security-relevance probe) FAILs the inclusion seed on this weaker
-  # model; gpt-5-mini caught the gap unaided and was not load-bearing (issue #282
-  # review finding).
-  - id: openai:chat:gpt-4o-mini
-    label: candidate-gpt-4o-mini
+  # This eval is a STABLE REGRESSION GUARD, NOT load-bearing. gpt-5-mini catches
+  # the grounded security gap UNAIDED (its own reasoning, not the new #282 skill
+  # line), so the eval cannot ISOLATE the added skill line — it cannot prove that
+  # line load-bearing. What it DOES guard is the reviewing skill REGRESSING:
+  # ceasing to name a grounded security gap when one is present (and not
+  # fabricating one when absent). The cross-cutting security-relevance behaviour
+  # is proven load-bearing by the preparing-for-work + answering evals; here we
+  # pin gpt-5-mini purely to keep this guard reliably green.
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
     config:
       temperature: 0.0
       seed: 42
