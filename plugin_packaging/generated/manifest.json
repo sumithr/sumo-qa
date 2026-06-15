@@ -4,10 +4,10 @@
     ".claude-plugin/plugin.json": "4b3916bed44c5b8f19f956a0300a1392a9983f19ca9bdde566ed908ccfe07873",
     ".codex-plugin/plugin.json": "5091ea98c3e902ef238d5d6e3473a5b44afef5319af20628066a200632761ba2",
     ".mcp.json": "a7b8d1a7539b36b432bb9ef9529caf0f6422e6c835c1cfbe6db03b01548a7e5b",
-    "docs/host-adapters.md": "a6141ed86aaf10190bcaa0162f44ea2b26296b1f91cd78d69e25d636acd745d8",
+    "docs/host-adapters.md": "cb7ff575c8c406fd7b3a754e624bc2c196df8d555de424de2dd725334a10bf2d",
     "hooks/hooks-codex.json": "b1aa5aa5abc8f47401a558ceac37884a2cc51060ae29d1d9a66c65fb34f7542e",
     "hooks/hooks.json": "da88de44e85597e8269f8ba998bd04a2af82522c23cca8f8dece75f8b0e926ca",
-    "src/sumo_qa/_data/plugin_metadata.json": "1a770c407f0456d4beba6f722fa6bedc2f99dea8b105ed1a87d093dc4390863e"
+    "src/sumo_qa/_data/plugin_metadata.json": "58c27ebf791092cd97f3902d60f0a46fc6c60402ccfacb3985880d4fa9d07929"
   },
   "generator": "plugin_packaging.plugin_generator"
 }

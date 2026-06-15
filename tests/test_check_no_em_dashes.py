@@ -94,6 +94,24 @@ def test_shorter_run_does_not_close_a_longer_fence():
     assert [h[0] for h in hits] == [6]
 
 
+def test_backtick_fence_with_backtick_in_info_string_is_not_a_fence():
+    # CommonMark: a backtick fence's info string may not contain a backtick.
+    # A ```bad`info line must NOT open a fence (which would suppress every
+    # dash through EOF); the following prose dash must still be flagged.
+    text = "```bad`info\nVisible prose — should fail\n"
+    hits = checker.prose_hits(text)
+    assert [h[0] for h in hits] == [2]
+    assert hits[0][1] == checker.EM_DASH
+
+
+def test_tilde_fence_info_string_may_contain_backticks():
+    # Only backtick fences restrict backticks in the info string; a ~~~ fence
+    # opens normally even when its info string contains a backtick, so the
+    # dash inside stays exempt.
+    text = "~~~has`backtick\nsample — fenced\n~~~\n"
+    assert checker.prose_hits(text) == []
+
+
 def test_over_indented_fence_is_not_a_fence():
     # 4+ spaces of indent is an indented code block, not a fenced one, so a
     # ``` there does not open a fence and the following prose IS checked.

@@ -86,7 +86,7 @@ in slice 1:
 - `nodes[].id` values are unique within the artifact; duplicates would
   silently collapse downstream lookups.
 
-Edge `source`/`target` endpoints are NOT yet checked for node-membership -
+Edge `source`/`target` endpoints are NOT yet checked for node-membership;
 the follow-up generator slice defines id conventions for external
 references (e.g. third-party imports). Until then, a producer can emit an
 edge pointing at any string id.
@@ -142,7 +142,7 @@ What the slice-2 scanner produces:
   language, a SHA-256 fingerprint of the file content, and the relative path.
 - **Edges** of type `likely_tests` only: inferred from two language-agnostic
   signals so the mapping is not tied to a fixed filename-suffix table: a
-  **usage** signal (a test file's **import statements** name a source stem -
+  **usage** signal (a test file's **import statements** name a source stem,
   robust across languages; only import-style lines are read, so an incidental
   mention of a common word can't fabricate an edge) and a **name-convention**
   signal mapping a test's stem to its source stem (`test_X` / `X_test`,
@@ -157,7 +157,7 @@ What the slice-2 scanner produces:
   is NOT treated as a test on its own, so a production class like
   `src/main/kotlin/ExperimentTest.kt` is not misclassified (and dropped off the
   risk surface). The cost is that tests in a custom source set outside a test
-  directory (e.g. Gradle's `src/integrationTest`) aren't auto-detected by name -
+  directory (e.g. Gradle's `src/integrationTest`) aren't auto-detected by name:
   a safe miss (the source stays on the risk surface), and real detection lands
   with the import graph in #212.
   First-class `imports` and `configured_by` edges (a parsed import graph) are
@@ -278,7 +278,7 @@ the optional overlay.
 
 `sumo_qa_query_repo_map(root, query, limit=10, types=None)` is a bounded,
 read-only search over the map. It answers "where is the component / test / CI
-check / config / command that matches X?" without returning the full artifact -
+check / config / command that matches X?" without returning the full artifact:
 the host gets just enough metadata (node id, path, type, tags, a match reason)
 to open the files directly.
 

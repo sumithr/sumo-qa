@@ -1,8 +1,8 @@
 # Local QA report
 
 The local QA report (issue #157) composes the persisted `.sumo-qa` artifacts
-into one polished, self-contained static HTML page -
-`.sumo-qa/qa-report.html`, that summarises repo health, change impact,
+into one polished, self-contained static HTML page
+(`.sumo-qa/qa-report.html`) that summarises repo health, change impact,
 risk-to-test coverage, and evidence freshness at a glance. It is generated
 **locally, with no network access and no hosted service**: the page renders
 fully from disk via `file://`, with inline CSS only, no scripts, images,
@@ -11,7 +11,7 @@ external fonts, or stylesheets.
 The report is a **projection, never a verdict**. No inference lives in it:
 the artifacts (or the host LLM that built them) supplied every fact, and the
 Python side only validates, composes, derives the readiness roll-up, and
-renders. The markdown-first review verdict from the skills is unchanged, the
+renders. The markdown-first review verdict from the skills is unchanged; the
 report is the durable, shareable snapshot of the same state.
 
 ## What it composes
@@ -22,10 +22,10 @@ report is the durable, shareable snapshot of the same state.
 | Diff impact | `.sumo-qa/diff-impact.json` | `sumo_qa_analyze_diff_impact` with `write_overlay=True` (#156) |
 | Risk ledger | `.sumo-qa/risk-ledger.json` | opt-in conventional path (#144 is a chat formatter; persist the same rows there, or pass them inline to the MCP tool) |
 | Context bundle | `.sumo-qa/context-bundle.json` | opt-in conventional path (#149 is a chat formatter; persist the same bundle there, or pass it inline) |
-| Readiness scorecard |, (derived) | composed in-report from the risk ledger + context bundle via #151's `QaScorecard` engine, not a persisted artifact |
-| Coverage / mutation |, | optional `QaScorecard` signals (#147 is guidance, not a persisted artifact); an explicit not-available state when unsupplied |
+| Readiness scorecard | N/A (derived) | composed in-report from the risk ledger + context bundle via #151's `QaScorecard` engine, not a persisted artifact |
+| Coverage / mutation | N/A | optional `QaScorecard` signals (#147 is guidance, not a persisted artifact); an explicit not-available state when unsupplied |
 
-**Every source is optional.** The report works with any subset of artifacts -
+**Every source is optional.** The report works with any subset of artifacts;
 an empty repo still produces a valid page. That is the load-bearing honesty
 contract: **missing data is never reported as passing evidence**. Each source
 appears in the artifact inventory with one of four distinct states:

@@ -210,7 +210,7 @@ or a mutated module, do **both**:
 
 You don't have to remember this from tribal knowledge:
 `tests/test_mutmut_subprocess_exclusions.py` runs in the **ordinary** pytest
-suite and fails **loudly and immediately**, at the PR that introduces the test -
+suite and fails **loudly and immediately**, at the PR that introduces the test:
 if a subprocess-spawning test is added without being marked AND ignored, and
 reciprocally if the `--ignore` list grows a stale or unjustified entry (which
 would quietly shrink mutation coverage). The guard is a static AST check, so it

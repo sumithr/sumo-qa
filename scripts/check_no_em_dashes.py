@@ -66,17 +66,26 @@ def prose_hits(text: str) -> list[tuple[int, str, str]]:
         if m:
             marker = m.group("marker")
             char, length = marker[0], len(marker)
+            rest = m.group("rest")
             if fence is None:
                 # Opening fence (an info string may follow, e.g. ```python).
-                fence = (char, length)
+                # CommonMark: a BACKTICK fence's info string may not contain a
+                # backtick, so a ``` run whose info string does is NOT a fence
+                # opener but ordinary prose. Fall through and scan it for dashes
+                # rather than silently suppressing every dash through EOF.
+                if char == "`" and "`" in rest:
+                    pass
+                else:
+                    fence = (char, length)
+                    continue
             else:
                 open_char, open_len = fence
-                closes = char == open_char and length >= open_len and m.group("rest").strip() == ""
+                closes = char == open_char and length >= open_len and rest.strip() == ""
                 if closes:
                     fence = None
-            # A delimiter line is never prose, whether it opened, closed, or
-            # is a non-closing run inside the block.
-            continue
+                # A delimiter line inside a block (closing or a non-closing run)
+                # is never prose.
+                continue
         if fence is not None:
             continue
         for ch, _name in DASH_NAMES.items():

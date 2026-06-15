@@ -7,8 +7,8 @@ paste-able into an issue or PR and traceable across a review: one row per named
 risk, carrying the covering test (or planned check), the current evidence, and
 the residual decision.
 
-The ledger is an **appendix, never a replacement**. The markdown-first verdict -
-the named risks, the coverage map, the SAFE / NOT SAFE call, is still the
+The ledger is an **appendix, never a replacement**. The markdown-first verdict
+(the named risks, the coverage map, the SAFE / NOT SAFE call) is still the
 deliverable. The ledger is offered when the user wants the structured artifact;
 the prose answer is unchanged either way.
 
