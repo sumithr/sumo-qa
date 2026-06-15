@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.48.3](https://github.com/sumithr/sumo-qa/compare/v0.48.2...v0.48.3) (2026-06-15)
+
+
+### Build System
+
+* **deps-dev:** bump esbuild from 0.28.0 to 0.28.1 ([#411](https://github.com/sumithr/sumo-qa/issues/411)) ([875a2be](https://github.com/sumithr/sumo-qa/commit/875a2bea9ce617ec61bb46bd04db418d62d42f86))
+* **deps-dev:** bump hono from 4.12.19 to 4.12.24 ([#338](https://github.com/sumithr/sumo-qa/issues/338)) ([5c31316](https://github.com/sumithr/sumo-qa/commit/5c31316171341b7f1a4552f982aa84955638e8df))
+* **deps:** bump actions/setup-node from 5 to 6 ([#295](https://github.com/sumithr/sumo-qa/issues/295)) ([3f326e9](https://github.com/sumithr/sumo-qa/commit/3f326e9228eaea6e9b3a840dd045015d7bf9051d))
+
 ## [0.48.2](https://github.com/sumithr/sumo-qa/compare/v0.48.1...v0.48.2) (2026-06-15)
 
 
