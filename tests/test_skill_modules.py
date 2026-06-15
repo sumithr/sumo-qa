@@ -72,9 +72,9 @@ COMPACT_MANIFEST_TOKEN_BUDGET = 2720  # epic #137 / #306: shipped compact defaul
 # matters so all-skill index bloat stays measured. #150's sixteenth skill
 # (sumo-qa-triaging-test-failures) raised it to ~13,033, so the ceiling moves to
 # 13,500 — a new skill legitimately adds its section index to the full opt-in.
-# #409's sumo-qa-measuring-coverage raised it to ~13,574, so the ceiling moves
-# to 13,700.
-FULL_INDEX_TOKEN_CEILING = 13700
+# #409's sumo-qa-measuring-coverage plus #282's security-relevance index entries
+# raised it to ~13,806 on the merged tree, so the ceiling moves to 14,100.
+FULL_INDEX_TOKEN_CEILING = 14100
 HEAVY_SKILL_FULL_FLOOR = 2500  # a skill is "heavy" once its full body exceeds this
 PARTIAL_LOAD_SAVING_FLOOR = 0.50  # manifest + routing-minimal sections >= 50% below full
 

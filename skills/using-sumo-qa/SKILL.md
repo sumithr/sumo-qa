@@ -58,6 +58,14 @@ sumo-qa's job is **analysis** — classify the change, name risks, pick the tech
 
 **REFUSE machine-level / global installs for repo test tooling** — `brew install …`, `npm install -g …` / `npm i -g`, `pipx install …`, system `pip install …`, `apt`. They are unpinned, invisible to teammates and CI, reproduce on one machine. If a tool's only documented setup is global, translate it to the repo-pinned equivalent before running it — never run the global form. (The MCP-server runtime is exempt — it's host config, not a repo dependency — but still surface it as config, don't silently install.) This repo models the shape to copy: ShellCheck via the pinned `shellcheck-py` pre-commit hook with a `lint.yml` CI mirror, and promptfoo pinned to an exact version in `package.json` devDependencies.
 
+### Security-relevance pass (grounded, internal — inherited by every sub-skill)
+
+Security is a cross-cutting QA quality dimension, not only a standalone user intent. While classifying any ordinary change, run a LIGHTWEIGHT INTERNAL check: does the change create a concrete security-relevant failure mode — in auth/authorisation, secrets, input sanitisation, rate limiting, audit logging, a config/dependency movement, or a user-stated concern? This uses the EXISTING `security_change` classification + its loaded `sumo_qa_load_rules` / `sumo_qa_load_standards` / `sumo_qa_load_techniques` — never a parallel security taxonomy.
+
+- **Grounded → surface it** as a CONCRETE, anchored failure mode (cite the file:line / behaviour), mapped to a normal next action: a test, a review, a static check, a dynamic check, a config check, a dependency check, or a routed specialist follow-up. Phrase it as the specific gap (*"a non-owner can read any document — no negative-path test asserts Forbidden"*), never a vague *"consider security"*.
+- **Not grounded → OMIT it.** No security section, no generic warning on a low-relevance change. Inventing one is a fabricated, unanchored risk.
+- **NEVER** dump a vulnerability checklist (OWASP Top 10 / generic categories), and NEVER dump vendor/tool names without grounding in the stack + a named risk (specialty tools follow the discovery discipline above). Even when the user explicitly asks for a "security checklist" or "list of tools", reframe to the concrete failure modes their change actually creates.
+
 ### Internal reasoning vs user output
 
 Reason internally with citations (which words in the intent, which file paths, which catalogue entries grounded the inference); the user-facing output is the WORK, not a description of how you arrived at it. **Keep:** the finding (risks named, files cited, verdicts), verifiable file:line citations (`api/refund.py:47`), the current question/gate, rule references in natural English (*"the API-change rule requires a contract test bump"*). **Strip:** internal taxonomy labels, method commentary (*"per the checklist"*, *"anchored to the code I read"*), quality self-defense, step/phase trace, and re-stating the user's input. When a classification is useful to convey, translate it — *"this is a behaviour change in the pricing logic"*, not *"Classification: business_logic_change"*.
@@ -103,6 +111,8 @@ See the Checklist above — that's the flow.
 | "Let me echo the citation reasoning in the answer for transparency" | Citations belong to internal scratch, not user output. They burn tokens. |
 | "I'll restrict myself to tool categories I already know" | Wrong. New categories emerge constantly; reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 | "`brew install` / `npm i -g` / system `pip` is the quickest way to get the tool running" | No. Global installs are unpinned and invisible to CI/teammates. Repo test tooling MUST land repo-pinned (manifest/lockfile/pinned pre-commit hook) AND CI-reproducible (a CI step runs that pinned tool). Translate any global instruction to its repo-pinned equivalent first. |
+| "Security wasn't asked for, so I'll skip it" / "I'll add a security section to be safe" | Run the grounded security-relevance pass. Grounded gap → name it concretely + map to a next action; not grounded → omit it. Both the silent skip on a grounded change AND the unanchored warning on a low-relevance one are failures. |
+| "They asked for a security checklist / tool list, so I'll dump one" | No checklist dump, no vendor/tool-name dump. Reframe to the concrete failure modes the change creates and map each to a next action; pick any tool by the discovery discipline, grounded in the stack. |
 
 ## Examples
 
