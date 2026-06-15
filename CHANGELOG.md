@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.49.0](https://github.com/sumithr/sumo-qa/compare/v0.48.3...v0.49.0) (2026-06-15)
+
+
+### Features
+
+* **skills:** include grounded security relevance in ordinary QA flows ([#282](https://github.com/sumithr/sumo-qa/issues/282)) ([#424](https://github.com/sumithr/sumo-qa/issues/424)) ([29e84ca](https://github.com/sumithr/sumo-qa/commit/29e84ca03f2085c337781bb1c6a7d1be90547628))
+
 ## [0.48.3](https://github.com/sumithr/sumo-qa/compare/v0.48.2...v0.48.3) (2026-06-15)
 
 
