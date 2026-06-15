@@ -6,7 +6,7 @@ The Test Data Assistant is intentionally lightweight. It helps teams discover an
 
 ## Catalogue structure
 
-Catalogue entries are organised by **domain folder** — pick whatever names match your team's surfaces (auth, billing, payments, search, inventory, scheduling, etc.). The catalogue starts empty on a fresh install; you populate it with your own known-good entries via `sumo_qa_register_known_good_test_data` (or hand-authored YAML).
+Catalogue entries are organised by **domain folder**, pick whatever names match your team's surfaces (auth, billing, payments, search, inventory, scheduling, etc.). The catalogue starts empty on a fresh install; you populate it with your own known-good entries via `sumo_qa_register_known_good_test_data` (or hand-authored YAML).
 
 ```text
 knowledge/test_data/
@@ -14,13 +14,13 @@ knowledge/test_data/
     <your-fixtures>.yaml       # add as needed; .gitignore local team data if not for upstream
 ```
 
-A shape-only reference set (auth / billing) lives at [`tests/fixtures/test_data/`](../tests/fixtures/test_data/) in the source tree — those are internal test fixtures used by the package's own test suite, not catalogue defaults. They are deliberately excluded from the wheel so a `pip install sumo-qa` user does not see them surface as results from `sumo_qa_find_test_data`.
+A shape-only reference set (auth / billing) lives at [`tests/fixtures/test_data/`](../tests/fixtures/test_data/) in the source tree, those are internal test fixtures used by the package's own test suite, not catalogue defaults. They are deliberately excluded from the wheel so a `pip install sumo-qa` user does not see them surface as results from `sumo_qa_find_test_data`.
 
 Catalogue entries are version-controlled YAML and include:
 
-- `id` — stable, unique
+- `id`: stable, unique
 - `environment`
-- `domain` — your team's chosen folder name
+- `domain`: your team's chosen folder name
 - `scenario_tags`
 - `known_valid_for`
 - `constraints`
@@ -29,7 +29,7 @@ Catalogue entries are version-controlled YAML and include:
 - `confidence`
 - `source`
 - `notes`
-- `product_id`, `sku` — *optional, for product-style domains*
+- `product_id`, `sku`: *optional, for product-style domains*
 
 `product_id` / `sku` are illustrative optional identifier fields for retail-style domains. Non-retail domains (auth, billing, infrastructure, ML, etc.) leave them blank.
 

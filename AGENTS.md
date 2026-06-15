@@ -1,4 +1,4 @@
-# AGENTS.md — sumo-qa setup
+# AGENTS.md, sumo-qa setup
 
 If you're an AI agent setting up sumo-qa for the user, follow this exactly. One command for the common case; per-host flags if you only need to wire one host.
 
@@ -17,10 +17,10 @@ python -m sumo_qa.installer
 
 What `sumo-qa-install` does:
 
-1. Locates the `sumo-qa` MCP binary. If `pip install sumo-qa` already put it on PATH (the common case), uses that path directly — no `uv` invocation. If `sumo-qa` is not on PATH yet, falls back to `uv tool install` and prints `uv` install instructions if `uv` is also missing.
+1. Locates the `sumo-qa` MCP binary. If `pip install sumo-qa` already put it on PATH (the common case), uses that path directly: no `uv` invocation. If `sumo-qa` is not on PATH yet, falls back to `uv tool install` and prints `uv` install instructions if `uv` is also missing.
 2. **Claude Code** (if `~/.claude/` exists): symlinks each `skills/<name>/` into `~/.claude/skills/<name>/`. Writes `claude_desktop_config.json` with the MCP entry pointing at the absolute binary path.
 3. **VS Code + Copilot** (if cwd is a workspace with `.git` / `.vscode` / `package.json` / etc.): writes `.vscode/mcp.json` with the **VS Code-native schema** (`servers` key, `type: stdio`).
-4. **JetBrains IDEs** (if JetBrains config dir exists): prints exact Settings UI steps. JetBrains' MCP plugin requires Settings UI registration — external XML writes don't reliably register the runtime coroutine.
+4. **JetBrains IDEs** (if JetBrains config dir exists): prints exact Settings UI steps. JetBrains' MCP plugin requires Settings UI registration: external XML writes don't reliably register the runtime coroutine.
 5. Verifies the binary responds to JSON-RPC `initialize`.
 
 ## Per-host flags
@@ -57,11 +57,11 @@ You only strictly need the second step when new skills are added or a host's MCP
   `sumo-qa-install` writes this format. Earlier versions wrote `mcpServers` (the Claude Desktop schema) which VS Code silently ignored. On re-run, the installer strips the stale `mcpServers` key.
 - After running `sumo-qa-install`, in VS Code: **Cmd+Shift+P → Developer: Reload Window**. VS Code caches the MCP server list at startup; it doesn't re-read the file mid-session.
 - Use **Agent mode** (not Ask, not Edit) in Copilot Chat. Tools require Agent mode.
-- Use a capable model — **Claude Sonnet 4.5** or **GPT-5 (full)**. Mini/fast variants don't reliably call MCP tools.
+- Use a capable model: **Claude Sonnet 4.5** or **GPT-5 (full)**. Mini/fast variants don't reliably call MCP tools.
 
 ## JetBrains specifics
 
-JetBrains AI Assistant's MCP config (`llm.mcpServers.xml`) is not reliably writable externally on IDEA 2026.1 — the plugin requires its in-process Settings UI to register the runtime coroutine. `sumo-qa-install` prints the exact UI fields (with the absolute binary path):
+JetBrains AI Assistant's MCP config (`llm.mcpServers.xml`) is not reliably writable externally on IDEA 2026.1, the plugin requires its in-process Settings UI to register the runtime coroutine. `sumo-qa-install` prints the exact UI fields (with the absolute binary path):
 
 ```
 Settings → Tools → AI Assistant → Model Context Protocol → + Add server

@@ -6,15 +6,15 @@ Authoring guide for the editable files a team customises in a [local clone](INST
 
 | File / directory | Schema | Behaviour on bad content | Validated by `sumo-qa-validate` |
 |---|---|---|---|
-| `knowledge/classifications.md` | Free-form markdown — read verbatim | Returned as-is to the host; the LLM scans for headings | Required, non-empty |
+| `knowledge/classifications.md` | Free-form markdown, read verbatim | Returned as-is to the host; the LLM scans for headings | Required, non-empty |
 | `knowledge/approaches.md` | Free-form markdown | Same | Required, non-empty |
 | `knowledge/principles.md` | Free-form markdown | Same | Required, non-empty |
 | `knowledge/techniques.md` | Free-form markdown | Same | Required, non-empty |
 | `knowledge/repo_walk.md` | Free-form markdown (recipe text) | Referenced by `sumo-qa-strategising` | Optional |
-| `standards/packs/*.yml` / `*.yaml` | Any valid YAML — unfiltered loads return verbatim | YAML parse error → silently skipped under classification filtering; `sumo-qa-validate` fails it | YAML parses; warns if no `applies_to_classifications` |
-| `standards/rules/change_rules.yaml` | **Strict Pydantic** — see [rules.py](../src/sumo_qa/rules.py); `extra="forbid"` | `from_file` raises `ValueError` at server / validator startup | Hard fail on schema violation |
-| `knowledge/test_data/<domain>/<file>.y(a)ml` | **Strict Pydantic** — `TestDataEntry` (`extra="forbid"`) | Loader raises `ValueError` on first invalid entry | Hard fail on schema violation |
-| `feedback/review_feedback.yaml` (user pack, **tool/CLI-written**) | Strict — `{entries: [{scope, trigger_signal, recommended_probe, source_note, last_reviewed}]}` via `sumo_qa_capture_review_feedback`; a missing/blank required field, an unknown field, a bad timestamp, or sensitive input (raw diff/secret/code/full body) is rejected, writing nothing | **Advisory only** — never a loader tier, so it never shadows a catalogue; cited separately, never overrides a classification/change-rule | Not hand-authored — managed by the tool / `sumo-qa-feedback` CLI |
+| `standards/packs/*.yml` / `*.yaml` | Any valid YAML, unfiltered loads return verbatim | YAML parse error → silently skipped under classification filtering; `sumo-qa-validate` fails it | YAML parses; warns if no `applies_to_classifications` |
+| `standards/rules/change_rules.yaml` | **Strict Pydantic**; see [rules.py](../src/sumo_qa/rules.py); `extra="forbid"` | `from_file` raises `ValueError` at server / validator startup | Hard fail on schema violation |
+| `knowledge/test_data/<domain>/<file>.y(a)ml` | **Strict Pydantic**, `TestDataEntry` (`extra="forbid"`) | Loader raises `ValueError` on first invalid entry | Hard fail on schema violation |
+| `feedback/review_feedback.yaml` (user pack, **tool/CLI-written**) | Strict, `{entries: [{scope, trigger_signal, recommended_probe, source_note, last_reviewed}]}` via `sumo_qa_capture_review_feedback`; a missing/blank required field, an unknown field, a bad timestamp, or sensitive input (raw diff/secret/code/full body) is rejected, writing nothing | **Advisory only**, never a loader tier, so it never shadows a catalogue; cited separately, never overrides a classification/change-rule | Not hand-authored, managed by the tool / `sumo-qa-feedback` CLI |
 
 > **Permissive ≠ schemaless.** The four `knowledge/*.md` files are read verbatim, but the skills tell the LLM to "pick from the catalogue" by scanning headings. Drift far from the existing shape (top-level `# Title`, `##` section headings, one entry per `###` block) and the LLM stops picking from your file. Keep the existing structure; replace the substance.
 
@@ -46,7 +46,7 @@ The validator runs automatically via the pre-commit hook in [`.pre-commit-config
 
 ## Worked examples
 
-### `standards/packs/<pack>.yml` — a team standards pack
+### `standards/packs/<pack>.yml`, a team standards pack
 
 A standards pack is whatever YAML you want; the loader returns the file verbatim. The optional `applies_to_classifications` (or legacy `classifications`) top-level key lets sumo-qa surface the pack only when the in-flight change matches one of the listed classifications. Without it, the pack always loads.
 
@@ -83,7 +83,7 @@ checks:
 
 The body shape (`checks`, `pass_criteria`, …) is read by the host LLM, not parsed by sumo-qa. Use whatever vocabulary your team already uses; the LLM follows the catalogue verbatim.
 
-### `standards/rules/change_rules.yaml` — change-class rule entry
+### `standards/rules/change_rules.yaml`, change-class rule entry
 
 **Strict schema.** Top-level keys are classification names (from `knowledge/classifications.md`). Each value is a fixed-shape record validated by [`rules._RawChangeRule`](../src/sumo_qa/rules.py) with `extra="forbid"`.
 
@@ -119,12 +119,12 @@ api_contract_change:
 | `suggested_test_types` | `list[str]` | **Closed enum**: `unit`, `integration`, `contract`, `functional`, `nonfunctional`. Anything else raises `ValueError` at load. |
 | `avoid_testing` | `list[str]` | Free-form prose |
 | `risk_templates` | `list[str]` | Free-form prose surfaced as starter risk statements |
-| `test_design_techniques` | `list[str]` | Free-form — but the LLM works best when these match technique headings in `knowledge/techniques.md` |
-| `quality_characteristics` | `list[str]` | Free-form — ISO 25010 names are the upstream convention but the loader doesn't enforce it |
+| `test_design_techniques` | `list[str]` | Free-form, but the LLM works best when these match technique headings in `knowledge/techniques.md` |
+| `quality_characteristics` | `list[str]` | Free-form, ISO 25010 names are the upstream convention but the loader doesn't enforce it |
 
 Unknown fields fail validation (`extra="forbid"`).
 
-### `knowledge/techniques.md` — extend the technique catalogue
+### `knowledge/techniques.md`, extend the technique catalogue
 
 Plain markdown. The TDD and strengthening skills tell the host to pick the verbatim catalogue heading, so the **structure matters** even though there's no schema.
 
@@ -144,9 +144,9 @@ Use when reliability is a stated quality attribute and the change touches
 retry, timeout, or circuit-breaker behaviour.
 ```
 
-The skill then picks `contract testing` (verbatim heading, lower-case) when a risk needs one — see `sumo-qa-implementing-with-tdd/SKILL.md` step 3.
+The skill then picks `contract testing` (verbatim heading, lower-case) when a risk needs one; see `sumo-qa-implementing-with-tdd/SKILL.md` step 3.
 
-### `knowledge/test_data/<domain>/<file>.yaml` — known-good test-data entry
+### `knowledge/test_data/<domain>/<file>.yaml`, known-good test-data entry
 
 **Strict Pydantic.** The file must be a top-level mapping with an `entries:` list. Each entry validates against [`TestDataEntry`](../src/sumo_qa/tdm_models.py) (`extra="forbid"`).
 
@@ -176,11 +176,11 @@ entries:
 
 `extra="forbid"` means a typo like `scenarios_tags:` (missing `o`) fails loudly at validator and server startup.
 
-### `feedback/review_feedback.yaml` — review feedback memory (advisory)
+### `feedback/review_feedback.yaml`, review feedback memory (advisory)
 
 **Tool/CLI-managed, not hand-authored.** This file is written by
 `sumo_qa_capture_review_feedback` (and inspected/pruned with the `sumo-qa-feedback`
-console script) — see [CONFIGURATION.md](CONFIGURATION.md#review-feedback-memory).
+console script); see [CONFIGURATION.md](CONFIGURATION.md#review-feedback-memory).
 It is shown here so you can read or wipe it. It lives under the same
 `project`/`global` pack root as ingested content, in a `feedback/` subdir, and is
 **advisory only**: it is never a loader tier, so it cannot shadow a canonical
@@ -200,12 +200,12 @@ entries:
 
 Each entry needs all five fields; capture rejects a missing/blank field, an
 unknown field, a malformed `last_reviewed`, or sensitive input (a raw diff hunk,
-a secret/credential, a code snippet, or a pasted full issue/PR body) — writing
+a secret/credential, a code snippet, or a pasted full issue/PR body): writing
 nothing. Only your own short summary is stored.
 
 ## Swap ISTQB out for something else
 
-You can replace ISTQB content end-to-end. The schema layer is body-of-knowledge-agnostic — `knowledge/*.md` and `standards/packs/*.yml` are read verbatim, and `change_rules.yaml` only enforces the closed `suggested_test_types` enum, not technique or principle names.
+You can replace ISTQB content end-to-end. The schema layer is body-of-knowledge-agnostic, `knowledge/*.md` and `standards/packs/*.yml` are read verbatim, and `change_rules.yaml` only enforces the closed `suggested_test_types` enum, not technique or principle names.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -268,26 +268,26 @@ flowchart LR
 | Content | How |
 |---|---|
 | `standards/packs/istqb_v1.yml` | Delete; drop in your team's pack(s). Loader globs the directory; no registry to update. |
-| `knowledge/principles.md` body | Replace the ISTQB Foundation Principles 1–7 + ISO 25010 grounding with your own principle catalogue. Keep the existing heading structure (top-level `# Principles`, `##` per category, `###` per named principle) so skills can still pick from it. |
+| `knowledge/principles.md` body | Replace the ISTQB Foundation Principles 1-7 + ISO 25010 grounding with your own principle catalogue. Keep the existing heading structure (top-level `# Principles`, `##` per category, `###` per named principle) so skills can still pick from it. |
 | `knowledge/techniques.md` body | Replace ISTQB technique entries with your own. Same structural advice: keep `###` headings so the TDD and strengthening skills can quote them verbatim. |
-| `standards/rules/change_rules.yaml` `test_design_techniques` / `quality_characteristics` values | Free-form strings — replace the ISTQB / ISO 25010 wording with whatever vocabulary you use. The schema only fails on `suggested_test_types` outside the closed enum. |
+| `standards/rules/change_rules.yaml` `test_design_techniques` / `quality_characteristics` values | Free-form strings, replace the ISTQB / ISO 25010 wording with whatever vocabulary you use. The schema only fails on `suggested_test_types` outside the closed enum. |
 
-**The honest caveat — inline references in SKILL.md files:**
+**The honest caveat, inline references in SKILL.md files:**
 
 A handful of skills include illustrative ISTQB references in their own prose:
 
-- [`skills/sumo-qa-deciding-approach/SKILL.md`](../skills/sumo-qa-deciding-approach/SKILL.md) — cites "ISTQB Principle 4 (defects cluster)" in a worked example.
-- [`skills/sumo-qa-implementing-with-tdd/SKILL.md`](../skills/sumo-qa-implementing-with-tdd/SKILL.md) — example list contains `boundary value analysis`, `equivalence partitioning`, `decision tables`, `state transition testing`, `exploratory testing`, `pairwise testing`.
-- [`skills/sumo-qa-strengthening-tests/SKILL.md`](../skills/sumo-qa-strengthening-tests/SKILL.md) — worked example uses `boundary value analysis` on a `>=` mutant.
-- [`skills/using-sumo-qa/SKILL.md`](../skills/using-sumo-qa/SKILL.md) — names "ISTQB principles" as an example of catalogue content.
+- [`skills/sumo-qa-deciding-approach/SKILL.md`](../skills/sumo-qa-deciding-approach/SKILL.md): cites "ISTQB Principle 4 (defects cluster)" in a worked example.
+- [`skills/sumo-qa-implementing-with-tdd/SKILL.md`](../skills/sumo-qa-implementing-with-tdd/SKILL.md): example list contains `boundary value analysis`, `equivalence partitioning`, `decision tables`, `state transition testing`, `exploratory testing`, `pairwise testing`.
+- [`skills/sumo-qa-strengthening-tests/SKILL.md`](../skills/sumo-qa-strengthening-tests/SKILL.md): worked example uses `boundary value analysis` on a `>=` mutant.
+- [`skills/using-sumo-qa/SKILL.md`](../skills/using-sumo-qa/SKILL.md): names "ISTQB principles" as an example of catalogue content.
 
-These are **illustrative**, not load-bearing. The skills' actual instruction is "use the verbatim catalogue heading you loaded this turn" — so the LLM will pick from whatever your `techniques.md` says. But the examples in the skill prose will look anachronistic against a non-ISTQB catalogue.
+These are **illustrative**, not load-bearing. The skills' actual instruction is "use the verbatim catalogue heading you loaded this turn", so the LLM will pick from whatever your `techniques.md` says. But the examples in the skill prose will look anachronistic against a non-ISTQB catalogue.
 
 To clean them up:
 
 1. Edit each SKILL.md above and replace the example technique names with names from your new `techniques.md`.
 2. Replace the "ISTQB Principle 4" citation with a citation from your new `principles.md`.
-3. Skills are symlinked into `~/.claude/skills/` and read on each host invocation — no reinstall needed.
+3. Skills are symlinked into `~/.claude/skills/` and read on each host invocation: no reinstall needed.
 4. Re-run `pytest tests/test_skill_conformance.py` to confirm no structural rules were broken.
 
 ### Walk-through: ship your own QA philosophy
@@ -332,10 +332,10 @@ pytest -q
 # 6. Restart the host so it spawns a fresh MCP server process; new content is live.
 ```
 
-After the restart, ask the host *"load the QA principles"* and *"load the QA techniques"* — the responses are your new content verbatim. The skills will then cite from those rather than the ISTQB defaults.
+After the restart, ask the host *"load the QA principles"* and *"load the QA techniques"*, the responses are your new content verbatim. The skills will then cite from those rather than the ISTQB defaults.
 
 ## Related
 
-- [docs/INSTALL.md#install-from-a-local-clone](INSTALL.md#install-from-a-local-clone) — how live editing works (editable install, symlink layout, when reinstall is required).
-- [docs/CONFIGURATION.md](CONFIGURATION.md) — `QA_KNOWLEDGE_PATH`, `QA_STANDARDS_PATH`, `QA_RULES_PATH`, `QA_TEST_DATA_PATH` env vars for pointing a *single* host at a different content directory while leaving the clone's defaults alone.
-- [docs/ARCHITECTURE.md](ARCHITECTURE.md) — three-layer model (catalogues / engine / skills) and where each content file fits.
+- [docs/INSTALL.md#install-from-a-local-clone](INSTALL.md#install-from-a-local-clone): how live editing works (editable install, symlink layout, when reinstall is required).
+- [docs/CONFIGURATION.md](CONFIGURATION.md): `QA_KNOWLEDGE_PATH`, `QA_STANDARDS_PATH`, `QA_RULES_PATH`, `QA_TEST_DATA_PATH` env vars for pointing a *single* host at a different content directory while leaving the clone's defaults alone.
+- [docs/ARCHITECTURE.md](ARCHITECTURE.md): three-layer model (catalogues / engine / skills) and where each content file fits.

@@ -17,7 +17,7 @@
     "codex"
   ],
   "license": "Apache-2.0",
-  "long_description": "Sumo QA packages a senior QA engineer's working discipline as an MCP server with a bundled skills library. It drives the QA loop end to end: analyze the repository to understand what it does, map named risks to the tests and evidence that would catch them, decide a grounded test approach, then do the work — test plans, TDD scaffolding, mutation-testing follow-up, test-data discovery, and pre-merge diff review.\n\nEvery recommendation cites a curated QA catalogue of principles, techniques, classifications, and approaches instead of improvised advice, so guidance stays consistent across hosts and models. It ships as a standard stdio MCP server: install with pip, wire it into a supported host with one command, and verify the setup with the bundled doctor.",
+  "long_description": "Sumo QA packages a senior QA engineer's working discipline as an MCP server with a bundled skills library. It drives the QA loop end to end: analyze the repository to understand what it does, map named risks to the tests and evidence that would catch them, decide a grounded test approach, then do the work: test plans, TDD scaffolding, mutation-testing follow-up, test-data discovery, and pre-merge diff review.\n\nEvery recommendation cites a curated QA catalogue of principles, techniques, classifications, and approaches instead of improvised advice, so guidance stays consistent across hosts and models. It ships as a standard stdio MCP server: install with pip, wire it into a supported host with one command, and verify the setup with the bundled doctor.",
   "mcp": {
     "args": [
       "--from",

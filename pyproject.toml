@@ -323,7 +323,7 @@ Sumo QA packages a senior QA engineer's working discipline as an MCP server \
 with a bundled skills library. It drives the QA loop end to end: analyze the \
 repository to understand what it does, map named risks to the tests and \
 evidence that would catch them, decide a grounded test approach, then do the \
-work — test plans, TDD scaffolding, mutation-testing follow-up, test-data \
+work: test plans, TDD scaffolding, mutation-testing follow-up, test-data \
 discovery, and pre-merge diff review.
 
 Every recommendation cites a curated QA catalogue of principles, techniques, \
