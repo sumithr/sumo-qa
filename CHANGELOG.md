@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.48.2](https://github.com/sumithr/sumo-qa/compare/v0.48.1...v0.48.2) (2026-06-15)
+
+
+### Continuous Integration
+
+* add an em-dash guard and clean em-dashes from the docs ([#423](https://github.com/sumithr/sumo-qa/issues/423)) ([8524639](https://github.com/sumithr/sumo-qa/commit/85246397d748d3d2ccb6b27f5c8981b1eae1eab8))
+
 ## [0.48.1](https://github.com/sumithr/sumo-qa/compare/v0.48.0...v0.48.1) (2026-06-14)
 
 
