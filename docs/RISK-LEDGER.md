@@ -64,7 +64,11 @@ uncovered high-risk row blocks merge. The tool surfaces an
   the table truncates past `max_rows` with a `… +N more` notice so a large
   ledger stays inside the host token budget (issues #89 / #137).
 - `compact_summary`: a one-line roll-up, e.g.
-  `Risk ledger: 3 risks, 1 passing, 1 planned, 1 failing; 1 uncovered blocker.`
+
+  ```text
+  Risk ledger: 3 risks — 1 passing, 1 planned, 1 failing; 1 uncovered blocker.
+  ```
+
 - `row_count`, `uncovered_blocker_count`, `truncated`.
 
 A ledger payload can also be validated directly through
