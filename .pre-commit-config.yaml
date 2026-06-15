@@ -175,6 +175,20 @@ repos:
         require_serial: true
         stages: [pre-commit]
 
+      - id: no-em-dashes
+        name: no em-dashes in user-facing docs
+        # Standing rule: the em-dash (—) reads as an AI-slop tell in shipped
+        # prose, so no user-facing doc carries one. Fails the commit if a
+        # dash reaches README / DEMO / AGENTS / docs/*.md. Fenced code blocks
+        # are exempt (literal example commands + sample tool output). Stdlib
+        # only; `language: system` matches the markdown-link-existence pattern
+        # and avoids pre-commit's isolated venv.
+        entry: python scripts/check_no_em_dashes.py
+        language: system
+        files: ^(README|DEMO|AGENTS)\.md$|^docs/[^/]+\.md$
+        pass_filenames: true
+        stages: [pre-commit]
+
       - id: mutmut
         name: mutmut (pre-push, on changes to mutated modules or tests)
         # Runs the mutation gate locally before push. Fires only when one of the
@@ -211,7 +225,7 @@ repos:
           - "tomli>=2,<3; python_version < '3.11'"
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
-        files: ^(src/sumo_qa/(knowledge_loaders|rules|standards|tdm_validation)\.py|tests/.*\.py)$
+        files: ^(src/sumo_qa/(knowledge_loaders|rules|standards|tdm_validation|coverage_models|report_builder)\.py|tests/.*\.py)$
         stages: [pre-push]
 
       - id: pytest

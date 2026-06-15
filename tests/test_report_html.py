@@ -65,7 +65,8 @@ def _minimal_report(**overrides) -> QAReport:
                 "risk_ledger",
                 "context_bundle",
                 "readiness_scorecard",
-                "coverage_mutation",
+                "coverage",
+                "mutation",
             )
         ],
         "readiness": ReportReadiness(state="insufficient_evidence", reasons=["nothing recorded"]),
@@ -268,7 +269,7 @@ def test_section_headings_carry_status_rollups():
     )
     html = render_report_html(report)
     assert "1 uncovered blocker" in html
-    assert "0 of 6 available" in html
+    assert "0 of 7 present" in html
     assert "1 warning" in html
     # An invalid artifact outranks stale/missing in the inventory rollup.
     invalid = [
@@ -299,7 +300,8 @@ def test_clean_sections_collapse_green():
             "risk_ledger",
             "context_bundle",
             "readiness_scorecard",
-            "coverage_mutation",
+            "coverage",
+            "mutation",
         )
     ]
     html = render_report_html(_minimal_report(artifacts=clean_artifacts))
@@ -377,7 +379,7 @@ def test_delta_line_shows_what_changed_since_previous_run():
             sources_available=0,
         ),
     )
-    assert "sources available 0 &#8594; 1" in render_report_html(available)
+    assert "sources present 0 &#8594; 1" in render_report_html(available)
 
 
 def test_delta_line_reports_no_change_and_is_absent_without_previous():

@@ -27,7 +27,7 @@
       "name": "sumo-qa",
       "repository": "https://github.com/sumithr/sumo-qa",
       "source": "./",
-      "version": "0.47.0"
+      "version": "0.48.3"
     }
   ]
 }

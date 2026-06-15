@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.47.0"
+version = "0.48.3"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
@@ -164,6 +164,18 @@ paths_to_mutate = [
   "src/sumo_qa/rules.py",
   "src/sumo_qa/standards.py",
   "src/sumo_qa/tdm_validation.py",
+  # #147 follow-up: the coverage/mutation artifact validation is decision logic
+  # (schema-version gate, range/vocab/type classification, signal mapping), so
+  # it earns mutation coverage. Strengthened to 0 survivors (1 equivalent
+  # join-separator mutant carries a `# pragma: no mutate`).
+  "src/sumo_qa/coverage_models.py",
+  # The QA-report builder: artifact ingestion + the render-ready projection
+  # (honest absent/invalid/stale states, falsifiable readiness reasons, signal
+  # threading). Strengthened to 0 survivors. Dead/redundant branches carry a
+  # `# pragma: no mutate` with rationale; the scorecard signal-threading mutants
+  # (continuation-line kwargs that mutmut/LibCST can't pragma) are killed by a
+  # collaborator-spy test instead.
+  "src/sumo_qa/report_builder.py",
 ]
 # --no-cov: bypasses --cov-fail-under=100 addopts (fails every mutated run)
 # -x: stop at first failure for speed
@@ -311,7 +323,7 @@ Sumo QA packages a senior QA engineer's working discipline as an MCP server \
 with a bundled skills library. It drives the QA loop end to end: analyze the \
 repository to understand what it does, map named risks to the tests and \
 evidence that would catch them, decide a grounded test approach, then do the \
-work — test plans, TDD scaffolding, mutation-testing follow-up, test-data \
+work: test plans, TDD scaffolding, mutation-testing follow-up, test-data \
 discovery, and pre-merge diff review.
 
 Every recommendation cites a curated QA catalogue of principles, techniques, \

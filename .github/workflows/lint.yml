@@ -100,3 +100,22 @@ jobs:
 
       - name: Run link gate
         run: ./scripts/check_markdown_links.sh
+
+  no-em-dashes:
+    name: no em-dashes in docs
+    # CI mirror of the local `no-em-dashes` pre-commit hook. Runs the same
+    # script against the full documentation set so a stray em-dash fails CI
+    # even if the contributor skipped `pre-commit install`. Single Python +
+    # single OS, and stdlib-only (no dev deps), because prose is platform-
+    # independent.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Run em-dash gate
+        run: python scripts/check_no_em_dashes.py

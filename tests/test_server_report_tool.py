@@ -80,7 +80,8 @@ def test_summary_shape_is_compact_and_complete(tool, tmp_path):
         "risk_ledger",
         "context_bundle",
         "readiness_scorecard",
-        "coverage_mutation",
+        "coverage",
+        "mutation",
     }
     assert out.risk_count == 0
     assert out.uncovered_blocker_count == 0
@@ -118,13 +119,14 @@ def test_inline_ledger_rows_flow_into_the_report(tool, tmp_path):
     assert out.risk_count == 1
     assert out.uncovered_blocker_count == 1
     assert out.readiness_state == "blocked"
-    assert out.artifact_statuses["risk_ledger"] == "available"
+    # Inline-supplied rows are `inline` (never on disk), not `available`.
+    assert out.artifact_statuses["risk_ledger"] == "inline"
 
 
 def test_inline_context_bundle_flows_into_the_report(tool, tmp_path):
     bundle = {"test_evidence": {"result": "passing", "freshness": "fresh", "source": "local_git"}}
     out = tool(root=str(tmp_path), context_bundle=bundle)
-    assert out.artifact_statuses["context_bundle"] == "available"
+    assert out.artifact_statuses["context_bundle"] == "inline"
 
 
 def test_invalid_inline_rows_return_error_envelope(tool, tmp_path):

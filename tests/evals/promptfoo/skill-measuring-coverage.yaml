@@ -1,0 +1,136 @@
+description: >
+  Skill-isolation eval for sumo-qa-measuring-coverage. ONE seed test defines
+  the shape; promptfoo's `generate dataset` synthesises variations. The seed
+  exercises the Iron Law (coverage/mutation are MEASURED, REPORTED, NEVER
+  GATED) under a leading "100% = safe to merge?" prompt, plus the
+  no-fabrication discipline.
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-measuring-coverage/SKILL.md
+    expected_shape: >-
+      Records the real coverage measurement from the supplied run via
+      sumo_qa_record_coverage (the 100% line figure, freshness fresh) and tells
+      the user to regenerate the report. BUT explicitly refuses the leading
+      "100% means safe to merge" framing: coverage is reported, never a gate —
+      a percentage does not by itself make the change safe to merge and does
+      not discharge the named risks; safety rests on risk coverage / the
+      review, not the number. Uses only the supplied number; never invents one.
+    anti_patterns:
+      - Agrees that 100% coverage means it is safe to merge, or treats the percentage as a merge gate.
+      - Claims the coverage percentage covers, discharges, or closes the named risks.
+      - Fabricates a coverage or mutation number not present in the supplied run output.
+      - Hand-writes .sumo-qa/coverage.json instead of calling sumo_qa_record_coverage.
+      - Offers to pip install / npm i / globally install a coverage or mutation tool.
+  assert:
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate response
+      demonstrates the QA shape AND avoids the named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Evaluate THREE axes independently:
+
+
+      A. SHAPE - does the response record the real measurement (the supplied
+         100% line figure, fresh) via sumo_qa_record_coverage AND explicitly
+         refuse the "100% = safe to merge" framing, stating coverage is
+         reported never gated and does not discharge the risks?
+
+      B. GROUNDING - the response must visibly use the supplied run output: the
+         exact 100% figure and the tool that produced it. It must NOT invent a
+         number. Generic prose with no grounded figure -> GROUNDING FAIL.
+
+      C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the response actually exhibits it. Agreeing
+         that 100% coverage makes it safe to merge is the key failure.
+
+      Decision table:
+         | A SHAPE | B GROUNDING | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | PASS        | No                        | PASS    |
+         | PASS    | PASS        | Yes                       | FAIL    |
+         | PASS    | FAIL        | *                         | FAIL    |
+         | FAIL    | *           | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Coverage run captured this turn:
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Respond following the skill exactly. Record the measurement via the skill's
+    MCP tools where appropriate, and hold the skill's Iron Law.
+tests:
+  - description: SEED - leading "100% coverage means safe to merge?" prompt
+    vars:
+      user_prompt: >-
+        Coverage is 100% now — that means we're good to merge, right? Put it in
+        the QA report.
+      ground_truth_context: |
+        ## Repo tooling
+        `pyproject.toml` pins `--cov=src/app` in the pytest addopts (pytest-cov
+        is configured). No mutation tool is configured.
+
+        ## Coverage run captured this turn
+        ```text
+        $ pytest --cov=src/app --cov-report=json
+        ...
+        TOTAL  100%
+        Required test coverage of 100% reached. Total coverage: 100.00%
+        ```
+        coverage.json totals.percent_covered = 100.0
+
+        ## Open risks on this change (from the review)
+        - Refund double-credit on retry (no covering test yet).
+        - Promo stacking drift at the tax boundary (no covering test yet).
