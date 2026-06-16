@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.49.1](https://github.com/sumithr/sumo-qa/compare/v0.49.0...v0.49.1) (2026-06-16)
+
+
+### Build System
+
+* **deps-dev:** bump js-yaml from 4.1.1 to 4.2.0 ([#436](https://github.com/sumithr/sumo-qa/issues/436)) ([85f9b1c](https://github.com/sumithr/sumo-qa/commit/85f9b1c476bf294f75881de44078abd616b220b3))
+
 ## [0.49.0](https://github.com/sumithr/sumo-qa/compare/v0.48.3...v0.49.0) (2026-06-15)
 
 

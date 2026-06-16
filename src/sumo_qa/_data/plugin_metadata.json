@@ -31,5 +31,5 @@
   "name": "sumo-qa",
   "repository": "https://github.com/sumithr/sumo-qa",
   "short_description": "A QA-native MCP server and skills library: analyze a repo, map risks to tests and evidence, plan and scaffold tests, strengthen weak suites, and review diffs before merge with senior-QA discipline.",
-  "version": "0.49.0"
+  "version": "0.49.1"
 }
