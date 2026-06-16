@@ -27,9 +27,9 @@ Use after `sumo-qa-deciding-approach` routes an explicit security-testing reques
 
 ## Checklist
 
-1. Confirm the source anchor: file, flow, config, dependency, data path, or explicit user-stated scope. If none exists, ask one scope question instead of inventing risk.
+1. Confirm the source anchor: file, flow, config, dependency, data path, or explicit user-stated scope. If none exists, ask one scope question; stop. No hypothetical risks/actions.
 2. Load `sumo_qa_load_standards(classification="security_change")`, `sumo_qa_load_rules(classification="security_change")`, and `sumo_qa_load_techniques()`. Use repo-map or file reads when available to verify the path.
-3. State the grounded failure mode in concrete terms: who/what can do something they should not, which token/secret/input/config can fail, or which security control can regress.
+3. State the grounded failure mode in concrete terms: who/what can do something they should not, which token/secret/input/config can fail, or which security control can regress. For account-recovery or lookup flows, include account enumeration when the request path can reveal user existence.
 4. Choose the smallest evidence type that fits: native test, review, static check, dynamic check, config check, dependency check, fuzz/property check, or external tool/skill.
 5. Name the first concrete action: the test to add, file/config to inspect, command to run, local safe check to perform, or external-skill discovery to request.
 6. Separate safe local regression work from invasive or live-target testing. Get confirmation before dependency installs, scanner setup, external skill execution, or live probing.
@@ -51,7 +51,7 @@ See the Checklist above; each step narrows from anchored risk to evidence fit.
 
 | Evidence | Use when | First action shape |
 |---|---|---|
-| Native test | The failure path is reachable in unit/integration/API tests. | Add the negative path: non-owner denied, expired token rejected, tampered input fails closed. |
+| Native test | The failure path is reachable in unit/integration/API tests. | Add the negative path: non-owner denied, expired token rejected, tampered input fails closed, known/unknown account responses match. |
 | Review | The risk is policy/design/control logic and cannot be executed locally yet. | Inspect the guard, data flow, error handling, or audit path against the loaded rule. |
 | Static check | The stack has a local analyser/linter or the issue is source/sink shaped. | Run the repo-pinned check or propose one only after stack evidence exists. |
 | Dynamic check | A running local service can safely exercise the path. | Hit the local target with bounded negative cases; no live target without confirmation. |
@@ -76,7 +76,7 @@ See the Checklist above; each step narrows from anchored risk to evidence fit.
 
 User: "Security-test the new password reset flow."
 
-Brief: grounded risk is reset token replay or expiry bypass in the password-reset flow. Source anchor is the reset-token issue/consume path the user named. Evidence choice is native API tests plus state transition testing: issued -> consumed -> expired. First action: add tests that expired, already-used, tampered, and replayed tokens are rejected without revealing account existence. Residual risk: inbox-link delivery and any live-rate-limit behaviour remain unproven without a runnable environment.
+Brief: grounded risk is reset token replay or expiry bypass in the password-reset flow, plus account enumeration if the request endpoint can reveal whether an email exists. Source anchor is the reset-token issue/consume and request paths. Evidence choice is native API tests plus state transition testing: issued -> consumed -> expired. First action: add tests that expired, already-used, tampered, and replayed tokens are rejected, and that known-email vs unknown-email reset requests return same status/body. Residual risk: inbox-link delivery and any live-rate-limit behaviour remain unproven without a runnable environment.
 
 ### Good
 
