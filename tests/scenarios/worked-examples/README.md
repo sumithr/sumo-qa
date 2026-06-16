@@ -38,6 +38,6 @@ The 10 worked examples cover skills #1–10 in `SCENARIOS.md`. Scenarios #11–1
 
 ## Related design docs
 
-- [`../SCENARIOS.md`](../SCENARIOS.md) — 18 skill behaviour scenarios (input, expected interaction shape, anti-patterns).
-- [`../TOOL-SELECTION.md`](../TOOL-SELECTION.md) — 10 atomic-tool selection scenarios (which tool the host LLM should pick for which intent) + a transitive map for the 16 skill-tool selections.
+- [`../SCENARIOS.md`](../SCENARIOS.md) — 19 skill behaviour scenarios (input, expected interaction shape, anti-patterns).
+- [`../TOOL-SELECTION.md`](../TOOL-SELECTION.md) — 10 atomic-tool selection scenarios (which tool the host LLM should pick for which intent) + a transitive map for the 18 skill-tool selections.
 - [`../LLM-EVALS.md`](../LLM-EVALS.md) — design for turning the scenario specs above into LLM-as-judge evals (rubric templates, cadence, costs, open design questions).

@@ -395,6 +395,28 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 ---
 
+## 19. Focus security-testing evidence
+
+**User prompt:** *"Security-test the new password reset flow."*
+
+**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-security-testing` (approach: `security-focused-qa`).
+
+**Expected interaction shape:**
+1. Starts from a grounded source anchor: the user-stated flow, named files, config/dependency, or routed security gap. If none exists, asks one scope question instead of inventing vulnerabilities.
+2. Uses existing `security_change` rules/standards/techniques; does not introduce a parallel vulnerability taxonomy.
+3. Names concrete failure modes, such as token expiry, replay/single-use, tampering, account enumeration, missing ownership guard, permissive config, or dependency movement, limited to the supplied evidence.
+4. Chooses the smallest evidence type by fit: native test, review, static check, dynamic check, config check, dependency check, fuzz/property check, or external tool/skill.
+5. Recommends external tooling only after native evidence is insufficient and stack/scope are known; dependency installs, scanner setup, external-skill execution, and live/invasive probing require confirmation.
+6. Returns the compact security brief: grounded risk, source anchor, evidence choice, first action, and residual risk.
+
+**Anti-patterns:**
+- Dumps OWASP categories, a vulnerability checklist, or a scanner roster.
+- Recommends ZAP/Burp/Snyk/SAST before stack/scope and native evidence fit are checked.
+- Claims security vulnerabilities without an anchor in files, flow, config, dependency, or user scope.
+- Treats a scanner clean result as proof that a specific risk is covered.
+
+---
+
 ## How to validate these scenarios
 
 Three complementary paths:

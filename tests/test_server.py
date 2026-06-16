@@ -141,6 +141,8 @@ _SKILL_TOOL_NAMES = {
     "sumo_qa_closing_qa_gaps",
     # Issue #150: flaky/failing-test triage workflow.
     "sumo_qa_triaging_test_failures",
+    # Issue #283: security-focused evidence selection.
+    "sumo_qa_security_testing",
 }
 
 # Heavy tools that MUST NOT be registered after Phase 4. The skills now drive

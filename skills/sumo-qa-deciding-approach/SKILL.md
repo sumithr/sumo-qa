@@ -26,7 +26,7 @@ Track these as an ordered work list (use the host's task primitive if available,
 3. Reason about classification: which single catalogue entry is the PRIMARY one? Cite the words / paths internally. Then run the grounded security-relevance pass (see `using-sumo-qa`) on ORDINARY work too, not only explicit security requests: if the change ALSO touches auth/authorisation, secrets, input sanitisation, rate limiting, audit logging, or a security-relevant config/dependency movement, note internally that `security_change` co-applies (it does NOT replace the primary classification) so the routed sub-skill carries that grounded gap forward — no parallel taxonomy; not grounded → don't add it. The routing payload still emits the single primary `classification`.
 4. Reason about shape: single change vs repo-wide / strategy ask vs config tweak vs docs-only? Strategy-shaped asks ("audit", "strategy", "pyramid", "rollout") route to `strategy-orchestration` — do NOT force per-change output.
 5. Run the removability gate BEFORE picking a test-writing approach. If the user named target paths and the code is orphaned — zero internal callers, zero CI/workflow refs, zero README/docs refs, no entry-point declaration (`pyproject [project.scripts]`, `package.json scripts`, etc.) — set the approach to `recommend-removal` regardless of natural classification, and surface the reachability evidence in the rationale. If reachability is genuinely ambiguous (external cron, hand-invoked tooling, public CLI), ask ONE clarifying question. Do NOT collapse this into `no-tests-recommended` (that's for behaviour-less changes — docs, typos); `recommend-removal` is for dead production-shaped code that should be deleted.
-6. Pick the approach. The catalogue is authoritative; use `n/a` for approach only when no catalogue approach fits and capture the non-canonical surface in `rationale`.
+6. Pick the approach. Security-test requests or material grounded security gaps needing deeper evidence route to `security-focused-qa`; simple gaps stay as test/review/static/dynamic/config/dependency actions. The catalogue is authoritative; use `n/a` only when no catalogue approach fits and capture the non-canonical surface in `rationale`.
 7. If a real ambiguity remains (e.g. user said "test the thing" with no paths and no domain), ask ONE clarifying question. Otherwise, do not ask.
 8. Return INTERNALLY using the Routing-payload shape below — routing data the next skill consumes, NOT user output. Route to the named sub-skill silently; it produces what the user sees.
 
@@ -60,6 +60,7 @@ Anti-patterns:
 | strengthen-test-coverage | sumo-qa-strengthening-tests |
 | closed-loop-gap-fix | sumo-qa-closing-qa-gaps |
 | triage-test-failure | sumo-qa-triaging-test-failures |
+| security-focused-qa | sumo-qa-security-testing |
 | verify-existing | sumo-qa-reviewing-before-merge |
 | no-tests-recommended | (stop — no sub-skill needed) |
 | recommend-removal | (stop — propose deletion, no sub-skill) |
@@ -133,7 +134,7 @@ User: "create a test plan for refactoring the pricing pipeline". Pick `tdd-scaff
 
 ## Next skill in the chain
 
-Route to exactly ONE skill. For approach-based routing, use the **Routing table** above (`tdd-scaffold`/`regression-first`/`coverage-first-then-refactor` → `sumo-qa-implementing-with-tdd`; `strengthen-test-coverage` → `sumo-qa-strengthening-tests`; `closed-loop-gap-fix` → `sumo-qa-closing-qa-gaps`; `verify-existing` → `sumo-qa-reviewing-before-merge`; `strategy-orchestration` → `sumo-qa-strategising`; `n/a` external surface → `sumo-qa-suggesting-external-skill`). Intent-shaped routing on top of that:
+Route to exactly ONE skill. For approach routes, use the **Routing table** above (`tdd-scaffold`/`regression-first`/`coverage-first-then-refactor` → `sumo-qa-implementing-with-tdd`; `strengthen-test-coverage` → `sumo-qa-strengthening-tests`; `closed-loop-gap-fix` → `sumo-qa-closing-qa-gaps`; `security-focused-qa` → `sumo-qa-security-testing`; `verify-existing` → `sumo-qa-reviewing-before-merge`; `strategy-orchestration` → `sumo-qa-strategising`; `n/a` external surface → `sumo-qa-suggesting-external-skill`). Intent-shaped routing on top of that:
 
 - *"plan QA for this story"* → `sumo-qa-preparing-for-work`; a formal test plan with entry/exit criteria → `sumo-qa-creating-test-plan`.
 - generic *"how do I test X"* → `sumo-qa-answering-testing-question`; test-data-shaped → `sumo-qa-finding-test-data`.
