@@ -95,6 +95,13 @@ triggers:
       - "no native sumo-qa"
     note: "Non-canonical surface — fallback into external-skill discovery."
 
+  - prompt: "security test this token refresh change"
+    expected_skill: sumo_qa_security_testing
+    expected_phrases:
+      - "security testing"
+      - "material grounded security gap"
+    note: "Explicit security-testing prompt routes to the focused specialist path."
+
   - prompt: "help me QA this new function"
     expected_skill: using_sumo_qa
     expected_phrases:
@@ -187,3 +194,7 @@ non_triggers:
   - prompt: "I know exactly which behaviour broke — write the failing regression test and fix it"
     must_not_match_skill: sumo_qa_triaging_test_failures
     note: "Cause already pinned to a known product defect — that's regression-first (implementing-with-tdd), not triage; triage is the unknown-cause step before it."
+
+  - prompt: "run Playwright E2E tests for checkout"
+    must_not_match_skill: sumo_qa_security_testing
+    note: "External browser E2E without a grounded security gap belongs to external-skill discovery, not the security specialist path."

@@ -85,7 +85,7 @@ Three layers: the host LLM follows skills, which cite knowledge and standards to
 
 | Layer | What |
 |---|---|
-| **Skills** ([`skills/`](skills/)) | Iron-Law procedures across the QA lifecycle: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, finding test data, answering testing questions, repo strategy, plus the planning → parallel subagent execution → finishing chain. |
+| **Skills** ([`skills/`](skills/)) | Iron-Law procedures across the QA lifecycle: deciding approach, preparing for work, TDD scaffolding, diff review, strengthening tests, focused security testing, finding test data, answering testing questions, repo strategy, plus the planning → parallel subagent execution → finishing chain. |
 | **MCP entry points** | A thin tool surface: skill tools, knowledge loaders, a capabilities-discovery tool, repo-map tools, test-data tools, an ingestion tool, and external-skill lifecycle tools. Each is file IO or small deterministic logic; no inference. |
 | **Progressive skill loading** | A read-only loader that fetches a skill in slices (routing manifest → section → module → full body), so a host pays the routing slice on each revisit, not the whole body. See [docs/TOOLS.md](docs/TOOLS.md#which-path-to-use--canonical-vs-compact) and [docs/SKILLS.md](docs/SKILLS.md#progressive-loading--manifest--section--module--full). |
 | **Knowledge catalogues** ([`knowledge/`](knowledge/)) | Classifications, approaches, principles, techniques the agent picks from instead of recalling from training data. Editable as plain markdown. (Specialty-tool picks are deliberately not catalogued; observe the risk surface and web-search current options instead.) |

@@ -1,8 +1,8 @@
 # Canonical QA approaches
 
-Eleven canonical approaches the host LLM picks from when deciding the shape
+Twelve canonical approaches the host LLM picks from when deciding the shape
 of QA work. The LLM may invent a new approach if the situation genuinely
-needs one, but it must explain why none of these eleven fit.
+needs one, but it must explain why none of these twelve fit.
 
 ## strategy-orchestration
 Repo-wide / policy-shaped ask: "design a test strategy", "audit our coverage",
@@ -67,3 +67,7 @@ reruns only with a stated hypothesis; production code is touched only once a
 concrete product-behaviour gap is confirmed (then route to `regression-first`
 / `closed-loop-gap-fix`). Next step is loading the
 `sumo-qa-triaging-test-failures` skill.
+
+## security-testing
+Use when the user explicitly asks for security testing, or when a normal sumo-qa planning, review, gap-analysis, or strategy flow identifies a material grounded security gap that needs focused QA treatment.
+Next step: load relevant catalogue, then invoke `sumo-qa-security-testing`.

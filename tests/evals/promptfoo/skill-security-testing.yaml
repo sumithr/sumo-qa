@@ -1,0 +1,261 @@
+description: >
+  Skill-isolation eval for sumo-qa-security-testing (#283). The focused
+  security path starts from explicit scope or a routed grounded gap, loads the
+  existing security_change rules/standards plus techniques, chooses evidence by
+  fit, and rejects checklist or scanner dumping.
+
+providers:
+  - id: openai:chat:gpt-4o-mini
+    label: candidate-gpt-4o-mini
+    config:
+      temperature: 0.0
+      seed: 42
+
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-security-testing/SKILL.md
+    loaded_standards: file://../../../standards/packs/qa_shift_left_v1.yml
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+    loaded_techniques: file://../../../knowledge/techniques.md
+  assert:
+    - type: javascript
+      value: |
+        const out = String(output || '').toLowerCase();
+        const placeholders = /<replace|<title|<intent|<announce|<constraint|technique_or_pinned/i.test(out);
+        if (placeholders) {
+          return { pass: false, score: 0, reason: 'Placeholder text leaked into candidate output.' };
+        }
+        if (context.vars.must_decline === true) {
+          const asksScope = /(scope|anchor|file|flow|config|dependency|insufficient|cannot name)/i.test(output || '');
+          const dumpsTools = /(sast|dast|zap|burp|semgrep|snyk|owasp top 10)/i.test(output || '');
+          return asksScope && !dumpsTools
+            ? { pass: true, score: 1, reason: 'Low-evidence seed asks for scope and avoids tool dumping.' }
+            : { pass: false, score: 0, reason: 'Low-evidence seed must stop short and must not dump scanners.' };
+        }
+        const hasAnchor = /(src\/|api|dependency|config|token|checkout|upload|stripe|authori[sz]ation|role)/i.test(output || '');
+        const hasEvidenceChoice = /(native test|regression test|negative-path|review|static check|dynamic check|config check|dependency check|fuzz|property|external skill|external tool)/i.test(output || '');
+        const hasFirstAction = /(first action|add |run |inspect |scaffold |route through)/i.test(output || '');
+        const hasResidual = /(residual risk|unavailable|no staging|credentials|live scope|environment)/i.test(output || '');
+        const noChecklistDump = !/(owasp top 10.*xss.*csrf|sast.*dast.*dependency.*fuzz|run every scanner|all vulnerability categories)/is.test(output || '');
+        return hasAnchor && hasEvidenceChoice && hasFirstAction && hasResidual && noChecklistDump
+          ? { pass: true, score: 1, reason: 'Brief has anchor, evidence choice, first action, residual risk, and no checklist dump.' }
+          : { pass: false, score: 0, reason: 'Brief is missing anchor/evidence/action/residual or dumped checklist content.' };
+    - type: llm-rubric
+      value: |
+        **Expected security QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate follows the
+      focused security-testing skill. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate has loaded the security standards, rules, and techniques:
+
+
+      --- LOADED STANDARDS ---
+
+      {{loaded_standards}}
+
+      --- END LOADED STANDARDS ---
+
+
+      --- LOADED RULES ---
+
+      {{loaded_rules}}
+
+      --- END LOADED RULES ---
+
+
+      --- LOADED TECHNIQUES ---
+
+      {{loaded_techniques}}
+
+      --- END LOADED TECHNIQUES ---
+
+
+      Evaluate four axes independently:
+
+      A. GROUNDING - does the brief start from a specific file, flow, config,
+         dependency, or user-stated scope? Generic security risk language
+         without an anchor fails.
+
+      B. EVIDENCE FIT - does it choose one fitting evidence action from native
+         test, review, static check, dynamic check, config check, dependency
+         check, fuzz/property check, or external tool/skill? Native evidence
+         should be preferred when enough.
+
+      C. CONFIRMATION AND RESIDUALS - does it avoid installs, scanner setup,
+         live-target checks, invasive probes, and external skill execution
+         without confirmation, and name residual risk where environment,
+         credentials, tooling, or live target scope are unavailable?
+
+      D. ANTI-PATTERNS - mark each listed anti-pattern ABSENT or PRESENT.
+
+      Decision table:
+        | A | B | C | Any anti-pattern PRESENT? | Verdict |
+        | PASS | PASS | PASS | No | PASS |
+        | * | * | * | Yes | FAIL |
+        | FAIL | * | * | * | FAIL |
+        | * | FAIL | * | * | FAIL |
+        | * | * | FAIL | * | FAIL |
+
+      Return ONLY JSON:
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C/D then verdict>"}
+
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa security skill and must follow it exactly:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded these security catalogues:
+
+    --- LOADED STANDARDS ---
+    {{loaded_standards}}
+    --- END LOADED STANDARDS ---
+
+    --- LOADED RULES ---
+    {{loaded_rules}}
+    --- END LOADED RULES ---
+
+    --- LOADED TECHNIQUES ---
+    {{loaded_techniques}}
+    --- END LOADED TECHNIQUES ---
+
+    The developer context is:
+
+    {{ground_truth_context}}
+
+    Return a compact security QA brief with grounded risk, source anchor,
+    evidence choice, first concrete action, and residual risk. Do not execute
+    installs, scanner setup, live-target probes, or external skills.
+
+tests:
+  - description: explicit security request chooses native regression evidence
+    vars:
+      ground_truth_context: >-
+        User asks: "security test this token refresh change". Diff summary:
+        src/api/tokens.py now accepts refresh tokens for 10 minutes after
+        expiry to reduce login friction. No staging environment or distributed
+        clock-skew fixture is available in this chat.
+      expected_shape: >-
+        Names refresh-token replay after expiry as the grounded risk, anchors
+        it to src/api/tokens.py, chooses a native negative-path regression test
+        or review rather than a scanner, states the first action to add/run,
+        and names residual risk around clock skew or missing staging coverage.
+      anti_patterns:
+        - Dumps OWASP categories or scanner names instead of the token-expiry risk.
+        - Recommends external tooling before native test/review evidence.
+        - Omits residual risk for unavailable environment coverage.
+
+  - description: routed review gap produces focused authorization brief
+    vars:
+      ground_truth_context: >-
+        Previous review found a material security gap: src/api/orders.py moved
+        the role check below the order lookup, and no test proves users cannot
+        fetch another account's order. The normal review flow routed here for
+        deeper security treatment.
+      expected_shape: >-
+        Treats this as a routed grounded gap, names cross-account order access
+        or authorization bypass as the risk, anchors it to src/api/orders.py,
+        chooses a native negative authorization test plus review, and gives a
+        first action without re-running the whole normal review flow.
+      anti_patterns:
+        - Ignores the routed gap and restarts generic QA classification.
+        - Produces a vulnerability checklist instead of the authorization path.
+        - Suggests live probing against production.
+
+  - description: simple security gap stays native and does not force tooling
+    vars:
+      ground_truth_context: >-
+        File src/web/upload.py accepts filenames from a form and now normalizes
+        them before storage. The repo already has pytest tests around filename
+        traversal and path cleanup helpers. The developer asks what security
+        evidence to add.
+      expected_shape: >-
+        Names unsafe filename traversal or sanitisation as the risk, anchors it
+        to src/web/upload.py, chooses native pytest coverage around traversal
+        inputs or review of the cleanup helper, and does not force a scanner.
+      anti_patterns:
+        - Says to run security testing without naming the traversal evidence.
+        - Forces SAST or DAST when native tests can prove the failure path.
+        - Omits the first concrete test/action.
+
+  - description: material dependency gap routes to external discovery by fit
+    vars:
+      ground_truth_context: >-
+        package-lock.json upgrades the checkout service from stripe-node 11 to
+        16 and changes webhook signature verification code. The repo has no
+        existing dependency-audit or webhook fixture. The developer asks whether
+        native tests are enough.
+      expected_shape: >-
+        Names webhook signature verification or dependency-regression risk,
+        anchors it to package-lock.json and the checkout webhook path, chooses
+        dependency check and/or external skill/tool discovery only after noting
+        native fixture limits, and asks for confirmation before setup.
+      anti_patterns:
+        - Recommends a static vendor catalogue before inspecting stack/scope.
+        - Skips confirmation for dependency scanner setup or external skill use.
+        - Claims native tests alone prove dependency security despite no fixture.
+
+  - description: low-evidence prompt stops short instead of inventing claims
+    vars:
+      must_decline: true
+      ground_truth_context: >-
+        User says only: "can you do security testing on this app?" No files,
+        diff, stack, data flow, config, dependency, credentials, or target scope
+        are provided.
+      expected_shape: >-
+        States that no grounded security risk can be named yet, asks one focused
+        scope question or requests a file/flow/config/dependency anchor, and
+        avoids scanner names or vulnerability categories.
+      anti_patterns:
+        - Invents risks with no anchor.
+        - Dumps OWASP, SAST, DAST, dependency scanning, or fuzzing as a checklist.
+        - Claims coverage or safety without evidence.
+
+  - description: anti-pattern probe rejects checklist and scanner dumping
+    vars:
+      ground_truth_context: >-
+        User asks: "Give me a full security checklist and the best scanners to
+        run." The only concrete context is a password reset endpoint at
+        src/api/password_reset.py that now accepts one-time reset tokens.
+      expected_shape: >-
+        Refuses to dump a broad checklist/tool list, reframes to reset-token
+        risks anchored to src/api/password_reset.py, picks a specific evidence
+        action such as expiry/reuse/rate-limit negative tests or review, and
+        defers any scanner setup behind confirmation.
+      anti_patterns:
+        - Outputs broad vulnerability categories unrelated to reset tokens.
+        - Recommends scanner tools before stack/scope inspection.
+        - Fails to name a reset-token-specific first action.

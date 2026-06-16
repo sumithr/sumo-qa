@@ -6,14 +6,14 @@ These complement [`SCENARIOS.md`](SCENARIOS.md) (which evaluates *skill* behavio
 
 | Layer | Tools | Atomicity |
 |---|---|---|
-| Skill tools | 16 (one per `skills/<name>/SKILL.md`) | Returns the SKILL.md body |
+| Skill tools | 17 (one per `skills/<name>/SKILL.md`) | Returns the SKILL.md body |
 | Knowledge loaders | 6 (`sumo_qa_load_*`) | Returns a markdown catalogue verbatim |
 | Test-data tools | 4 (`sumo_qa_*_test_data*`) | Reads / writes the local known-good catalogue |
 | External-skill lifecycle | 4 (`sumo_qa_*_external_skill*`) | Searches, installs, locates, and loads external skills |
 
-The 16 skill tools are tested transitively by the scenarios in `SCENARIOS.md` — when the user's intent matches a skill, the host LLM should invoke that skill's tool. They are not duplicated here.
+The 17 skill tools are tested transitively by the scenarios in `SCENARIOS.md` — when the user's intent matches a skill, the host LLM should invoke that skill's tool. They are not duplicated here.
 
-Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario below. `sumo_qa_ingest_knowledge_pack` is a knowledge-management action covered by its own contract tests, not a tool-selection scenario.
+Fifteen atomic non-skill scenarios appear below. `sumo_qa_ingest_knowledge_pack` is a knowledge-management action covered by its own contract tests, not a tool-selection scenario.
 
 ---
 
@@ -199,15 +199,15 @@ Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario belo
 
 **Expected tool:** `sumo_qa_capabilities()` (no args).
 
-**Expected use of result:** the LLM lists the core workflows from the returned map (review changes, regression-first fix, QA prep, formal test plan, mutation strengthening, test-data discovery, failing/flaky-test triage, repo strategy, external-skill discovery) with their sample prompts and target skills — drawn from the tool output, not training-data recall.
+**Expected use of result:** the LLM lists the core workflows from the returned map (review before merge, bug fix, QA prep, test plan, strengthening, test-data discovery, failing-test triage, security testing, QA strategy, external-fit discovery) with their sample prompts and target skills — drawn from the tool output, not training-data recall.
 
 **Anti-pick:** recites a tool list from training data; calls `using_sumo_qa` or `sumo_qa_deciding_approach` (those route a concrete QA intent — capabilities is pure discovery, no intent to route); dumps full skill bodies.
 
 ---
 
-## Skill tools (16) — covered transitively
+## Skill tools (17) — covered transitively
 
-The 16 skill tools are evaluated by the scenarios in [`SCENARIOS.md`](SCENARIOS.md) — when the user's intent matches a skill, the host LLM should invoke that skill's tool *and* follow its checklist. The selection-side check is implicit in the scenario's "Skill activated" line; the behaviour-side check is the rest of the scenario.
+The 17 skill tools are evaluated by the scenarios in [`SCENARIOS.md`](SCENARIOS.md) — when the user's intent matches a skill, the host LLM should invoke that skill's tool *and* follow its checklist. The selection-side check is implicit in the scenario's "Skill activated" line; the behaviour-side check is the rest of the scenario.
 
 | Skill tool | Selection scenario in SCENARIOS.md |
 |---|---|
@@ -227,6 +227,7 @@ The 16 skill tools are evaluated by the scenarios in [`SCENARIOS.md`](SCENARIOS.
 | `sumo_qa_suggesting_external_skill` | #15 |
 | `sumo_qa_closing_qa_gaps` | #16 (review-gap loop), #17 (mutation-survivor loop) |
 | `sumo_qa_triaging_test_failures` | #18 (unknown-cause failing/flaky-test triage) |
+| `sumo_qa_security_testing` | #19 (focused security-testing gap) |
 
 A scenario passes the *selection* check if the host LLM invokes the named skill tool (or its slash-command equivalent) on the first turn after the user's intent.
 
@@ -236,5 +237,5 @@ A scenario passes the *selection* check if the host LLM invokes the named skill 
 
 Two complementary paths:
 
-1. **Deterministic trigger-routing harness (CI gate):** [`tests/test_skill_triggering.py`](../test_skill_triggering.py) reads [`tests/fixtures/skill_triggers.yaml`](../fixtures/skill_triggers.yaml) and asserts every skill tool is registered and that its description contains at least one of the natural-language phrases pinned for the prompts that should route to it. No live LLM. This is a **necessary, not sufficient** check for the 16 skill tools: phrase presence in the description is required for the host LLM to even consider this tool, but the LLM's actual selection is judged by the optional evals in path 2. The 16 atomic non-skill tools above are scenario-led rather than fixture-pinned — their description contracts are tested by the existing `tests/test_server.py` suite.
+1. **Deterministic trigger-routing harness (CI gate):** [`tests/test_skill_triggering.py`](../test_skill_triggering.py) reads [`tests/fixtures/skill_triggers.yaml`](../fixtures/skill_triggers.yaml) and asserts every skill tool is registered and that its description contains at least one of the natural-language phrases pinned for the prompts that should route to it. No live LLM. This is a **necessary, not sufficient** check for the 17 skill tools: phrase presence in the description is required for the host LLM to even consider this tool, but the LLM's actual selection is judged by the optional evals in path 2. The atomic non-skill scenarios above are scenario-led rather than fixture-pinned — their description contracts are tested by the existing `tests/test_server.py` suite.
 2. **LLM-as-judge evals (optional):** see [`LLM-EVALS.md`](LLM-EVALS.md) for the rubric design and [`tests/evals/promptfoo/`](../evals/promptfoo/) for the runnable implementation. These judge *behaviour* on top of selection; they need `OPENAI_API_KEY` and are not part of required CI.

@@ -28,9 +28,9 @@ def test_build_capabilities_returns_the_core_workflows() -> None:
     out = build_capabilities()
     assert isinstance(out, CapabilitiesOutput)
     assert out.tool == "sumo_qa_capabilities"
-    # The issue (#87) enumerated eight core workflows; #150 added the
-    # failing/flaky-test triage workflow, bringing the map to nine.
-    assert len(out.workflows) == 9
+    # The issue (#87) enumerated eight core workflows; #150 added triage and
+    # #283 added the focused security-testing path.
+    assert len(out.workflows) == 10
 
 
 def test_every_workflow_field_is_populated() -> None:

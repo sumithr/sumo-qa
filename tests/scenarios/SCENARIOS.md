@@ -395,6 +395,27 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 ---
 
+## 19. Focus a grounded security-testing gap
+
+**User prompt:** *"Security test this token refresh change. `src/api/tokens.py` now accepts refresh tokens for 10 minutes after expiry."*
+
+**Skill activated:** `sumo-qa-deciding-approach` -> routes to `sumo-qa-security-testing` (approach: `security-testing`).
+
+**Expected interaction shape:**
+1. Starts from the supplied anchor, not a broad security checklist: `src/api/tokens.py` and the token-expiry/replay flow.
+2. Loads existing `security_change` standards/rules plus techniques, then names only the grounded risk: replay or acceptance after intended expiry.
+3. Chooses the smallest fitting evidence, usually a native negative-path regression test plus review, before recommending any specialist scanner or external skill.
+4. Names the first concrete action to add/run/inspect and the residual risk where staging, credentials, clock-skew, or live target scope is unavailable.
+5. Requires explicit confirmation before installs, scanner setup, external skill execution, live-target checks, or invasive probes.
+
+**Anti-patterns:**
+- Dumps OWASP categories, SAST/DAST/tool names, or every vulnerability class.
+- Recommends tools before inspecting stack and scope.
+- Claims security coverage without a file/flow/config/dependency/user-scope anchor.
+- Runs live or invasive security checks without explicit bounded permission.
+
+---
+
 ## How to validate these scenarios
 
 Three complementary paths:

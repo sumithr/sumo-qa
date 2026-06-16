@@ -1038,6 +1038,14 @@ def test_main_respects_no_color_env(monkeypatch, capsys, tmp_path) -> None:
     assert "\x1b[" not in out
 
 
+def test_should_use_color_delegates_to_stdout_tty_when_no_no_color(monkeypatch) -> None:
+    """Without NO_COLOR, color follows stdout TTY detection."""
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(doctor._sys.stdout, "isatty", lambda: True)
+
+    assert doctor._should_use_color() is True
+
+
 def test_main_summary_line_includes_counts(monkeypatch, capsys, tmp_path) -> None:
     monkeypatch.setattr(
         doctor,

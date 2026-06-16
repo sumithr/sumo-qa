@@ -67,11 +67,13 @@ PER_CALL_BUDGET = 1500
 # raising the flow baseline to ~3297. #150 then added the 11th canonical approach
 # (`triage-test-failure`, the flaky/failing-test triage workflow routing to
 # `sumo-qa-triaging-test-failures`), raising the flow baseline to ~3439, so the
-# budget moves to 3500. Budget gives a small regression cushion above the current
-# catalogue.
+# budget moves to 3500. #283 then added the 12th canonical approach
+# (`security-testing`, the focused security QA path), raising the flow baseline
+# to ~3515, so the budget moves to 3600. Budget gives a small regression cushion
+# above the current catalogue.
 # For comparison the old heavy single-shot path emitted >10k tokens for one call,
 # which is what broke IntelliJ AI Assistant in the first place.
-PER_FLOW_BUDGET = 3500
+PER_FLOW_BUDGET = 3600
 
 
 def test_thin_catalogues_stay_under_per_call_budget():

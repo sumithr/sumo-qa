@@ -621,12 +621,12 @@ OpenAI pricing as of 2026-05:
 
 - Candidate (`gpt-4o-mini`): ~$0.001 per scenario
 - Judge (`gpt-5.5`): ~$0.005 per scenario
-- Full sweep of 16 skills: ~$0.10 per run with `seed: 42` determinism
+- Full sweep of 17 skills: ~$0.10 per run with `seed: 42` determinism
 - The `reviewing-before-merge-adversarial` corpus pins a `gpt-5-mini` candidate
   (reasoning tokens → a few cents per full run, still negligible) — see
   "Adversarial discovery corpus" above for why.
 
-Running a single skill: pennies. Running all 16 skills with `--repeat 5`:
+Running a single skill: pennies. Running all 17 skills with `--repeat 5`:
 ~$0.30 — still negligible, but worth tracking if you iterate frequently.
 
 If cost becomes a concern, swap the judge to `gpt-4o-mini` in

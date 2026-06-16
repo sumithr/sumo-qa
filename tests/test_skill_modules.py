@@ -61,8 +61,9 @@ MODULE_TOKEN_BUDGET = 1500  # epic #137: skill modules stay under a smaller glob
 # budget moves to 2,650 — each new skill legitimately adds one description to the
 # routing slice; the guard keeps that growth measured, not forbidden. #409's
 # sumo-qa-measuring-coverage (the seventeenth skill) raised it to ~2,692, so the
-# budget moves to 2,720.
-COMPACT_MANIFEST_TOKEN_BUDGET = 2720  # epic #137 / #306: shipped compact default under 2,720
+# budget moves to 2,720. #283's sumo-qa-security-testing raised it to ~2,809,
+# so the budget moves to 2,850.
+COMPACT_MANIFEST_TOKEN_BUDGET = 2850  # epic #137 / #306: shipped compact default under 2,850
 # Ceiling for the explicit ``detail="full_index"`` payload: the FULL index WITH
 # every skill's sections[]/modules[] arrays, serialized exactly as ``server.py``
 # emits it (json.dumps(..., ensure_ascii=False, indent=2)). Measured today at
@@ -73,8 +74,9 @@ COMPACT_MANIFEST_TOKEN_BUDGET = 2720  # epic #137 / #306: shipped compact defaul
 # (sumo-qa-triaging-test-failures) raised it to ~13,033, so the ceiling moves to
 # 13,500 — a new skill legitimately adds its section index to the full opt-in.
 # #409's sumo-qa-measuring-coverage plus #282's security-relevance index entries
-# raised it to ~13,806 on the merged tree, so the ceiling moves to 14,100.
-FULL_INDEX_TOKEN_CEILING = 14100
+# raised it to ~13,806 on the merged tree, so the ceiling moves to 14,100. #283's
+# sumo-qa-security-testing raised it to ~14,416, so the ceiling moves to 14,700.
+FULL_INDEX_TOKEN_CEILING = 14700
 HEAVY_SKILL_FULL_FLOOR = 2500  # a skill is "heavy" once its full body exceeds this
 PARTIAL_LOAD_SAVING_FLOOR = 0.50  # manifest + routing-minimal sections >= 50% below full
 

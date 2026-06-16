@@ -38,7 +38,7 @@ def test_load_classifications_returns_non_empty_text():
 from sumo_qa.knowledge_loaders import sumo_qa_load_approaches
 
 
-def test_load_approaches_contains_eight_canonical_entries():
+def test_load_approaches_contains_canonical_entries():
     text = sumo_qa_load_approaches()
     for entry in [
         "strategy-orchestration",
@@ -49,6 +49,10 @@ def test_load_approaches_contains_eight_canonical_entries():
         "verify-existing",
         "no-tests-recommended",
         "spike-first-then-tests",
+        "recommend-removal",
+        "closed-loop-gap-fix",
+        "triage-test-failure",
+        "security-testing",
     ]:
         assert entry in text, f"Missing canonical approach: {entry}"
 

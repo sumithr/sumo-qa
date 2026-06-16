@@ -13,6 +13,7 @@ from sumo_qa.server import build_mcp_server
 # Issue #145: sumo_qa_capture_review_feedback added (review-feedback memory).
 # Issue #146: sumo-qa-closing-qa-gaps added (closed-loop regression workflow skill).
 # Issue #150: sumo-qa-triaging-test-failures added (flaky/failing-test triage skill).
+# Issue #283: sumo-qa-security-testing added (focused security QA path).
 #
 # The registered surface is two kinds of tool: the atomic @mcp.tool decorators
 # (enumerated by the _*_TOOL_NAMES groups below) and one filesystem-driven
@@ -141,6 +142,8 @@ _SKILL_TOOL_NAMES = {
     "sumo_qa_closing_qa_gaps",
     # Issue #150: flaky/failing-test triage workflow.
     "sumo_qa_triaging_test_failures",
+    # Issue #283: focused security QA workflow.
+    "sumo_qa_security_testing",
 }
 
 # Heavy tools that MUST NOT be registered after Phase 4. The skills now drive
