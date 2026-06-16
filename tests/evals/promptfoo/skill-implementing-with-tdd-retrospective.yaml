@@ -80,8 +80,9 @@ defaultTest:
         - {{ ap }}
         {% endfor %}
     - type: javascript
-      value: 'output.match(/boundary value analysis|equivalence partitioning|decision table|state transition|pairwise|exploratory/i) !== null'
-      threshold: 1
+      # Accepted techniques are DERIVED from knowledge/techniques.md headings
+      # (single source of truth), not a hardcoded six-technique allowlist (#350).
+      value: file://asserts/cites-catalogue-technique.js
     # Load-bearing per-scenario axis. The shared rubric above grades
     # SHAPE/GROUNDING/generic anti-patterns; this axis deterministically gates
     # the restore→red→return-to-current-tree mechanic so a response that omits
