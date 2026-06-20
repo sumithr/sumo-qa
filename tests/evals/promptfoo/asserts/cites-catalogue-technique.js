@@ -30,15 +30,40 @@ const TECHNIQUES_MD = path.resolve(
 // added.
 function catalogueTechniqueNames(markdown) {
   const names = [];
-  let inFence = false;
-  for (const line of markdown.split('\n')) {
-    if (/^ {0,3}(`{3,}|~{3,})/.test(line)) {
-      inFence = !inFence;
-      continue;
+  let fence = null; // { char, len } while inside a fenced code block, else null
+  // Split on \r?\n so a CRLF checkout (Windows) leaves no trailing \r that
+  // would defeat the end-anchored closing-fence match below; this mirrors the
+  // catalogue indexer's str.splitlines() in src/sumo_qa/knowledge_loaders.py.
+  for (const line of markdown.split(/\r?\n/)) {
+    if (fence === null) {
+      // An opening fence is a run of >=3 backticks/tildes (indented <=3),
+      // optionally followed by an info string; record its char and length.
+      const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (open) {
+        fence = { char: open[1][0], len: open[1].length };
+        continue;
+      }
+      const heading = line.match(/^###\s+(.*\S)\s*$/);
+      if (heading) names.push(heading[1].trim());
+    } else {
+      // A closing fence must use the SAME character, be at least as long as the
+      // opening run, and carry no info string (CommonMark). A shorter or
+      // different-character run inside the block (e.g. a 3-backtick example
+      // nested in a 4-backtick outer fence) does NOT close it, so `###` lines
+      // in a fenced example are never mistaken for catalogue techniques. The
+      // remainder is captured and trimmed (rather than a `[ \t]*` class) so any
+      // whitespace-only tail closes the fence, matching the python indexer's
+      // `not remainder.strip()` in src/sumo_qa/knowledge_loaders.py.
+      const close = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+      if (
+        close &&
+        close[1][0] === fence.char &&
+        close[1].length >= fence.len &&
+        close[2].trim() === ''
+      ) {
+        fence = null;
+      }
     }
-    if (inFence) continue;
-    const heading = line.match(/^###\s+(.*\S)\s*$/);
-    if (heading) names.push(heading[1].trim());
   }
   return names;
 }
