@@ -66,15 +66,12 @@ TESTS_DIR = REPO_ROOT / "tests"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 # ``sumo_qa`` submodule CLI entry points that provably DO NOT pull a mutated
-# module — neither at import time nor at CLI runtime (verified: importing
-# ``sumo_qa.installer`` / ``sumo_qa.doctor`` loads none of the four mutated
-# modules). Spawning these is safe under the mutmut trampoline, so a
-# ``-m sumo_qa.installer`` / ``-m sumo_qa.doctor`` spawn must NOT be flagged.
-# Everything else under the ``sumo_qa.`` prefix (e.g. ``sumo_qa.server``, which
-# imports ``knowledge_loaders`` at top level, or ``sumo_qa.ingest``, which
-# imports ``rules`` at CLI runtime) transitively reaches a mutated module and IS
-# a hazard. Keep this allow-list to the entry points proven non-mutating.
-SAFE_SUMO_QA_ENTRY_POINTS = frozenset({"sumo_qa.installer", "sumo_qa.doctor"})
+# module — neither at import time nor at CLI runtime. Everything under the
+# ``sumo_qa.`` prefix currently reaches mutated modules directly or
+# transitively, including ``sumo_qa.installer`` and ``sumo_qa.doctor`` through
+# the server path. Keep this allow-list empty unless an entry point is proven
+# non-mutating.
+SAFE_SUMO_QA_ENTRY_POINTS = frozenset()
 
 # The declarative marker a test author adds to opt a subprocess-spawning test
 # out of the mutmut gate. Discoverable: this exact string lives in the guard,
@@ -106,9 +103,8 @@ def _spawns_subprocess_importing_mutated_code(path: Path) -> bool:
 
     Sound over-approximation that avoids the substring/token-confusion failure
     mode (equivalence partitioning): a test that merely *names* ``sumo_qa`` in a
-    string arg, asserts on ``["-m", "sumo_qa"]`` without spawning, mocks
-    ``subprocess.run``, or spawns a non-mutated entry point (``-m
-    sumo_qa.installer`` / ``sumo_qa.doctor``) is NOT flagged. The hazard is a
+    string arg, asserts on ``["-m", "sumo_qa"]`` without spawning, or mocks
+    ``subprocess.run`` is NOT flagged. The hazard is a
     REAL spawn whose command imports the full package (``-m sumo_qa``, which
     transitively imports all four mutated modules via the server) or any
     ``sumo_qa.<sub>`` submodule that transitively pulls a mutated module
@@ -204,8 +200,8 @@ def _command_imports_mutated_code(strings: list[str], mutated: set[str]) -> bool
         # `sumo_qa.ingest` (imports rules at CLI runtime). Generalised from the
         # old `.ingest`-only allow-list, which let `-m sumo_qa.server` and other
         # mutated-importing entry points escape detection. The provably
-        # non-mutating CLI entry points (installer / doctor) are exempt so their
-        # `-m sumo_qa.installer --help` / doctor spawns stay unflagged.
+        # Future non-mutating CLI entry points may be exempted only after
+        # runtime import evidence shows they do not reach mutated modules.
         if _is_sumo_qa_submodule_token(s) and s not in SAFE_SUMO_QA_ENTRY_POINTS:
             return True
     return False
@@ -344,8 +340,8 @@ def test_every_ignored_file_is_a_real_subprocess_hazard() -> None:
 #   FN #2  ``-m sumo_qa.server`` (any ``sumo_qa.<sub>`` that transitively imports
 #          a mutated module, not just the old ``.ingest`` allow-list entry).
 # and equally pin that the established non-hazards stay UNflagged, so the fix
-# does not start over-flagging mocked spawns, git/pip spawns, the installer /
-# doctor entry points, hook-script spawns, or bare-string mentions.
+# does not start over-flagging mocked spawns, git/pip spawns, hook-script
+# spawns, or bare-string mentions.
 
 GUARD_FIXTURES_DIR = TESTS_DIR / "fixtures" / "mutmut_guard"
 
@@ -353,17 +349,17 @@ GUARD_FIXTURES_DIR = TESTS_DIR / "fixtures" / "mutmut_guard"
 _GUARD_FIXTURE_CASES = [
     # HAZARDS — must be flagged. These are the issue #195 false-negatives.
     ("fixture_hazard_dash_c_dedent_var.py", True),
+    ("fixture_hazard_dash_m_doctor.py", True),
+    ("fixture_hazard_dash_m_installer.py", True),
     ("fixture_hazard_dash_m_server.py", True),
     # shell=True single-string command: `subprocess.run("python -m sumo_qa", shell=True)`.
     ("fixture_hazard_shell_string.py", True),
+    ("fixture_hazard_shell_string_installer.py", True),
     # NON-HAZARDS — must stay unflagged.
-    ("fixture_safe_dash_m_installer.py", False),
     ("fixture_safe_mocked_run.py", False),
     ("fixture_safe_git_spawn.py", False),
     ("fixture_safe_script_path.py", False),
     ("fixture_safe_bare_string_mention.py", False),
-    # shell-string spawn of an exempt entry point — tokenised but allow-listed.
-    ("fixture_safe_shell_string_installer.py", False),
 ]
 
 
@@ -398,7 +394,6 @@ def test_safe_sumo_qa_entry_points_are_actually_non_mutating() -> None:
     rule) yet is exempt because it imports no mutated module. If a future entry
     is added here, it must genuinely be non-mutating — this keeps the exemption
     from silently growing into a coverage hole."""
-    assert SAFE_SUMO_QA_ENTRY_POINTS, "expected at least installer + doctor exemptions"
     mutated = _mutated_module_names()
     for entry in SAFE_SUMO_QA_ENTRY_POINTS:
         assert entry.startswith("sumo_qa."), entry

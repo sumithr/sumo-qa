@@ -12,8 +12,10 @@ shape that occurs (or could plausibly be added) in the real suite:
 | File | Shape | Expected verdict |
 | --- | --- | --- |
 | `fixture_hazard_dash_c_dedent_var.py` | `code = textwrap.dedent("...import sumo_qa.knowledge_loaders...")`; `subprocess.run([sys.executable, "-c", code])` | HAZARD (FN #1) |
+| `fixture_hazard_dash_m_doctor.py` | `subprocess.run([sys.executable, "-m", "sumo_qa.doctor", "--help"])` | HAZARD (`doctor` imports mutated modules transitively) |
+| `fixture_hazard_dash_m_installer.py` | `subprocess.run([sys.executable, "-m", "sumo_qa.installer", "--help"])` | HAZARD (`installer` imports mutated modules transitively) |
 | `fixture_hazard_dash_m_server.py` | `subprocess.run([sys.executable, "-m", "sumo_qa.server"])` | HAZARD (FN #2) |
-| `fixture_safe_dash_m_installer.py` | `subprocess.run([sys.executable, "-m", "sumo_qa.installer", "--help"])` | safe (non-mutating entry point) |
+| `fixture_hazard_shell_string_installer.py` | `subprocess.run("python -m sumo_qa.installer --help", shell=True)` | HAZARD (`installer` imports mutated modules transitively) |
 | `fixture_safe_mocked_run.py` | monkeypatched `subprocess.run`, asserts on `["-m", "sumo_qa"]` without spawning | safe (mock) |
 | `fixture_safe_git_spawn.py` | `subprocess.run(["git", "init", "-q"], ...)` | safe (not a Python spawn) |
 | `fixture_safe_script_path.py` | `subprocess.run([sys.executable, str(SCRIPT)])` (a hook script, not `-m sumo_qa`) | safe (non-package entry) |
