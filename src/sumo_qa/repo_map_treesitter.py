@@ -26,13 +26,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+# The binding is an optional extra and is used only dynamically behind
+# TSNode/parse(), so it is typed as ``Any``. Binding it through this
+# Any-annotated name rather than directly as the import target keeps the type
+# check identical whether or not the extra is installed: with the module absent
+# the import resolves to ``Any`` via the [tool.mypy] override, and with it
+# present the real module assigns cleanly to an ``Any`` target -- so no inline
+# ``# type: ignore`` is needed (one would be flagged unused in whichever
+# environment has the opposite import state, which ``warn_unused_ignores`` flags).
+_language_pack: Any = None
+TREESITTER_AVAILABLE = False
 try:  # pragma: no cover -- exercised by both CI paths (extra present / absent)
-    import tree_sitter_language_pack as _language_pack
-
-    TREESITTER_AVAILABLE = True
+    import tree_sitter_language_pack as _imported_language_pack
 except ImportError:  # pragma: no cover -- the no-extra path; covered by a monkeypatched test
-    _language_pack = None  # type: ignore[assignment]
-    TREESITTER_AVAILABLE = False
+    pass
+else:  # pragma: no cover -- the extra-present path; covered by a binding-contract test
+    _language_pack = _imported_language_pack
+    TREESITTER_AVAILABLE = True
 
 if TYPE_CHECKING:  # pragma: no cover -- typing-only import, never executed
     from collections.abc import Iterator

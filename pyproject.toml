@@ -168,6 +168,16 @@ warn_redundant_casts = true
 # the suite (per issue #75 non-goals). mcp and pydantic ship their own py.typed,
 # so only PyYAML needs the types-PyYAML stubs declared in the dev extras.
 
+[[tool.mypy.overrides]]
+# The [treesitter] extra is optional, so its binding is absent from the core
+# (and lint-CI) environment; it is also used only dynamically behind the
+# TSNode/parse() adapter. Treat it as ``Any`` so the type check is identical
+# whether or not the extra is installed; the alternative, an inline
+# ``# type: ignore[import-not-found]``, would be flagged unused in whichever
+# environment has the module present (see repo_map_treesitter.py).
+module = "tree_sitter_language_pack"
+ignore_missing_imports = true
+
 [tool.mutmut]
 # Target only the four parser/decision modules per the Phase 3 strategy.
 # Other modules (installer, server, tdm_*) aren't included in this baseline.
