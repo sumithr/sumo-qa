@@ -356,11 +356,17 @@ def _oversize_full_envelope(
     The ``known_hash`` change-detection affordance still applies: when supplied,
     a derived ``changed`` flag (``known_hash`` vs the live body hash) is added,
     exactly like the normal slice. The body stays omitted either way (it is
-    over-cap), so the pointer is what the caller acts on."""
+    over-cap), so the pointer is what the caller acts on.
+
+    Carries ``estimated_tokens`` (the full-body estimate) for contract parity
+    with the normal full slice — every full-mode response advertises it (see
+    docs/TOOLS.md), so a client that reads ``full["estimated_tokens"]`` uniformly
+    does not break on the over-cap skill; the body is still omitted."""
     envelope = {
         "skill_name": skill_name,
         "mode": "full",
         "oversize": True,
+        "estimated_tokens": record["estimated_tokens_full"],
         "estimated_tokens_full": record["estimated_tokens_full"],
         "token_cap": cap,
         "content_hash": record["content_hash"],

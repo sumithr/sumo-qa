@@ -165,6 +165,23 @@ def test_loader_full_over_cap_returns_pointer_envelope_without_body(monkeypatch,
     assert "load_skill_context" in out["error"]
 
 
+def test_loader_full_over_cap_carries_estimated_tokens(monkeypatch, tmp_path):
+    # Contract parity (#393 codex P2): TOOLS.md advertises that every
+    # section/module/full slice carries `estimated_tokens`, and the normal full
+    # slice does. The over-cap pointer is still a `mode="full"` response, so a
+    # client reading `full["estimated_tokens"]` uniformly must not break on the
+    # over-cap skill. The field carries the full-body estimate while the body
+    # itself stays omitted (it is over-cap).
+    name = _fake_skill_with_sections(monkeypatch, tmp_path)
+    body = (tmp_path / name / "SKILL.md").read_text(encoding="utf-8")
+    out = sm.load_skill_context(name, "full", token_cap=_approx_tokens(body) - 1)
+    assert out["oversize"] is True
+    assert "content" not in out  # the oversized body is still NOT returned
+    assert "estimated_tokens" in out  # the uniform full-mode contract field
+    assert out["estimated_tokens"] == _approx_tokens(body)  # the full-body estimate
+    assert out["estimated_tokens"] == out["estimated_tokens_full"]  # parity
+
+
 def test_loader_full_pointer_sections_carry_only_public_fields(monkeypatch, tmp_path):
     name = _fake_skill_with_sections(monkeypatch, tmp_path)
     body = (tmp_path / name / "SKILL.md").read_text(encoding="utf-8")
