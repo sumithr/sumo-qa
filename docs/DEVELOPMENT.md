@@ -18,10 +18,17 @@ git clone <repo>
 cd sumo-qa
 python -m venv .venv                                # any venv tool works; uv users: `uv venv`
 source .venv/bin/activate                           # Windows: .venv\Scripts\activate
-python -m pip install -e ".[dev]"                   # installs the package + pytest, ruff, mypy, pre-commit
+python -m pip install -e ".[dev,treesitter]"        # package + pytest, ruff, mypy, pre-commit; treesitter enables the repo-map import-edge tests
 pre-commit install --install-hooks                  # ruff + hygiene hooks on every commit
 pre-commit install --hook-type pre-push             # full pytest suite on every push
 ```
+
+The `treesitter` extra installs the tree-sitter parser that backs the repo-map
+`imports` edge layer. It is optional at runtime (the scan degrades gracefully
+without it), but the full pytest suite's 100% coverage gate exercises the
+import-edge code paths, so a local `[dev]`-only install will fall short of 100%
+on those modules; install `[dev,treesitter]` (or `uv sync --all-extras`) to run
+the whole suite green.
 
 If you already use [uv](https://docs.astral.sh/uv/), the equivalent setup is:
 

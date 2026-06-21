@@ -24,10 +24,13 @@ sorted; edges and commands are sorted by stable keys; only
 ``project.generated_at`` varies between runs (that's the documented
 freshness signal, not a determinism gap).
 
-Only ``likely_tests`` edges are inferred here. First-class ``imports`` /
-``configured_by`` edges (a full parsed import graph, e.g. via tree-sitter)
-are deferred to #212; the usage signal below is a lightweight token-reference
-heuristic, not a resolved import graph.
+Two edge types are inferred. ``likely_tests`` edges come from the two signals
+above (a lightweight token-reference heuristic, not a resolved import graph).
+First-class ``imports`` edges - a resolved, language-agnostic import graph via
+tree-sitter (#354) - are added by ``infer_imports_edges`` after the
+``likely_tests`` pass; that layer is gated on the optional ``[treesitter]``
+extra and degrades gracefully (a warning, no edges) when it is absent.
+``configured_by`` edges remain deferred.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ if sys.version_info >= (3, 11):  # pragma: no cover -- version-gated import: onl
 else:  # pragma: no cover -- 3.10 backport path
     import tomli as tomllib
 
+from sumo_qa.repo_map_imports import infer_imports_edges
 from sumo_qa.repo_map_models import (
     SCHEMA_VERSION,
     CommandKind,
@@ -204,6 +208,11 @@ def scan_repo(root: Path | str, *, generator_version: str) -> RepoMap:
             nodes.append(node)
 
     edges = _infer_likely_tests_edges(nodes, root_path)
+    # Import-edge layer (#354): a resolved, language-agnostic import graph via
+    # tree-sitter, gated internally on the optional [treesitter] extra. With the
+    # extra absent it appends a graceful-degradation warning and returns no
+    # edges, so the likely_tests edges above still stand and the map stays valid.
+    edges += infer_imports_edges(nodes, root_path, warnings)
     commands = _extract_commands(root_path)
     git_commit = _detect_git_commit(root_path)
 

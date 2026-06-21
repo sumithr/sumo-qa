@@ -47,7 +47,14 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
-        run: python -m pip install -e ".[dev,vertex]"
+        # The `treesitter` extra is installed across the whole 3-OS x 5-Python
+        # matrix so the import-edge layer (#354) is exercised on Linux, macOS,
+        # and Windows (its prebuilt wheels are validated on each here), and so
+        # the 100% coverage gate sees the tree-sitter code paths. The graceful-
+        # degradation path (extra absent) is covered deterministically in every
+        # run by the monkeypatched tests in tests/test_repo_map_imports.py, so a
+        # separate extra-free job isn't needed to prove it.
+        run: python -m pip install -e ".[dev,vertex,treesitter]"
 
       - name: Run pytest
         run: python -m pytest --cov=src/sumo_qa --cov-fail-under=100 -q

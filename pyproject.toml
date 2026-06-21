@@ -97,6 +97,18 @@ dev = [
 vertex = [
   "google-cloud-aiplatform>=1.71.0",
 ]
+# Optional import-graph parser for the repo-map scanner's `imports` edge layer
+# (#354). The core install stays pure-Python; this extra adds the tree-sitter
+# binding only when a caller opts in (`pip install sumo-qa[treesitter]`). With
+# it absent, `scan_repo` still succeeds — it records a `RepoMapWarning` and
+# emits only `likely_tests` edges (see repo_map_treesitter / repo_map_imports).
+# `tree-sitter-language-pack` ships one abi3 wheel bundling ~165 grammars with
+# prebuilt Linux/macOS/Windows wheels (no compiler, no Node). Pinned so a
+# binding-API drift surfaces as a contract-test failure, not silent breakage.
+treesitter = [
+  "tree-sitter>=0.25,<0.26",
+  "tree-sitter-language-pack>=1.8,<2",
+]
 
 [project.urls]
 Homepage = "https://github.com/sumithr/sumo-qa"
