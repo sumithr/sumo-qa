@@ -196,6 +196,41 @@ def test_resolve_from_import_namespace_package_submodule_still_resolves():
     assert resolver.resolve("app/main.py", imp, files) == ["ns/sub.py"]
 
 
+def test_resolve_relative_from_import_does_not_probe_submodule_under_a_shadowing_module():
+    # The shadowing guard must apply to RELATIVE imports too. `from .sub import
+    # child` in pkg/a.py anchors the base module at pkg/sub; a module pkg/sub.py
+    # shadows the same-named package dir, so `child` is a member of that module,
+    # never the submodule pkg/sub/child.py. Resolution must collapse to pkg/sub.py
+    # and NOT fabricate an edge to pkg/sub/child.py (which is in the file set, so
+    # the guard is discriminating: without it the relative path also emits it).
+    imp = RawImport(module="sub", level=1, names=("child",), function_local=False)
+    files = {"pkg/a.py", "pkg/sub.py", "pkg/sub/child.py"}
+    assert resolver.resolve("pkg/a.py", imp, files) == ["pkg/sub.py"]
+
+
+def test_resolve_relative_from_import_real_package_submodule_still_resolves_both():
+    # Overcorrection guard for the relative path: when the relative base is a
+    # REAL package (pkg/sub/__init__.py, no shadowing pkg/sub.py), `from .sub
+    # import child` must STILL resolve both the package barrel and the submodule.
+    imp = RawImport(module="sub", level=1, names=("child",), function_local=False)
+    files = {"pkg/a.py", "pkg/sub/__init__.py", "pkg/sub/child.py"}
+    assert resolver.resolve("pkg/a.py", imp, files) == [
+        "pkg/sub/__init__.py",
+        "pkg/sub/child.py",
+    ]
+
+
+def test_resolve_relative_intermediate_component_shadowing():
+    # The intermediate-component shadow guard must apply to relative imports too.
+    # `from ..a.sub import x` in pkg/sub/m.py anchors at pkg/a/sub; a module
+    # pkg/a.py shadows the package dir pkg/a/, so the import resolves to pkg/a.py
+    # and never descends to fabricate pkg/a/sub.py (present in the file set, so
+    # the guard is discriminating).
+    imp = RawImport(module="a.sub", level=2, names=("x",), function_local=False)
+    files = {"pkg/sub/m.py", "pkg/a.py", "pkg/a/sub.py"}
+    assert resolver.resolve("pkg/sub/m.py", imp, files) == ["pkg/a.py"]
+
+
 def test_resolve_qualified_specifier_is_skipped():
     # A dotted specifier is not a plain submodule name; only the module itself
     # is probed, never a fabricated `pkg/a.b.py`. The fabricated path is present

@@ -195,7 +195,7 @@ class PythonResolver:
         so the file set is consulted during the walk (see ``_resolve_absolute``).
         """
         if imp.level > 0:
-            candidates = self._resolve_relative(importer, imp)
+            candidates = self._resolve_relative(importer, imp, file_set)
             resolved: list[str] = []
             for cand in candidates:
                 if cand in file_set and cand not in resolved:
@@ -203,13 +203,21 @@ class PythonResolver:
             return resolved
         return self._resolve_absolute(importer, imp, file_set)
 
-    def _resolve_relative(self, importer: str, imp: RawImport) -> list[str]:
+    def _resolve_relative(self, importer: str, imp: RawImport, file_set: set[str]) -> list[str]:
         """Dot-anchored relative resolution.
 
         ``level`` dots walk up from the importer's package directory. The
         importer's own directory is level 1 (``from .``), one up is level 2,
         and so on. The module tail (``from ..pkg.sub``) extends the anchored
         base before probing.
+
+        ``file_set`` is threaded into ``_probe`` so the module-shadowing guard
+        applies to relative imports exactly as it does to absolute ones: the
+        anchored tail (``imp.module``) is the dotted module rooted at the
+        walked-up package, so a ``.py`` module shadowing a same-named package
+        dir collapses resolution to the module and suppresses fabricated
+        submodule edges (``from .sub import child`` with ``sub.py`` present
+        resolves to ``sub.py``, never ``sub/child.py``).
         """
         parts = importer.split("/")
         # The importer's package is its directory; the file itself is parts[-1].
@@ -226,7 +234,7 @@ class PythonResolver:
         base = package[: len(package) - up] if up else list(package)
         tail = imp.module.split(".") if imp.module else []
         anchored = "/".join(base + tail) if (base or tail) else ""
-        return self._probe(anchored, imp.names)
+        return self._probe(anchored, imp.names, tail, base, file_set)
 
     def _resolve_absolute(self, importer: str, imp: RawImport, file_set: set[str]) -> list[str]:
         """``sys.path`` walk-up: try each importer ancestor as a candidate root,
