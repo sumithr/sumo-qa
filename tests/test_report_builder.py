@@ -84,6 +84,7 @@ def _diff_impact_payload(*, stale_warning: bool = False) -> dict:
     if stale_warning:
         warnings.append({"kind": "stale", "message": "repo-map git_commit differs from HEAD"})
     return {
+        "schema_version": "1.0",
         "changed_nodes": [
             {
                 "id": "src/demo.py",
@@ -229,6 +230,28 @@ def test_malformed_diff_impact_is_invalid(tmp_path):
     entry = next(a for a in report.artifacts if a.kind == "diff_impact")
     assert entry.status == "invalid"
     assert report.changed_components == []
+
+
+def test_diff_impact_without_schema_version_is_invalid(tmp_path):
+    # An unversioned overlay is untrustworthy: it must read as invalid, not be
+    # silently composed as if current. Mirrors the repo-map versioning gate.
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    payload = _diff_impact_payload()
+    payload.pop("schema_version", None)
+    _write_artifact(tmp_path, "diff-impact.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "invalid"
+    assert report.changed_components == []
+
+
+def test_schema_drifted_diff_impact_is_invalid(tmp_path):
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    payload = {**_diff_impact_payload(), "schema_version": "9.9"}
+    _write_artifact(tmp_path, "diff-impact.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "diff_impact")
+    assert entry.status == "invalid"
 
 
 def test_invalid_ledger_is_invalid_state(tmp_path):

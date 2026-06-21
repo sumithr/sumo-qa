@@ -53,7 +53,7 @@ Green means you're wired. The checks are read-only, and each failure prints the 
 
 Every host calls the same MCP server and reads the same SKILL.md files. What differs is how each host exposes them. That's a host-API difference, not a sumo-qa choice.
 
-These hosts are verified end-to-end with `sumo-qa-install`:
+`sumo-qa-install` sets these hosts up. It wires Claude Code and VS Code directly; for the JetBrains hosts it prints the exact config for you to paste:
 
 | Host | Slash | Setup |
 |---|---|---|

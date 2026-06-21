@@ -193,6 +193,11 @@ class DiffImpact(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # Required, not defaulted — same rationale as RepoMap.schema_version: a
+    # persisted overlay that forgot to stamp its version must not validate, so
+    # an unversioned artifact reads as invalid rather than current. Python
+    # callers pass SCHEMA_VERSION.
+    schema_version: Literal["1.0"]
     changed_nodes: list[ImpactNode] = Field(default_factory=list)
     affected_nodes: list[ImpactNode] = Field(default_factory=list)
     related_tests: list[str] = Field(default_factory=list)
