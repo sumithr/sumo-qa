@@ -34,7 +34,8 @@ def test_impact_node_forbids_extra():
 
 
 def test_diff_impact_defaults_are_empty_lists():
-    d = DiffImpact()
+    d = DiffImpact(schema_version=SCHEMA_VERSION)
+    assert d.schema_version == "1.0"
     assert d.changed_nodes == []
     assert d.affected_nodes == []
     assert d.related_tests == []
@@ -43,6 +44,20 @@ def test_diff_impact_defaults_are_empty_lists():
     assert d.suggested_inspections == []
     assert d.warnings == []
     assert d.probable_mapping_gap is False
+
+
+def test_diff_impact_requires_schema_version():
+    # A versioned artifact must carry its version explicitly; a producer that
+    # forgot to stamp it must not validate (mirrors RepoMap).
+    with pytest.raises(ValidationError):
+        DiffImpact()
+
+
+def test_diff_impact_output_carries_schema_version():
+    rm = _map([_src("src/a.py")], [])
+    out = analyze_diff_impact(rm, ["src/a.py"])
+    assert out.schema_version == SCHEMA_VERSION
+    assert out.model_dump(mode="json")["schema_version"] == "1.0"
 
 
 def _project():

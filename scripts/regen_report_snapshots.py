@@ -84,6 +84,7 @@ def _repo_map(root: str, *, git_commit: str | None) -> RepoMap:
 def _diff_impact() -> DiffImpact:
     return DiffImpact.model_validate(
         {
+            "schema_version": "1.0",
             "changed_nodes": [
                 {
                     "id": "src/billing/refund.py",

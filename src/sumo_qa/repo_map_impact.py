@@ -20,7 +20,13 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
-from sumo_qa.repo_map_models import DiffImpact, ImpactNode, RepoMap, RepoMapWarning
+from sumo_qa.repo_map_models import (
+    SCHEMA_VERSION,
+    DiffImpact,
+    ImpactNode,
+    RepoMap,
+    RepoMapWarning,
+)
 
 
 def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> DiffImpact:
@@ -118,6 +124,7 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
         )
 
     return DiffImpact(
+        schema_version=SCHEMA_VERSION,
         changed_nodes=sorted(changed_nodes, key=lambda n: n.path),
         affected_nodes=sorted(affected_nodes, key=lambda n: n.path),
         related_tests=sorted(related_tests),
