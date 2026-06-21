@@ -140,7 +140,7 @@ What the slice-2 scanner produces:
 
 - **Nodes** for the full first-slice vocabulary. Each carries its detected
   language, a SHA-256 fingerprint of the file content, and the relative path.
-- **Edges** of type `likely_tests` only: inferred from two language-agnostic
+- **Edges** of type `likely_tests`: inferred from two language-agnostic
   signals so the mapping is not tied to a fixed filename-suffix table: a
   **usage** signal (a test file's **import statements** name a source stem,
   robust across languages; only import-style lines are read, so an incidental
@@ -158,15 +158,25 @@ What the slice-2 scanner produces:
   `src/main/kotlin/ExperimentTest.kt` is not misclassified (and dropped off the
   risk surface). The cost is that tests in a custom source set outside a test
   directory (e.g. Gradle's `src/integrationTest`) aren't auto-detected by name:
-  a safe miss (the source stays on the risk surface), and real detection lands
-  with the import graph in #212.
-  First-class `imports` and `configured_by` edges (a parsed import graph) are
-  deferred to #212; the usage signal here is a lightweight token-reference
-  heuristic reading single-line imports only, block/parenthesised import
-  bodies (Go `import (...)`, multi-line `from x import (...)`) and a fully
-  resolved import graph are #212, and a missed reference degrades safely to
-  risk-surface rather than a false clear. They need #156's diff-impact context to
-  be worth computing.
+  a safe miss (the source stays on the risk surface).
+- **Edges** of type `imports`: a resolved, language-agnostic import graph built
+  via tree-sitter (the import-edge layer). The scanner parses each source file,
+  resolves each import to the repo-relative file(s) it references, and emits an
+  edge `source → target` **only between nodes that already exist in the map**
+  (no dangling edges, same discipline as `likely_tests`). `confidence` is
+  `high` for a module-level or class-body import (tight coupling) and `medium`
+  for a function-local / lazy import (deferred coupling); the strongest signal
+  per `(source, target)` is kept when a pair is seen more than once. The
+  **Python** reference resolver ships first (relative-import dot-anchoring,
+  PEP-328 implicit namespace packages, an absolute-import `sys.path` walk-up
+  that prefers the deepest source root, and specifier submodule probing;
+  wildcard `from x import *` and qualified specifiers are skipped). Other
+  languages are follow-on slices.
+  This layer is **optional**: it needs the `tree-sitter` parser, shipped as the
+  `sumo-qa[treesitter]` extra. With the extra absent the scan still succeeds: it
+  records a `RepoMapWarning` and emits only `likely_tests` edges, so the map
+  stays valid (the warning prevents a consumer reading "no import edges" as "no
+  dependencies"). `configured_by` edges remain deferred.
 - **Commands** extracted from `pyproject.toml` (`[project.scripts]`) and
   `package.json` (`scripts`). For `package.json`, the script `kind`
   (`test`/`lint`/`format`/`build`/`other`) is guessed from the script
@@ -339,8 +349,9 @@ regenerate locally before comparison.
 | 5 | `sumo_qa_query_repo_map`, bounded ranked search over the map; wiring of `sumo-qa-reviewing-before-merge`, `sumo-qa-preparing-for-work`, and `sumo-qa-strategising` to prefer the map when present and fall back to a repo walk when absent |
 | 6 | `sumo-qa analyze` / `sumo-qa status` CLI commands (#160): terminal-facing wrappers over the same `scan_repo` / load+validate services, with `--json`; bare `sumo-qa` still launches the MCP server |
 | 7 | Local QA report (#157): `sumo-qa report` / `sumo_qa_generate_qa_report` compose the repo-map, diff-impact, risk-ledger, and context-bundle artifacts into the static `.sumo-qa/qa-report.html` page with honest not-available states ([QA-REPORT.md](QA-REPORT.md)) |
+| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra), Python reference resolver shipped; every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
 
-`imports`, `configured_by`, and `command_runs` edges are deferred. The
-scanner produces only `likely_tests`, enough for the slice-4 diff-impact
-tool to map a changed source file to its candidate tests, which is the first
-downstream consumer.
+`configured_by` and `command_runs` edges are deferred. The scanner emits
+`likely_tests` edges always, and `imports` edges when the `[treesitter]` extra
+is installed (it degrades gracefully to `likely_tests`-only with a warning when
+the extra is absent).
