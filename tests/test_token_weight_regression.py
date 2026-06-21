@@ -195,8 +195,11 @@ def test_repeated_skill_loads_cost_less_partial_than_full_body():
     full_cumulative = 0
     partial_cumulative = 0
     for skill_name, visits in _SIMULATED_SESSION:
-        full_body = load_skill_context(skill_name, "full")["content"]
         manifest = load_skill_context(skill_name, "manifest")
+        # The full-body cost is the real on-disk body weight. mode='full' may
+        # degrade to a pointer for an over-cap skill (#393), so source the
+        # weight from estimated_tokens_full, which always reflects the body.
+        full_tokens = manifest["estimated_tokens_full"]
         section_ids = _routing_minimal_section_ids(manifest)
         assert section_ids, f"{skill_name} has no routing-minimal section to load"
 
@@ -206,7 +209,7 @@ def test_repeated_skill_loads_cost_less_partial_than_full_body():
             for sid in section_ids
         )
         for _ in range(visits):
-            full_cumulative += _approx_tokens(full_body)
+            full_cumulative += full_tokens
             # A revisit pays the routing slice again; the manifest is the
             # one-time routing cost, counted once per skill, not per visit.
             partial_cumulative += section_tokens
@@ -226,15 +229,15 @@ def test_session_partial_saving_is_substantial_not_marginal():
     full_cumulative = 0
     partial_cumulative = 0
     for skill_name, visits in _SIMULATED_SESSION:
-        full_body = load_skill_context(skill_name, "full")["content"]
         manifest = load_skill_context(skill_name, "manifest")
+        full_tokens = manifest["estimated_tokens_full"]
         section_ids = _routing_minimal_section_ids(manifest)
         manifest_tokens = _approx_tokens(json.dumps(manifest))
         section_tokens = sum(
             _approx_tokens(load_skill_context(skill_name, "section", section=sid)["content"])
             for sid in section_ids
         )
-        full_cumulative += _approx_tokens(full_body) * visits
+        full_cumulative += full_tokens * visits
         partial_cumulative += manifest_tokens + section_tokens * visits
 
     saving = (full_cumulative - partial_cumulative) / full_cumulative
@@ -245,11 +248,18 @@ def test_session_partial_saving_is_substantial_not_marginal():
 
 
 def test_full_mode_in_session_matches_skill_body_byte_for_byte():
-    """The cumulative comparison is only honest if mode='full' returns the
-    real body (the thing a non-partial host actually pays for). Spot-check
-    every skill in the simulated session against the manifest's full-body
-    token estimate."""
+    """The cumulative comparison is only honest if the full-body cost is the
+    real body weight. For an UNDER-CAP skill mode='full' returns that body
+    byte-for-byte; for an OVER-CAP skill (#393) mode='full' degrades to an
+    oversize pointer (no content) that still reports the same
+    estimated_tokens_full, so the cumulative baseline stays honest either
+    way."""
     out = {m["skill_name"]: m for m in list_skill_manifests()["skills"]}
     for skill_name, _ in _SIMULATED_SESSION:
-        full_body = load_skill_context(skill_name, "full")["content"]
-        assert _approx_tokens(full_body) == out[skill_name]["estimated_tokens_full"]
+        full = load_skill_context(skill_name, "full")
+        estimated = out[skill_name]["estimated_tokens_full"]
+        if full.get("oversize"):
+            assert "content" not in full
+            assert full["estimated_tokens_full"] == estimated
+        else:
+            assert _approx_tokens(full["content"]) == estimated

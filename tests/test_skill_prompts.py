@@ -55,8 +55,13 @@ def test_no_skill_registered_as_a_prompt() -> None:
 
 
 def test_skill_tool_body_matches_skill_md_content() -> None:
-    """Calling each skill tool returns the full SKILL.md content, read
-    fresh from disk on each invocation (single source of truth)."""
+    """Calling each skill tool returns the full SKILL.md content, read fresh
+    from disk on each invocation (single source of truth), UNLESS the body
+    exceeds the per-response token cap (#393), in which case the tool returns a
+    compact progressive-loading pointer instead of the over-cap body the host
+    would refuse."""
+    from sumo_qa.skill_prompts import DEFAULT_SKILL_RESPONSE_TOKEN_CAP, _approx_tokens
+
     server = build_mcp_server()
 
     async def collect() -> dict[str, str]:
@@ -87,9 +92,20 @@ def test_skill_tool_body_matches_skill_md_content() -> None:
         skill_path = _SKILLS_DIR / skill_dir_name / "SKILL.md"
         assert skill_path.is_file(), f"missing skill file: {skill_path}"
         expected_text = skill_path.read_text(encoding="utf-8")
-        assert expected_text in bodies[tool_name], (
-            f"tool {tool_name!r} body does not contain SKILL.md content"
-        )
+        if _approx_tokens(expected_text) > DEFAULT_SKILL_RESPONSE_TOKEN_CAP:
+            # Over-cap: a compact pointer to the progressive-loading route, NOT
+            # the oversized body the host refuses to inline.
+            pointer = bodies[tool_name]
+            assert expected_text not in pointer, (
+                f"tool {tool_name!r} returned the over-cap body inline"
+            )
+            assert "sumo_qa_load_skill_context" in pointer, (
+                f"tool {tool_name!r} pointer does not name the progressive-loading route"
+            )
+        else:
+            assert expected_text in bodies[tool_name], (
+                f"tool {tool_name!r} body does not contain SKILL.md content"
+            )
 
 
 # ---------------------------------------------------------------------------

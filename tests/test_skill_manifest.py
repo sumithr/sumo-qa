@@ -522,17 +522,28 @@ def test_skill_records_skips_non_dir_and_dir_without_skill_md(monkeypatch, tmp_p
     assert set(records) == {"sumo-qa-real"}
 
 
-def test_full_mode_is_byte_for_byte_equal_to_skill_tool_body():
+def test_full_mode_matches_skill_tool_body_and_degrades_together():
+    """The two full-body entry paths stay consistent: an under-cap skill is
+    byte-for-byte identical through both; an over-cap skill (#393) degrades to
+    a pointer through both: the per-skill tool returns a non-body pointer and
+    the loader returns an oversize envelope with no ``content``."""
+    cap = skill_prompts.DEFAULT_SKILL_RESPONSE_TOKEN_CAP
     skills_dir = skill_prompts._skills_dir()
     for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
         skill_path = skill_dir / "SKILL.md"
         if not skill_path.is_file():
             continue
+        body = skill_path.read_text(encoding="utf-8")
         # What the existing zero-arg skill tool would return:
-        expected = skill_prompts._make_skill_callable(skill_path)()
+        tool_body = skill_prompts._make_skill_callable(skill_path)()
         out = sm.load_skill_context(skill_dir.name, "full")
         assert out["mode"] == "full"
-        assert out["content"] == expected, f"full-mode drift for {skill_dir.name}"
+        if skill_prompts._approx_tokens(body) > cap:
+            assert out.get("oversize") is True, f"{skill_dir.name} loader did not degrade"
+            assert "content" not in out
+            assert tool_body != body, f"{skill_dir.name} tool did not degrade"
+        else:
+            assert out["content"] == tool_body == body, f"full-mode drift for {skill_dir.name}"
 
 
 # --------------------------------------------------------------------------
