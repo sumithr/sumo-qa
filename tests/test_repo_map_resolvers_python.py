@@ -167,6 +167,35 @@ def test_resolve_dotted_module_does_not_probe_under_a_shadowing_module():
     assert resolver.resolve("app/main.py", imp, files) == ["pkg.py"]
 
 
+def test_resolve_from_import_does_not_probe_submodule_under_a_shadowing_module():
+    # `from pkg import sub` records module="pkg", names=("sub",). A top-level
+    # module `pkg.py` shadows a same-named package dir, and a module has no
+    # submodules, so the specifier `sub` is a member of `pkg.py`, never the
+    # submodule `pkg/sub.py`. Resolution must collapse to the module `pkg.py`
+    # and NOT fabricate an edge to `pkg/sub.py` (the dotted-form round-1 guard
+    # only fires for >=2 module parts, so the from-import path needs its own).
+    imp = RawImport(module="pkg", level=0, names=("sub",), function_local=False)
+    files = {"pkg.py", "pkg/sub.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg.py"]
+
+
+def test_resolve_from_import_real_package_submodule_still_resolves_both():
+    # Overcorrection guard: when `pkg` is a REAL package (has pkg/__init__.py,
+    # no shadowing pkg.py), `from pkg import sub` must STILL resolve to both the
+    # package barrel and the submodule pkg/sub.py.
+    imp = RawImport(module="pkg", level=0, names=("sub",), function_local=False)
+    files = {"pkg/__init__.py", "pkg/sub.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg/__init__.py", "pkg/sub.py"]
+
+
+def test_resolve_from_import_namespace_package_submodule_still_resolves():
+    # Overcorrection guard: a PEP-328 namespace package (dir without
+    # __init__.py and no shadowing pkg.py) must still resolve the submodule.
+    imp = RawImport(module="ns", level=0, names=("sub",), function_local=False)
+    files = {"ns/sub.py"}  # no ns/__init__.py, no ns.py
+    assert resolver.resolve("app/main.py", imp, files) == ["ns/sub.py"]
+
+
 def test_resolve_qualified_specifier_is_skipped():
     # A dotted specifier is not a plain submodule name; only the module itself
     # is probed, never a fabricated `pkg/a.b.py`. The fabricated path is present

@@ -299,16 +299,27 @@ class PythonResolver:
         path), an intermediate dotted-module component shadowed by a ``.py``
         module collapses resolution to that shadowing file: ``import pkg.sub``
         with ``pkg.py`` present resolves to ``pkg.py``, never ``pkg/sub.py`` (a
-        module has no submodules)."""
+        module has no submodules). For the ``from <module> import <name>`` form
+        the base module is a single component, so the intermediate-component
+        guard never fires; instead, when ``base`` itself resolves to a shadowing
+        ``.py`` module, the per-specifier submodule candidates are suppressed:
+        ``from pkg import sub`` with ``pkg.py`` present resolves to ``pkg.py``,
+        never the fabricated submodule ``pkg/sub.py``."""
         if module_parts is not None and root is not None and file_set is not None:
             shadow = self._shadowing_module(module_parts, root, file_set)
             if shadow is not None:
                 return [shadow]
+        # The base module is a plain ``.py`` file: it shadows a same-named
+        # package dir and has no submodules, so a specifier cannot be a
+        # submodule of it. Probe the module only, never ``base/<name>.py``.
+        base_is_module = file_set is not None and bool(base) and f"{base}.py" in file_set
         candidates: list[str] = []
         if base:
             candidates.append(f"{base}.py")
             for barrel in self.config.barrels:
                 candidates.append(f"{base}/{barrel}")
+        if base_is_module:
+            return candidates
         for name in names:
             if "." in name:
                 continue  # qualified specifier: not a plain submodule

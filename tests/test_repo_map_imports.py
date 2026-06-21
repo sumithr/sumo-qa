@@ -145,8 +145,13 @@ def test_dedup_keeps_strongest_confidence(tmp_path: Path):
 @_needs_ts
 def test_import_edges_are_sorted_and_stable(tmp_path: Path):
     # a.py imports c THEN b, so the natural insertion order is non-ascending
-    # ([(a,c), (a,b)]). Only the orchestrator's final sort puts (a,b) before
-    # (a,c); deleting that sort leaves the assertion below RED.
+    # ([(a,c), (a,b)]) - that non-ascending fixture is what makes the assertion
+    # below non-tautological. This test exercises scan_repo(), which re-sorts the
+    # WHOLE edge list (repo_map_scanner.py: edges.sort by (source, target, type))
+    # after the layers are concatenated, so it is that combined re-sort that puts
+    # (a,b) before (a,c); removing the scanner's combined sort leaves the
+    # assertion below RED (deleting only the imports orchestrator's per-layer
+    # sort does not, since the scanner re-sort still orders the result).
     _write(tmp_path, "a.py", "import c\nimport b\n")
     _write(tmp_path, "b.py", "import c\n")
     _write(tmp_path, "c.py", "x = 1\n")
