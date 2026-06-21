@@ -649,6 +649,7 @@ For skills where each scenario has a per-scenario ground-truth context
 3. Skill-level rubric in `defaultTest.vars` (`expected_shape`, `anti_patterns`, `technique_tag`)
 4. Decision-table rubric prompt in `defaultTest.options.rubricPrompt`
 5. Candidate wrapper prompt in `prompts:`
+6. A shared `javascript` grounding assertion (`value: file://asserts/cites-catalogue-technique.js`) that passes when the candidate cites a technique name drawn from `knowledge/techniques.md`'s `###` headings; the accepted set is derived from the catalogue, never a hardcoded allowlist (issue #350)
 
 `promptfoo generate dataset --write` against this YAML synthesises additional
 `(user_prompt, ground_truth_context)` pairs on demand.
@@ -737,6 +738,7 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
 | `aggregate.py` | Variance aggregator for multi-sample runs |
+| `asserts/cites-catalogue-technique.js` | Shared `javascript` grounding assertion for the three `skill-implementing-with-tdd*` configs; passes when the candidate cites a technique whose name is a `###` heading in `knowledge/techniques.md`, derived from the catalogue (single source of truth) instead of a hardcoded six-technique allowlist (issue #350) |
 | `README.md` | This file |
 
 ## What's intentionally NOT here
