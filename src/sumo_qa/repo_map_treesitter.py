@@ -95,8 +95,11 @@ class TSNode:
     def text(self) -> str:
         """The exact source slice this node spans, UTF-8 decoded.
 
-        The binding carries no ``.text``; recover it from the original source
-        bytes via the node's byte range.
+        The binding carries no ``.text``; recover it from the parser's source
+        bytes (the UTF-8 encoding of the decoded source the parser saw, supplied
+        by :func:`parse`) via the node's byte range. Keying off those bytes
+        rather than the original ``src`` keeps the slice aligned when an invalid
+        byte was rewritten to U+FFFD (see :func:`parse`).
         """
         return self._src[self._node.start_byte() : self._node.end_byte()].decode(
             "utf-8", errors="replace"
@@ -122,7 +125,15 @@ def parse(language: str, src: bytes) -> TSNode:
             "tree-sitter is not installed; install the [treesitter] extra"
         )
     parser = _language_pack.get_parser(language)
-    tree = parser.parse(src.decode("utf-8", errors="replace"))
+    # The binding wants ``str``; tree-sitter then parses that string's UTF-8
+    # encoding and reports byte offsets into THOSE bytes. Carry the same bytes
+    # into TSNode (not the original ``src``) so a node's text slice stays aligned
+    # even when ``errors="replace"`` rewrote an invalid byte to U+FFFD - which is
+    # 3 bytes, shifting every later offset and otherwise silently dropping a real
+    # import (#458). For valid UTF-8 the round-trip is identity, so this is a
+    # no-op there.
+    decoded = src.decode("utf-8", errors="replace")
+    tree = parser.parse(decoded)
     if tree is None:  # pragma: no cover -- defensive: parse() of decoded text always yields a tree
         raise TreesitterUnavailableError(f"tree-sitter returned no parse tree for {language}")
-    return TSNode(tree.root_node(), src)
+    return TSNode(tree.root_node(), decoded.encode("utf-8"))

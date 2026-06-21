@@ -113,6 +113,19 @@ def test_text_recovered_by_byte_slice():
     assert "a.b" in texts
 
 
+def test_text_aligned_after_invalid_utf8_byte():
+    # An invalid UTF-8 byte before an import: `parse` decodes with
+    # errors="replace", which rewrites the bad byte to U+FFFD (3 bytes), shifting
+    # every later parser byte offset. `text` must slice the bytes the parser
+    # actually saw (the decoded source's UTF-8 encoding), not the original source
+    # bytes, or a node's text drifts and a real import is silently dropped (#458).
+    # The bad byte sits before the import so the offsets are shifted at the point
+    # the import name is sliced; the import target must still round-trip exactly.
+    root = parse("python", b"# bad \xff byte\nimport target\n")
+    dotted = {n.text for n in root.descendants() if n.kind == "dotted_name"}
+    assert "target" in dotted
+
+
 def test_children_iterates_in_source_order():
     # The resolver relies on children being yielded in source order (module
     # token before specifiers in a from-import). Assert ordering on a dotted
