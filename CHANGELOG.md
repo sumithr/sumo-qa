@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.50.3](https://github.com/sumithr/sumo-qa/compare/v0.50.2...v0.50.3) (2026-06-21)
+
+
+### Bug Fixes
+
+* serve over-cap skill bodies as a progressive-loading pointer ([#393](https://github.com/sumithr/sumo-qa/issues/393)) ([#450](https://github.com/sumithr/sumo-qa/issues/450)) ([13f51aa](https://github.com/sumithr/sumo-qa/commit/13f51aa35453e6acd49a983e2cf0140bd63bf958))
+
 ## [0.50.2](https://github.com/sumithr/sumo-qa/compare/v0.50.1...v0.50.2) (2026-06-21)
 
 
