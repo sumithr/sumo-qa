@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.50.1](https://github.com/sumithr/sumo-qa/compare/v0.50.0...v0.50.1) (2026-06-21)
+
+
+### Build System
+
+* **deps-dev:** bump undici from 7.25.0 to 7.28.0 ([#446](https://github.com/sumithr/sumo-qa/issues/446)) ([3ba1116](https://github.com/sumithr/sumo-qa/commit/3ba11163e70de31838ef4019b51a80816f58c8c4))
+
 ## [0.50.0](https://github.com/sumithr/sumo-qa/compare/v0.49.1...v0.50.0) (2026-06-21)
 
 
