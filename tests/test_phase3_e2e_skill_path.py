@@ -46,9 +46,17 @@ def test_all_ten_skills_register_as_tools():
 
 
 def test_each_skill_tool_body_carries_iron_law_and_checklist():
-    """Every skill body must show Iron Law + Checklist + Process Flow + Red Flags
-    when served via the MCP tools protocol. This catches drift between
-    SKILL.md on disk and what hosts actually see."""
+    """Every under-cap skill body must show Iron Law + Checklist + Process Flow
+    + Red Flags when served via the MCP tools protocol. This catches drift
+    between SKILL.md on disk and what hosts actually see. An over-cap body
+    (#393) is served as a progressive-loading pointer instead, so it carries
+    the route rather than the structural sections."""
+    from sumo_qa.skill_prompts import (
+        DEFAULT_SKILL_RESPONSE_TOKEN_CAP,
+        _approx_tokens,
+        _skills_dir,
+    )
+
     mcp = build_mcp_server()
 
     async def _fetch_all():
@@ -70,6 +78,14 @@ def test_each_skill_tool_body_carries_iron_law_and_checklist():
 
     bodies = asyncio.run(_fetch_all())
     for name, body in bodies.items():
+        skill_path = _skills_dir() / name.replace("_", "-") / "SKILL.md"
+        if (
+            _approx_tokens(skill_path.read_text(encoding="utf-8"))
+            > DEFAULT_SKILL_RESPONSE_TOKEN_CAP
+        ):
+            # Over-cap: a progressive-loading pointer, not the structural body.
+            assert "sumo_qa_load_skill_context" in body, f"{name}: pointer missing route"
+            continue
         assert "## The Iron Law" in body, f"{name}: missing Iron Law in served body"
         assert "## Checklist" in body, f"{name}: missing Checklist in served body"
         # Process Flow section is required; the inline graphviz `dot` block

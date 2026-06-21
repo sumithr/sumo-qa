@@ -4,7 +4,7 @@ The sumo-qa MCP exposes a small, thin tool surface: skill tools, knowledge loade
 
 ## Skill tools
 
-Each returns the full body of a `skills/<name>/SKILL.md` file. The host LLM treats the returned markdown as the procedure to follow (Iron Law + checklist + flowchart + Red Flags + examples).
+Each returns the full body of a `skills/<name>/SKILL.md` file. The host LLM treats the returned markdown as the procedure to follow (Iron Law + checklist + flowchart + Red Flags + examples). A body that would exceed the host's per-response token cap (the heaviest skill, `sumo-qa-reviewing-before-merge`) is returned as a compact pointer to the progressive-loading slices instead of the over-cap body the host would refuse (see [Progressive skill loading](#progressive-skill-loading); #393).
 
 The skill bodies are host-neutral: they declare capability obligations (ordered work tracker, structured user-choice prompt, fresh delegated worker; see `using-sumo-qa` → *Shared vocabulary*) rather than naming any one host's specific tools. Adapters surface the same bodies through host-specific UIs (Claude Code slash commands, JetBrains MCP slash commands, Copilot agentic-mode tool selection, etc.).
 
@@ -17,6 +17,8 @@ See [SKILLS.md](SKILLS.md) for the Iron Law per skill.
 ## Progressive skill loading
 
 A read-only, deterministic, local-only pair of tools that lets a host fetch just the slice of a skill it needs (the routing summary, one section, or one module) instead of the whole `SKILL.md` body. The zero-argument skill tools above are unchanged: `mode="full"` returns the same body byte-for-byte. No extraction, no network, no caching.
+
+**Over-cap bodies degrade, not fail (#393).** A host refuses to inline a tool response above its per-response token limit and saves it to a file instead, so the canonical load fails opaquely. When a SKILL.md body would exceed that cap (today only `sumo-qa-reviewing-before-merge`, ~17.8k approx tokens), both full-body paths (the zero-argument skill tool and `load_skill_context(skill, "full")`) instead return a compact pointer that names the manifest/section/module route, so the host loads the skill progressively rather than hitting an opaque cap error. The detection threshold defaults conservatively below the observed reject point; a host with a different cap can override it with the `SUMO_QA_SKILL_RESPONSE_TOKEN_CAP` environment variable (estimated tokens). Under-cap skills are unaffected and stay byte-for-byte.
 
 | Tool | What it returns |
 |---|---|
@@ -32,7 +34,7 @@ The four modes form a retrieval ladder. Climb only as far as the work needs:
 | **Manifest (all skills)** | `sumo_qa_list_skill_manifests(detail="compact")` | No: routing aid | Choosing which skill applies. The default `detail="compact"` returns per-skill metadata for every skill at once, but **not** the `sections[]`/`modules[]` arrays, so it stays cheap (~2,176 approx tokens, guarded under a 2,500 budget). `detail="full_index"` adds each skill's `sections[]`/`modules[]` *index* arrays (ids + token weights, never the bodies) at ~11,219 approx tokens, guarded under a 13,000 ceiling. Once a skill is chosen, fetch its section/module index via `load_skill_context(skill, "manifest")` rather than carrying every skill's index up front. |
 | **Manifest (one skill)** | `load_skill_context(skill, "manifest")` | No: routing aid | You've chosen a skill and want its section/module map (ids, token weights, which sections are `required`) before pulling any body. |
 | **Section / Module** | `load_skill_context(skill, "section"/"module", …)` | **Yes**: verbatim slice | You need one part of a skill (its Iron Law, one checklist, one lazy module) and not the rest. The returned text is byte-for-byte from the file. |
-| **Full** | `load_skill_context(skill, "full")` or the zero-arg skill tool | **Yes**: verbatim body | You are about to **execute** the skill. When exact procedure wording matters (Iron Law, HARD-GATE, the operational checklist a workflow follows step-by-step) load the full body. |
+| **Full** | `load_skill_context(skill, "full")` or the zero-arg skill tool | **Yes**: verbatim body (or an `oversize` pointer) | You are about to **execute** the skill. When exact procedure wording matters (Iron Law, HARD-GATE, the operational checklist a workflow follows step-by-step) load the full body. A body over the host's per-response token cap returns an `oversize` pointer to the slices instead (#393); load them progressively. |
 
 **Canonical means verbatim.** `section`, `module`, and `full` return text copied straight from `SKILL.md` (or a module file); a host may cite or follow them as the authoritative instruction. The two **manifest** paths are *compact navigation aids*: they summarise structure and token weights to help a host route, and are **not** a substitute for the procedure text. Do not treat a manifest description or section list as the instruction to follow; once a skill is actually being executed, load the section(s) or the full body so the model has the exact wording. The same rule governs the knowledge catalogues: a compact summary is for recall, the loaded catalogue text is what you cite.
 

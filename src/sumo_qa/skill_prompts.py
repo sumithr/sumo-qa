@@ -6,7 +6,9 @@ are surfaced in the slash menu by Claude Code, IntelliJ AI Assistant, and
 VS Code + Copilot — so registering each SKILL.md as a tool means
 `/sumo_qa_deciding_approach`, `/sumo_qa_creating_test_plan`, etc. appear identically
 in every host. Calling the tool returns the SKILL.md body, which the host
-LLM follows.
+LLM follows. When the body would exceed the host's per-response token cap, a
+compact pointer to the progressive-loading slices (see #393 and
+``skill_manifest``) is returned instead, so the load never fails opaquely.
 
 Why not also register as MCP prompts? MCP prompts are surfaced by Claude
 Code but not by IntelliJ. Registering as both creates duplicate entries
@@ -27,6 +29,7 @@ without restart.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -36,6 +39,46 @@ import yaml
 _REPO_ROOT_SKILLS = Path(__file__).resolve().parent.parent.parent / "skills"
 _BUNDLED_SKILLS = Path(__file__).resolve().parent / "_data" / "skills"
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+# --- Per-response token cap (#393) ---------------------------------------
+# The host refuses to inline a tool response above its per-response token
+# limit and saves it to a file instead, so the canonical load fails opaquely
+# ("result ... exceeds maximum allowed tokens"). The largest skill,
+# sumo-qa-reviewing-before-merge, was first to cross that wall: ~66,492 chars
+# (~16,623 est. tokens by the len/4 estimator) at filing, ~17.8k now. Dense
+# skill markdown tokenises HEAVIER than len/4, so the real cap is crossed
+# before the estimate reaches the host's nominal limit; the default sits
+# conservatively below the observed reject point and well above every other
+# skill (next largest ~4.7k est. tokens), leaving growth headroom. It is a
+# safety net, not the host's exact constant (which varies by host/tokeniser):
+# override per-host via SUMO_QA_SKILL_RESPONSE_TOKEN_CAP, or inject in tests.
+DEFAULT_SKILL_RESPONSE_TOKEN_CAP = 12000
+_RESPONSE_TOKEN_CAP_ENV = "SUMO_QA_SKILL_RESPONSE_TOKEN_CAP"
+
+
+def _approx_tokens(text: str) -> int:
+    """Approximate token count: length / 4, rounded up. Mirrors the estimator
+    in skill_manifest and tests/test_token_weight_regression.py so weights are
+    comparable across the codebase."""
+    return (len(text) + 3) // 4
+
+
+def _response_token_cap(override: int | None = None) -> int:
+    """Resolve the per-response token cap: explicit override > env var >
+    documented default. A non-integer or non-positive env value is ignored
+    (falls back to the default) so a misconfigured host cannot silently
+    disable the guard."""
+    if override is not None:
+        return override
+    raw = os.environ.get(_RESPONSE_TOKEN_CAP_ENV)
+    if raw is not None:
+        try:
+            value = int(raw)
+        except ValueError:
+            value = 0
+        if value > 0:
+            return value
+    return DEFAULT_SKILL_RESPONSE_TOKEN_CAP
 
 
 def _skills_dir() -> Path:
@@ -66,7 +109,7 @@ def _parse_frontmatter(text: str) -> dict:
     return parsed or {}
 
 
-def register_skills_as_prompts(mcp: Any) -> None:
+def register_skills_as_prompts(mcp: Any, token_cap: int | None = None) -> None:
     """Register every SKILL.md under skills/ as an MCP tool.
 
     Name kept as the historic `register_skills_as_prompts` for backwards
@@ -75,7 +118,9 @@ def register_skills_as_prompts(mcp: Any) -> None:
 
     Name: directory name with `-` -> `_`. Description: from frontmatter.
     Body: full file content (including frontmatter), read fresh on each call
-    so editing the SKILL.md propagates without restart.
+    so editing the SKILL.md propagates without restart. An over-cap body is
+    served as a progressive-loading pointer instead (#393); `token_cap`
+    overrides the resolved cap and is used by tests.
     """
     skills_dir = _skills_dir()
     if not skills_dir.is_dir():
@@ -94,27 +139,63 @@ def register_skills_as_prompts(mcp: Any) -> None:
         # hosts that render descriptions inline don't show stray newlines.
         if isinstance(description, str):
             description = " ".join(description.split())
-        _bind_tool(mcp, name, description, skill_path)
+        _bind_tool(mcp, name, description, skill_path, token_cap=token_cap)
 
 
-def _make_skill_callable(path: Path):
+def _oversize_pointer_text(skill_name: str, tokens: int, cap: int) -> str:
+    """Compact, actionable pointer returned in place of an over-cap skill body.
+
+    Names the progressive-loading route so the host can fetch the discipline a
+    slice at a time without tripping the per-response token cap (#393). The
+    pointer is a small constant; it never itself exceeds a realistic cap."""
+    return (
+        f"# {skill_name} is too large to return in one response\n\n"
+        f"This skill's full body is ~{tokens} estimated tokens, above the "
+        f"~{cap}-token per-response cap, so returning it inline would exceed "
+        f"the host's maximum allowed tokens. Load it progressively with the "
+        f"`sumo_qa_load_skill_context` tool instead:\n\n"
+        f'1. `sumo_qa_load_skill_context(skill_name="{skill_name}", mode="manifest")`: '
+        f"the section and module index (ids, headings, token weights).\n"
+        f'2. `sumo_qa_load_skill_context(skill_name="{skill_name}", mode="section", section="<id>")`: '
+        f"one section's text.\n"
+        f'3. `sumo_qa_load_skill_context(skill_name="{skill_name}", mode="module", module="<id>")`: '
+        f"one module's text (when the skill ships modules).\n\n"
+        f'Start with `mode="manifest"` to choose the sections you need.'
+    )
+
+
+def _make_skill_callable(path: Path, token_cap: int | None = None):
     """Factory returning a zero-argument function that reads `path` at call time.
 
     The factory closes over `path` so each generated function returns its OWN
     skill content. Using a factory (instead of a default-argument closure)
     keeps the function's signature parameter-free, which FastMCP's tool
     introspection requires.
+
+    When the body would exceed the per-response token cap (#393), the function
+    returns a compact pointer to the progressive-loading route instead of the
+    oversized body (which the host refuses and saves to a file). Under-cap
+    skills return the body byte-for-byte, unchanged. `token_cap` overrides the
+    resolved cap (env var > default) and is used by tests.
     """
+    cap = _response_token_cap(token_cap)
 
     def _skill_body() -> str:
-        return path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
+        tokens = _approx_tokens(text)
+        if tokens > cap:
+            return _oversize_pointer_text(path.parent.name, tokens, cap)
+        return text
 
     return _skill_body
 
 
-def _bind_tool(mcp: Any, name: str, description: str, path: Path) -> None:
+def _bind_tool(
+    mcp: Any, name: str, description: str, path: Path, token_cap: int | None = None
+) -> None:
     """Bind one SKILL.md as an MCP tool named `name`. The tool returns the
-    SKILL.md body, which the host LLM follows."""
-    fn = _make_skill_callable(path)
+    SKILL.md body, which the host LLM follows, or a progressive-loading pointer
+    when the body would exceed the per-response token cap (#393)."""
+    fn = _make_skill_callable(path, token_cap=token_cap)
     fn.__name__ = name
     mcp.tool(name=name, description=description)(fn)

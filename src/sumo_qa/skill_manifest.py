@@ -9,9 +9,11 @@ instead of the whole SKILL.md body.
 
 Why a sibling module rather than extending ``skill_prompts``: the existing
 ``skill_prompts`` module owns the *registration* of each SKILL.md as a
-zero-argument MCP tool that returns the full body. Those tools MUST keep
-returning the body byte-for-byte (the ``mode="full"`` contract here is
-verified against them). This module only *reads*; it reuses
+zero-argument MCP tool that returns the full body. Those tools keep returning
+the body byte-for-byte for every UNDER-CAP skill (the ``mode="full"`` contract
+here is verified against them); a body over the host's per-response token cap
+degrades to a progressive-loading pointer through BOTH paths instead of
+failing opaquely (#393). This module only *reads*; it reuses
 ``skill_prompts``' skill discovery (``_skills_dir``) and frontmatter parsing
 (``_parse_frontmatter``) so enumeration logic is not duplicated.
 
@@ -27,7 +29,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from sumo_qa.skill_prompts import _parse_frontmatter, _skills_dir
+from sumo_qa.skill_prompts import _parse_frontmatter, _response_token_cap, _skills_dir
 
 # Heading line: 1-6 leading '#', a space, then the heading text. Matched only
 # on lines OUTSIDE fenced code blocks (see _iter_headings).
@@ -340,6 +342,50 @@ def _slice_envelope(base: dict[str, Any], text: str, known_hash: str | None) -> 
     return envelope
 
 
+def _oversize_full_envelope(
+    skill_name: str, record: dict[str, Any], cap: int, known_hash: str | None = None
+) -> dict[str, Any]:
+    """mode='full' response for a body over the per-response token cap (#393).
+
+    Returns an actionable pointer to the progressive-loading slices INSTEAD of
+    the oversized body (which the host refuses and saves to a file). The body
+    is never included. Carries the section/module index (public fields only) so
+    the host can pick a slice without a second round-trip, plus ``content_hash``
+    for change-detection parity with the normal full slice.
+
+    The ``known_hash`` change-detection affordance still applies: when supplied,
+    a derived ``changed`` flag (``known_hash`` vs the live body hash) is added,
+    exactly like the normal slice. The body stays omitted either way (it is
+    over-cap), so the pointer is what the caller acts on.
+
+    Carries ``estimated_tokens`` (the full-body estimate) for contract parity
+    with the normal full slice — every full-mode response advertises it (see
+    docs/TOOLS.md), so a client that reads ``full["estimated_tokens"]`` uniformly
+    does not break on the over-cap skill; the body is still omitted."""
+    envelope = {
+        "skill_name": skill_name,
+        "mode": "full",
+        "oversize": True,
+        "estimated_tokens": record["estimated_tokens_full"],
+        "estimated_tokens_full": record["estimated_tokens_full"],
+        "token_cap": cap,
+        "content_hash": record["content_hash"],
+        "error": (
+            f"{skill_name} full body (~{record['estimated_tokens_full']} est. "
+            f"tokens) exceeds the ~{cap}-token per-response cap; returning it "
+            f"inline would exceed the host's maximum allowed tokens. Load it "
+            f"progressively via load_skill_context: mode='manifest' for the "
+            f"section/module index, then mode='section'/'module' per slice."
+        ),
+        "available_modes": ["manifest", "section", "module"],
+        "sections": [_public_section(s) for s in record["sections"]],
+        "modules": [_public_module(m) for m in record["modules"]],
+    }
+    if known_hash is not None:
+        envelope["changed"] = known_hash != record["content_hash"]
+    return envelope
+
+
 def _error(message: str, available: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build an actionable error envelope (does NOT raise).
 
@@ -358,6 +404,7 @@ def load_skill_context(
     section: str | None = None,
     module: str | None = None,
     known_hash: str | None = None,
+    token_cap: int | None = None,
 ) -> dict[str, Any]:
     """Load a slice of one skill's context.
 
@@ -366,7 +413,10 @@ def load_skill_context(
       * ``"section"``  — one section's text (requires ``section``).
       * ``"module"``   — one module's text (requires ``module``).
       * ``"full"``     — the entire SKILL.md body, byte-for-byte identical to
-        the existing zero-argument skill tool for this skill.
+        the existing zero-argument skill tool for this skill. When that body
+        exceeds the per-response token cap (``token_cap`` > env var > default),
+        an oversize pointer envelope (``oversize=True``, no ``content``) naming
+        the manifest/section/module route is returned instead (#393).
 
     The partial-load modes (``section``/``module``/``full``) each return a
     ``content_hash`` (sha256 of exactly the returned slice) and
@@ -408,6 +458,9 @@ def load_skill_context(
         )
 
     if mode == "full":
+        cap = _response_token_cap(token_cap)
+        if record["estimated_tokens_full"] > cap:
+            return _oversize_full_envelope(skill_name, record, cap, known_hash)
         return _slice_envelope(
             {"skill_name": skill_name, "mode": "full"}, record["_full"], known_hash
         )

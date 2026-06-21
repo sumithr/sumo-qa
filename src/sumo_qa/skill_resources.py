@@ -114,7 +114,9 @@ def register_skill_resources(mcp: Any) -> None:
         name="sumo-qa skill full body",
         description=(
             "The entire SKILL.md body for one skill (mode='full'), "
-            "byte-for-byte identical to the existing zero-argument skill tool."
+            "byte-for-byte identical to the existing zero-argument skill tool. "
+            "A body over the host's per-response token cap is returned as an "
+            "oversize pointer to the progressive-loading slices instead (#393)."
         ),
         mime_type="application/json",
     )

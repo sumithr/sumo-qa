@@ -1950,7 +1950,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
           - "module"   — one module's text (pass `module`, an id from the
             manifest);
           - "full"     — the entire SKILL.md body, byte-for-byte identical to the
-            existing zero-argument skill tool for `skill_name`.
+            existing zero-argument skill tool for `skill_name`; a body over the
+            host's per-response token cap is returned as an `oversize` pointer
+            to the manifest/section/module slices instead of failing (#393).
 
         The section/module/full slices each return `content_hash` (sha256 of the
         returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this
