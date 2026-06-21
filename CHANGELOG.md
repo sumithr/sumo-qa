@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.50.2](https://github.com/sumithr/sumo-qa/compare/v0.50.1...v0.50.2) (2026-06-21)
+
+
+### Bug Fixes
+
+* version the diff-impact artifact and align README host claims ([#453](https://github.com/sumithr/sumo-qa/issues/453)) ([b7d4bb2](https://github.com/sumithr/sumo-qa/commit/b7d4bb2c6151511873eab36fbe82cf7e0c175a8b)), closes [#154](https://github.com/sumithr/sumo-qa/issues/154)
+
 ## [0.50.1](https://github.com/sumithr/sumo-qa/compare/v0.50.0...v0.50.1) (2026-06-21)
 
 
