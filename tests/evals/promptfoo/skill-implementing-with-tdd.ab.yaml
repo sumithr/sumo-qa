@@ -17,8 +17,9 @@ defaultTest:
         - {{ ap }}
         {% endfor %}
     - type: javascript
-      value: 'output.match(/boundary value analysis|equivalence partitioning|decision table|state transition|pairwise|exploratory/i) !== null'
-      threshold: 1
+      # Accepted techniques are DERIVED from knowledge/techniques.md headings
+      # (single source of truth), not a hardcoded six-technique allowlist (#350).
+      value: file://asserts/cites-catalogue-technique.js
   options:
     disableVarExpansion: true
     provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}

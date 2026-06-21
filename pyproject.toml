@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.49.1"
+version = "0.50.0"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
@@ -204,6 +204,9 @@ pytest_add_cli_args = [
   # mutated modules via the server). Marker: `mutmut-subprocess-spawning`.
   "--ignore=tests/test_e2e_mcp_initialize.py",
   "--ignore=tests/test_tools_list_contract.py",
+  # Spawns `python -m sumo_qa.installer`; installer imports the server path and
+  # mutated modules transitively. Marker: `mutmut-subprocess-spawning`.
+  "--ignore=tests/test_installer_mcp_binary.py",
   # Builds a wheel via a `pip wheel` subprocess; under mutmut the CWD is mutants/,
   # so the build would target the incomplete mutated tree. Marker:
   # `mutmut-subprocess-spawning`.
@@ -211,6 +214,10 @@ pytest_add_cli_args = [
   # Spawns `python -m sumo_qa.ingest` and a `python -c` subprocess that imports
   # the mutated knowledge_loaders.py. Marker: `mutmut-subprocess-spawning`.
   "--ignore=tests/test_ingest_source_free.py",
+  # Spawns `python -m sumo_qa.doctor`; under mutmut this subprocess imports
+  # trampoline-injected modules without MUTANT_UNDER_TEST. Marker:
+  # `mutmut-subprocess-spawning`.
+  "--ignore=tests/test_doctor.py",
 ]
 tests_dir = ["tests/"]
 # mutmut only copies paths_to_mutate modules into mutants/src/sumo_qa/, leaving the

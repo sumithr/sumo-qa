@@ -9,6 +9,11 @@ from unittest.mock import patch
 
 from sumo_qa import installer
 
+# mutmut-subprocess-spawning: spawns ``python -m sumo_qa.installer`` from a
+# fresh interpreter, so it MUST be excluded from the mutmut gate via
+# [tool.mutmut].pytest_add_cli_args in pyproject.toml. Installer imports
+# trampoline-injected modules transitively without MUTANT_UNDER_TEST.
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 

@@ -621,12 +621,12 @@ OpenAI pricing as of 2026-05:
 
 - Candidate (`gpt-4o-mini`): ~$0.001 per scenario
 - Judge (`gpt-5.5`): ~$0.005 per scenario
-- Full sweep of 16 skills: ~$0.10 per run with `seed: 42` determinism
+- Full sweep of 18 skills: ~$0.11 per run with `seed: 42` determinism
 - The `reviewing-before-merge-adversarial` corpus pins a `gpt-5-mini` candidate
   (reasoning tokens → a few cents per full run, still negligible) — see
   "Adversarial discovery corpus" above for why.
 
-Running a single skill: pennies. Running all 16 skills with `--repeat 5`:
+Running a single skill: pennies. Running all 18 skills with `--repeat 5`:
 ~$0.30 — still negligible, but worth tracking if you iterate frequently.
 
 If cost becomes a concern, swap the judge to `gpt-4o-mini` in
@@ -635,7 +635,7 @@ adversarial).
 
 ## Architecture
 
-All 16 skill YAMLs use `seed: 42` + `temperature: 0.0` for both candidate and judge providers, so runs are reproducible across machines. `disableVarExpansion: true` is set in defaultTest.options to prevent array vars (anti_patterns) from being expanded into per-element tests.
+All 18 skill YAMLs use `seed: 42` + `temperature: 0.0` for both candidate and judge providers, so runs are reproducible across machines. `disableVarExpansion: true` is set in defaultTest.options to prevent array vars (anti_patterns) from being expanded into per-element tests.
 
 Two patterns are used depending on the skill's shape:
 
@@ -649,6 +649,7 @@ For skills where each scenario has a per-scenario ground-truth context
 3. Skill-level rubric in `defaultTest.vars` (`expected_shape`, `anti_patterns`, `technique_tag`)
 4. Decision-table rubric prompt in `defaultTest.options.rubricPrompt`
 5. Candidate wrapper prompt in `prompts:`
+6. A shared `javascript` grounding assertion (`value: file://asserts/cites-catalogue-technique.js`) that passes when the candidate cites a technique name drawn from `knowledge/techniques.md`'s `###` headings; the accepted set is derived from the catalogue, never a hardcoded allowlist (issue #350)
 
 `promptfoo generate dataset --write` against this YAML synthesises additional
 `(user_prompt, ground_truth_context)` pairs on demand.
@@ -737,6 +738,7 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
 | `aggregate.py` | Variance aggregator for multi-sample runs |
+| `asserts/cites-catalogue-technique.js` | Shared `javascript` grounding assertion for the three `skill-implementing-with-tdd*` configs; passes when the candidate cites a technique whose name is a `###` heading in `knowledge/techniques.md`, derived from the catalogue (single source of truth) instead of a hardcoded six-technique allowlist (issue #350) |
 | `README.md` | This file |
 
 ## What's intentionally NOT here

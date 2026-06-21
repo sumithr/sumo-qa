@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.50.0](https://github.com/sumithr/sumo-qa/compare/v0.49.1...v0.50.0) (2026-06-21)
+
+
+### Features
+
+* add security testing skill ([#443](https://github.com/sumithr/sumo-qa/issues/443)) ([84277eb](https://github.com/sumithr/sumo-qa/commit/84277eb8202f150b827fc6155f55dca2fb239c86))
+
+
+### Tests
+
+* **evals:** derive implementing-with-tdd technique allowlist from techniques.md headings ([#350](https://github.com/sumithr/sumo-qa/issues/350)) ([#442](https://github.com/sumithr/sumo-qa/issues/442)) ([0fa2341](https://github.com/sumithr/sumo-qa/commit/0fa2341678e8eaa1961488ec2e2d43108d04f9e9))
+
 ## [0.49.1](https://github.com/sumithr/sumo-qa/compare/v0.49.0...v0.49.1) (2026-06-16)
 
 

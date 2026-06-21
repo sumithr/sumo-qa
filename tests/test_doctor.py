@@ -19,6 +19,11 @@ import pytest
 
 from sumo_qa import doctor
 
+# mutmut-subprocess-spawning: spawns ``python -m sumo_qa.doctor`` from a fresh
+# interpreter, so it MUST be excluded from the mutmut gate via
+# [tool.mutmut].pytest_add_cli_args in pyproject.toml. Otherwise the subprocess
+# imports trampoline-injected modules without MUTANT_UNDER_TEST and crashes.
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
@@ -1036,6 +1041,17 @@ def test_main_respects_no_color_env(monkeypatch, capsys, tmp_path) -> None:
     doctor.main(["--workspace", str(tmp_path)])
     out = capsys.readouterr().out
     assert "\x1b[" not in out
+
+
+def test_stdout_tty_detection_reads_stdout() -> None:
+    """Under pytest capture stdout is not a TTY; cover the real wrapper."""
+    assert doctor._stdout_is_tty() is False
+
+
+def test_should_use_color_falls_back_to_tty(monkeypatch) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setattr(doctor, "_stdout_is_tty", lambda: True)
+    assert doctor._should_use_color() is True
 
 
 def test_main_summary_line_includes_counts(monkeypatch, capsys, tmp_path) -> None:

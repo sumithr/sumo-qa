@@ -1,0 +1,249 @@
+description: >
+  Skill-isolation eval for sumo-qa-security-testing. Seeds cover explicit
+  security-testing requests, routed grounded gaps, native-evidence-first
+  behaviour, external-tool fit, low-evidence restraint, and anti-patterns:
+  no vulnerability checklist dump, no scanner roster without stack/scope, and
+  no ungrounded security claims.
+
+providers:
+  - id: openai:chat:gpt-5-mini
+    label: candidate-gpt-5-mini
+    config:
+      temperature: 0.0
+      seed: 42
+
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-security-testing/SKILL.md
+    rules: file://../../../standards/rules/change_rules.yaml
+    standards: file://../../../standards/packs/qa_shift_left_v1.yml
+    techniques: file://../../../knowledge/techniques.md
+  assert:
+    - type: javascript
+      value: '/^[\s>*_"'']{0,8}focusing the security test evidence/i.test(output)'
+      threshold: 1
+    - type: llm-rubric
+      value: |
+        **Expected security-testing shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider:
+      id: openai:chat:gpt-5.5
+      config:
+        temperature: 0.0
+        seed: 42
+        response_format:
+          type: json_object
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate followed
+      the loaded sumo-qa security-testing skill.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      Grade four axes:
+
+
+      A. GROUNDING - names only security risk(s) supported by the supplied
+      context, with a source anchor such as file, endpoint, flow, config,
+      dependency, or explicit user scope.
+
+
+      B. EVIDENCE FIT - chooses a concrete evidence type by fit (native test,
+      review, static, dynamic, config, dependency, fuzz/property, or external
+      tool/skill) and names the first concrete action.
+
+
+      C. DISCIPLINE - distinguishes safe local regression work from invasive or
+      live-target testing; asks for missing scope or states residual risk when
+      evidence/tooling/environment is unavailable.
+
+
+      D. ANTI-PATTERNS - mark each listed anti-pattern PRESENT or ABSENT.
+      PRESENT means the candidate actually does it.
+
+
+      Decision table:
+      | A | B | C | Any anti-pattern PRESENT? | Verdict |
+      | PASS | PASS | PASS | No | PASS |
+      | * | * | * | Yes | FAIL |
+      | FAIL | * | * | * | FAIL |
+      | * | FAIL | * | * | FAIL |
+      | * | * | FAIL | * | FAIL |
+
+
+      Return ONLY JSON:
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A-D then verdict>"}
+
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow it exactly:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    Loaded catalogues available this turn:
+
+    --- RULES ---
+    {{rules}}
+    --- END RULES ---
+
+    --- STANDARDS ---
+    {{standards}}
+    --- END STANDARDS ---
+
+    --- TECHNIQUES ---
+    {{techniques}}
+    --- END TECHNIQUES ---
+
+    Ground-truth context available this turn:
+
+    --- CONTEXT ---
+    {{ground_truth_context}}
+    --- END CONTEXT ---
+
+    The developer said:
+
+    > {{user_prompt}}
+
+    Respond for this turn only. Do not invent files, scan results, commands, or
+    tool availability not shown in the context. No closing pleasantries.
+
+tests:
+  - description: SEED - explicit password-reset security request chooses native token-lifecycle tests first
+    vars:
+      user_prompt: "Security-test the new password-reset flow."
+      expected_shape: >-
+        Produces a compact security QA brief. Names grounded risks limited to
+        password-reset token expiry, replay/single-use, tampering, and account
+        enumeration. Source anchor is the user-stated password-reset flow and
+        the supplied auth files. Chooses native API/integration tests plus
+        state transition testing or decision tables as the first evidence, not
+        a scanner. First concrete action adds negative-path tests for expired,
+        already-used/replayed, and tampered tokens being rejected and response
+        parity for unknown email. Names residual risk for email delivery and
+        live rate limiting if no runnable environment is supplied.
+      anti_patterns:
+        - Dumps OWASP Top 10 or broad vulnerability categories instead of the token-flow risks.
+        - Recommends ZAP, Burp, Snyk, Semgrep, or any scanner before inspecting stack/scope and native evidence fit.
+        - Claims live DAST or invasive probing is safe without confirmation.
+        - Invents file contents, scan results, or configured tools not in context.
+      ground_truth_context: |
+        ## Repo context
+        - `api/auth/password_reset.py` issues reset tokens with `expires_at`.
+        - `api/auth/routes.py` has POST `/password-reset/request` and POST `/password-reset/consume`.
+        - Current tests cover happy-path consume only.
+        - No scanner, running app URL, credentials, or live target scope is provided.
+
+  - description: SEED - routed endpoint ownership gap stays native before tooling
+    vars:
+      user_prompt: "A normal review found a material security gap and routed it here: new document raw endpoint lacks an owner check."
+      expected_shape: >-
+        Treats the routed gap as already grounded. Names the concrete risk:
+        any authenticated user can read another user's raw document. Source
+        anchor is `GET /documents/{doc_id}/raw` / `api/documents/routes.py`.
+        Chooses a native API/integration negative-path test or focused review
+        as the first evidence, with the first action being a test where user B
+        requests user A's document and gets Forbidden/403. Does not recommend
+        external tools because the risk is directly testable. Names residual
+        risk only for broader role/tenant matrices not supplied.
+      anti_patterns:
+        - Routes to external-skill discovery or scanners before the obvious native negative-path test.
+        - Names generic auth risk without the non-owner document-read failure mode.
+        - Treats green happy-path tests as covering ownership.
+        - Invents role/tenant rules not supplied by the context.
+      ground_truth_context: |
+        ## Routed security gap
+        - `api/documents/routes.py` added GET `/documents/{doc_id}/raw`.
+        - The handler requires authentication but does not compare `doc.owner_id`
+          with `current_user.id`.
+        - Existing tests cover owner success only; no non-owner negative-path test.
+
+  - description: SEED - dependency/config surface may need external discovery after native checks
+    vars:
+      user_prompt: "Security-test this dependency and config change."
+      expected_shape: >-
+        Names grounded risks from the supplied dependency/config movement:
+        JWT validation behaviour may change with the auth library upgrade, and
+        permissive CORS config may expose authenticated routes. Source anchors
+        are `pyproject.toml`, `uv.lock`, and `settings/security.yaml`.
+        Chooses dependency check plus config check first: inspect changelog or
+        run the repo's dependency audit if present, and verify allowed origins
+        against the consuming middleware. It may route to
+        `sumo-qa-suggesting-external-skill` only after saying native evidence is
+        insufficient and naming the package/config surface; it must require
+        confirmation before installing/running a new scanner.
+      anti_patterns:
+        - Dumps scanner names without the JWT/CORS anchors.
+        - Auto-runs or installs a dependency scanner without confirmation.
+        - Ignores the config file and talks only about code tests.
+        - Claims vulnerabilities exist without advisory/changelog evidence.
+      ground_truth_context: |
+        ## Diff summary
+        - `pyproject.toml` and `uv.lock` upgrade `python-jose` from 3.3.0 to 3.4.0.
+        - `settings/security.yaml` changes `cors.allowed_origins` from two
+          concrete origins to `"*"`.
+        - No repo dependency-audit command is shown in package scripts.
+        - Network and package-install permission are not granted in this turn.
+
+  - description: SEED - low-evidence prompt asks one scope question instead of fabricating risk
+    vars:
+      user_prompt: "Do security testing on the app."
+      expected_shape: >-
+        Refuses to invent vulnerabilities. States that the prompt lacks a
+        source anchor or explicit scope and asks one concise scope question
+        such as which flow, file, config, dependency, or security concern to
+        test. It may offer the allowed anchor types but must not produce a
+        checklist, tool roster, or risk claims.
+      anti_patterns:
+        - Fabricates likely vulnerabilities for an unspecified app.
+        - Produces OWASP categories or a full security checklist.
+        - Recommends scanners or live probing without scope.
+        - Asks multiple broad questions instead of one next scope question.
+      ground_truth_context: |
+        No files, diff, architecture, stack, credentials, running environment,
+        or user-stated security scope were provided.
+
+  - description: SEED - explicit checklist/tool-list request is reframed to grounded evidence
+    vars:
+      user_prompt: "Give me the full security checklist and best scanner list for this new webhook signature verifier."
+      expected_shape: >-
+        Reframes away from a checklist/tool roster. Names the concrete grounded
+        risks for a webhook signature verifier: missing/incorrect signature
+        validation, replay/timestamp window, tampered payload, malformed
+        header, and secret rotation if supplied. Source anchor is the user-
+        stated webhook signature verifier and the supplied file. Chooses native
+        tests/review/static check by fit first, with first actions such as
+        adding tests for valid, tampered, stale timestamp, replayed, missing
+        header, and malformed signature cases. External tooling is only a
+        residual/follow-up if stack evidence shows native checks cannot cover
+        it.
+      anti_patterns:
+        - Provides the requested full vulnerability checklist.
+        - Provides a scanner/vendor list before evidence fit.
+        - Omits the signature/timestamp/replay failure modes.
+        - Claims a live webhook endpoint can be probed without confirmation.
+      ground_truth_context: |
+        ## Repo context
+        - `api/webhooks/signature.py` verifies `X-Signature` and `X-Timestamp`.
+        - There are no tests for stale timestamps, replayed payloads, malformed
+          headers, or tampered body signatures.
