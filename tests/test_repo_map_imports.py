@@ -76,6 +76,29 @@ def test_scan_still_emits_likely_tests_alongside_imports(tmp_path: Path):
     assert "likely_tests" in types
 
 
+@_needs_ts
+def test_scan_edges_are_globally_sorted_across_both_edge_types(tmp_path: Path):
+    # The documented contract (docs/REPO-MAP.md): the FULL edge list is sorted by
+    # (source, target). Concatenating per-layer-sorted likely_tests + imports
+    # lists is not enough: an imports edge whose source sorts BEFORE a
+    # likely_tests edge's source breaks the global order.
+    #
+    # Fixture: test_calc.py imports calc.py -> both a likely_tests edge AND an
+    # imports edge from file:test_calc.py. aaa.py imports calc.py -> an imports
+    # edge from file:aaa.py, which sorts before file:test_calc.py. With plain
+    # concatenation the likely_tests (test_calc -> calc) precedes the imports
+    # (aaa -> calc), so the combined list is NOT globally ascending.
+    _write(tmp_path, "calc.py", "def add(a, b):\n    return a + b\n")
+    _write(tmp_path, "aaa.py", "import calc\n")
+    _write(tmp_path, "test_calc.py", "import calc\n\ndef test_add():\n    assert calc\n")
+
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    types = {e.type for e in repo_map.edges}
+    assert "imports" in types and "likely_tests" in types  # fixture sanity
+    keys = [(e.source, e.target) for e in repo_map.edges]
+    assert keys == sorted(keys)  # the WHOLE edge list is globally ascending
+
+
 # ---------- node-only edges (no dangling) ----------
 
 
@@ -121,7 +144,10 @@ def test_dedup_keeps_strongest_confidence(tmp_path: Path):
 
 @_needs_ts
 def test_import_edges_are_sorted_and_stable(tmp_path: Path):
-    _write(tmp_path, "a.py", "import b\nimport c\n")
+    # a.py imports c THEN b, so the natural insertion order is non-ascending
+    # ([(a,c), (a,b)]). Only the orchestrator's final sort puts (a,b) before
+    # (a,c); deleting that sort leaves the assertion below RED.
+    _write(tmp_path, "a.py", "import c\nimport b\n")
     _write(tmp_path, "b.py", "import c\n")
     _write(tmp_path, "c.py", "x = 1\n")
 

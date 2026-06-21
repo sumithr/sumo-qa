@@ -217,7 +217,11 @@ class PythonResolver:
         # `from .` (level 1) anchors at the importer's own package; each extra
         # dot strips one more directory.
         up = imp.level - 1
-        if up > len(package):
+        # A relative import that consumes ALL package components (up == len) or
+        # more walks past the top-level package - Python rejects this ("attempted
+        # relative import beyond top-level package"). Anchoring at the repo root
+        # would fabricate a false edge to a root-level file, so resolve nothing.
+        if up >= len(package):
             return []
         base = package[: len(package) - up] if up else list(package)
         tail = imp.module.split(".") if imp.module else []
@@ -237,12 +241,32 @@ class PythonResolver:
         for root in self._ancestor_roots(importer):
             base = "/".join([*root, *module_parts]) if root else "/".join(module_parts)
             hits: list[str] = []
-            for cand in self._probe(base, imp.names):
+            for cand in self._probe(base, imp.names, module_parts, root, file_set):
                 if cand in file_set and cand not in hits:
                     hits.append(cand)
             if hits:
                 return hits
         return []
+
+    def _shadowing_module(
+        self, module_parts: list[str], root: list[str], file_set: set[str]
+    ) -> str | None:
+        """The path of an INTERMEDIATE dotted-module component that resolves to a
+        ``.py`` module, shadowing a same-named package dir, or ``None``.
+
+        ``import pkg.sub`` requires ``pkg`` to be a package: a ``.py`` file
+        shadows a same-named dir, and a plain module has no submodules. So if
+        ``pkg.py`` exists, ``pkg`` is a module and ``pkg.sub`` cannot descend into
+        ``pkg/``: the import resolves to ``pkg.py`` and ``pkg/sub.py`` is a false
+        edge. Walks the module components (excluding the final one, which is the
+        leaf the caller probes normally) and returns the first whose ``.py``
+        sibling exists. Single-component modules never shadow (no intermediate)."""
+        for depth in range(1, len(module_parts)):
+            prefix = [*root, *module_parts[:depth]]
+            module_file = "/".join(prefix) + ".py"
+            if module_file in file_set:
+                return module_file
+        return None
 
     @staticmethod
     def _ancestor_roots(importer: str) -> list[list[str]]:
@@ -254,7 +278,14 @@ class PythonResolver:
             roots.append(parts[:i])
         return roots
 
-    def _probe(self, base: str, names: tuple[str, ...]) -> list[str]:
+    def _probe(
+        self,
+        base: str,
+        names: tuple[str, ...],
+        module_parts: list[str] | None = None,
+        root: list[str] | None = None,
+        file_set: set[str] | None = None,
+    ) -> list[str]:
         """Module-path -> candidate file paths.
 
         Probes ``base.py`` and (PEP-328 implicit namespace package) the
@@ -263,7 +294,16 @@ class PythonResolver:
         qualified (dotted) specifier is skipped — it isn't a plain submodule
         name. Order is module first, then specifiers in source order, so
         ``resolve``'s first-seen de-dup is deterministic.
-        """
+
+        When ``module_parts``/``root``/``file_set`` are supplied (the absolute
+        path), an intermediate dotted-module component shadowed by a ``.py``
+        module collapses resolution to that shadowing file: ``import pkg.sub``
+        with ``pkg.py`` present resolves to ``pkg.py``, never ``pkg/sub.py`` (a
+        module has no submodules)."""
+        if module_parts is not None and root is not None and file_set is not None:
+            shadow = self._shadowing_module(module_parts, root, file_set)
+            if shadow is not None:
+                return [shadow]
         candidates: list[str] = []
         if base:
             candidates.append(f"{base}.py")

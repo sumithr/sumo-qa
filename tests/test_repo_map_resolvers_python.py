@@ -133,6 +133,16 @@ def test_resolve_relative_overshoot_past_root_yields_nothing():
     assert resolver.resolve("pkg/a.py", imp, files) == []
 
 
+def test_resolve_relative_consuming_all_package_components_yields_nothing():
+    # Boundary: a 2-component package (pkg/sub/) with 3 dots consumes BOTH
+    # components and walks past the top-level package. Python rejects this
+    # ("attempted relative import beyond top-level package"); it must NOT anchor
+    # at the repo root and fabricate an edge to a root-level x.py.
+    imp = RawImport(module="", level=3, names=("x",), function_local=False)
+    files = {"pkg/sub/a.py", "x.py"}
+    assert resolver.resolve("pkg/sub/a.py", imp, files) == []
+
+
 def test_resolve_absolute_syspath_walkup_prefers_deepest_root():
     # The same module name exists under two candidate roots; the deepest
     # ancestor of the importer (src/app/) must win over the shallower (src/).
@@ -148,11 +158,22 @@ def test_resolve_specifier_submodule_probing():
     assert resolver.resolve("app/main.py", imp, files) == ["pkg/sub.py"]
 
 
+def test_resolve_dotted_module_does_not_probe_under_a_shadowing_module():
+    # A top-level module `pkg.py` shadows a same-named package dir `pkg/`; a
+    # module has no submodules, so `import pkg.sub` must resolve to the module
+    # `pkg.py`, never fabricate an edge to `pkg/sub.py` under the shadowed dir.
+    imp = RawImport(module="pkg.sub", level=0, names=(), function_local=False)
+    files = {"pkg.py", "pkg/sub.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg.py"]
+
+
 def test_resolve_qualified_specifier_is_skipped():
     # A dotted specifier is not a plain submodule name; only the module itself
-    # is probed, never a fabricated `pkg/a.b.py`.
+    # is probed, never a fabricated `pkg/a.b.py`. The fabricated path is present
+    # in the file set so the skip is discriminating: dropping the guard would
+    # additionally emit `pkg/a.b.py`.
     imp = RawImport(module="pkg", level=0, names=("a.b",), function_local=False)
-    files = {"pkg/__init__.py", "pkg/a.py"}
+    files = {"pkg/__init__.py", "pkg/a.b.py"}
     assert resolver.resolve("app/main.py", imp, files) == ["pkg/__init__.py"]
 
 
@@ -164,8 +185,10 @@ def test_resolve_external_package_yields_nothing():
 
 
 def test_resolve_dedups_module_and_specifier_collisions():
-    # If module-probe and specifier-probe land on the same existing file, it
-    # appears once (first-seen order preserved).
-    imp = RawImport(module="pkg", level=0, names=("pkg",), function_local=False)
-    files = {"pkg.py"}
-    assert resolver.resolve("app/main.py", imp, files) == ["pkg.py"]
+    # If module-probe and specifier-probe land on the SAME existing file, it
+    # appears once. `from pkg import __init__` probes pkg/__init__.py as the
+    # module barrel AND as the submodule pkg/__init__.py, so both probes collide
+    # on one real file; dedup must collapse them to a single entry.
+    imp = RawImport(module="pkg", level=0, names=("__init__",), function_local=False)
+    files = {"pkg/__init__.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg/__init__.py"]

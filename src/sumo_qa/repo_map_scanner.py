@@ -213,6 +213,12 @@ def scan_repo(root: Path | str, *, generator_version: str) -> RepoMap:
     # extra absent it appends a graceful-degradation warning and returns no
     # edges, so the likely_tests edges above still stand and the map stays valid.
     edges += infer_imports_edges(nodes, root_path, warnings)
+    # Each layer is internally sorted, but concatenating two sorted lists is not
+    # globally ordered (an imports edge can sort before a likely_tests edge). The
+    # documented determinism contract (docs/REPO-MAP.md) is that the WHOLE edge
+    # list is ordered by (source, target); re-sort the combined list to honour
+    # it, with type as a deterministic tiebreaker when a pair has both edge kinds.
+    edges.sort(key=lambda e: (e.source, e.target, e.type))
     commands = _extract_commands(root_path)
     git_commit = _detect_git_commit(root_path)
 
