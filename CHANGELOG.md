@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.51.0](https://github.com/sumithr/sumo-qa/compare/v0.50.3...v0.51.0) (2026-06-22)
+
+
+### Features
+
+* **repo-map:** add language-agnostic imports edge layer via tree-sitter ([#460](https://github.com/sumithr/sumo-qa/issues/460)) ([f3a7f0e](https://github.com/sumithr/sumo-qa/commit/f3a7f0e994d3d45662076c1ae391224ab8af988b))
+
 ## [0.50.3](https://github.com/sumithr/sumo-qa/compare/v0.50.2...v0.50.3) (2026-06-21)
 
 
