@@ -1,13 +1,13 @@
 {
   "files": {
-    ".claude-plugin/marketplace.json": "7c85503a597d2d6295c99bf398f6f31246be628b878d48d9bacc6bbb74b595e1",
-    ".claude-plugin/plugin.json": "94d8f7beb74cdcd20f6bfc534a87d16450417adf810db2af1b2139c592ca0425",
-    ".codex-plugin/plugin.json": "157fbc49465d8f3b988a1467ab289b7a80dbbd72441fb4369e291a5b33882539",
+    ".claude-plugin/marketplace.json": "ce6d5654cd9a743945ae175342299c9f0eee12b2623e2adac88893270085ba72",
+    ".claude-plugin/plugin.json": "d11fab0e3485dfc117a22b4a55938a3b8cf1ce07c981ef2c507b5a9a0f6bc0f4",
+    ".codex-plugin/plugin.json": "4169df3da00afd90d54c09b0a30ccadd2fdd782691b46e0bad3374a53b401632",
     ".mcp.json": "a7b8d1a7539b36b432bb9ef9529caf0f6422e6c835c1cfbe6db03b01548a7e5b",
     "docs/host-adapters.md": "cb7ff575c8c406fd7b3a754e624bc2c196df8d555de424de2dd725334a10bf2d",
     "hooks/hooks-codex.json": "b1aa5aa5abc8f47401a558ceac37884a2cc51060ae29d1d9a66c65fb34f7542e",
     "hooks/hooks.json": "da88de44e85597e8269f8ba998bd04a2af82522c23cca8f8dece75f8b0e926ca",
-    "src/sumo_qa/_data/plugin_metadata.json": "b56616d0ee2afea6d9ce1f751c84a63f56594bd6059a773227956d441debf9e8"
+    "src/sumo_qa/_data/plugin_metadata.json": "40d9ed8eda2ec211c2d7a36e9469636361c94b2eeef9b2be0ceb3e7c238a44a0"
   },
   "generator": "plugin_packaging.plugin_generator"
 }
