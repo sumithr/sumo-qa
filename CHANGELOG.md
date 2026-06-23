@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.51.1](https://github.com/sumithr/sumo-qa/compare/v0.51.0...v0.51.1) (2026-06-23)
+
+
+### Bug Fixes
+
+* **deps:** floor vulnerable transitive deps and mirror pip-audit in CI ([#464](https://github.com/sumithr/sumo-qa/issues/464)) ([2536376](https://github.com/sumithr/sumo-qa/commit/2536376029c67bb2ede4369a0ef9dbdbd9d3c472))
+
 ## [0.51.0](https://github.com/sumithr/sumo-qa/compare/v0.50.3...v0.51.0) (2026-06-22)
 
 
