@@ -74,7 +74,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: shellcheck
-        run: shellcheck hooks/session-start scripts/check_markdown_links.sh install.sh
+        run: shellcheck hooks/session-start scripts/check_markdown_links.sh scripts/pip_audit.sh install.sh
 
   markdown-links:
     name: markdown link existence
@@ -119,3 +119,28 @@ jobs:
 
       - name: Run em-dash gate
         run: python scripts/check_no_em_dashes.py
+
+  pip-audit:
+    name: pip-audit (dependency vulnerabilities)
+    # CI mirror of the local `pip-audit` pre-commit hook so a contributor who
+    # skipped `pre-commit install` still gets the same enforcement. Uses the
+    # same setup-python + editable-install pattern as the ruff/mypy jobs above,
+    # then runs scripts/pip_audit.sh, the SAME wrapper the pre-commit hook
+    # calls, so `--strict` and the suppression list are single-sourced and can
+    # never drift between local and CI.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies + pip-audit
+        run: python -m pip install -e ".[dev,vertex]" pip-audit
+
+      - name: Run pip-audit gate
+        run: ./scripts/pip_audit.sh

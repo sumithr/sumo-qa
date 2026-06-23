@@ -108,28 +108,20 @@ repos:
 
       - id: pip-audit
         name: pip-audit (PyPI advisory DB)
-        # Uses the project's uv-managed env so the audit sees the same
-        # resolved tree Dependabot does. `uv run --with pip-audit` lazily
-        # installs pip-audit into a uv-cached env — no permanent dev-dep
-        # cost. pip-audit has no severity filter, so this fails on any
-        # advisory; suppress false positives via `--ignore-vuln <GHSA-…>`.
-        # PYSEC-2025-183 ignored: disputed by the PyJWT supplier (the
-        # "vulnerability" is that the library lets callers pick a weak HMAC
-        # key length — argued to be the application's responsibility). OSV
-        # lists every version 0+ as affected with no `fixed` event, so the
-        # advisory cannot be remediated by upgrading. Revisit if upstream
-        # ships a strict-key-length enforcement mode and rates this resolved.
-        # CVE-2025-71176 ignored: local tmpdir symlink priv-esc/DoS in pytest's
-        # /tmp/pytest-of-{user} handling (CWE-379, CVSS 6.8), fixed in pytest
-        # 9.0.3. NOT remediable here — pytest is a dev/test-only dep (never in
-        # the published wheel) and the markdown-link gate's pytest-check-links
-        # (latest 0.10.1, unmaintained) hard-caps pytest<9, so the fixed pytest
-        # is unreachable. Exploitation needs a hostile local user racing the
-        # test run on a shared host. Revisit if a pytest>=9-compatible
-        # link-checker ships (then bump pytest to >=9.0.3 and drop this).
-        entry: uv run --with pip-audit pip-audit --strict --ignore-vuln PYSEC-2025-183 --ignore-vuln CVE-2025-71176
+        # Uses the project's uv-managed env so the audit sees the same resolved
+        # tree Dependabot does. `uv run --extra dev --extra vertex` installs the
+        # same optional extras the CI mirror's `pip install -e ".[dev,vertex]"`
+        # does, so security floors that live in those extras (e.g. the bleach
+        # and tornado dev floors) are actually audited; without the flags
+        # `uv run` audits only the base runtime env and silently skips the
+        # extras. `--with pip-audit` lazily adds pip-audit to a uv-cached env
+        # (no permanent dev-dep cost). The audit invocation, `--strict`, and the
+        # suppression list (with per-advisory rationale) all live in
+        # scripts/pip_audit.sh, shared verbatim with that CI mirror so local and
+        # pipeline cannot drift. Add or drop an ignore there, never inline here.
+        entry: uv run --extra dev --extra vertex --with pip-audit scripts/pip_audit.sh
         language: system
-        files: ^(pyproject\.toml|uv\.lock)$
+        files: ^(pyproject\.toml|uv\.lock|scripts/pip_audit\.sh)$
         pass_filenames: false
         require_serial: true
         stages: [pre-commit]
