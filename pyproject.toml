@@ -41,12 +41,28 @@ dependencies = [
   "mcp>=1.12,<2",
   "pydantic>=2.8,<3",
   "PyYAML>=6,<7",
-  # Security floor for a transitive dependency pulled by `mcp` (FastMCP's
-  # Starlette transport). starlette < 1.0.1 is affected by PYSEC-2026-161.
-  # Declared directly (not just a uv constraint) so the floor propagates to the
-  # built wheel and protects pip/Poetry installers too, not only uv resolution.
-  # Drop once `mcp` requires a safe starlette floor itself.
-  "starlette>=1.0.1",
+  # Security floors for transitive deps pulled by `mcp` (FastMCP). mcp 1.28.0
+  # still declares loose floors (pyjwt>=2.10.1, python-multipart>=0.0.9,
+  # pydantic-settings>=2.5.2, starlette>=0.27), so the vulnerable versions
+  # resolve unless we floor them here. Declared directly (not just a uv
+  # constraint) so the floor propagates to the built wheel and protects
+  # pip/Poetry installers too, not only uv resolution. Drop each once `mcp`
+  # (or the named parent) requires a safe floor itself.
+  #
+  # starlette < 1.3.1: GHSA-86qp-5c8j-p5mr, GHSA-wqp7-x3pw-xc5r,
+  #   GHSA-x746-7m8f-x49c, GHSA-jp82-jpqv-5vv3, GHSA-82w8-qh3p-5jfq.
+  "starlette>=1.3.1",
+  # pyjwt < 2.13.0: GHSA-xgmm-8j9v-c9wx, GHSA-993g-76c3-p5m4,
+  #   GHSA-jq35-7prp-9v3f, GHSA-w7vc-732c-9m39, GHSA-fhv5-28vv-h8m8.
+  "pyjwt>=2.13.0",
+  # python-multipart < 0.0.31: GHSA-5rvq-cxj2-64vf, GHSA-vffw-93wf-4j4q,
+  #   GHSA-6jv3-5f52-599m, GHSA-v9pg-7xvm-68hf.
+  "python-multipart>=0.0.31",
+  # pydantic-settings < 2.14.2: GHSA-4xgf-cpjx-pc3j.
+  "pydantic-settings>=2.14.2",
+  # cryptography < 48.0.1: GHSA-537c-gmf6-5ccf. In the core closure via
+  # mcp[crypto] -> pyjwt[crypto] -> cryptography (also via the `vertex` extra).
+  "cryptography>=48.0.1",
   # TOML reader for the slice-2 repo-map scanner's pyproject.toml parsing.
   # tomllib is stdlib on 3.11+; 3.10 (still supported per requires-python)
   # needs the tomli backport. dev extras already pull tomli for plugin_packaging,
@@ -80,6 +96,17 @@ dev = [
   # removed but the link wasn't updated. Anchor checking stays OFF
   # (upstream bug in 0.10.1); revisit when > 0.10.x ships.
   "pytest-check-links>=0.10,<1",
+  # Security floors for nbconvert/jupyter deps pulled transitively by
+  # pytest-check-links (dev-only; never in the published wheel). Its 0.10.1
+  # resolution drags in vulnerable bleach/tornado, so the pip-audit hook fails
+  # until they are floored here. Drop once a maintained link-checker replaces
+  # pytest-check-links (see the pytest<9 cap note above).
+  # tornado < 6.5.7: GHSA-pw6j-qg29-8w7f, CVE-2026-49853, CVE-2026-49854,
+  #   CVE-2026-49855.
+  "tornado>=6.5.7",
+  # bleach < 6.4.0: GHSA-gj48-438w-jh9v, GHSA-8rfp-98v4-mmr6, and
+  #   GHSA-g75f-g53v-794x (the last affects exactly 6.3.0; 6.4.0 exits its range).
+  "bleach>=6.4.0",
   "ruff>=0.5,<1",
   # Static type checking — see [tool.mypy]. mypy is pure-Python (no Node
   # toolchain), matching the project's Python-only CI. types-PyYAML supplies
