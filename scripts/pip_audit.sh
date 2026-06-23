@@ -29,4 +29,18 @@ for id in "${IGNORES[@]}"; do
   args+=(--ignore-vuln "$id")
 done
 
-exec pip-audit --strict "${args[@]}" "$@"
+# --skip-editable: the callers install sumo-qa itself editable (CI `pip install
+# -e`, locally `uv run`), and pip-audit audits the whole environment. Without
+# this flag it tries to look the project up on PyPI and, on any version not yet
+# published (every release branch, where the version is bumped before publish),
+# fails with "Dependency not found on PyPI" -- a spurious red that has nothing
+# to do with dependency vulnerabilities. We skip auditing the local project; its
+# dependencies are still audited.
+#
+# No --strict: `--strict` would re-escalate the skipped editable into a hard
+# "distribution marked as editable" failure, reintroducing the same red. It is
+# not needed for the gate's job -- pip-audit exits non-zero on any *found*
+# advisory regardless of --strict (it has no severity filter); --strict only
+# adds "fail if a dependency cannot be collected", which for us was solely the
+# editable self.
+exec pip-audit --skip-editable "${args[@]}" "$@"

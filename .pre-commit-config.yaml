@@ -115,7 +115,7 @@ repos:
         # and tornado dev floors) are actually audited; without the flags
         # `uv run` audits only the base runtime env and silently skips the
         # extras. `--with pip-audit` lazily adds pip-audit to a uv-cached env
-        # (no permanent dev-dep cost). The audit invocation, `--strict`, and the
+        # (no permanent dev-dep cost). The audit invocation, its flags, and the
         # suppression list (with per-advisory rationale) all live in
         # scripts/pip_audit.sh, shared verbatim with that CI mirror so local and
         # pipeline cannot drift. Add or drop an ignore there, never inline here.
