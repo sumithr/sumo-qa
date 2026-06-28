@@ -171,7 +171,9 @@ What the slice-2 scanner produces:
   PEP-328 implicit namespace packages, an absolute-import `sys.path` walk-up
   that prefers the deepest source root, and specifier submodule probing;
   wildcard `from x import *` and qualified specifiers are skipped). Other
-  languages are follow-on slices.
+  languages are follow-on slices. A **PHP** resolver also ships: PSR-4 `use`
+  mapping via the `composer.json` autoload roots, relative `require`/`include`
+  paths, vendor/external namespaces dropped.
   This layer is **optional**: it needs the `tree-sitter` parser, shipped as the
   `sumo-qa[treesitter]` extra. With the extra absent the scan still succeeds: it
   records a `RepoMapWarning` and emits only `likely_tests` edges, so the map
