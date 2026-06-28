@@ -1,0 +1,182 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+"""Java import resolver for the repo-map import-edge layer (#357).
+
+A follow-on resolver of the Approach-C framework the foundation (#354) shipped.
+``extract`` reads ``import`` declarations off a tree-sitter parse of Java
+source; ``resolve`` ports Understand-Anything's Java path rules to map each raw
+import to the repo-relative file(s) it references.
+
+Resolution rules (ported from UA):
+
+- **Fully-qualified type imports** map the dotted name to a source file under a
+  source root: ``import a.b.C;`` -> ``<root>/a/b/C.java``. The source root is
+  not known a priori (``src/main/java``, ``src/``, a multi-module prefix, or
+  nothing), so resolution matches any file whose path ends with the package
+  path ``a/b/C.java`` at a path-segment boundary - covering the Maven/Gradle
+  ``src/main/java`` layout and flat layouts alike.
+- **Wildcard package imports** fan out: ``import a.b.*;`` resolves to every
+  ``.java`` file directly inside a package directory ``a/b`` (one edge per
+  type in the package). Sub-packages are not part of ``a.b.*`` and are excluded.
+- **Static imports** name a member of a type, so the importable *file* is the
+  type: ``import static a.b.C.method;`` resolves to ``a/b/C.java`` (the trailing
+  member is stripped in ``extract``); ``import static a.b.C.*;`` likewise targets
+  the single type ``a.b.C``, NOT a package fan-out.
+- **JDK and external packages are dropped**: ``java.*`` / ``javax.*`` are
+  dropped by an explicit guard, and any other package absent from the repo is
+  dropped naturally (no file matches) - both yield ``[]``, never an edge.
+
+Java imports are always top-level (no function-local / lazy form and no
+relative imports), so every :class:`RawImport` carries ``level=0`` and
+``function_local=False`` - the orchestrator tags every Java import edge
+``high`` confidence.
+"""
+
+from __future__ import annotations
+
+from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, register
+from sumo_qa.repo_map_treesitter import TSNode, parse
+
+JAVA_CONFIG = LanguageConfig(id="java", extensions=(".java",))
+
+# Grammar kinds, pinned to tree-sitter-language-pack's Java grammar (probed
+# against the installed binding). `import a.b.C;` parses to an
+# `import_declaration` holding a `scoped_identifier` (the dotted name); a
+# wildcard adds an `asterisk` sibling; a static import adds a `static` keyword.
+_IMPORT_DECL = "import_declaration"  # `import a.b.C;`
+_SCOPED_IDENTIFIER = "scoped_identifier"  # `a.b.C`
+_IDENTIFIER = "identifier"  # a single-segment name (defensive)
+_ASTERISK = "asterisk"  # the `*` of a wildcard import
+_STATIC = "static"  # the `static` keyword of a static import
+
+# The package-fan-out marker carried in RawImport.names: `import a.b.*` records
+# names=("*",) so resolve() distinguishes a package wildcard (fan out) from a
+# single-type import (one file). Mirrors the framework's use of `names` to carry
+# resolve-time intent without widening the shared RawImport contract.
+_WILDCARD = "*"
+
+# JDK root packages: imports under these never resolve to a repo file. Dropped
+# by an explicit guard (not merely by no-match) so the rule is stated, and so a
+# pathological in-repo `java/...` file can't fabricate a JDK edge.
+_JDK_ROOTS = frozenset({"java", "javax"})
+
+_JAVA_SUFFIX = ".java"
+
+
+class JavaResolver:
+    """Approach-C resolver for Java."""
+
+    config = JAVA_CONFIG
+
+    def extract(self, src: bytes) -> list[RawImport]:
+        """Return the ``import`` declarations in ``src`` as :class:`RawImport`.
+
+        Walks the parse tree for ``import_declaration`` nodes (Java imports are
+        top-level, so a flat scan suffices). Each yields one record: a single
+        type import keeps its full dotted name; a wildcard keeps the package and
+        is flagged with the ``"*"`` fan-out marker; a static member import drops
+        the trailing member to leave the resolvable type name.
+        """
+        root = parse("java", src)
+        raws: list[RawImport] = []
+        for node in root.descendants():
+            if node.kind == _IMPORT_DECL:
+                raw = self._import(node)
+                if raw is not None:
+                    raws.append(raw)
+        return raws
+
+    @staticmethod
+    def _import(node: TSNode) -> RawImport | None:
+        """One ``import_declaration`` -> a :class:`RawImport`, or ``None``.
+
+        Reads the dotted name (a ``scoped_identifier`` / ``identifier`` child),
+        and whether the declaration is ``static`` and/or a ``*`` wildcard:
+
+        - ``import a.b.*;`` -> module ``a.b``, names ``("*",)`` (package fan-out)
+        - ``import static a.b.C.*;`` -> module ``a.b.C``, names ``()`` (the type)
+        - ``import static a.b.C.m;`` -> module ``a.b.C``, names ``()`` (member
+          ``m`` dropped)
+        - ``import a.b.C;`` -> module ``a.b.C``, names ``()``
+        """
+        is_static = False
+        is_wildcard = False
+        dotted = ""
+        for child in node.children:
+            kind = child.kind
+            if kind == _STATIC:
+                is_static = True
+            elif kind == _ASTERISK:
+                is_wildcard = True
+            elif kind in (_SCOPED_IDENTIFIER, _IDENTIFIER):
+                dotted = child.text
+        if not dotted:  # pragma: no cover -- defensive: a valid import always names a path
+            return None
+        if is_wildcard and not is_static:
+            # `import a.b.*` -> package a.b, fan out across its files.
+            return RawImport(module=dotted, level=0, names=(_WILDCARD,), function_local=False)
+        if is_static and not is_wildcard:
+            # `import static a.b.C.member` -> the type is a.b.C; drop the member.
+            type_fqn = dotted.rsplit(".", 1)[0] if "." in dotted else dotted
+            return RawImport(module=type_fqn, level=0, names=(), function_local=False)
+        # `import a.b.C;` and `import static a.b.C.*;` both target one type file.
+        return RawImport(module=dotted, level=0, names=(), function_local=False)
+
+    def resolve(self, importer: str, imp: RawImport, file_set: set[str]) -> list[str]:
+        """Map one raw import to the repo-relative file path(s) it references.
+
+        Returns repo-relative paths that exist in ``file_set``, sorted for
+        determinism; an empty list means the import points outside the repo
+        (JDK, external package, unresolved) - never an error. ``importer`` is
+        unused: Java imports are fully qualified, so resolution is independent of
+        the importing file's location (unlike Python's relative / walk-up rules).
+        """
+        if self._is_jdk(imp.module):
+            return []
+        package_path = imp.module.replace(".", "/")
+        if imp.names == (_WILDCARD,):
+            return self._resolve_package(package_path, file_set)
+        return self._resolve_type(package_path, file_set)
+
+    @staticmethod
+    def _is_jdk(module: str) -> bool:
+        """True when ``module``'s top-level package is a JDK root (``java`` /
+        ``javax``) - those never resolve to a repo file."""
+        top = module.split(".", 1)[0]
+        return top in _JDK_ROOTS
+
+    @staticmethod
+    def _resolve_type(package_path: str, file_set: set[str]) -> list[str]:
+        """Files whose path is the type path ``a/b/C`` + ``.java`` at a
+        path-segment boundary.
+
+        Matches ``a/b/C.java`` exactly (flat layout) or any path ending in
+        ``/a/b/C.java`` (under a source root). The leading-slash boundary keeps
+        the match honest: ``b/C.java`` matches ``x/b/C.java`` but not
+        ``lib/C.java``. Multiple matches (the same type duplicated across source
+        roots) are all returned, sorted."""
+        suffix = package_path + _JAVA_SUFFIX
+        boundary = "/" + suffix
+        return sorted(f for f in file_set if f == suffix or f.endswith(boundary))
+
+    @staticmethod
+    def _resolve_package(package_path: str, file_set: set[str]) -> list[str]:
+        """Every ``.java`` file directly inside the package directory
+        ``package_path`` (``a/b``), sorted.
+
+        A file belongs to package ``a/b`` when its parent directory is ``a/b``
+        exactly (flat layout) or ends in ``/a/b`` (under a source root). Files in
+        sub-packages (``a/b/sub/Deep.java``, parent ``.../a/b/sub``) and sibling
+        packages are excluded by the same path-segment-boundary check used for
+        type resolution."""
+        boundary = "/" + package_path
+        hits: list[str] = []
+        for f in file_set:
+            if not f.endswith(_JAVA_SUFFIX) or "/" not in f:
+                continue
+            parent = f.rsplit("/", 1)[0]
+            if parent == package_path or parent.endswith(boundary):
+                hits.append(f)
+        return sorted(hits)
+
+
+register(JavaResolver())

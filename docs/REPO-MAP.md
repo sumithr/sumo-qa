@@ -170,8 +170,12 @@ What the slice-2 scanner produces:
   **Python** reference resolver ships first (relative-import dot-anchoring,
   PEP-328 implicit namespace packages, an absolute-import `sys.path` walk-up
   that prefers the deepest source root, and specifier submodule probing;
-  wildcard `from x import *` and qualified specifiers are skipped). Other
-  languages are follow-on slices.
+  wildcard `from x import *` and qualified specifiers are skipped). A **Java**
+  resolver also ships: it maps a fully-qualified `import a.b.C` to a source file
+  under any source root (e.g. `src/main/java/a/b/C.java`), fans a wildcard
+  `import a.b.*` out to every type in the package directory, resolves a static
+  import to its declaring type, and drops `java.*` / `javax.*` and other
+  external packages. Other languages are follow-on slices.
   This layer is **optional**: it needs the `tree-sitter` parser, shipped as the
   `sumo-qa[treesitter]` extra. With the extra absent the scan still succeeds: it
   records a `RepoMapWarning` and emits only `likely_tests` edges, so the map
@@ -349,7 +353,7 @@ regenerate locally before comparison.
 | 5 | `sumo_qa_query_repo_map`, bounded ranked search over the map; wiring of `sumo-qa-reviewing-before-merge`, `sumo-qa-preparing-for-work`, and `sumo-qa-strategising` to prefer the map when present and fall back to a repo walk when absent |
 | 6 | `sumo-qa analyze` / `sumo-qa status` CLI commands (#160): terminal-facing wrappers over the same `scan_repo` / load+validate services, with `--json`; bare `sumo-qa` still launches the MCP server |
 | 7 | Local QA report (#157): `sumo-qa report` / `sumo_qa_generate_qa_report` compose the repo-map, diff-impact, risk-ledger, and context-bundle artifacts into the static `.sumo-qa/qa-report.html` page with honest not-available states ([QA-REPORT.md](QA-REPORT.md)) |
-| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra), Python reference resolver shipped; every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
+| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra), Python and Java resolvers shipped; every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
 
 `configured_by` and `command_runs` edges are deferred. The scanner emits
 `likely_tests` edges always, and `imports` edges when the `[treesitter]` extra
