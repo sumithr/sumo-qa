@@ -251,7 +251,11 @@ It reports:
   convention (e.g. an unusual CamelCase layout), not true zero coverage. Lets a
   consumer distinguish "the mapper couldn't link these" from "these are
   genuinely untested".
-- **`affected_nodes`**: one-hop neighbours of the changed nodes.
+- **`affected_nodes`**: one-hop neighbours of the changed nodes, ranked by
+  coupling strength. Each carries a `connecting_confidence` (the strongest
+  confidence of any edge linking it to the changeset) and the list is ordered
+  high → medium → low, so the load-bearing neighbours (tight, module-level
+  imports) rank above the lazy ones (function-local imports).
 - **`unmapped_files`**: changed paths absent from the map (new files, or a
   stale map).
 - **`is_stale`**: true when the map's `git_commit` differs from current HEAD.
