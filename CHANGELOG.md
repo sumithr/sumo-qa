@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.51.2](https://github.com/sumithr/sumo-qa/compare/v0.51.1...v0.51.2) (2026-06-28)
+
+
+### Bug Fixes
+
+* **ci:** skip the editable project in pip-audit so release branches don't fail ([#466](https://github.com/sumithr/sumo-qa/issues/466)) ([5def18f](https://github.com/sumithr/sumo-qa/commit/5def18fec508bf85d98d483ff14c1440d93efbb2))
+
 ## [0.51.1](https://github.com/sumithr/sumo-qa/compare/v0.51.0...v0.51.1) (2026-06-23)
 
 
