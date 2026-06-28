@@ -126,7 +126,7 @@ jobs:
     # skipped `pre-commit install` still gets the same enforcement. Uses the
     # same setup-python + editable-install pattern as the ruff/mypy jobs above,
     # then runs scripts/pip_audit.sh, the SAME wrapper the pre-commit hook
-    # calls, so `--strict` and the suppression list are single-sourced and can
+    # calls, so the audit flags and suppression list are single-sourced and can
     # never drift between local and CI.
     runs-on: ubuntu-latest
     steps:
