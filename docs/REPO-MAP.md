@@ -171,7 +171,11 @@ What the slice-2 scanner produces:
   PEP-328 implicit namespace packages, an absolute-import `sys.path` walk-up
   that prefers the deepest source root, and specifier submodule probing;
   wildcard `from x import *` and qualified specifiers are skipped). Other
-  languages are follow-on slices.
+  languages are follow-on slices. A C# resolver (#362) is registered at the
+  resolver layer: each `using` fans out to the project files declaring that
+  namespace (package-level fan-out), with `System.*` and external assemblies
+  dropped. Its cross-file namespace index is not yet wired into the scan, so
+  `.cs` import edges await a foundation pass.
   This layer is **optional**: it needs the `tree-sitter` parser, shipped as the
   `sumo-qa[treesitter]` extra. With the extra absent the scan still succeeds: it
   records a `RepoMapWarning` and emits only `likely_tests` edges, so the map
