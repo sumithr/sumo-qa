@@ -175,6 +175,45 @@ def test_go_resolver_resolve_empty_import_yields_nothing():
     assert resolver.resolve("app/main.go", imp, files) == []
 
 
+def test_go_resolver_resolve_import_equal_to_module_path_hits_root_package():
+    # The module-root directory is itself a package (root-level .go files). An
+    # import whose path EQUALS the module path names that root package, i.e. the
+    # empty import-path suffix under the module root -> fan out to the root .go
+    # files (sorted). Exercises stripping ALL segments (suffix length 0), which
+    # the original range(len(segments)) loop never reached.
+    imp = RawImport(module="example.com/root", level=0, names=(), function_local=False)
+    files = {"go.mod", "a_root.go", "b_root.go", "app/main.go", "pkg/util/a.go"}
+    assert resolver.resolve("app/main.go", imp, files) == ["a_root.go", "b_root.go"]
+
+
+def test_go_resolver_resolve_does_not_cross_a_nested_go_mod_boundary():
+    # A root-module importer must NOT resolve a root-relative import path into a
+    # subdirectory that has its OWN go.mod (a distinct nested module). service/
+    # is a separate module, so the candidate service/core is reached only by
+    # crossing service/go.mod and must be skipped -> no false cross-module edge.
+    imp = RawImport(module="example.com/root/service/core", level=0, names=(), function_local=False)
+    files = {
+        "go.mod",
+        "service/go.mod",  # nested module boundary between root and service/core
+        "app/main.go",
+        "service/core/c.go",
+    }
+    assert resolver.resolve("app/main.go", imp, files) == []
+
+
+def test_go_resolver_resolve_external_name_collision_is_a_known_limitation():
+    # KNOWN LIMITATION (pinned): the path-only resolve() contract does not expose
+    # the go.mod `module` directive, so the module prefix is stripped structurally
+    # by suffix matching. An EXTERNAL import whose trailing segment collides with
+    # a real local package dir is therefore indistinguishable from a local import
+    # and yields a (false) edge. Proper disambiguation needs the module path and
+    # is out of scope for #356; this test pins current behaviour so a future fix
+    # is a deliberate, reviewed change rather than a silent regression.
+    imp = RawImport(module="github.com/ext/widget", level=0, names=(), function_local=False)
+    files = {"go.mod", "app/main.go", "widget/w.go"}
+    assert resolver.resolve("app/main.go", imp, files) == ["widget/w.go"]
+
+
 # ---------- scan_repo integration (real tree-sitter, committed fixture) ----------
 
 

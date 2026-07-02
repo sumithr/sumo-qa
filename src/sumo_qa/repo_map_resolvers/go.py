@@ -13,7 +13,10 @@ Resolution rules (ported from UA):
   **deepest first** and takes the first that holds a ``go.mod`` as the module
   root. In a multi-module monorepo (nested ``go.mod`` files) the nearest
   enclosing module governs, so a package is always resolved against its own
-  module, never a parent's.
+  module, never a parent's. A nested ``go.mod`` is also a boundary in the other
+  direction: resolution never reaches *into* a subdirectory that has its own
+  ``go.mod`` (a distinct module), so a root-relative import path cannot forge a
+  false edge across a module boundary.
 - **Module-prefix stripping.** A Go import path is ``<module-path>/<dir>`` — the
   module's declared path followed by the package directory relative to the
   module root. The declared module path is not derivable from the directory
@@ -21,17 +24,26 @@ Resolution rules (ported from UA):
   ``resolve(importer, imp, file_set)`` contract intentionally exposes only paths
   (no file contents), so the prefix is stripped *structurally*: the package
   directory is the **longest import-path suffix that is a real package
-  directory** (holds at least one ``.go`` file) under the module root. The
+  directory** (holds at least one ``.go`` file) within the importer's module —
+  down to the empty suffix, i.e. the module-root package itself, so an import
+  whose path equals the module path maps to the root ``.go`` files. The
   remaining head is the stripped module prefix. Longest-suffix-first avoids
-  over-stripping to a coincidental shallow directory.
+  over-stripping to a coincidental shallow directory. A candidate directory that
+  can only be reached by crossing a nested ``go.mod`` belongs to a different
+  module and is not a valid match (see the go.mod-boundary rule above).
 - **Package-level fan-out.** Go imports are package-level, not file-level: one
   import path names a directory, and every ``.go`` file in that directory is
   part of the package. So a resolved import fans out to an edge for **every**
   ``.go`` file in the package directory, returned sorted for determinism.
 - **External / stdlib drop.** A standard-library import (``fmt``) or a
-  third-party dependency (``github.com/x/y``) has no package directory under the
-  module root, so no suffix matches and resolution returns ``[]`` — the normal
-  "not ours" outcome, never an error.
+  third-party dependency (``github.com/x/y``) usually has no package directory
+  under the module root, so no suffix matches and resolution returns ``[]`` —
+  the normal "not ours" outcome, never an error. Caveat: because the declared
+  module path is not exposed to ``resolve`` (only file paths are), an external
+  import whose trailing segment(s) happen to collide with a real local package
+  directory is indistinguishable from a local import and yields a (false) edge;
+  disambiguating it needs the ``go.mod`` ``module`` directive and is out of
+  scope for this path-only contract.
 
 Go has no relative imports and no function-local imports (import declarations
 are file-level only), so every :class:`RawImport` carries ``level=0``,
@@ -115,11 +127,13 @@ class GoResolver:
         """Map one import path to the repo-relative ``.go`` file(s) it references.
 
         Resolves against the importer's nearest enclosing ``go.mod`` module
-        root, strips the module prefix by longest-suffix matching, and fans the
-        resolved package directory out to every ``.go`` file it contains.
-        Returns ``[]`` for an empty path, an importer with no enclosing
-        ``go.mod``, or an import that matches no package directory under the
-        module (external package / stdlib).
+        root, strips the module prefix by longest-suffix matching (the empty
+        suffix maps to the module-root package), skips any candidate that lies
+        beyond a nested ``go.mod`` boundary, and fans the resolved package
+        directory out to every ``.go`` file it contains. Returns ``[]`` for an
+        empty path, an importer with no enclosing ``go.mod``, or an import that
+        matches no package directory within the module (external package /
+        stdlib).
         """
         if not imp.module:
             return []
@@ -129,11 +143,17 @@ class GoResolver:
         segments = [seg for seg in imp.module.split("/") if seg]
         # Strip the module prefix by taking the LONGEST import-path suffix that
         # is a real package directory under the module root: drop 0 leading
-        # segments first (whole path), then 1, then 2, … and stop at the first
-        # suffix whose directory holds a `.go` file. The remaining head is the
-        # module prefix. A path that matches nothing is external/stdlib -> [].
-        for strip in range(len(segments)):
+        # segments first (whole path), then 1, then 2, … down to dropping ALL
+        # segments (the empty suffix -> the module-root package itself, so an
+        # import whose path equals the module path resolves the root `.go`
+        # files), and stop at the first suffix whose directory holds a `.go`
+        # file. The remaining head is the module prefix. A candidate reached by
+        # crossing an intervening (nested) `go.mod` is a DIFFERENT module and is
+        # skipped. A path that matches nothing is external/stdlib -> [].
+        for strip in range(len(segments) + 1):
             package_dir = self._join(module_root, segments[strip:])
+            if self._crosses_nested_module(module_root, package_dir, file_set):
+                continue
             files = self._go_files_in_dir(package_dir, file_set)
             if files:
                 return files
@@ -155,6 +175,27 @@ class GoResolver:
             if candidate in file_set:
                 return "/".join(base)
         return None
+
+    @staticmethod
+    def _crosses_nested_module(module_root: str, package_dir: str, file_set: set[str]) -> bool:
+        """True if ``package_dir`` lies beyond a nested ``go.mod`` boundary.
+
+        The importer's module spans ``module_root`` down to (but not across) any
+        deeper ``go.mod``. A candidate package directory reached by passing
+        through an intervening ``go.mod`` — one sitting strictly below
+        ``module_root`` and at or above ``package_dir`` — belongs to a distinct
+        nested module, so an edge to it would be a false cross-module link.
+        Walks the candidate's ancestors below the module root (``package_dir``
+        itself included) and reports the first such boundary ``go.mod``.
+        """
+        if package_dir == module_root:
+            return False  # the root package of the importer's own module
+        root_depth = len(module_root.split("/")) if module_root else 0
+        pkg_parts = package_dir.split("/")
+        for depth in range(root_depth + 1, len(pkg_parts) + 1):
+            if "/".join([*pkg_parts[:depth], _GO_MOD]) in file_set:
+                return True
+        return False
 
     @staticmethod
     def _join(module_root: str, rel: list[str]) -> str:
