@@ -13,6 +13,8 @@ type mapping.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -35,8 +37,31 @@ _needs_ts = pytest.mark.skipif(
 
 
 def test_java_resolver_is_registered():
+    # In-process sanity: the java resolver is discoverable by id.
     assert "java" in registered_languages()
     assert get_resolver("java") is not None
+
+
+def test_java_registered_via_package_init_not_direct_module_import():
+    # Regression guard for the registration wiring. This *test module* imports
+    # `...java` directly (line 22) for `JavaResolver`, whose module-level
+    # register() side effect would make the in-process check above pass even if
+    # the package __init__ stopped importing the java module - so the in-process
+    # check does NOT cover package-level registration. Run the check in a FRESH
+    # interpreter that imports ONLY the package: if __init__.py drops the java
+    # import, the java module never loads, register() never runs, and
+    # get_resolver("java") is None -> this fails.
+    probe = (
+        "import sys\n"
+        "import sumo_qa.repo_map_resolvers as pkg\n"
+        "assert 'sumo_qa.repo_map_resolvers.java' in sys.modules, "
+        "'package __init__ did not import the java module'\n"
+        "assert pkg.get_resolver('java') is not None, "
+        "'java resolver not registered via package __init__'\n"
+        "assert 'java' in pkg.registered_languages()\n"
+    )
+    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 # ---------- extract (real tree-sitter) ----------
@@ -77,6 +102,26 @@ def test_extract_static_wildcard_import_is_type_not_package():
 
 
 @_needs_ts
+def test_extract_nested_type_import_keeps_full_dotted_name():
+    # `import a.b.Outer.Inner` imports the nested type Inner. extract keeps the
+    # full dotted name; resolve is what truncates it to the declaring top-level
+    # type's file (a nested type has no file of its own).
+    (raw,) = resolver.extract(b"import a.b.Outer.Inner;\n")
+    assert raw.module == "a.b.Outer.Inner"
+    assert raw.names == ()  # not a package fan-out
+
+
+@_needs_ts
+def test_extract_static_nested_member_import_drops_only_trailing_member():
+    # `import static a.b.Outer.Inner.CONST` -> the type is the nested a.b.Outer.Inner;
+    # only the trailing member CONST is dropped (resolve truncates further to the
+    # top-level type).
+    (raw,) = resolver.extract(b"import static a.b.Outer.Inner.CONST;\n")
+    assert raw.module == "a.b.Outer.Inner"
+    assert raw.names == ()
+
+
+@_needs_ts
 def test_extract_skips_package_declaration_and_collects_only_imports():
     src = b"package com.example;\nimport a.b.C;\nimport d.e.F;\nclass X {}\n"
     mods = sorted(r.module for r in resolver.extract(src))
@@ -87,6 +132,16 @@ def test_extract_skips_package_declaration_and_collects_only_imports():
 def test_extract_multiple_imports():
     raws = resolver.extract(b"import a.b.C;\nimport a.b.D;\n")
     assert sorted(r.module for r in raws) == ["a.b.C", "a.b.D"]
+
+
+@_needs_ts
+def test_extract_survives_malformed_source_and_extracts_partially():
+    # tree-sitter is error-recovering: broken syntax parses to a tree with ERROR
+    # nodes rather than raising. extract must not blow up on it and should still
+    # recover the well-formed import that precedes the broken class body.
+    src = b"import a.b.C;\nclass X { void m( { }\n"
+    raws = resolver.extract(src)  # must not raise
+    assert [r.module for r in raws] == ["a.b.C"]
 
 
 # ---------- resolve (pure, runs everywhere) ----------
@@ -175,6 +230,50 @@ def test_resolve_static_member_import_maps_to_type_file():
     assert resolver.resolve("src/main/java/app/Main.java", imp, files) == [
         "src/main/java/a/b/C.java"
     ]
+
+
+def test_resolve_nested_type_import_maps_to_top_level_type_file():
+    # `import a.b.Outer.Inner` -> the nested type Inner lives in the top-level
+    # type Outer's file a/b/Outer.java. Discriminator: a decoy a/b/Outer/Inner.java
+    # (the literal dotted path) is PRESENT; without truncation resolve would match
+    # it, so the top-level file must be chosen and the decoy left unmatched.
+    imp = RawImport(module="a.b.Outer.Inner", level=0, names=(), function_local=False)
+    files = {
+        "src/main/java/a/b/Outer.java",
+        "src/main/java/a/b/Outer/Inner.java",  # decoy: the literal nested path
+    }
+    assert resolver.resolve("src/main/java/app/Main.java", imp, files) == [
+        "src/main/java/a/b/Outer.java"
+    ]
+
+
+def test_resolve_static_nested_member_import_maps_to_top_level_type_file():
+    # `import static a.b.Outer.Inner.CONST` -> extract leaves module=a.b.Outer.Inner
+    # (member dropped); resolve truncates the remaining nested type to its
+    # declaring top-level type file a/b/Outer.java.
+    imp = RawImport(module="a.b.Outer.Inner", level=0, names=(), function_local=False)
+    files = {"src/main/java/a/b/Outer.java"}
+    assert resolver.resolve("src/main/java/app/Main.java", imp, files) == [
+        "src/main/java/a/b/Outer.java"
+    ]
+
+
+def test_resolve_nested_jdk_type_is_still_dropped():
+    # The JDK guard keys off the top-level package, so a nested JDK type
+    # (java.util.Map.Entry) is dropped like any java.* import - even with a
+    # shadow file present.
+    imp = RawImport(module="java.util.Map.Entry", level=0, names=(), function_local=False)
+    files = {"java/util/Map.java"}
+    assert resolver.resolve("src/main/java/app/Main.java", imp, files) == []
+
+
+def test_resolve_all_lowercase_fqn_falls_back_to_full_path():
+    # No uppercase-initial segment (an unconventional all-lowercase class): the
+    # top-level-type truncation finds no type boundary and falls back to the full
+    # path, preserving the plain-type mapping a/b/c -> a/b/c.java.
+    imp = RawImport(module="a.b.c", level=0, names=(), function_local=False)
+    files = {"a/b/c.java"}
+    assert resolver.resolve("app/Main.java", imp, files) == ["a/b/c.java"]
 
 
 def test_resolve_is_deterministic_across_multiple_source_roots():

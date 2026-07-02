@@ -14,6 +14,14 @@ Resolution rules (ported from UA):
   nothing), so resolution matches any file whose path ends with the package
   path ``a/b/C.java`` at a path-segment boundary - covering the Maven/Gradle
   ``src/main/java`` layout and flat layouts alike.
+- **Nested-type imports resolve to the declaring top-level type's file.** A
+  nested type has no file of its own: ``Inner`` in ``import a.b.Outer.Inner;``
+  is declared inside the top-level type ``Outer``, whose file is
+  ``a/b/Outer.java`` (there is no ``a/b/Outer/Inner.java``). Resolution truncates
+  the type FQN to its top-level type - the path up to and including the FIRST
+  uppercase-initial segment, package segments being lowercase - so
+  ``import a.b.Outer.Inner``, ``import a.b.Outer`` and
+  ``import static a.b.Outer.Inner.CONST`` all map to ``a/b/Outer.java``.
 - **Wildcard package imports** fan out: ``import a.b.*;`` resolves to every
   ``.java`` file directly inside a package directory ``a/b`` (one edge per
   type in the package). Sub-packages are not part of ``a.b.*`` and are excluded.
@@ -145,16 +153,38 @@ class JavaResolver:
         return top in _JDK_ROOTS
 
     @staticmethod
+    def _top_level_type_path(type_path: str) -> str:
+        """Truncate a slash-joined type path to its declaring top-level type.
+
+        A nested type and a static member both live in the enclosing top-level
+        type's ``.java`` file, not in a file or directory of their own. Package
+        segments are lowercase-initial and the top-level type is the FIRST
+        uppercase-initial segment, so ``a/b/Outer/Inner`` (nested type ``Inner``)
+        and ``a/b/Outer`` (the type itself) both truncate to ``a/b/Outer``. If no
+        segment is uppercase-initial (an all-lowercase name, e.g. an unconventional
+        lowercase class), the path is returned unchanged so it still resolves as a
+        plain type path."""
+        segments = type_path.split("/")
+        for i, seg in enumerate(segments):
+            if seg[:1].isupper():
+                return "/".join(segments[: i + 1])
+        return type_path
+
+    @staticmethod
     def _resolve_type(package_path: str, file_set: set[str]) -> list[str]:
-        """Files whose path is the type path ``a/b/C`` + ``.java`` at a
+        """Files whose path is the top-level type path ``a/b/C`` + ``.java`` at a
         path-segment boundary.
 
-        Matches ``a/b/C.java`` exactly (flat layout) or any path ending in
-        ``/a/b/C.java`` (under a source root). The leading-slash boundary keeps
-        the match honest: ``b/C.java`` matches ``x/b/C.java`` but not
-        ``lib/C.java``. Multiple matches (the same type duplicated across source
-        roots) are all returned, sorted."""
-        suffix = package_path + _JAVA_SUFFIX
+        The type FQN is first truncated to its declaring top-level type
+        (:meth:`_top_level_type_path`), so a nested-type import ``a.b.Outer.Inner``
+        resolves to ``a/b/Outer.java`` rather than a non-existent
+        ``a/b/Outer/Inner.java``. The truncated path then matches ``a/b/C.java``
+        exactly (flat layout) or any path ending in ``/a/b/C.java`` (under a source
+        root). The leading-slash boundary keeps the match honest: ``b/C.java``
+        matches ``x/b/C.java`` but not ``lib/C.java``. Multiple matches (the same
+        type duplicated across source roots) are all returned, sorted."""
+        type_path = JavaResolver._top_level_type_path(package_path)
+        suffix = type_path + _JAVA_SUFFIX
         boundary = "/" + suffix
         return sorted(f for f in file_set if f == suffix or f.endswith(boundary))
 
