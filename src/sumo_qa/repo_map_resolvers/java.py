@@ -29,9 +29,15 @@ Resolution rules (ported from UA):
   type: ``import static a.b.C.method;`` resolves to ``a/b/C.java`` (the trailing
   member is stripped in ``extract``); ``import static a.b.C.*;`` likewise targets
   the single type ``a.b.C``, NOT a package fan-out.
-- **JDK and external packages are dropped**: ``java.*`` / ``javax.*`` are
-  dropped by an explicit guard, and any other package absent from the repo is
-  dropped naturally (no file matches) - both yield ``[]``, never an edge.
+- **JDK and external packages are dropped**: ``java.*`` / ``javax.*`` /
+  ``sun.*`` (JDK-internal) are dropped by an explicit guard, and any other
+  package absent from the repo is dropped naturally (no file matches) - both
+  yield ``[]``, never an edge.
+
+Known limitation: uppercase-package layouts (``import A.B.C`` where package
+segments are uppercase-initial) are mis-handled by the first-uppercase-segment
+type-boundary heuristic (mapped to ``A.java``); this violates Java's
+lowercase-package naming convention and is left unhandled.
 
 Java imports are always top-level (no function-local / lazy form and no
 relative imports), so every :class:`RawImport` carries ``level=0`` and
@@ -62,10 +68,12 @@ _STATIC = "static"  # the `static` keyword of a static import
 # resolve-time intent without widening the shared RawImport contract.
 _WILDCARD = "*"
 
-# JDK root packages: imports under these never resolve to a repo file. Dropped
-# by an explicit guard (not merely by no-match) so the rule is stated, and so a
-# pathological in-repo `java/...` file can't fabricate a JDK edge.
-_JDK_ROOTS = frozenset({"java", "javax"})
+# JDK root packages: imports under these never resolve to a repo file. `java` /
+# `javax` are the public JDK roots; `sun` is a JDK-internal root (`sun.misc.*`
+# etc.). Dropped by an explicit guard (not merely by no-match) so the rule is
+# stated, and so a pathological in-repo `java/...` (or `sun/...`) file can't
+# fabricate a JDK edge.
+_JDK_ROOTS = frozenset({"java", "javax", "sun"})
 
 _JAVA_SUFFIX = ".java"
 
@@ -148,7 +156,8 @@ class JavaResolver:
     @staticmethod
     def _is_jdk(module: str) -> bool:
         """True when ``module``'s top-level package is a JDK root (``java`` /
-        ``javax``) - those never resolve to a repo file."""
+        ``javax`` / ``sun`` JDK-internal) - those never resolve to a repo
+        file."""
         top = module.split(".", 1)[0]
         return top in _JDK_ROOTS
 

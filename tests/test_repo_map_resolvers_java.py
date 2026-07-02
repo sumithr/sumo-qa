@@ -51,14 +51,26 @@ def test_java_registered_via_package_init_not_direct_module_import():
     # interpreter that imports ONLY the package: if __init__.py drops the java
     # import, the java module never loads, register() never runs, and
     # get_resolver("java") is None -> this fails.
+    #
+    # End-to-end: a registered NAME is not proof of a WORKING resolver, so when
+    # tree-sitter is available the same fresh process drives the resolver it got
+    # from the package - get_resolver('java').extract(...) on a committed import
+    # byte string - and asserts the expected RawImport, proving package-init
+    # registration wires a functioning resolver, not just a registered id.
     probe = (
         "import sys\n"
         "import sumo_qa.repo_map_resolvers as pkg\n"
         "assert 'sumo_qa.repo_map_resolvers.java' in sys.modules, "
         "'package __init__ did not import the java module'\n"
-        "assert pkg.get_resolver('java') is not None, "
-        "'java resolver not registered via package __init__'\n"
+        "resolver = pkg.get_resolver('java')\n"
+        "assert resolver is not None, 'java resolver not registered via package __init__'\n"
         "assert 'java' in pkg.registered_languages()\n"
+        "from sumo_qa.repo_map_treesitter import TREESITTER_AVAILABLE\n"
+        "if TREESITTER_AVAILABLE:\n"
+        "    (raw,) = resolver.extract(b'import a.b.C;\\n')\n"
+        "    assert raw.module == 'a.b.C', raw\n"
+        "    assert raw.names == (), raw\n"
+        "    assert raw.level == 0 and raw.function_local is False, raw\n"
     )
     result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -202,6 +214,16 @@ def test_resolve_jdk_package_dropped_even_if_a_shadow_file_exists():
 def test_resolve_javax_package_dropped():
     imp = RawImport(module="javax.swing.JFrame", level=0, names=(), function_local=False)
     files = {"javax/swing/JFrame.java"}
+    assert resolver.resolve("src/main/java/app/Main.java", imp, files) == []
+
+
+def test_resolve_sun_internal_package_dropped_even_if_a_shadow_file_exists():
+    # sun.* is a JDK-internal root and must be dropped by the guard. Discriminator:
+    # a shadow sun/misc/Unsafe.java is PRESENT, so without the guard suffix-matching
+    # would fabricate an edge to an in-repo file for a JDK-internal package; the
+    # guard must drop it regardless.
+    imp = RawImport(module="sun.misc.Unsafe", level=0, names=(), function_local=False)
+    files = {"sun/misc/Unsafe.java"}  # present, but sun.* must still be dropped
     assert resolver.resolve("src/main/java/app/Main.java", imp, files) == []
 
 
