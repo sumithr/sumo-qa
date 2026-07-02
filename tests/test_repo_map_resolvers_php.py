@@ -10,15 +10,20 @@ the ``composer.json`` autoload roots (longest namespace-prefix wins), relative
 ``require``/``include`` paths anchored to the importing file, and vendor /
 external namespaces dropped.
 
-Scan-time activation caveat: the ``Resolver.resolve`` contract passes only the
-importer path + ``file_set`` (no repo root / file contents / ``composer.json``),
-so the PSR-4 namespace roots are injected into ``PhpResolver`` at construction
-(``PhpResolver.from_composer``) rather than read mid-scan. The registered
-DEFAULT resolver therefore carries no PSR-4 roots — relative ``require``/
-``include`` edges still resolve at scan time, but PSR-4 ``use`` edges need the
-parsed composer config injected (see ``test_default_resolver_has_no_psr4_roots``
-and the orchestrator tests). Wiring composer-driven construction through the
-scan is a foundation enhancement, deliberately out of this slice.
+Where these edges come from (NOT scan time today): a real ``scan_repo`` emits
+ZERO ``.php`` edges because the foundation scanner does not map ``.php`` files
+(``repo_map_scanner._LANGUAGE_BY_EXT`` / ``_PROGRAMMING_LANGS`` omit ``php``), so
+no ``php`` node reaches the import-edge layer during a scan. These edges are
+produced at the ``infer_imports_edges`` orchestrator layer instead, given ``php``
+nodes supplied directly (the orchestrator tests below supply them). The
+``Resolver.resolve`` contract passes only the importer path + ``file_set`` (no
+repo root / file contents / ``composer.json``), so PSR-4 namespace roots are
+injected into ``PhpResolver`` at construction (``PhpResolver.from_composer``);
+the registered DEFAULT resolver carries no PSR-4 roots (see
+``test_default_resolver_has_no_psr4_roots``). Full scan-time activation needs TWO
+foundation changes, deliberately out of this slice: the scanner must stamp
+``.php`` -> ``php``, AND the composer autoload roots must be threaded through the
+scan.
 """
 
 from __future__ import annotations
@@ -94,6 +99,18 @@ def test_extract_use_function_is_skipped():
     # would fabricate an edge to a class file that does not exist).
     assert PhpResolver().extract(b"<?php\nuse function App\\helpers\\format;\n") == []
     assert PhpResolver().extract(b"<?php\nuse const App\\config\\TIMEOUT;\n") == []
+
+
+@_needs_ts
+def test_extract_grouped_use_yields_no_edge_known_limitation():
+    # Grouped `use App\{Models\User, Models\Order};` is a KNOWN LIMITATION: it
+    # yields no import (pinned here, not a wrong edge). The grouped clauses nest
+    # under a `namespace_use_group` node, not as direct `namespace_use_clause`
+    # children of the declaration, and their names are group-relative, so
+    # `_use_imports` (which reads only the declaration's direct clause children)
+    # records nothing. Safe by omission; documented in the module docstring.
+    src = b"<?php\nuse App\\Models\\{User, Order};\n"
+    assert PhpResolver().extract(src) == []
 
 
 @_needs_ts
@@ -175,6 +192,19 @@ def test_resolve_psr4_longest_prefix_wins():
     imp = RawImport(module="App\\Tests\\UserTest", level=0, names=(), function_local=False)
     files = {"tests/UserTest.php", "src/Tests/UserTest.php"}
     assert r.resolve("x.php", imp, files) == ["tests/UserTest.php"]
+
+
+def test_resolve_psr4_longest_prefix_is_definitive_no_shorter_fallback():
+    # Strict PSR-4: the LONGEST matching prefix wins definitively. If its file is
+    # absent the resolver must NOT fall back to a shorter matching prefix, even
+    # when the shorter prefix's file exists -- a real PSR-4 autoloader never does
+    # that, so falling through would emit an autoloader-incorrect edge.
+    r = PhpResolver({"App\\": "src/", "App\\Tests\\": "tests/"})
+    imp = RawImport(module="App\\Tests\\UserTest", level=0, names=(), function_local=False)
+    # Longest prefix `App\Tests\` -> tests/UserTest.php is ABSENT; the shorter
+    # `App\` -> src/Tests/UserTest.php IS present (a discriminating collision).
+    files = {"src/Tests/UserTest.php"}
+    assert r.resolve("x.php", imp, files) == []
 
 
 def test_resolve_psr4_root_dir_maps_to_repo_root():
@@ -317,9 +347,11 @@ def test_orchestrator_emits_psr4_and_require_edges_from_committed_fixture(
 
 @_needs_ts
 def test_orchestrator_default_resolver_emits_require_but_not_psr4(tmp_path: Path):
-    # With the registered DEFAULT resolver (no composer), relative require edges
-    # still resolve at scan time, but PSR-4 use edges do NOT (they need composer
-    # config injected) -- the documented scan-time foundation gap, asserted.
+    # At the infer_imports_edges orchestrator layer with the registered DEFAULT
+    # resolver (no composer), relative require edges resolve but PSR-4 use edges
+    # do NOT (they need composer config injected). NOTE this is the orchestrator
+    # layer given php nodes directly; a real scan_repo maps no .php files, so it
+    # emits no php edges at all -- the documented foundation gap.
     (tmp_path / "src" / "Models").mkdir(parents=True)
     (tmp_path / "src" / "a.php").write_text(
         "<?php\nrequire 'b.php';\nuse App\\Models\\User;\n", encoding="utf-8", newline=""

@@ -23,16 +23,34 @@ Two import kinds are recognised, distinguished by :attr:`RawImport.level`
   A dynamic argument with no static string literal (``require $path;``) yields
   nothing.
 
-Scan-time activation caveat (deliberately NOT wired here): the
-:class:`~sumo_qa.repo_map_resolvers.base.Resolver` ``resolve`` contract passes
-only the importer path + ``file_set`` — no repo root, file contents, or
-``composer.json``. The PSR-4 namespace roots are therefore injected at
-construction (:meth:`PhpResolver.from_composer`) rather than read mid-scan. The
-self-registered DEFAULT resolver carries no PSR-4 roots, so at scan time
-relative ``require`` / ``include`` edges resolve but PSR-4 ``use`` edges need the
-parsed composer config injected. Threading composer-driven construction through
-the scan (and teaching the scanner to stamp ``php`` on ``.php`` files) is a
-foundation enhancement, out of this slice.
+Where these edges come from (NOT scan time today): a real ``scan_repo`` emits
+ZERO ``.php`` edges of any kind. The foundation scanner does not map ``.php``
+files (``repo_map_scanner._LANGUAGE_BY_EXT`` and ``_PROGRAMMING_LANGS`` both omit
+``.php`` / ``php``), so no ``php`` node ever reaches the import-edge layer during
+a scan. This resolver instead produces edges at the
+:func:`~sumo_qa.repo_map_imports.infer_imports_edges` orchestrator layer, given
+``php`` nodes supplied directly (see the orchestrator tests). No ``.php`` edge
+(relative ``require`` / ``include`` OR PSR-4 ``use``) resolves at scan time.
+
+The :class:`~sumo_qa.repo_map_resolvers.base.Resolver` ``resolve`` contract
+passes only the importer path + ``file_set`` (no repo root, file contents, or
+``composer.json``), so the PSR-4 namespace roots are injected at construction
+(:meth:`PhpResolver.from_composer`) rather than read mid-scan; the
+self-registered DEFAULT resolver carries no PSR-4 roots. Full scan-time
+activation therefore requires TWO foundation changes, both out of this slice:
+(1) the scanner must stamp ``.php`` -> ``php`` (add ``.php`` to
+``_LANGUAGE_BY_EXT`` and ``php`` to ``_PROGRAMMING_LANGS``) so ``php`` nodes
+exist at all, AND (2) the composer autoload roots must be threaded through the
+scan so PSR-4 ``use`` edges (not just relative ``require`` / ``include`` edges)
+resolve.
+
+Known limitations (safe: each yields NO edge rather than a wrong one):
+
+- **Grouped ``use``** (``use App\{Models\User, Models\Order};``) yields no edge.
+  The grouped clauses nest under a ``namespace_use_group`` node rather than
+  appearing as direct ``namespace_use_clause`` children of the declaration, and
+  their names are group-relative, so :meth:`_use_imports` (which reads only the
+  declaration's direct clause children) records nothing.
 """
 
 from __future__ import annotations
@@ -213,10 +231,14 @@ class PhpResolver:
         """Resolve a fully-qualified name via the PSR-4 autoload roots.
 
         Roots are tried longest-prefix-first (``self._psr4`` is pre-sorted), so
-        a more specific namespace wins. The matched prefix is replaced by its
-        base directory and the namespace tail becomes a ``.php`` path. Returns
-        the first base-dir candidate that exists; no matching prefix (vendor /
-        external) returns ``[]``."""
+        the most specific namespace wins. The matched prefix is replaced by its
+        base directory and the namespace tail becomes a ``.php`` path. The
+        LONGEST matching prefix is definitive (strict PSR-4): the first of its
+        base dirs whose candidate exists is returned, and if none exists the
+        lookup STOPS rather than falling back to a shorter matching prefix. A
+        PSR-4 autoloader never falls back that way, so falling through to a
+        shorter prefix could emit an autoloader-incorrect edge. No matching
+        prefix (vendor / external) returns ``[]``."""
         for prefix, dirs in self._psr4:
             if fqn.startswith(prefix):
                 relative = fqn[len(prefix) :].replace("\\", "/") + ".php"
@@ -224,6 +246,7 @@ class PhpResolver:
                     candidate = posixpath.normpath(posixpath.join(base, relative))
                     if candidate in file_set:
                         return [candidate]
+                return []  # longest matching prefix is definitive; no shorter-prefix fallback
         return []
 
 
