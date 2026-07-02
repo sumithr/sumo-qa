@@ -262,3 +262,227 @@ def test_skill_tool_description_matches_frontmatter() -> None:
             f"tool {tool_name!r} description mismatch: "
             f"expected={expected_collapsed!r} got={tool.description!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Output-profile overlay (issue #215)
+#
+# SUMO_QA_OUTPUT_PROFILE=concise|default|strict tunes how much ceremony wraps a
+# served skill body WITHOUT editing any SKILL.md (a shared serve-time overlay,
+# not a per-skill rewrite). `default` must serve the body byte-for-byte
+# (backwards compatible); `concise`/`strict` prepend a small, bounded overlay
+# that reshapes output but can never downgrade a mandatory gate.
+# ---------------------------------------------------------------------------
+
+
+def test_default_profile_serves_body_byte_for_byte(tmp_path, monkeypatch) -> None:
+    """With the profile unset (or `default`), the served body is the SKILL.md
+    content byte-for-byte — no overlay, no drift from current behavior."""
+    from sumo_qa.skill_prompts import _make_skill_callable
+
+    monkeypatch.delenv("SUMO_QA_OUTPUT_PROFILE", raising=False)
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    body = "---\ndescription: d\n---\n# Body\n\nsome content\n"
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    fn = _make_skill_callable(skill_dir / "SKILL.md")
+    assert fn() == body
+
+
+def test_default_profile_explicit_value_is_byte_for_byte(tmp_path) -> None:
+    """An explicit `default` override behaves identically to unset."""
+    from sumo_qa.skill_prompts import _make_skill_callable
+
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    body = "---\ndescription: d\n---\n# Body\n"
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    fn = _make_skill_callable(skill_dir / "SKILL.md", profile="default")
+    assert fn() == body
+
+
+def test_concise_profile_prepends_overlay_before_body(tmp_path) -> None:
+    """`concise` prepends the concise overlay, then the untouched body."""
+    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _make_skill_callable
+
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    body = "---\ndescription: d\n---\n# Body\n"
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    fn = _make_skill_callable(skill_dir / "SKILL.md", profile="concise")
+    out = fn()
+    assert out.startswith(_CONCISE_OVERLAY)
+    assert out.endswith(body)
+    assert "concise" in _CONCISE_OVERLAY.lower()
+
+
+def test_strict_profile_prepends_overlay_before_body(tmp_path) -> None:
+    """`strict` prepends the strict overlay, then the untouched body."""
+    from sumo_qa.skill_prompts import _STRICT_OVERLAY, _make_skill_callable
+
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    body = "---\ndescription: d\n---\n# Body\n"
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    fn = _make_skill_callable(skill_dir / "SKILL.md", profile="strict")
+    out = fn()
+    assert out.startswith(_STRICT_OVERLAY)
+    assert out.endswith(body)
+    assert "strict" in _STRICT_OVERLAY.lower()
+
+
+def test_env_var_selects_profile_at_call_time(tmp_path, monkeypatch) -> None:
+    """The env var (not just the explicit param) selects the profile, resolved
+    fresh on each call so a host config change takes effect without a rebind."""
+    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _make_skill_callable
+
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    body = "---\ndescription: d\n---\n# Body\n"
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    fn = _make_skill_callable(skill_dir / "SKILL.md")  # no explicit override
+    monkeypatch.setenv("SUMO_QA_OUTPUT_PROFILE", "concise")
+    assert fn().startswith(_CONCISE_OVERLAY)
+    monkeypatch.delenv("SUMO_QA_OUTPUT_PROFILE", raising=False)
+    assert fn() == body
+
+
+def test_invalid_profile_falls_back_to_default(tmp_path, monkeypatch) -> None:
+    """An unrecognised profile value falls back predictably to `default`
+    (byte-for-byte body) rather than raising — a typo can never break serving
+    or silently drop a gate."""
+    from sumo_qa.skill_prompts import _make_skill_callable
+
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    body = "---\ndescription: d\n---\n# Body\n"
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    monkeypatch.setenv("SUMO_QA_OUTPUT_PROFILE", "verbose-plz")
+    fn = _make_skill_callable(skill_dir / "SKILL.md")
+    assert fn() == body
+
+
+def test_resolve_output_profile_normalises_case_and_whitespace(monkeypatch) -> None:
+    """Resolution is case/whitespace-insensitive so `  Concise ` == `concise`."""
+    from sumo_qa.skill_prompts import _resolve_output_profile
+
+    monkeypatch.delenv("SUMO_QA_OUTPUT_PROFILE", raising=False)
+    assert _resolve_output_profile("  Concise ") == "concise"
+    assert _resolve_output_profile("STRICT") == "strict"
+    assert _resolve_output_profile() == "default"
+
+
+def test_resolve_output_profile_invalid_explicit_override(monkeypatch) -> None:
+    """An invalid EXPLICIT override also falls back to default (same predictable
+    rule as the env path)."""
+    from sumo_qa.skill_prompts import _resolve_output_profile
+
+    monkeypatch.delenv("SUMO_QA_OUTPUT_PROFILE", raising=False)
+    assert _resolve_output_profile("nonsense") == "default"
+
+
+def test_concise_and_strict_overlays_preserve_mandatory_gates(tmp_path) -> None:
+    """Every non-default overlay must restate the never-optional floor so a
+    high-risk workflow keeps its gates in concise mode: Iron Law / HARD-GATE,
+    evidence for claims, and confirmation before writes or installs. This is the
+    safety invariant behind the issue's non-goal 'No profile may allow skipping
+    required tests, evidence, confirmations, or safety gates.'"""
+    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _STRICT_OVERLAY
+
+    for overlay in (_CONCISE_OVERLAY, _STRICT_OVERLAY):
+        low = overlay.lower()
+        assert "iron law" in low
+        assert "hard-gate" in low
+        assert "evidence" in low
+        assert "confirm" in low
+        assert "install" in low
+
+
+def test_overlays_stay_within_a_bounded_token_budget() -> None:
+    """Concise must reduce output and strict must not bloat payloads, so the
+    overlay itself is a small bounded constant — pin a ceiling so it cannot grow
+    into a payload of its own."""
+    from sumo_qa.skill_prompts import (
+        _CONCISE_OVERLAY,
+        _STRICT_OVERLAY,
+        _approx_tokens,
+    )
+
+    for overlay in (_CONCISE_OVERLAY, _STRICT_OVERLAY):
+        assert _approx_tokens(overlay) <= 250, (
+            f"profile overlay is ~{_approx_tokens(overlay)} tokens (>250); "
+            f"keep it a compact directive, not a second payload"
+        )
+
+
+def test_over_cap_skill_under_profile_returns_overlaid_pointer(tmp_path) -> None:
+    """When the composed (overlay + body) exceeds the per-response token cap, the
+    tool still degrades to the progressive-loading pointer (#393) rather than
+    the over-cap body — and the profile overlay is preserved on the pointer so
+    the host still knows the active profile."""
+    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _make_skill_callable
+
+    skill_dir = tmp_path / "big-skill"
+    skill_dir.mkdir()
+    body = "---\ndescription: d\n---\n# Body\n" + ("x " * 5000)
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    fn = _make_skill_callable(skill_dir / "SKILL.md", token_cap=100, profile="concise")
+    out = fn()
+    assert out.startswith(_CONCISE_OVERLAY)
+    assert "sumo_qa_load_skill_context" in out
+    assert body not in out
+
+
+def test_over_cap_skill_default_profile_pointer_unchanged(tmp_path) -> None:
+    """Default profile over-cap path is byte-for-byte the existing pointer — no
+    overlay leaks into the default degraded response."""
+    from sumo_qa.skill_prompts import (
+        _approx_tokens,
+        _make_skill_callable,
+        _oversize_pointer_text,
+    )
+
+    skill_dir = tmp_path / "big-skill"
+    skill_dir.mkdir()
+    body = "---\ndescription: d\n---\n# Body\n" + ("x " * 5000)
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    fn = _make_skill_callable(skill_dir / "SKILL.md", token_cap=100)
+    expected = _oversize_pointer_text("big-skill", _approx_tokens(body), 100)
+    assert fn() == expected
+
+
+def test_register_threads_profile_through_to_tool(tmp_path, monkeypatch) -> None:
+    """register_skills_as_prompts binds the serving callable; with the env
+    profile set, each bound tool serves the overlaid body."""
+    from unittest.mock import MagicMock, patch
+
+    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, register_skills_as_prompts
+
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\ndescription: d\n---\n# Body\n", encoding="utf-8")
+
+    captured = {}
+
+    def fake_tool(name, description):
+        def decorator(fn):
+            captured["fn"] = fn
+            return fn
+
+        return decorator
+
+    mcp = MagicMock()
+    mcp.tool.side_effect = fake_tool
+    monkeypatch.setenv("SUMO_QA_OUTPUT_PROFILE", "concise")
+    with patch("sumo_qa.skill_prompts._skills_dir", return_value=tmp_path):
+        register_skills_as_prompts(mcp)
+
+    assert captured["fn"]().startswith(_CONCISE_OVERLAY)
