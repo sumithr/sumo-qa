@@ -70,6 +70,12 @@ _USE_WILDCARD = "use_wildcard"  # `a::b::*`
 _USE_AS_CLAUSE = "use_as_clause"  # `a::b::c as d`
 # The path-head keyword kinds (each is its own leaf node, not an identifier).
 _PATH_SEGMENT_KINDS = frozenset({_IDENTIFIER, "crate", "self", "super"})
+# The node kinds that can head a `use` tree's path child: a multi-segment
+# `scoped_identifier` (`crate::foo`) OR a single leaf segment. A BARE head
+# keyword (`use crate::{a, b}`, `use crate::*`) emits the head as its own
+# `crate` / `self` / `super` leaf with no wrapping `scoped_identifier`, so those
+# leaf kinds must be accepted here too or the path reads as empty (#358).
+_PATH_HEAD_KINDS = _PATH_SEGMENT_KINDS | {_SCOPED_IDENTIFIER}
 
 # Rust source file suffixes that name a *module file*, by role.
 _RS = ".rs"
@@ -196,9 +202,18 @@ class RustResolver:
 
     @staticmethod
     def _first_path(node: TSNode) -> TSNode | None:
-        """The first ``scoped_identifier`` / ``identifier`` child (the path)."""
+        """The first path child of a group / glob / alias wrapper.
+
+        The path may be a multi-segment ``scoped_identifier`` (``crate::foo``) or
+        a single leaf: a plain ``identifier`` (an external crate head) or a bare
+        head keyword (``crate`` / ``self`` / ``super``) when the ``use`` reaches
+        straight into a group or glob with no intermediate module segment
+        (``use crate::{a, b}``, ``use self::*``). All of those leaf kinds head a
+        real path, so any is returned; only a keyword-less ``::``/brace node is
+        skipped.
+        """
         for child in node.children:
-            if child.kind in (_SCOPED_IDENTIFIER, _IDENTIFIER):
+            if child.kind in _PATH_HEAD_KINDS:
                 return child
         return None  # pragma: no cover -- defensive: these wrappers always hold a path
 

@@ -294,6 +294,60 @@ def test_rust_resolver_dedups_colliding_candidates():
     assert resolver.resolve("src/bar.rs", _use("crate::g", ("mod",)), files) == ["src/g/mod.rs"]
 
 
+# ---------- bare-head grouped / glob use: crate/self/super reaching straight
+# into a group or glob with NO intermediate module segment. tree-sitter emits
+# the head as its own `crate` / `self` / `super` leaf (not a `scoped_identifier`),
+# so these are extract-path regressions and must run through REAL tree-sitter to
+# exercise `_first_path` — a constructed RawImport would bypass the bug (#358). ----------
+
+
+@_needs_ts
+def test_rust_resolver_bare_crate_group_resolves_each_member():
+    # `use crate::{a, b}` heads straight into the group with a BARE `crate` leaf.
+    # extract must still read that head (module == "crate", not ""), so members
+    # resolve against the crate root dir -> src/a.rs, src/b.rs (with the crate
+    # root itself as the group's container module).
+    (raw,) = resolver.extract(b"use crate::{a, b};\n")
+    assert raw.module == "crate"
+    assert set(raw.names) == {"a", "b"}
+    files = {"src/lib.rs", "src/a.rs", "src/b.rs"}
+    assert resolver.resolve("src/bar.rs", raw, files) == ["src/lib.rs", "src/a.rs", "src/b.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_bare_self_group_resolves_sibling_members():
+    # `use self::{a, b}` from a module file (`src/foo/mod.rs`) anchors at that
+    # file's own module dir, so a, b are sibling modules -> src/foo/a.rs,
+    # src/foo/b.rs.
+    (raw,) = resolver.extract(b"use self::{a, b};\n")
+    assert raw.module == "self"
+    assert set(raw.names) == {"a", "b"}
+    files = {"src/foo/a.rs", "src/foo/b.rs"}
+    assert resolver.resolve("src/foo/mod.rs", raw, files) == ["src/foo/a.rs", "src/foo/b.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_bare_crate_glob_resolves_crate_root_module():
+    # `use crate::*` is a bare-head glob; its prefix module IS the crate root, so
+    # it resolves to the crate-root module file (here src/lib.rs).
+    (raw,) = resolver.extract(b"use crate::*;\n")
+    assert raw.module == "crate"
+    assert raw.names == ()
+    files = {"src/lib.rs"}
+    assert resolver.resolve("src/bar.rs", raw, files) == ["src/lib.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_bare_super_group_resolves_parent_module_members():
+    # `use super::{a, b}` heads with a bare `super` leaf; from src/foo/bar.rs it
+    # walks one module up to foo's dir, so a, b -> src/foo/a.rs, src/foo/b.rs.
+    (raw,) = resolver.extract(b"use super::{a, b};\n")
+    assert raw.module == "super"
+    assert set(raw.names) == {"a", "b"}
+    files = {"src/lib.rs", "src/foo/a.rs", "src/foo/b.rs"}
+    assert resolver.resolve("src/foo/bar.rs", raw, files) == ["src/foo/a.rs", "src/foo/b.rs"]
+
+
 # ---------- scan_repo integration (real tree-sitter, committed fixture) ----------
 
 
