@@ -46,6 +46,17 @@ activates once a ``TsConfig`` is supplied; wiring the orchestrator to discover
 and thread the project's ``tsconfig.json`` into the resolver is a foundation
 follow-up (it would change ``infer_imports_edges`` / the ``Resolver`` protocol,
 out of scope for this slice — see #354).
+
+**Known limitations (tsconfig alias path, not yet scan-active).** Because the
+alias path is dormant at scan time (no tsconfig is threaded through the
+foundation ``resolve()`` contract), its precision refinements belong to the
+future tsconfig-threading slice rather than this one:
+
+- Matched ``paths`` patterns are tried in JSON declaration order, not by
+  specificity, so a catch-all ``"*"`` declared before a more-specific alias can
+  shadow it (TypeScript prefers the longest/most-specific prefix match).
+- Only wildcard patterns ending in ``*`` are handled; a pattern with a suffix
+  after the ``*`` (e.g. ``"@x/*.js"``) is not matched.
 """
 
 from __future__ import annotations
@@ -75,6 +86,8 @@ _INDEX_BARRELS: tuple[str, ...] = (
     "index.d.ts",
     "index.js",
     "index.jsx",
+    "index.mjs",
+    "index.cjs",
 )
 
 TYPESCRIPT_CONFIG = LanguageConfig(
@@ -474,17 +487,22 @@ class TypeScriptResolver:
         """Module base → candidate file paths that exist in ``file_set``.
 
         Probes ``base`` verbatim (a specifier written with an extension), then
-        ``base`` + each TS/JS extension against the module stem (so a ``.js``
-        specifier also reaches its ``.ts`` source), then — only when nothing has
-        matched yet, since a same-named file shadows the directory — the
-        ``index.*`` barrels for a directory import. First-seen order is preserved
-        for determinism.
+        ``base`` + TS/JS extensions against the module stem (so a ``.js``
+        specifier also reaches its ``.ts`` source), stopping at the FIRST
+        extension that resolves — TS picks a single module by ``_PROBE_EXTENSIONS``
+        precedence, so when both ``util.ts`` and ``util.js`` exist ``./util``
+        emits only the higher-precedence ``util.ts``, not both. Only when nothing
+        has matched (a same-named file shadows the directory) are the ``index.*``
+        barrels tried for a directory import. First-seen order is preserved for
+        determinism.
         """
         out: list[str] = []
 
-        def add(path: str) -> None:
+        def add(path: str) -> bool:
             if path and path in file_set and path not in out:
                 out.append(path)
+                return True
+            return False
 
         add(base)
         stem = base
@@ -494,7 +512,8 @@ class TypeScriptResolver:
                 break
         if stem:
             for ext in _PROBE_EXTENSIONS:
-                add(f"{stem}{ext}")
+                if add(f"{stem}{ext}"):
+                    break  # TS resolves to the first extension by precedence
         if not out:  # a same-named file shadows a directory's index barrel (TS)
             for barrel in self.config.barrels:
                 add(f"{stem}/{barrel}" if stem else barrel)

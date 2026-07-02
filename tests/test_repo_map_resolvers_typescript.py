@@ -198,6 +198,26 @@ def test_resolve_relative_import_probes_mjs_and_cjs_extensions():
     assert js.resolve("pkg/main.js", cjs, file_set) == ["pkg/legacy.cjs"]
 
 
+def test_resolve_directory_import_resolves_mjs_and_cjs_barrels():
+    # `.mjs`/`.cjs` are probe extensions, so the `index.*` barrels must include
+    # them too: a directory import `./pkg` reaches pkg/index.mjs, `./pkg2` reaches
+    # pkg2/index.cjs (both javascript-language files the scanner assigns).
+    file_set = {"app.js", "pkg/index.mjs", "pkg2/index.cjs"}
+    esm = RawImport(module="./pkg", level=0, names=(), function_local=False)
+    cjs = RawImport(module="./pkg2", level=0, names=(), function_local=False)
+    assert js.resolve("app.js", esm, file_set) == ["pkg/index.mjs"]
+    assert js.resolve("app.js", cjs, file_set) == ["pkg2/index.cjs"]
+
+
+def test_resolve_extension_precedence_picks_first_match_only():
+    # When both util.ts and util.js exist, `./util` resolves to the higher-
+    # precedence util.ts ONLY (TS picks a single module by _PROBE_EXTENSIONS
+    # precedence) — probing stops at the first match, never emitting both.
+    file_set = {"src/app.ts", "src/util.ts", "src/util.js"}
+    imp = RawImport(module="./util", level=0, names=(), function_local=False)
+    assert ts.resolve("src/app.ts", imp, file_set) == ["src/util.ts"]
+
+
 def test_resolve_file_shadows_directory_index_barrel():
     # TS resolution prefers a same-named FILE over a directory's index barrel, so
     # `./components` with BOTH components.ts and components/index.ts present
