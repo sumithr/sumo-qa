@@ -56,8 +56,17 @@ from dataclasses import dataclass, field
 from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, register
 from sumo_qa.repo_map_treesitter import TSNode, parse
 
-# TS/JS resolution extension order: TS source, then declarations, then JS.
-_PROBE_EXTENSIONS: tuple[str, ...] = (".ts", ".tsx", ".d.ts", ".js", ".jsx")
+# TS/JS resolution extension order: TS source, then declarations, then JS
+# (including the ESM/CJS `.mjs`/`.cjs` variants the scanner assigns `javascript`).
+_PROBE_EXTENSIONS: tuple[str, ...] = (
+    ".ts",
+    ".tsx",
+    ".d.ts",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+)
 # Longest-first so a stem strip removes `.d.ts` before `.ts`.
 _STRIP_EXTENSIONS: tuple[str, ...] = (".d.ts", ".tsx", ".jsx", ".ts", ".js")
 _INDEX_BARRELS: tuple[str, ...] = (
@@ -126,7 +135,10 @@ def parse_tsconfig(text: str, *, config_dir: str = "") -> TsConfig:
     directory when ``paths`` is present without an explicit ``baseUrl`` (modern
     TS behaviour); targets are joined through that base.
     """
-    data = json.loads(_strip_jsonc(text))
+    try:
+        data = json.loads(_strip_jsonc(text))
+    except json.JSONDecodeError:
+        return TsConfig()  # a syntactically broken tsconfig yields no aliases, not a crash
     options = data.get("compilerOptions", {}) if isinstance(data, dict) else {}
     if not isinstance(options, dict):
         options = {}
@@ -143,7 +155,15 @@ def parse_tsconfig(text: str, *, config_dir: str = "") -> TsConfig:
         for pattern, targets in raw_paths.items():
             if not isinstance(targets, list):  # a malformed entry is skipped, not fatal
                 continue
-            joined = tuple(_join_repo(target_base, t) for t in targets if isinstance(t, str))
+            # A target escaping the repo root via `..` (`_join_repo` -> None) names
+            # no in-repo file, so it is dropped rather than clamped to a fake path.
+            joined = tuple(
+                j
+                for t in targets
+                if isinstance(t, str)
+                for j in (_join_repo(target_base, t),)
+                if j is not None
+            )
             pairs.append((pattern, joined))
     return TsConfig(base_url=base_url, paths=tuple(pairs))
 
@@ -228,19 +248,23 @@ def _drop_trailing_commas(text: str) -> str:
     return "".join(out)
 
 
-def _join_repo(base: str, rel: str) -> str:
+def _join_repo(base: str, rel: str) -> str | None:
     """Join ``rel`` onto repo-relative ``base``, collapsing ``.`` / ``..``.
 
-    A ``*`` glob segment is preserved (``_join_repo("src", "app/*")`` →
-    ``"src/app/*"``); ``_join_repo("src", ".")`` → ``"src"``.
+    Returns ``None`` when a ``..`` segment walks above the repo root: a target
+    that escapes the project names no in-repo file, so it must yield no edge
+    (mirrors :meth:`TypeScriptResolver._anchor` for relative specifiers). A ``*``
+    glob segment is preserved (``_join_repo("src", "app/*")`` → ``"src/app/*"``);
+    ``_join_repo("src", ".")`` → ``"src"``.
     """
     parts = [p for p in base.split("/") if p] if base else []
     for seg in rel.split("/"):
         if seg in ("", "."):
             continue
         if seg == "..":
-            if parts:
-                parts.pop()
+            if not parts:
+                return None  # escaped above the repo root
+            parts.pop()
         else:
             parts.append(seg)
     return "/".join(parts)
@@ -401,32 +425,37 @@ class TypeScriptResolver:
         return "/".join(parts)
 
     def _resolve_alias(self, spec: str, file_set: set[str]) -> list[str]:
-        """tsconfig ``paths`` then ``baseUrl`` resolution for a non-relative spec."""
-        out: list[str] = []
+        """tsconfig ``paths`` then ``baseUrl`` resolution for a non-relative spec.
+
+        For a ``paths`` array TS uses the FIRST target that resolves to a file, so
+        probing stops at the first base that yields a hit; only when no pattern
+        target resolves does it fall back to ``baseUrl``.
+        """
         assert self._tsconfig is not None  # guarded by the caller
         for pattern, targets in self._tsconfig.paths:
             for base in self._match_pattern(pattern, targets, spec):
-                for hit in self._probe(base, file_set):
-                    if hit not in out:
-                        out.append(hit)
-        if out:
-            return out
+                hits = self._probe(base, file_set)
+                if hits:  # first resolving target wins (TS module resolution)
+                    return hits
         base_url = self._tsconfig.base_url
-        if base_url is not None:
-            base = _join_repo(base_url, spec)
-            return self._probe(base, file_set)
-        return []
+        if base_url is None:
+            return []
+        root_base = _join_repo(base_url, spec)
+        # A spec whose `..` segments escape above the baseUrl root names no file.
+        return self._probe(root_base, file_set) if root_base is not None else []
 
     @staticmethod
     def _match_pattern(pattern: str, targets: tuple[str, ...], spec: str) -> list[str]:
         """Match ``spec`` against one ``paths`` pattern, yielding target bases.
 
         A wildcard pattern (``@app/*``) captures the tail after the prefix and
-        substitutes it into each wildcard target (``src/*`` → ``src/<tail>``); an
-        exact pattern matches the whole specifier and uses each target verbatim.
+        substitutes it into each wildcard target (``src/*`` → ``src/<tail>``); the
+        bare catch-all ``*`` captures the whole specifier (``"*": ["src/*"]``
+        maps ``foo`` → ``src/foo``); an exact pattern matches the whole specifier
+        and uses each target verbatim.
         """
-        if pattern.endswith("/*"):
-            prefix = pattern[:-1]  # "@app/*" -> "@app/"
+        if pattern.endswith("*"):
+            prefix = pattern[:-1]  # "@app/*" -> "@app/"; bare "*" -> ""
             if not spec.startswith(prefix):
                 return []
             tail = spec[len(prefix) :]
@@ -446,8 +475,10 @@ class TypeScriptResolver:
 
         Probes ``base`` verbatim (a specifier written with an extension), then
         ``base`` + each TS/JS extension against the module stem (so a ``.js``
-        specifier also reaches its ``.ts`` source), then the ``index.*`` barrels
-        for a directory import. First-seen order is preserved for determinism.
+        specifier also reaches its ``.ts`` source), then — only when nothing has
+        matched yet, since a same-named file shadows the directory — the
+        ``index.*`` barrels for a directory import. First-seen order is preserved
+        for determinism.
         """
         out: list[str] = []
 
@@ -464,8 +495,9 @@ class TypeScriptResolver:
         if stem:
             for ext in _PROBE_EXTENSIONS:
                 add(f"{stem}{ext}")
-        for barrel in self.config.barrels:
-            add(f"{stem}/{barrel}" if stem else barrel)
+        if not out:  # a same-named file shadows a directory's index barrel (TS)
+            for barrel in self.config.barrels:
+                add(f"{stem}/{barrel}" if stem else barrel)
         return out
 
 

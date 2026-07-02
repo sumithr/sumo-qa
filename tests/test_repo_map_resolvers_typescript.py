@@ -24,6 +24,7 @@ from sumo_qa.repo_map_resolvers.base import RawImport
 from sumo_qa.repo_map_resolvers.typescript import (
     JAVASCRIPT_CONFIG,
     TYPESCRIPT_CONFIG,
+    TsConfig,
     TypeScriptResolver,
     parse_tsconfig,
 )
@@ -187,6 +188,25 @@ def test_resolve_relative_overshoot_past_root_yields_nothing():
     assert ts.resolve("src/app.ts", imp, _FILE_SET) == []
 
 
+def test_resolve_relative_import_probes_mjs_and_cjs_extensions():
+    # The scanner assigns .mjs/.cjs the `javascript` language, so an import must be
+    # able to RESOLVE to one — `./esm` -> pkg/esm.mjs, `./legacy` -> pkg/legacy.cjs.
+    file_set = {"pkg/main.js", "pkg/esm.mjs", "pkg/legacy.cjs"}
+    esm = RawImport(module="./esm", level=0, names=(), function_local=False)
+    cjs = RawImport(module="./legacy", level=0, names=(), function_local=False)
+    assert js.resolve("pkg/main.js", esm, file_set) == ["pkg/esm.mjs"]
+    assert js.resolve("pkg/main.js", cjs, file_set) == ["pkg/legacy.cjs"]
+
+
+def test_resolve_file_shadows_directory_index_barrel():
+    # TS resolution prefers a same-named FILE over a directory's index barrel, so
+    # `./components` with BOTH components.ts and components/index.ts present
+    # resolves to the file only (no phantom barrel edge).
+    file_set = {"src/app.ts", "src/components.ts", "src/components/index.ts"}
+    imp = RawImport(module="./components", level=0, names=(), function_local=False)
+    assert ts.resolve("src/app.ts", imp, file_set) == ["src/components.ts"]
+
+
 # ---------- resolve: external / bare ----------
 
 
@@ -288,6 +308,43 @@ def test_resolve_alias_miss_without_baseurl_is_external():
     assert resolver.resolve("src/app.ts", imp, _FILE_SET) == []
 
 
+def test_resolve_catch_all_star_pattern_alias():
+    # A bare "*" catch-all captures the whole specifier: "*": ["src/*"] maps ANY
+    # non-relative name into src/ -> `util` resolves to src/util.ts.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"*": ["src/*"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="util", level=0, names=(), function_local=False)
+    assert resolver.resolve("src/app.ts", imp, _FILE_SET) == ["src/util.ts"]
+
+
+def test_resolve_alias_uses_first_resolving_target_only():
+    # A paths array tries targets in order and uses the FIRST that resolves (TS
+    # module resolution): ["dist/*", "src/*"] where only src/ exists yields the
+    # src edge only, never a phantom dist edge.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"@app/*": ["dist/*", "src/*"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@app/util", level=0, names=(), function_local=False)
+    assert resolver.resolve("src/app.ts", imp, _FILE_SET) == ["src/util.ts"]
+
+
+def test_resolve_alias_target_escaping_repo_root_yields_no_edge():
+    # A paths target that climbs above the repo root ("../shared/*") points outside
+    # the project, so it resolves to no in-repo file (no fabricated in-repo edge).
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"@shared/*": ["../shared/*"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@shared/util", level=0, names=(), function_local=False)
+    assert resolver.resolve("src/app.ts", imp, _FILE_SET) == []
+
+
+def test_resolve_baseurl_specifier_escaping_root_yields_no_edge():
+    # The baseUrl-side analogue of relative overshoot: a non-relative specifier
+    # whose embedded `..` climbs above the baseUrl root names no in-repo file.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"baseUrl": "src"}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="foo/../../../bar", level=0, names=(), function_local=False)
+    assert resolver.resolve("src/app.ts", imp, _FILE_SET) == []
+
+
 # ---------- parse_tsconfig: malformed / JSONC tolerance ----------
 
 
@@ -321,6 +378,20 @@ def test_parse_tsconfig_tolerates_jsonc_escaped_string():
     # trailing-comma stripping intact.
     cfg = parse_tsconfig('{"compilerOptions": {"baseUrl": "src\\\\app"}}')
     assert cfg.base_url == "src\\app"
+
+
+def test_parse_tsconfig_returns_empty_on_malformed_json():
+    # A syntactically broken tsconfig (unterminated object) must not raise — a
+    # scan degrades to no aliases rather than crashing.
+    assert parse_tsconfig("{") == TsConfig()
+    assert parse_tsconfig("{") == parse_tsconfig("{}")
+
+
+def test_parse_tsconfig_drops_target_escaping_repo_root():
+    # A path target that escapes above the repo root is dropped (not clamped to a
+    # fake in-repo path), leaving the alias with an empty target list.
+    cfg = parse_tsconfig('{"compilerOptions": {"paths": {"@shared/*": ["../shared/*"]}}}')
+    assert dict(cfg.paths)["@shared/*"] == ()
 
 
 # ---------- orchestrator integration (real scan of the committed mini-repo) ----------
