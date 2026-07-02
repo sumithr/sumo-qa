@@ -24,17 +24,23 @@ Resolution rules (ported from UA):
   ``resolve(importer, imp, file_set)`` contract intentionally exposes only paths
   (no file contents), so the prefix is stripped *structurally*: the package
   directory is the **longest import-path suffix that is a real package
-  directory** (holds at least one ``.go`` file) within the importer's module —
+  directory** (holds at least one non-test ``.go`` file) within the module —
   down to the empty suffix, i.e. the module-root package itself, so an import
   whose path equals the module path maps to the root ``.go`` files. The
   remaining head is the stripped module prefix. Longest-suffix-first avoids
-  over-stripping to a coincidental shallow directory. A candidate directory that
-  can only be reached by crossing a nested ``go.mod`` belongs to a different
-  module and is not a valid match (see the go.mod-boundary rule above).
+  over-stripping to a coincidental shallow directory. When that longest real
+  match lies beyond a nested ``go.mod`` it belongs to a *different* module: the
+  import targets that nested module (external to this contract) and is **dropped
+  outright** — resolution does not then fall through to a shorter same-module
+  suffix, which could otherwise forge a false edge to a coincidental decoy dir
+  sharing the trailing segment (see the go.mod-boundary rule above).
 - **Package-level fan-out.** Go imports are package-level, not file-level: one
-  import path names a directory, and every ``.go`` file in that directory is
-  part of the package. So a resolved import fans out to an edge for **every**
-  ``.go`` file in the package directory, returned sorted for determinism.
+  import path names a directory, and every non-test ``.go`` file in that
+  directory is part of the package. So a resolved import fans out to an edge for
+  **every** non-test ``.go`` file in the package directory, returned sorted for
+  determinism. ``*_test.go`` files are excluded — they are not compiled into the
+  imported package for a production import, so fanning out to them would forge a
+  false source->test edge.
 - **External / stdlib drop.** A standard-library import (``fmt``) or a
   third-party dependency (``github.com/x/y``) usually has no package directory
   under the module root, so no suffix matches and resolution returns ``[]`` —
@@ -72,6 +78,7 @@ _STRING_CONTENT_SUFFIX = "_content"  # the *_content child holds the unquoted te
 
 _GO_MOD = "go.mod"
 _GO_SUFFIX = ".go"
+_TEST_GO_SUFFIX = "_test.go"  # `*_test.go`: not part of the imported package
 
 
 class GoResolver:
@@ -128,12 +135,14 @@ class GoResolver:
 
         Resolves against the importer's nearest enclosing ``go.mod`` module
         root, strips the module prefix by longest-suffix matching (the empty
-        suffix maps to the module-root package), skips any candidate that lies
-        beyond a nested ``go.mod`` boundary, and fans the resolved package
-        directory out to every ``.go`` file it contains. Returns ``[]`` for an
-        empty path, an importer with no enclosing ``go.mod``, or an import that
-        matches no package directory within the module (external package /
-        stdlib).
+        suffix maps to the module-root package), and fans the resolved package
+        directory out to every non-test ``.go`` file it contains. When the
+        longest real package-dir match lies beyond a nested ``go.mod`` the import
+        belongs to that distinct module and is dropped outright (no fall-through
+        to a shorter same-module decoy). Returns ``[]`` for an empty path, an
+        importer with no enclosing ``go.mod``, an import whose target lives in a
+        nested module, or an import that matches no package directory within the
+        module (external package / stdlib).
         """
         if not imp.module:
             return []
@@ -146,17 +155,28 @@ class GoResolver:
         # segments first (whole path), then 1, then 2, … down to dropping ALL
         # segments (the empty suffix -> the module-root package itself, so an
         # import whose path equals the module path resolves the root `.go`
-        # files), and stop at the first suffix whose directory holds a `.go`
-        # file. The remaining head is the module prefix. A candidate reached by
-        # crossing an intervening (nested) `go.mod` is a DIFFERENT module and is
-        # skipped. A path that matches nothing is external/stdlib -> [].
+        # files), and stop at the first suffix whose directory holds a non-test
+        # `.go` file. The remaining head is the module prefix. If that first real
+        # match is reached by crossing an intervening (nested) `go.mod` it is a
+        # DIFFERENT module, so the import is dropped outright (NOT retried at a
+        # shorter suffix, which could hit a decoy). A path that matches nothing is
+        # external/stdlib -> [].
         for strip in range(len(segments) + 1):
             package_dir = self._join(module_root, segments[strip:])
-            if self._crosses_nested_module(module_root, package_dir, file_set):
-                continue
             files = self._go_files_in_dir(package_dir, file_set)
-            if files:
-                return files
+            if not files:
+                continue
+            if self._crosses_nested_module(module_root, package_dir, file_set):
+                # This suffix is the LONGEST that maps onto a real package dir,
+                # but that dir lives beyond a nested `go.mod` (a distinct
+                # module): the import targets that nested module, which the
+                # path-only contract treats as external. Drop the import — do
+                # NOT fall through to a SHORTER same-module suffix that happens
+                # to share the trailing segment, which would forge a false edge
+                # to a decoy dir (e.g. import `.../service/core` with a nested
+                # `service/go.mod` must not resolve to a root-level `core/`).
+                return []
+            return files
         return []
 
     @staticmethod
@@ -205,15 +225,19 @@ class GoResolver:
 
     @staticmethod
     def _go_files_in_dir(package_dir: str, file_set: set[str]) -> list[str]:
-        """Every ``.go`` file directly inside ``package_dir`` (sorted).
+        """Every non-test ``.go`` file directly inside ``package_dir`` (sorted).
 
         Go packages are flat — only files in the directory itself, not nested
         sub-packages — so a file matches when its parent directory equals
-        ``package_dir`` exactly.
+        ``package_dir`` exactly. ``*_test.go`` files are excluded: they are not
+        compiled into the imported package for a production import, so fanning a
+        source import out to them would fabricate a false source->test edge.
         """
         hits: list[str] = []
         for path in file_set:
             if not path.endswith(_GO_SUFFIX):
+                continue
+            if path.endswith(_TEST_GO_SUFFIX):
                 continue
             parent = path.rsplit("/", 1)[0] if "/" in path else ""
             if parent == package_dir:

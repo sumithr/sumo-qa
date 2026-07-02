@@ -119,6 +119,16 @@ def test_go_resolver_resolve_fans_out_to_every_file_in_the_package_dir():
     assert resolver.resolve("app/main.go", imp, files) == ["pkg/util/a.go", "pkg/util/b.go"]
 
 
+def test_go_resolver_resolve_excludes_test_files_from_package_fan_out():
+    # `*_test.go` files are NOT compiled into the imported package for a
+    # production import, so the package fan-out must skip them: importing the
+    # util package yields an edge ONLY to foo.go, never to foo_test.go (which
+    # would forge a false source->test edge). Every Go repo with tests hits this.
+    imp = RawImport(module="example.com/m/pkg/util", level=0, names=(), function_local=False)
+    files = {"go.mod", "app/main.go", "pkg/util/foo.go", "pkg/util/foo_test.go"}
+    assert resolver.resolve("app/main.go", imp, files) == ["pkg/util/foo.go"]
+
+
 def test_go_resolver_resolve_nearest_go_mod_governs_in_multi_module_repo():
     # Nested module: service/go.mod is the importer's NEAREST enclosing go.mod,
     # so example.com/service/core resolves under service/, never against the
@@ -197,6 +207,25 @@ def test_go_resolver_resolve_does_not_cross_a_nested_go_mod_boundary():
         "service/go.mod",  # nested module boundary between root and service/core
         "app/main.go",
         "service/core/c.go",
+    }
+    assert resolver.resolve("app/main.go", imp, files) == []
+
+
+def test_go_resolver_resolve_boundary_rejection_does_not_fall_through_to_a_decoy():
+    # Regression: when the LONGEST real package-dir match (service/core) is
+    # rejected for crossing a nested go.mod, resolution must DROP the import (it
+    # belongs to the nested service/ module) - it must NOT fall through to a
+    # SHORTER same-module suffix that shares the trailing segment. Here a
+    # root-level core/ dir would be that decoy; a false edge to it is the bug.
+    imp = RawImport(
+        module="example.com/root/service/core", level=0, names=(), function_local=False
+    )
+    files = {
+        "go.mod",
+        "service/go.mod",  # nested module: service/core is a DIFFERENT module
+        "app/main.go",
+        "service/core/c.go",  # the real (nested-module) target - out of scope
+        "core/root.go",  # root-level decoy sharing the trailing segment `core`
     }
     assert resolver.resolve("app/main.go", imp, files) == []
 
