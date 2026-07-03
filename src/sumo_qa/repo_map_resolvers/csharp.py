@@ -13,8 +13,12 @@ Resolution rules (ported from UA):
 - **``using`` → namespace, not file.** ``extract`` pulls each plain ``using``
   (and ``global using``) directive off the parse as a :class:`RawImport` whose
   ``module`` is the dotted namespace. ``using static T`` (imports a type's
-  static members) and ``using Alias = X`` (an alias) are NOT namespace imports
-  and are skipped.
+  static members) is NOT a namespace import and is skipped. ``using Alias =
+  Namespace`` (an alias directive) records the RIGHT-HAND-SIDE namespace (the
+  alias name is ignored), so it fans out to that namespace's declaring files
+  exactly as a plain ``using Namespace;`` would. tree-sitter cannot tell a
+  namespace alias from a type alias, so a type alias's RHS is recorded too, but
+  it simply misses the namespace index and resolves to nothing.
 - **Namespace fan-out via a cross-file index.** A namespace's declaring files
   can only be known by reading *other* files, so the resolver carries a
   ``namespace -> {declaring file path}`` index (built by
@@ -41,6 +45,18 @@ Resolution rules (ported from UA):
    ``_LANGUAGE_BY_EXT`` / ``_PROGRAMMING_LANGS`` omit it). Both are foundation
    changes and are out of scope here (#362 ships the resolver + its index
    capability; the scan-time wiring is a follow-on).
+
+.. note:: Known limitations
+
+   A ``global using`` (e.g. ``global using MyApp.Models;`` in a
+   ``GlobalUsings.cs``) applies *project-wide* in C#: other files that use types
+   from ``MyApp.Models`` without a local ``using`` should get edges too. This
+   resolver only creates edges from the ``global using``'s OWN declaring file —
+   the path-only, per-file ``resolve(importer, imp, file_set)`` contract has no
+   project-wide view with which to apply one file's global usings to another.
+   Project-wide application needs the SAME cross-file pre-pass that populates the
+   namespace index (the foundation follow-up noted above); it is deliberately
+   NOT attempted here.
 """
 
 from __future__ import annotations
@@ -66,7 +82,6 @@ _FILE_SCOPED_NAMESPACE_DECL = "file_scoped_namespace_declaration"  # `namespace 
 _QUALIFIED_NAME = "qualified_name"  # `A.B.C`
 _IDENTIFIER = "identifier"  # a single-segment name `A`
 _STATIC = "static"  # the `static` token of `using static T`
-_EQUALS = "="  # the `=` token of `using Alias = X`
 
 # The BCL/framework namespace root. `System` and any `System.*` namespace is
 # dropped explicitly so it never fans out even if a project file (perversely)
@@ -88,11 +103,13 @@ class CSharpResolver:
         """Return the namespace ``using`` directives in ``src`` as records.
 
         Each plain ``using X;`` / ``global using X;`` yields a
-        :class:`RawImport` whose ``module`` is the dotted namespace. ``using
-        static T`` (type statics) and ``using Alias = X`` (alias) are skipped —
-        they are not namespace imports. C# using directives are always
-        file-/namespace-level (never inside a method body), so ``level`` is
-        ``0``, ``names`` is empty, and ``function_local`` is ``False``.
+        :class:`RawImport` whose ``module`` is the dotted namespace, and an
+        alias ``using Alias = X;`` yields one whose ``module`` is the
+        RIGHT-HAND-SIDE namespace ``X`` (the alias name is ignored). ``using
+        static T`` (type statics) is skipped — it is not a namespace import. C#
+        using directives are always file-/namespace-level (never inside a method
+        body), so ``level`` is ``0``, ``names`` is empty, and
+        ``function_local`` is ``False``.
         """
         root = parse("csharp", src)
         raws: list[RawImport] = []
@@ -106,21 +123,26 @@ class CSharpResolver:
 
     @staticmethod
     def _using_namespace(node: TSNode) -> str | None:
-        """The dotted namespace of a plain ``using`` directive, or ``None``.
+        """The dotted namespace a ``using`` directive brings in, or ``None``.
 
-        Returns ``None`` for ``using static T`` (a ``static`` token) and
-        ``using Alias = X`` (an ``=`` token) — neither is a namespace import.
-        Otherwise the namespace is the directive's sole ``qualified_name`` /
-        ``identifier`` child (``global using`` and ``using`` differ only by a
-        leading ``global`` keyword token, so both reach here).
+        ``using static T`` (imports a type's static members) is not a namespace
+        import and yields ``None``. Otherwise the namespace is the directive's
+        LAST ``qualified_name`` / ``identifier`` child: a plain ``using X;`` /
+        ``global using X;`` has exactly one name node (``X``), while an alias
+        ``using Alias = X;`` has two (``[Alias, X]``) and the namespace is
+        always the right-hand ``X`` — the alias name precedes the ``=`` token,
+        so the RHS is last. tree-sitter cannot distinguish a namespace alias
+        from a type alias; a type alias's RHS is returned too but simply misses
+        the namespace index and resolves to nothing.
         """
         kinds = {child.kind for child in node.children}
-        if _STATIC in kinds or _EQUALS in kinds:
+        if _STATIC in kinds:
             return None
+        namespace: str | None = None
         for child in node.children:
             if child.kind in (_QUALIFIED_NAME, _IDENTIFIER):
-                return child.text
-        return None  # pragma: no cover -- defensive: a plain using always has a name node
+                namespace = child.text
+        return namespace
 
     def declared_namespaces(self, src: bytes) -> set[str]:
         """The set of namespaces ``src`` declares (block, file-scoped, nested).

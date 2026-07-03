@@ -11,8 +11,9 @@ populated.
 C# rules ported from Understand-Anything: a ``using`` names a NAMESPACE, not a
 file, so it resolves to every project file that DECLARES that namespace
 (package-level fan-out). ``System.*`` and external assemblies (no declaring
-project file) yield no edge. ``using static`` (type-statics) and
-``using Alias = X`` (alias) are not namespace imports and are dropped.
+project file) yield no edge. ``using static`` (type-statics) is dropped; an
+alias ``using Alias = X`` records its RIGHT-HAND-SIDE namespace ``X`` (the alias
+name is ignored) and fans out just like a plain ``using X;``.
 """
 
 from __future__ import annotations
@@ -72,12 +73,18 @@ def test_extract_using_directives_are_namespaces_in_source_order():
 
 
 @_needs_ts
-def test_extract_skips_using_static_and_alias_keeps_plain_and_global():
+def test_extract_records_alias_rhs_skips_static_keeps_plain_and_global():
     # `global using MyApp.Shared` and plain `using MyApp.Models` are namespace
-    # imports; `using static System.Math` (type statics) and
-    # `using Alias = MyApp.Models.Order` (alias) are NOT namespace fan-out.
+    # imports; `using static System.Math` (type statics) is dropped; the alias
+    # `using Alias = MyApp.Models.Order` records its RIGHT-HAND-SIDE
+    # `MyApp.Models.Order` (a type alias here: it misses the namespace index and
+    # resolves to nothing, but extract still records the RHS in source order).
     src = (_FIXTURES / "Edge" / "Directives.cs").read_bytes()
-    assert [r.module for r in resolver.extract(src)] == ["MyApp.Shared", "MyApp.Models"]
+    assert [r.module for r in resolver.extract(src)] == [
+        "MyApp.Shared",
+        "MyApp.Models.Order",
+        "MyApp.Models",
+    ]
 
 
 # ---------- declared_namespaces (real tree-sitter, committed fixtures) ----------
@@ -125,6 +132,23 @@ def _resolver_with_index(index: dict[str, set[str]]) -> CSharpResolver:
     r = CSharpResolver()
     r._namespace_index = {ns: set(paths) for ns, paths in index.items()}
     return r
+
+
+@_needs_ts
+def test_alias_directive_records_rhs_namespace_and_fans_out():
+    # A NAMESPACE alias `using Models = MyApp.Models;`: the alias NAME is ignored
+    # and the RHS namespace `MyApp.Models` is recorded, so it fans out to the
+    # files declaring `MyApp.Models` exactly as a plain `using MyApp.Models;`
+    # would (#362 review fix — the alias was previously dropped entirely).
+    raws = resolver.extract(b"using Models = MyApp.Models;\n")
+    assert [r.module for r in raws] == ["MyApp.Models"]
+
+    r = _resolver_with_index({"MyApp.Models": {"Models/Order.cs", "Models/Customer.cs"}})
+    files = {"Models/Order.cs", "Models/Customer.cs", "Controllers/HomeController.cs"}
+    assert r.resolve("Controllers/HomeController.cs", raws[0], files) == [
+        "Models/Customer.cs",
+        "Models/Order.cs",
+    ]
 
 
 def test_resolve_using_fans_out_to_namespace_declaring_files_sorted():
