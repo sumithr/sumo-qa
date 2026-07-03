@@ -23,17 +23,21 @@ Resolution rules (ported from UA):
   tree (it is an arbitrary string in ``go.mod``), and the Approach-C
   ``resolve(importer, imp, file_set)`` contract intentionally exposes only paths
   (no file contents), so the prefix is stripped *structurally*: the package
-  directory is the **longest import-path suffix that is a real package
-  directory** (holds at least one non-test ``.go`` file) within the module —
-  down to the empty suffix, i.e. the module-root package itself, so an import
-  whose path equals the module path maps to the root ``.go`` files. The
-  remaining head is the stripped module prefix. Longest-suffix-first avoids
-  over-stripping to a coincidental shallow directory. When that longest real
-  match lies beyond a nested ``go.mod`` it belongs to a *different* module: the
-  import targets that nested module (external to this contract) and is **dropped
-  outright** — resolution does not then fall through to a shorter same-module
-  suffix, which could otherwise forge a false edge to a coincidental decoy dir
-  sharing the trailing segment (see the go.mod-boundary rule above).
+  directory is the **longest non-empty import-path suffix that is a real package
+  directory** (holds at least one non-test ``.go`` file) within the module. The
+  remaining head is the stripped module prefix. Only suffixes of length >= 1 are
+  tried: an import that matches no local package directory resolves to ``[]``
+  (external/stdlib, or a bare module-path import — see Known limitations). The
+  module-root package (the empty suffix) is deliberately never a fallback,
+  because it cannot be told from an external import that simply matches nothing,
+  so using it would make every unresolved import falsely edge to the root
+  ``.go`` files. Longest-suffix-first avoids over-stripping to a coincidental
+  shallow directory. When that longest real match lies beyond a nested
+  ``go.mod`` it belongs to a *different* module: the import targets that nested
+  module (external to this contract) and is **dropped outright** — resolution
+  does not then fall through to a shorter same-module suffix, which could
+  otherwise forge a false edge to a coincidental decoy dir sharing the trailing
+  segment (see the go.mod-boundary rule above).
 - **Package-level fan-out.** Go imports are package-level, not file-level: one
   import path names a directory, and every non-test ``.go`` file in that
   directory is part of the package. So a resolved import fans out to an edge for
@@ -44,17 +48,38 @@ Resolution rules (ported from UA):
 - **External / stdlib drop.** A standard-library import (``fmt``) or a
   third-party dependency (``github.com/x/y``) usually has no package directory
   under the module root, so no suffix matches and resolution returns ``[]`` —
-  the normal "not ours" outcome, never an error. Caveat: because the declared
-  module path is not exposed to ``resolve`` (only file paths are), an external
-  import whose trailing segment(s) happen to collide with a real local package
-  directory is indistinguishable from a local import and yields a (false) edge;
-  disambiguating it needs the ``go.mod`` ``module`` directive and is out of
-  scope for this path-only contract.
+  the normal "not ours" outcome, never an error.
 
 Go has no relative imports and no function-local imports (import declarations
 are file-level only), so every :class:`RawImport` carries ``level=0``,
 ``names=()`` and ``function_local=False`` — the orchestrator tags every Go
 import edge ``high`` confidence.
+
+Known limitations
+-----------------
+
+The first two below share one root cause: the path-only ``resolve`` contract
+does not expose the ``go.mod`` ``module`` directive, so a genuinely local import
+and an external one that happens to line up with the directory tree cannot be
+told apart. Each is a *safe* outcome (a pinned false edge or a missing edge),
+tracked here so a future fix is a deliberate, reviewed change.
+
+- **External-name collision (false edge, pinned).** An external import whose
+  trailing segment(s) collide with a real local package directory (e.g.
+  ``github.com/ext/widget`` with a local ``widget/`` dir) is indistinguishable
+  from a local import and yields a (false) edge. Disambiguating it needs the
+  module path.
+- **Bare module-root import (missing edge).** An import whose path equals the
+  module path (the module-root package itself) is NOT resolved: the resolver
+  cannot tell it from an external import that simply matches no local package,
+  so resolving it (via an empty stripped suffix) would make every unresolved
+  stdlib/external import falsely edge to the module-root ``.go`` files. Such an
+  import returns ``[]`` — the safe missing edge is preferred over a systematic
+  false one.
+- **Vendored imports (missing edge).** Imports satisfied by a ``vendor/`` tree
+  (``vendor/<import-path>/*.go``) are not resolved: candidate package dirs are
+  built only as ``<module-root>/<stripped suffix>``, never under ``vendor/``.
+  This is a safe false-negative, not implemented in this slice.
 """
 
 from __future__ import annotations
@@ -134,15 +159,15 @@ class GoResolver:
         """Map one import path to the repo-relative ``.go`` file(s) it references.
 
         Resolves against the importer's nearest enclosing ``go.mod`` module
-        root, strips the module prefix by longest-suffix matching (the empty
-        suffix maps to the module-root package), and fans the resolved package
-        directory out to every non-test ``.go`` file it contains. When the
-        longest real package-dir match lies beyond a nested ``go.mod`` the import
-        belongs to that distinct module and is dropped outright (no fall-through
-        to a shorter same-module decoy). Returns ``[]`` for an empty path, an
-        importer with no enclosing ``go.mod``, an import whose target lives in a
-        nested module, or an import that matches no package directory within the
-        module (external package / stdlib).
+        root, strips the module prefix by longest non-empty-suffix matching, and
+        fans the resolved package directory out to every non-test ``.go`` file it
+        contains. When the longest real package-dir match lies beyond a nested
+        ``go.mod`` the import belongs to that distinct module and is dropped
+        outright (no fall-through to a shorter same-module decoy). Returns ``[]``
+        for an empty path, an importer with no enclosing ``go.mod``, an import
+        whose target lives in a nested module, or an import that matches no
+        package directory within the module (external package / stdlib, or a bare
+        module-root import — see the module Known limitations).
         """
         if not imp.module:
             return []
@@ -152,16 +177,20 @@ class GoResolver:
         segments = [seg for seg in imp.module.split("/") if seg]
         # Strip the module prefix by taking the LONGEST import-path suffix that
         # is a real package directory under the module root: drop 0 leading
-        # segments first (whole path), then 1, then 2, … down to dropping ALL
-        # segments (the empty suffix -> the module-root package itself, so an
-        # import whose path equals the module path resolves the root `.go`
-        # files), and stop at the first suffix whose directory holds a non-test
-        # `.go` file. The remaining head is the module prefix. If that first real
-        # match is reached by crossing an intervening (nested) `go.mod` it is a
-        # DIFFERENT module, so the import is dropped outright (NOT retried at a
-        # shorter suffix, which could hit a decoy). A path that matches nothing is
-        # external/stdlib -> [].
-        for strip in range(len(segments) + 1):
+        # segments first (whole path), then 1, then 2, … down to dropping all but
+        # the last segment (suffix length 1), and stop at the first suffix whose
+        # directory holds a non-test `.go` file. Only NON-EMPTY suffixes are
+        # tried: the module-root package (the empty suffix) is deliberately NOT a
+        # fallback, because the path-only contract cannot distinguish a genuine
+        # module-path import from an external import that simply matches no local
+        # package, so resolving the empty suffix would make EVERY unresolved
+        # stdlib/external import falsely edge to the module-root `.go` files (see
+        # the module docstring's Known limitations). The remaining head is the
+        # module prefix. If that first real match is reached by crossing an
+        # intervening (nested) `go.mod` it is a DIFFERENT module, so the import is
+        # dropped outright (NOT retried at a shorter suffix, which could hit a
+        # decoy). A path that matches nothing is external/stdlib -> [].
+        for strip in range(len(segments)):
             package_dir = self._join(module_root, segments[strip:])
             files = self._go_files_in_dir(package_dir, file_set)
             if not files:
@@ -207,9 +236,11 @@ class GoResolver:
         nested module, so an edge to it would be a false cross-module link.
         Walks the candidate's ancestors below the module root (``package_dir``
         itself included) and reports the first such boundary ``go.mod``.
+
+        Only ever called with a ``package_dir`` strictly below ``module_root``
+        (a non-empty stripped suffix), so ``package_dir == module_root`` cannot
+        arise: the module-root package is not a resolution target.
         """
-        if package_dir == module_root:
-            return False  # the root package of the importer's own module
         root_depth = len(module_root.split("/")) if module_root else 0
         pkg_parts = package_dir.split("/")
         for depth in range(root_depth + 1, len(pkg_parts) + 1):

@@ -185,15 +185,24 @@ def test_go_resolver_resolve_empty_import_yields_nothing():
     assert resolver.resolve("app/main.go", imp, files) == []
 
 
-def test_go_resolver_resolve_import_equal_to_module_path_hits_root_package():
-    # The module-root directory is itself a package (root-level .go files). An
-    # import whose path EQUALS the module path names that root package, i.e. the
-    # empty import-path suffix under the module root -> fan out to the root .go
-    # files (sorted). Exercises stripping ALL segments (suffix length 0), which
-    # the original range(len(segments)) loop never reached.
-    imp = RawImport(module="example.com/root", level=0, names=(), function_local=False)
+def test_go_resolver_resolve_module_root_import_is_not_resolved_to_root_package():
+    # REGRESSION (round-3): a prior fix added an EMPTY import-path suffix pass so
+    # an import equal to the module path resolved to the module-root package
+    # (root-level .go files). Under the path-only contract that pass is UNSAFE:
+    # the module-root package also matches EVERY unresolved stdlib/external
+    # import (which likewise strips down to nothing local), so it forged a
+    # systematic false edge from every such import to the root .go files. With
+    # root-level .go files present, an external dependency (github.com/ext/widget)
+    # and a stdlib import (fmt) must BOTH resolve to [] - no edge to the root
+    # package. (A bare module-root import is dropped for the same reason: a
+    # pinned Known limitation - the resolver cannot distinguish it from an
+    # external import without the go.mod `module` directive, which the path-only
+    # contract does not expose.)
     files = {"go.mod", "a_root.go", "b_root.go", "app/main.go", "pkg/util/a.go"}
-    assert resolver.resolve("app/main.go", imp, files) == ["a_root.go", "b_root.go"]
+    external = RawImport(module="github.com/ext/widget", level=0, names=(), function_local=False)
+    stdlib = RawImport(module="fmt", level=0, names=(), function_local=False)
+    assert resolver.resolve("app/main.go", external, files) == []
+    assert resolver.resolve("app/main.go", stdlib, files) == []
 
 
 def test_go_resolver_resolve_does_not_cross_a_nested_go_mod_boundary():
