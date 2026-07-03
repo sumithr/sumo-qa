@@ -60,6 +60,7 @@ _STRING_CONTENT = "string_content"  # the literal text inside the quotes
 _METHOD = "method"  # `def name ... end`
 _SINGLETON_METHOD = "singleton_method"  # `def self.name ... end`
 _STRING_DELIMS = ('"', "'")  # the quote tokens bounding a string literal
+_ARG_PUNCT = (",", "(", ")")  # separators/brackets inside an argument_list (not args)
 
 _REQUIRE = "require"
 _REQUIRE_RELATIVE = "require_relative"
@@ -124,16 +125,20 @@ class RubyResolver:
     def _string_arg(arg: TSNode) -> str:
         """The text of a single plain string literal in ``arg``, or ``''``.
 
-        Returns ``''`` when the argument list does not hold exactly one string
-        literal, or when that string carries anything other than quote
-        delimiters and plain content (interpolation, an escape) — i.e. a dynamic
-        path with no statically-resolvable target.
+        Returns ``''`` when the argument list does not hold *exactly one*
+        argument that is a string literal, or when that string carries anything
+        other than quote delimiters and plain content (interpolation, an escape)
+        — i.e. a dynamic path with no statically-resolvable target. Punctuation
+        (commas, parentheses) is not an argument, so ``require("foo")`` still
+        counts as one; a second argument (``require "foo", bar``) does count, so
+        the mixed-arg form is skipped rather than yielding a false ``"foo"``
+        edge.
         """
-        strings = [c for c in arg.children if c.kind == _STRING]
-        if len(strings) != 1:
+        args = [c for c in arg.children if c.kind not in _ARG_PUNCT]
+        if len(args) != 1 or args[0].kind != _STRING:
             return ""
         content = ""
-        for part in strings[0].children:
+        for part in args[0].children:
             kind = part.kind
             if kind == _STRING_CONTENT:
                 content += part.text
@@ -173,9 +178,15 @@ class RubyResolver:
         """Join ``base`` directory parts with a ``/``-delimited module path.
 
         Collapses ``.`` (current dir) and ``..`` (parent) segments; returns
-        ``None`` when a ``..`` walks above ``base`` (past the repo root) or when
-        nothing remains.
+        ``None`` when a ``..`` walks above ``base`` (past the repo root), when
+        nothing remains, or when ``module`` is a leading-``/`` absolute path. An
+        absolute path (``require "/foo"`` / ``require_relative "/foo"``) names a
+        filesystem location, not a repo-relative file, so it never joins onto a
+        repo path -- without this guard the empty leading segment is silently
+        dropped and ``/foo`` fabricates a repo edge to ``foo.rb``.
         """
+        if module.startswith("/"):
+            return None
         parts = list(base)
         for seg in module.split("/"):
             if seg in ("", "."):

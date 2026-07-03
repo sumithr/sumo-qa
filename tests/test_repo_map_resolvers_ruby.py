@@ -84,6 +84,18 @@ def test_extract_skips_interpolated_and_computed_arguments():
     }
 
 
+@_needs_ts
+def test_extract_mixed_arg_require_yields_no_edge():
+    # `require "foo", bar` carries a second, non-string argument. Only an
+    # argument list that is exactly ONE string literal is a static path; the
+    # extra arg makes this dynamic, so it is dropped -- otherwise the leading
+    # string fabricates a false `foo` edge. A lone `require "foo"` still yields.
+    assert resolver.extract(b'require "foo", bar\n') == []
+    assert resolver.extract(b'require "foo", bar, baz\n') == []
+    lone = resolver.extract(b'require "foo"\n')
+    assert [(r.module, r.level) for r in lone] == [("foo", 0)]
+
+
 # ---------- resolve (pure path arithmetic, runs everywhere) ----------
 
 
@@ -156,6 +168,22 @@ def test_resolve_require_escaping_root_yields_nothing():
     imp = RawImport(module="..", level=0, names=(), function_local=False)
     files = {"app.rb"}
     assert resolver.resolve("app.rb", imp, files) == []
+
+
+def test_resolve_require_absolute_path_yields_nothing():
+    # `require "/foo"` is a filesystem-absolute path, not a repo-relative file.
+    # The leading `/` must NOT be dropped into a repo edge to `foo.rb`.
+    imp = RawImport(module="/foo", level=0, names=(), function_local=False)
+    files = {"app.rb", "foo.rb"}
+    assert resolver.resolve("app.rb", imp, files) == []
+
+
+def test_resolve_require_relative_absolute_path_yields_nothing():
+    # `require_relative "/foo"` from lib/app.rb must not fabricate lib/foo.rb;
+    # a leading-`/` absolute path resolves to no repo file, same as `require`.
+    imp = RawImport(module="/foo", level=1, names=(), function_local=False)
+    files = {"lib/app.rb", "lib/foo.rb"}
+    assert resolver.resolve("lib/app.rb", imp, files) == []
 
 
 def test_resolve_empty_module_yields_nothing():
