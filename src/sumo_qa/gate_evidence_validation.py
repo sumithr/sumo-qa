@@ -58,13 +58,21 @@ class GateEvidenceValidationError(ValueError):
         super().__init__(f"[{kind}]{location}: {message}")
 
 
-def load_gate_report(data: dict) -> GateReport:
+def load_gate_report(data: object) -> GateReport:
     """Load and validate a structured gate report from a parsed dict.
 
     An unsupported pass/fail/blocked claim surfaces as ``kind="value_error"``
     (the model's evidence-requirement validator), distinct from a wrong-vocab
-    status (``vocab_error``) or a stale schema version.
+    status (``vocab_error``) or a stale schema version. A non-dict input (a
+    list, a string, ``None`` from parsed JSON) is rejected up front with
+    ``kind="type_error"`` rather than raising a raw ``AttributeError`` from the
+    ``data.get`` below, keeping the stable-``kind`` contract intact.
     """
+    if not isinstance(data, dict):
+        raise GateEvidenceValidationError(
+            kind="type_error",
+            message=(f"gate report must be a JSON object (dict), got {type(data).__name__}"),
+        )
     version = data.get("schema_version")
     # Any present-but-non-matching schema_version (string or not) is a version
     # mismatch; routing a non-string through Pydantic would surface a confusing
@@ -109,12 +117,22 @@ def _classify(error_type: str) -> GateEvidenceValidationErrorKind:
 # Pass/safe phrases that assert a favourable execution outcome. Kept to the
 # claim shapes the issue names ("tests passed", "safe to merge") plus their
 # common paraphrases; deliberately narrow to avoid flagging neutral prose.
+# Every phrase is subject to the shared negation rule in ``_is_negated``, so a
+# negated verdict ("NOT safe to merge", "not yet shippable") never fires.
 _PASS_CLAIM_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\ball tests?\s+(?:pass|passed|passing|green)\b", re.IGNORECASE),
     re.compile(r"\btests?\s+(?:all\s+)?(?:pass|passed|passing)\b", re.IGNORECASE),
-    re.compile(r"\bsafe\s+to\s+merge\b", re.IGNORECASE),
+    # "safe to merge" is covered by the good/ready/safe-to-merge pattern below;
+    # a standalone duplicate would double-count the same phrase span.
     re.compile(r"\b(?:good|ready|safe)\s+to\s+(?:merge|ship|release)\b", re.IGNORECASE),
     re.compile(r"\bgate\s+(?:is\s+)?(?:passed|green|clear)\b", re.IGNORECASE),
+    # Additional merge/release-readiness paraphrases ("ready to merge" is
+    # already covered by the good/ready/safe-to-merge pattern above).
+    re.compile(r"\bmerge[-\s]ready\b", re.IGNORECASE),
+    re.compile(r"\bready\s+for\s+merge\b", re.IGNORECASE),
+    re.compile(r"\bgreen\s+for\s+merge\b", re.IGNORECASE),
+    re.compile(r"\bshippable\b", re.IGNORECASE),
+    re.compile(r"\brelease[-\s]ready\b", re.IGNORECASE),
 )
 
 # Signals that the snippet carries observed evidence. Any one present makes the
@@ -124,7 +142,10 @@ _EVIDENCE_SIGNAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?m)^\s*\$\s+\S"),  # a shell command line
     re.compile(r"\b\d+\s+passed\b", re.IGNORECASE),  # pytest/jest count line
     re.compile(r"\b\d+\s+failed\b", re.IGNORECASE),
-    re.compile(r"\bcommand\s*:", re.IGNORECASE),  # a captioned command
+    # A captioned command, but only when the label carries substantive content
+    # after the colon on the SAME line; a bare `Command:` (empty label) names no
+    # observation and must not satisfy the lint.
+    re.compile(r"\bcommand[ \t]*:[ \t]*\S.*\S", re.IGNORECASE),
     re.compile(
         r"\b(?:tool[_ ]call|file[_ ]read|external[_ ]ci|manual[_ ]observation|user[_ ]fact)\b",
         re.IGNORECASE,
@@ -132,6 +153,25 @@ _EVIDENCE_SIGNAL_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 _UNVERIFIED_HEDGE = re.compile(r"\bunverified\b", re.IGNORECASE)
+
+# A pass/safe phrase preceded by a negation ("NOT safe to merge", "not yet
+# shippable") is a blocked/hedged verdict, not an unsupported PASS claim — the
+# phrase's plain text would otherwise match inside its own negation. We look
+# only at the immediate context: a "not" directly before the phrase with at
+# most one intervening word (e.g. "not yet"), on the same line. Python's `re`
+# has no variable-width lookbehind, so we test the text ending just before the
+# match instead.
+_NEGATION_BEFORE = re.compile(r"\bnot[ \t]+(?:\w+[ \t]+)?$", re.IGNORECASE)
+
+
+def _is_negated(text: str, index: int) -> bool:
+    """True when the phrase starting at ``index`` is immediately negated.
+
+    Fires for a ``not`` directly before the phrase, optionally with one
+    intervening word ("not yet safe to merge"). It does not reach across a
+    newline, so a "not" on an earlier line does not launder a bare claim.
+    """
+    return _NEGATION_BEFORE.search(text[:index]) is not None
 
 
 class UnsupportedClaim(BaseModel):
@@ -166,6 +206,10 @@ def find_unsupported_claims(transcript: str) -> list[UnsupportedClaim]:
     findings: list[UnsupportedClaim] = []
     for pattern in _PASS_CLAIM_PATTERNS:
         for match in pattern.finditer(transcript):
+            # A negated verdict ("NOT safe to merge", "not yet shippable") is a
+            # blocked/hedged call, not an unsupported PASS claim — skip it.
+            if _is_negated(transcript, match.start()):
+                continue
             line_number, line_text = _line_containing(transcript, match.start())
             # A claim explicitly hedged as unverified on its own line is honest,
             # not an overstatement — leave it alone.

@@ -82,8 +82,9 @@ matching "transcript snippets or structured evidence blocks":
 
 The gate-status and evidence-source vocabulary is the reporting discipline the
 QA workflow skills now carry. Each of these skills gained an "Evidence-backed
-gate reporting" section requiring every gate claim to cite one evidence source
-or take status `unverified`:
+gate reporting" section requiring every gate claim that asserts an execution
+outcome (`passed`, `failed`, `blocked`) to cite one evidence source, unless the
+claim is `skipped` or `unverified`, which carry none:
 
 - [`skills/sumo-qa-reviewing-before-merge/SKILL.md`](../skills/sumo-qa-reviewing-before-merge/SKILL.md):
   the suite verdict, each risk's coverage, and the safe-to-merge call are gate

@@ -104,6 +104,21 @@ def test_load_wrong_type_is_type_error():
     assert excinfo.value.kind == "type_error"
 
 
+def test_load_non_dict_list_is_type_error():
+    # A non-dict parsed-JSON value must surface as the stable ``type_error``
+    # kind, not a raw AttributeError from ``data.get``.
+    with pytest.raises(GateEvidenceValidationError) as excinfo:
+        load_gate_report([])
+    assert excinfo.value.kind == "type_error"
+    assert "dict" in excinfo.value.message
+
+
+def test_load_non_dict_string_is_type_error():
+    with pytest.raises(GateEvidenceValidationError) as excinfo:
+        load_gate_report("not-a-report")
+    assert excinfo.value.kind == "type_error"
+
+
 def test_validation_error_str_includes_kind_and_path():
     err = GateEvidenceValidationError(kind="value_error", message="boom", path="/claims/0")
     assert "[value_error]" in str(err)
@@ -188,3 +203,81 @@ def test_assert_transcript_supported_passes_with_evidence():
 def test_unsupported_claim_model_forbids_extra():
     with pytest.raises(ValidationError):
         UnsupportedClaim(phrase="x", line_number=1, message="m", rogue=True)
+
+
+# --- transcript path: negation (fix 1) -------------------------------------
+
+
+def test_negated_safe_to_merge_is_not_flagged():
+    # "safe to merge" also appears inside "NOT SAFE TO MERGE"; a negated verdict
+    # is a blocked call with no evidence, not an unsupported PASS claim.
+    assert find_unsupported_claims("Verdict: NOT SAFE TO MERGE.") == []
+
+
+def test_plain_safe_to_merge_still_flagged():
+    findings = find_unsupported_claims("Verdict: safe to merge.")
+    assert len(findings) == 1
+    assert "safe to merge" in findings[0].phrase.lower()
+
+
+def test_negated_ready_to_release_is_not_flagged():
+    # The same containment for "ready to release" inside "not ready to release".
+    assert find_unsupported_claims("This is not ready to release.") == []
+
+
+def test_negation_with_one_intervening_word_is_not_flagged():
+    # "not yet <phrase>": a single intervening word between the negation and the
+    # phrase still counts as negated.
+    assert find_unsupported_claims("This is not yet ready to release.") == []
+
+
+# --- transcript path: empty evidence label (fix 2) -------------------------
+
+
+def test_bare_command_label_is_flagged():
+    # A `Command:` with nothing after it names no observation, so it must not
+    # satisfy the lint; the pass claim is flagged.
+    findings = find_unsupported_claims("Command:\nSafe to merge.")
+    assert len(findings) == 1
+
+
+def test_command_label_with_content_is_not_flagged():
+    transcript = "Command: $ uv run pytest -> 2570 passed\nSafe to merge."
+    assert find_unsupported_claims(transcript) == []
+
+
+# --- transcript path: added pass-claim phrasings (fix 3) -------------------
+
+
+def test_merge_ready_unsupported_is_flagged():
+    findings = find_unsupported_claims("The branch is merge-ready.")
+    assert len(findings) == 1
+    assert "merge-ready" in findings[0].phrase.lower()
+
+
+def test_negated_merge_ready_is_not_flagged():
+    assert find_unsupported_claims("The branch is not merge-ready.") == []
+
+
+def test_shippable_unsupported_is_flagged():
+    assert len(find_unsupported_claims("This is shippable.")) == 1
+
+
+def test_shippable_with_evidence_is_not_flagged():
+    assert find_unsupported_claims("128 passed. This is shippable.") == []
+
+
+def test_ready_for_merge_unsupported_is_flagged():
+    assert len(find_unsupported_claims("It is ready for merge.")) == 1
+
+
+def test_green_for_merge_unsupported_is_flagged():
+    assert len(find_unsupported_claims("All green for merge.")) == 1
+
+
+def test_release_ready_unsupported_is_flagged():
+    assert len(find_unsupported_claims("It is release-ready.")) == 1
+
+
+def test_negated_release_ready_is_not_flagged():
+    assert find_unsupported_claims("It is not release-ready.") == []
