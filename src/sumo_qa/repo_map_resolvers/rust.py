@@ -19,10 +19,14 @@ Resolution rules (ported from UA):
   other ``foo.rs`` owns the sibling directory ``foo/`` (so ``src/foo.rs``'s
   children live in ``src/foo/``).
 - **``use`` paths** are anchored by their leading segment:
-  - ``crate::`` anchors at the crate root's directory (the nearest ancestor of
-    the importer holding a ``lib.rs`` / ``main.rs``);
-  - ``self::`` anchors at the importer's own module directory;
-  - ``super::`` walks one parent module up per ``super`` token;
+  - ``crate::`` anchors at the crate root's directory — the nearest ancestor of
+    the importer holding a ``lib.rs`` / ``main.rs``, or, for a Cargo bin/test/
+    example/bench target (a file under ``src/bin/`` / ``tests/`` / ``examples/``
+    / ``benches/``), that target's own root;
+  - ``self::`` anchors at the importer's own module directory — deepened by any
+    enclosing inline ``mod`` names when the ``use`` is nested in an inline module;
+  - ``super::`` walks one parent module up per ``super`` token (each ``super``
+    first climbs out of an enclosing inline ``mod`` before leaving the file);
   - any other leading segment (``std``, an external crate name) is an external
     path and is **dropped** — modern-edition ``use`` reaches in-crate modules
     only through ``crate`` / ``self`` / ``super``.
@@ -93,6 +97,12 @@ _CRATE_ROOTS = ("lib.rs", "main.rs")
 # sibling ``main/`` dir, so those stems are guarded by ``_is_crate_root`` (#358).
 _MOD_STEM = "mod"
 _CRATE_ROOT_STEMS = frozenset({"lib", "main"})
+# Cargo package-root directories whose immediate ``.rs`` children are each their
+# OWN crate root (an integration test / example / benchmark target). ``src/bin``
+# is the binary-target analogue, handled separately since it lives UNDER ``src``.
+_TARGET_ROOT_DIRS = frozenset({"tests", "examples", "benches"})
+_SRC_DIR = "src"
+_BIN_DIR = "bin"
 
 # RawImport.level is reused as a Rust item-kind flag (the field is the
 # foundation's, shared across languages): 0 = a `use` path, 1 = a `mod`
@@ -134,7 +144,7 @@ class RustResolver:
             self._mod_item(node, function_depth > 0, inline_prefix, out)
             return
         if kind == _USE_DECLARATION:
-            out.extend(self._use_imports(node, function_depth > 0))
+            out.extend(self._use_imports(node, function_depth > 0, inline_prefix))
             return
         next_depth = function_depth + 1 if kind == _FUNCTION_ITEM else function_depth
         for child in node.children:
@@ -180,7 +190,9 @@ class RustResolver:
                 RawImport(module=module, level=_LEVEL_MOD, names=(), function_local=function_local)
             )
 
-    def _use_imports(self, node: TSNode, function_local: bool) -> list[RawImport]:
+    def _use_imports(
+        self, node: TSNode, function_local: bool, inline_prefix: tuple[str, ...]
+    ) -> list[RawImport]:
         """`use <tree>;` -> the RawImport(s) the use tree resolves to.
 
         Dispatches on the shape of the path child (skipping the ``use`` keyword,
@@ -190,26 +202,40 @@ class RustResolver:
         - a ``use_as_clause`` -> the inner path, alias dropped;
         - a ``use_wildcard`` -> the prefix module path;
         - a ``scoped_use_list`` -> the prefix module plus each grouped name.
+
+        ``inline_prefix`` is the chain of enclosing inline ``mod`` names; the
+        leading ``self`` / ``super`` of every extracted head is normalised for
+        that inline frame via :meth:`_normalize_head` so ``resolve`` (which works
+        in the physical FILE's module frame) anchors correctly — e.g. a
+        ``mod tests { use super::Foo; }`` in ``src/foo.rs`` targets the ``foo``
+        module's ``Foo``, not the crate root (#358). At file top level the prefix
+        is empty and the normalisation is a no-op.
         """
         for child in node.children:
             kind = child.kind
             if kind in (_SCOPED_IDENTIFIER, _IDENTIFIER):
-                module = "::".join(self._path_segments(child))
-                return [self._path_import(module, (), function_local)]
+                segs = self._normalize_head(self._path_segments(child), inline_prefix)
+                return [self._path_import("::".join(segs), (), function_local)]
             if kind == _USE_AS_CLAUSE:
                 path = self._first_path(child)
-                module = "::".join(self._path_segments(path)) if path is not None else ""
-                return [self._path_import(module, (), function_local)]
+                raw = self._path_segments(path) if path is not None else []
+                segs = self._normalize_head(raw, inline_prefix)
+                return [self._path_import("::".join(segs), (), function_local)]
             if kind == _USE_WILDCARD:
                 path = self._first_path(child)
-                module = "::".join(self._path_segments(path)) if path is not None else ""
-                return [self._path_import(module, (), function_local)]
+                raw = self._path_segments(path) if path is not None else []
+                segs = self._normalize_head(raw, inline_prefix)
+                return [self._path_import("::".join(segs), (), function_local)]
             if kind == _SCOPED_USE_LIST:
-                return self._expand_group(child, (), function_local)
+                return self._expand_group(child, (), function_local, inline_prefix)
         return []  # pragma: no cover -- defensive: a use_declaration always has a path child
 
     def _expand_group(
-        self, group: TSNode, prefix: tuple[str, ...], function_local: bool
+        self,
+        group: TSNode,
+        prefix: tuple[str, ...],
+        function_local: bool,
+        inline_prefix: tuple[str, ...] = (),
     ) -> list[RawImport]:
         """`prefix::{...}` -> the RawImport(s) the group expands to.
 
@@ -227,9 +253,18 @@ class RustResolver:
 
         A bare ``self`` member (``use a::{self, b}`` -> import ``a`` itself) is
         covered by the container probe, so it contributes no separate edge.
+
+        ``inline_prefix`` (non-empty only for the outermost, top-level group)
+        normalises a leading ``self`` / ``super`` group head for its enclosing
+        inline ``mod`` frame; nested-group recursion passes the default empty
+        prefix so an inner group head is left untouched (#358).
         """
         head = self._first_path(group)
-        segs = (*prefix, *self._path_segments(head)) if head is not None else prefix
+        segs = (
+            (*prefix, *self._normalize_head(self._path_segments(head), inline_prefix))
+            if head is not None
+            else prefix
+        )
         module = "::".join(segs)
         names: list[str] = []
         extra: list[RawImport] = []
@@ -293,6 +328,40 @@ class RustResolver:
         identifiers; the ``::`` separators are not.
         """
         return [n.text for n in node.descendants() if n.kind in _PATH_SEGMENT_KINDS]
+
+    @staticmethod
+    def _normalize_head(segments: list[str], inline_prefix: tuple[str, ...]) -> list[str]:
+        """Rewrite a ``use`` path's leading ``self`` / ``super`` for its inline frame.
+
+        A ``use`` written inside an inline ``mod`` block is authored in that
+        inline module's frame, but ``resolve`` anchors everything in the physical
+        FILE module's frame. Given ``inline_prefix`` = the chain of enclosing
+        inline ``mod`` names (``P``, depth ``m`` below the file module), this
+        rebases the head so the two frames agree — a no-op when the ``use`` is at
+        file top level (``inline_prefix`` empty) or the head is neither ``self``
+        nor ``super`` (``crate`` / external, which the inline nesting never moves):
+
+        - ``self::rest`` -> ``self::<P>::rest`` (``self`` names the inline module,
+          ``m`` levels below the file module);
+        - a run of ``k`` leading ``super`` tokens climbs one module each: the
+          first ``min(k, m)`` pop inline components off the END of ``P`` and stay
+          within the file's subtree (``self::<P[:m-k]>::rest``); any ``super``
+          beyond ``m`` climbs above the file module and is kept as a ``super``
+          token for :meth:`_walk_super`'s crate-root-clamped walk (#358).
+        """
+        if not inline_prefix or not segments:
+            return segments
+        if segments[0] == "self":
+            return ["self", *inline_prefix, *segments[1:]]
+        if segments[0] == "super":
+            k = 0
+            while k < len(segments) and segments[k] == "super":
+                k += 1
+            m = len(inline_prefix)
+            if k <= m:
+                return ["self", *inline_prefix[: m - k], *segments[k:]]
+            return ["super"] * (k - m) + list(segments[k:])
+        return segments
 
     # ---------- resolve (pure path arithmetic) ----------
 
@@ -445,19 +514,65 @@ class RustResolver:
         return candidates
 
     def _crate_root_dir(self, importer: str, file_set: set[str]) -> str | None:
-        """The nearest ancestor directory of ``importer`` holding a crate root.
+        """The crate root directory ``crate::`` anchors at for ``importer``.
 
-        Walks the importer's ancestors deepest-first and returns the first whose
-        ``lib.rs`` / ``main.rs`` exists in ``file_set``; ``None`` when no crate
-        root is in the map (``crate::`` then resolves nothing rather than
-        guessing a root).
+        Cargo compiles more than the ``src/lib.rs`` / ``src/main.rs`` crate: each
+        ``.rs`` file directly under ``src/bin/``, ``tests/``, ``examples/`` or
+        ``benches/`` is its OWN crate root. Such a target is detected FIRST (it is
+        the crate root even when a sibling library ``lib.rs`` also exists, since a
+        binary's / integration test's ``crate::`` names its own crate, not the
+        library) via :meth:`_special_crate_root_dir`.
+
+        Otherwise this walks the importer's ancestors deepest-first and returns
+        the first whose ``lib.rs`` / ``main.rs`` exists in ``file_set``; ``None``
+        when no crate root is in the map (``crate::`` then resolves nothing rather
+        than guessing a root).
         """
+        special = self._special_crate_root_dir(importer)
+        if special is not None:
+            return special
         parts = importer.split("/")[:-1]  # drop the filename
         for i in range(len(parts), -1, -1):
             base = "/".join(parts[:i])
             prefix = f"{base}/" if base else ""
             if any(f"{prefix}{root}" in file_set for root in _CRATE_ROOTS):
                 return base
+        return None
+
+    @staticmethod
+    def _special_crate_root_dir(importer: str) -> str | None:
+        """Crate root dir when ``importer`` is (or is under) a Cargo bin/test target.
+
+        Cargo compiles each ``.rs`` file directly under ``src/bin/``, ``tests/``,
+        ``examples/`` or ``benches/`` as its own crate root. Following this
+        resolver's file-module convention (a non-``mod.rs`` file owns its
+        same-named sibling directory), such a root file owns a same-named sibling
+        dir for its submodules, so ``crate::`` from the root file — or from any
+        file beneath that sibling dir — anchors there: ``crate::helpers`` from
+        ``tests/api.rs`` -> ``tests/api/helpers.rs``; ``crate::Item`` from
+        ``src/bin/tool.rs`` -> the root ``src/bin/tool.rs`` itself. A ``tests`` /
+        ``examples`` / ``benches`` component nested under ``src`` is a normal
+        module directory (``src/foo/tests/…``), not a target root, and is skipped.
+
+        Returns that crate root dir, or ``None`` when ``importer`` is not part of
+        such a target.
+
+        Residual ambiguity: rustc actually reads a crate root's own ``mod`` files
+        from the root's *containing* directory, so the shared-helper convention
+        ``tests/common/mod.rs`` reached as ``crate::common`` lives one level up
+        from what this returns. The sibling-dir convention is chosen for
+        consistency with the file-module rules and to keep each target's imports
+        inside its own subtree (never fabricating a cross-target edge); this is
+        the documented residual gap.
+        """
+        parts = importer.split("/")
+        for i, comp in enumerate(parts[:-1]):
+            is_bin = comp == _BIN_DIR and i >= 1 and parts[i - 1] == _SRC_DIR
+            is_target = comp in _TARGET_ROOT_DIRS and _SRC_DIR not in parts[:i]
+            if is_bin or is_target:
+                root = parts[i + 1]
+                stem = root[: -len(_RS)] if root.endswith(_RS) else root
+                return "/".join([*parts[: i + 1], stem])
         return None
 
     def _module_dir(self, importer: str, file_set: set[str]) -> str:

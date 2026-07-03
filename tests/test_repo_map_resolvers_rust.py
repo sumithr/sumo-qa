@@ -424,6 +424,128 @@ def test_rust_resolver_inline_mod_child_resolves_under_enclosing_module():
     assert resolver.resolve("src/main.rs", raw, files) == ["src/outer/child.rs"]
 
 
+# ---------- inline-module use frame: a `self` / `super` use written inside an
+# inline `mod` is authored in that inline module's frame; extract must rebase its
+# head so resolve (which works in the FILE module's frame) anchors correctly.
+# These are extraction-path rewrites, so they run through REAL tree-sitter — a
+# constructed RawImport would bypass the inline-frame threading (#358). ----------
+
+
+@_needs_ts
+def test_rust_resolver_use_super_in_inline_mod_anchors_at_file_module():
+    # The ubiquitous `mod tests { use super::Foo; }` in src/foo.rs: `super` from
+    # the inline `foo::tests` module climbs to the FILE module `foo`, so `Foo` is
+    # foo's item -> src/foo.rs. Before the fix this leaked to the crate root.
+    (raw,) = resolver.extract(b"mod tests {\n    use super::Foo;\n}\n")
+    files = {"src/lib.rs", "src/foo.rs"}
+    assert resolver.resolve("src/foo.rs", raw, files) == ["src/foo.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_use_super_glob_in_inline_mod_globs_file_module():
+    # `mod tests { use super::*; }` — the single most common Rust test pattern:
+    # the glob's prefix module is the FILE module foo -> src/foo.rs, not the crate
+    # root.
+    (raw,) = resolver.extract(b"mod tests {\n    use super::*;\n}\n")
+    files = {"src/lib.rs", "src/foo.rs"}
+    assert resolver.resolve("src/foo.rs", raw, files) == ["src/foo.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_use_super_in_nested_inline_mod_anchors_at_enclosing_module():
+    # `mod outer { mod inner { use super::Foo; } }` in src/foo.rs: `super` from
+    # `foo::outer::inner` climbs one inline level to `foo::outer`, so `Foo` is an
+    # item of the `outer` module -> src/foo/outer.rs (NOT the file module foo).
+    (raw,) = resolver.extract(b"mod outer {\n    mod inner {\n        use super::Foo;\n    }\n}\n")
+    files = {"src/lib.rs", "src/foo/outer.rs"}
+    assert resolver.resolve("src/foo.rs", raw, files) == ["src/foo/outer.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_use_self_in_inline_mod_deepens_anchor():
+    # `mod x { use self::a::B; }` in src/foo.rs: `self` is the inline module
+    # `foo::x`, so `a` is its submodule -> src/foo/x/a.rs.
+    (raw,) = resolver.extract(b"mod x {\n    use self::a::B;\n}\n")
+    files = {"src/lib.rs", "src/foo/x/a.rs"}
+    assert resolver.resolve("src/foo.rs", raw, files) == ["src/foo/x/a.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_use_super_super_in_inline_mod_climbs_above_file():
+    # `mod tests { use super::super::X; }` in src/foo.rs: one `super` climbs out
+    # of the inline `tests` to the file module foo, the second climbs above it to
+    # the crate root -> X is a crate-root item (src/X.rs, crate root as container).
+    (raw,) = resolver.extract(b"mod tests {\n    use super::super::X;\n}\n")
+    files = {"src/lib.rs", "src/X.rs"}
+    assert resolver.resolve("src/foo.rs", raw, files) == ["src/X.rs", "src/lib.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_use_super_group_in_inline_mod_anchors_at_enclosing_module():
+    # A grouped `mod x { use super::{a, b}; }` in src/foo.rs: the bare `super`
+    # group head climbs out of the inline `x` to the file module foo, so a, b are
+    # foo's submodules -> src/foo/a.rs, src/foo/b.rs.
+    (raw,) = resolver.extract(b"mod x {\n    use super::{a, b};\n}\n")
+    files = {"src/lib.rs", "src/foo/a.rs", "src/foo/b.rs"}
+    assert resolver.resolve("src/foo.rs", raw, files) == ["src/foo/a.rs", "src/foo/b.rs"]
+
+
+# ---------- Cargo bin / test / example / bench crate roots: a file directly
+# under src/bin/, tests/, examples/ or benches/ is its OWN crate root, so its
+# `crate::` anchors at that target (pure resolve — the module string alone drives
+# it, so no tree-sitter is needed) (#358). ----------
+
+
+def test_rust_resolver_crate_from_integration_test_anchors_at_test_root():
+    # `crate::helpers::run` from an integration test tests/api.rs anchors at that
+    # test's own crate root (tests/api) -> tests/api/helpers.rs. Before the fix
+    # this found no lib.rs/main.rs ancestor and dropped the import entirely.
+    files = {"tests/api.rs", "tests/api/helpers.rs"}
+    assert resolver.resolve("tests/api.rs", _use("crate::helpers::run"), files) == [
+        "tests/api/helpers.rs"
+    ]
+
+
+def test_rust_resolver_crate_from_bin_target_resolves_to_own_root():
+    # `crate::Item` from a binary src/bin/tool.rs resolves to the binary's OWN
+    # root (src/bin/tool.rs), not the sibling library crate — even though a
+    # src/lib.rs exists, a binary's `crate::` names the binary crate.
+    files = {"src/lib.rs", "src/bin/tool.rs"}
+    assert resolver.resolve("src/bin/tool.rs", _use("crate::Item"), files) == ["src/bin/tool.rs"]
+
+
+def test_rust_resolver_crate_from_bin_submodule_anchors_at_bin_root():
+    # A submodule of a bin target (src/bin/tool/helper.rs, under the tool root's
+    # sibling dir) still anchors `crate::` at the tool crate root -> its
+    # src/bin/tool/config.rs.
+    files = {"src/lib.rs", "src/bin/tool.rs", "src/bin/tool/config.rs"}
+    assert resolver.resolve("src/bin/tool/helper.rs", _use("crate::config::load"), files) == [
+        "src/bin/tool/config.rs"
+    ]
+
+
+def test_rust_resolver_crate_from_example_target_anchors_at_example_root():
+    # An example examples/demo.rs is its own crate root too -> crate::util anchors
+    # at examples/demo -> examples/demo/util.rs.
+    files = {"src/lib.rs", "examples/demo.rs", "examples/demo/util.rs"}
+    assert resolver.resolve("examples/demo.rs", _use("crate::util"), files) == [
+        "examples/demo/util.rs",
+        "examples/demo.rs",
+    ]
+
+
+def test_rust_resolver_tests_dir_nested_under_src_is_a_regular_module_not_a_target():
+    # A `tests` component UNDER src/ is a normal module directory, not an
+    # integration target: `crate::` from src/foo/tests/bar.rs still anchors at the
+    # real library crate root (src) via lib.rs -> src/thing.rs (as a submodule)
+    # and src/lib.rs (as the item container), NOT a src/foo/tests/bar target root.
+    files = {"src/lib.rs", "src/foo/tests/bar.rs", "src/thing.rs"}
+    assert resolver.resolve("src/foo/tests/bar.rs", _use("crate::thing"), files) == [
+        "src/thing.rs",
+        "src/lib.rs",
+    ]
+
+
 # ---------- crate-root disambiguation (pure resolve, no tree-sitter) ----------
 
 
