@@ -83,6 +83,22 @@ Specialty-tool picks are intentionally NOT catalogued. The discipline (declared 
 
 Plus team-loaded `standards/packs/*.yml` and `standards/rules/change_rules.yaml`.
 
+## Semantic analysis adapters
+
+`src/sumo_qa/analysis/` is the typed adapter layer for semantic and static-analysis signals (issue #212). It exists so repo-understanding artifacts feed CONSISTENT evidence into QA recommendations instead of every consumer re-deriving changed symbols, impacted callers, or test ownership by hand. It owns two things and reuses the rest:
+
+- **Owns:** the typed signal contracts (`Symbol`, `ChangedSymbol`, `ImpactedSymbol`, `LikelyOwningTest`, `AnalysisFallback`, `AnalysisResult`) and their normalization into `RecommendationEvidence`, the concrete file, symbol, and test citations a recommendation can point at.
+- **Reuses (never duplicates):** the epic-#353 repo-map `imports` graph for cross-file impacted-symbol reach, and the #147 coverage/mutation artifacts as optional signals.
+
+The reference language path is Python, extracted with the standard-library `ast` module rather than tree-sitter: within-file symbol extraction needs no cross-file resolution, so the core install stays lightweight with no mandatory parser dependency. The optional `[treesitter]` extra (owned by #353) is consulted only for the cross-file impacted-symbol reach; when it is absent that reach is skipped and an explicit `missing_optional_dependency` fallback is recorded, while changed-symbol extraction and the changed-symbol-to-likely-test mapping still run. An unsupported language, an unparseable source, or a malformed artifact each degrade to a recorded fallback rather than an exception, so a missing signal is always explained and never crashes startup.
+
+Integration points:
+
+- **#155 repo-understanding artifact and #156 repo-map / diff-impact:** #156 maps a changed FILE to its test files (the `likely_tests` edge); this layer adds SYMBOL granularity on top, mapping a changed SYMBOL to the specific tests that exercise it and to the callers the import graph reaches. The import map it consumes is projected from a `.sumo-qa/repo-map.json` scanned with tree-sitter.
+- **#147 coverage and mutation signals:** the layer reads `.sumo-qa/coverage.json` and `.sumo-qa/mutation.json` through the #147 model layer and threads the same `CoverageSignal` / `MutationSignal` the readiness scorecard consumes into its recommendation evidence, so one measurement drives both.
+
+This is a contract-and-normalization library layer today; wiring its output into an MCP tool or the local QA report is the documented next step for the #156 report path, kept out of this slice so the normal install stays lightweight.
+
 ## Degraded mode (MCP server unavailable)
 
 When the MCP server can't launch (most commonly because `uvx` isn't on PATH in the plugin install path), three layers surface the failure (SessionStart hook system-message, `/mcp` failed status, `bin/sumo-qa-doctor` actionable error). What still works and what doesn't is intentionally asymmetric:

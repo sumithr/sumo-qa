@@ -152,6 +152,15 @@ sumo-qa-feedback delete <id> --scope project   # remove a saved lesson by id
 
 To wipe a scope entirely, delete its `feedback/review_feedback.yaml` file.
 
+## Optional analysis signals
+
+The semantic-analysis adapter layer (issue #212, see [ARCHITECTURE.md](ARCHITECTURE.md)) reads optional inputs and degrades cleanly when they are absent, so none of them is required for a normal install:
+
+- **Cross-file impacted-symbol reach** needs the repo-map `imports` graph, built by the optional `[treesitter]` extra (`pip install sumo-qa[treesitter]`, owned by #353). Without the extra, changed-symbol extraction and the changed-symbol-to-likely-test mapping still run; only the cross-file reach is skipped, and the result records a `missing_optional_dependency` fallback naming why.
+- **Coverage and mutation signals** are read from `.sumo-qa/coverage.json` and `.sumo-qa/mutation.json` when present (the same artifacts the readiness scorecard consumes). An absent file is treated as not-measured, never an error; a present-but-malformed file is surfaced as an `invalid_artifact` fallback instead of being silently dropped.
+
+No optional analysis dependency is required for `sumo-qa` to start.
+
 ## Debugging
 
 ```json
