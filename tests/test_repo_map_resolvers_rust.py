@@ -348,6 +348,105 @@ def test_rust_resolver_bare_super_group_resolves_parent_module_members():
     assert resolver.resolve("src/foo/bar.rs", raw, files) == ["src/foo/a.rs", "src/foo/b.rs"]
 
 
+# ---------- full group expansion: nested groups + aliased members. These are
+# extract-path shapes (a nested `scoped_use_list` / a `use_as_clause` member)
+# that tree-sitter only produces from real source, so a constructed RawImport
+# would bypass the extraction bug — they must run through REAL tree-sitter (#358). ----------
+
+
+@_needs_ts
+def test_rust_resolver_nested_group_members_resolve():
+    # `use crate::{a::{b, c}}`: the nested group expands under the prefix
+    # `crate::a`, so members b, c resolve as submodules of a (and a itself as
+    # their container). No spurious bare-`crate` edge for the routing prefix.
+    (raw,) = resolver.extract(b"use crate::{a::{b, c}};\n")
+    assert raw.module == "crate::a"
+    assert set(raw.names) == {"b", "c"}
+    files = {"src/lib.rs", "src/a.rs", "src/a/b.rs", "src/a/c.rs"}
+    assert resolver.resolve("src/bar.rs", raw, files) == [
+        "src/a.rs",
+        "src/a/b.rs",
+        "src/a/c.rs",
+    ]
+
+
+@_needs_ts
+def test_rust_resolver_aliased_group_member_resolves_pre_as_path():
+    # `use crate::{x as y}`: the alias is dropped and the pre-`as` path x resolves
+    # (x as a submodule, plus the crate root as its item-container).
+    (raw,) = resolver.extract(b"use crate::{x as y};\n")
+    assert raw.module == "crate::x"
+    assert raw.names == ()
+    files = {"src/lib.rs", "src/x.rs"}
+    assert resolver.resolve("src/bar.rs", raw, files) == ["src/x.rs", "src/lib.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_nested_and_aliased_group_members_all_resolve():
+    # The issue's exact shape `use crate::{a::{b, c}, d as e}`: extraction emits
+    # the nested group (crate::a with members b, c) AND the aliased member's
+    # pre-`as` path (crate::d) — NOT a bare `crate` container for the top prefix.
+    raws = resolver.extract(b"use crate::{a::{b, c}, d as e};\n")
+    assert [(r.module, r.names) for r in raws] == [("crate::a", ("b", "c")), ("crate::d", ())]
+    files = {"src/lib.rs", "src/a/b.rs", "src/a/c.rs", "src/d.rs"}
+    edges = {f for raw in raws for f in resolver.resolve("src/bar.rs", raw, files)}
+    assert {"src/a/b.rs", "src/a/c.rs", "src/d.rs"} <= edges  # all three members emit an edge
+
+
+@_needs_ts
+def test_rust_resolver_group_mixes_plain_scoped_and_glob_members():
+    # A group can mix a plain member (a), a scoped-path member (b::c) and a glob
+    # member (w::*); each expands to its own edge alongside the plain group.
+    raws = resolver.extract(b"use crate::{a, b::c, w::*};\n")
+    assert {(r.module, r.names) for r in raws} == {
+        ("crate", ("a",)),
+        ("crate::b::c", ()),
+        ("crate::w", ()),
+    }
+    files = {"src/lib.rs", "src/a.rs", "src/b/c.rs", "src/w.rs"}
+    edges = {f for raw in raws for f in resolver.resolve("src/bar.rs", raw, files)}
+    assert {"src/a.rs", "src/b/c.rs", "src/w.rs"} <= edges
+
+
+# ---------- inline-module path context: an inline `mod` carries its name so a
+# nested file-module declaration resolves under the enclosing module (#358). ----------
+
+
+@_needs_ts
+def test_rust_resolver_inline_mod_child_resolves_under_enclosing_module():
+    # `mod outer { mod child; }`: `child` is a file-module of the INLINE `outer`,
+    # so it lives at src/outer/child.rs — NOT the file's own src/child.rs. The
+    # inline `mod` body must thread its name as the child's path prefix.
+    (raw,) = resolver.extract(b"mod outer {\n    mod child;\n}\n")
+    assert raw.module == "outer::child"
+    assert raw.level == 1
+    files = {"src/outer/child.rs", "src/child.rs"}
+    assert resolver.resolve("src/main.rs", raw, files) == ["src/outer/child.rs"]
+
+
+# ---------- crate-root disambiguation (pure resolve, no tree-sitter) ----------
+
+
+def test_rust_resolver_crate_root_item_emits_single_edge_when_both_roots_present():
+    # BOTH lib.rs and main.rs at the crate root: a crate-root reference must emit
+    # ONE edge to the library root (lib.rs), not a spurious second to main.rs.
+    files = {"src/lib.rs", "src/main.rs"}
+    assert resolver.resolve("src/bar.rs", _use("crate::Helper"), files) == ["src/lib.rs"]
+
+
+def test_rust_resolver_nested_module_named_main_owns_its_sibling_dir():
+    # A module reached as `main.rs` but nested BELOW the real crate root is a
+    # plain module, not a crate root: `mod widget;` in src/foo/main.rs resolves
+    # to its sibling dir src/foo/main/widget.rs, NOT src/foo/widget.rs.
+    files = {
+        "src/lib.rs",
+        "src/foo/main.rs",
+        "src/foo/main/widget.rs",
+        "src/foo/widget.rs",
+    }
+    assert resolver.resolve("src/foo/main.rs", _mod("widget"), files) == ["src/foo/main/widget.rs"]
+
+
 # ---------- scan_repo integration (real tree-sitter, committed fixture) ----------
 
 
