@@ -54,14 +54,18 @@ def test_no_skill_registered_as_a_prompt() -> None:
     assert not leaked, f"Skills leaked into MCP prompts: {leaked}"
 
 
-def test_skill_tool_body_matches_skill_md_content() -> None:
+def test_skill_tool_body_matches_skill_md_content(monkeypatch) -> None:
     """Calling each skill tool returns the full SKILL.md content, read fresh
     from disk on each invocation (single source of truth), UNLESS the body
     exceeds the per-response token cap (#393), in which case the tool returns a
     compact progressive-loading pointer instead of the over-cap body the host
-    would refuse."""
+    would refuse. Pinned with the default profile: the body must be EQUAL to
+    the SKILL.md text (byte-for-byte), not merely contain it, so an overlay
+    wrongly prepended on the default path fails through the real
+    registration path."""
     from sumo_qa.skill_prompts import DEFAULT_SKILL_RESPONSE_TOKEN_CAP, _approx_tokens
 
+    monkeypatch.delenv("SUMO_QA_OUTPUT_PROFILE", raising=False)
     server = build_mcp_server()
 
     async def collect() -> dict[str, str]:
@@ -103,8 +107,9 @@ def test_skill_tool_body_matches_skill_md_content() -> None:
                 f"tool {tool_name!r} pointer does not name the progressive-loading route"
             )
         else:
-            assert expected_text in bodies[tool_name], (
-                f"tool {tool_name!r} body does not contain SKILL.md content"
+            assert bodies[tool_name] == expected_text, (
+                f"tool {tool_name!r} body is not byte-for-byte the SKILL.md "
+                f"content under the default profile"
             )
 
 
@@ -425,19 +430,42 @@ def test_over_cap_skill_under_profile_returns_overlaid_pointer(tmp_path) -> None
     """When the composed (overlay + body) exceeds the per-response token cap, the
     tool still degrades to the progressive-loading pointer (#393) rather than
     the over-cap body — and the profile overlay is preserved on the pointer so
-    the host still knows the active profile."""
-    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _make_skill_callable
+    the host still knows the active profile, because overlay + pointer fits
+    this cap (~358 tokens composed vs a 400 cap)."""
+    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _approx_tokens, _make_skill_callable
 
     skill_dir = tmp_path / "big-skill"
     skill_dir.mkdir()
     body = "---\ndescription: d\n---\n# Body\n" + ("x " * 5000)
     (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
 
-    fn = _make_skill_callable(skill_dir / "SKILL.md", token_cap=100, profile="concise")
+    fn = _make_skill_callable(skill_dir / "SKILL.md", token_cap=400, profile="concise")
     out = fn()
     assert out.startswith(_CONCISE_OVERLAY)
     assert "sumo_qa_load_skill_context" in out
     assert body not in out
+    assert _approx_tokens(out) <= 400
+
+
+def test_overlaid_pointer_never_exceeds_cap(tmp_path) -> None:
+    """With a cap the bare pointer fits under but overlay + pointer does NOT
+    (cap 200: pointer ~183 tokens, overlay ~176, composed ~358), the overlay is
+    dropped rather than recreating the over-cap response the pointer exists to
+    prevent (#393). A broken implementation that always prepends the overlay
+    returns ~358 tokens against a 200 cap; the correct one returns the in-cap
+    pointer alone."""
+    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _approx_tokens, _make_skill_callable
+
+    skill_dir = tmp_path / "big-skill"
+    skill_dir.mkdir()
+    body = "---\ndescription: d\n---\n# Body\n" + ("x " * 5000)
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    fn = _make_skill_callable(skill_dir / "SKILL.md", token_cap=200, profile="concise")
+    out = fn()
+    assert _approx_tokens(out) <= 200
+    assert "sumo_qa_load_skill_context" in out
+    assert not out.startswith(_CONCISE_OVERLAY)
 
 
 def test_over_cap_skill_default_profile_pointer_unchanged(tmp_path) -> None:

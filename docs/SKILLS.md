@@ -4,7 +4,7 @@ The sumo-qa MCP ships a library of skills under [`skills/`](../skills/). Each is
 `SKILL.md` file the host LLM follows literally: YAML frontmatter, an Iron Law, a
 checklist, a Process Flow section, a Red Flags table, examples.
 
-Each skill is also exposed as an MCP tool with the same name (e.g. `sumo_qa_deciding_approach`). The tool returns the SKILL.md body verbatim, so hosts that don't have a native skill loader (JetBrains AI Assistant, Junie, VS Code Copilot) get the same content.
+Each skill is also exposed as an MCP tool with the same name (e.g. `sumo_qa_deciding_approach`). The tool returns the SKILL.md body verbatim under the default output profile (a non-default `SUMO_QA_OUTPUT_PROFILE` prepends a small overlay, see [Configuration](CONFIGURATION.md#output-verbosity-and-strictness-profiles)), so hosts that don't have a native skill loader (JetBrains AI Assistant, Junie, VS Code Copilot) get the same content.
 
 **SKILL.md prose defines host-neutral obligations**, capability contracts like *"maintain an ordered work tracker"* or *"dispatch a fresh delegated worker"*. The same body is exposed to every host through whichever surface that host provides (native slash command, MCP tool, agentic-mode tool selection). Skill bodies and contract docs deliberately avoid naming any one host's tools; see `using-sumo-qa` → *Shared vocabulary* for the canonical capability terms each host adapts, and `tests/test_skill_conformance.py` for the regression guard.
 
@@ -14,7 +14,7 @@ Slash-menu conventions differ per host:
 - **JetBrains AI Assistant**: `/sumo_qa_deciding_approach` (underscores): comes from the MCP tool. Every MCP entry is slash-invocable.
 - **JetBrains Junie / VS Code Copilot**: Natural language; the AI picks the tool by description in Agent mode.
 
-All paths invoke the same SKILL.md body.
+All paths invoke the same SKILL.md body. Under a non-default `SUMO_QA_OUTPUT_PROFILE` the MCP skill tool prepends a small output-profile overlay to that body; native skill files and the progressive-loading loader (`sumo_qa_load_skill_context`) always carry the canonical text.
 
 ## The skills
 

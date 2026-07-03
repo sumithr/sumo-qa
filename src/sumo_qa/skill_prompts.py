@@ -259,10 +259,13 @@ def _make_skill_callable(path: Path, token_cap: int | None = None, profile: str 
     When the composed body would exceed the per-response token cap (#393), the
     function returns a compact pointer to the progressive-loading route instead
     of the oversized body (which the host refuses and saves to a file); the
-    profile overlay, being small and bounded, is preserved on the pointer so the
-    host still knows the active profile. Under-cap `default` skills return the
-    body byte-for-byte, unchanged. `token_cap` overrides the resolved cap (env
-    var > default) and is used by tests.
+    profile overlay is preserved on the pointer so the host still knows the
+    active profile, but ONLY when overlay + pointer itself fits the cap. With a
+    cap small enough that the overlaid pointer would overflow it, the overlay is
+    dropped: the pointer is the degraded-mode payload and must never recreate
+    the over-cap response it exists to prevent. Under-cap `default` skills
+    return the body byte-for-byte, unchanged. `token_cap` overrides the
+    resolved cap (env var > default) and is used by tests.
     """
     cap = _response_token_cap(token_cap)
 
@@ -273,7 +276,9 @@ def _make_skill_callable(path: Path, token_cap: int | None = None, profile: str 
         tokens = _approx_tokens(body)
         if tokens > cap:
             pointer = _oversize_pointer_text(path.parent.name, tokens, cap)
-            return overlay + pointer if overlay else pointer
+            if overlay and _approx_tokens(overlay + pointer) <= cap:
+                return overlay + pointer
+            return pointer
         return body
 
     return _skill_body
