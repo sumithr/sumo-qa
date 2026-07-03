@@ -235,6 +235,16 @@ def test_resolve_extension_precedence_picks_first_match_only():
     assert ts.resolve("src/app.ts", imp, file_set) == ["src/util.ts"]
 
 
+def test_resolve_barrel_precedence_picks_first_match_only():
+    # When a directory has BOTH pkg/index.ts and pkg/index.js, the directory
+    # import `./pkg` resolves to the higher-precedence pkg/index.ts ONLY (TS
+    # picks a single barrel by _INDEX_BARRELS precedence) — the barrel loop stops
+    # at the first existing barrel, never emitting both edges.
+    file_set = {"src/app.ts", "src/pkg/index.ts", "src/pkg/index.js"}
+    imp = RawImport(module="./pkg", level=0, names=(), function_local=False)
+    assert ts.resolve("src/app.ts", imp, file_set) == ["src/pkg/index.ts"]
+
+
 def test_resolve_explicit_js_extension_prefers_exact_file_over_ts_sibling():
     # An explicit `./util.js` with BOTH util.js and util.ts present resolves to
     # util.js ALONE — the exact file IS the target; the `.js` -> `.ts` rewrite is

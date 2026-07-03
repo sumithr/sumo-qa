@@ -522,7 +522,10 @@ class TypeScriptResolver:
         so when both ``util.ts`` and ``util.js`` exist ``./util`` emits only the
         higher-precedence ``util.ts``, not both. Only when nothing has matched (a
         same-named file shadows the directory) are the ``index.*`` barrels tried
-        for a directory import. First-seen order is preserved for determinism.
+        for a directory import, again stopping at the FIRST existing barrel by
+        ``_INDEX_BARRELS`` precedence, so ``./pkg`` with both ``pkg/index.ts`` and
+        ``pkg/index.js`` present emits only ``pkg/index.ts``. First-seen order is
+        preserved for determinism.
         """
         out: list[str] = []
 
@@ -547,7 +550,8 @@ class TypeScriptResolver:
                     break  # TS resolves to the first extension by precedence
         if not out:  # a same-named file shadows a directory's index barrel (TS)
             for barrel in self.config.barrels:
-                add(f"{stem}/{barrel}" if stem else barrel)
+                if add(f"{stem}/{barrel}" if stem else barrel):
+                    break  # TS resolves to the first barrel by precedence
         return out
 
 
