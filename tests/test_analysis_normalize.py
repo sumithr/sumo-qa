@@ -27,6 +27,7 @@ def test_changed_symbols_become_risk_notes_and_citations():
         likely_tests=[
             LikelyOwningTest(
                 test_path="tests/test_o.py",
+                changed_path="pkg/mod.py",
                 changed_symbol="Order.total",
                 test_symbol="test_total",
                 confidence="high",
@@ -84,7 +85,11 @@ def test_signals_without_measurements_add_no_notes():
         impacted_symbols=[],
         likely_tests=[
             LikelyOwningTest(
-                test_path="t.py", changed_symbol="run", confidence="high", reason="calls run"
+                test_path="t.py",
+                changed_path="pkg/mod.py",
+                changed_symbol="run",
+                confidence="high",
+                reason="calls run",
             )
         ],
         coverage=CoverageSignal(freshness="unknown"),
@@ -101,6 +106,7 @@ def test_bare_test_path_used_when_enclosing_test_unknown():
         likely_tests=[
             LikelyOwningTest(
                 test_path="tests/mod_level.py",
+                changed_path="pkg/mod.py",
                 changed_symbol="run",
                 confidence="high",
                 reason="calls run",

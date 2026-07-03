@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from sumo_qa.analysis.contracts import ChangedSymbol, Symbol
-from sumo_qa.analysis.impact import impacted_symbols_via_imports
+from sumo_qa.analysis.impact import impacted_symbols_via_imports, importers_from_repo_map
+from sumo_qa.repo_map_models import RepoMapEdge
 
 
 def _changed(qualname: str, path: str) -> ChangedSymbol:
@@ -102,3 +103,29 @@ def test_unparseable_importer_is_skipped():
         changed, importer_sources, {"pkg/core.py": {"pkg/broken.py"}}
     )
     assert impacted == []
+
+
+def _edge(source: str, target: str, edge_type: str = "imports") -> RepoMapEdge:
+    return RepoMapEdge(source=source, target=target, type=edge_type, confidence="high", reason="x")
+
+
+def test_importers_from_repo_map_inverts_file_prefixed_imports_edges():
+    # The scanner stamps file:{path} node ids; the projection strips the prefix
+    # and inverts source->target into imported-path -> {importer paths}.
+    edges = [
+        _edge("file:pkg/caller.py", "file:pkg/core.py"),
+        _edge("file:pkg/other.py", "file:pkg/core.py"),
+        # A non-imports edge (e.g. likely_tests) contributes nothing.
+        _edge("file:tests/test_core.py", "file:pkg/core.py", edge_type="likely_tests"),
+    ]
+    assert importers_from_repo_map(edges) == {"pkg/core.py": {"pkg/caller.py", "pkg/other.py"}}
+
+
+def test_importers_from_repo_map_projection_reaches_the_impacted_symbol():
+    changed = [_changed("run", "pkg/core.py")]
+    importer_sources = {
+        "pkg/caller.py": b"from pkg.core import run\n\ndef use():\n    return run()\n",
+    }
+    projected = importers_from_repo_map([_edge("file:pkg/caller.py", "file:pkg/core.py")])
+    impacted = impacted_symbols_via_imports(changed, importer_sources, projected)
+    assert [(i.path, i.qualname) for i in impacted] == [("pkg/caller.py", "use")]

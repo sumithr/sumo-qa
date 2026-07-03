@@ -59,11 +59,13 @@ def test_impacted_symbol_carries_confidence():
 def test_likely_owning_test_defaults_test_symbol_to_none():
     t = LikelyOwningTest(
         test_path="tests/test_a.py",
+        changed_path="pkg/mod.py",
         changed_symbol="mod.func",
         confidence="high",
         reason="calls func",
     )
     assert t.test_symbol is None
+    assert t.changed_path == "pkg/mod.py"
 
 
 def test_analysis_fallback_shape():

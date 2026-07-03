@@ -33,14 +33,14 @@ def map_changed_symbols_to_tests(
     """Likely owning tests for ``changed_symbols`` across ``test_sources``.
 
     ``test_sources`` maps a test-file path to its source bytes. Output rows are
-    one per ``(test_path, enclosing def, changed symbol)`` triple, deduplicated
-    and sorted for determinism. An unparseable test file is skipped cleanly.
+    one per ``(test_path, enclosing def, changed symbol)`` triple, where the
+    changed symbol is identified by both its path and qualname; rows are
+    deduplicated and sorted for determinism. An unparseable test file is skipped
+    cleanly.
     """
-    qualnames_by_leaf: dict[str, list[str]] = {}
+    changed_by_leaf: dict[str, list[ChangedSymbol]] = {}
     for changed in changed_symbols:
-        qualnames_by_leaf.setdefault(_leaf(changed.symbol.qualname), []).append(
-            changed.symbol.qualname
-        )
+        changed_by_leaf.setdefault(_leaf(changed.symbol.qualname), []).append(changed)
 
     results: list[LikelyOwningTest] = []
     for test_path in sorted(test_sources):
@@ -50,7 +50,7 @@ def map_changed_symbols_to_tests(
         # (enclosing def, leaf) -> was the leaf ever CALLED here.
         called_by_key: dict[tuple[str | None, str], bool] = {}
         for ref in refs:
-            if ref.name in qualnames_by_leaf:
+            if ref.name in changed_by_leaf:
                 key = (ref.enclosing, ref.name)
                 called_by_key[key] = called_by_key.get(key, False) or ref.called
         for (enclosing, leaf), called in sorted(
@@ -58,11 +58,12 @@ def map_changed_symbols_to_tests(
         ):
             confidence: AnalysisConfidence = "high" if called else "medium"
             verb = "calls" if called else "references"
-            for qualname in qualnames_by_leaf[leaf]:
+            for changed in changed_by_leaf[leaf]:
                 results.append(
                     LikelyOwningTest(
                         test_path=test_path,
-                        changed_symbol=qualname,
+                        changed_path=changed.path,
+                        changed_symbol=changed.symbol.qualname,
                         test_symbol=enclosing,
                         confidence=confidence,
                         reason=f"{test_path} {verb} {leaf}",
@@ -70,5 +71,11 @@ def map_changed_symbols_to_tests(
                 )
     return sorted(
         results,
-        key=lambda t: (t.test_path, t.changed_symbol, t.test_symbol or "", t.confidence),
+        key=lambda t: (
+            t.test_path,
+            t.changed_path,
+            t.changed_symbol,
+            t.test_symbol or "",
+            t.confidence,
+        ),
     )

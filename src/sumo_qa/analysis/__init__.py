@@ -38,7 +38,7 @@ from sumo_qa.analysis.contracts import (
     SymbolKind,
 )
 from sumo_qa.analysis.diff import changed_lines_from_unified_diff
-from sumo_qa.analysis.impact import impacted_symbols_via_imports
+from sumo_qa.analysis.impact import impacted_symbols_via_imports, importers_from_repo_map
 from sumo_qa.analysis.normalize import build_recommendation_evidence
 from sumo_qa.analysis.python_adapter import (
     PYTHON_EXTENSIONS,
@@ -81,6 +81,7 @@ __all__ = [
     "changed_lines_from_unified_diff",
     "extract_symbols",
     "impacted_symbols_via_imports",
+    "importers_from_repo_map",
     "innermost_symbol",
     "load_coverage_signal",
     "load_mutation_signal",

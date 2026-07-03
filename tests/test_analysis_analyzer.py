@@ -18,6 +18,8 @@ from sumo_qa.analysis import analyzer
 from sumo_qa.analysis.analyzer import analyze_changes
 from sumo_qa.analysis.contracts import AnalysisFallback
 from sumo_qa.analysis.diff import changed_lines_from_unified_diff
+from sumo_qa.analysis.impact import importers_from_repo_map
+from sumo_qa.repo_map_models import RepoMapEdge
 from sumo_qa.scorecard_models import CoverageSignal, MutationSignal
 
 
@@ -73,6 +75,34 @@ def test_git_diff_plus_source_maps_a_changed_symbol_to_its_likely_test(tmp_path)
     assert "tests/test_price.py::test_price" in result.evidence.test_focus
 
 
+_DEL_V1 = b"def keep(x):\n    a = x + 1\n    b = a * 2\n    return a\n"
+_DEL_V2 = b"def keep(x):\n    a = x + 1\n    return a\n"
+
+
+def test_deletion_only_change_maps_the_enclosing_function(tmp_path):
+    # Deleting a line INSIDE a surviving function is a real behavior change. The
+    # diff records only a `-` line, so the pre-fix parser mapped no symbol; the
+    # deletion seam must now attribute the change to `keep`.
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@example.com")
+    _git(tmp_path, "config", "user.name", "Tester")
+    mod = tmp_path / "pkg" / "mod.py"
+    mod.parent.mkdir(parents=True)
+    mod.write_bytes(_DEL_V1)
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "init")
+    mod.write_bytes(_DEL_V2)
+
+    changed_lines = changed_lines_from_unified_diff(_git(tmp_path, "diff"))
+    assert changed_lines.get("pkg/mod.py")  # the deletion is not invisible
+
+    result = analyze_changes(
+        changed_sources={"pkg/mod.py": mod.read_bytes()},
+        changed_lines=changed_lines,
+    )
+    assert [c.symbol.qualname for c in result.changed_symbols] == ["keep"]
+
+
 def test_unsupported_language_file_degrades_cleanly():
     result = analyze_changes(
         changed_sources={"app/Main.kt": b"fun main() {}\n"},
@@ -101,15 +131,42 @@ def test_absent_treesitter_extra_records_missing_dependency_fallback(monkeypatch
     assert "missing_optional_dependency" in result.fallback_statuses()
 
 
-def test_present_treesitter_extra_without_a_graph_is_not_a_fallback(monkeypatch):
-    # When the extra IS installed but no import graph was supplied, the absence
-    # is the caller's choice, not a degradation -- no fallback is recorded.
+def test_present_treesitter_without_a_graph_records_missing_import_graph(monkeypatch):
+    # When the extra IS installed but no import graph reached the analyzer, the
+    # skipped cross-file reach is unexplained unless a distinct fallback records
+    # it: the parser is present, so it is not a missing-dependency case.
     monkeypatch.setattr(analyzer, "TREESITTER_AVAILABLE", True)
     result = analyze_changes(
         changed_sources={"pkg/mod.py": b"def run():\n    return 1\n"},
         changed_lines={"pkg/mod.py": {1}},
     )
+    assert result.impacted_symbols == []
+    assert "missing_import_graph" in result.fallback_statuses()
     assert "missing_optional_dependency" not in result.fallback_statuses()
+
+
+def test_projected_repo_map_edges_drive_cross_file_impacted_symbols():
+    # A real repo-map records imports edges with file:-prefixed node ids; the
+    # projection helper bridges them into the plain-path map the reach consumes.
+    edges = [
+        RepoMapEdge(
+            source="file:pkg/caller.py",
+            target="file:pkg/core.py",
+            type="imports",
+            confidence="high",
+            reason="imports pkg.core",
+        )
+    ]
+    result = analyze_changes(
+        changed_sources={"pkg/core.py": b"def run():\n    return 1\n"},
+        changed_lines={"pkg/core.py": {1}},
+        importer_sources={
+            "pkg/caller.py": b"from pkg.core import run\n\n\ndef use():\n    return run()\n"
+        },
+        importers_by_imported=importers_from_repo_map(edges),
+    )
+    assert [(i.path, i.qualname) for i in result.impacted_symbols] == [("pkg/caller.py", "use")]
+    assert "missing_import_graph" not in result.fallback_statuses()
 
 
 def test_import_graph_drives_cross_file_impacted_symbols():

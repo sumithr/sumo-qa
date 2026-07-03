@@ -7,11 +7,14 @@ mapping, and the optional #147 coverage/mutation signals into a single
 :class:`AnalysisResult`, recording a clean :class:`AnalysisFallback` for every
 degradation:
 
-* an UNSUPPORTED language (no adapter for the file) — the file is skipped;
-* an UNPARSEABLE source (``SyntaxError``) — that file is skipped, others proceed;
-* the ABSENT ``[treesitter]`` extra — cross-file impacted-symbol reach is skipped
+* an UNSUPPORTED language (no adapter for the file): the file is skipped;
+* an UNPARSEABLE source (``SyntaxError``): that file is skipped, others proceed;
+* the ABSENT ``[treesitter]`` extra: cross-file impacted-symbol reach is skipped
   (the import graph it needs cannot be built) while the lightweight core
-  (changed symbols + test mapping) still runs.
+  (changed symbols + test mapping) still runs;
+* a MISSING import graph: the extra IS present but no projected ``imports`` map
+  was supplied (the repo-map was absent/stale, or the caller never projected it),
+  so cross-file reach is skipped and the reason is recorded, not left silent.
 
 The changed-symbol and test-mapping passes never depend on the optional parser,
 so a missing extra degrades reach WITHOUT losing the core signals — the "keep
@@ -56,10 +59,13 @@ def analyze_changes(
 
     Cross-file impacted symbols are computed only when ``importers_by_imported``
     is supplied (projected from the #353 ``imports`` edges of a tree-sitter-scanned
-    repo-map). When it is ``None`` AND the ``[treesitter]`` extra is absent, a
-    ``missing_optional_dependency`` fallback is recorded — the honest reason the
-    import graph could not be built. ``extra_fallbacks`` lets a caller thread in
-    fallbacks it already collected (e.g. a malformed coverage artifact).
+    repo-map via :func:`sumo_qa.analysis.impact.importers_from_repo_map`). When it
+    is ``None`` and the ``[treesitter]`` extra is absent, a
+    ``missing_optional_dependency`` fallback is recorded; when the extra is present
+    but no map was supplied, a ``missing_import_graph`` fallback is recorded
+    instead. Either way the skipped cross-file reach is explained, never silent.
+    ``extra_fallbacks`` lets a caller thread in fallbacks it already collected
+    (e.g. a malformed coverage artifact).
     """
     test_sources = test_sources or {}
     fallbacks: list[AnalysisFallback] = list(extra_fallbacks)
@@ -100,6 +106,19 @@ def analyze_changes(
                     message=(
                         "the [treesitter] extra is not installed, so the imports graph is "
                         "unavailable; cross-file impacted-symbol reach is skipped"
+                    ),
+                )
+            )
+        else:
+            fallbacks.append(
+                AnalysisFallback(
+                    status="missing_import_graph",
+                    subject="imports-graph",
+                    message=(
+                        "the [treesitter] extra is installed but no imports graph was supplied "
+                        "(the .sumo-qa/repo-map.json was absent or stale, or its imports edges "
+                        "were not projected via importers_from_repo_map); cross-file "
+                        "impacted-symbol reach is skipped"
                     ),
                 )
             )

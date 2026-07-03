@@ -45,12 +45,18 @@ SymbolKind = Literal["function", "method", "class"]
 
 #: Explicit fallback status for one adapter step. Every value is a CLEAN
 #: degradation, never a crash: an unsupported language, a missing optional parser
-#: dependency, an unparseable source, or a malformed artifact each surface a
-#: status the caller can branch on instead of an exception. There is no ``ok``
-#: member — a fallback exists only to record that a step could not run fully.
+#: dependency, an imports graph that was never supplied, an unparseable source, or
+#: a malformed artifact each surface a status the caller can branch on instead of
+#: an exception. ``missing_import_graph`` is distinct from
+#: ``missing_optional_dependency``: the parser IS installed, but no projected
+#: ``imports`` map reached the analyzer (a repo-map that was absent, stale, or
+#: never projected), so skipped cross-file reach is still explained rather than
+#: silent. There is no ``ok`` member: a fallback exists only to record that a step
+#: could not run fully.
 AdapterStatus = Literal[
     "unsupported_language",
     "missing_optional_dependency",
+    "missing_import_graph",
     "parse_error",
     "invalid_artifact",
 ]
@@ -107,17 +113,22 @@ class ImpactedSymbol(BaseModel):
 
 
 class LikelyOwningTest(BaseModel):
-    """A test that likely owns a changed symbol — it references the symbol name.
+    """A test that likely owns a changed symbol: it references the symbol name.
 
-    ``confidence`` is ``high`` when the test CALLS the symbol, ``medium`` when it
-    merely names it. ``test_symbol`` records the enclosing ``def`` when the
-    reference sits inside one, so a recommendation points at the exact test, not
-    only the file. ``reason`` is a one-line, human-checkable justification.
+    ``changed_path`` plus ``changed_symbol`` identify the changed symbol: the leaf
+    name alone is ambiguous (``pkg/a.py::run`` and ``pkg/b.py::run`` share the
+    ``run`` qualname), so the file path keeps otherwise-identical rows distinct and
+    lets evidence say WHICH changed symbol a test likely owns. ``confidence`` is
+    ``high`` when the test CALLS the symbol, ``medium`` when it merely names it.
+    ``test_symbol`` records the enclosing ``def`` when the reference sits inside
+    one, so a recommendation points at the exact test, not only the file.
+    ``reason`` is a one-line, human-checkable justification.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     test_path: str = Field(min_length=1)
+    changed_path: str = Field(min_length=1, description="Path of the changed symbol's file.")
     changed_symbol: str = Field(min_length=1, description="qualname of the changed symbol.")
     test_symbol: str | None = Field(default=None, description="Enclosing test function, if known.")
     confidence: AnalysisConfidence

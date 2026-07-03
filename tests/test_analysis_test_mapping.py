@@ -52,6 +52,18 @@ def test_one_leaf_maps_to_every_changed_symbol_sharing_it():
     assert mapped == {"run", "Runner.run"}
 
 
+def test_same_leaf_in_two_files_yields_rows_keyed_by_changed_path():
+    # Two changed files share the identical qualname `run`; the leaf alone is
+    # ambiguous, so each row must carry its changed_path to stay distinguishable.
+    changed = [_changed("run", path="pkg/a.py"), _changed("run", path="pkg/b.py")]
+    tests = {"tests/test_run.py": b"def test_it():\n    run()\n"}
+    result = map_changed_symbols_to_tests(changed, tests)
+    assert {(r.changed_path, r.changed_symbol) for r in result} == {
+        ("pkg/a.py", "run"),
+        ("pkg/b.py", "run"),
+    }
+
+
 def test_unparseable_test_file_is_skipped_cleanly():
     changed = [_changed("thing")]
     tests = {
