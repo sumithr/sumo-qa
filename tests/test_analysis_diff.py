@@ -44,8 +44,38 @@ def test_pure_deletion_inside_a_function_records_the_seam_line():
             "     return a",  # context -> new line 3
         ]
     )
-    # New-side line 3 (`return a`) sits inside `keep` (new-side lines 1-3).
-    assert changed_lines_from_unified_diff(diff) == {"pkg/mod.py": {3}}
+    # The deletion sits between new-side lines 2 and 3; both seam sides are
+    # recorded and both sit inside `keep` (new-side lines 1-3).
+    assert changed_lines_from_unified_diff(diff) == {"pkg/mod.py": {2, 3}}
+
+
+def test_deleting_the_last_statement_of_a_function_touches_that_function():
+    # Boundary case: deleting the LAST statement of `f` immediately before
+    # `def g():`. The next new-side line (3) is g's def line, so a seam that
+    # records only the next line attributes the change to `g` and misses `f`
+    # entirely. Recording BOTH seam sides guarantees line 2 (inside `f`) is
+    # flagged; the neighbour over-attribution on line 3 is accepted.
+    from sumo_qa.analysis.python_adapter import extract_symbols, symbols_touching_lines
+
+    diff = "\n".join(
+        [
+            "diff --git a/pkg/mod.py b/pkg/mod.py",
+            "--- a/pkg/mod.py",
+            "+++ b/pkg/mod.py",
+            "@@ -1,4 +1,3 @@",
+            " def f():",  # context -> new line 1
+            "     x()",  # context -> new line 2
+            "-    y()",  # removed: seam between new lines 2 and 3
+            " def g():",  # context -> new line 3
+        ]
+    )
+    changed = changed_lines_from_unified_diff(diff)
+    assert changed == {"pkg/mod.py": {2, 3}}
+
+    new_source = b"def f():\n    x()\ndef g():\n    pass\n"
+    symbols = extract_symbols(new_source)
+    touched = {s.qualname for s in symbols_touching_lines(symbols, changed["pkg/mod.py"])}
+    assert "f" in touched  # the pre-fix seam ({3} only) attributed the change to g alone
 
 
 def test_added_content_line_beginning_with_plus_plus_is_not_a_file_header():

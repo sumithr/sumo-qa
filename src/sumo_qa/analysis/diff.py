@@ -81,10 +81,18 @@ def changed_lines_from_unified_diff(diff_text: str) -> dict[str, set[int]]:
             changed.setdefault(current_path, set()).add(new_line)
             new_line += 1
         elif raw.startswith("-"):
-            # A removed line has no new-side line of its own; record the current
-            # new-side position as the deletion seam WITHOUT advancing, so the
-            # deletion attributes to the enclosing (surviving) symbol.
-            changed.setdefault(current_path, set()).add(new_line)
+            # A removed line has no new-side line of its own; the deletion sits
+            # BETWEEN new-side lines (new_line - 1) and new_line. Record both
+            # sides of that seam (without advancing): new_line alone points at
+            # the next surviving line, which is the FOLLOWING symbol's def when
+            # the deleted line was the last statement of a function. Attributing
+            # both sides guarantees the enclosing symbol is touched, at the cost
+            # of sometimes also flagging the neighbour (over-attribution beats
+            # an invisible change for QA evidence).
+            lines = changed.setdefault(current_path, set())
+            lines.add(new_line)
+            if new_line > 1:
+                lines.add(new_line - 1)
         elif raw.startswith("\\"):
             # "\ No newline at end of file" is metadata, not a content line.
             continue
