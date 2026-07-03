@@ -390,6 +390,30 @@ def test_misroute_to_registered_skill_absent_from_fixture(scenarios) -> None:
     assert "sumo_qa_security_testing" in results[0].violations[0].detail
 
 
+def test_validate_transcript_defaults_to_registered_surface(scenarios) -> None:
+    """A single-scenario ``validate_transcript`` call (no ``known_entry_skills``)
+    is as strict as ``validate_all``: it defaults the mis-route set to the
+    registered skill surface, so a route to a registered skill the fixture never
+    names is flagged WITHOUT the caller supplying the set. Guards the footgun
+    where an empty default silently accepted the exact wrong-skill routing this
+    layer exists to catch."""
+    assert "sumo_qa_security_testing" not in _known_entry_skills(scenarios)
+    review = next(s for s in scenarios if s.id == "S02-review-before-merge")
+    transcript = Transcript(
+        scenario_id=review.id,
+        tool_calls=(
+            ToolCall("sumo_qa_security_testing"),
+            ToolCall(review.expected_entry_skill),
+            *(ToolCall(t) for t in review.required_tool_calls),
+        ),
+        output_text="clean",
+    )
+    result = validate_transcript(review, transcript)  # DEFAULT known set
+    assert not result.passed
+    assert result.violations[0].kind is ViolationKind.WRONG_SKILL_ROUTING
+    assert "sumo_qa_security_testing" in result.violations[0].detail
+
+
 def test_decider_before_entry_router_is_a_misroute() -> None:
     """`sumo_qa_deciding_approach` firing BEFORE an expected `using_sumo_qa` is
     a wrong route (the entry router must fire first); the inverse order, entry

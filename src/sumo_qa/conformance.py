@@ -183,15 +183,21 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
 def validate_transcript(
     scenario: ConformanceScenario,
     transcript: Transcript,
-    known_entry_skills: frozenset[str] = frozenset(),
+    known_entry_skills: frozenset[str] | None = None,
 ) -> ScenarioResult:
     """Score one transcript against one scenario.
 
     Provider-backed scenarios are deferred (skipped) - they need an LLM judge.
-    ``known_entry_skills`` is the set of destination skills across the loaded
-    fixture, used to tell a mis-route apart from a legitimate loader call."""
+    ``known_entry_skills`` is the set of destination skills used to tell a
+    mis-route apart from a legitimate loader call. It defaults to the REGISTERED
+    skill-tool surface (``registered_entry_skills()``) so a single-scenario
+    check is as strict as ``validate_all``: a route to any registered skill the
+    fixture never names is still flagged, not silently accepted. Pass an
+    explicit set (including ``frozenset()``) to override the default."""
     if not scenario.deterministic:
         return ScenarioResult(scenario.id, (), skipped=True)
+    if known_entry_skills is None:
+        known_entry_skills = registered_entry_skills()
     violations = (
         _routing_violations(scenario, transcript, known_entry_skills)
         + _tool_violations(scenario, transcript)
