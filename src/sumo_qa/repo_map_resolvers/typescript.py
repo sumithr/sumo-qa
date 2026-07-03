@@ -7,12 +7,14 @@ specifiers off a real tree-sitter parse; ``resolve`` ports Understand-Anything's
 TypeScript module-resolution rules to map each specifier to the repo-relative
 file(s) it references, purely over the supplied file set.
 
-Extraction covers the four ways TS/JS names a module:
+Extraction covers the five ways TS/JS names a module:
 
 - ES ``import`` — named / default / namespace / side-effect
   (``import './x'``), all carrying the specifier as a ``string`` child;
 - re-export ``export … from '…'`` and ``export * from '…'`` (a plain
   ``export const`` / ``export default 'literal'`` names no module);
+- TS import-require ``import foo = require('…')`` — the specifier is a
+  ``string`` nested in an ``import_require_clause``, not a direct statement child;
 - CommonJS ``require('…')`` and dynamic ``import('…')`` (call expressions).
 
 A ``require`` / dynamic ``import`` nested in a function body is tagged
@@ -27,8 +29,9 @@ Resolution rules (ported from UA):
 - **Relative specifiers** (``./x``, ``../y``) anchor at the importer's directory
   and probe the TS/JS extension set (``.ts``, ``.tsx``, ``.d.ts``, ``.js``,
   ``.jsx``) plus the ``index.*`` barrels for a directory import. A specifier
-  written with a ``.js``/``.jsx`` extension also probes its ``.ts``/``.tsx``
-  source sibling (TS emits ``.js``; authors import the source).
+  written with a ``.js``/``.jsx`` extension resolves to the exact file when it
+  exists, else falls back to its ``.ts``/``.tsx`` source sibling (TS emits
+  ``.js``; authors import the source).
 - **tsconfig ``paths`` / ``baseUrl`` aliases** map a non-relative specifier to
   one or more repo roots before probing (``@app/*`` → ``src/app/*``;
   ``baseUrl: "src"`` makes a bare ``util`` resolve from ``src/``). The alias
@@ -100,6 +103,7 @@ JAVASCRIPT_CONFIG = LanguageConfig(
 # Grammar kinds, pinned to tree-sitter-language-pack's typescript/tsx/javascript
 # grammars (probed against the installed binding).
 _IMPORT_STMT = "import_statement"  # `import … from '…'` / `import '…'`
+_IMPORT_REQUIRE_CLAUSE = "import_require_clause"  # `import foo = require('…')`
 _EXPORT_STMT = "export_statement"  # `export … from '…'` (re-export) or a wrapper
 _CALL_EXPR = "call_expression"  # `require('…')` / `import('…')`
 _STRING = "string"
@@ -346,11 +350,14 @@ class TypeScriptResolver:
     def _statement_specifier(self, node: TSNode) -> str | None:
         """The module string of an ``import`` / re-export statement, or ``None``.
 
-        An ``import`` statement always names its module via a ``string`` child
-        (named / default / namespace / side-effect all carry it). An
-        ``export`` statement names a module only when it is a re-export (has a
-        ``from`` keyword); a plain ``export const`` / ``export default 'literal'``
-        does not, so its ``string`` (if any) must not be mistaken for a module.
+        An ``import`` statement names its module via a ``string`` child (named /
+        default / namespace / side-effect all carry it directly) OR — for the TS
+        import-require form ``import foo = require('…')`` — via a ``string``
+        nested one level down in an ``import_require_clause`` child, which the
+        real grammar does not expose as a direct statement child. An ``export``
+        statement names a module only when it is a re-export (has a ``from``
+        keyword); a plain ``export const`` / ``export default 'literal'`` does
+        not, so its ``string`` (if any) must not be mistaken for a module.
         """
         has_from = False
         fragment: str | None = None
@@ -359,9 +366,27 @@ class TypeScriptResolver:
                 has_from = True
             elif child.kind == _STRING and fragment is None:
                 fragment = self._string_text(child)
+            elif child.kind == _IMPORT_REQUIRE_CLAUSE and fragment is None:
+                fragment = self._require_clause_specifier(child)
         if node.kind == _IMPORT_STMT:
             return fragment
         return fragment if has_from else None
+
+    def _require_clause_specifier(self, clause: TSNode) -> str | None:
+        """The module string of an ``import_require_clause``, or ``None``.
+
+        ``import foo = require('./foo')`` parses the specifier as a ``string``
+        nested inside the ``import_require_clause`` (alongside the bound
+        ``identifier`` and the ``require`` keyword). The grammar only forms this
+        clause when the require argument is a string literal — a computed
+        ``require(<expr>)`` parses to an ``ERROR`` node instead, never an
+        ``import_require_clause`` — so a clause without a ``string`` child is
+        unreachable via a real parse.
+        """
+        for child in clause.children:
+            if child.kind == _STRING:
+                return self._string_text(child)
+        return None  # pragma: no cover -- defensive: an import_require_clause always carries a string literal
 
     def _call_specifier(self, node: TSNode) -> str | None:
         """The string argument of a ``require('…')`` / ``import('…')`` call.
@@ -486,15 +511,18 @@ class TypeScriptResolver:
     def _probe(self, base: str, file_set: set[str]) -> list[str]:
         """Module base → candidate file paths that exist in ``file_set``.
 
-        Probes ``base`` verbatim (a specifier written with an extension), then
-        ``base`` + TS/JS extensions against the module stem (so a ``.js``
-        specifier also reaches its ``.ts`` source), stopping at the FIRST
-        extension that resolves — TS picks a single module by ``_PROBE_EXTENSIONS``
-        precedence, so when both ``util.ts`` and ``util.js`` exist ``./util``
-        emits only the higher-precedence ``util.ts``, not both. Only when nothing
-        has matched (a same-named file shadows the directory) are the ``index.*``
-        barrels tried for a directory import. First-seen order is preserved for
-        determinism.
+        Probes ``base`` verbatim first (a specifier written with an extension):
+        when that exact file exists it IS the target and resolution stops there,
+        so an explicit ``./util.js`` maps to ``util.js`` alone even when a
+        sibling ``util.ts`` exists — the ``.js`` → ``.ts``/``.tsx`` rewrite is a
+        fallback for a bare-emit import whose ``.js`` file is absent, not a
+        second edge. Only when the verbatim probe misses does it try ``base`` +
+        TS/JS extensions against the module stem, stopping at the FIRST that
+        resolves — TS picks a single module by ``_PROBE_EXTENSIONS`` precedence,
+        so when both ``util.ts`` and ``util.js`` exist ``./util`` emits only the
+        higher-precedence ``util.ts``, not both. Only when nothing has matched (a
+        same-named file shadows the directory) are the ``index.*`` barrels tried
+        for a directory import. First-seen order is preserved for determinism.
         """
         out: list[str] = []
 
@@ -504,7 +532,10 @@ class TypeScriptResolver:
                 return True
             return False
 
-        add(base)
+        if add(base):
+            # An explicit-extension specifier that names an existing file resolves
+            # to exactly that file; no `.js` -> `.ts`/`.tsx` rewrite is applied.
+            return out
         stem = base
         for ext in _STRIP_EXTENSIONS:
             if base.endswith(ext):

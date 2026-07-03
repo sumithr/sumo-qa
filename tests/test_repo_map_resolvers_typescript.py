@@ -127,6 +127,23 @@ def test_extract_flags_function_local_require_but_not_top_level():
 
 
 @_needs_ts
+def test_extract_import_require_clause_specifier():
+    # TS import-require `import foo = require('./foo')` carries its specifier as a
+    # `string` nested in an `import_require_clause`, not a direct statement child;
+    # it is a module-level (eager) import, so function_local is False.
+    (raw,) = ts.extract(b'import foo = require("./foo");\n')
+    assert raw.module == "./foo"
+    assert raw.function_local is False
+
+
+def test_import_require_specifier_resolves_to_ts_source():
+    # End-to-end for the import-require form: the extracted `./foo` resolves to
+    # its `.ts` file (extract tested above under real tree-sitter).
+    imp = RawImport(module="./foo", level=0, names=(), function_local=False)
+    assert ts.resolve("src/app.ts", imp, {"src/app.ts", "src/foo.ts"}) == ["src/foo.ts"]
+
+
+@_needs_ts
 def test_extract_bare_specifier_is_captured_as_module():
     # extract does no resolution — a bare specifier is still captured; the drop
     # happens in resolve (no file_set match).
@@ -216,6 +233,15 @@ def test_resolve_extension_precedence_picks_first_match_only():
     file_set = {"src/app.ts", "src/util.ts", "src/util.js"}
     imp = RawImport(module="./util", level=0, names=(), function_local=False)
     assert ts.resolve("src/app.ts", imp, file_set) == ["src/util.ts"]
+
+
+def test_resolve_explicit_js_extension_prefers_exact_file_over_ts_sibling():
+    # An explicit `./util.js` with BOTH util.js and util.ts present resolves to
+    # util.js ALONE — the exact file IS the target; the `.js` -> `.ts` rewrite is
+    # only a fallback when the `.js` file is absent (never a second edge).
+    file_set = {"src/app.ts", "src/util.js", "src/util.ts"}
+    imp = RawImport(module="./util.js", level=0, names=(), function_local=False)
+    assert ts.resolve("src/app.ts", imp, file_set) == ["src/util.js"]
 
 
 def test_resolve_file_shadows_directory_index_barrel():
