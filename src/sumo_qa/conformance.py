@@ -371,14 +371,30 @@ def transcript_from_debug_dir(
     Each per-tool subdirectory ``debug_capture`` wrote (``{ts}-{tool}`` with its
     ``input.json``) becomes one ordered ``ToolCall``. The debug capture records
     only tool exchanges, not the final assistant text, so ``output_text`` is
-    supplied by the caller (the human running the manual conformance check)."""
+    supplied by the caller (the human running the manual conformance check).
+
+    Ordering: directory names carry only SECOND-resolution timestamps, so
+    same-second calls to different tools would sort by tool name, not call
+    order — and the wrong-route check depends on true call order. Run dirs are
+    therefore ordered by their capture's ``input.json`` mtime (nanoseconds,
+    falling back to the dir's own mtime), with the name as the deterministic
+    tiebreak for captures whose mtimes a copy or archive flattened."""
     base = Path(debug_dir)
     calls: list[ToolCall] = []
-    for run_dir in sorted(p for p in base.iterdir() if p.is_dir()):
+    for run_dir in sorted((p for p in base.iterdir() if p.is_dir()), key=_run_dir_sort_key):
         input_path = run_dir / "input.json"
         args = json.loads(input_path.read_text(encoding="utf-8")) if input_path.is_file() else {}
         calls.append(ToolCall(tool=_tool_name_from_run_dir(run_dir.name), args=args))
     return Transcript(scenario_id=scenario_id, tool_calls=tuple(calls), output_text=output_text)
+
+
+def _run_dir_sort_key(run_dir: Path) -> tuple[int, str]:
+    """Call-order sort key for a capture run dir: the ``input.json`` mtime in
+    nanoseconds (the file is written at call time; the dir itself is the
+    fallback when a capture has no input.json), then the dir name."""
+    input_path = run_dir / "input.json"
+    marker = input_path if input_path.is_file() else run_dir
+    return (marker.stat().st_mtime_ns, run_dir.name)
 
 
 def _tool_name_from_run_dir(name: str) -> str:

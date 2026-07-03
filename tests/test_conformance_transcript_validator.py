@@ -501,3 +501,41 @@ def test_skill_tool_calls_are_captured_for_transcripts(tmp_path, monkeypatch) ->
     asyncio.run(call())
     transcript = transcript_from_debug_dir(tmp_path, scenario_id="probe")
     assert any(tc.tool == "using_sumo_qa" for tc in transcript.tool_calls)
+
+
+def test_same_second_captures_order_by_call_time_not_name(tmp_path, monkeypatch) -> None:
+    """Capture dir names carry only second-level timestamps, so two calls in
+    the same second would sort lexicographically by TOOL NAME — which can turn
+    a valid `using_sumo_qa -> sumo_qa_deciding_approach` run into a false
+    wrong-route (or mask a real one). Ordering must follow the capture's
+    input.json mtime (call time). Discriminating input: `using_sumo_qa` called
+    BEFORE `sumo_qa_deciding_approach` in the same second — name order would
+    yield deciding_approach first (`s` < `u`) and fail the router contract; a
+    call-time order passes it."""
+    import os
+
+    fixed_ts = "20260703-120000"
+    monkeypatch.setenv("SUMO_QA_DEBUG_DIR", str(tmp_path))
+    monkeypatch.setattr(time, "strftime", lambda _fmt: fixed_ts)
+    maybe_capture(tool="using_sumo_qa", args={}, output={})
+    maybe_capture(tool="sumo_qa_deciding_approach", args={}, output={})
+
+    # Pin call order via mtimes explicitly (filesystem timestamp resolution
+    # must not decide the test): the router was called first.
+    os.utime(tmp_path / f"{fixed_ts}-using_sumo_qa" / "input.json", ns=(1_000, 1_000))
+    os.utime(tmp_path / f"{fixed_ts}-sumo_qa_deciding_approach" / "input.json", ns=(2_000, 2_000))
+
+    transcript = transcript_from_debug_dir(tmp_path, scenario_id="order-probe")
+    tools = [tc.tool for tc in transcript.tool_calls]
+    assert tools == ["using_sumo_qa", "sumo_qa_deciding_approach"]
+
+    scenario = ConformanceScenario(
+        id="order-probe",
+        source_doc="SCENARIOS.md",
+        source_heading="Router invocation",
+        user_prompt="qa this",
+        mode="deterministic",
+        expected_entry_skill="using_sumo_qa",
+        required_tool_calls=("sumo_qa_deciding_approach",),
+    )
+    assert validate_transcript(scenario, transcript).passed
