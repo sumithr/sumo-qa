@@ -137,6 +137,17 @@ def test_extract_dynamic_require_yields_no_import():
 
 
 @_needs_ts
+def test_extract_bare_absolute_require_yields_no_import():
+    # `require '/helpers.php'` is a BARE absolute path: PHP resolves a leading-`/`
+    # literal from the FILESYSTEM ROOT, not the importing file's directory, so it
+    # points outside the repo and must yield NO import (dropping it here is what
+    # keeps resolve from mistaking it for an importer-relative path). Contrast the
+    # `__DIR__ . '/x'` form (test above), whose leading `/` is only a separator
+    # and stays importer-relative.
+    assert PhpResolver().extract(b"<?php\nrequire '/helpers.php';\n") == []
+
+
+@_needs_ts
 def test_extract_top_level_require_not_function_local():
     (raw,) = PhpResolver().extract(b"<?php\nrequire 'top.php';\n")
     assert raw.function_local is False
@@ -212,6 +223,28 @@ def test_resolve_psr4_root_dir_maps_to_repo_root():
     r = PhpResolver({"App\\": "."})
     imp = RawImport(module="App\\Top", level=0, names=(), function_local=False)
     assert r.resolve("a.php", imp, {"Top.php"}) == ["Top.php"]
+
+
+def test_resolve_psr4_empty_root_namespace_prefix_maps_full_fqn():
+    # composer's root-namespace mapping `{"": "src/"}` (an EMPTY PSR-4 prefix)
+    # matches ANY FQN and maps its full namespace path under the base dir, so
+    # `Acme\Widget` resolves to `src/Acme/Widget.php`. The empty prefix must NOT
+    # be normalised to `\` (extracted FQNs have their leading `\` stripped, so a
+    # `\` prefix would match nothing).
+    r = PhpResolver({"": "src/"})
+    imp = RawImport(module="Acme\\Widget", level=0, names=(), function_local=False)
+    assert r.resolve("x.php", imp, {"src/Acme/Widget.php"}) == ["src/Acme/Widget.php"]
+
+
+def test_resolve_psr4_empty_root_namespace_is_least_specific():
+    # The empty root-namespace prefix is the LEAST specific: a more specific
+    # prefix still wins, and the empty prefix only catches what no other claims.
+    r = PhpResolver({"": "src/", "App\\": "lib/"})
+    app = RawImport(module="App\\Thing", level=0, names=(), function_local=False)
+    other = RawImport(module="Acme\\Widget", level=0, names=(), function_local=False)
+    files = {"lib/Thing.php", "src/Acme/Widget.php"}
+    assert r.resolve("x.php", app, files) == ["lib/Thing.php"]  # App\ wins
+    assert r.resolve("x.php", other, files) == ["src/Acme/Widget.php"]  # empty catches
 
 
 def test_resolve_vendor_namespace_dropped():

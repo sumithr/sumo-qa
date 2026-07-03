@@ -21,7 +21,10 @@ Two import kinds are recognised, distinguished by :attr:`RawImport.level`
   variants): a filesystem path resolved **relative to the importing file's
   directory** (``require '../helpers.php'``, ``require __DIR__ . '/lib/db.php'``).
   A dynamic argument with no static string literal (``require $path;``) yields
-  nothing.
+  nothing. A **bare absolute** path (leading ``/`` with no ``__DIR__`` anchor,
+  ``require '/helpers.php'``) is a filesystem-root path PHP resolves OUTSIDE the
+  repo, so it yields nothing too (a ``__DIR__``-anchored leading-``/`` path is
+  importer-relative and IS resolved).
 
 Where these edges come from (NOT scan time today): a real ``scan_repo`` emits
 ZERO ``.php`` edges of any kind. The foundation scanner does not map ``.php``
@@ -83,6 +86,10 @@ _REQUIRE_EXPRS = frozenset(
 )
 # `use function` / `use const` carry one of these keyword tokens in the clause.
 _SYMBOL_USE_KINDS = frozenset({"function", "const"})
+# Magic constants that anchor a require/include path to the importing file's
+# directory (`__DIR__ . '/x'`), making a leading-`/` literal importer-relative
+# rather than a filesystem-root absolute path.
+_DIR_ANCHORS = frozenset({"__DIR__"})
 # Lexical scopes whose body makes an import lazy/deferred (→ medium confidence).
 _FUNCTION_KINDS = frozenset(
     {"function_definition", "method_declaration", "anonymous_function", "arrow_function"}
@@ -194,11 +201,26 @@ class PhpResolver:
 
         The path is the concatenation of the expression's string literals, so
         ``__DIR__ . '/lib/db.php'`` yields ``/lib/db.php``. A dynamic argument
-        with no string literal (``require $path;``) yields None."""
+        with no string literal (``require $path;``) yields None. A **bare
+        absolute** literal (leading ``/`` with no ``__DIR__`` anchor, e.g.
+        ``require '/helpers.php'``) is a filesystem-root path PHP resolves
+        OUTSIDE the repo, so it yields None (no edge) rather than a wrong
+        importer-relative one; a ``__DIR__``-anchored leading-``/`` path
+        (``__DIR__ . '/x'``) is importer-relative and IS kept."""
         path = PhpResolver._string_literal(node)
         if not path:
             return None
+        if path.startswith("/") and not PhpResolver._is_dir_anchored(node):
+            return None
         return RawImport(module=path, level=_LEVEL_REQUIRE, names=(), function_local=function_local)
+
+    @staticmethod
+    def _is_dir_anchored(node: TSNode) -> bool:
+        """True when the require/include expression anchors its path to the
+        importing file's directory via a ``__DIR__`` magic constant
+        (``__DIR__ . '/x'``); this makes a leading-``/`` literal importer-relative
+        (the ``/`` is a separator) rather than a filesystem-root absolute path."""
+        return any(d.kind == _NAME and d.text in _DIR_ANCHORS for d in node.descendants())
 
     @staticmethod
     def _string_literal(node: TSNode) -> str:
@@ -237,8 +259,12 @@ class PhpResolver:
         base dirs whose candidate exists is returned, and if none exists the
         lookup STOPS rather than falling back to a shorter matching prefix. A
         PSR-4 autoloader never falls back that way, so falling through to a
-        shorter prefix could emit an autoloader-incorrect edge. No matching
-        prefix (vendor / external) returns ``[]``."""
+        shorter prefix could emit an autoloader-incorrect edge. The empty
+        root-namespace prefix (``""``, composer's ``{"": "src/"}``) matches any
+        FQN and maps its full namespace path under the base dir
+        (``Acme\\Widget`` -> ``src/Acme/Widget.php``); sorted last, it only
+        catches FQNs no more specific prefix claimed. No matching prefix
+        (vendor / external) returns ``[]``."""
         for prefix, dirs in self._psr4:
             if fqn.startswith(prefix):
                 relative = fqn[len(prefix) :].replace("\\", "/") + ".php"
@@ -255,14 +281,19 @@ def _normalise_psr4(
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     """Freeze a PSR-4 map into ``(prefix, base-dirs)`` pairs, longest-prefix-first.
 
-    Each prefix is normalised to end with ``\\`` (the PSR-4 separator), each base
-    dir has its trailing ``/`` stripped (``.`` / empty → the repo root, ``""``).
-    Sorting longest-prefix-first lets :meth:`PhpResolver._resolve_psr4` pick the
-    most specific namespace by scanning in order.
+    A non-empty prefix is normalised to end with ``\\`` (the PSR-4 separator);
+    the **empty** prefix (composer's root-namespace mapping, ``{"": "src/"}``) is
+    kept as ``""`` — it must match ANY FQN, and since extracted FQNs have their
+    leading ``\\`` stripped, normalising it to ``"\\"`` would make it match none.
+    Each base dir has its trailing ``/`` stripped (``.`` / empty → the repo root,
+    ``""``). Sorting longest-prefix-first lets
+    :meth:`PhpResolver._resolve_psr4` pick the most specific namespace by
+    scanning in order (the empty root-namespace prefix sorts last, so it only
+    catches FQNs no more specific prefix claimed).
     """
     normalised: list[tuple[str, tuple[str, ...]]] = []
     for prefix, value in psr4.items():
-        full = prefix if prefix.endswith("\\") else prefix + "\\"
+        full = prefix if not prefix or prefix.endswith("\\") else prefix + "\\"
         dirs = (value,) if isinstance(value, str) else tuple(value)
         normalised.append((full, tuple(_normalise_dir(d) for d in dirs)))
     normalised.sort(key=lambda item: len(item[0]), reverse=True)
