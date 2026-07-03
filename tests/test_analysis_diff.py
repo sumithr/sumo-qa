@@ -49,6 +49,23 @@ def test_pure_deletion_inside_a_function_records_the_seam_line():
     assert changed_lines_from_unified_diff(diff) == {"pkg/mod.py": {2, 3}}
 
 
+def test_first_line_deletion_with_zero_length_new_side_clamps_to_line_one():
+    # `git diff -U0` deleting a file's FIRST line emits `@@ -1 +0,0 @@`, so the
+    # new-side counter is 0 — a line no 1-based symbol span can match. The seam
+    # must clamp to line 1 so a top-of-file deletion (e.g. a decorator above
+    # `def f():`) stays visible; the pre-clamp parser recorded {0}.
+    diff = "\n".join(
+        [
+            "diff --git a/pkg/mod.py b/pkg/mod.py",
+            "--- a/pkg/mod.py",
+            "+++ b/pkg/mod.py",
+            "@@ -1 +0,0 @@",
+            "-@decorator",
+        ]
+    )
+    assert changed_lines_from_unified_diff(diff) == {"pkg/mod.py": {1}}
+
+
 def test_deleting_the_last_statement_of_a_function_touches_that_function():
     # Boundary case: deleting the LAST statement of `f` immediately before
     # `def g():`. The next new-side line (3) is g's def line, so a seam that

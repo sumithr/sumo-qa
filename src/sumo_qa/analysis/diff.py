@@ -89,8 +89,11 @@ def changed_lines_from_unified_diff(diff_text: str) -> dict[str, set[int]]:
             # both sides guarantees the enclosing symbol is touched, at the cost
             # of sometimes also flagging the neighbour (over-attribution beats
             # an invisible change for QA evidence).
+            # Clamp to line 1: a zero-length new side at the start of a file
+            # (git emits `@@ -1 +0,0 @@` for a -U0 first-line deletion) sets
+            # new_line to 0, which no 1-based symbol span can match.
             lines = changed.setdefault(current_path, set())
-            lines.add(new_line)
+            lines.add(max(new_line, 1))
             if new_line > 1:
                 lines.add(new_line - 1)
         elif raw.startswith("\\"):
