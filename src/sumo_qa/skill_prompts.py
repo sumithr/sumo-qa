@@ -36,6 +36,8 @@ from typing import Any
 
 import yaml
 
+from sumo_qa.debug_capture import maybe_capture
+
 _REPO_ROOT_SKILLS = Path(__file__).resolve().parent.parent.parent / "skills"
 _BUNDLED_SKILLS = Path(__file__).resolve().parent / "_data" / "skills"
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -195,7 +197,23 @@ def _bind_tool(
 ) -> None:
     """Bind one SKILL.md as an MCP tool named `name`. The tool returns the
     SKILL.md body, which the host LLM follows, or a progressive-loading pointer
-    when the body would exceed the per-response token cap (#393)."""
-    fn = _make_skill_callable(path, token_cap=token_cap)
+    when the body would exceed the per-response token cap (#393).
+
+    The call is recorded through `maybe_capture` so a `SUMO_QA_DEBUG_DIR`
+    capture contains the skill-tool (routing) calls the #214 conformance
+    fixtures check — without it a real capture could never satisfy an
+    `expected_entry_skill` contract. The captured output is a compact summary,
+    not the served body (which can be ~12k tokens)."""
+    body_fn = _make_skill_callable(path, token_cap=token_cap)
+
+    def fn() -> str:
+        text = body_fn()
+        maybe_capture(
+            tool=name,
+            args={},
+            output={"skill_tool": name, "served_chars": len(text)},
+        )
+        return text
+
     fn.__name__ = name
     mcp.tool(name=name, description=description)(fn)

@@ -142,11 +142,13 @@ def test_load_scenarios_rejects_duplicate_ids(tmp_path) -> None:
         "    source_heading: h\n"
         "    user_prompt: p\n"
         "    mode: deterministic\n"
+        "    expected_entry_skill: using_sumo_qa\n"
         "  - id: X\n"
         "    source_doc: SCENARIOS.md\n"
         "    source_heading: h\n"
         "    user_prompt: p\n"
-        "    mode: deterministic\n",
+        "    mode: deterministic\n"
+        "    expected_entry_skill: using_sumo_qa\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="[Dd]uplicate"):
@@ -362,3 +364,140 @@ def test_transcript_from_debug_dir_parses_all_run_dir_shapes(tmp_path, monkeypat
     assert all(tc.args == {"classification": "docs_change"} for tc in load_rules)
     principles = next(tc for tc in transcript.tool_calls if tc.tool == "sumo_qa_load_principles")
     assert principles.args == {}
+
+
+# --------------------------------------------------------------------------- #
+# Review-gate regressions (#214 review round)                                 #
+# --------------------------------------------------------------------------- #
+def test_misroute_to_registered_skill_absent_from_fixture(scenarios) -> None:
+    """A route to a REGISTERED skill the fixture never names must still fail:
+    the mis-route set derives from the registered tool surface, not just the
+    fixture's own scenarios (fixture-subset blindness)."""
+    assert "sumo_qa_security_testing" not in _known_entry_skills(scenarios)
+    review = next(s for s in scenarios if s.id == "S02-review-before-merge")
+    transcript = Transcript(
+        scenario_id=review.id,
+        tool_calls=(
+            ToolCall("sumo_qa_security_testing"),
+            ToolCall(review.expected_entry_skill),
+            *(ToolCall(t) for t in review.required_tool_calls),
+        ),
+        output_text="clean",
+    )
+    results = validate_all([review], [transcript])  # default known set: registered surface
+    assert not results[0].passed
+    assert results[0].violations[0].kind is ViolationKind.WRONG_SKILL_ROUTING
+    assert "sumo_qa_security_testing" in results[0].violations[0].detail
+
+
+def test_decider_before_entry_router_is_a_misroute() -> None:
+    """`sumo_qa_deciding_approach` firing BEFORE an expected `using_sumo_qa` is
+    a wrong route (the entry router must fire first); the inverse order, entry
+    router before an expected decider, is the legitimate prelude."""
+    s11_shape = ConformanceScenario(
+        id="s11-shape",
+        source_doc="SCENARIOS.md",
+        source_heading="Router invocation",
+        user_prompt="qa this",
+        mode="deterministic",
+        expected_entry_skill="using_sumo_qa",
+        required_tool_calls=("sumo_qa_deciding_approach",),
+    )
+    bad = Transcript(
+        scenario_id=s11_shape.id,
+        tool_calls=(ToolCall("sumo_qa_deciding_approach"), ToolCall("using_sumo_qa")),
+    )
+    result = validate_transcript(s11_shape, bad)
+    assert any(v.kind is ViolationKind.WRONG_SKILL_ROUTING for v in result.violations)
+
+    decider_dest = ConformanceScenario(
+        id="decider-dest",
+        source_doc="SCENARIOS.md",
+        source_heading="Trivial change",
+        user_prompt="typo fix",
+        mode="deterministic",
+        expected_entry_skill="sumo_qa_deciding_approach",
+    )
+    good = Transcript(
+        scenario_id=decider_dest.id,
+        tool_calls=(ToolCall("using_sumo_qa"), ToolCall("sumo_qa_deciding_approach")),
+    )
+    assert validate_transcript(decider_dest, good).passed
+
+
+def test_output_markers_match_case_insensitively() -> None:
+    """A forbidden marker leaked in a different case is still caught, and a
+    required marker present in a different case still satisfies."""
+    scenario = ConformanceScenario(
+        id="case-probe",
+        source_doc="SCENARIOS.md",
+        source_heading="Review uncommitted changes",
+        user_prompt="review",
+        mode="deterministic",
+        required_output_markers=("Residual risks",),
+        forbidden_output_markers=("Classification: docs_change",),
+    )
+    leaked = Transcript(
+        scenario_id=scenario.id,
+        tool_calls=(),
+        output_text="residual RISKS noted. classification: docs_change",
+    )
+    result = validate_transcript(scenario, leaked)
+    kinds = {v.kind for v in result.violations}
+    assert ViolationKind.FORBIDDEN_OUTPUT_MARKER in kinds
+    assert ViolationKind.MISSING_OUTPUT_MARKER not in kinds
+
+
+def test_vacuous_deterministic_scenario_is_rejected(tmp_path) -> None:
+    """A deterministic fixture row with no enforceable clause must fail to
+    load: it would pass every transcript vacuously."""
+    fixture = tmp_path / "vacuous.yaml"
+    fixture.write_text(
+        "scenarios:\n"
+        "  - id: V01\n"
+        "    source_doc: SCENARIOS.md\n"
+        "    source_heading: whatever\n"
+        "    user_prompt: hi\n"
+        "    mode: deterministic\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="no enforceable clause"):
+        load_scenarios(fixture)
+
+
+def test_registered_entry_skills_reflects_skills_dir_and_degrades(monkeypatch, tmp_path) -> None:
+    """The mis-route set mirrors the registered skills/ surface; an unavailable
+    skills directory degrades to an empty set instead of erroring."""
+    from sumo_qa import conformance
+
+    live = conformance.registered_entry_skills()
+    assert "using_sumo_qa" in live
+    assert "sumo_qa_security_testing" in live
+
+    monkeypatch.setattr(conformance, "_skills_dir", lambda: tmp_path / "nope")
+    assert conformance.registered_entry_skills() == frozenset()
+
+    def boom() -> Path:
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(conformance, "_skills_dir", boom)
+    assert conformance.registered_entry_skills() == frozenset()
+
+
+def test_skill_tool_calls_are_captured_for_transcripts(tmp_path, monkeypatch) -> None:
+    """The skill (routing) tools are capture-wrapped: a real SUMO_QA_DEBUG_DIR
+    run records the entry-skill call the routing contracts check, and
+    transcript_from_debug_dir reconstructs it. Before this fix only server
+    tools were captured, so no real capture could ever satisfy an
+    expected_entry_skill clause."""
+    import asyncio
+
+    monkeypatch.setenv("SUMO_QA_DEBUG_DIR", str(tmp_path))
+    server = build_mcp_server()
+
+    async def call() -> None:
+        await server.call_tool("using_sumo_qa", {})
+
+    asyncio.run(call())
+    transcript = transcript_from_debug_dir(tmp_path, scenario_id="probe")
+    assert any(tc.tool == "using_sumo_qa" for tc in transcript.tool_calls)

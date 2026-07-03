@@ -18,6 +18,11 @@ call, and the final assistant ``output_text``. Tool names may be sumo-qa MCP
 tools or host tools; the fixtures pin sumo-qa tool names and a guard test ties
 them to the registered tool surface. ``transcript_from_debug_dir`` reconstructs
 a transcript from a ``SUMO_QA_DEBUG_DIR`` capture (see ``debug_capture``).
+
+First-slice matching semantics (documented limits): ``required_tool_calls``
+are checked as a SET (presence, not order or multiplicity), and output markers
+match as case-insensitive substrings — pin distinctive phrases in fixtures
+(an id like ``INV-12345`` also matches inside ``INV-123456``).
 """
 
 from __future__ import annotations
@@ -31,9 +36,16 @@ from typing import Any
 
 import yaml
 
-# The router / decider tools legitimately fire BEFORE the destination skill, so
-# their presence ahead of the expected entry skill is never a mis-route.
-ROUTER_TOOLS = frozenset({"using_sumo_qa", "sumo_qa_deciding_approach"})
+from sumo_qa.skill_prompts import _skills_dir
+
+# The canonical router chain fires BEFORE the destination skill, in this
+# order: the entry router first, then the approach decider. A router tool ahead
+# of the expected entry skill is exempt from mis-route detection ONLY when it
+# precedes the expected skill in this chain — `sumo_qa_deciding_approach`
+# before an expected `using_sumo_qa` is still a wrong route (the entry router
+# must fire first), while either router before an ordinary destination skill
+# is a legitimate prelude.
+ROUTER_CHAIN = ("using_sumo_qa", "sumo_qa_deciding_approach")
 
 _VALID_MODES = frozenset({"deterministic", "provider-backed"})
 
@@ -111,8 +123,9 @@ class ScenarioResult:
 def load_scenarios(path: str | Path) -> list[ConformanceScenario]:
     """Parse the conformance fixture YAML into scenario objects.
 
-    Raises ``ValueError`` on an unknown ``mode`` or a duplicate ``id`` so a
-    malformed fixture fails loudly rather than scoring vacuously."""
+    Raises ``ValueError`` on an unknown ``mode``, a duplicate ``id``, or a
+    deterministic scenario declaring no enforceable clause, so a malformed
+    fixture fails loudly rather than scoring vacuously."""
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     scenarios = [_parse_scenario(entry) for entry in data["scenarios"]]
     ids = [s.id for s in scenarios]
@@ -137,7 +150,7 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
         raise ValueError(
             f"scenario {entry.get('id')!r}: mode {mode!r} is not one of {sorted(_VALID_MODES)}"
         )
-    return ConformanceScenario(
+    scenario = ConformanceScenario(
         id=entry["id"],
         source_doc=entry["source_doc"],
         source_heading=entry["source_heading"],
@@ -149,6 +162,19 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
         required_output_markers=tuple(entry.get("required_output_markers") or ()),
         forbidden_output_markers=tuple(entry.get("forbidden_output_markers") or ()),
     )
+    if scenario.deterministic and not (
+        scenario.expected_entry_skill
+        or scenario.required_tool_calls
+        or scenario.forbidden_tool_calls
+        or scenario.required_output_markers
+        or scenario.forbidden_output_markers
+    ):
+        raise ValueError(
+            f"scenario {scenario.id!r}: deterministic but declares no enforceable "
+            f"clause (expected_entry_skill, tool calls, or output markers) — it "
+            f"would pass every transcript vacuously"
+        )
+    return scenario
 
 
 # --------------------------------------------------------------------------- #
@@ -192,7 +218,9 @@ def _routing_violations(
         ]
     expected_idx = names.index(expected)
     for name in names[:expected_idx]:
-        if name in known_entry_skills and name not in ROUTER_TOOLS and name != expected:
+        if _router_exempt(name, expected):
+            continue
+        if name in known_entry_skills or name in ROUTER_CHAIN:
             return [
                 Violation(
                     ViolationKind.WRONG_SKILL_ROUTING,
@@ -200,6 +228,17 @@ def _routing_violations(
                 )
             ]
     return []
+
+
+def _router_exempt(name: str, expected: str) -> bool:
+    """Whether a router-chain tool ahead of the expected skill is a legitimate
+    prelude: it must precede the expected skill in the canonical chain, or the
+    expected skill must be an ordinary (non-chain) destination."""
+    if name not in ROUTER_CHAIN:
+        return False
+    if expected not in ROUTER_CHAIN:
+        return True
+    return ROUTER_CHAIN.index(name) < ROUTER_CHAIN.index(expected)
 
 
 def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> list[Violation]:
@@ -225,10 +264,14 @@ def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> l
 
 
 def _output_violations(scenario: ConformanceScenario, transcript: Transcript) -> list[Violation]:
-    text = transcript.output_text
+    """Markers match as CASE-INSENSITIVE substrings: a host that leaks
+    ``classification: docs_change`` must not slip past a fixture that pins
+    ``Classification: docs_change``. Substring semantics are a documented
+    first-slice limit — fixtures pin distinctive phrases."""
+    text = transcript.output_text.casefold()
     violations: list[Violation] = []
     for marker in scenario.required_output_markers:
-        if marker not in text:
+        if marker.casefold() not in text:
             violations.append(
                 Violation(
                     ViolationKind.MISSING_OUTPUT_MARKER,
@@ -236,7 +279,7 @@ def _output_violations(scenario: ConformanceScenario, transcript: Transcript) ->
                 )
             )
     for marker in scenario.forbidden_output_markers:
-        if marker in text:
+        if marker.casefold() in text:
             violations.append(
                 Violation(
                     ViolationKind.FORBIDDEN_OUTPUT_MARKER,
@@ -246,15 +289,42 @@ def _output_violations(scenario: ConformanceScenario, transcript: Transcript) ->
     return violations
 
 
+def registered_entry_skills() -> frozenset[str]:
+    """Every skill-tool name registered from the skills/ directory (directory
+    name with ``-`` -> ``_``, mirroring ``register_skills_as_prompts``), i.e.
+    every tool a host could actually route to as an entry skill. Deriving the
+    mis-route set from the REGISTERED surface (not just the fixture's own
+    scenarios) means a route to a registered skill the fixture never names
+    still fails. Returns an empty set when the skills directory is unavailable
+    so scoring degrades to the fixture-derived set rather than erroring."""
+    try:
+        skills_dir = _skills_dir()
+        if not skills_dir.is_dir():
+            return frozenset()
+        return frozenset(
+            p.name.replace("-", "_")
+            for p in skills_dir.iterdir()
+            if p.is_dir() and (p / "SKILL.md").is_file()
+        )
+    except OSError:
+        return frozenset()
+
+
 def validate_all(
-    scenarios: list[ConformanceScenario], transcripts: list[Transcript]
+    scenarios: list[ConformanceScenario],
+    transcripts: list[Transcript],
+    known_entry_skills: frozenset[str] | None = None,
 ) -> list[ScenarioResult]:
     """Score every scenario against its matching transcript (by ``scenario_id``).
 
     A deterministic scenario with no supplied transcript is reported skipped -
-    the suite scores whatever was captured, it does not fabricate a verdict."""
+    the suite scores whatever was captured, it does not fabricate a verdict.
+    ``known_entry_skills`` (default: the registered skill-tool surface) is
+    unioned with the fixture's own declared entry skills for mis-route
+    detection."""
     by_id = {t.scenario_id: t for t in transcripts}
     known = frozenset(s.expected_entry_skill for s in scenarios if s.expected_entry_skill)
+    known |= known_entry_skills if known_entry_skills is not None else registered_entry_skills()
     results: list[ScenarioResult] = []
     for scenario in scenarios:
         transcript = by_id.get(scenario.id)

@@ -48,10 +48,18 @@ Field reference:
 |---|---|
 | `mode` | `deterministic` (scored here) or `provider-backed` (the validator skips it; promptfoo judges it) |
 | `expected_entry_skill` | the skill tool the host must route to first (`null` for a pure tool-selection scenario) |
-| `required_tool_calls` | tools that MUST appear in the transcript |
+| `required_tool_calls` | tools that MUST appear in the transcript (checked as a set: presence, not order or multiplicity, a documented first-slice limit) |
 | `forbidden_tool_calls` | tools that MUST NOT appear |
-| `required_output_markers` | substrings that MUST appear in the final assistant output |
-| `forbidden_output_markers` | substrings that MUST NOT appear (anti-pattern claims, leaked internal labels) |
+| `required_output_markers` | substrings that MUST appear in the final assistant output (case-insensitive) |
+| `forbidden_output_markers` | substrings that MUST NOT appear (anti-pattern claims, leaked internal labels; case-insensitive, so pin distinctive phrases: `INV-12345` also matches inside `INV-123456`) |
+
+A deterministic scenario must declare at least one enforceable clause
+(`expected_entry_skill`, a tool-call list, or an output marker); the loader
+rejects a clause-free row rather than letting it pass every transcript
+vacuously. Mis-route detection compares prior calls against the REGISTERED
+skill-tool surface (every `skills/*/SKILL.md` directory), not just the skills
+this fixture happens to name, and the router chain is order-aware:
+`using_sumo_qa` must precede `sumo_qa_deciding_approach` when both fire.
 
 ## The transcript
 
