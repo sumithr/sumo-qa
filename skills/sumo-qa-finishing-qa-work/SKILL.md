@@ -23,6 +23,10 @@ Do NOT mark the work finished or claim "QA done" without a fresh test run in thi
 
 **NO FINISH WITHOUT FRESH EVIDENCE + WRITTEN SUMMARY.** The deliverable is a written summary another engineer could read tomorrow and know what was covered, what wasn't, and what to do next.
 
+## Evidence-backed gate reporting
+
+Every claim in the summary — "suite green", each risk covered, a known gap, "ready to release" — is a gate claim with a status (`passed` / `failed` / `skipped` / `blocked` / `unverified`) that, unless `skipped` or `unverified`, cites the ONE observed evidence item behind it by source (`command`, `tool_call`, `file_read`, `user_fact`, `external_ci`, `manual_observation`). A `passed` / `failed` / `blocked` claim with no cited source overstates; `unverified` is the honest state when nothing was observed this turn (a `KNOWN GAP` is `unverified` or `failed`, never a silent `passed`). Keep it compact — a status word + short source cite per line, not a second narrative.
+
 ## When to Use
 
 Routes here from:
