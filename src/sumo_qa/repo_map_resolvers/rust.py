@@ -22,7 +22,16 @@ Resolution rules (ported from UA):
   - ``crate::`` anchors at the crate root's directory — the nearest ancestor of
     the importer holding a ``lib.rs`` / ``main.rs``, or, for a Cargo bin/test/
     example/bench target (a file under ``src/bin/`` / ``tests/`` / ``examples/``
-    / ``benches/``), that target's own root;
+    / ``benches/``), that target's own root. ``crate::`` names the CALLER's OWN
+    crate, so when the importer is itself a crate-root file the path resolves to
+    THAT root: ``crate::`` from ``src/main.rs`` -> ``src/main.rs`` and from
+    ``src/lib.rs`` -> ``src/lib.rs``, even in a mixed lib+bin package where both
+    roots share ``src/``. **Known limitation:** a ``crate::`` from a *shared*
+    ``src/`` module (e.g. ``src/foo.rs``) in a lib+bin package resolves to the
+    library root (``src/lib.rs``); disambiguating it to the bin root would
+    require knowing which crate that module is compiled into, which the
+    path-only contract (a file set with no ``Cargo.toml`` / ``mod``-graph input)
+    does not expose;
   - ``self::`` anchors at the importer's own module directory — deepened by any
     enclosing inline ``mod`` names when the ``use`` is nested in an inline module;
   - ``super::`` walks one parent module up per ``super`` token (each ``super``
@@ -399,24 +408,30 @@ class RustResolver:
         Strips the ``crate`` / ``self`` / ``super`` head to an anchor directory
         (external paths return ``[]``), then probes the leaf as a submodule and
         as an item of its parent module — and, for a group, each named member.
+
+        The importer's own crate-root file is threaded through so a crate-root
+        module probe anchors at the CALLER's own root: a ``crate::`` from
+        ``src/main.rs`` in a lib+bin package targets ``src/main.rs``, not the
+        sibling ``src/lib.rs`` (see :meth:`_own_root_file`) (#358).
         """
         segments = imp.module.split("::") if imp.module else []
         anchored = self._anchor(importer, segments, file_set)
         if anchored is None:
             return []  # external crate / std / unanchorable super
         anchor, segs = anchored
+        own_root = self._own_root_file(importer, file_set)
         candidates: list[str] = []
         if imp.names:
             # `use prefix::{a, b}`: the prefix module (item container) plus each
             # member as a submodule of it.
-            candidates += self._module_files(anchor, segs, file_set)
+            candidates += self._module_files(anchor, segs, file_set, own_root)
             for name in imp.names:
-                candidates += self._module_files(anchor, [*segs, name], file_set)
+                candidates += self._module_files(anchor, [*segs, name], file_set, own_root)
         else:
             # `use prefix::…::leaf`: leaf as a submodule, and leaf as an item of
             # the parent module (so the parent module file is also probed).
-            candidates += self._module_files(anchor, segs, file_set)
-            candidates += self._module_files(anchor, segs[:-1], file_set)
+            candidates += self._module_files(anchor, segs, file_set, own_root)
+            candidates += self._module_files(anchor, segs[:-1], file_set, own_root)
         return candidates
 
     def _anchor(
@@ -467,23 +482,34 @@ class RustResolver:
             return None  # no known crate root: don't anchor super at the repo root
         return "/".join(parts[:anchor_len]), segments[depth:]
 
-    def _module_files(self, anchor_dir: str, segs: list[str], file_set: set[str]) -> list[str]:
+    def _module_files(
+        self,
+        anchor_dir: str,
+        segs: list[str],
+        file_set: set[str],
+        own_root: str | None = None,
+    ) -> list[str]:
         """A module path rooted at ``anchor_dir`` -> its candidate file path(s).
 
         With no segments the path *is* the anchor module, whose file is found by
-        :meth:`_dir_module_files`. Otherwise the leaf module ``segs[-1]`` lives
-        under ``anchor_dir/segs[:-1]`` as ``<leaf>.rs`` or ``<leaf>/mod.rs``
-        (its children, in turn, would live in ``<leaf>/``).
+        :meth:`_dir_module_files` (which honours ``own_root`` — the importer's
+        own crate-root file — when the anchor is a crate root). Otherwise the
+        leaf module ``segs[-1]`` lives under ``anchor_dir/segs[:-1]`` as
+        ``<leaf>.rs`` or ``<leaf>/mod.rs`` (its children, in turn, would live in
+        ``<leaf>/``); ``own_root`` only bears on a crate-root module, so it is
+        irrelevant here and ignored.
         """
         if not segs:
-            return self._dir_module_files(anchor_dir, file_set)
+            return self._dir_module_files(anchor_dir, file_set, own_root)
         parent = "/".join(p for p in (anchor_dir, *segs[:-1]) if p)
         leaf = segs[-1]
         base = f"{parent}/{leaf}" if parent else leaf
         return [f"{base}{_RS}", f"{base}/{_MOD_FILE}"]
 
     @staticmethod
-    def _dir_module_files(anchor_dir: str, file_set: set[str]) -> list[str]:
+    def _dir_module_files(
+        anchor_dir: str, file_set: set[str], own_root: str | None = None
+    ) -> list[str]:
         """The candidate file(s) for the module whose module directory is ``anchor_dir``.
 
         That module is reached as the sibling ``<dir>.rs``, as ``<dir>/mod.rs``,
@@ -492,10 +518,16 @@ class RustResolver:
         the one that actually exists, so the over-broad candidate set never
         fabricates an edge.
 
-        When BOTH ``lib.rs`` and ``main.rs`` exist at the crate root, the library
-        root (``lib.rs``, first in :data:`_CRATE_ROOTS`) is the single canonical
-        module file; emitting the sibling ``main.rs`` too would fabricate a
-        spurious second edge, so only the preferred present root is offered (#358).
+        When BOTH ``lib.rs`` and ``main.rs`` exist at the crate root, only ONE is
+        offered — emitting the sibling too would fabricate a spurious second
+        edge. Which one is chosen honours the CALLER's own crate root: if the
+        importer is itself the ``main.rs`` / ``lib.rs`` crate root living at this
+        anchor dir (``own_root``), its own file is THE root module, so a
+        ``crate::`` from ``src/main.rs`` resolves to ``src/main.rs`` and not the
+        library sibling. Absent an own-root match (the importer is a shared
+        ``src/`` module, so its crate membership is unknown to the path-only
+        contract) the library root (``lib.rs``, first in :data:`_CRATE_ROOTS`) is
+        the documented default (#358).
         """
         parts = [p for p in anchor_dir.split("/") if p]
         candidates: list[str] = []
@@ -505,10 +537,15 @@ class RustResolver:
             named = f"{parent}/{base}{_RS}" if parent else f"{base}{_RS}"
             candidates.append(named)
         prefix = f"{anchor_dir}/" if anchor_dir else ""
+        present_roots = [f"{prefix}{root}" for root in _CRATE_ROOTS if f"{prefix}{root}" in file_set]
         candidates.append(f"{prefix}{_MOD_FILE}")
-        present_roots = [root for root in _CRATE_ROOTS if f"{prefix}{root}" in file_set]
         if present_roots:
-            candidates.append(f"{prefix}{present_roots[0]}")  # prefer lib.rs
+            # Own-root case first (the importer's OWN crate root at this dir),
+            # then the lib.rs-preferred default for a shared/ambiguous module.
+            if own_root is not None and own_root in present_roots:
+                candidates.append(own_root)
+            else:
+                candidates.append(present_roots[0])  # prefer lib.rs
         else:
             candidates.extend(f"{prefix}{root}" for root in _CRATE_ROOTS)
         return candidates
@@ -608,6 +645,29 @@ class RustResolver:
             if any(f"{prefix}{root}" in file_set for root in _CRATE_ROOTS):
                 return False
         return True
+
+    def _own_root_file(self, importer: str, file_set: set[str]) -> str | None:
+        """The importer's OWN crate-root FILE, when the importer is itself one.
+
+        ``crate::`` (and a crate-root ``self::`` item probe) anchors at the
+        CALLER's own crate root, so when the importer IS the ``lib.rs`` /
+        ``main.rs`` crate root its own file is THE crate-root module — even where
+        a sibling ``src/lib.rs`` and ``src/main.rs`` coexist in a lib+bin
+        package. Returned so :meth:`_dir_module_files` prefers it over the
+        lib-first default (a ``crate::`` from ``src/main.rs`` -> ``src/main.rs``,
+        from ``src/lib.rs`` -> ``src/lib.rs``).
+
+        Returns ``None`` when the importer is not a ``lib.rs`` / ``main.rs`` crate
+        root — including a shared ``src/`` module (``src/foo.rs``), whose crate
+        membership the path-only contract cannot determine, so the lib-preferred
+        default stands. A bin/test/example/bench target root needs no own-root
+        signal: :meth:`_special_crate_root_dir` anchors it in its own subtree
+        where the named sibling file already IS the root (no lib/main tie).
+        """
+        stem = self._stem(importer)
+        if stem in _CRATE_ROOT_STEMS and self._is_crate_root(importer, file_set):
+            return importer
+        return None
 
     @staticmethod
     def _stem(path: str) -> str:

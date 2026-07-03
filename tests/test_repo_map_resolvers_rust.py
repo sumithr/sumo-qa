@@ -549,11 +549,47 @@ def test_rust_resolver_tests_dir_nested_under_src_is_a_regular_module_not_a_targ
 # ---------- crate-root disambiguation (pure resolve, no tree-sitter) ----------
 
 
-def test_rust_resolver_crate_root_item_emits_single_edge_when_both_roots_present():
-    # BOTH lib.rs and main.rs at the crate root: a crate-root reference must emit
-    # ONE edge to the library root (lib.rs), not a spurious second to main.rs.
+def test_rust_resolver_crate_item_from_shared_module_defaults_to_lib_when_both_roots_present():
+    # BOTH lib.rs and main.rs at the crate root, importer is a SHARED src/ module
+    # (src/bar.rs) whose crate membership the path-only contract cannot determine.
+    # A crate-root reference must emit ONE edge, not a spurious second: the
+    # DOCUMENTED default anchors at the library root (lib.rs). (An importer that
+    # is itself a crate root anchors at its OWN root instead -- see below.)
     files = {"src/lib.rs", "src/main.rs"}
     assert resolver.resolve("src/bar.rs", _use("crate::Helper"), files) == ["src/lib.rs"]
+
+
+def test_rust_resolver_crate_item_from_main_anchors_at_main_not_lib_sibling():
+    # BOTH lib.rs and main.rs present: `crate::` names the CALLER's OWN crate, so
+    # a `use crate::AppState` from the BINARY root src/main.rs must resolve to
+    # src/main.rs, NOT the library sibling src/lib.rs (the mixed lib+bin bug #358).
+    files = {"src/lib.rs", "src/main.rs"}
+    assert resolver.resolve("src/main.rs", _use("crate::AppState"), files) == ["src/main.rs"]
+
+
+def test_rust_resolver_crate_item_from_lib_stays_at_lib_when_both_roots_present():
+    # The mirror case: `use crate::AppState` from the LIBRARY root src/lib.rs must
+    # still resolve to src/lib.rs (its own root), not leak to the bin sibling.
+    files = {"src/lib.rs", "src/main.rs"}
+    assert resolver.resolve("src/lib.rs", _use("crate::AppState"), files) == ["src/lib.rs"]
+
+
+def test_rust_resolver_self_item_from_main_anchors_at_main_not_lib_sibling():
+    # `self::` at a crate root probes the root module as the item container too,
+    # so it must honour the caller's own root the same way `crate::` does: a
+    # `use self::AppState` from src/main.rs resolves to src/main.rs, not lib.rs.
+    files = {"src/lib.rs", "src/main.rs"}
+    assert resolver.resolve("src/main.rs", _use("self::AppState"), files) == ["src/main.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_crate_item_from_main_anchors_at_own_root_real_treesitter():
+    # End-to-end through REAL tree-sitter: extract `use crate::AppState;` and
+    # resolve it from src/main.rs with BOTH roots present -> src/main.rs (#358).
+    (raw,) = resolver.extract(b"use crate::AppState;\n")
+    assert raw.module == "crate::AppState"
+    files = {"src/lib.rs", "src/main.rs"}
+    assert resolver.resolve("src/main.rs", raw, files) == ["src/main.rs"]
 
 
 def test_rust_resolver_nested_module_named_main_owns_its_sibling_dir():
