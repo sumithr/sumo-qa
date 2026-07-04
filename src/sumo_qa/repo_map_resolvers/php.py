@@ -20,15 +20,16 @@ Two import kinds are recognised, distinguished by :attr:`RawImport.level`
 - **``require`` / ``include`` imports** (``level == 1``, also the ``_once``
   variants): a filesystem path resolved **relative to the importing file's
   directory** (``require '../helpers.php'``, ``require __DIR__ . '/lib/db.php'``).
-  A dynamic argument yields nothing — both the no-literal form (``require
-  $path;``) and a **mixed** form that concatenates a non-static operand with a
-  literal (``require $base . 'helpers.php';``, ``require ROOT . '/x.php';``,
-  ``require dirname(__FILE__) . '/x.php';``): the concrete path depends on
-  runtime state, so ``__DIR__`` is the only operand treated as a known static
-  anchor. A **bare absolute** path (leading ``/`` with no ``__DIR__`` anchor,
-  ``require '/helpers.php'``) is a filesystem-root path PHP resolves OUTSIDE the
-  repo, so it yields nothing too (a ``__DIR__``-anchored leading-``/`` path is
-  importer-relative and IS resolved).
+  A dynamic argument yields nothing — the no-literal form (``require $path;``), a
+  **mixed** form that concatenates a non-static operand with a literal (``require
+  $base . 'helpers.php';``, ``require ROOT . '/x.php';``, ``require
+  dirname(__FILE__) . '/x.php';``), and a **ternary** (``require $cond ? 'a.php'
+  : 'b.php';``, whose two branches are alternatives, not a concatenation): the
+  concrete path depends on runtime state, so ``__DIR__`` is the only operand
+  treated as a known static anchor. A **bare absolute** path (leading ``/`` with
+  no ``__DIR__`` anchor, ``require '/helpers.php'``) is a filesystem-root path PHP
+  resolves OUTSIDE the repo, so it yields nothing too (a ``__DIR__``-anchored
+  leading-``/`` path is importer-relative and IS resolved).
 
 Where these edges come from (NOT scan time today): a real ``scan_repo`` emits
 ZERO ``.php`` edges of any kind. The foundation scanner does not map ``.php``
@@ -80,6 +81,7 @@ _NAMESPACE_USE_CLAUSE = "namespace_use_clause"  # one imported name within a `us
 _QUALIFIED_NAME = "qualified_name"  # `A\B\C` (a namespaced name)
 _NAME = "name"  # a single bare identifier
 _STRING_CONTENT = "string_content"  # the text inside a string literal
+_CONDITIONAL_EXPR = "conditional_expression"  # a ternary `cond ? a : b`
 _REQUIRE_EXPRS = frozenset(
     {
         "require_expression",
@@ -228,17 +230,29 @@ class PhpResolver:
 
     @staticmethod
     def _has_dynamic_operand(node: TSNode) -> bool:
-        """True when the require/include expression concatenates a NON-static
-        operand with its string literal(s) — a variable (``$base . 'x.php'``), a
-        user constant (``ROOT . '/x.php'``), or a function call
-        (``dirname(__FILE__) . '/x.php'``). Only the ``__DIR__`` magic constant
-        is a known static operand; any other identifier makes the concrete path
-        depend on runtime state, so it cannot be resolved from paths alone and
-        the whole require must be dropped (no edge) rather than resolved from the
-        literal fragment. Detected by any ``name`` descendant outside
-        ``_DIR_ANCHORS``: a ``$var`` carries an inner non-anchor ``name``, a call
-        carries its callee ``name``, and a bare constant IS such a ``name``."""
-        return any(d.kind == _NAME and d.text not in _DIR_ANCHORS for d in node.descendants())
+        """True when the require/include argument is not a single static path.
+
+        Two shapes make the concrete path depend on runtime state, so the
+        require must be dropped (no edge) rather than resolved from whatever
+        string literal(s) it contains:
+
+        - a **non-static operand** concatenated with the literal(s) — a variable
+          (``$base . 'x.php'``), a user constant (``ROOT . '/x.php'``), or a
+          function call (``dirname(__FILE__) . '/x.php'``). Only the ``__DIR__``
+          magic constant is a known static operand; any other identifier is
+          detected as a ``name`` descendant outside ``_DIR_ANCHORS`` (a ``$var``
+          carries an inner non-anchor ``name``, a call carries its callee
+          ``name``, and a bare constant IS such a ``name``).
+        - a **ternary** (``cond ? 'a.php' : 'b.php'``): the two branches are
+          alternatives, not a concatenation, so joining their literals would
+          fabricate a nonsense path (``a.phpb.php``). Any ``conditional_expression``
+          descendant drops the require, regardless of the condition's shape (a
+          bare ``true``/``1`` condition carries no ``name`` to catch otherwise).
+        """
+        return any(
+            (d.kind == _NAME and d.text not in _DIR_ANCHORS) or d.kind == _CONDITIONAL_EXPR
+            for d in node.descendants()
+        )
 
     @staticmethod
     def _is_dir_anchored(node: TSNode) -> bool:

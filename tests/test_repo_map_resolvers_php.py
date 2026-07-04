@@ -180,6 +180,16 @@ def test_extract_mixed_function_call_concat_require_yields_no_import():
 
 
 @_needs_ts
+def test_extract_ternary_require_yields_no_import():
+    # Regression (codex #361 final-gate catch): a ternary `require true ? 'a.php'
+    # : 'b.php';` picks ONE branch at runtime -- the two string literals are
+    # alternatives, not a concatenation -- so joining them would fabricate a
+    # nonsense path (`a.phpb.php`). A bare `true`/`1` condition carries no `name`
+    # to catch, so the ternary itself must drop the require -> no import.
+    assert PhpResolver().extract(b"<?php\nrequire true ? 'a.php' : 'b.php';\n") == []
+
+
+@_needs_ts
 def test_extract_bare_absolute_require_yields_no_import():
     # `require '/helpers.php'` is a BARE absolute path: PHP resolves a leading-`/`
     # literal from the FILESYSTEM ROOT, not the importing file's directory, so it
