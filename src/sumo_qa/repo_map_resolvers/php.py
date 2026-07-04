@@ -20,8 +20,12 @@ Two import kinds are recognised, distinguished by :attr:`RawImport.level`
 - **``require`` / ``include`` imports** (``level == 1``, also the ``_once``
   variants): a filesystem path resolved **relative to the importing file's
   directory** (``require '../helpers.php'``, ``require __DIR__ . '/lib/db.php'``).
-  A dynamic argument with no static string literal (``require $path;``) yields
-  nothing. A **bare absolute** path (leading ``/`` with no ``__DIR__`` anchor,
+  A dynamic argument yields nothing — both the no-literal form (``require
+  $path;``) and a **mixed** form that concatenates a non-static operand with a
+  literal (``require $base . 'helpers.php';``, ``require ROOT . '/x.php';``,
+  ``require dirname(__FILE__) . '/x.php';``): the concrete path depends on
+  runtime state, so ``__DIR__`` is the only operand treated as a known static
+  anchor. A **bare absolute** path (leading ``/`` with no ``__DIR__`` anchor,
   ``require '/helpers.php'``) is a filesystem-root path PHP resolves OUTSIDE the
   repo, so it yields nothing too (a ``__DIR__``-anchored leading-``/`` path is
   importer-relative and IS resolved).
@@ -201,18 +205,40 @@ class PhpResolver:
 
         The path is the concatenation of the expression's string literals, so
         ``__DIR__ . '/lib/db.php'`` yields ``/lib/db.php``. A dynamic argument
-        with no string literal (``require $path;``) yields None. A **bare
-        absolute** literal (leading ``/`` with no ``__DIR__`` anchor, e.g.
-        ``require '/helpers.php'``) is a filesystem-root path PHP resolves
-        OUTSIDE the repo, so it yields None (no edge) rather than a wrong
-        importer-relative one; a ``__DIR__``-anchored leading-``/`` path
-        (``__DIR__ . '/x'``) is importer-relative and IS kept."""
+        with no string literal (``require $path;``) yields None. A **mixed**
+        argument that concatenates a NON-static operand with its literal(s) —
+        a variable (``$base . 'helpers.php'``), a user constant
+        (``ROOT . '/x.php'``), or a function call
+        (``dirname(__FILE__) . '/x.php'``) — also yields None: the concrete path
+        depends on runtime state, so resolving it from the literal fragment
+        alone would emit a wrong edge (only the ``__DIR__`` magic constant is a
+        known static anchor). A **bare absolute** literal (leading ``/`` with no
+        ``__DIR__`` anchor, e.g. ``require '/helpers.php'``) is a filesystem-root
+        path PHP resolves OUTSIDE the repo, so it yields None (no edge) rather
+        than a wrong importer-relative one; a ``__DIR__``-anchored leading-``/``
+        path (``__DIR__ . '/x'``) is importer-relative and IS kept."""
         path = PhpResolver._string_literal(node)
         if not path:
+            return None
+        if PhpResolver._has_dynamic_operand(node):
             return None
         if path.startswith("/") and not PhpResolver._is_dir_anchored(node):
             return None
         return RawImport(module=path, level=_LEVEL_REQUIRE, names=(), function_local=function_local)
+
+    @staticmethod
+    def _has_dynamic_operand(node: TSNode) -> bool:
+        """True when the require/include expression concatenates a NON-static
+        operand with its string literal(s) — a variable (``$base . 'x.php'``), a
+        user constant (``ROOT . '/x.php'``), or a function call
+        (``dirname(__FILE__) . '/x.php'``). Only the ``__DIR__`` magic constant
+        is a known static operand; any other identifier makes the concrete path
+        depend on runtime state, so it cannot be resolved from paths alone and
+        the whole require must be dropped (no edge) rather than resolved from the
+        literal fragment. Detected by any ``name`` descendant outside
+        ``_DIR_ANCHORS``: a ``$var`` carries an inner non-anchor ``name``, a call
+        carries its callee ``name``, and a bare constant IS such a ``name``."""
+        return any(d.kind == _NAME and d.text not in _DIR_ANCHORS for d in node.descendants())
 
     @staticmethod
     def _is_dir_anchored(node: TSNode) -> bool:

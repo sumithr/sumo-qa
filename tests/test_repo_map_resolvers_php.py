@@ -137,6 +137,49 @@ def test_extract_dynamic_require_yields_no_import():
 
 
 @_needs_ts
+def test_extract_mixed_variable_concat_require_yields_no_import():
+    # Regression (codex #361 final-gate catch): `require $base . 'helpers.php';`
+    # concatenates a VARIABLE with a literal. The concrete path depends on
+    # `$base` at runtime, so resolving it from the `helpers.php` fragment alone
+    # would emit a WRONG importer-relative edge whenever a same-named file sits
+    # beside the importer. The mixed dynamic argument must yield NO import.
+    assert PhpResolver().extract(b"<?php\nrequire $base . 'helpers.php';\n") == []
+
+
+@_needs_ts
+def test_extract_mixed_variable_concat_emits_no_edge_even_if_sibling_exists():
+    # The concrete pre-fix defect: with `src/Controllers/helpers.php` present,
+    # the resolver extracted "helpers.php" and resolved it importer-relative to
+    # that sibling -> a wrong edge. The dynamic-operand guard drops the require
+    # at extract, so no RawImport (and hence no edge) is ever produced.
+    resolver = PhpResolver()
+    raws = resolver.extract(b"<?php\nrequire $base . 'helpers.php';\n")
+    assert raws == []
+    file_set = {"src/Controllers/UserController.php", "src/Controllers/helpers.php"}
+    edges = [
+        target
+        for raw in raws
+        for target in resolver.resolve("src/Controllers/UserController.php", raw, file_set)
+    ]
+    assert edges == []
+
+
+@_needs_ts
+def test_extract_mixed_constant_concat_require_yields_no_import():
+    # `require ROOT . '/x.php';` concatenates a user CONSTANT (unknown value)
+    # with a literal -> unresolvable from paths alone -> no import. Only the
+    # `__DIR__` magic constant is treated as a known static anchor.
+    assert PhpResolver().extract(b"<?php\nrequire ROOT . '/x.php';\n") == []
+
+
+@_needs_ts
+def test_extract_mixed_function_call_concat_require_yields_no_import():
+    # `require dirname(__FILE__) . '/x.php';` concatenates a function CALL with a
+    # literal -> the call result is not statically known -> no import.
+    assert PhpResolver().extract(b"<?php\nrequire dirname(__FILE__) . '/x.php';\n") == []
+
+
+@_needs_ts
 def test_extract_bare_absolute_require_yields_no_import():
     # `require '/helpers.php'` is a BARE absolute path: PHP resolves a leading-`/`
     # literal from the FILESYSTEM ROOT, not the importing file's directory, so it
