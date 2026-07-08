@@ -120,8 +120,19 @@ def _classify(error_type: str) -> GateEvidenceValidationErrorKind:
 # Every phrase is subject to the shared negation rule in ``_is_negated``, so a
 # negated verdict ("NOT safe to merge", "not yet shippable") never fires.
 _PASS_CLAIM_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\ball tests?\s+(?:pass|passed|passing|green)\b", re.IGNORECASE),
-    re.compile(r"\btests?\s+(?:all\s+)?(?:pass|passed|passing)\b", re.IGNORECASE),
+    # An optional copula ("are"/"is"/"were"/"was") may sit between "tests" and
+    # the outcome word — "all tests are passing", "tests are green" are as common
+    # as the copula-free forms. A negated copula ("tests are not passing") never
+    # matches because the outcome word does not follow the copula, so it stays a
+    # blocked call rather than an unsupported PASS claim.
+    re.compile(
+        r"\ball tests?\s+(?:(?:are|is|were|was)\s+)?(?:pass|passed|passing|green)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\btests?\s+(?:(?:are|is|were|was)\s+)?(?:all\s+)?(?:pass|passed|passing|green)\b",
+        re.IGNORECASE,
+    ),
     # "safe to merge" is covered by the good/ready/safe-to-merge pattern below;
     # a standalone duplicate would double-count the same phrase span.
     re.compile(r"\b(?:good|ready|safe)\s+to\s+(?:merge|ship|release)\b", re.IGNORECASE),

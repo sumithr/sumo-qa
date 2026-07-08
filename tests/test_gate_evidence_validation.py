@@ -281,3 +281,55 @@ def test_release_ready_unsupported_is_flagged():
 
 def test_negated_release_ready_is_not_flagged():
     assert find_unsupported_claims("It is not release-ready.") == []
+
+
+# --- transcript path: copula'd test-pass phrasing (fix 4, codex round 2) ----
+# "All tests are passing." / "Tests are green." are among the most common ways
+# a host phrases a test-pass claim, but the prior patterns required the outcome
+# word immediately after "tests" (no copula) and only handled "green" under the
+# "all tests" pattern, so both slipped the lint the issue #213 closure bar exists
+# to enforce.
+
+
+def test_tests_are_passing_copula_is_flagged():
+    findings = find_unsupported_claims("All tests are passing.")
+    assert findings
+    assert any("passing" in f.phrase.lower() for f in findings)
+
+
+def test_tests_are_green_copula_is_flagged():
+    findings = find_unsupported_claims("Tests are green.")
+    assert len(findings) == 1
+    assert "tests are green" in findings[0].phrase.lower()
+
+
+def test_all_tests_are_green_copula_is_flagged():
+    findings = find_unsupported_claims("All tests are green.")
+    assert findings
+    assert any("green" in f.phrase.lower() for f in findings)
+
+
+def test_the_tests_are_passing_is_flagged():
+    findings = find_unsupported_claims("The tests are passing.")
+    assert len(findings) == 1
+    assert "passing" in findings[0].phrase.lower()
+
+
+def test_tests_is_green_singular_copula_is_flagged():
+    # Singular "test" + copula variant is caught too.
+    assert len(find_unsupported_claims("The test is green.")) == 1
+
+
+def test_negated_tests_are_passing_is_not_flagged():
+    # A negated copula'd verdict ("are not passing") is a blocked call, not an
+    # unsupported PASS claim — the outcome word never follows the copula, so the
+    # pattern must not fire.
+    assert find_unsupported_claims("The tests are not passing.") == []
+
+
+def test_negated_tests_are_green_is_not_flagged():
+    assert find_unsupported_claims("The tests are not green.") == []
+
+
+def test_tests_are_green_with_evidence_is_not_flagged():
+    assert find_unsupported_claims("128 passed. Tests are green.") == []
