@@ -148,5 +148,33 @@ def test_second_hunk_resets_the_new_side_counter():
     assert changed_lines_from_unified_diff(diff) == {"a.py": {1, 21}}
 
 
+def test_plain_multi_file_diff_attributes_each_file_and_exits_each_hunk():
+    # A non-git multi-file unified diff (e.g. `diff -u` / `difflib.unified_diff`)
+    # repeats the ---/+++ headers WITHOUT `diff --git` separators. The parser
+    # tracks each hunk's declared line budget (an omitted `,len` defaults to 1),
+    # so it leaves the first file's hunk once that budget is spent and the second
+    # file's header block is read as a header, not content. Without it, the
+    # second file's ---/+++ lines are swallowed as deleted/added content under the
+    # first path and its changes bleed into the wrong file (the pre-fix parser
+    # returned {"first.py": {1, 2}} and dropped second.py entirely).
+    diff = "\n".join(
+        [
+            "--- a/first.py",
+            "+++ b/first.py",
+            "@@ -1 +1 @@",  # both lengths omitted -> default 1 old / 1 new
+            "-was = 1",  # removed: deletion seam at new line 1
+            "+now = 1",  # added -> new line 1
+            "--- a/second.py",
+            "+++ b/second.py",
+            "@@ -0,0 +1 @@",  # new length omitted -> default 1
+            "+added = 2",  # added -> new line 1
+        ]
+    )
+    assert changed_lines_from_unified_diff(diff) == {
+        "first.py": {1},
+        "second.py": {1},
+    }
+
+
 def test_empty_diff_is_empty():
     assert changed_lines_from_unified_diff("") == {}
