@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.2](https://github.com/sumithr/sumo-qa/compare/v0.55.1...v0.55.2) (2026-07-13)
+
+
+### Bug Fixes
+
+* **mutation:** restore the nightly mutation gate (mutmut cap, failure alerting, enforced push gate) ([#504](https://github.com/sumithr/sumo-qa/issues/504)) ([b3350c5](https://github.com/sumithr/sumo-qa/commit/b3350c5414542f5850274e66e742968dd42843d2))
+
 ## [0.55.1](https://github.com/sumithr/sumo-qa/compare/v0.55.0...v0.55.1) (2026-07-13)
 
 
