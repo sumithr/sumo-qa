@@ -126,9 +126,12 @@ class PhpResolver:
 
         Reads the PSR-4 autoload roots from both ``autoload`` and
         ``autoload-dev`` (``psr-4`` blocks: namespace prefix → base dir or list
-        of base dirs). A missing/oddly-shaped block contributes no roots.
+        of base dirs). A prefix appearing in BOTH sections keeps the base dirs
+        of both, production (``autoload``) dirs first — composer merges the
+        sections, so the dev root must not overwrite the production root. A
+        missing/oddly-shaped block contributes no roots.
         """
-        psr4: dict[str, str | Sequence[str]] = {}
+        psr4: dict[str, list[str]] = {}
         for section in ("autoload", "autoload-dev"):
             block = composer.get(section) or {}
             if not isinstance(block, Mapping):  # pragma: no cover -- defensive: malformed composer
@@ -138,9 +141,9 @@ class PhpResolver:
                 continue
             for prefix, dirs in mapping.items():
                 if isinstance(dirs, str):
-                    psr4[str(prefix)] = dirs
+                    psr4.setdefault(str(prefix), []).append(dirs)
                 elif isinstance(dirs, Sequence):
-                    psr4[str(prefix)] = [str(d) for d in dirs]
+                    psr4.setdefault(str(prefix), []).extend(str(d) for d in dirs)
         return cls(psr4)
 
     def extract(self, src: bytes) -> list[RawImport]:

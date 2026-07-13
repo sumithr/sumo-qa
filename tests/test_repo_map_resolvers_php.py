@@ -361,6 +361,28 @@ def test_from_composer_includes_autoload_dev_roots():
     assert r.resolve("x.php", imp, {"tests/Unit.php"}) == ["tests/Unit.php"]
 
 
+def test_from_composer_merges_duplicate_prefix_across_sections():
+    # Composer MERGES the base dirs when the SAME PSR-4 prefix appears in both
+    # `autoload` and `autoload-dev` (production dirs first); the dev root must
+    # not OVERWRITE the production root. `App\Models\User` must keep resolving
+    # via src/ (present in the file set, so an overwrite is discriminating),
+    # and a dev-rooted class must still resolve via tests/.
+    composer = {
+        "autoload": {"psr-4": {"App\\": "src/"}},
+        "autoload-dev": {"psr-4": {"App\\": "tests/"}},
+    }
+    r = PhpResolver.from_composer(composer)
+    prod = RawImport(module="App\\Models\\User", level=0, names=(), function_local=False)
+    dev = RawImport(module="App\\Unit\\UserTest", level=0, names=(), function_local=False)
+    files = {"src/Models/User.php", "tests/Unit/UserTest.php"}
+    assert r.resolve("x.php", prod, files) == ["src/Models/User.php"]
+    assert r.resolve("x.php", dev, files) == ["tests/Unit/UserTest.php"]
+    # Production dirs come FIRST: a class present under BOTH roots resolves via
+    # the `autoload` dir, matching composer's merge order.
+    both = RawImport(module="App\\Shared", level=0, names=(), function_local=False)
+    assert r.resolve("x.php", both, {"src/Shared.php", "tests/Shared.php"}) == ["src/Shared.php"]
+
+
 def test_from_composer_psr4_prefix_with_list_of_dirs():
     # PSR-4 allows a prefix to map to a LIST of base dirs; each is probed in
     # order and the first existing file wins.
