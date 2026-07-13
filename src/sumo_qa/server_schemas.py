@@ -474,6 +474,15 @@ class _ImpactNodeSummary(_StrictBase):
             "not read null as a coverage gap)."
         ),
     )
+    connecting_confidence: str | None = Field(
+        default=None,
+        description=(
+            "For an affected node, the strongest confidence (high/medium/low) of "
+            "any edge connecting it to the changeset; affected_nodes are ordered "
+            "high → medium → low by this value so the load-bearing neighbours rank "
+            "first. Null for changed_nodes (they have no connecting edge)."
+        ),
+    )
 
 
 class DiffImpactOutput(_StrictBase):

@@ -32,6 +32,15 @@ There is no GitHub Actions workflow that invokes `promptfoo` and we should
 not add one. If a future automation is wanted (nightly drift check, etc.),
 it belongs on a separate scheduled runner with explicit billing approval.
 
+These provider-backed evals are the *quality* layer. The deterministic
+routing + tool-call + output-marker contract runs with no model in the
+ordinary pytest suite (issue #214); see
+[`../../scenarios/CONFORMANCE.md`](../../scenarios/CONFORMANCE.md). Keep the two
+split: promptfoo judges behaviour and model variance (manual, cost/cadence
+above), the conformance validator pins what does not need an LLM. The
+per-scenario variance report for this manual layer is
+[`aggregate.py`](aggregate.py).
+
 ## When to run
 
 | Trigger | What to run | Why |

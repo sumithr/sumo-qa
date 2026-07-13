@@ -36,6 +36,8 @@ from typing import Any
 
 import yaml
 
+from sumo_qa.debug_capture import maybe_capture
+
 _REPO_ROOT_SKILLS = Path(__file__).resolve().parent.parent.parent / "skills"
 _BUNDLED_SKILLS = Path(__file__).resolve().parent / "_data" / "skills"
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -54,6 +56,55 @@ _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # override per-host via SUMO_QA_SKILL_RESPONSE_TOKEN_CAP, or inject in tests.
 DEFAULT_SKILL_RESPONSE_TOKEN_CAP = 12000
 _RESPONSE_TOKEN_CAP_ENV = "SUMO_QA_SKILL_RESPONSE_TOKEN_CAP"
+
+# --- Output-profile overlay (#215) ---------------------------------------
+# SUMO_QA_OUTPUT_PROFILE tunes how much ceremony wraps a served skill body so
+# small, low-risk changes don't feel like a full QA audit while risky work
+# still gets strict handling. It is a serve-time overlay on the SINGLE skill-
+# serving path (this module), NOT a per-skill rewrite: the canonical SKILL.md
+# files stay readable and host-neutral, and `default` serves them byte-for-byte
+# (backwards compatible). Only the skill body is touched — the sumo_qa_load_*
+# catalogue payloads are untouched, so strict mode cannot bloat them.
+DEFAULT_OUTPUT_PROFILE = "default"
+_OUTPUT_PROFILE_ENV = "SUMO_QA_OUTPUT_PROFILE"
+_VALID_OUTPUT_PROFILES = ("concise", "default", "strict")
+
+# The non-negotiable floor. Whatever the profile, these obligations are never
+# skipped or shortened away — this is the safety guarantee behind the issue's
+# non-goal "No profile may allow skipping required tests, evidence,
+# confirmations, or safety gates." Every non-default overlay restates it so a
+# high-risk workflow keeps its gates even in concise mode.
+_NEVER_OPTIONAL = (
+    "Whatever the profile, these are never skipped or shortened away: the "
+    "skill's Iron Law and any HARD-GATE; evidence for every claim (show the "
+    "command and its output, never assert a pass without proof); explicit user "
+    "confirmation before writing files, running mutating commands, or "
+    "installing anything; and every mandatory test or safety gate the skill "
+    "names. A profile tunes how much prose wraps the work, never whether these "
+    "hold."
+)
+
+_CONCISE_OVERLAY = (
+    "> Output profile: concise. Give the shortest useful answer for this "
+    "change: one focused risk/test summary, findings over framing, no formal "
+    "section headers or evidence tables unless the skill marks them mandatory. "
+    "Drop preamble, restating, and closing pleasantries. " + _NEVER_OPTIONAL + "\n\n---\n\n"
+)
+
+_STRICT_OVERLAY = (
+    "> Output profile: strict. Use the skill's full ceremony: state each gate "
+    "explicitly, present evidence as a table, map every named risk to the test "
+    "that covers it, and close with an explicit residual-risk section. Prefer "
+    "completeness over brevity while staying grounded — never pad with generic "
+    "advice. " + _NEVER_OPTIONAL + "\n\n---\n\n"
+)
+
+_PROFILE_OVERLAYS = {
+    "concise": _CONCISE_OVERLAY,
+    "strict": _STRICT_OVERLAY,
+    # `default` intentionally maps to no overlay (byte-for-byte body).
+    "default": "",
+}
 
 
 def _approx_tokens(text: str) -> int:
@@ -79,6 +130,30 @@ def _response_token_cap(override: int | None = None) -> int:
         if value > 0:
             return value
     return DEFAULT_SKILL_RESPONSE_TOKEN_CAP
+
+
+def _resolve_output_profile(override: str | None = None) -> str:
+    """Resolve the active output profile: explicit override > env var >
+    documented default. Resolution is case/whitespace-insensitive. An
+    unrecognised value (typo, unknown profile) falls back predictably to
+    `default` — mirroring `_response_token_cap`'s bad-env handling — so a
+    misconfigured host can never break serving or silently drop a gate."""
+    raw = override if override is not None else os.environ.get(_OUTPUT_PROFILE_ENV)
+    if raw is None:
+        return DEFAULT_OUTPUT_PROFILE
+    normalized = raw.strip().lower()
+    if normalized in _VALID_OUTPUT_PROFILES:
+        return normalized
+    return DEFAULT_OUTPUT_PROFILE
+
+
+def _profile_overlay(profile: str) -> str:
+    """Return the serve-time overlay prepended to a skill body for `profile`.
+
+    `default` returns "" (the body is served byte-for-byte). `concise` and
+    `strict` return a small, bounded directive block that reshapes the host's
+    output while restating the never-optional gate floor."""
+    return _PROFILE_OVERLAYS.get(profile, "")
 
 
 def _skills_dir() -> Path:
@@ -109,7 +184,9 @@ def _parse_frontmatter(text: str) -> dict:
     return parsed or {}
 
 
-def register_skills_as_prompts(mcp: Any, token_cap: int | None = None) -> None:
+def register_skills_as_prompts(
+    mcp: Any, token_cap: int | None = None, profile: str | None = None
+) -> None:
     """Register every SKILL.md under skills/ as an MCP tool.
 
     Name kept as the historic `register_skills_as_prompts` for backwards
@@ -118,9 +195,11 @@ def register_skills_as_prompts(mcp: Any, token_cap: int | None = None) -> None:
 
     Name: directory name with `-` -> `_`. Description: from frontmatter.
     Body: full file content (including frontmatter), read fresh on each call
-    so editing the SKILL.md propagates without restart. An over-cap body is
-    served as a progressive-loading pointer instead (#393); `token_cap`
-    overrides the resolved cap and is used by tests.
+    so editing the SKILL.md propagates without restart, and reshaped by the
+    active output profile (#215, resolved from SUMO_QA_OUTPUT_PROFILE). An
+    over-cap body is served as a progressive-loading pointer instead (#393);
+    `token_cap` overrides the resolved cap and `profile` overrides the resolved
+    profile — both are used by tests.
     """
     skills_dir = _skills_dir()
     if not skills_dir.is_dir():
@@ -139,7 +218,7 @@ def register_skills_as_prompts(mcp: Any, token_cap: int | None = None) -> None:
         # hosts that render descriptions inline don't show stray newlines.
         if isinstance(description, str):
             description = " ".join(description.split())
-        _bind_tool(mcp, name, description, skill_path, token_cap=token_cap)
+        _bind_tool(mcp, name, description, skill_path, token_cap=token_cap, profile=profile)
 
 
 def _oversize_pointer_text(skill_name: str, tokens: int, cap: int) -> str:
@@ -164,7 +243,7 @@ def _oversize_pointer_text(skill_name: str, tokens: int, cap: int) -> str:
     )
 
 
-def _make_skill_callable(path: Path, token_cap: int | None = None):
+def _make_skill_callable(path: Path, token_cap: int | None = None, profile: str | None = None):
     """Factory returning a zero-argument function that reads `path` at call time.
 
     The factory closes over `path` so each generated function returns its OWN
@@ -172,30 +251,69 @@ def _make_skill_callable(path: Path, token_cap: int | None = None):
     keeps the function's signature parameter-free, which FastMCP's tool
     introspection requires.
 
-    When the body would exceed the per-response token cap (#393), the function
-    returns a compact pointer to the progressive-loading route instead of the
-    oversized body (which the host refuses and saves to a file). Under-cap
-    skills return the body byte-for-byte, unchanged. `token_cap` overrides the
+    The active output profile (#215) is resolved FRESH on each call (env var >
+    documented default), so a host config change takes effect without a rebind —
+    the same freshness philosophy as reading the SKILL.md each call. For
+    `concise`/`strict` a small overlay is prepended to the body; `default` leaves
+    the body byte-for-byte unchanged. `profile` is an explicit override used by
+    tests (falls through to the env var when None).
+
+    When the composed body would exceed the per-response token cap (#393), the
+    function returns a compact pointer to the progressive-loading route instead
+    of the oversized body (which the host refuses and saves to a file); the
+    profile overlay is preserved on the pointer so the host still knows the
+    active profile, but ONLY when overlay + pointer itself fits the cap. With a
+    cap small enough that the overlaid pointer would overflow it, the overlay is
+    dropped: the pointer is the degraded-mode payload and must never recreate
+    the over-cap response it exists to prevent. Under-cap `default` skills
+    return the body byte-for-byte, unchanged. `token_cap` overrides the
     resolved cap (env var > default) and is used by tests.
     """
     cap = _response_token_cap(token_cap)
 
     def _skill_body() -> str:
+        overlay = _profile_overlay(_resolve_output_profile(profile))
         text = path.read_text(encoding="utf-8")
-        tokens = _approx_tokens(text)
+        body = overlay + text if overlay else text
+        tokens = _approx_tokens(body)
         if tokens > cap:
-            return _oversize_pointer_text(path.parent.name, tokens, cap)
-        return text
+            pointer = _oversize_pointer_text(path.parent.name, tokens, cap)
+            if overlay and _approx_tokens(overlay + pointer) <= cap:
+                return overlay + pointer
+            return pointer
+        return body
 
     return _skill_body
 
 
 def _bind_tool(
-    mcp: Any, name: str, description: str, path: Path, token_cap: int | None = None
+    mcp: Any,
+    name: str,
+    description: str,
+    path: Path,
+    token_cap: int | None = None,
+    profile: str | None = None,
 ) -> None:
     """Bind one SKILL.md as an MCP tool named `name`. The tool returns the
-    SKILL.md body, which the host LLM follows, or a progressive-loading pointer
-    when the body would exceed the per-response token cap (#393)."""
-    fn = _make_skill_callable(path, token_cap=token_cap)
+    SKILL.md body (reshaped by the active output profile, #215), which the host
+    LLM follows, or a progressive-loading pointer when the body would exceed the
+    per-response token cap (#393).
+
+    The call is recorded through `maybe_capture` so a `SUMO_QA_DEBUG_DIR`
+    capture contains the skill-tool (routing) calls the #214 conformance
+    fixtures check — without it a real capture could never satisfy an
+    `expected_entry_skill` contract. The captured output is a compact summary,
+    not the served body (which can be ~12k tokens)."""
+    body_fn = _make_skill_callable(path, token_cap=token_cap, profile=profile)
+
+    def fn() -> str:
+        text = body_fn()
+        maybe_capture(
+            tool=name,
+            args={},
+            output={"skill_tool": name, "served_chars": len(text)},
+        )
+        return text
+
     fn.__name__ = name
     mcp.tool(name=name, description=description)(fn)

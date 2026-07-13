@@ -25,6 +25,7 @@ defaultTest:
       - Vague unanchored risks ("performance might matter").
       - Asking another confirmation question instead of delivering the final verdict.
       - Citing test output without anchoring to specific test names or counts.
+      - Claims a gate passed ("tests passed", "safe to merge") without citing the observed evidence source behind it (a command's output, a tool result, or a file read) or marking the claim unverified.
   assert:
     - type: llm-rubric
       value: |
