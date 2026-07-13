@@ -571,3 +571,87 @@ def test_has_packs_yml_only_dir_makes_yml_glob_load_bearing(tmp_path, monkeypatc
     packs.mkdir(parents=True)
     (packs / "team.yml").write_text("name: team\n", encoding="utf-8")  # .yml only, no .yaml
     assert kl._standards_dir() == packs
+
+
+# ---------------------------------------------------------------------------
+# Class G — Catalogue-entry indexer genuine gaps (#503, 7 mutants)
+# Kills: x__dedupe_entry__mutmut_{3,9}, x__entry_slugify__mutmut_{16,17},
+#        x__first_prose_line__mutmut_{3,6}, x__is_grouper__mutmut_{9,13}
+# All via QA_KNOWLEDGE_PATH synthetic catalogues — no real-catalogue coupling.
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_headings_get_deterministic_ordered_suffixes(tmp_path, monkeypatch) -> None:
+    """Two identical headings must index as ``dup`` then ``dup-2``, in order.
+
+    Kills x__dedupe_entry__mutmut_3 (``seen.get(None, 0)`` never finds the
+    prior occurrence, so both entries come back ``dup``) and
+    x__dedupe_entry__mutmut_9 (``seen[slug] = None`` makes the second
+    occurrence compute ``None + 1`` -> TypeError)."""
+    cat = tmp_path / "classifications.md"
+    cat.write_text(
+        "# Title\n\n## dup\nFirst body.\n\n## dup\nSecond body.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
+    ids = [e["id"] for e in kl.list_catalogue_entries("classifications")]
+    assert ids == ["dup", "dup-2"]
+
+
+def test_all_punctuation_heading_falls_back_to_entry_id(tmp_path, monkeypatch) -> None:
+    """A heading with no alphanumeric run slugifies to the literal ``entry``
+    fallback. Kills x__entry_slugify__mutmut_16 (``XXentryXX``) and
+    x__entry_slugify__mutmut_17 (``ENTRY``)."""
+    cat = tmp_path / "classifications.md"
+    cat.write_text("# Title\n\n## ???\nBody prose.\n", encoding="utf-8")
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
+    ids = [e["id"] for e in kl.list_catalogue_entries("classifications")]
+    assert ids == ["entry"]
+
+
+def test_hash_prefixed_non_heading_body_line_is_not_the_summary(tmp_path, monkeypatch) -> None:
+    """A ``#tag`` body line (no space, not an ATX heading in this indexer's
+    summary walk) must be skipped; the summary is the following prose line.
+
+    Kills x__first_prose_line__mutmut_6 (``startswith("XX#XX")`` no longer
+    skips it, so the summary becomes ``#tag``) and re-kills
+    x__first_prose_line__mutmut_3 (``stripped or not ...`` returns the blank
+    line as an empty summary)."""
+    cat = tmp_path / "classifications.md"
+    cat.write_text("# Title\n\n## entry_one\n\n#tag\nReal prose.\n", encoding="utf-8")
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
+    entries = kl.list_catalogue_entries("classifications")
+    assert [e["id"] for e in entries] == ["entry_one"]  # underscores kept verbatim
+    assert entries[0]["summary"] == "Real prose."
+
+
+def test_empty_leaf_before_same_level_heading_is_still_indexed(tmp_path, monkeypatch) -> None:
+    """An empty-bodied heading followed by a SAME-level heading is a leaf (an
+    entry with an empty summary), never a grouper — groupers require a DEEPER
+    next heading. Kills x__is_grouper__mutmut_9 (``next_level < level`` stops
+    treating the same-level case as "not deeper", so the leaf is wrongly
+    classified as a grouper and dropped from the index)."""
+    cat = tmp_path / "classifications.md"
+    cat.write_text(
+        "# Title\n\n## empty_mid\n\n## next_entry\nProse body.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
+    summaries = {e["id"]: e["summary"] for e in kl.list_catalogue_entries("classifications")}
+    assert summaries == {"empty_mid": "", "next_entry": "Prose body."}
+
+
+def test_category_heading_with_own_prose_is_a_leaf_not_a_grouper(tmp_path, monkeypatch) -> None:
+    """A heading whose ONLY prose is the single line directly under it,
+    followed by blanks then a deeper heading, carries real content and must be
+    indexed with that line as its summary. Kills x__is_grouper__mutmut_13
+    (``lines[line_idx + 2 : next_idx]`` skips exactly that first prose line,
+    sees only blanks, and wrongly drops the heading as a grouper)."""
+    cat = tmp_path / "techniques.md"
+    cat.write_text(
+        "# Title\n\n## cat\nIntro prose.\n\n### leaf\nLeaf body.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
+    summaries = {e["id"]: e["summary"] for e in kl.list_catalogue_entries("techniques")}
+    assert summaries == {"cat": "Intro prose.", "leaf": "Leaf body."}
