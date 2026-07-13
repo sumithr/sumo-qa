@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.54.0](https://github.com/sumithr/sumo-qa/compare/v0.53.0...v0.54.0) (2026-07-13)
+
+
+### Features
+
+* **repo-map:** add C# import-edge resolver ([#362](https://github.com/sumithr/sumo-qa/issues/362)) ([#480](https://github.com/sumithr/sumo-qa/issues/480)) ([c78f398](https://github.com/sumithr/sumo-qa/commit/c78f398c336ba33a1b2df1ba6df111ecd2cfeda4))
+* **repo-map:** add PHP import-edge resolver ([#361](https://github.com/sumithr/sumo-qa/issues/361)) ([#479](https://github.com/sumithr/sumo-qa/issues/479)) ([bfb63e9](https://github.com/sumithr/sumo-qa/commit/bfb63e96d3abe9ac3bae4bae456231f8bb6e7159))
+
 ## [0.53.0](https://github.com/sumithr/sumo-qa/compare/v0.52.0...v0.53.0) (2026-07-13)
 
 
