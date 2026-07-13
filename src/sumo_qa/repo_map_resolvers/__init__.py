@@ -15,6 +15,7 @@ tree-sitter to be installed (the parser is only invoked under
 
 from __future__ import annotations
 
+from sumo_qa.repo_map_resolvers import cpp as _cpp  # noqa: F401 -- import for side effect
 from sumo_qa.repo_map_resolvers import csharp as _csharp  # noqa: F401 -- import for side effect
 from sumo_qa.repo_map_resolvers import go as _go  # noqa: F401 -- import for side effect
 from sumo_qa.repo_map_resolvers import java as _java  # noqa: F401 -- import for side effect
