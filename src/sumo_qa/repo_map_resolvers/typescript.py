@@ -487,7 +487,9 @@ class TypeScriptResolver:
         """Match ``spec`` against one ``paths`` pattern, yielding target bases.
 
         A wildcard pattern (``@app/*``) captures the tail after the prefix and
-        substitutes it into each wildcard target (``src/*`` → ``src/<tail>``); the
+        substitutes it into each wildcard target (``src/*`` → ``src/<tail>``); a
+        root-level wildcard target (``"*"``/``"./*"`` under a repo-root baseUrl,
+        normalized to bare ``"*"``) substitutes the tail at the repo root; the
         bare catch-all ``*`` captures the whole specifier (``"*": ["src/*"]``
         maps ``foo`` → ``src/foo``); an exact pattern matches the whole specifier
         and uses each target verbatim.
@@ -501,6 +503,8 @@ class TypeScriptResolver:
             for target in targets:
                 if target.endswith("/*"):
                     bases.append(target[:-1] + tail)  # "src/*" -> "src/" + tail
+                elif target == "*":  # root wildcard: repo root + tail
+                    bases.append(tail)
                 else:
                     bases.append(target)
             return bases

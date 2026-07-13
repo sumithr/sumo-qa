@@ -373,6 +373,25 @@ def test_resolve_catch_all_star_pattern_alias():
     assert resolver.resolve("src/app.ts", imp, _FILE_SET) == ["src/util.ts"]
 
 
+def test_resolve_root_wildcard_target_substitutes_tail():
+    # A root-level wildcard target under baseUrl ".": "@/*": ["*"] normalizes the
+    # target to bare "*" (no directory prefix), which must still substitute the
+    # captured tail -> `@/src/util` resolves to src/util.ts, not a literal "*".
+    tsconfig = parse_tsconfig('{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["*"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@/src/util", level=0, names=(), function_local=False)
+    assert resolver.resolve("src/app.ts", imp, _FILE_SET) == ["src/util.ts"]
+
+
+def test_resolve_root_wildcard_target_dot_slash_spelling():
+    # The "./*" spelling of the same root target normalizes identically ("./" is
+    # collapsed by the repo join), so it must resolve the same way.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["./*"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@/src/util", level=0, names=(), function_local=False)
+    assert resolver.resolve("src/app.ts", imp, _FILE_SET) == ["src/util.ts"]
+
+
 def test_resolve_alias_uses_first_resolving_target_only():
     # A paths array tries targets in order and uses the FIRST that resolves (TS
     # module resolution): ["dist/*", "src/*"] where only src/ exists yields the
