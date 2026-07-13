@@ -9,12 +9,54 @@ All optional. Defaults work out of the box after `pip install sumo-qa && sumo-qa
 | `QA_TEST_DATA_PATH` | `knowledge/test_data` (cwd) | Override the known-good test data catalogue. **No samples ship in the wheel**, the catalogue is empty on a fresh install; populate it per your team's domains. |
 | `QA_KNOWLEDGE_PATH` | bundled `_data/knowledge` / repo `knowledge` | Override the canonical knowledge catalogues (classifications, approaches, principles, techniques) |
 | `SUMO_QA_DEBUG_DIR` | unset | Directory to capture per-tool-call args + output as JSON for debugging / grading |
+| `SUMO_QA_OUTPUT_PROFILE` | `default` | Output verbosity/strictness profile for served skill bodies: `concise`, `default`, or `strict` (see [Output verbosity and strictness profiles](#output-verbosity-and-strictness-profiles)). An unrecognised value falls back to `default`. |
 
 These env vars are the lowest-level override and always win. For a no-clone way
 to add custom content, see [Adding custom knowledge without cloning the
 repo](#adding-custom-knowledge-without-cloning-the-repo) below, it inserts
 ingested project/global packs as middle tiers between the env vars and the
 bundled defaults.
+
+## Output verbosity and strictness profiles
+
+`SUMO_QA_OUTPUT_PROFILE` tunes how much ceremony wraps the skill guidance
+sumo-qa serves, so a small docs-only or test-only edit does not feel like a
+full QA audit while security, API, migration, and release-gate work still gets
+strict handling. It is a serve-time overlay on the single skill-serving path,
+so no skill file is edited and the canonical `SKILL.md` content stays readable
+and host-neutral.
+
+| Value | Effect |
+|---|---|
+| `concise` | Shortest useful answer: one focused risk/test summary, findings over framing, no formal section headers or evidence tables unless the skill marks them mandatory. |
+| `default` | Current behaviour. The skill body is served byte-for-byte, unchanged. |
+| `strict` | Full ceremony: each gate stated explicitly, evidence as a table, every named risk mapped to its test, and an explicit residual-risk section. |
+
+An unrecognised value (a typo, an unknown name) falls back predictably to
+`default` rather than failing, so a misconfigured host can never break serving
+or silently drop a gate.
+
+**Never optional, at any profile.** A profile tunes how much prose wraps the
+work, never whether the mandatory gates hold. Whatever the profile, the served
+overlay restates that the skill's Iron Law and any HARD-GATE, evidence for
+every claim, explicit user confirmation before writing files or installing
+anything, and every mandatory test or safety gate the skill names are always
+kept. Concise mode shortens low-risk output; it does not drop a gate on
+high-risk work. Strict mode adds structure to the skill body only; it does not
+touch the `sumo_qa_load_*` catalogue payloads, so it cannot bloat them.
+
+```json
+{
+  "mcpServers": {
+    "sumo-qa": {
+      "command": "sumo-qa",
+      "env": {
+        "SUMO_QA_OUTPUT_PROFILE": "concise"
+      }
+    }
+  }
+}
+```
 
 ## Example: custom team standards
 
@@ -151,6 +193,15 @@ sumo-qa-feedback delete <id> --scope project   # remove a saved lesson by id
 ```
 
 To wipe a scope entirely, delete its `feedback/review_feedback.yaml` file.
+
+## Optional analysis signals
+
+The semantic-analysis adapter layer (issue #212, see [ARCHITECTURE.md](ARCHITECTURE.md)) reads optional inputs and degrades cleanly when they are absent, so none of them is required for a normal install:
+
+- **Cross-file impacted-symbol reach** needs the repo-map `imports` graph, built by the optional `[treesitter]` extra (`pip install sumo-qa[treesitter]`, owned by #353). Without the extra, changed-symbol extraction and the changed-symbol-to-likely-test mapping still run; only the cross-file reach is skipped, and the result records a `missing_optional_dependency` fallback naming why.
+- **Coverage and mutation signals** are read from `.sumo-qa/coverage.json` and `.sumo-qa/mutation.json` when present (the same artifacts the readiness scorecard consumes). An absent file is treated as not-measured, never an error; a present-but-malformed file is surfaced as an `invalid_artifact` fallback instead of being silently dropped.
+
+No optional analysis dependency is required for `sumo-qa` to start.
 
 ## Debugging
 

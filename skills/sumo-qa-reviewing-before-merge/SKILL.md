@@ -21,6 +21,10 @@ Do NOT deliver a verdict before running tests in this turn. "CI was green earlie
 
 **NEVER CLAIM SAFE-TO-MERGE WITHOUT FRESH VERIFICATION EVIDENCE.** "All tests pass" is necessary but not sufficient — every named risk must also have a passing test covering it.
 
+## Evidence-backed gate reporting
+
+Every gate claim you surface — the suite verdict, each named risk's coverage, the safe-to-merge call — carries a status (`passed` / `failed` / `skipped` / `blocked` / `unverified`) and, unless `skipped` or `unverified`, cites the ONE observed evidence item backing it by source (`command`, `tool_call`, `file_read`, `user_fact`, `external_ci`, `manual_observation`). Citing means NAMING the source and quoting the observation — for the suite verdict, label the source type and quote the verification command verbatim with its counts, e.g. `Evidence (command): $ pytest tests/auth -q → 42 passed, 2 skipped`. Test names or counts alone, with no labeled source behind them, do NOT count as a cite. A `passed` / `failed` / `blocked` claim with no cited source is an overstatement; `unverified` is the honest state when nothing was observed this turn. `SAFE TO MERGE` is a `passed` safe-to-merge gate — unreachable while any gate is `failed` / `blocked` / `unverified` (step 10, restated as a status). Keep it compact: a status word + a short source cite per line, never a second dump.
+
 ## When to Use
 
 Triggers: *"review my changes"*, *"is this safe to merge"*, *"what could break"*, *"code review please"*, *"anything I missed in this diff"*, and similar.
@@ -168,7 +172,7 @@ The verdict line is the LAST line.
      `External-contract axis: NOT FIRED (internal/self-produced) | Value: <verbatim self-produced value, e.g. [sumo-qa:CODE]> | Producer: <fn/module> | Consumer: <fn/module, same change> | No external source: confirmed`
 3. `Touched files:` citing every diff path verbatim (e.g. `app/auth/session.py, tests/billing/test_checkout.py`).
 4. `Change shape:` one phrase anchored to the touched files (e.g. `auth predicate + billing checkout ordering, both runtime`).
-5. The verification command, quoted verbatim.
+5. The verification command, quoted verbatim as a LABELED evidence-source line (the gate-evidence source cite): `Evidence (command): $ <verification command> → <counts>`. A command or counts appearing without the labeled source is not a cite.
 6. The test counts verbatim (`X passed, Y skipped, Z failed`).
 7. **AC lines (whenever acceptance criteria were supplied — step 9).** One line per supplied criterion, regardless of verdict, in this exact shape — the MET ones are emitted too, never dropped on an all-MET SAFE path:
    `AC<n>: <criterion text> | Classification: <MET | UNMET | UNVERIFIED> | Anchor: <diff file:line + fully-qualified fresh test::name and verbatim assertion for MET; the criterion / the missing behaviour for UNMET/UNVERIFIED>`
