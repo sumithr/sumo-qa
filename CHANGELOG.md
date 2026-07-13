@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.1](https://github.com/sumithr/sumo-qa/compare/v0.55.0...v0.55.1) (2026-07-13)
+
+
+### Documentation
+
+* add the tracked reliability-hardening control matrix ([#211](https://github.com/sumithr/sumo-qa/issues/211)) ([#502](https://github.com/sumithr/sumo-qa/issues/502)) ([a5f0ea0](https://github.com/sumithr/sumo-qa/commit/a5f0ea04d818e558a9b8e791d120397a80505b29))
+
 ## [0.55.0](https://github.com/sumithr/sumo-qa/compare/v0.54.0...v0.55.0) (2026-07-13)
 
 
