@@ -25,7 +25,7 @@ jobs:
     name: ruff check + format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -47,7 +47,7 @@ jobs:
     name: mypy (static type check)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -71,7 +71,7 @@ jobs:
     # ubuntu-latest ships shellcheck preinstalled — no extra install step.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: shellcheck
         run: shellcheck hooks/session-start scripts/check_markdown_links.sh scripts/pip_audit.sh install.sh
@@ -86,7 +86,7 @@ jobs:
     # adds nothing here.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -110,7 +110,7 @@ jobs:
     # independent.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -130,7 +130,7 @@ jobs:
     # never drift between local and CI.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
