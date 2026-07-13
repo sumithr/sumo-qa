@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.55.0](https://github.com/sumithr/sumo-qa/compare/v0.54.0...v0.55.0) (2026-07-13)
+
+
+### Features
+
+* **repo-map:** add C/C++ include resolver to the import-edge layer ([#359](https://github.com/sumithr/sumo-qa/issues/359)) ([#468](https://github.com/sumithr/sumo-qa/issues/468)) ([3034810](https://github.com/sumithr/sumo-qa/commit/30348101c4df4fda787ccaa5093ae0ebcaee2979))
+* **repo-map:** add Rust import-edge resolver ([#358](https://github.com/sumithr/sumo-qa/issues/358)) ([#482](https://github.com/sumithr/sumo-qa/issues/482)) ([7a27120](https://github.com/sumithr/sumo-qa/commit/7a27120c889365be8c78b17e918da2c65cf70c9c))
+
 ## [0.54.0](https://github.com/sumithr/sumo-qa/compare/v0.53.0...v0.54.0) (2026-07-13)
 
 
