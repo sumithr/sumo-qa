@@ -45,10 +45,17 @@ Resolution rules (ported from UA):
   determinism. ``*_test.go`` files are excluded — they are not compiled into the
   imported package for a production import, so fanning out to them would forge a
   false source->test edge.
-- **External / stdlib drop.** A standard-library import (``fmt``) or a
-  third-party dependency (``github.com/x/y``) usually has no package directory
-  under the module root, so no suffix matches and resolution returns ``[]`` —
-  the normal "not ours" outcome, never an error.
+- **External / stdlib drop.** A standard-library import is dropped *before*
+  suffix matching by a first-path-segment guard: its leading segment is a Go
+  stdlib top-level package name (``fmt``, ``net`` in ``net/http``), which a
+  local module import — rooted at the module's own declared path — never is.
+  This makes the drop robust even when a multi-segment stdlib path's trailing
+  segment collides with a real local package dir (``net/http`` vs a local
+  ``http/``); without the guard such a path would be suffix-matched onto that
+  dir and forge a false edge (see Known limitations). A third-party dependency
+  (``github.com/x/y``) has no package directory under the module root, so no
+  suffix matches and resolution returns ``[]`` — the normal "not ours"
+  outcome, never an error.
 
 Go has no relative imports and no function-local imports (import declarations
 are file-level only), so every :class:`RawImport` carries ``level=0``,
@@ -64,11 +71,14 @@ and an external one that happens to line up with the directory tree cannot be
 told apart. Each is a *safe* outcome (a pinned false edge or a missing edge),
 tracked here so a future fix is a deliberate, reviewed change.
 
-- **External-name collision (false edge, pinned).** An external import whose
-  trailing segment(s) collide with a real local package directory (e.g.
+- **External-name collision (false edge, pinned).** A *third-party* import
+  whose trailing segment(s) collide with a real local package directory (e.g.
   ``github.com/ext/widget`` with a local ``widget/`` dir) is indistinguishable
   from a local import and yields a (false) edge. Disambiguating it needs the
-  module path.
+  module path. (The *standard-library* sub-case — e.g. ``net/http`` colliding
+  with a local ``http/`` — is no longer a limitation: it is dropped by the
+  first-path-segment stdlib guard described under "External / stdlib drop",
+  since a stdlib import's leading segment is a fixed, well-known name.)
 - **Bare module-root import (missing edge).** An import whose path equals the
   module path (the module-root package itself) is NOT resolved: the resolver
   cannot tell it from an external import that simply matches no local package,
@@ -104,6 +114,71 @@ _STRING_CONTENT_SUFFIX = "_content"  # the *_content child holds the unquoted te
 _GO_MOD = "go.mod"
 _GO_SUFFIX = ".go"
 _TEST_GO_SUFFIX = "_test.go"  # `*_test.go`: not part of the imported package
+
+# Go standard-library top-level import roots -- the FIRST path segment of a
+# stdlib import. Basis: the Go 1.24 standard library's top-level `src/`
+# package directories. A LOCAL module import is rooted at the module's own
+# declared path (an arbitrary string from `go.mod`, e.g. `example.com/...`),
+# whose first segment is never one of these; an EXTERNAL import
+# (`github.com/...`) likewise never leads with a stdlib segment. So a raw
+# import whose first segment is in this set is standard-library and is dropped
+# BEFORE structural suffix matching -- otherwise a multi-segment stdlib import
+# (`net/http`, `encoding/json`) whose trailing segment collides with a real
+# local package dir (`http/`, `json/`) would be suffix-matched onto that dir
+# and forge a false stdlib->local edge. (The external-name collision below is
+# a separate, still-documented limitation: its first segment is not a stdlib
+# name, so this guard does not -- and must not -- cover it.)
+_GO_STDLIB_ROOTS = frozenset(
+    {
+        "bufio",
+        "bytes",
+        "cmp",
+        "compress",
+        "container",
+        "context",
+        "crypto",
+        "database",
+        "debug",
+        "embed",
+        "encoding",
+        "errors",
+        "expvar",
+        "flag",
+        "fmt",
+        "go",
+        "hash",
+        "html",
+        "image",
+        "index",
+        "io",
+        "iter",
+        "log",
+        "maps",
+        "math",
+        "mime",
+        "net",
+        "os",
+        "path",
+        "plugin",
+        "reflect",
+        "regexp",
+        "runtime",
+        "slices",
+        "sort",
+        "strconv",
+        "strings",
+        "structs",
+        "sync",
+        "syscall",
+        "testing",
+        "text",
+        "time",
+        "unicode",
+        "unique",
+        "unsafe",
+        "weak",
+    }
+)
 
 
 class GoResolver:
@@ -171,10 +246,21 @@ class GoResolver:
         """
         if not imp.module:
             return []
+        segments = [seg for seg in imp.module.split("/") if seg]
+        if segments and segments[0] in _GO_STDLIB_ROOTS:
+            # Standard-library import: its FIRST path segment is a Go stdlib
+            # top-level package, which a local module import (rooted at the
+            # module's own declared path) never is. Reject it on the RAW import
+            # path, BEFORE any module-prefix stripping / suffix matching, so a
+            # multi-segment stdlib import (`net/http`, `encoding/json`) cannot
+            # be suffix-matched onto a local package dir whose name collides
+            # with its trailing segment (`http/`, `json/`) -- see the
+            # `_GO_STDLIB_ROOTS` note. External-name collisions remain a
+            # documented limitation (their first segment is not a stdlib name).
+            return []
         module_root = self._module_root(importer, file_set)
         if module_root is None:
             return []
-        segments = [seg for seg in imp.module.split("/") if seg]
         # Strip the module prefix by taking the LONGEST import-path suffix that
         # is a real package directory under the module root: drop 0 leading
         # segments first (whole path), then 1, then 2, … down to dropping all but

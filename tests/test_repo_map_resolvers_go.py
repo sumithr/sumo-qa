@@ -250,6 +250,34 @@ def test_go_resolver_resolve_external_name_collision_is_a_known_limitation():
     assert resolver.resolve("app/main.go", imp, files) == ["widget/w.go"]
 
 
+def test_go_resolver_resolve_multi_segment_stdlib_does_not_edge_to_colliding_local_dir():
+    # GUARD (round-4): a multi-segment STANDARD-LIBRARY import whose trailing
+    # segment collides with a real local package dir must be dropped, NOT
+    # resolved onto that dir. `net/http` with a local `http/` package was
+    # previously suffix-matched (strip the `net` head) onto `http/`, forging a
+    # false stdlib->local import edge; likewise `encoding/json` onto a local
+    # `json/`. The first-segment stdlib guard rejects such imports BEFORE the
+    # structural suffix matching runs. (Single-segment stdlib like `fmt` was
+    # already dropped by structure; this covers the multi-segment collision.)
+    files = {"go.mod", "app/main.go", "http/server.go", "json/codec.go"}
+    net_http = RawImport(module="net/http", level=0, names=(), function_local=False)
+    encoding_json = RawImport(module="encoding/json", level=0, names=(), function_local=False)
+    assert resolver.resolve("app/main.go", net_http, files) == []
+    assert resolver.resolve("app/main.go", encoding_json, files) == []
+
+
+def test_go_resolver_resolve_local_import_to_a_stdlib_named_dir_still_resolves():
+    # The stdlib guard keys off the RAW import path's FIRST segment, so it only
+    # drops genuine stdlib imports (first segment `net`, `encoding`, ...). A
+    # LOCAL import reached via module-prefix stripping still resolves even when
+    # its target dir is named like a stdlib package: `example.com/root/http`
+    # (module-prefixed; first segment `example.com`, never a stdlib root) must
+    # still resolve to the local `http/` package. The guard must not over-reach.
+    imp = RawImport(module="example.com/root/http", level=0, names=(), function_local=False)
+    files = {"go.mod", "app/main.go", "http/server.go"}
+    assert resolver.resolve("app/main.go", imp, files) == ["http/server.go"]
+
+
 # ---------- scan_repo integration (real tree-sitter, committed fixture) ----------
 
 
