@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.51.3](https://github.com/sumithr/sumo-qa/compare/v0.51.2...v0.51.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* **repo-map:** target the tree-sitter-language-pack 1.12.5 upstream binding ([#491](https://github.com/sumithr/sumo-qa/issues/491)) ([#492](https://github.com/sumithr/sumo-qa/issues/492)) ([d11c742](https://github.com/sumithr/sumo-qa/commit/d11c742869665832965faa45538215b91d40060d))
+
 ## [0.51.2](https://github.com/sumithr/sumo-qa/compare/v0.51.1...v0.51.2) (2026-06-28)
 
 
