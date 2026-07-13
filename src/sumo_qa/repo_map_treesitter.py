@@ -10,16 +10,17 @@ raw API. Two reasons this layer exists:
    single switch the orchestrator reads to decide between emitting import edges
    and recording the graceful-degradation warning.
 
-2. **Non-mainstream binding API.** ``tree-sitter-language-pack``'s binding is
-   method-style and differs from the upstream ``tree-sitter`` package:
-   ``parse()`` takes a ``str`` (not ``bytes``); ``tree.root_node()`` is a
-   method; and node accessors are methods too — ``kind()``, ``child(i)``,
-   ``child_count()``, ``named_child(i)``, ``named_child_count()``,
-   ``start_byte()``, ``end_byte()``. A node carries no ``.text`` attribute, so
-   source text is recovered by byte-slicing the original source. All of that is
-   absorbed here behind :class:`TSNode`; the version is pinned and the
+2. **Binding API absorption.** Since 1.12.5 the language-pack's
+   ``get_parser()`` returns the upstream ``tree_sitter.Parser``: ``parse()``
+   takes ``bytes`` (a ``str`` raises ``TypeError``); ``tree.root_node`` and the
+   node accessors — ``type``, ``child_count``, ``start_byte``, ``end_byte`` —
+   are properties (``child(i)`` stays a method), and the kind accessor is named
+   ``type``, not ``kind``. Earlier language-pack releases bundled a str-only
+   method-style binding with the opposite shapes (#491), so the extra is
+   floored at 1.12.5 in pyproject. All of it is absorbed here behind
+   :class:`TSNode` — resolvers never touch the raw API — and the
    binding-contract test (``tests/test_repo_map_treesitter.py``) fails loudly
-   if any of these shapes drift.
+   if any of these shapes drift again.
 """
 
 from __future__ import annotations
@@ -58,13 +59,13 @@ class TreesitterUnavailableError(RuntimeError):
 
 
 class TSNode:
-    """A thin, attribute-style wrapper over one language-pack node.
+    """A thin, attribute-style wrapper over one binding node.
 
-    The raw binding exposes everything as zero-arg methods (``kind()``,
-    ``child_count()``, …); this wrapper normalises them to properties /
-    helpers and carries the source bytes so ``text`` works despite the binding
-    having no ``.text`` of its own. Resolvers walk :class:`TSNode`, never the
-    raw node, so a binding change is absorbed in one place.
+    Presents the accessors under the names the resolvers use (``kind`` for the
+    binding's ``type``) and carries the source bytes so ``text`` slices the
+    exact bytes the parser saw (see :func:`parse`). Resolvers walk
+    :class:`TSNode`, never the raw node, so a binding change is absorbed in
+    one place.
     """
 
     __slots__ = ("_node", "_src")
@@ -76,11 +77,11 @@ class TSNode:
     @property
     def kind(self) -> str:
         """The node's grammar kind (``import_statement``, ``dotted_name``, …)."""
-        return str(self._node.kind())
+        return str(self._node.type)
 
     @property
     def child_count(self) -> int:
-        return int(self._node.child_count())
+        return int(self._node.child_count)
 
     def child(self, index: int) -> TSNode:
         return TSNode(self._node.child(index), self._src)
@@ -95,13 +96,13 @@ class TSNode:
     def text(self) -> str:
         """The exact source slice this node spans, UTF-8 decoded.
 
-        The binding carries no ``.text``; recover it from the parser's source
-        bytes (the UTF-8 encoding of the decoded source the parser saw, supplied
-        by :func:`parse`) via the node's byte range. Keying off those bytes
-        rather than the original ``src`` keeps the slice aligned when an invalid
-        byte was rewritten to U+FFFD (see :func:`parse`).
+        Recovered from the parser's source bytes (the normalized bytes the
+        parser saw, supplied by :func:`parse`) via the node's byte range.
+        Keying off those bytes rather than the original ``src`` keeps the slice
+        aligned when an invalid byte was rewritten to U+FFFD (see
+        :func:`parse`).
         """
-        return self._src[self._node.start_byte() : self._node.end_byte()].decode(
+        return self._src[self._node.start_byte : self._node.end_byte].decode(
             "utf-8", errors="replace"
         )
 
@@ -115,8 +116,8 @@ class TSNode:
 def parse(language: str, src: bytes) -> TSNode:
     """Parse ``src`` for ``language`` and return the wrapped root node.
 
-    ``src`` is bytes (resolvers read files as bytes); the language-pack
-    ``parse`` wants ``str``, so decoding happens here. Raises
+    ``src`` is bytes (resolvers read files as bytes); the binding's ``parse``
+    wants ``bytes`` too, but the input is normalized first (see below). Raises
     :class:`TreesitterUnavailableError` when the extra is absent — callers must
     gate on :data:`TREESITTER_AVAILABLE` first.
     """
@@ -125,15 +126,17 @@ def parse(language: str, src: bytes) -> TSNode:
             "tree-sitter is not installed; install the [treesitter] extra"
         )
     parser = _language_pack.get_parser(language)
-    # The binding wants ``str``; tree-sitter then parses that string's UTF-8
-    # encoding and reports byte offsets into THOSE bytes. Carry the same bytes
-    # into TSNode (not the original ``src``) so a node's text slice stays aligned
-    # even when ``errors="replace"`` rewrote an invalid byte to U+FFFD - which is
-    # 3 bytes, shifting every later offset and otherwise silently dropping a real
-    # import (#458). For valid UTF-8 the round-trip is identity, so this is a
-    # no-op there.
-    decoded = src.decode("utf-8", errors="replace")
-    tree = parser.parse(decoded)
-    if tree is None:  # pragma: no cover -- defensive: parse() of decoded text always yields a tree
+    # Normalize through decode/encode BEFORE parsing so an invalid byte becomes
+    # U+FFFD in the bytes the parser sees, and hand TSNode those same bytes:
+    # the parser reports byte offsets into its input, so a node's text slice
+    # stays aligned even though U+FFFD is 3 bytes and shifts every later offset
+    # - against the ORIGINAL ``src`` the slice would drift and silently drop a
+    # real import (#458). For valid UTF-8 the round-trip is identity, so this
+    # is a no-op there.
+    normalized = src.decode("utf-8", errors="replace").encode("utf-8")
+    tree = parser.parse(normalized)
+    if (
+        tree is None
+    ):  # pragma: no cover -- defensive: parse() of normalized bytes always yields a tree
         raise TreesitterUnavailableError(f"tree-sitter returned no parse tree for {language}")
-    return TSNode(tree.root_node(), decoded.encode("utf-8"))
+    return TSNode(tree.root_node, normalized)
