@@ -9,6 +9,7 @@ clean so a regression fails here as well as at the gate.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,28 @@ def _load_checker():
 
 
 checker = _load_checker()
+
+
+def _tracked_docs() -> list[str]:
+    """``docs/*.md`` restricted to git-TRACKED files.
+
+    A plain disk glob also picks up untracked-but-kept-locally legacy
+    artifacts (#30 gitignored docs/qa-strategy.md and docs/COVERAGE.md
+    rather than deleting them), which made this gate fail on any clone
+    holding those files — and, because mutmut's stats-collection run
+    executes this suite with ``-x``, silently aborted every local
+    mutation run. The prose gate governs what ships, so it enumerates
+    the tracked set (as this module's docstring already promised).
+    ``git`` is safe to assume here: ``_repo_root()`` has already anchored
+    on a ``.git`` ancestor.
+    """
+    out = subprocess.run(
+        ["git", "-C", str(REPO), "ls-files", "--", "docs/*.md"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return sorted(line for line in out.stdout.splitlines() if line)
 
 
 def test_em_dash_in_prose_is_detected():
@@ -154,7 +177,7 @@ def test_main_skips_a_missing_file(tmp_path):
         "README.md",
         "DEMO.md",
         "AGENTS.md",
-        *(str(p.relative_to(_repo_root())) for p in sorted((_repo_root() / "docs").glob("*.md"))),
+        *_tracked_docs(),
     ],
 )
 def test_tracked_docs_have_no_em_dashes_in_prose(rel):

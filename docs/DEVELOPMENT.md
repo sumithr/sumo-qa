@@ -179,14 +179,32 @@ stops being needed fails the check until removed.
 ## Mutation testing
 
 A nightly [`.github/workflows/mutation.yml`](../.github/workflows/mutation.yml) job
-mutates four parser/decision modules (`knowledge_loaders`, `rules`, `standards`,
-`tdm_validation`; see `[tool.mutmut]` in `pyproject.toml`) and enforces a strict
-100% kill rate. A pre-push hook re-runs it locally when a diff touches one of
-those modules or any test file. Always invoke it via the `mutmut run` console
+mutates the parser/decision modules listed under `paths_to_mutate` in
+`[tool.mutmut]` (`pyproject.toml`) and enforces a strict 100% kill rate. A
+scheduled-run failure files a `mutation-gate` issue (deduped against any open
+one) so a red nightly lands in the backlog instead of going unnoticed. A
+pre-push hook re-runs the gate locally when a diff touches one of the mutated
+modules or any test file. Always invoke it via the `mutmut run` console
 script, never `python -m mutmut` (the `-m` form re-runs `set_start_method('fork')`
 and crashes the trampoline). On macOS the fork-based runner can segfault, the
 faithful run is the Linux CI one; the local hook uses `--max-children 1` to reduce
 flakiness.
+
+Both the nightly job and the pre-push hook compute their verdict with
+[`scripts/check_mutation_gate.py`](../scripts/check_mutation_gate.py)
+(tested by `tests/test_check_mutation_gate.py`). The verdict is read from
+mutmut's `.meta` files, never from `mutmut run`'s exit status: mutmut exits
+0 even when mutants survive, so a bare `mutmut run` hook can never fail on
+a survivor-introducing push (root-caused 2026-07-13).
+
+mutmut is version-capped (`>=3,<3.6`, pinned in both `pyproject.toml`'s dev
+extra and the pre-push hook's `additional_dependencies`; keep the two in
+lockstep): 3.6.0's `record_trampoline_hit` resolves its relative
+`source_paths` against the live cwd with `strict=True`, so any test that
+`chdir`s away and then calls a mutated-module function crashes the
+stats-collection run and zero mutants execute ("failed to collect stats").
+Lift the cap only after verifying a newer release resolves `source_paths`
+against the run root instead of the cwd.
 
 ### Subprocess-spawning tests (the marker convention)
 

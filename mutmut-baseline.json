@@ -28,24 +28,32 @@
     "rationale; the scorecard signal-threading kwargs sit on continuation",
     "lines mutmut/LibCST cannot pragma, so a collaborator-spy test kills them",
     "instead. Local macOS runs segfault/timeout non-deterministically, so",
-    "Linux CI is authoritative for the count."
+    "Linux CI is authoritative for the count.",
+    "2026-07-13 (nightly-outage root-cause PR): ratcheted killed floors to the",
+    "counts a full clean run reports on current main (locally reproduced at",
+    "3.01 mutations/s with zero segfault noise; matches the 2026-06-03 Linux",
+    "CI run exactly). knowledge_loaders 110 -> 443 (PR #302's per-entry",
+    "catalogue loaders tripled the module; its 47 survivors are tracked as",
+    "open debt and gate (b) stays red until they are killed), rules 40 -> 41,",
+    "standards 15 -> 25, tdm_validation 162 -> 203. Same-PR context: mutmut",
+    "capped >=3,<3.6 (3.6.0 broke stats collection; see pyproject.toml)."
   ],
   "per_module": {
     "knowledge_loaders": {
       "file": "src/sumo_qa/knowledge_loaders.py",
-      "killed": 110
+      "killed": 443
     },
     "rules": {
       "file": "src/sumo_qa/rules.py",
-      "killed": 40
+      "killed": 41
     },
     "standards": {
       "file": "src/sumo_qa/standards.py",
-      "killed": 15
+      "killed": 25
     },
     "tdm_validation": {
       "file": "src/sumo_qa/tdm_validation.py",
-      "killed": 162
+      "killed": 203
     },
     "coverage_models": {
       "file": "src/sumo_qa/coverage_models.py",
