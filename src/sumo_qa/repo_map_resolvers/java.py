@@ -11,9 +11,12 @@ Resolution rules (ported from UA):
 - **Fully-qualified type imports** map the dotted name to a source file under a
   source root: ``import a.b.C;`` -> ``<root>/a/b/C.java``. The source root is
   not known a priori (``src/main/java``, ``src/``, a multi-module prefix, or
-  nothing), so resolution matches any file whose path ends with the package
-  path ``a/b/C.java`` at a path-segment boundary - covering the Maven/Gradle
-  ``src/main/java`` layout and flat layouts alike.
+  nothing), so resolution matches a file whose path ends with the package
+  path ``a/b/C.java`` at a path-segment boundary AND whose prefix is a plausible
+  source root - covering the Maven/Gradle ``src/main/java`` layout and flat
+  layouts alike. The source-root check stops a short import (``import foo.Bar``)
+  from matching a longer in-repo package (``com/acme/foo/Bar.java``, package
+  ``com.acme.foo``) whose package path merely ends in ``foo/Bar.java``.
 - **Nested-type imports resolve to the declaring top-level type's file.** A
   nested type has no file of its own: ``Inner`` in ``import a.b.Outer.Inner;``
   is declared inside the top-level type ``Outer``, whose file is
@@ -76,6 +79,14 @@ _WILDCARD = "*"
 _JDK_ROOTS = frozenset({"java", "javax", "sun"})
 
 _JAVA_SUFFIX = ".java"
+
+# The final path segment of a Maven/Gradle Java source set (`src/main/java`,
+# `src/test/java`, `<module>/src/main/java`). A multi-segment prefix ending here
+# is a source root: the segments AFTER it are the package. A prefix ending in an
+# ordinary lowercase name (`com/acme`) is a package prefix, not a source root -
+# recognising the difference is what stops a short import whose package path is a
+# proper suffix of a longer in-repo package from fabricating an edge.
+_SOURCE_LANG_DIR = "java"
 
 
 class JavaResolver:
@@ -180,22 +191,53 @@ class JavaResolver:
         return type_path
 
     @staticmethod
+    def _is_source_root(root: str) -> bool:
+        """True when a repo-relative prefix ``root`` is a plausible Java source root.
+
+        A source root is where package directories begin, so a file under it,
+        ``<root>/a/b/C.java``, genuinely declares package ``a.b``. Recognised roots
+        are the repo root or a single top-level source directory (``""``, ``src``,
+        ``gen``, ...) and a Maven/Gradle source set whose final segment is the
+        language directory (``.../src/main/java``). A multi-segment prefix ending
+        in an ordinary package segment (``com/acme``) is a package prefix, not a
+        source root - so a short import ``foo.Bar`` whose package path is only a
+        suffix of a longer in-repo package ``com.acme.foo.Bar`` cannot fabricate an
+        edge to ``com/acme/foo/Bar.java``."""
+        if "/" not in root:  # the repo root ("") or a single top-level source dir
+            return True
+        return root.rsplit("/", 1)[1] == _SOURCE_LANG_DIR
+
+    @staticmethod
     def _resolve_type(package_path: str, file_set: set[str]) -> list[str]:
-        """Files whose path is the top-level type path ``a/b/C`` + ``.java`` at a
-        path-segment boundary.
+        """Files whose path is the top-level type path ``a/b/C`` + ``.java`` under a
+        plausible source root.
 
         The type FQN is first truncated to its declaring top-level type
         (:meth:`_top_level_type_path`), so a nested-type import ``a.b.Outer.Inner``
         resolves to ``a/b/Outer.java`` rather than a non-existent
         ``a/b/Outer/Inner.java``. The truncated path then matches ``a/b/C.java``
-        exactly (flat layout) or any path ending in ``/a/b/C.java`` (under a source
-        root). The leading-slash boundary keeps the match honest: ``b/C.java``
-        matches ``x/b/C.java`` but not ``lib/C.java``. Multiple matches (the same
+        exactly (flat layout, empty root) or any path ending in ``/a/b/C.java``
+        whose prefix is a plausible source root (:meth:`_is_source_root`). The
+        leading-slash boundary keeps the match at a path-segment boundary
+        (``b/C.java`` matches ``x/b/C.java`` but not ``lib/C.java``), and the
+        source-root check keeps it honest across packages: ``foo.Bar`` does NOT
+        match ``com/acme/foo/Bar.java`` (package ``com.acme.foo``), whose prefix
+        ``com/acme`` is a package, not a source root. Multiple matches (the same
         type duplicated across source roots) are all returned, sorted."""
         type_path = JavaResolver._top_level_type_path(package_path)
         suffix = type_path + _JAVA_SUFFIX
         boundary = "/" + suffix
-        return sorted(f for f in file_set if f == suffix or f.endswith(boundary))
+        hits: list[str] = []
+        for f in file_set:
+            if f == suffix:
+                root = ""  # flat layout: the file IS the package path
+            elif f.endswith(boundary):
+                root = f[: -len(boundary)]  # the prefix ahead of the package path
+            else:
+                continue
+            if JavaResolver._is_source_root(root):
+                hits.append(f)
+        return sorted(hits)
 
     @staticmethod
     def _resolve_package(package_path: str, file_set: set[str]) -> list[str]:

@@ -244,6 +244,19 @@ def test_resolve_suffix_match_anchors_at_a_path_boundary():
     assert resolver.resolve("app/Main.java", imp, files) == ["x/b/C.java"]
 
 
+def test_resolve_short_import_does_not_match_a_longer_in_repo_package():
+    # `import foo.Bar` names package `foo`. The only in-repo file is
+    # com/acme/foo/Bar.java, whose package is com.acme.foo - the import's
+    # package path `foo/Bar.java` is a mere SUFFIX of it, so `com/acme` would
+    # have to be a source root for the match to be real. `com/acme` is a
+    # package prefix, not a source root, so accepting it fabricates a
+    # high-confidence edge to an unrelated (external / different source set)
+    # type. Source-root-constrained matching must yield NO edge.
+    imp = RawImport(module="foo.Bar", level=0, names=(), function_local=False)
+    files = {"com/acme/foo/Bar.java"}
+    assert resolver.resolve("src/main/java/app/Main.java", imp, files) == []
+
+
 def test_resolve_static_member_import_maps_to_type_file():
     # extract drops the member, so resolve sees module="a.b.C" and maps it to the
     # in-repo type file.
