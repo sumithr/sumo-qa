@@ -171,6 +171,11 @@ What the slice-2 scanner produces:
   PEP-328 implicit namespace packages, an absolute-import `sys.path` walk-up
   that prefers the deepest source root, and specifier submodule probing;
   wildcard `from x import *` and qualified specifiers are skipped). Other
+  languages are follow-on slices. A C# resolver (#362) is registered at the
+  resolver layer: each `using` fans out to the project files declaring that
+  namespace (package-level fan-out), with `System.*` and external assemblies
+  dropped. Its cross-file namespace index is not yet wired into the scan, so
+  `.cs` import edges await a foundation pass.
   languages are follow-on slices. A **PHP** resolver also ships (PSR-4 `use`
   mapping via the `composer.json` autoload roots, relative `require`/`include`
   paths, vendor/external namespaces dropped), but it is **not yet wired into
