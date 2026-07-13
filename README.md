@@ -5,8 +5,8 @@
 # sumo-qa MCP
 
 [![tests](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml/badge.svg)](https://github.com/sumithr/sumo-qa/actions/workflows/test.yml)
-[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.51.2)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
-[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.51.2)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
+[![PyPI](https://img.shields.io/pypi/v/sumo-qa?cacheSeconds=300&v=0.53.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
+[![Python](https://img.shields.io/pypi/pyversions/sumo-qa?cacheSeconds=300&v=0.53.0)](https://pypi.org/project/sumo-qa/) <!-- x-release-please-version -->
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
 A QA-native MCP server and skills library: analyze a repo, map risks to tests and evidence, plan and scaffold tests, strengthen weak suites, and review diffs before merge with senior-QA discipline.
@@ -139,6 +139,7 @@ Filing a clear issue gets it fixed faster. Pick the template that matches the pr
 - [docs/REPO-MAP.md](docs/REPO-MAP.md): QA-native repo-map artifact under `.sumo-qa/`: schema, scanner, and the scan / diff-impact / query tools that consume it (issues #155, #156)
 - [docs/RISK-LEDGER.md](docs/RISK-LEDGER.md): risk-to-test traceability ledger: the structured appendix to the markdown-first verdict, its row schema and evidence-status vocabulary, and when not to use it (issue #144)
 - [docs/SCORECARD.md](docs/SCORECARD.md): QA readiness scorecard: composes the risk ledger + context bundle + optional coverage/mutation into a *derived* readiness recommendation (ready / blocked / insufficient_evidence / ready-with-accepted-residuals): an evidence summary, not a predictive quality score (issue #151)
+- [docs/GATE-EVIDENCE.md](docs/GATE-EVIDENCE.md): evidence-backed gate reporting: the gate-status and evidence-source vocabulary, the schema and validators that reject an unsupported "tests passed" / "safe to merge" claim, and the honesty boundary the skills now carry (issue #213)
 - [docs/EXPORT.md](docs/EXPORT.md): deterministic export of already-structured QA test cases to versioned JSON, a markdown table, or (flat-only) CSV: the case schema, the format set, the side-effect-free contract, and the import-mapping caveat (issue #148)
 - [docs/QA-REPORT.md](docs/QA-REPORT.md): local QA report: the static `.sumo-qa/qa-report.html` page composed from the persisted artifacts, the four honest artifact states, and a readiness verdict derived by the #151 `QaScorecard` engine (issue #157)
 - [docs/PERSONA.md](docs/PERSONA.md): optional Sumo-sensei voice (off by default)

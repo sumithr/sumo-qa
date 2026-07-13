@@ -1,0 +1,159 @@
+# Machine-readable cross-model conformance fixtures (issue #214).
+#
+# Each scenario turns a human-readable expectation from SCENARIOS.md /
+# TOOL-SELECTION.md into a deterministic contract the transcript validator
+# (src/sumo_qa/conformance.py) can score WITHOUT a live LLM call. A scenario
+# declares:
+#
+#   id                       stable identifier for the scenario
+#   source_doc               the human-readable catalogue this row is seeded from
+#   source_heading           a distinctive substring of that catalogue's heading;
+#                            a guard test asserts it still resolves (anti-drift)
+#   user_prompt              the user's natural-language prompt
+#   mode                     "deterministic" (scored here, no LLM) or
+#                            "provider-backed" (behavioural quality, deferred to
+#                            tests/evals/promptfoo — the validator SKIPS it)
+#   expected_entry_skill     the sumo-qa skill tool the host should route to
+#                            first (null for pure tool-selection scenarios)
+#   required_tool_calls      tools that MUST appear in the transcript
+#   forbidden_tool_calls     tools that MUST NOT appear in the transcript
+#   required_output_markers  substrings that MUST appear in the final output
+#   forbidden_output_markers substrings that MUST NOT appear in the final output
+#
+# This is NOT a second source of truth: every row back-references the catalogue
+# heading it encodes, a guard test enforces the reference resolves, and every
+# tool name is checked against the registered MCP tool surface. Behavioural
+# shape (residual risks, per-area risks, verbosity) stays with the provider-
+# backed promptfoo evals; this layer pins routing + tool-call + output-marker
+# contracts only.
+
+scenarios:
+  - id: S01-preparing-for-work
+    source_doc: SCENARIOS.md
+    source_heading: "Plan QA for a new story before coding starts"
+    user_prompt: >-
+      Plan QA for ticket BILL-481 - adding a partial-refund flow to the billing
+      service. Files probably touch services/billing/refund.py and
+      services/billing/invoice.py.
+    mode: deterministic
+    expected_entry_skill: sumo_qa_preparing_for_work
+    forbidden_output_markers:
+      - "Classification: business_logic_change"
+
+  - id: S02-review-before-merge
+    source_doc: SCENARIOS.md
+    source_heading: "Review uncommitted changes before merging"
+    user_prompt: "Review my changes - is this safe to merge?"
+    mode: deterministic
+    expected_entry_skill: sumo_qa_reviewing_before_merge
+    required_tool_calls:
+      - sumo_qa_load_classifications
+      - sumo_qa_load_rules
+    forbidden_output_markers:
+      - "Classification: business_logic_change"
+
+  - id: S03-regression-first
+    source_doc: SCENARIOS.md
+    source_heading: "Fix a production bug regression-first"
+    user_prompt: >-
+      Fix the VIP-customer double-discount bug regression-first. Logic is in
+      pricing/discount_calculator.py.
+    mode: deterministic
+    expected_entry_skill: sumo_qa_implementing_with_tdd
+
+  - id: S05-strengthening-tests
+    source_doc: SCENARIOS.md
+    source_heading: "Strengthen tests against mutation-testing survivors"
+    user_prompt: >-
+      Pitest report shows 6 surviving mutants in pricing/calculator.py. Help me
+      strengthen the tests. Production code stays unchanged.
+    mode: deterministic
+    expected_entry_skill: sumo_qa_strengthening_tests
+
+  - id: S06-answering-testing-question
+    source_doc: SCENARIOS.md
+    source_heading: "Generic testing question"
+    user_prompt: >-
+      How should I test a service that re-orders user feeds based on engagement
+      signals?
+    mode: deterministic
+    expected_entry_skill: sumo_qa_answering_testing_question
+    required_tool_calls:
+      - sumo_qa_load_principles
+      - sumo_qa_load_techniques
+
+  - id: S07-find-test-data
+    source_doc: SCENARIOS.md
+    source_heading: "Find a known-good test data record"
+    user_prompt: >-
+      Find me a refund-eligible invoice for the partial-refund flow test in
+      staging.
+    mode: deterministic
+    expected_entry_skill: sumo_qa_finding_test_data
+    required_tool_calls:
+      - sumo_qa_find_test_data
+    forbidden_tool_calls:
+      - sumo_qa_register_known_good_test_data
+    forbidden_output_markers:
+      - "INV-12345"
+
+  - id: S08-strategising-quality
+    source_doc: SCENARIOS.md
+    source_heading: "Audit test coverage + design QA strategy"
+    user_prompt: >-
+      Audit our test coverage across the customer-platform monorepo and design a
+      QA strategy. We've got 4 services and a shared lib.
+    mode: provider-backed
+    expected_entry_skill: sumo_qa_strategising
+
+  - id: S10-no-tests-needed
+    source_doc: SCENARIOS.md
+    source_heading: "Trivial change"
+    user_prompt: >-
+      I'm fixing a typo in a comment in docs/CONFIGURATION.md. Anything I need to
+      do?
+    mode: deterministic
+    expected_entry_skill: sumo_qa_deciding_approach
+    forbidden_tool_calls:
+      - sumo_qa_reviewing_before_merge
+      - sumo_qa_preparing_for_work
+    forbidden_output_markers:
+      - "Classification: docs_change"
+      - "Approach: no-tests-recommended"
+
+  - id: S11-router-invocation
+    source_doc: SCENARIOS.md
+    source_heading: "Router invocation"
+    user_prompt: >-
+      Help me QA this thing - I added a new pricing function
+      apply_seasonal_discount in pricing/seasonal.py.
+    mode: deterministic
+    expected_entry_skill: using_sumo_qa
+    required_tool_calls:
+      - sumo_qa_deciding_approach
+    forbidden_output_markers:
+      - "Routing to sumo-qa-deciding-approach"
+
+  - id: TS01-load-classifications
+    source_doc: TOOL-SELECTION.md
+    source_heading: "Load classifications"
+    user_prompt: "What canonical change classifications does sumo-qa recognise?"
+    mode: deterministic
+    expected_entry_skill: null
+    required_tool_calls:
+      - sumo_qa_load_classifications
+    forbidden_tool_calls:
+      - sumo_qa_deciding_approach
+      - sumo_qa_load_principles
+
+  - id: TS15-capabilities
+    source_doc: TOOL-SELECTION.md
+    source_heading: "Discover what sumo-qa can do"
+    user_prompt: "What can sumo-qa do? Show me the main QA workflows available."
+    mode: deterministic
+    expected_entry_skill: null
+    required_tool_calls:
+      - sumo_qa_capabilities
+    forbidden_tool_calls:
+      - using_sumo_qa
+      - sumo_qa_deciding_approach

@@ -151,6 +151,7 @@ The full suite covers:
 - `test_tools.py`: service factory
 - `test_standards.py`, `test_rules.py`: file loading
 - `test_debug_capture.py`: `SUMO_QA_DEBUG_DIR` capture
+- `test_conformance_transcript_validator.py`: deterministic, no-LLM cross-model conformance (issue #214). Scores a captured host/tool-call transcript against machine-readable fixtures (`tests/scenarios/conformance/scenarios.yaml`, seeded from `SCENARIOS.md` + `TOOL-SELECTION.md`) via `src/sumo_qa/conformance.py`, and proves a synthetic bad transcript fails on each contract axis: wrong skill routing, missing required tool call, forbidden tool call, forbidden output claim. See `tests/scenarios/CONFORMANCE.md`. Complements `test_skill_triggering.py` (trigger-phrase presence) by checking what the host actually did across the turn
 - `test_mutmut_subprocess_exclusions.py`: loud guard that every subprocess-spawning test which imports a mutated module is excluded from the mutation gate and marked (see [Mutation testing](#mutation-testing)). Runs in the ordinary suite, so it fails at the PR that introduces an unmarked/unignored test, not later against an unrelated change
 
 ## Type checking

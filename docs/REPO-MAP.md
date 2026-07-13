@@ -171,7 +171,34 @@ What the slice-2 scanner produces:
   PEP-328 implicit namespace packages, an absolute-import `sys.path` walk-up
   that prefers the deepest source root, and specifier submodule probing;
   wildcard `from x import *` and qualified specifiers are skipped). Other
-  languages are follow-on slices.
+  languages are follow-on slices. A C# resolver (#362) is registered at the
+  resolver layer: each `using` fans out to the project files declaring that
+  namespace (package-level fan-out), with `System.*` and external assemblies
+  dropped. Its cross-file namespace index is not yet wired into the scan, so
+  `.cs` import edges await a foundation pass.
+  languages are follow-on slices. A **PHP** resolver also ships (PSR-4 `use`
+  mapping via the `composer.json` autoload roots, relative `require`/`include`
+  paths, vendor/external namespaces dropped), but it is **not yet wired into
+  `scan_repo`**: the scanner does not map `.php` files, so a scan emits no PHP
+  edges today. The resolver instead runs at the `infer_imports_edges`
+  orchestrator layer given `php` nodes supplied directly. Scan-time activation
+  needs two foundation changes: the scanner must stamp `.php` → `php`, AND the
+  composer autoload roots must be threaded through the scan.
+  wildcard `from x import *` and qualified specifiers are skipped). A **Java**
+  resolver also ships: it maps a fully-qualified `import a.b.C` to a source file
+  under any source root (e.g. `src/main/java/a/b/C.java`), fans a wildcard
+  `import a.b.*` out to every type in the package directory, resolves a static
+  import to its declaring type, and drops `java.*` / `javax.*` and other
+  external packages. Other languages are follow-on slices.
+  wildcard `from x import *` and qualified specifiers are skipped). A
+  **TypeScript/JavaScript** resolver follows, registered for both `.ts/.tsx`
+  and `.js/.jsx/.mjs/.cjs` files: relative-path resolution with extension
+  probing (`.ts/.tsx/.d.ts/.js/.jsx`, plus a `.js`→`.ts` source fallback) and
+  `index.*` barrels, with bare specifiers (`react`, `lodash`) treated as
+  external and dropped. It also implements `tsconfig.json` `paths`/`baseUrl`
+  alias resolution, which activates once a parsed `tsconfig` is supplied to the
+  resolver (threading the project's `tsconfig.json` through the orchestrator is
+  a follow-on slice). Other languages are follow-on slices too.
   This layer is **optional**: it needs the `tree-sitter` parser, shipped as the
   `sumo-qa[treesitter]` extra. With the extra absent the scan still succeeds: it
   records a `RepoMapWarning` and emits only `likely_tests` edges, so the map
@@ -251,7 +278,11 @@ It reports:
   convention (e.g. an unusual CamelCase layout), not true zero coverage. Lets a
   consumer distinguish "the mapper couldn't link these" from "these are
   genuinely untested".
-- **`affected_nodes`**: one-hop neighbours of the changed nodes.
+- **`affected_nodes`**: one-hop neighbours of the changed nodes, ranked by
+  coupling strength. Each carries a `connecting_confidence` (the strongest
+  confidence of any edge linking it to the changeset) and the list is ordered
+  high → medium → low, so the load-bearing neighbours (tight, module-level
+  imports) rank above the lazy ones (function-local imports).
 - **`unmapped_files`**: changed paths absent from the map (new files, or a
   stale map).
 - **`is_stale`**: true when the map's `git_commit` differs from current HEAD.
@@ -349,7 +380,8 @@ regenerate locally before comparison.
 | 5 | `sumo_qa_query_repo_map`, bounded ranked search over the map; wiring of `sumo-qa-reviewing-before-merge`, `sumo-qa-preparing-for-work`, and `sumo-qa-strategising` to prefer the map when present and fall back to a repo walk when absent |
 | 6 | `sumo-qa analyze` / `sumo-qa status` CLI commands (#160): terminal-facing wrappers over the same `scan_repo` / load+validate services, with `--json`; bare `sumo-qa` still launches the MCP server |
 | 7 | Local QA report (#157): `sumo-qa report` / `sumo_qa_generate_qa_report` compose the repo-map, diff-impact, risk-ledger, and context-bundle artifacts into the static `.sumo-qa/qa-report.html` page with honest not-available states ([QA-REPORT.md](QA-REPORT.md)) |
-| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra), Python reference resolver shipped; every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
+| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra), Python and Java resolvers shipped; every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
+| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra), Python and TypeScript/JavaScript resolvers shipped; every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
 
 `configured_by` and `command_runs` edges are deferred. The scanner emits
 `likely_tests` edges always, and `imports` edges when the `[treesitter]` extra

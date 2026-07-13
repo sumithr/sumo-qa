@@ -1,0 +1,9 @@
+{
+  "name": "sumo-qa/php-fixture",
+  "description": "Committed PHP mini-repo for the import-edge PHP resolver tests (#361).",
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}
