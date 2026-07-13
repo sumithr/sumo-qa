@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  issues: write  # nightly failures file a mutation-gate issue (see below)
 
 jobs:
   mutation:
@@ -77,8 +78,13 @@ jobs:
         # per-module breakdown.  Reading .meta files is the authoritative
         # per-module source and matches how mutmut's own browse/results commands
         # work internally.
+        id: gate
+        # continue-on-error so the follow-up steps (issue filing, artifact
+        # upload) run; the final step re-raises the failure.
+        continue-on-error: true
         run: |
-          python <<'EOF'
+          set -o pipefail
+          python <<'EOF' | tee gate.log
           import json
           import os
           import sys
@@ -160,7 +166,7 @@ jobs:
           EOF
 
       - name: Upload mutmut log + meta files on failure
-        if: failure()
+        if: steps.gate.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: mutmut-debug
@@ -169,3 +175,40 @@ jobs:
             mutants/src/sumo_qa/*.py.meta
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Open issue on nightly failure
+        # Schedule-only: workflow_dispatch runs (pre-merge branch checks from
+        # the finish-pr flow, manual reruns) must not file issues. Deduped
+        # against any open mutation-gate issue — the nightly cadence would
+        # otherwise file one per red night (the June 2026 outage would have
+        # produced 40).
+        if: steps.gate.outcome == 'failure' && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          OPEN_COUNT="$(gh issue list --label mutation-gate --state open --json number --jq 'length')"
+          if [ "${OPEN_COUNT}" -gt 0 ]; then
+            echo "An open mutation-gate issue already exists; not filing a duplicate."
+            exit 0
+          fi
+          GATE_LOG="$(cat gate.log)"
+          ISSUE_DATE="$(date -u +%Y-%m-%d)"
+          gh issue create \
+            --title "Nightly mutation gate failed (${ISSUE_DATE})" \
+            --label mutation-gate \
+            --body "The nightly mutation-testing gate failed.
+
+          Run: ${RUN_URL}
+
+          Gate output below. Triage: baseline DROPs usually mean the run
+          itself broke (tooling/environment); SURVIVED rows are genuine
+          weak-assertion debt — route through sumo-qa-strengthening-tests.
+
+          \`\`\`
+          ${GATE_LOG}
+          \`\`\`"
+
+      - name: Fail the job if the gate failed
+        if: steps.gate.outcome == 'failure'
+        run: exit 1
