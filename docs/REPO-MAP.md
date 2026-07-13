@@ -170,6 +170,15 @@ What the slice-2 scanner produces:
   **Python** reference resolver ships first (relative-import dot-anchoring,
   PEP-328 implicit namespace packages, an absolute-import `sys.path` walk-up
   that prefers the deepest source root, and specifier submodule probing;
+  wildcard `from x import *` and qualified specifiers are skipped). Other
+  languages are follow-on slices. A **PHP** resolver also ships (PSR-4 `use`
+  mapping via the `composer.json` autoload roots, relative `require`/`include`
+  paths, vendor/external namespaces dropped), but it is **not yet wired into
+  `scan_repo`**: the scanner does not map `.php` files, so a scan emits no PHP
+  edges today. The resolver instead runs at the `infer_imports_edges`
+  orchestrator layer given `php` nodes supplied directly. Scan-time activation
+  needs two foundation changes: the scanner must stamp `.php` → `php`, AND the
+  composer autoload roots must be threaded through the scan.
   wildcard `from x import *` and qualified specifiers are skipped). A **Java**
   resolver also ships: it maps a fully-qualified `import a.b.C` to a source file
   under any source root (e.g. `src/main/java/a/b/C.java`), fans a wildcard
