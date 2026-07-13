@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.53.0](https://github.com/sumithr/sumo-qa/compare/v0.52.0...v0.53.0) (2026-07-13)
+
+
+### Features
+
+* **repo-map:** add Go import-edge resolver ([#356](https://github.com/sumithr/sumo-qa/issues/356)) ([#478](https://github.com/sumithr/sumo-qa/issues/478)) ([64eb922](https://github.com/sumithr/sumo-qa/commit/64eb922f20840e7df002f7e5218fbaca156f3f86))
+* **repo-map:** add Ruby import-edge resolver ([#360](https://github.com/sumithr/sumo-qa/issues/360)) ([#477](https://github.com/sumithr/sumo-qa/issues/477)) ([24364ec](https://github.com/sumithr/sumo-qa/commit/24364ece06447b97214a93dfdd7b81196084fcca))
+
 ## [0.52.0](https://github.com/sumithr/sumo-qa/compare/v0.51.3...v0.52.0) (2026-07-13)
 
 
