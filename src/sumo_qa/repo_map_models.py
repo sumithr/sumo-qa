@@ -171,6 +171,14 @@ class ImpactNode(BaseModel):
     for every other node type it is None (serialised as JSON ``null``) — the
     mapped-tests question is meaningless there, and a vacuous "no" on a docs
     or fixture row must never read as a coverage gap.
+
+    ``connecting_confidence`` (#363) ranks an affected node by coupling
+    strength: for a node in ``DiffImpact.affected_nodes`` it carries the
+    STRONGEST confidence (``high``/``medium``/``low``) of any edge connecting
+    it to the changeset, and ``affected_nodes`` is ordered high → medium → low
+    by it so load-bearing neighbours rank first. It is None for
+    ``changed_nodes`` (a changed node has no connecting edge). Additive and
+    backward-compatible: existing fields and consumers are unchanged.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -179,6 +187,7 @@ class ImpactNode(BaseModel):
     type: NodeType
     path: str
     has_mapped_tests: bool | None = None
+    connecting_confidence: EdgeConfidence | None = None
 
 
 class DiffImpact(BaseModel):

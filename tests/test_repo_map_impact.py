@@ -92,6 +92,16 @@ def _likely(test_path, src_path, conf="high"):
     )
 
 
+def _imports(src_path, target_path, conf="high"):
+    return RepoMapEdge(
+        source=f"file:{src_path}",
+        target=f"file:{target_path}",
+        type="imports",
+        confidence=conf,
+        reason="import",
+    )
+
+
 def test_changed_source_with_test_lists_related_test_and_not_risk():
     rm = _map(
         [_src("src/a.py"), _test("tests/test_a.py")], [_likely("tests/test_a.py", "src/a.py")]
@@ -175,6 +185,88 @@ def test_affected_nodes_obey_the_same_tristate():
     # Changed test -> affected source_file row keeps its real verdict.
     out = analyze_diff_impact(rm, ["tests/test_a.py"])
     assert [(n.path, n.has_mapped_tests) for n in out.affected_nodes] == [("src/a.py", True)]
+
+
+# ---------- Confidence-weighted ranking of affected nodes (#363) ----------
+
+
+def test_affected_nodes_annotated_and_ordered_high_then_medium():
+    # A changed source imports three neighbours: two via high-confidence edges
+    # and one via a medium edge. Affected nodes must be annotated with the
+    # connecting-edge confidence and ordered high -> medium, with path as the
+    # within-bucket tiebreaker. Paths are chosen so a plain path sort would put
+    # the medium node FIRST (a_medium < y_high < z_high) -- the confidence sort
+    # is what reorders it last, so the assertion discriminates ranking from the
+    # old path-only order.
+    rm = _map(
+        [
+            _src("src/changed.py"),
+            _src("src/a_medium.py"),
+            _src("src/y_high.py"),
+            _src("src/z_high.py"),
+        ],
+        [
+            _imports("src/changed.py", "src/a_medium.py", "medium"),
+            _imports("src/changed.py", "src/y_high.py", "high"),
+            _imports("src/changed.py", "src/z_high.py", "high"),
+        ],
+    )
+    out = analyze_diff_impact(rm, ["src/changed.py"])
+    assert [(n.path, n.connecting_confidence) for n in out.affected_nodes] == [
+        ("src/y_high.py", "high"),
+        ("src/z_high.py", "high"),
+        ("src/a_medium.py", "medium"),
+    ]
+
+
+def test_affected_node_annotation_takes_strongest_connecting_edge():
+    # A neighbour reachable from the changeset by BOTH a medium and a high edge
+    # must be annotated with the STRONGEST (high), regardless of edge order.
+    # shared sees medium-then-high (the high must upgrade the annotation);
+    # shared2 sees high-then-medium (the later medium must NOT downgrade it).
+    # A first-edge-wins or last-edge-wins bug gets one of the two wrong.
+    rm = _map(
+        [_src("src/a.py"), _src("src/b.py"), _src("src/shared.py"), _src("src/shared2.py")],
+        [
+            _imports("src/a.py", "src/shared.py", "medium"),
+            _imports("src/b.py", "src/shared.py", "high"),
+            _imports("src/a.py", "src/shared2.py", "high"),
+            _imports("src/b.py", "src/shared2.py", "medium"),
+        ],
+    )
+    out = analyze_diff_impact(rm, ["src/a.py", "src/b.py"])
+    assert [(n.path, n.connecting_confidence) for n in out.affected_nodes] == [
+        ("src/shared.py", "high"),
+        ("src/shared2.py", "high"),
+    ]
+
+
+def test_ranking_is_backward_compatible_with_existing_affected_node_fields():
+    # The new annotation is additive: affected-node membership and the existing
+    # id/type/path/has_mapped_tests fields are unchanged, and changed_nodes
+    # carry no connecting_confidence (None) -- so existing consumers that read
+    # only the old fields see identical data.
+    rm = _map(
+        [
+            _src("src/changed.py"),
+            _src("src/a_medium.py"),
+            _src("src/y_high.py"),
+        ],
+        [
+            _imports("src/changed.py", "src/a_medium.py", "medium"),
+            _imports("src/changed.py", "src/y_high.py", "high"),
+        ],
+    )
+    out = analyze_diff_impact(rm, ["src/changed.py"])
+    # Same affected-node membership and existing-field values as before the
+    # ranking change (a source file with no likely_tests edge -> False).
+    assert {(n.id, n.type, n.path, n.has_mapped_tests) for n in out.affected_nodes} == {
+        ("file:src/a_medium.py", "source_file", "src/a_medium.py", False),
+        ("file:src/y_high.py", "source_file", "src/y_high.py", False),
+    }
+    # changed_nodes never carry a connecting confidence -- the field is None on
+    # that side, so changed-node consumers are unaffected.
+    assert all(n.connecting_confidence is None for n in out.changed_nodes)
 
 
 def test_empty_changeset_returns_empty_result():

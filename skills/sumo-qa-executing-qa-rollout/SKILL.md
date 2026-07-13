@@ -23,6 +23,10 @@ Do NOT execute tasks inline. Every task goes to a fresh subagent — a fresh del
 
 Fresh subagent prevents context pollution; two-stage review separates "catches the right risk" from "well-shaped test"; continuous because mid-plan check-ins waste the user's attention.
 
+## Evidence-backed gate reporting
+
+Marking a task complete, or reporting a spec/quality review passed, is a gate claim: it carries a status (`passed` / `failed` / `skipped` / `blocked` / `unverified`) and, unless `skipped` or `unverified`, cites the ONE observed evidence item behind it by source (`command`, `tool_call`, `file_read`, `user_fact`, `external_ci`, `manual_observation`) — the worker's returned result or the fresh run. A task marked done with no cited evidence overstates; a worker you could not delegate or verify is `blocked` / `unverified`, never a silent `passed`. Keep it to a status word + short source cite per task.
+
 ## When to Use
 
 Routes here from:

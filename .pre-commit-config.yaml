@@ -261,8 +261,11 @@ repos:
           # otherwise repo_map_treesitter.py never reaches full coverage and the
           # 100% gate fails locally. Mirrors the CI pytest matrix, which installs
           # the extra. Prebuilt Linux/macOS/Windows wheels, no compiler needed.
+          # Floored at 1.12.5 like pyproject (#491): the adapter targets the
+          # upstream binding that release introduced, and bumping the dep string
+          # also re-keys pre-commit's cached hook venv past any 1.12.2 install.
           - "tree-sitter>=0.25,<0.26"
-          - "tree-sitter-language-pack>=1.8,<2"
+          - "tree-sitter-language-pack>=1.12.5,<2"
           # Conditional via PEP 508 marker: only installed on Windows hooks.
           # Needed by Hypothesis's `st.timezones()` strategy in
           # tests/test_hypothesis_tdm_validation.py — Windows ships no
