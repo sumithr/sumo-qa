@@ -156,6 +156,41 @@ def test_resolve_require_full_path_resolves_against_repo_root():
     assert resolver.resolve("app.rb", imp, files) == ["lib/bar.rb"]
 
 
+def test_resolve_require_dot_prefix_does_not_search_lib():
+    # `require "./foo"` is cwd-relative: Ruby resolves it against the current
+    # directory (the repo root here) and NEVER searches $LOAD_PATH. With only
+    # lib/foo.rb present, the repo-root probe misses and there is no lib/
+    # fallthrough -> no edge (drop-never-fabricate).
+    imp = RawImport(module="./foo", level=0, names=(), function_local=False)
+    files = {"app.rb", "lib/foo.rb"}
+    assert resolver.resolve("app.rb", imp, files) == []
+
+
+def test_resolve_require_dot_prefix_resolves_against_repo_root():
+    # A cwd-relative `require "./foo"` still resolves when foo.rb sits at the
+    # repo root (cwd is treated as the repo root).
+    imp = RawImport(module="./foo", level=0, names=(), function_local=False)
+    files = {"app.rb", "foo.rb"}
+    assert resolver.resolve("app.rb", imp, files) == ["foo.rb"]
+
+
+def test_resolve_require_dotdot_prefix_walks_above_root_yields_nothing():
+    # `require "../foo"` is cwd-relative from the repo root, so it walks ABOVE
+    # the root -> nothing. It must not fall onto the lib/ load path (which would
+    # pop `lib` and fabricate a false foo.rb edge).
+    imp = RawImport(module="../foo", level=0, names=(), function_local=False)
+    files = {"app.rb", "foo.rb"}
+    assert resolver.resolve("app.rb", imp, files) == []
+
+
+def test_resolve_require_dotdot_prefix_does_not_search_lib():
+    # `require "../foo"` never searches $LOAD_PATH: with only lib/foo.rb present
+    # it resolves to nothing rather than fabricating a lib/foo.rb edge.
+    imp = RawImport(module="../foo", level=0, names=(), function_local=False)
+    files = {"app.rb", "lib/foo.rb"}
+    assert resolver.resolve("app.rb", imp, files) == []
+
+
 def test_resolve_require_gem_or_stdlib_yields_nothing():
     # A require that matches no repo file is a gem/stdlib -> no edge.
     imp = RawImport(module="json", level=0, names=(), function_local=False)

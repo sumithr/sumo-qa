@@ -17,7 +17,10 @@ Resolution rules (ported from UA):
   load-path root that yields an existing file wins, mirroring Ruby's
   first-match-on-``$LOAD_PATH`` semantics — so ``require "lib/bar"`` lands on
   ``lib/bar.rb`` via the root, and ``require "bar"`` lands on ``lib/bar.rb`` via
-  the ``lib/`` entry.
+  the ``lib/`` entry. A *dot-prefixed* plain ``require`` (``"./foo"`` /
+  ``"../foo"``) is the exception: Ruby treats it as current-directory-relative
+  and never searches ``$LOAD_PATH``, so it is resolved against the repo root
+  (the cwd) alone and never falls onto the ``lib/`` entry.
 - **Extension probe**: a path without a suffix is probed as ``<path>.rb``; an
   explicit ``.rb`` suffix is probed verbatim.
 - **Gems / stdlib dropped**: a ``require`` of a gem or the standard library
@@ -161,6 +164,15 @@ class RubyResolver:
             return []
         if imp.level > 0:
             target = self._join(importer.split("/")[:-1], imp.module)
+            if target is None:
+                return []
+            return self._hits(target, file_set)
+        if imp.module.startswith(("./", "../")):
+            # A dot-prefixed plain require ("./foo", "../foo") is cwd-relative:
+            # Ruby resolves it against the current directory and NEVER searches
+            # $LOAD_PATH. The cwd is the repo root here, so probe the root only
+            # -- no lib/ fallthrough (which would fabricate a false edge).
+            target = self._join([], imp.module)
             if target is None:
                 return []
             return self._hits(target, file_set)
