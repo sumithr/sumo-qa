@@ -184,13 +184,17 @@ repos:
       - id: mutmut
         name: mutmut (pre-push, on changes to mutated modules or tests)
         # Runs the mutation gate locally before push. Fires only when one of the
-        # four mutated modules or any test file changes — mutation testing is
-        # ~90s, so unrelated edits (docs / CI / installer / server) skip it.
+        # mutated modules or any test file changes — mutation testing is
+        # fast on the warm cache, so unrelated edits (docs / CI / installer /
+        # server) skip it.
         #
-        # `mutmut run` exits non-zero on any surviving mutant, which fails the
-        # hook. This catches the survivor-introducing PR locally before it
-        # reaches the nightly CI gate (the 5/19 regression made it through
-        # because nothing checked at push time).
+        # The entry is scripts/check_mutation_gate.py (shared verbatim with
+        # .github/workflows/mutation.yml), NOT bare `mutmut run`: `mutmut run`
+        # exits 0 even when mutants survive, so the previous entry could never
+        # fail on a survivor-introducing push (root-caused 2026-07-13 — that is
+        # how PR #302's 47 survivors reached main). The script runs mutmut,
+        # then computes the DROPPED/SURVIVED/MISSING verdict from the .meta
+        # files, exactly like the nightly gate.
         #
         # Same `language: python` venv pattern as the pytest hook below — see
         # that block for the rationale around pinned deps and isolated venvs.
@@ -201,7 +205,7 @@ repos:
         # via SIGSEGV → all "suspicious" → strict-100% gate false-fails). Linux
         # CI runs multi-worker without issue; the local hook trades wall-clock
         # for portability across the team's MacBooks.
-        entry: mutmut run --max-children 1
+        entry: python scripts/check_mutation_gate.py --run-mutmut --max-children 1
         language: python
         additional_dependencies:
           - "hypothesis>=6,<7"

@@ -190,6 +190,13 @@ and crashes the trampoline). On macOS the fork-based runner can segfault, the
 faithful run is the Linux CI one; the local hook uses `--max-children 1` to reduce
 flakiness.
 
+Both the nightly job and the pre-push hook compute their verdict with
+[`scripts/check_mutation_gate.py`](../scripts/check_mutation_gate.py)
+(tested by `tests/test_check_mutation_gate.py`). The verdict is read from
+mutmut's `.meta` files, never from `mutmut run`'s exit status: mutmut exits
+0 even when mutants survive, so a bare `mutmut run` hook can never fail on
+a survivor-introducing push (root-caused 2026-07-13).
+
 mutmut is version-capped (`>=3,<3.6`, pinned in both `pyproject.toml`'s dev
 extra and the pre-push hook's `additional_dependencies`; keep the two in
 lockstep): 3.6.0's `record_trampoline_hit` resolves its relative
