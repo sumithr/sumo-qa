@@ -21,6 +21,10 @@ Do NOT emit a test plan in a single message. Walk through the sections one at a 
 
 **NO PLAN WITHOUT EXPLICIT ENTRY AND EXIT CRITERIA.** A document missing either is a wishlist, not a plan.
 
+## Evidence-backed gate reporting
+
+Each entry/exit criterion is a gate whose eventual claim carries a status (`passed` / `failed` / `skipped` / `blocked` / `unverified`) and, unless `skipped` or `unverified`, cites the ONE observed evidence item behind it by source (`command`, `tool_call`, `file_read`, `user_fact`, `external_ci`, `manual_observation`). At plan time nothing has run, so every criterion is `unverified` — write each so it names WHAT evidence source would later settle it (a command, a tool result, a CI check), never a tautology like "tests pass". That is what makes the plan checkable rather than a wishlist.
+
 ## When to Use
 
 User intents that trigger this skill:

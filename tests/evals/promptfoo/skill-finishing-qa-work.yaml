@@ -25,6 +25,7 @@ defaultTest:
       - Says there are no follow-ups despite named follow-ups in the supplied context.
       - Omits or invents the `docs/qa/runs/YYYY-MM-DD-<feature>.md` summary path.
       - Fabricates coverage numbers when no coverage output is supplied.
+      - Reports a gate claim ("suite green", a risk covered, "ready to release") without citing the observed evidence source behind it (the fresh suite command and counts, a tool result, or a file read), or marks a KNOWN GAP as passed.
   assert:
     - type: llm-rubric
       value: |

@@ -4,9 +4,11 @@
 These tests parse a REAL Python snippet through the installed
 ``tree-sitter-language-pack`` binding and assert the node kinds and accessor
 shapes the resolver depends on. They are the loud-failure tripwire for binding
-API drift: if a language-pack upgrade renames ``import_from_statement``, makes
-``child_count`` a property, or changes ``parse`` to take bytes, these fail with
-a precise message instead of the import-edge layer silently emitting nothing.
+API drift: if a language-pack upgrade renames ``import_from_statement``, flips
+an accessor between property and method, or changes what ``parse`` accepts,
+these fail with a precise message instead of the import-edge layer silently
+emitting nothing. That is exactly how the 1.12.5 switch to the upstream
+``tree_sitter.Parser`` was caught (#491).
 
 No fabricated fixtures (the #127 scar): the snippet is parsed by the real
 binding and the kinds asserted are what that binding actually produces. The
@@ -90,22 +92,30 @@ def test_function_and_class_body_kinds_pinned():
     assert "block" in kinds
 
 
-def test_node_accessors_are_method_style():
-    # The language-pack binding exposes node accessors as zero-arg METHODS,
-    # not properties — the non-mainstream shape the adapter exists to absorb.
-    # If an upgrade flips these to properties, the wrapper's int()/range() calls
-    # break; assert the raw shape here so the failure is precise.
+def test_node_accessors_are_property_style():
+    # Since language-pack 1.12.5, get_parser() returns the upstream
+    # tree_sitter.Parser whose nodes expose PROPERTY accessors named `type`
+    # (not `kind()`), `child_count`, `start_byte`, `end_byte` — with `child(i)`
+    # still a method (#491). The wrapper targets exactly that shape, and
+    # pyproject floors the extra at 1.12.5 because the earlier bundled binding
+    # had the opposite, mutually exclusive shape (str-only method-style).
+    # Assert the raw shapes here so any future flip fails with a precise
+    # message instead of the import-edge layer silently emitting nothing.
     root = parse("python", _SNIPPET)
-    raw = root._node  # the underlying language-pack node
-    assert callable(raw.kind)
-    assert callable(raw.child_count)
-    assert callable(raw.start_byte)
-    assert callable(raw.end_byte)
+    raw = root._node  # the underlying tree_sitter.Node
+    assert isinstance(raw.type, str)
+    assert isinstance(raw.child_count, int)
+    assert isinstance(raw.start_byte, int)
+    assert isinstance(raw.end_byte, int)
+    assert callable(raw.child)
+    assert not hasattr(raw, "kind")
 
 
 def test_text_recovered_by_byte_slice():
-    # The binding carries no `.text`; the wrapper recovers source text from the
-    # node's byte range. Assert a known dotted name round-trips.
+    # The wrapper recovers source text by slicing the normalized bytes the
+    # parser saw via the node's byte range (it deliberately does not use the
+    # raw node's own `.text` — the slice is what #458 pins the alignment
+    # invariant on). Assert a known dotted name round-trips.
     root = parse("python", _SNIPPET)
     dotted = [n for n in root.descendants() if n.kind == "dotted_name"]
     texts = {n.text for n in dotted}
