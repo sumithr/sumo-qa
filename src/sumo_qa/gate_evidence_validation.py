@@ -1,0 +1,256 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+"""Validators for gate-evidence claims (issue #213).
+
+Two entry points, matching the issue's "transcript snippets OR structured
+evidence blocks":
+
+* :func:`load_gate_report` — the STRUCTURED path. A parsed dict is validated
+  against :class:`~sumo_qa.gate_evidence_models.GateReport`; an unsupported
+  ``passed`` / ``failed`` / ``blocked`` claim (one with no cited evidence)
+  raises :class:`GateEvidenceValidationError` with ``kind="value_error"`` — the
+  deterministic rejection the acceptance criteria require. Every failure mode
+  carries a stable ``kind`` so callers branch on the category rather than
+  parsing free-form messages (the same contract the ledger-validation envelope
+  provides).
+
+* :func:`find_unsupported_claims` / :func:`assert_transcript_supported` — the
+  TRANSCRIPT path: a lint-grade guard over free-text output. It flags a
+  pass/safe phrase ("tests passed", "safe to merge", …) that appears with NO
+  evidence signal anywhere in the snippet and no ``unverified`` hedge on its
+  own line. It is deliberately COARSE (whole-snippet evidence signal, not
+  per-sentence provenance) — a lint, not a proof, because a probabilistic
+  transcript can't be parsed to a proof. The structured path above is the
+  rigorous one; this catches the blatant "tests passed" with zero evidence.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Literal
+
+from pydantic import BaseModel, ValidationError
+
+from sumo_qa.gate_evidence_models import GATE_EVIDENCE_SCHEMA_VERSION, GateReport
+
+GateEvidenceValidationErrorKind = Literal[
+    "schema_version_mismatch",
+    "missing_field",
+    "unknown_field",
+    "vocab_error",
+    "value_error",
+    "type_error",
+    "unsupported_claim",
+]
+
+
+class GateEvidenceValidationError(ValueError):
+    def __init__(
+        self,
+        *,
+        kind: GateEvidenceValidationErrorKind,
+        message: str,
+        path: str | None = None,
+    ) -> None:
+        self.kind = kind
+        self.message = message
+        self.path = path
+        location = f" at {path}" if path else ""
+        super().__init__(f"[{kind}]{location}: {message}")
+
+
+def load_gate_report(data: object) -> GateReport:
+    """Load and validate a structured gate report from a parsed dict.
+
+    An unsupported pass/fail/blocked claim surfaces as ``kind="value_error"``
+    (the model's evidence-requirement validator), distinct from a wrong-vocab
+    status (``vocab_error``) or a stale schema version. A non-dict input (a
+    list, a string, ``None`` from parsed JSON) is rejected up front with
+    ``kind="type_error"`` rather than raising a raw ``AttributeError`` from the
+    ``data.get`` below, keeping the stable-``kind`` contract intact.
+    """
+    if not isinstance(data, dict):
+        raise GateEvidenceValidationError(
+            kind="type_error",
+            message=(f"gate report must be a JSON object (dict), got {type(data).__name__}"),
+        )
+    version = data.get("schema_version")
+    # Any present-but-non-matching schema_version (string or not) is a version
+    # mismatch; routing a non-string through Pydantic would surface a confusing
+    # literal error instead of the clear "your artifact says X, expects Y"
+    # signal. A missing version (None) falls through so Pydantic reports it as a
+    # missing field.
+    if version is not None and version != GATE_EVIDENCE_SCHEMA_VERSION:
+        raise GateEvidenceValidationError(
+            kind="schema_version_mismatch",
+            message=(
+                f"gate report schema_version is {version!r}; this build expects "
+                f"{GATE_EVIDENCE_SCHEMA_VERSION!r}"
+            ),
+            path="/schema_version",
+        )
+    try:
+        return GateReport.model_validate(data)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        location = "/".join(str(p) for p in first["loc"])
+        raise GateEvidenceValidationError(
+            kind=_classify(first["type"]),
+            message=first["msg"],
+            path=location,
+        ) from exc
+
+
+def _classify(error_type: str) -> GateEvidenceValidationErrorKind:
+    if error_type == "missing":
+        return "missing_field"
+    if error_type == "extra_forbidden":
+        return "unknown_field"
+    if error_type == "literal_error":
+        return "vocab_error"
+    if error_type == "value_error":
+        return "value_error"
+    return "type_error"
+
+
+# --- Transcript (lint-grade) path -----------------------------------------
+
+# Pass/safe phrases that assert a favourable execution outcome. Kept to the
+# claim shapes the issue names ("tests passed", "safe to merge") plus their
+# common paraphrases; deliberately narrow to avoid flagging neutral prose.
+# Every phrase is subject to the shared negation rule in ``_is_negated``, so a
+# negated verdict ("NOT safe to merge", "not yet shippable") never fires.
+_PASS_CLAIM_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # An optional copula ("are"/"is"/"were"/"was") may sit between "tests" and
+    # the outcome word — "all tests are passing", "tests are green" are as common
+    # as the copula-free forms. A negated copula ("tests are not passing") never
+    # matches because the outcome word does not follow the copula, so it stays a
+    # blocked call rather than an unsupported PASS claim.
+    re.compile(
+        r"\ball tests?\s+(?:(?:are|is|were|was)\s+)?(?:pass|passed|passing|green)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\btests?\s+(?:(?:are|is|were|was)\s+)?(?:all\s+)?(?:pass|passed|passing|green)\b",
+        re.IGNORECASE,
+    ),
+    # "safe to merge" is covered by the good/ready/safe-to-merge pattern below;
+    # a standalone duplicate would double-count the same phrase span.
+    re.compile(r"\b(?:good|ready|safe)\s+to\s+(?:merge|ship|release)\b", re.IGNORECASE),
+    re.compile(r"\bgate\s+(?:is\s+)?(?:passed|green|clear)\b", re.IGNORECASE),
+    # Additional merge/release-readiness paraphrases ("ready to merge" is
+    # already covered by the good/ready/safe-to-merge pattern above).
+    re.compile(r"\bmerge[-\s]ready\b", re.IGNORECASE),
+    re.compile(r"\bready\s+for\s+merge\b", re.IGNORECASE),
+    re.compile(r"\bgreen\s+for\s+merge\b", re.IGNORECASE),
+    re.compile(r"\bshippable\b", re.IGNORECASE),
+    re.compile(r"\brelease[-\s]ready\b", re.IGNORECASE),
+)
+
+# Signals that the snippet carries observed evidence. Any one present makes the
+# lint pass (documented coarseness). A shell prompt, a pytest-style count line,
+# an explicit tool-call / evidence-source label, or a `Command:` caption.
+_EVIDENCE_SIGNAL_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?m)^\s*\$\s+\S"),  # a shell command line
+    re.compile(r"\b\d+\s+passed\b", re.IGNORECASE),  # pytest/jest count line
+    re.compile(r"\b\d+\s+failed\b", re.IGNORECASE),
+    # A captioned command, but only when the label carries substantive content
+    # after the colon on the SAME line; a bare `Command:` (empty label) names no
+    # observation and must not satisfy the lint.
+    re.compile(r"\bcommand[ \t]*:[ \t]*\S.*\S", re.IGNORECASE),
+    re.compile(
+        r"\b(?:tool[_ ]call|file[_ ]read|external[_ ]ci|manual[_ ]observation|user[_ ]fact)\b",
+        re.IGNORECASE,
+    ),
+)
+
+_UNVERIFIED_HEDGE = re.compile(r"\bunverified\b", re.IGNORECASE)
+
+# A pass/safe phrase preceded by a negation ("NOT safe to merge", "not yet
+# shippable") is a blocked/hedged verdict, not an unsupported PASS claim — the
+# phrase's plain text would otherwise match inside its own negation. We look
+# only at the immediate context: a "not" directly before the phrase with at
+# most one intervening word (e.g. "not yet"), on the same line. Python's `re`
+# has no variable-width lookbehind, so we test the text ending just before the
+# match instead.
+_NEGATION_BEFORE = re.compile(r"\bnot[ \t]+(?:\w+[ \t]+)?$", re.IGNORECASE)
+
+
+def _is_negated(text: str, index: int) -> bool:
+    """True when the phrase starting at ``index`` is immediately negated.
+
+    Fires for a ``not`` directly before the phrase, optionally with one
+    intervening word ("not yet safe to merge"). It does not reach across a
+    newline, so a "not" on an earlier line does not launder a bare claim.
+    """
+    return _NEGATION_BEFORE.search(text[:index]) is not None
+
+
+class UnsupportedClaim(BaseModel):
+    """One pass/safe phrase found with no backing evidence in the snippet."""
+
+    model_config = {"extra": "forbid"}
+
+    phrase: str
+    line_number: int
+    message: str
+
+
+def _line_containing(text: str, index: int) -> tuple[int, str]:
+    """Return the 1-based line number and text of the line containing ``index``."""
+    line_number = text.count("\n", 0, index) + 1
+    start = text.rfind("\n", 0, index) + 1
+    end = text.find("\n", index)
+    if end == -1:
+        end = len(text)
+    return line_number, text[start:end]
+
+
+def find_unsupported_claims(transcript: str) -> list[UnsupportedClaim]:
+    """Flag pass/safe claims that cite no evidence and carry no ``unverified`` hedge.
+
+    Returns an empty list when the snippet either makes no pass/safe claim or
+    carries any evidence signal. Otherwise one :class:`UnsupportedClaim` per
+    unhedged pass/safe phrase.
+    """
+    if any(signal.search(transcript) for signal in _EVIDENCE_SIGNAL_PATTERNS):
+        return []
+    findings: list[UnsupportedClaim] = []
+    for pattern in _PASS_CLAIM_PATTERNS:
+        for match in pattern.finditer(transcript):
+            # A negated verdict ("NOT safe to merge", "not yet shippable") is a
+            # blocked/hedged call, not an unsupported PASS claim — skip it.
+            if _is_negated(transcript, match.start()):
+                continue
+            line_number, line_text = _line_containing(transcript, match.start())
+            # A claim explicitly hedged as unverified on its own line is honest,
+            # not an overstatement — leave it alone.
+            if _UNVERIFIED_HEDGE.search(line_text):
+                continue
+            phrase = match.group(0)
+            findings.append(
+                UnsupportedClaim(
+                    phrase=phrase,
+                    line_number=line_number,
+                    message=(
+                        f"unsupported claim {phrase!r} on line {line_number}: no command / "
+                        "tool_call / file_read (or other evidence source) is cited, and the "
+                        "claim is not marked 'unverified'"
+                    ),
+                )
+            )
+    return findings
+
+
+def assert_transcript_supported(transcript: str) -> None:
+    """Raise :class:`GateEvidenceValidationError` if the snippet has an unsupported claim.
+
+    The raising counterpart to :func:`find_unsupported_claims`, for callers /
+    tests that want a hard failure on an unsupported "tests passed" / "safe to
+    merge" claim.
+    """
+    findings = find_unsupported_claims(transcript)
+    if findings:
+        raise GateEvidenceValidationError(
+            kind="unsupported_claim",
+            message="; ".join(f.message for f in findings),
+        )
