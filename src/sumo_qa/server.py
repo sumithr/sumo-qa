@@ -1929,7 +1929,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         An unrecognised `detail` returns a JSON error envelope listing the valid
         values rather than raising. Read-only and local-only: no network, no
         extraction, no caching. The existing zero-argument skill tools still
-        return full bodies unchanged."""
+        return full bodies unchanged under the default output profile; a
+        non-default `SUMO_QA_OUTPUT_PROFILE` (#215) prepends a small verbosity
+        overlay to those skill-tool bodies, while this index stays unchanged."""
         return json.dumps(_list_skill_manifests(detail), ensure_ascii=False, indent=2)
 
     @mcp.tool(annotations=_read_only_local)
@@ -1950,7 +1952,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
           - "module"   — one module's text (pass `module`, an id from the
             manifest);
           - "full"     — the entire SKILL.md body, byte-for-byte identical to the
-            existing zero-argument skill tool for `skill_name`; a body over the
+            existing zero-argument skill tool for `skill_name` under the default
+            output profile (under `concise`/`strict` the skill tool prepends the
+            #215 profile overlay while this loader always serves the canonical
+            body, keeping `content_hash` stable across profiles); a body over the
             host's per-response token cap is returned as an `oversize` pointer
             to the manifest/section/module slices instead of failing (#393).
 
