@@ -496,14 +496,49 @@ def test_rust_resolver_use_super_group_in_inline_mod_anchors_at_enclosing_module
 # it, so no tree-sitter is needed) (#358). ----------
 
 
-def test_rust_resolver_crate_from_integration_test_anchors_at_test_root():
-    # `crate::helpers::run` from an integration test tests/api.rs anchors at that
-    # test's own crate root (tests/api) -> tests/api/helpers.rs. Before the fix
-    # this found no lib.rs/main.rs ancestor and dropped the import entirely.
-    files = {"tests/api.rs", "tests/api/helpers.rs"}
+def test_rust_resolver_crate_from_single_file_integration_test_anchors_beside_root():
+    # `crate::helpers::run` from a single-file integration test tests/api.rs
+    # anchors at that root's OWN module dir, which rustc reads BESIDE the root
+    # file (the crate root's mod files live in the root's containing directory) ->
+    # tests/helpers.rs, NOT a same-named sibling tests/api/helpers.rs.
+    files = {"tests/api.rs", "tests/helpers.rs"}
     assert resolver.resolve("tests/api.rs", _use("crate::helpers::run"), files) == [
-        "tests/api/helpers.rs"
+        "tests/helpers.rs"
     ]
+
+
+def test_rust_resolver_mod_from_single_file_integration_test_anchors_beside_root():
+    # `mod helper;` in a single-file integration test tests/api.rs resolves BESIDE
+    # the root file (rustc anchors a crate root's child modules in the root's own
+    # containing directory) -> tests/helper.rs, NOT a sibling tests/api/helper.rs.
+    files = {"tests/api.rs", "tests/helper.rs", "tests/api/helper.rs"}
+    assert resolver.resolve("tests/api.rs", _mod("helper"), files) == ["tests/helper.rs"]
+
+
+def test_rust_resolver_mod_from_single_file_bin_target_anchors_beside_root():
+    # `mod helper;` in a single-file binary src/bin/tool.rs resolves BESIDE the
+    # root -> src/bin/helper.rs, NOT a sibling src/bin/tool/helper.rs.
+    files = {"src/lib.rs", "src/bin/tool.rs", "src/bin/helper.rs", "src/bin/tool/helper.rs"}
+    assert resolver.resolve("src/bin/tool.rs", _mod("helper"), files) == ["src/bin/helper.rs"]
+
+
+def test_rust_resolver_crate_from_single_file_bin_target_anchors_beside_root():
+    # `use crate::helper::run` from a single-file binary src/bin/tool.rs reaches
+    # the beside-root module file src/bin/helper.rs (rustc reads the crate root's
+    # mod files from its containing dir), NOT a sibling src/bin/tool/helper.rs.
+    files = {"src/lib.rs", "src/bin/tool.rs", "src/bin/helper.rs", "src/bin/tool/helper.rs"}
+    assert resolver.resolve("src/bin/tool.rs", _use("crate::helper::run"), files) == [
+        "src/bin/helper.rs"
+    ]
+
+
+def test_rust_resolver_mod_from_directory_based_target_anchors_under_target_dir():
+    # A DIRECTORY-based target roots its crate at tests/api/main.rs, whose child
+    # modules live in its OWN containing directory tests/api/ (the file-module
+    # crate-root rule) -> `mod helper;` resolves to tests/api/helper.rs. This is
+    # the discriminating counterpart to the single-file cases above.
+    files = {"tests/api/main.rs", "tests/api/helper.rs", "tests/helper.rs"}
+    assert resolver.resolve("tests/api/main.rs", _mod("helper"), files) == ["tests/api/helper.rs"]
 
 
 def test_rust_resolver_crate_from_bin_target_resolves_to_own_root():
@@ -524,12 +559,13 @@ def test_rust_resolver_crate_from_bin_submodule_anchors_at_bin_root():
     ]
 
 
-def test_rust_resolver_crate_from_example_target_anchors_at_example_root():
-    # An example examples/demo.rs is its own crate root too -> crate::util anchors
-    # at examples/demo -> examples/demo/util.rs.
-    files = {"src/lib.rs", "examples/demo.rs", "examples/demo/util.rs"}
+def test_rust_resolver_crate_from_example_target_anchors_beside_root():
+    # A single-file example examples/demo.rs is its own crate root; rustc reads
+    # its child modules BESIDE the root -> crate::util resolves to examples/util.rs
+    # (a submodule) with examples/demo.rs itself probed as the item container.
+    files = {"src/lib.rs", "examples/demo.rs", "examples/util.rs"}
     assert resolver.resolve("examples/demo.rs", _use("crate::util"), files) == [
-        "examples/demo/util.rs",
+        "examples/util.rs",
         "examples/demo.rs",
     ]
 

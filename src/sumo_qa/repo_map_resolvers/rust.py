@@ -17,7 +17,11 @@ Resolution rules (ported from UA):
 - **The module directory of a file** is where its child modules live: a crate
   root (``lib.rs`` / ``main.rs``) or a ``mod.rs`` owns its *own* directory; any
   other ``foo.rs`` owns the sibling directory ``foo/`` (so ``src/foo.rs``'s
-  children live in ``src/foo/``).
+  children live in ``src/foo/``). A single-file Cargo *target* root (a ``.rs``
+  file directly under ``tests/`` / ``examples/`` / ``benches/`` or ``src/bin/``)
+  is a crate root too, so it likewise owns its *own containing* directory: rustc
+  reads a crate root's ``mod`` files from beside the root file, so ``mod helper;``
+  in ``tests/api.rs`` resolves to ``tests/helper.rs`` (not ``tests/api/helper.rs``).
 - **``use`` paths** are anchored by their leading segment:
   - ``crate::`` anchors at the crate root's directory — the nearest ancestor of
     the importer holding a ``lib.rs`` / ``main.rs``, or, for a Cargo bin/test/
@@ -528,6 +532,12 @@ class RustResolver:
         ``src/`` module, so its crate membership is unknown to the path-only
         contract) the library root (``lib.rs``, first in :data:`_CRATE_ROOTS`) is
         the documented default (#358).
+
+        A single-file Cargo target root leaves no ``lib.rs`` / ``main.rs`` at its
+        containing dir, so when ``own_root`` names the root file itself and no
+        ``lib.rs`` / ``main.rs`` is present, that root file is offered as THE
+        crate-root module: ``crate::Item`` from ``src/bin/tool.rs`` ->
+        ``src/bin/tool.rs`` (#358).
         """
         parts = [p for p in anchor_dir.split("/") if p]
         candidates: list[str] = []
@@ -548,6 +558,10 @@ class RustResolver:
                 candidates.append(own_root)
             else:
                 candidates.append(present_roots[0])  # prefer lib.rs
+        elif own_root is not None:
+            # A single-file target root: its own file IS the crate-root module,
+            # and no lib.rs / main.rs sits beside it to stand in for the root.
+            candidates.append(own_root)
         else:
             candidates.extend(f"{prefix}{root}" for root in _CRATE_ROOTS)
         return candidates
@@ -579,31 +593,59 @@ class RustResolver:
         return None
 
     @staticmethod
+    def _single_file_target_dir(importer: str) -> str | None:
+        """The containing dir when ``importer`` *is* a single-file Cargo target root.
+
+        Cargo compiles each ``.rs`` file directly under ``src/bin/``, ``tests/``,
+        ``examples/`` or ``benches/`` as its own crate root. rustc reads a crate
+        root's ``mod`` files from beside the root file, so such a target's child
+        modules live in the root file's *own containing* directory: ``tests/api.rs``
+        -> ``tests/``; ``src/bin/tool.rs`` -> ``src/bin/``. Returns that directory,
+        or ``None`` when ``importer`` is not itself such a root (a directory-based
+        target root such as ``tests/api/main.rs``, a file nested deeper, or a
+        ``tests`` / ``examples`` / ``benches`` component under ``src`` — a normal
+        module directory — all return ``None`` and fall through to the ordinary
+        crate-root rules).
+        """
+        dir_parts = importer.split("/")[:-1]
+        if not dir_parts:
+            return None
+        parent = dir_parts[-1]
+        is_bin = parent == _BIN_DIR and len(dir_parts) >= 2 and dir_parts[-2] == _SRC_DIR
+        is_target = parent in _TARGET_ROOT_DIRS and _SRC_DIR not in dir_parts
+        if is_bin or is_target:
+            return "/".join(dir_parts)
+        return None
+
+    @staticmethod
     def _special_crate_root_dir(importer: str) -> str | None:
         """Crate root dir when ``importer`` is (or is under) a Cargo bin/test target.
 
         Cargo compiles each ``.rs`` file directly under ``src/bin/``, ``tests/``,
-        ``examples/`` or ``benches/`` as its own crate root. Following this
-        resolver's file-module convention (a non-``mod.rs`` file owns its
-        same-named sibling directory), such a root file owns a same-named sibling
-        dir for its submodules, so ``crate::`` from the root file — or from any
-        file beneath that sibling dir — anchors there: ``crate::helpers`` from
-        ``tests/api.rs`` -> ``tests/api/helpers.rs``; ``crate::Item`` from
-        ``src/bin/tool.rs`` -> the root ``src/bin/tool.rs`` itself. A ``tests`` /
+        ``examples/`` or ``benches/`` as its own crate root. A ``tests`` /
         ``examples`` / ``benches`` component nested under ``src`` is a normal
         module directory (``src/foo/tests/…``), not a target root, and is skipped.
+
+        A single-file target root (``tests/api.rs``, ``src/bin/tool.rs``) anchors
+        ``crate::`` at its *own containing* directory, matching rustc — the crate
+        root's ``mod`` files live beside the root file: ``crate::helpers`` from
+        ``tests/api.rs`` -> ``tests/helpers.rs``; ``crate::Item`` from
+        ``src/bin/tool.rs`` -> the root ``src/bin/tool.rs`` itself (found as this
+        anchor dir's own crate-root module, see :meth:`_dir_module_files`).
 
         Returns that crate root dir, or ``None`` when ``importer`` is not part of
         such a target.
 
-        Residual ambiguity: rustc actually reads a crate root's own ``mod`` files
-        from the root's *containing* directory, so the shared-helper convention
-        ``tests/common/mod.rs`` reached as ``crate::common`` lives one level up
-        from what this returns. The sibling-dir convention is chosen for
-        consistency with the file-module rules and to keep each target's imports
-        inside its own subtree (never fabricating a cross-target edge); this is
-        the documented residual gap.
+        Residual gap: a ``.rs`` file nested *below* a target dir but not the root
+        file (``tests/api/helpers.rs``, ``src/bin/tool/config.rs``) is treated as a
+        directory-target-style subtree anchored one level in (``tests/api``,
+        ``src/bin/tool``). The path-only contract cannot tell such a layout from a
+        directory target's own files, and keeping the anchor inside that subtree
+        never fabricates a cross-target edge; this is the documented residual gap.
         """
+        single = RustResolver._single_file_target_dir(importer)
+        if single is not None:
+            return single
         parts = importer.split("/")
         for i, comp in enumerate(parts[:-1]):
             is_bin = comp == _BIN_DIR and i >= 1 and parts[i - 1] == _SRC_DIR
@@ -622,7 +664,15 @@ class RustResolver:
         ``main.rs`` counts as a crate root only when it *is* the actual crate
         root — a same-named file nested below one (a module reached via
         ``mod main;``) is a plain module that owns its sibling ``main/`` (#358).
+
+        A single-file Cargo target root (``tests/api.rs``, ``src/bin/tool.rs``) is
+        a crate root as well, so — matching rustc — its child modules live in its
+        *own containing* directory, NOT a same-named sibling: ``mod helper;`` in
+        ``tests/api.rs`` -> ``tests/helper.rs`` (#358).
         """
+        single = self._single_file_target_dir(importer)
+        if single is not None:
+            return single
         parts = importer.split("/")
         directory = parts[:-1]
         stem = self._stem(importer)
@@ -659,13 +709,18 @@ class RustResolver:
         lib-first default (a ``crate::`` from ``src/main.rs`` -> ``src/main.rs``,
         from ``src/lib.rs`` -> ``src/lib.rs``).
 
-        Returns ``None`` when the importer is not a ``lib.rs`` / ``main.rs`` crate
-        root — including a shared ``src/`` module (``src/foo.rs``), whose crate
-        membership the path-only contract cannot determine, so the lib-preferred
-        default stands. A bin/test/example/bench target root needs no own-root
-        signal: :meth:`_special_crate_root_dir` anchors it in its own subtree
-        where the named sibling file already IS the root (no lib/main tie).
+        Returns ``None`` when the importer is not a crate-root file — including a
+        shared ``src/`` module (``src/foo.rs``), whose crate membership the
+        path-only contract cannot determine, so the lib-preferred default stands.
+
+        A single-file Cargo target root (``tests/api.rs``, ``src/bin/tool.rs``) is
+        its OWN crate-root module too, so it is returned here: its containing dir
+        holds no ``lib.rs`` / ``main.rs``, so :meth:`_dir_module_files` needs this
+        signal to offer the root file itself as the crate-root module (``crate::``
+        from ``src/bin/tool.rs`` -> ``src/bin/tool.rs``) (#358).
         """
+        if self._single_file_target_dir(importer) is not None:
+            return importer
         stem = self._stem(importer)
         if stem in _CRATE_ROOT_STEMS and self._is_crate_root(importer, file_set):
             return importer
