@@ -537,7 +537,9 @@ class RustResolver:
             named = f"{parent}/{base}{_RS}" if parent else f"{base}{_RS}"
             candidates.append(named)
         prefix = f"{anchor_dir}/" if anchor_dir else ""
-        present_roots = [f"{prefix}{root}" for root in _CRATE_ROOTS if f"{prefix}{root}" in file_set]
+        present_roots = [
+            f"{prefix}{root}" for root in _CRATE_ROOTS if f"{prefix}{root}" in file_set
+        ]
         candidates.append(f"{prefix}{_MOD_FILE}")
         if present_roots:
             # Own-root case first (the importer's OWN crate root at this dir),
