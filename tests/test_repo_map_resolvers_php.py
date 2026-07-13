@@ -10,20 +10,18 @@ the ``composer.json`` autoload roots (longest namespace-prefix wins), relative
 ``require``/``include`` paths anchored to the importing file, and vendor /
 external namespaces dropped.
 
-Where these edges come from (NOT scan time today): a real ``scan_repo`` emits
-ZERO ``.php`` edges because the foundation scanner does not map ``.php`` files
-(``repo_map_scanner._LANGUAGE_BY_EXT`` / ``_PROGRAMMING_LANGS`` omit ``php``), so
-no ``php`` node reaches the import-edge layer during a scan. These edges are
-produced at the ``infer_imports_edges`` orchestrator layer instead, given ``php``
-nodes supplied directly (the orchestrator tests below supply them). The
+Scan-time status (#483): the scanner stamps ``.php`` -> ``php``, so relative
+``require``/``include`` edges resolve through a real ``scan_repo`` with no
+Composer context (pinned in ``tests/test_repo_map_scan_activation.py``). The
+orchestrator tests below still supply ``php`` nodes directly because they
+exercise the resolver/orchestrator layer in isolation. The
 ``Resolver.resolve`` contract passes only the importer path + ``file_set`` (no
 repo root / file contents / ``composer.json``), so PSR-4 namespace roots are
 injected into ``PhpResolver`` at construction (``PhpResolver.from_composer``);
 the registered DEFAULT resolver carries no PSR-4 roots (see
-``test_default_resolver_has_no_psr4_roots``). Full scan-time activation needs TWO
-foundation changes, deliberately out of this slice: the scanner must stamp
-``.php`` -> ``php``, AND the composer autoload roots must be threaded through the
-scan.
+``test_default_resolver_has_no_psr4_roots``), so PSR-4 ``use`` edges stay
+dormant at scan time until the scan-local preparation pass (#484) threads the
+Composer autoload roots through the scan.
 """
 
 from __future__ import annotations
@@ -457,9 +455,9 @@ def test_orchestrator_emits_psr4_and_require_edges_from_committed_fixture(
 def test_orchestrator_default_resolver_emits_require_but_not_psr4(tmp_path: Path):
     # At the infer_imports_edges orchestrator layer with the registered DEFAULT
     # resolver (no composer), relative require edges resolve but PSR-4 use edges
-    # do NOT (they need composer config injected). NOTE this is the orchestrator
-    # layer given php nodes directly; a real scan_repo maps no .php files, so it
-    # emits no php edges at all -- the documented foundation gap.
+    # do NOT (they need composer config injected). This is the same behavior a
+    # real scan_repo shows since #483 mapped .php (see
+    # tests/test_repo_map_scan_activation.py); PSR-4 activation is #484's.
     (tmp_path / "src" / "Models").mkdir(parents=True)
     (tmp_path / "src" / "a.php").write_text(
         "<?php\nrequire 'b.php';\nuse App\\Models\\User;\n", encoding="utf-8", newline=""

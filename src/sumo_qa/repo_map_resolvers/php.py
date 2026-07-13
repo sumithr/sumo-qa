@@ -31,26 +31,20 @@ Two import kinds are recognised, distinguished by :attr:`RawImport.level`
   resolves OUTSIDE the repo, so it yields nothing too (a ``__DIR__``-anchored
   leading-``/`` path is importer-relative and IS resolved).
 
-Where these edges come from (NOT scan time today): a real ``scan_repo`` emits
-ZERO ``.php`` edges of any kind. The foundation scanner does not map ``.php``
-files (``repo_map_scanner._LANGUAGE_BY_EXT`` and ``_PROGRAMMING_LANGS`` both omit
-``.php`` / ``php``), so no ``php`` node ever reaches the import-edge layer during
-a scan. This resolver instead produces edges at the
-:func:`~sumo_qa.repo_map_imports.infer_imports_edges` orchestrator layer, given
-``php`` nodes supplied directly (see the orchestrator tests). No ``.php`` edge
-(relative ``require`` / ``include`` OR PSR-4 ``use``) resolves at scan time.
+Scan-time status (#483): the scanner maps ``.php`` -> ``php``, so ``php``
+nodes reach the import-edge layer during a real ``scan_repo`` and relative
+``require`` / ``include`` edges resolve end to end with NO Composer context
+(the extension-activated state, pinned in
+``tests/test_repo_map_scan_activation.py``).
 
 The :class:`~sumo_qa.repo_map_resolvers.base.Resolver` ``resolve`` contract
 passes only the importer path + ``file_set`` (no repo root, file contents, or
 ``composer.json``), so the PSR-4 namespace roots are injected at construction
 (:meth:`PhpResolver.from_composer`) rather than read mid-scan; the
-self-registered DEFAULT resolver carries no PSR-4 roots. Full scan-time
-activation therefore requires TWO foundation changes, both out of this slice:
-(1) the scanner must stamp ``.php`` -> ``php`` (add ``.php`` to
-``_LANGUAGE_BY_EXT`` and ``php`` to ``_PROGRAMMING_LANGS``) so ``php`` nodes
-exist at all, AND (2) the composer autoload roots must be threaded through the
-scan so PSR-4 ``use`` edges (not just relative ``require`` / ``include`` edges)
-resolve.
+self-registered DEFAULT resolver carries no PSR-4 roots. PSR-4 ``use``
+imports therefore resolve to nothing at scan time (under-edge, never a guess)
+until the scan-local preparation pass (#484) threads each package's Composer
+autoload roots through the scan.
 
 Known limitations (safe: each yields NO edge rather than a wrong one):
 

@@ -36,15 +36,15 @@ Resolution rules (ported from UA):
    — it never sees other files' *contents*, which is exactly what the namespace
    index needs. So the index is a first-class, separately-tested resolver
    capability (:meth:`index_namespaces` / :meth:`declared_namespaces`) rather
-   than something ``resolve`` can build itself. At scan time the registered
-   resolver's index is empty (nothing populates it through the path-only
-   contract), so wiring this resolver into ``scan_repo`` needs a foundation
-   enhancement: a pre-pass that builds the namespace index across all ``.cs``
-   files and hands it to the resolver. The foundation also does not yet
-   classify ``.cs`` as a source language (``repo_map_scanner``'s
-   ``_LANGUAGE_BY_EXT`` / ``_PROGRAMMING_LANGS`` omit it). Both are foundation
-   changes and are out of scope here (#362 ships the resolver + its index
-   capability; the scan-time wiring is a follow-on).
+   than something ``resolve`` can build itself. Since #483 the scanner
+   classifies ``.cs`` as ``csharp``, so every ``.cs`` file reaches this
+   resolver during a real ``scan_repo`` (the extension-activated state,
+   pinned in ``tests/test_repo_map_scan_activation.py``); the registered
+   resolver's index stays empty through the path-only contract, so ``using``
+   directives resolve to nothing at scan time (under-edge, never a guess)
+   until the scan-local preparation pass (#484) builds the namespace index
+   per project boundary and hands scan-local prepared resolvers to the
+   orchestrator.
 
 .. note:: Known limitations
 
