@@ -21,6 +21,7 @@ from sumo_qa.repo_map_resolvers import java as _java  # noqa: F401 -- import for
 from sumo_qa.repo_map_resolvers import php as _php  # noqa: F401 -- import for side effect
 from sumo_qa.repo_map_resolvers import python as _python  # noqa: F401 -- import for side effect
 from sumo_qa.repo_map_resolvers import ruby as _ruby  # noqa: F401 -- import for side effect
+from sumo_qa.repo_map_resolvers import rust as _rust  # noqa: F401 -- import for side effect
 from sumo_qa.repo_map_resolvers import (
     typescript as _typescript,  # noqa: F401 -- import for side effect
 )
