@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.54.0](https://github.com/sumithr/sumo-qa/compare/v0.53.0...v0.54.0) (2026-07-13)
+
+
+### Features
+
+* **repo-map:** add C# import-edge resolver ([#362](https://github.com/sumithr/sumo-qa/issues/362)) ([#480](https://github.com/sumithr/sumo-qa/issues/480)) ([c78f398](https://github.com/sumithr/sumo-qa/commit/c78f398c336ba33a1b2df1ba6df111ecd2cfeda4))
+* **repo-map:** add PHP import-edge resolver ([#361](https://github.com/sumithr/sumo-qa/issues/361)) ([#479](https://github.com/sumithr/sumo-qa/issues/479)) ([bfb63e9](https://github.com/sumithr/sumo-qa/commit/bfb63e96d3abe9ac3bae4bae456231f8bb6e7159))
+
+## [0.53.0](https://github.com/sumithr/sumo-qa/compare/v0.52.0...v0.53.0) (2026-07-13)
+
+
+### Features
+
+* **repo-map:** add Go import-edge resolver ([#356](https://github.com/sumithr/sumo-qa/issues/356)) ([#478](https://github.com/sumithr/sumo-qa/issues/478)) ([64eb922](https://github.com/sumithr/sumo-qa/commit/64eb922f20840e7df002f7e5218fbaca156f3f86))
+* **repo-map:** add Ruby import-edge resolver ([#360](https://github.com/sumithr/sumo-qa/issues/360)) ([#477](https://github.com/sumithr/sumo-qa/issues/477)) ([24364ec](https://github.com/sumithr/sumo-qa/commit/24364ece06447b97214a93dfdd7b81196084fcca))
+
+## [0.52.0](https://github.com/sumithr/sumo-qa/compare/v0.51.3...v0.52.0) (2026-07-13)
+
+
+### Features
+
+* **analysis:** add semantic code analysis adapters for QA recommendations ([#212](https://github.com/sumithr/sumo-qa/issues/212)) ([#490](https://github.com/sumithr/sumo-qa/issues/490)) ([24b3abc](https://github.com/sumithr/sumo-qa/commit/24b3abc7814e4216004f27d21c6e7ccbcddbb362))
+* **conformance:** add cross-model conformance checks for QA routing and outputs ([#214](https://github.com/sumithr/sumo-qa/issues/214)) ([#476](https://github.com/sumithr/sumo-qa/issues/476)) ([895cde1](https://github.com/sumithr/sumo-qa/commit/895cde10f54bb0d94f181a5f7e9948b03e4840e6))
+* **gate-evidence:** add evidence-backed gate reporting for QA workflow claims ([#213](https://github.com/sumithr/sumo-qa/issues/213)) ([#486](https://github.com/sumithr/sumo-qa/issues/486)) ([05a676d](https://github.com/sumithr/sumo-qa/commit/05a676dd6f6131bbf781389a0a753f7cdfab9573))
+* **repo-map:** add Java import-edge resolver ([#357](https://github.com/sumithr/sumo-qa/issues/357)) ([#469](https://github.com/sumithr/sumo-qa/issues/469)) ([9583754](https://github.com/sumithr/sumo-qa/commit/95837549573c8716d6173ea6d92ec64ee015690d))
+* **repo-map:** add TypeScript/JavaScript import resolver ([#355](https://github.com/sumithr/sumo-qa/issues/355)) ([#481](https://github.com/sumithr/sumo-qa/issues/481)) ([568eb38](https://github.com/sumithr/sumo-qa/commit/568eb3875f1a6f1e571813e3c1081235c51b09c1))
+* **repo-map:** rank affected nodes by connecting-edge confidence in diff-impact ([#363](https://github.com/sumithr/sumo-qa/issues/363)) ([#475](https://github.com/sumithr/sumo-qa/issues/475)) ([9e6e426](https://github.com/sumithr/sumo-qa/commit/9e6e4268ceb59d169ced7583e2f48fd3eaf39718))
+* **skill-serving:** add configurable output verbosity/strictness profiles ([#215](https://github.com/sumithr/sumo-qa/issues/215)) ([#471](https://github.com/sumithr/sumo-qa/issues/471)) ([577527e](https://github.com/sumithr/sumo-qa/commit/577527e78f869d22a7c8a754e8d60d3b2b355605))
+
+## [0.51.3](https://github.com/sumithr/sumo-qa/compare/v0.51.2...v0.51.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* **repo-map:** target the tree-sitter-language-pack 1.12.5 upstream binding ([#491](https://github.com/sumithr/sumo-qa/issues/491)) ([#492](https://github.com/sumithr/sumo-qa/issues/492)) ([d11c742](https://github.com/sumithr/sumo-qa/commit/d11c742869665832965faa45538215b91d40060d))
+
 ## [0.51.2](https://github.com/sumithr/sumo-qa/compare/v0.51.1...v0.51.2) (2026-06-28)
 
 

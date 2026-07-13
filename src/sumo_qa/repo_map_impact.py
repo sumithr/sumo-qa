@@ -23,10 +23,34 @@ from pathlib import Path
 from sumo_qa.repo_map_models import (
     SCHEMA_VERSION,
     DiffImpact,
+    EdgeConfidence,
     ImpactNode,
     RepoMap,
     RepoMapWarning,
 )
+
+# Rank the edge-confidence vocabulary so affected neighbours can be ordered
+# strongest-coupling first (high before medium before low). The ``None`` entry
+# is a defensive default: every affected node carries a confidence, but keying
+# it here keeps the sort branchless and sorts any un-annotated node last.
+_CONFIDENCE_RANK: dict[EdgeConfidence | None, int] = {None: 0, "low": 1, "medium": 2, "high": 3}
+
+
+def _affected_sort_key(node: ImpactNode) -> tuple[int, str]:
+    """Order affected nodes by strongest connecting-edge confidence (high →
+    medium → low), then by path within a confidence bucket for determinism."""
+    return (-_CONFIDENCE_RANK[node.connecting_confidence], node.path)
+
+
+def _record_strongest(
+    acc: dict[str, EdgeConfidence], node_id: str, confidence: EdgeConfidence
+) -> None:
+    """Keep the STRONGEST confidence seen for ``node_id`` in ``acc`` — a node
+    coupled to the changeset by both a medium and a high edge reads as high,
+    independent of edge order."""
+    prev = acc.get(node_id)
+    if prev is None or _CONFIDENCE_RANK[prev] < _CONFIDENCE_RANK[confidence]:
+        acc[node_id] = confidence
 
 
 def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> DiffImpact:
@@ -77,12 +101,18 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
         if verdict is False:
             risk_surface.append(node.path)
 
-    affected_ids: set[str] = set()
+    # Each affected node is the OTHER endpoint of an edge with exactly one
+    # endpoint in the changeset. Annotate it with the STRONGEST confidence of
+    # any such connecting edge (a node coupled by both a medium and a high edge
+    # reads as high) so the ranking reflects the tightest coupling, not an
+    # arbitrary edge order. The key set equals the old `affected_ids` set, so
+    # affected-node membership is unchanged — this only adds the annotation.
+    affected_confidence: dict[str, EdgeConfidence] = {}
     for e in edges:
         if e.source in changed_ids and e.target not in changed_ids:
-            affected_ids.add(e.target)
+            _record_strongest(affected_confidence, e.target, e.confidence)
         if e.target in changed_ids and e.source not in changed_ids:
-            affected_ids.add(e.source)
+            _record_strongest(affected_confidence, e.source, e.confidence)
 
     affected_nodes = [
         ImpactNode(
@@ -90,8 +120,9 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
             type=node_by_id[nid].type,
             path=node_by_id[nid].path,
             has_mapped_tests=_mapped_tests_verdict(node_by_id[nid]),
+            connecting_confidence=affected_confidence[nid],
         )
-        for nid in affected_ids
+        for nid in affected_confidence
     ]
 
     suggested = sorted(set(unmapped_files) | {n.path for n in affected_nodes})
@@ -126,7 +157,7 @@ def analyze_diff_impact(repo_map: RepoMap, changed_files: Iterable[str]) -> Diff
     return DiffImpact(
         schema_version=SCHEMA_VERSION,
         changed_nodes=sorted(changed_nodes, key=lambda n: n.path),
-        affected_nodes=sorted(affected_nodes, key=lambda n: n.path),
+        affected_nodes=sorted(affected_nodes, key=_affected_sort_key),
         related_tests=sorted(related_tests),
         unmapped_files=sorted(unmapped_files),
         risk_surface=sorted(risk_surface),

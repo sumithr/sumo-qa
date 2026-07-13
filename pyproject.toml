@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.51.2"
+version = "0.54.0"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
@@ -132,9 +132,13 @@ vertex = [
 # `tree-sitter-language-pack` ships one abi3 wheel bundling ~165 grammars with
 # prebuilt Linux/macOS/Windows wheels (no compiler, no Node). Pinned so a
 # binding-API drift surfaces as a contract-test failure, not silent breakage.
+# Floored at 1.12.5: that release switched `get_parser()` from the bundled
+# str-only method-style binding to the upstream `tree_sitter.Parser` (bytes-only
+# `parse()`, property accessors, `type` not `kind()`), and the two APIs are
+# mutually exclusive — repo_map_treesitter targets the upstream shape (#491).
 treesitter = [
   "tree-sitter>=0.25,<0.26",
-  "tree-sitter-language-pack>=1.8,<2",
+  "tree-sitter-language-pack>=1.12.5,<2",
 ]
 
 [project.urls]
