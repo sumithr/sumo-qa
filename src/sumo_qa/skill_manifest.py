@@ -413,8 +413,12 @@ def load_skill_context(
       * ``"section"``  — one section's text (requires ``section``).
       * ``"module"``   — one module's text (requires ``module``).
       * ``"full"``     — the entire SKILL.md body, byte-for-byte identical to
-        the existing zero-argument skill tool for this skill. When that body
-        exceeds the per-response token cap (``token_cap`` > env var > default),
+        the existing zero-argument skill tool for this skill under the default
+        output profile (under a non-default ``SUMO_QA_OUTPUT_PROFILE`` the skill
+        tool prepends the #215 profile overlay while this loader always serves
+        the canonical body, keeping ``content_hash`` stable across profiles).
+        When that body exceeds the per-response token cap (``token_cap`` > env
+        var > default),
         an oversize pointer envelope (``oversize=True``, no ``content``) naming
         the manifest/section/module route is returned instead (#393).
 
