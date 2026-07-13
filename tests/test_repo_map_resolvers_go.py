@@ -226,9 +226,7 @@ def test_go_resolver_resolve_boundary_rejection_does_not_fall_through_to_a_decoy
     # belongs to the nested service/ module) - it must NOT fall through to a
     # SHORTER same-module suffix that shares the trailing segment. Here a
     # root-level core/ dir would be that decoy; a false edge to it is the bug.
-    imp = RawImport(
-        module="example.com/root/service/core", level=0, names=(), function_local=False
-    )
+    imp = RawImport(module="example.com/root/service/core", level=0, names=(), function_local=False)
     files = {
         "go.mod",
         "service/go.mod",  # nested module: service/core is a DIFFERENT module
