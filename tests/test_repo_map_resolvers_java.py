@@ -13,6 +13,7 @@ type mapping.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -72,7 +73,23 @@ def test_java_registered_via_package_init_not_direct_module_import():
         "    assert raw.names == (), raw\n"
         "    assert raw.level == 0 and raw.function_local is False, raw\n"
     )
-    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
+    # Prepend src/ to PYTHONPATH so the spawned interpreter can import sumo_qa
+    # even when the project isn't installed in the active env. Pytest's
+    # `pythonpath = src` setting only puts src on the PARENT process's sys.path,
+    # which the child does not inherit. Under CI's editable install the import
+    # happens to resolve anyway, but the documented pre-push hook venv installs
+    # only the hook's deps (not the project), so without this the probe fails
+    # with ModuleNotFoundError. Mirrors the sibling subprocess tests
+    # (test_e2e_mcp_initialize / test_tools_list_contract).
+    src_path = str(Path(__file__).resolve().parents[1] / "src")
+    existing = os.environ.get("PYTHONPATH", "")
+    pythonpath = f"{src_path}{os.pathsep}{existing}" if existing else src_path
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": pythonpath},
+    )
     assert result.returncode == 0, result.stderr
 
 
