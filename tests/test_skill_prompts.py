@@ -398,9 +398,9 @@ def test_concise_and_strict_overlays_preserve_mandatory_gates(tmp_path) -> None:
     evidence for claims, and confirmation before writes or installs. This is the
     safety invariant behind the issue's non-goal 'No profile may allow skipping
     required tests, evidence, confirmations, or safety gates.'"""
-    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _STRICT_OVERLAY
+    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _LEAN_OVERLAY, _STRICT_OVERLAY
 
-    for overlay in (_CONCISE_OVERLAY, _STRICT_OVERLAY):
+    for overlay in (_CONCISE_OVERLAY, _LEAN_OVERLAY, _STRICT_OVERLAY):
         low = overlay.lower()
         assert "iron law" in low
         assert "hard-gate" in low
@@ -430,17 +430,75 @@ def test_concise_overlay_carries_a_tool_budget_contract(tmp_path) -> None:
     assert "skip supplementary" in fn().lower()
 
 
+def test_lean_profile_serves_the_progressive_pointer_not_the_body(tmp_path) -> None:
+    """The #528 cost fix: under `lean` the skill tool serves the overlay plus the
+    progressive-loading pointer INSTEAD of the full body, so the host loads only
+    the sections its gates need. Session cost is dominated by served bytes
+    re-read every turn; this is the serve-boundary lever with measured headroom.
+    Loader and resources stay canonical, so change-detection is unaffected."""
+    from sumo_qa.skill_prompts import _LEAN_OVERLAY, _approx_tokens, _make_skill_callable
+
+    skill_dir = tmp_path / "some-skill"
+    skill_dir.mkdir()
+    marker = "UNIQUE-BODY-MARKER-a7f3"
+    body = "---\ndescription: d\n---\n# Body\n" + (marker + " word ") * 400
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    fn = _make_skill_callable(skill_dir / "SKILL.md", profile="lean")
+    out = fn()
+    assert out.startswith(_LEAN_OVERLAY)
+    assert "sumo_qa_load_skill_context" in out
+    assert marker not in out
+    assert _approx_tokens(out) <= 450
+
+
+def test_lean_profile_is_env_selectable(tmp_path, monkeypatch) -> None:
+    """`lean` is a first-class profile value: selecting it via the env var at
+    call time switches serving to the pointer, and it never claims the body is
+    over the cap (the pointer wording must stay truthful for small bodies)."""
+    from sumo_qa.skill_prompts import _make_skill_callable
+
+    skill_dir = tmp_path / "small-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\ndescription: d\n---\n# Tiny\n", encoding="utf-8")
+    monkeypatch.setenv("SUMO_QA_OUTPUT_PROFILE", "lean")
+    out = _make_skill_callable(skill_dir / "SKILL.md")()
+    assert "sumo_qa_load_skill_context" in out
+    assert "too large" not in out.lower()
+    assert "above the" not in out.lower()
+
+
+def test_lean_pointer_never_exceeds_cap(tmp_path) -> None:
+    """Same #393 discipline for lean: with a cap the bare pointer fits under but
+    overlay + pointer does NOT, the overlay is dropped rather than recreating an
+    over-cap response. A broken implementation that always prepends the lean
+    overlay overflows the cap; the correct one serves the in-cap pointer alone."""
+    from sumo_qa.skill_prompts import _LEAN_OVERLAY, _approx_tokens, _make_skill_callable
+
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\ndescription: d\n---\n# Body\n" + ("x " * 2000), encoding="utf-8"
+    )
+    fn = _make_skill_callable(skill_dir / "SKILL.md", token_cap=200, profile="lean")
+    out = fn()
+    assert _approx_tokens(out) <= 200
+    assert "sumo_qa_load_skill_context" in out
+    assert not out.startswith(_LEAN_OVERLAY)
+
+
 def test_overlays_stay_within_a_bounded_token_budget() -> None:
     """Concise must reduce output and strict must not bloat payloads, so the
     overlay itself is a small bounded constant — pin a ceiling so it cannot grow
     into a payload of its own."""
     from sumo_qa.skill_prompts import (
         _CONCISE_OVERLAY,
+        _LEAN_OVERLAY,
         _STRICT_OVERLAY,
         _approx_tokens,
     )
 
-    for overlay in (_CONCISE_OVERLAY, _STRICT_OVERLAY):
+    for overlay in (_CONCISE_OVERLAY, _LEAN_OVERLAY, _STRICT_OVERLAY):
         assert _approx_tokens(overlay) <= 250, (
             f"profile overlay is ~{_approx_tokens(overlay)} tokens (>250); "
             f"keep it a compact directive, not a second payload"

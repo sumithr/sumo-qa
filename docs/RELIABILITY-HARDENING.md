@@ -74,8 +74,12 @@ INTENTIONALLY BOUNDED (residual named and accepted), never open or unaddressed.
   measurably changes is behavior: findings-over-process decisiveness, plus the #528
   lean-tool hygiene (load only what the gates require, skip supplementary loads, never
   re-load loaded content), pinned by the serve-path suite. Cost reduction, if pursued,
-  needs flow/surface changes (for example progressive-manifest serving), a deliberate
-  future design, not an overlay tweak.
+  needs flow/surface changes. The progressive-manifest lever was then built and
+  measured too (the `lean` profile, third A/B, n=3, grounded workspace): mean 609,524
+  tokens vs 632,841 default, roughly 4 percent, within run noise, quality held. All
+  three measurements agree the floor is the per-turn context re-read multiplied by turn
+  count, so the remaining lever with real headroom is fewer turns (a composite flow
+  surface), tracked as #536.
 
 ### 3. Enforcement uncertainty (unsupported workflow claims)
 

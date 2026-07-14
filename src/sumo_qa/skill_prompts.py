@@ -67,7 +67,7 @@ _RESPONSE_TOKEN_CAP_ENV = "SUMO_QA_SKILL_RESPONSE_TOKEN_CAP"
 # catalogue payloads are untouched, so strict mode cannot bloat them.
 DEFAULT_OUTPUT_PROFILE = "default"
 _OUTPUT_PROFILE_ENV = "SUMO_QA_OUTPUT_PROFILE"
-_VALID_OUTPUT_PROFILES = ("concise", "default", "strict")
+_VALID_OUTPUT_PROFILES = ("concise", "default", "lean", "strict")
 
 # The non-negotiable floor. Whatever the profile, these obligations are never
 # skipped or shortened away — this is the safety guarantee behind the issue's
@@ -96,6 +96,14 @@ _CONCISE_OVERLAY = (
     "context. " + _NEVER_OPTIONAL + "\n\n---\n\n"
 )
 
+_LEAN_OVERLAY = (
+    "> Output profile: lean. This response is the skill's progressive-loading "
+    "route, not its body: load the manifest, then ONLY the sections this "
+    "skill's gates require; skip supplementary loads and sweeps, never re-load "
+    "what is already in context. Give the shortest useful answer: findings "
+    "over framing, drop preamble and closing pleasantries. " + _NEVER_OPTIONAL + "\n\n---\n\n"
+)
+
 _STRICT_OVERLAY = (
     "> Output profile: strict. Use the skill's full ceremony: state each gate "
     "explicitly, present evidence as a table, map every named risk to the test "
@@ -106,6 +114,7 @@ _STRICT_OVERLAY = (
 
 _PROFILE_OVERLAYS = {
     "concise": _CONCISE_OVERLAY,
+    "lean": _LEAN_OVERLAY,
     "strict": _STRICT_OVERLAY,
     # `default` intentionally maps to no overlay (byte-for-byte body).
     "default": "",
@@ -248,6 +257,27 @@ def _oversize_pointer_text(skill_name: str, tokens: int, cap: int) -> str:
     )
 
 
+def _lean_pointer_text(skill_name: str, tokens: int) -> str:
+    """The lean profile's serve payload (#528): the progressive-loading route,
+    worded truthfully for ANY body size (unlike the #393 over-cap pointer, this
+    never claims the body exceeded a cap - lean serves the route by design, so
+    the host loads only the sections its gates need instead of the full body)."""
+    return (
+        f"# {skill_name}: progressive loading (lean profile)\n\n"
+        f"The lean output profile serves this route instead of the skill's "
+        f"~{tokens}-token full body, so load only what you need with the "
+        f"`sumo_qa_load_skill_context` tool:\n\n"
+        f'1. `sumo_qa_load_skill_context(skill_name="{skill_name}", mode="manifest")`: '
+        f"the section and module index (ids, headings, token weights).\n"
+        f'2. `sumo_qa_load_skill_context(skill_name="{skill_name}", mode="section", section="<id>")`: '
+        f"one section's text.\n"
+        f'3. `sumo_qa_load_skill_context(skill_name="{skill_name}", mode="module", module="<id>")`: '
+        f"one module's text (when the skill ships modules).\n\n"
+        f'Start with `mode="manifest"`, and load the Iron Law / checklist '
+        f"sections before acting."
+    )
+
+
 def _make_skill_callable(path: Path, token_cap: int | None = None, profile: str | None = None):
     """Factory returning a zero-argument function that reads `path` at call time.
 
@@ -277,8 +307,16 @@ def _make_skill_callable(path: Path, token_cap: int | None = None, profile: str 
     cap = _response_token_cap(token_cap)
 
     def _skill_body() -> str:
-        overlay = _profile_overlay(_resolve_output_profile(profile))
+        active = _resolve_output_profile(profile)
+        overlay = _profile_overlay(active)
         text = path.read_text(encoding="utf-8")
+        if active == "lean":
+            # #528: lean serves the progressive route instead of the body -
+            # served bytes are re-read every turn, so this is the cost lever.
+            pointer = _lean_pointer_text(path.parent.name, _approx_tokens(text))
+            if _approx_tokens(overlay + pointer) <= cap:
+                return overlay + pointer
+            return pointer
         body = overlay + text if overlay else text
         tokens = _approx_tokens(body)
         if tokens > cap:
