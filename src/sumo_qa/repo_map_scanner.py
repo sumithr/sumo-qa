@@ -118,6 +118,27 @@ _LANGUAGE_BY_EXT: Final[dict[str, str]] = {
     ".rb": "ruby",
     ".java": "java",
     ".kt": "kotlin",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".hpp": "cpp",
+    ".hh": "cpp",
+    ".hxx": "cpp",
+    # `.h` is ambiguous between C and C++; `cpp` is the documented default
+    # (#483). This is a classification heuristic, not a claim that every
+    # header is C++: the shared include extractor parses preprocessor includes
+    # for BOTH registered C/C++ resolvers, while a `.c` translation unit stays
+    # stamped `c`. The ambiguity is contract-pinned in
+    # tests/test_repo_map_resolver_scanner_contract.py.
+    ".h": "cpp",
+    # Suffix lookup is scanner-wide case-insensitive (`.suffix.lower()` in
+    # `_file_to_node`/`_classify`), so a traditional uppercase `.C` C++ file on
+    # a case-sensitive tree also stamps `c`. That is a deliberate label-only
+    # trade-off: both language ids dispatch to the same shared include
+    # extractor, so import edges are unaffected either way.
+    ".c": "c",
+    ".php": "php",
+    ".cs": "csharp",
     ".sh": "shell",
     ".bash": "shell",
     ".sql": "sql",
@@ -131,7 +152,21 @@ _LANGUAGE_BY_EXT: Final[dict[str, str]] = {
 }
 
 _PROGRAMMING_LANGS: Final[frozenset[str]] = frozenset(
-    {"python", "javascript", "typescript", "rust", "go", "ruby", "java", "kotlin", "shell"}
+    {
+        "python",
+        "javascript",
+        "typescript",
+        "rust",
+        "go",
+        "ruby",
+        "java",
+        "kotlin",
+        "cpp",
+        "c",
+        "php",
+        "csharp",
+        "shell",
+    }
 )
 
 _MANIFEST_NAMES: Final[frozenset[str]] = frozenset(
