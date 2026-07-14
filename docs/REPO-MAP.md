@@ -199,6 +199,24 @@ What the slice-2 scanner produces:
   alias resolution, which activates once a parsed `tsconfig` is supplied to the
   resolver (threading the project's `tsconfig.json` through the orchestrator is
   a follow-on slice). Other languages are follow-on slices too.
+  A **Rust** resolver ships as well: `mod` declarations and the full retained
+  `use` tree (grouped, nested, aliased, glob, function-local) resolve through
+  the crate module tree, covering the `name.rs` / `name/mod.rs` conventions,
+  `crate::` / `self::` / `super::` anchoring with inline-module rebasing, and
+  Cargo target roots (`src/bin/*.rs`, `tests/`, `examples/`, `benches/`)
+  anchored the way rustc reads them, with `std` and external crates dropped.
+  Rust scans also derive **scan-local crate context** (the resolver-preparation
+  foundation): each scan prepares a fresh, scan-scoped resolver from the
+  repository's own sources and `Cargo.toml` editions, never mutating the
+  registered resolver, so sequential or concurrent scans share nothing. That
+  context additionally resolves provable bare current-scope imports
+  (`mod foo;` plus `use foo::Bar;` under an explicit 2018+ edition,
+  workspace-inherited editions included), cross-file inline-module references,
+  and mixed lib+bin root modules by walked crate membership. Ambiguity
+  under-edges: a shared module declared by both roots, an unknown or 2015
+  edition, or an undeclared bare head emits no edge rather than a guessed one.
+  An unreadable or malformed `Cargo.toml` degrades to path-only resolution with
+  one deterministic `other` warning per affected file.
   This layer is **optional**: it needs the `tree-sitter` parser, shipped as the
   `sumo-qa[treesitter]` extra. With the extra absent the scan still succeeds: it
   records a `RepoMapWarning` and emits only `likely_tests` edges, so the map
@@ -209,9 +227,11 @@ What the slice-2 scanner produces:
   (`test`/`lint`/`format`/`build`/`other`) is guessed from the script
   name. `pyproject.toml` scripts are categorised as `other` until a
   follow-up adds smarter detection.
-- **Warnings** for files that didn't classify (`unsupported_language`)
-  or were intentionally skipped (`skipped_file`, e.g. images, archives,
-  compiled binaries).
+- **Warnings** for files that didn't classify (`unsupported_language`),
+  files that were intentionally skipped (`skipped_file`, e.g. images,
+  archives, compiled binaries), and config input a resolver's scan-local
+  preparation could not use (`other`, e.g. a malformed `Cargo.toml`: one
+  deterministic warning per affected file, never an aborted scan).
 
 Determinism: nodes are sorted by path; edges by `(source, target)`;
 commands by `(source, name)`. Fingerprints are content-hashed, so only
