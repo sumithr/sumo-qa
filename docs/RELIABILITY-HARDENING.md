@@ -41,8 +41,8 @@ INTENTIONALLY BOUNDED (residual named and accepted), never open or unaddressed.
 
 ### 2. Verbosity fatigue
 
-- **Classification:** intentionally bounded (mechanism merged and pinned; host compliance
-  is behavioral).
+- **Classification:** NOT EFFECTIVE AS SHIPPED for the cost dimension (measured
+  2026-07-14); mechanism merged and pinned; rework or honest re-spec tracked as #528.
 - **Control (merged):** `SUMO_QA_OUTPUT_PROFILE=concise|default|strict` serve-time
   overlays on the single skill-serving path. Every overlay restates the never-optional
   floor (Iron Law, HARD-GATE, evidence for claims, confirmation before writes/installs).
@@ -61,10 +61,17 @@ INTENTIONALLY BOUNDED (residual named and accepted), never open or unaddressed.
   applies to the skill-tool surface only; `sumo_qa_load_skill_context` and the
   `sumoqa://` resources always serve the canonical body so `content_hash`
   change-detection stays stable across profiles.
-- **Residual limit:** whether a host LLM actually emits shorter output under `concise`
-  is host-behavioral and cannot be proven by unit tests or disk-reading evals; the issue
-  author left that acceptance box unchecked by design. The discharge path is a live
-  A/B comparison across MCP builds.
+- **Residual limit (measured, not hypothetical):** the discharge A/B ran on 2026-07-14
+  (real headless agent, same v0.55.0 build, only the env var differing, n=2 per side):
+  `concise` sessions cost roughly 2x the tokens (means ~1,060k vs ~548k) and produced
+  LONGER final answers, so the shipped overlay does not deliver the cost claim. By
+  construction it cannot: it prepends instruction text to every served body while session
+  cost lives in tool traffic and turns. The observed real effect is behavioral
+  (findings-over-process decisiveness: the concise legs completed the deliverable where
+  the default legs stalled on clarifying questions). One confound is on record (the
+  default legs reported the sumo-qa tools unreachable; same binary). #528 owns the fix:
+  either a serve-boundary reduction that actually cuts tokens (for example a maintained
+  condensed body) or a re-spec of `concise` as a decisiveness profile with no cost claim.
 
 ### 3. Enforcement uncertainty (unsupported workflow claims)
 
