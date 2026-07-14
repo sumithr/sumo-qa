@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.3](https://github.com/sumithr/sumo-qa/compare/v0.55.2...v0.55.3) (2026-07-14)
+
+
+### Tests
+
+* **mutation:** kill the 47 knowledge_loaders survivors from PR [#302](https://github.com/sumithr/sumo-qa/issues/302) ([#522](https://github.com/sumithr/sumo-qa/issues/522)) ([94b9a80](https://github.com/sumithr/sumo-qa/commit/94b9a8040adae62a2c18b393d57a6a694e3c66ab))
+
 ## [0.55.2](https://github.com/sumithr/sumo-qa/compare/v0.55.1...v0.55.2) (2026-07-13)
 
 
