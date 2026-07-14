@@ -193,7 +193,15 @@ def _entry_slugify(heading: str) -> str:
     lowered = heading.lower()
     # Keep underscores (canonical classification spelling) and alphanumerics;
     # everything else collapses to a single hyphen.
-    slug = re.sub(r"[^a-z0-9_]+", "-", lowered).strip("-")
+    #
+    # pragma rationale (#503): x__entry_slugify__mutmut_14 (strip("XX-XX"))
+    # is equivalent — the slug is lowercase with non-[a-z0-9_] runs already
+    # collapsed to "-", so no "X" can occur and the strip char-set {X, -}
+    # degenerates to {-}. The line also carries the KILLABLE strip(None)
+    # mutant; suppressing it here is covered by the live regression guard in
+    # test_list_catalogue_entries_techniques_includes_named_techniques (the
+    # ")"-terminated technique ids make the trailing "-" strip load-bearing).
+    slug = re.sub(r"[^a-z0-9_]+", "-", lowered).strip("-")  # pragma: no mutate
     return slug or "entry"
 
 
@@ -209,7 +217,10 @@ def _iter_entry_headings(body: str) -> list[tuple[int, int, str]]:
         if fence_match:
             run = fence_match.group(1)
             remainder = fence_match.group(2)
-            marker, length = run[0], len(run)
+            # pragma rationale (#503): x__iter_entry_headings__mutmut_13
+            # (run[1]) is equivalent — the regex group is a homogeneous run
+            # of one fence char with length >= 3, so run[1] == run[0] always.
+            marker, length = run[0], len(run)  # pragma: no mutate
             if fence is None:
                 # Opening fence: an info string after the run is allowed.
                 fence = (marker, length)
@@ -331,7 +342,11 @@ def _missing_catalogue_error(catalogue: str, exc: OSError) -> dict[str, Any]:
 def load_catalogue_entry(
     catalogue: str,
     name: str | None = None,
-    format: str = "full",
+    # pragma rationale (#503): x_load_catalogue_entry__mutmut_1/2 mutate this
+    # default, but the mutmut-3.5 dispatcher keeps the original signature and
+    # forwards its defaults explicitly, so a mutated default inside the
+    # generated body is dead code — unkillable by construction.
+    format: str = "full",  # pragma: no mutate
 ) -> dict[str, Any]:
     """Return one catalogue entry by name.
 
@@ -392,7 +407,10 @@ def load_catalogue_entry(
     }
 
 
-def load_catalogue(catalogue: str, format: str = "full") -> dict[str, Any]:
+# pragma rationale (#503): x_load_catalogue__mutmut_1/2 mutate the "full"
+# default — dead code under the mutmut-3.5 dispatcher (same as
+# load_catalogue_entry above: the trampoline forwards original defaults).
+def load_catalogue(catalogue: str, format: str = "full") -> dict[str, Any]:  # pragma: no mutate
     """Return a whole catalogue in ``full`` or ``compact`` form.
 
     ``format="full"`` (default) returns ``{..., "canonical": true, "text": <the

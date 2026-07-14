@@ -46,6 +46,12 @@ def test_list_catalogue_entries_classifications_has_ten():
         "data_migration",
     ]:
         assert canonical in ids, f"missing classification entry id {canonical!r}"
+    # The entry shape is public contract; no test read e["level"] before, so
+    # the "level"-key mutants survived (kills
+    # x__index_catalogue_entries__mutmut_38/39).
+    entry = next(e for e in entries if e["id"] == "api_contract_change")
+    assert set(entry) == {"id", "heading", "level", "text", "summary"}
+    assert entry["level"] == 2
 
 
 def test_list_catalogue_entries_techniques_includes_named_techniques():
@@ -55,12 +61,19 @@ def test_list_catalogue_entries_techniques_includes_named_techniques():
         "boundary-value-analysis",
         "decision-tables",
         "mutation-testing",
+        # Headings ending in ')' make the trailing strip("-") load-bearing:
+        # strip(None) would leave "...-coverage-" / "...-inspection-" ids
+        # (kills x__entry_slugify__mutmut_4).
+        "mc-dc-modified-condition-decision-coverage",
+        "review-walkthrough-technical-review-inspection",
     ]:
         assert canonical in ids, f"missing technique entry id {canonical!r}"
 
 
 def test_list_catalogue_entries_unknown_catalogue_raises():
-    with pytest.raises(KeyError):
+    # match pins the offending id in the KeyError payload (kills
+    # x_list_catalogue_entries__mutmut_2's KeyError(None)).
+    with pytest.raises(KeyError, match="not_a_catalogue"):
         knowledge_loaders.list_catalogue_entries("not_a_catalogue")
 
 
@@ -79,11 +92,16 @@ def test_list_catalogue_entries_unknown_catalogue_raises():
 
 
 def test_techniques_compact_summaries_are_all_non_empty():
-    # Every techniques compact-entry summary must be real prose — a blank
-    # summary is the tell-tale of a hollow grouper leaking into the index.
-    compact = knowledge_loaders.load_catalogue("techniques", format="compact")
-    blank = [e["id"] for e in compact["entries"] if not e["summary"].strip()]
-    assert blank == [], f"techniques compact entries with empty summaries: {blank}"
+    # Every compact-entry summary across ALL FOUR catalogues must be real
+    # prose — a blank summary is the tell-tale of a hollow grouper leaking
+    # into the index, or of the summary walk returning the blank line after
+    # the heading. Catalogues whose entries put a blank line before the prose
+    # (principles) are the discriminating case (kills
+    # x__first_prose_line__mutmut_3's and-to-or, which returns "" there).
+    for cat in CATALOGUES:
+        compact = knowledge_loaders.load_catalogue(cat, format="compact")
+        blank = [e["id"] for e in compact["entries"] if not e["summary"].strip()]
+        assert blank == [], f"{cat} compact entries with empty summaries: {blank}"
 
 
 def test_techniques_category_groupers_are_not_hollow_entries():
@@ -106,8 +124,12 @@ def test_techniques_category_groupers_are_not_hollow_entries():
 
 def test_load_entry_by_slug_returns_canonical_verbatim_text():
     result = knowledge_loaders.load_catalogue_entry("classifications", name="api_contract_change")
+    # Full key-set + heading: no test read "heading" off the full envelope
+    # (kills x_load_catalogue_entry__mutmut_80/81).
+    assert set(result) == {"catalogue", "id", "heading", "format", "canonical", "text"}
     assert result["catalogue"] == "classifications"
     assert result["id"] == "api_contract_change"
+    assert result["heading"] == "api_contract_change"
     assert result["format"] == "full"
     assert result["canonical"] is True
     # Verbatim: the entry text is a substring of the full catalogue.
@@ -147,14 +169,18 @@ def test_load_entry_unknown_name_returns_error_envelope_with_choices():
 
 def test_load_entry_missing_name_returns_error_envelope():
     result = knowledge_loaders.load_catalogue_entry("approaches", name=None)
-    assert "error" in result
+    # Exact message: "error" in result also passes for a None/mangled message
+    # (kills x_load_catalogue_entry__mutmut_25/29/30).
+    assert result["error"] == "name is required."
     assert "available_entries" in result
     assert "tdd-scaffold" in result["available_entries"]
 
 
 def test_load_entry_unknown_catalogue_returns_error_envelope():
     result = knowledge_loaders.load_catalogue_entry("not_a_catalogue", name="x")
-    assert "error" in result
+    # The message must NAME the offending catalogue — actionable envelope
+    # (kills x_load_catalogue_entry__mutmut_4's message -> None).
+    assert "not_a_catalogue" in result["error"]
     assert "available_catalogues" in result
     assert set(result["available_catalogues"]) == set(CATALOGUES)
 
@@ -182,6 +208,9 @@ def test_compact_entry_set_equals_full_entry_set():
 def test_compact_catalogue_is_marked_non_canonical():
     # Decision table: (format=compact) -> canonical=False.
     compact = knowledge_loaders.load_catalogue("classifications", format="compact")
+    # Envelope key-set + catalogue identity (kills x_load_catalogue__mutmut_41/42).
+    assert set(compact) == {"catalogue", "format", "canonical", "entries"}
+    assert compact["catalogue"] == "classifications"
     assert compact["canonical"] is False
     assert compact["format"] == "compact"
 
@@ -190,6 +219,9 @@ def test_full_catalogue_via_new_loader_is_canonical_and_verbatim():
     # Decision table: (format=full) -> canonical=True, text byte-equal to the
     # backward-compatible loader.
     full = knowledge_loaders.load_catalogue("classifications", format="full")
+    # Envelope key-set + catalogue identity (kills x_load_catalogue__mutmut_24/25).
+    assert set(full) == {"catalogue", "format", "canonical", "text"}
+    assert full["catalogue"] == "classifications"
     assert full["canonical"] is True
     assert full["format"] == "full"
     assert full["text"] == knowledge_loaders.sumo_qa_load_classifications()
@@ -201,6 +233,10 @@ def test_compact_entry_is_shorter_than_full_entry():
     )
     compact = knowledge_loaders.load_catalogue("classifications", format="compact")
     compact_entry = next(e for e in compact["entries"] if e["id"] == "api_contract_change")
+    # Entries-list item key-set + heading value: no test read "heading" off
+    # the compact list items (kills x_load_catalogue__mutmut_56/57).
+    assert set(compact_entry) == {"id", "heading", "summary", "canonical"}
+    assert compact_entry["heading"] == "api_contract_change"
     assert len(compact_entry["summary"]) < len(full_entry["text"])
     assert compact_entry.get("canonical") is False
 
@@ -210,6 +246,13 @@ def test_load_entry_compact_format_marks_non_canonical():
     result = knowledge_loaders.load_catalogue_entry(
         "classifications", name="api_contract_change", format="compact"
     )
+    # Full key-set + identity values: no test read catalogue/id/heading off
+    # the compact single-entry envelope, so those dict-key mutants survived
+    # (kills x_load_catalogue_entry__mutmut_53/54/55/56/59/60).
+    assert set(result) == {"catalogue", "id", "heading", "format", "canonical", "text"}
+    assert result["catalogue"] == "classifications"
+    assert result["id"] == "api_contract_change"
+    assert result["heading"] == "api_contract_change"
     assert result["format"] == "compact"
     assert result["canonical"] is False
     # Compact single-entry stays shorter than the full verbatim entry.
@@ -219,14 +262,16 @@ def test_load_entry_compact_format_marks_non_canonical():
 
 def test_load_catalogue_unknown_format_returns_error_envelope():
     result = knowledge_loaders.load_catalogue("classifications", format="bogus")
-    assert "error" in result
+    # Message names the offending format (kills x_load_catalogue__mutmut_10).
+    assert "bogus" in result["error"]
     assert "available_formats" in result
     assert set(result["available_formats"]) == {"full", "compact"}
 
 
 def test_load_catalogue_unknown_catalogue_returns_error_envelope():
     result = knowledge_loaders.load_catalogue("not_a_catalogue", format="full")
-    assert "error" in result
+    # Message names the offending catalogue (kills x_load_catalogue__mutmut_4).
+    assert "not_a_catalogue" in result["error"]
     assert "available_catalogues" in result
     assert set(result["available_catalogues"]) == set(CATALOGUES)
 
@@ -235,7 +280,8 @@ def test_load_entry_unknown_format_returns_error_envelope():
     result = knowledge_loaders.load_catalogue_entry(
         "classifications", name="api_contract_change", format="bogus"
     )
-    assert "error" in result
+    # Message names the offending format (kills x_load_catalogue_entry__mutmut_10).
+    assert "bogus" in result["error"]
     assert set(result["available_formats"]) == {"full", "compact"}
 
 
@@ -256,9 +302,15 @@ def test_entry_index_ignores_headings_inside_fenced_code_blocks(tmp_path, monkey
         encoding="utf-8",
     )
     monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(tmp_path))
-    ids = {e["id"] for e in knowledge_loaders.list_catalogue_entries("classifications")}
+    entries = knowledge_loaders.list_catalogue_entries("classifications")
+    ids = {e["id"] for e in entries}
     assert ids == {"real_entry", "second_entry"}
     assert "not_a_heading_inside_fence" not in ids
+    # Entry text must stop at the NEXT heading (kills the end-boundary
+    # off-by-one x__index_catalogue_entries__mutmut_23, which runs the
+    # penultimate entry's text to EOF and swallows the last entry).
+    real_entry = next(e for e in entries if e["id"] == "real_entry")
+    assert "## second_entry" not in real_entry["text"]
 
 
 def test_leaf_entry_with_no_prose_body_has_empty_summary(tmp_path, monkeypatch):
@@ -288,7 +340,20 @@ def test_load_catalogue_entry_missing_file_returns_error_envelope(tmp_path, monk
     monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(missing_dir))
     result = knowledge_loaders.load_catalogue_entry("classifications", name="api_contract_change")
     assert isinstance(result, dict)
-    assert "error" in result
+    # Message content: names the catalogue (repr-quoted PREFIX, not a bare
+    # substring — the OS error's file path also contains "classifications",
+    # so a substring check passes even when the catalogue arg is dropped)
+    # AND carries the OS error detail (kills
+    # x__missing_catalogue_error__mutmut_1's message -> None and the
+    # dropped-argument mutants on the load_catalogue_entry call site).
+    assert result["error"].startswith("Catalogue 'classifications' could not be read")
+    # The exception detail is asserted via the missing PATH (our own
+    # fixture dir name) rather than the OS strerror: POSIX renders
+    # "No such file or directory" but Windows renders "[WinError 3] The
+    # system cannot find the path specified", and test.yml runs this
+    # suite on windows-latest. The path is present on every OS and
+    # absent when the exception argument is dropped.
+    assert "no_such_dir" in result["error"]
     assert "available_catalogues" in result
     assert set(result["available_catalogues"]) == set(CATALOGUES)
     assert "text" not in result
@@ -301,7 +366,17 @@ def test_load_catalogue_full_missing_file_returns_error_envelope(tmp_path, monke
     monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(missing_dir))
     result = knowledge_loaders.load_catalogue("classifications", format="full")
     assert isinstance(result, dict)
-    assert "error" in result
+    # Full-branch envelope call arguments stay intact — repr-quoted prefix,
+    # not a bare substring (the OS error's path contains "classifications"
+    # too), kills both dropped-argument mutants on this call site.
+    assert result["error"].startswith("Catalogue 'classifications' could not be read")
+    # The exception detail is asserted via the missing PATH (our own
+    # fixture dir name) rather than the OS strerror: POSIX renders
+    # "No such file or directory" but Windows renders "[WinError 3] The
+    # system cannot find the path specified", and test.yml runs this
+    # suite on windows-latest. The path is present on every OS and
+    # absent when the exception argument is dropped.
+    assert "no_such_dir" in result["error"]
     assert "available_catalogues" in result
     assert set(result["available_catalogues"]) == set(CATALOGUES)
     assert "text" not in result
@@ -313,7 +388,17 @@ def test_load_catalogue_compact_missing_file_returns_error_envelope(tmp_path, mo
     monkeypatch.setenv("QA_KNOWLEDGE_PATH", str(missing_dir))
     result = knowledge_loaders.load_catalogue("classifications", format="compact")
     assert isinstance(result, dict)
-    assert "error" in result
+    # Compact-branch envelope call arguments stay intact — repr-quoted
+    # prefix for the same path-substring reason as the full branch; kills
+    # both dropped-argument mutants on this call site.
+    assert result["error"].startswith("Catalogue 'classifications' could not be read")
+    # The exception detail is asserted via the missing PATH (our own
+    # fixture dir name) rather than the OS strerror: POSIX renders
+    # "No such file or directory" but Windows renders "[WinError 3] The
+    # system cannot find the path specified", and test.yml runs this
+    # suite on windows-latest. The path is present on every OS and
+    # absent when the exception argument is dropped.
+    assert "no_such_dir" in result["error"]
     assert "available_catalogues" in result
     assert "entries" not in result
 

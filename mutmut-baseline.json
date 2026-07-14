@@ -36,12 +36,21 @@
     "catalogue loaders tripled the module; its 47 survivors are tracked as",
     "open debt and gate (b) stays red until they are killed), rules 40 -> 41,",
     "standards 15 -> 25, tdm_validation 162 -> 203. Same-PR context: mutmut",
-    "capped >=3,<3.6 (3.6.0 broke stats collection; see pyproject.toml)."
+    "capped >=3,<3.6 (3.6.0 broke stats collection; see pyproject.toml).",
+    "2026-07-14 (#503): killed PR #302's 47 knowledge_loaders survivors.",
+    "34 via strengthened assertions + 7 via new synthetic-catalogue tests",
+    "(both in tests/test_knowledge_loaders_entries.py and",
+    "tests/test_knowledge_loaders_strengthening.py Class G); 6 equivalent",
+    "mutants suppressed with # pragma: no mutate + per-mutant rationale.",
+    "The 4 pragma'd lines remove 18 mutants from generation (490 -> 472),",
+    "so the floor moves to the new full-kill count: knowledge_loaders",
+    "443 -> 472 (0 survivors). Local converged clean run; Linux CI",
+    "authoritative as ever."
   ],
   "per_module": {
     "knowledge_loaders": {
       "file": "src/sumo_qa/knowledge_loaders.py",
-      "killed": 443
+      "killed": 472
     },
     "rules": {
       "file": "src/sumo_qa/rules.py",
