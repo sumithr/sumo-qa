@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.57.0](https://github.com/sumithr/sumo-qa/compare/v0.56.0...v0.57.0) (2026-07-14)
+
+
+### Features
+
+* **repo-map:** activate C/C++, PHP, and C# resolver dispatch in scan_repo ([#530](https://github.com/sumithr/sumo-qa/issues/530)) ([3d08487](https://github.com/sumithr/sumo-qa/commit/3d08487bc1e93f1741b7d6108a99e41b41433b21))
+
 ## [0.56.0](https://github.com/sumithr/sumo-qa/compare/v0.55.3...v0.56.0) (2026-07-14)
 
 
