@@ -22,7 +22,10 @@ slice registers only ``python``; follow-on slices register their own.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+from sumo_qa.repo_map_models import RepoMapWarning
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,100 @@ class Resolver(Protocol):
     def extract(self, src: bytes) -> list[RawImport]: ...
 
     def resolve(self, importer: str, imp: RawImport, file_set: set[str]) -> list[str]: ...
+
+
+# Cap per-file source read (bounded, deterministic). Preparation and the
+# orchestrator share one bound so a pathological file can't blow memory and so
+# a prepared read and the orchestrator's later consume see identical bytes.
+MAX_SOURCE_READ_BYTES = 2_000_000
+
+
+class ScanContext:
+    """Per-scan repository context handed to resolver preparation (#484).
+
+    One instance exists per scan invocation and dies with it, so anything a
+    resolver derives through the context is scoped to that single scan:
+    sequential and concurrent scans can never share config or indexes through
+    this object. Three operations:
+
+    - ``read`` — bounded (:data:`MAX_SOURCE_READ_BYTES`), memoized read of one
+      repo-relative file. Preparation reads through here so each file hits
+      disk at most once per scan; ``None`` (unreadable) is memoized too.
+    - ``consume`` — the orchestrator's read. It drains the preparation cache
+      (returning the cached bytes and evicting the entry — the orchestrator
+      visits each node exactly once) and falls back to a direct bounded read
+      WITHOUT caching, so peak memory stays at what preparation actually
+      needed rather than the whole repository.
+    - ``warn_config`` — records one deterministic ``other``
+      :class:`~sumo_qa.repo_map_models.RepoMapWarning` per unusable config
+      file (deduplicated on ``(message, path)``), never aborting the scan.
+      A missing warning sink (``warnings=None``) makes it a no-op.
+    """
+
+    def __init__(
+        self,
+        root: Path,
+        files: frozenset[str],
+        warnings: list[RepoMapWarning] | None = None,
+    ) -> None:
+        self.root = root
+        self.files = files
+        self._warnings = warnings
+        self._cache: dict[str, bytes | None] = {}
+        self._warned: set[tuple[str, str]] = set()
+
+    def read(self, rel_path: str) -> bytes | None:
+        """Bounded, memoized read of one repo-relative file; ``None`` if unreadable."""
+        if rel_path in self._cache:
+            return self._cache[rel_path]
+        data = self._read_from_disk(rel_path)
+        self._cache[rel_path] = data
+        return data
+
+    def consume(self, rel_path: str) -> bytes | None:
+        """One-shot read: serve-and-evict the prepared bytes, else read directly."""
+        if rel_path in self._cache:
+            return self._cache.pop(rel_path)
+        return self._read_from_disk(rel_path)
+
+    def warn_config(self, message: str, path: str) -> None:
+        """Append one deduplicated ``other`` warning for an unusable config file."""
+        if self._warnings is None:
+            return
+        key = (message, path)
+        if key in self._warned:
+            return
+        self._warned.add(key)
+        self._warnings.append(RepoMapWarning(kind="other", message=message, path=path))
+
+    def _read_from_disk(self, rel_path: str) -> bytes | None:
+        """Bounded raw read; ``None`` on any OS-level failure (never raises)."""
+        try:
+            with (self.root / rel_path).open("rb") as fh:
+                return fh.read(MAX_SOURCE_READ_BYTES)
+        except OSError:
+            return None
+
+
+@runtime_checkable
+class PreparableResolver(Protocol):
+    """A resolver that can derive scan-local repository context (#484).
+
+    ``prepare`` receives the per-scan :class:`ScanContext` and returns the
+    resolver instance to use FOR THAT SCAN ONLY — typically a fresh instance
+    carrying derived config/indexes. The registered module-level singleton
+    must never be mutated with repository data; returning a new object is what
+    keeps sequential and concurrent scans isolated. Resolvers without
+    ``prepare`` keep the plain path-only contract and are used as registered.
+    """
+
+    config: LanguageConfig
+
+    def extract(self, src: bytes) -> list[RawImport]: ...
+
+    def resolve(self, importer: str, imp: RawImport, file_set: set[str]) -> list[str]: ...
+
+    def prepare(self, context: ScanContext) -> Resolver: ...
 
 
 # language id -> resolver instance. Module-level so registration via

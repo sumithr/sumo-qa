@@ -9,8 +9,10 @@ the scanner stays oblivious to the optional dependency.
 
 Pipeline per source node:
 
-1. dispatch the node's language to its resolver (skip languages with no
-   resolver — unsupported, not an error);
+1. dispatch the node's language to its scan-local resolver — the registered
+   resolver as-is, or, for a :class:`PreparableResolver`, the scan-local
+   instance its ``prepare`` derived from this scan's :class:`ScanContext`
+   (#484; languages with no resolver are skipped — unsupported, not an error);
 2. ``extract`` the raw imports from the file bytes (tree-sitter);
 3. ``resolve`` each raw import to repo-relative paths;
 4. map each resolved path to its node id and emit an edge **only between nodes
@@ -20,6 +22,12 @@ Pipeline per source node:
    for function-local / lazy imports;
 6. dedup to the strongest signal per ``(source, target)`` and sort
    deterministically by ``(source, target)``.
+
+Preparation happens at most once per language per scan, and every prepared
+object dies with the scan — nothing repository-derived ever reaches the
+module-level resolver registry. Source bytes flow through the scan's
+:class:`ScanContext` so a file preparation already read is served from the
+per-scan cache instead of a second disk read.
 
 When the ``[treesitter]`` extra is absent, ``infer_imports_edges`` returns an
 empty edge list plus a graceful-degradation :class:`RepoMapWarning`; the
@@ -32,6 +40,7 @@ from pathlib import Path
 
 from sumo_qa.repo_map_models import EdgeConfidence, RepoMapEdge, RepoMapNode, RepoMapWarning
 from sumo_qa.repo_map_resolvers import get_resolver
+from sumo_qa.repo_map_resolvers.base import PreparableResolver, Resolver, ScanContext
 from sumo_qa.repo_map_treesitter import TREESITTER_AVAILABLE
 
 # Confidence ranking, strongest first, so dedup can keep the strongest signal
@@ -41,10 +50,6 @@ _CONFIDENCE_RANK: dict[EdgeConfidence, int] = {"high": 3, "medium": 2, "low": 1}
 _MISSING_EXTRA_MESSAGE = (
     "imports edges skipped - pip install sumo-qa[treesitter] to enable the import graph"
 )
-
-# Cap per-file source read (bounded, deterministic) - matches the scanner's
-# usage-signal read cap so a pathological file can't blow memory.
-_MAX_SOURCE_READ_BYTES = 2_000_000
 
 
 def infer_imports_edges(
@@ -71,6 +76,11 @@ def infer_imports_edges(
 
     file_set = {node.path for node in nodes}
     node_id_by_path = {node.path: node.id for node in nodes}
+    context = ScanContext(root=root_path, files=frozenset(file_set), warnings=warnings)
+
+    # language id -> the resolver THIS scan uses (prepared or registered);
+    # None caches the "no resolver" outcome so lookup happens once per language.
+    scan_resolvers: dict[str, Resolver | None] = {}
 
     # (source_id, target_id) -> best edge so far (strongest confidence wins).
     edges_by_pair: dict[tuple[str, str], RepoMapEdge] = {}
@@ -78,10 +88,12 @@ def infer_imports_edges(
     for node in nodes:
         if node.type != "source_file" or node.language is None:
             continue
-        resolver = get_resolver(node.language)
+        if node.language not in scan_resolvers:
+            scan_resolvers[node.language] = _scan_resolver(node.language, context)
+        resolver = scan_resolvers[node.language]
         if resolver is None:
             continue  # language with no resolver: skipped silently (not an error)
-        src = _read_source(root_path / node.path)
+        src = context.consume(node.path)
         if src is None:
             continue
         for raw in resolver.extract(src):
@@ -127,14 +139,17 @@ def _record(
     )
 
 
-def _read_source(abs_path: Path) -> bytes | None:
-    """Read a source file as bytes, bounded; ``None`` on an unreadable file.
+def _scan_resolver(language: str, context: ScanContext) -> Resolver | None:
+    """The resolver to use for ``language`` in THIS scan, or ``None``.
 
-    An unreadable file yields no edges rather than raising, matching the
-    scanner's tolerance for transient IO failures mid-walk.
+    A registered :class:`PreparableResolver` gets ``prepare(context)`` — a
+    scan-local instance carrying repository-derived context that dies with the
+    scan (#484); any other registered resolver keeps the path-only contract
+    and is used as registered. ``None`` means no resolver for the language.
     """
-    try:
-        with abs_path.open("rb") as fh:
-            return fh.read(_MAX_SOURCE_READ_BYTES)
-    except OSError:
+    registered = get_resolver(language)
+    if registered is None:
         return None
+    if isinstance(registered, PreparableResolver):
+        return registered.prepare(context)
+    return registered
