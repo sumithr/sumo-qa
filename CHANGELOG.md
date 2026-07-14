@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.0](https://github.com/sumithr/sumo-qa/compare/v0.55.3...v0.56.0) (2026-07-14)
+
+
+### Features
+
+* **repo-map:** add scan-local resolver preparation and Rust crate context ([#358](https://github.com/sumithr/sumo-qa/issues/358)) ([#525](https://github.com/sumithr/sumo-qa/issues/525)) ([ff4e331](https://github.com/sumithr/sumo-qa/commit/ff4e33188d8d5f1d8c3c2a9d527ad5f14dc303b0))
+
 ## [0.55.3](https://github.com/sumithr/sumo-qa/compare/v0.55.2...v0.55.3) (2026-07-14)
 
 
