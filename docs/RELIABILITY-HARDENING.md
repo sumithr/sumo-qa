@@ -41,8 +41,9 @@ INTENTIONALLY BOUNDED (residual named and accepted), never open or unaddressed.
 
 ### 2. Verbosity fatigue
 
-- **Classification:** intentionally bounded (mechanism merged and pinned; host compliance
-  is behavioral).
+- **Classification:** intentionally bounded, with the boundary now MEASURED (#528):
+  serve-time overlays cannot reduce end-to-end session cost; the profile's honest
+  contract is decisive, low-ceremony output plus a lean tool path, with no cost claim.
 - **Control (merged):** `SUMO_QA_OUTPUT_PROFILE=concise|default|strict` serve-time
   overlays on the single skill-serving path. Every overlay restates the never-optional
   floor (Iron Law, HARD-GATE, evidence for claims, confirmation before writes/installs).
@@ -61,10 +62,20 @@ INTENTIONALLY BOUNDED (residual named and accepted), never open or unaddressed.
   applies to the skill-tool surface only; `sumo_qa_load_skill_context` and the
   `sumoqa://` resources always serve the canonical body so `content_hash`
   change-detection stays stable across profiles.
-- **Residual limit:** whether a host LLM actually emits shorter output under `concise`
-  is host-behavioral and cannot be proven by unit tests or disk-reading evals; the issue
-  author left that acceptance box unchecked by design. The discharge path is a live
-  A/B comparison across MCP builds.
+- **Residual limit (measured twice, #528):** the discharge A/Bs ran on 2026-07-14 with
+  a real headless agent. First (same v0.55.0 build, env var only, neutral empty cwd,
+  n=2): concise sessions cost roughly 2x with longer answers, confounded by the default
+  legs stalling in the ungrounded workspace. Second (post-fix overlay with the
+  tool-budget clause, grounded fixture repo via the harness's --run-cwd, n=3): parity
+  within noise (means ~744k concise vs ~694k default), full-quality answers on both
+  sides, no stalls (the earlier ungrounded-cwd anomaly did not reproduce). Conclusion:
+  session cost is dominated by the mandatory flow's tool traffic and per-turn context,
+  which prepended prose cannot shrink, so `concise` carries NO cost claim. What it
+  measurably changes is behavior: findings-over-process decisiveness, plus the #528
+  lean-tool hygiene (load only what the gates require, skip supplementary loads, never
+  re-load loaded content), pinned by the serve-path suite. Cost reduction, if pursued,
+  needs flow/surface changes (for example progressive-manifest serving), a deliberate
+  future design, not an overlay tweak.
 
 ### 3. Enforcement uncertainty (unsupported workflow claims)
 

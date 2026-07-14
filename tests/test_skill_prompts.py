@@ -409,6 +409,27 @@ def test_concise_and_strict_overlays_preserve_mandatory_gates(tmp_path) -> None:
         assert "install" in low
 
 
+def test_concise_overlay_carries_a_tool_budget_contract(tmp_path) -> None:
+    """The measured #528 defect: real session cost is dominated by tool traffic
+    and turn count, which answer-shape prose alone cannot reduce, so the concise
+    overlay must also budget the PROCESS: load only what the skill's gates
+    require, skip supplementary loads, and never re-load content already in
+    context. Asserted on the served output through the real registration path so
+    the contract ships with the overlay, not just as a constant."""
+    from sumo_qa.skill_prompts import _CONCISE_OVERLAY, _make_skill_callable
+
+    low = _CONCISE_OVERLAY.lower()
+    assert "load only what this skill's gates require" in low
+    assert "skip supplementary" in low
+    assert "re-load" in low
+
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\ndescription: d\n---\n# Body\n", encoding="utf-8")
+    fn = _make_skill_callable(skill_dir / "SKILL.md", profile="concise")
+    assert "skip supplementary" in fn().lower()
+
+
 def test_overlays_stay_within_a_bounded_token_budget() -> None:
     """Concise must reduce output and strict must not bloat payloads, so the
     overlay itself is a small bounded constant — pin a ceiling so it cannot grow

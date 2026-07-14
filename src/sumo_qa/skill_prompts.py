@@ -88,7 +88,12 @@ _CONCISE_OVERLAY = (
     "> Output profile: concise. Give the shortest useful answer for this "
     "change: one focused risk/test summary, findings over framing, no formal "
     "section headers or evidence tables unless the skill marks them mandatory. "
-    "Drop preamble, restating, and closing pleasantries. " + _NEVER_OPTIONAL + "\n\n---\n\n"
+    "Drop preamble, restating, and closing pleasantries. "
+    # The #528 measured finding: real session cost is dominated by tool traffic
+    # and turn count, not answer prose, so concise must budget the PROCESS too.
+    "Spend tools leanly: load only what this skill's gates require, skip "
+    "supplementary loads and sweeps, never re-load what is already in "
+    "context. " + _NEVER_OPTIONAL + "\n\n---\n\n"
 )
 
 _STRICT_OVERLAY = (

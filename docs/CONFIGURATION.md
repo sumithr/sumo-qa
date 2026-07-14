@@ -28,9 +28,16 @@ and host-neutral.
 
 | Value | Effect |
 |---|---|
-| `concise` | Shortest useful answer: one focused risk/test summary, findings over framing, no formal section headers or evidence tables unless the skill marks them mandatory. |
+| `concise` | Shortest useful answer AND leanest tool path: one focused risk/test summary, findings over framing, no formal section headers or evidence tables unless the skill marks them mandatory; load only what the skill's gates require, skip supplementary loads and sweeps, never re-load content already in context (#528). |
 | `default` | Current behaviour. The skill body is served byte-for-byte, unchanged. |
 | `strict` | Full ceremony: each gate stated explicitly, evidence as a table, every named risk mapped to its test, and an explicit residual-risk section. |
+
+Profiles shape ceremony and the tool path, not the session price. Measured
+end-to-end with a real headless agent (#528, 2026-07-14): `concise` does not
+reduce total session tokens, because session cost is dominated by the mandatory
+QA flow's tool traffic and per-turn context, which no serve-time overlay can
+shrink. Pick `concise` for decisive, low-ceremony output on small changes, not
+for cost savings.
 
 An unrecognised value (a typo, an unknown name) falls back predictably to
 `default` rather than failing, so a misconfigured host can never break serving
