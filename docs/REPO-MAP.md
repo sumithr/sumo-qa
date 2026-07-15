@@ -184,13 +184,13 @@ What the slice-2 scanner produces:
   - **Repository context activated**: resolution rules that need
     per-repository configuration or cross-file indexes activate only when a
     scan-local preparation pass derives that context from the repository
-    itself. The preparation foundation ships with the Rust slice: each scan
-    prepares a fresh, scan-scoped resolver, never mutating the registered
-    one, so sequential and concurrent scans share nothing, and an unreadable
-    or malformed config degrades to path-only resolution with one
-    deterministic `other` warning per affected file. Languages whose context
-    derivation has not landed yet (#484) deliberately **under-edge**: no
-    edge is emitted rather than a guessed one.
+    itself. The preparation foundation ships with the Rust and
+    TypeScript/JavaScript slices: each scan prepares a fresh, scan-scoped
+    resolver, never mutating the registered one, so sequential and concurrent
+    scans share nothing, and an unreadable or malformed config degrades to
+    path-only resolution with one deterministic `other` warning per affected
+    file. Languages whose context derivation has not landed yet (#484)
+    deliberately **under-edge**: no edge is emitted rather than a guessed one.
 
   Every registered resolver is extension activated: **Python** (the reference
   resolver: relative-import dot-anchoring, PEP-328 implicit namespace
@@ -225,9 +225,17 @@ What the slice-2 scanner produces:
   or 2015 edition, or an undeclared bare head emits no edge rather than a
   guessed one.
 
-  Capabilities that await repository context (#484): TypeScript
-  `tsconfig.json` `paths`/`baseUrl` aliases, Composer PSR-4 `use` mapping,
-  C# namespace / `global using` fan-out, and C/C++ resolution through
+  **TypeScript/JavaScript** is additionally repository context activated
+  (#484): each scan derives a scan-local index of the repository's own
+  `tsconfig.json` files (keyed by their own directory) and resolves each
+  importer's non-relative specifiers against its NEAREST applicable config, so
+  `paths`/`baseUrl` aliases resolve to real files without flattening unrelated
+  workspaces' alias tables into one. A missing config is the silent path-only
+  fallback; an unreadable or malformed config degrades to path-only with one
+  deterministic `other` warning per affected file.
+
+  Capabilities that await repository context (#484): Composer PSR-4 `use`
+  mapping, C# namespace / `global using` fan-out, and C/C++ resolution through
   configured include directories (quoted includes beyond the importer's own
   directory, and angle-bracket includes through proven roots, preferably
   from `compile_commands.json`).
