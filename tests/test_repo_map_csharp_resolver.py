@@ -4,9 +4,10 @@
 ``extract`` and ``declared_namespaces`` are tested against REAL tree-sitter
 output over COMMITTED ``.cs`` fixtures (skipped without the ``[treesitter]``
 extra); ``resolve`` is pure namespace-index lookup and runs on every
-interpreter. The orchestrator integration drives ``infer_imports_edges`` over
-the committed C# mini-project with the resolver's cross-file namespace index
-populated.
+interpreter. End-to-end orchestrator / ``scan_repo`` integration — the
+per-project preparation pass and its cross-project true negatives — lives in
+``tests/test_repo_map_csharp_scan.py`` (#542); this suite covers the resolver's
+units and the flat, repository-wide index used by direct callers.
 
 C# rules ported from Understand-Anything: a ``using`` names a NAMESPACE, not a
 file, so it resolves to every project file that DECLARES that namespace
@@ -22,9 +23,6 @@ from pathlib import Path
 
 import pytest
 
-import sumo_qa.repo_map_imports as imports_mod
-from sumo_qa.repo_map_imports import infer_imports_edges
-from sumo_qa.repo_map_models import RepoMapNode
 from sumo_qa.repo_map_resolvers import get_resolver, registered_languages
 from sumo_qa.repo_map_resolvers.base import RawImport
 from sumo_qa.repo_map_resolvers.csharp import CSharpResolver
@@ -220,46 +218,164 @@ def test_resolve_with_empty_index_yields_nothing():
     assert CSharpResolver().resolve("App.cs", imp, {"Models/Order.cs"}) == []
 
 
-# ---------- orchestrator integration (real tree-sitter, committed fixtures) ----------
+# ---------- global:: alias-qualifier normalization (#548, real tree-sitter) ----------
 
 
 @_needs_ts
-def test_infer_imports_edges_emits_csharp_namespace_fan_out(monkeypatch):
-    # Build source nodes for the committed C# mini-project, populate the
-    # resolver's cross-file namespace index, and run the orchestrator end-to-end:
-    # the controller's `using MyApp.Models` fans out to BOTH declaring files,
-    # `using MyApp.Services` resolves to the one, and System.*/Newtonsoft yield
-    # no edge.
-    rels = [
-        "Models/Order.cs",
-        "Models/Customer.cs",
-        "Services/OrderService.cs",
-        "Controllers/HomeController.cs",
-    ]
-    nodes = [
-        RepoMapNode(id=f"file:{rel}", type="source_file", path=rel, language="csharp")
-        for rel in rels
-    ]
-    populated = CSharpResolver()
-    populated.index_namespaces({rel: (_FIXTURES / rel).read_bytes() for rel in rels})
-    monkeypatch.setattr(
-        imports_mod,
-        "get_resolver",
-        lambda lang: populated if lang == "csharp" else None,
-    )
+def test_extract_strips_leading_global_qualifier_dotted():
+    # `using global::MyApp.Models;` names the SAME namespace as
+    # `using MyApp.Models;`; the `global::` alias qualifier only forces
+    # root-namespace lookup and must be stripped so the extracted module matches
+    # an indexed `namespace MyApp.Models`. Without the strip it keeps the
+    # `global::` prefix and misses the index.
+    raws = resolver.extract(b"using global::MyApp.Models;\n")
+    assert [r.module for r in raws] == ["MyApp.Models"]
+    # And once stripped it fans out exactly like the unqualified form.
+    r = _resolver_with_index({"MyApp.Models": {"Models/Order.cs", "Models/Customer.cs"}})
+    files = {"Models/Order.cs", "Models/Customer.cs", "App.cs"}
+    assert r.resolve("App.cs", raws[0], files) == ["Models/Customer.cs", "Models/Order.cs"]
 
-    edges = infer_imports_edges(nodes, _FIXTURES)
-    pairs = {(e.source, e.target) for e in edges}
-    controller = "file:Controllers/HomeController.cs"
-    assert (controller, "file:Models/Order.cs") in pairs
-    assert (controller, "file:Models/Customer.cs") in pairs  # fan-out: second declarer
-    assert (controller, "file:Services/OrderService.cs") in pairs
-    # external assembly / BCL namespaces produce no edge
-    assert all("Newtonsoft" not in e.target for e in edges)
-    assert {e.reason for e in edges} == {"imports MyApp.Models", "imports MyApp.Services"}
-    # module-level usings -> high confidence; no dangling edges
-    assert all(e.confidence == "high" for e in edges)
-    node_ids = {n.id for n in nodes}
-    assert all(e.source in node_ids and e.target in node_ids for e in edges)
-    # exactly the three resolved fan-out edges, nothing fabricated
-    assert len(edges) == 3
+
+@_needs_ts
+def test_extract_strips_leading_global_qualifier_single_segment():
+    # A single-segment `using global::App;` parses as an alias-qualified name (not
+    # a plain qualified_name); stripping the `global::` qualifier still yields the
+    # bare `App` namespace rather than dropping the directive entirely.
+    assert [r.module for r in resolver.extract(b"using global::App;\n")] == ["App"]
+
+
+# ---------- .csproj <ProjectReference> parsing (#548) ----------
+
+
+def test_parse_project_references_resolves_backslash_include_to_root_dir():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # MSBuild spells Include with backslashes and points at the referenced
+    # `.csproj`; the reference is the referenced project's ROOT directory.
+    raw = (
+        b'<Project Sdk="Microsoft.NET.Sdk">'
+        b"<ItemGroup>"
+        b'<ProjectReference Include="..\\ProjectD\\ProjectD.csproj" />'
+        b"</ItemGroup></Project>"
+    )
+    assert _parse_project_references(raw, "ProjectC") == {"ProjectD"}
+
+
+def test_parse_project_references_matches_local_name_ignoring_xml_namespace():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # An old-style (non-SDK) csproj carries the MSBuild XML namespace on every
+    # tag; matching by LOCAL name still finds the ProjectReference.
+    raw = (
+        b'<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
+        b'<ItemGroup><ProjectReference Include="..\\Other\\Other.csproj" />'
+        b"</ItemGroup></Project>"
+    )
+    assert _parse_project_references(raw, "Solution/Web") == {"Solution/Other"}
+
+
+def test_parse_project_references_skips_reference_without_include():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    raw = b'<Project><ItemGroup><ProjectReference Update="x" /></ItemGroup></Project>'
+    assert _parse_project_references(raw, "ProjectC") == set()
+
+
+def test_parse_project_references_root_level_include_has_empty_root_dir():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # A repo-root referencing csproj (dir "") pointing at another root-level
+    # csproj resolves to the repo root itself ("").
+    raw = b'<Project><ItemGroup><ProjectReference Include="Other.csproj" /></ItemGroup></Project>'
+    assert _parse_project_references(raw, "") == {""}
+
+
+def test_parse_project_references_malformed_xml_yields_no_references():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # Unparseable XML must not crash: it simply contributes no references.
+    raw = b'<Project><ItemGroup><ProjectReference Include="..\\D\\D.csproj" >'  # unclosed
+    assert _parse_project_references(raw, "C") == set()
+
+
+def test_parse_project_references_unknown_encoding_yields_no_references():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # A `.csproj` whose XML prolog names an encoding expat cannot load makes
+    # `ET.fromstring` raise a NON-`ParseError` (`LookupError`). A parser that only
+    # guarded `ParseError` would let it escape and abort the scan; ANY parse
+    # failure over untrusted `.csproj` content must instead yield no references.
+    raw = (
+        b'<?xml version="1.0" encoding="x-unknown"?>'
+        b'<Project><ItemGroup><ProjectReference Include="..\\D\\D.csproj" />'
+        b"</ItemGroup></Project>"
+    )
+    assert _parse_project_references(raw, "C") == set()
+
+
+def test_parse_project_references_verifies_target_against_known_projects():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # When the scan's known-project set is supplied, a reference resolves ONLY if
+    # the exact referenced `.csproj` is among the scanned projects. A reference to a
+    # `.csproj` that does not exist contributes nothing even when a DIFFERENT
+    # project shares its directory (no over-match to a sibling); a reference whose
+    # exact `.csproj` IS a known project resolves to that project's root directory.
+    raw = (
+        b'<Project Sdk="Microsoft.NET.Sdk"><ItemGroup>'
+        b'<ProjectReference Include="..\\B\\Missing.csproj" />'
+        b'<ProjectReference Include="..\\D\\D.csproj" />'
+        b"</ItemGroup></Project>"
+    )
+    known = frozenset({"A/A.csproj", "B/B.csproj", "D/D.csproj"})
+    # `B/Missing.csproj` is absent (only `B/B.csproj` exists) -> dropped; `D/D.csproj`
+    # is a known project -> its root `D` resolves.
+    assert _parse_project_references(raw, "A", known) == {"D"}
+
+
+def test_parse_project_references_refuses_dtd_to_block_entity_expansion():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # A scanned `.csproj` is untrusted repository content. A DOCTYPE is the
+    # billion-laughs / entity-expansion denial-of-service vector, so a manifest
+    # declaring one is refused OUTRIGHT (no references, no expansion) rather than
+    # handed to expat.
+    raw = (
+        b'<?xml version="1.0"?>\n'
+        b"<!DOCTYPE lolz [\n"
+        b' <!ENTITY lol "lol">\n'
+        b' <!ENTITY lol1 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">\n'
+        b' <!ENTITY lol2 "&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;">\n'
+        b"]>\n"
+        b'<Project><ItemGroup><ProjectReference Include="&lol2;" />'
+        b"</ItemGroup></Project>"
+    )
+    assert _parse_project_references(raw, "C") == set()
+
+
+def test_parse_project_references_refuses_bomless_utf16_dtd_and_reference():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # A BOM-less UTF-16LE `.csproj` is NUL-interleaved ASCII XML. Every NUL byte
+    # is valid UTF-8 (`U+0000`), so `raw.decode("utf-8")` alone accepts it, and
+    # the interleaved NULs (`<\x00!\x00D\x00...`) mean the byte-level
+    # `b"<!DOCTYPE"` guard never matches the DTD. expat would then auto-detect
+    # UTF-16 from the `<?xml` prolog and PROCESS the DTD, expanding `&d;` into a
+    # phantom `<ProjectReference>` (the entity-expansion DoS vector AND a wrong
+    # cross-project edge). A real `.csproj` is UTF-8 text with no NUL bytes, so a
+    # NUL-bearing manifest is treated as non-UTF-8 and contributes NO references,
+    # never reaching `ET.fromstring`.
+    xml = (
+        '<?xml version="1.0"?>\n'
+        '<!DOCTYPE Project [ <!ENTITY d "..\\D\\D.csproj"> ]>\n'
+        '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup>'
+        '<ProjectReference Include="&d;" />'
+        "</ItemGroup></Project>"
+    )
+    raw = xml.encode("utf-16-le")  # BOM-less UTF-16LE: valid UTF-8 bytes, NUL-laced
+    # The two current guards both fail to catch this: the bytes decode as UTF-8,
+    # and the byte-level DOCTYPE check cannot see the interleaved-NUL DTD.
+    assert raw.decode("utf-8")  # old validation passed it
+    assert b"<!DOCTYPE" not in raw  # byte DTD guard misses the interleaved-NUL DTD
+    # The NUL rejection closes both: no reference, DTD never handed to expat.
+    assert _parse_project_references(raw, "C", frozenset({"D/D.csproj"})) == set()

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>ProjectC</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Explicit cross-project dependency. MSBuild spells the path with
+         backslashes; the resolver normalizes them. ProjectF is deliberately
+         NOT referenced, so a `using ProjectF.*` in this project stays the
+         cross-project true negative. -->
+    <ProjectReference Include="..\ProjectD\ProjectD.csproj" />
+  </ItemGroup>
+</Project>

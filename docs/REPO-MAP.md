@@ -185,7 +185,7 @@ What the slice-2 scanner produces:
     per-repository configuration or cross-file indexes activate only when a
     scan-local preparation pass derives that context from the repository
     itself. The preparation foundation ships with the Rust,
-    TypeScript/JavaScript, and PHP slices: each scan prepares a fresh,
+    TypeScript/JavaScript, PHP, and C# slices: each scan prepares a fresh,
     scan-scoped resolver, never mutating the registered one, so sequential and
     concurrent scans share nothing, and an unreadable or malformed config
     degrades to path-only resolution with one deterministic `other` warning per
@@ -213,8 +213,8 @@ What the slice-2 scanner produces:
     forms) resolves at scan time with no Composer context; PSR-4 `use`
     mapping is additionally repository context activated (see below).
   - **C#**: `.cs` files classify, stamp `csharp`, and reach the registered
-    resolver; with no namespace index supplied, `using` directives resolve to
-    nothing (no edges) rather than guessing.
+    resolver. A `using` names a namespace, not a file, so its fan-out needs a
+    cross-file, per-project index (repository context activated below, #542).
 
   **Rust** is additionally repository context activated (#358): each scan
   derives scan-local crate context from the repository's own sources and
@@ -244,10 +244,52 @@ What the slice-2 scanner produces:
   or unusable one degrades the same way plus one deterministic `other`
   warning, never aborting the scan.
 
-  Capabilities that await repository context (#484): C# namespace / `global
-  using` fan-out, and C/C++ resolution through configured include directories
-  (quoted includes beyond the importer's own directory, and angle-bracket
-  includes through proven roots, preferably from `compile_commands.json`).
+  **C#** is likewise repository context activated (#542): each scan builds a
+  `namespace -> declaring files` index scoped to each `.csproj` PROJECT
+  boundary (the nearest ancestor directory holding one, classified as a
+  manifest node so its location is visible to the preparation pass). A
+  `.csproj`'s LOCATION marks that boundary and the namespace-index grouping: an
+  SDK-style project globs the `.cs` files beneath its directory, so the manifest
+  only needs to be present. A `using` fans out within the importer's own project
+  and into any project it explicitly references (see below); a namespace
+  declared in an UNREFERENCED different project does not resolve, so there is no
+  repository-global fan-out once project ownership is known. A `using
+  global::X.Y` names the same namespace as `using X.Y` (the `global::` alias
+  qualifier only forces root-namespace lookup), so it is stripped and both
+  resolve identically (#548). A `.cs` file with no owning `.csproj` falls back
+  to path-only resolution (no fan-out, and no warning, since the config is
+  merely absent rather than broken). The only "unusable" case is an UNREADABLE
+  or non-UTF-8 `.csproj`: its location still bounds the project (so its files
+  never leak into an ancestor project), but its namespaces stay unindexed, so
+  every `using` beneath it falls back to path-only resolution with one
+  deterministic `other` warning. A UTF-8 `.csproj` whose XML is invalid is NOT
+  unusable: the boundary holds and its `.cs` namespaces still index.
+  `System.*` and external assemblies always drop. A `global using` emits the
+  edge from its own declaring file; re-applying one file's global usings to its
+  sibling files is a documented limitation (the per-file extract/resolve
+  contract has no implicit-import hook).
+
+  **C# `<ProjectReference>` cross-project edges (#548):** per-project scoping
+  has one explicit escape hatch. An SDK `.csproj` names its build dependencies
+  with `<ProjectReference Include="..\Other\Other.csproj" />`; when that element
+  is present, a `using` in the referencing project also fans out into the
+  referenced project's declarers, so a namespace declared in an explicitly
+  referenced project resolves. This is the one place the manifest's XML is
+  parsed (tolerantly, matching by local name so an old-style project's MSBuild
+  XML namespace does not hide the element); the boundary and the namespace-index
+  grouping stay location-only. References are DIRECT ONLY, not transitive: if A
+  references B and B references C, a `using` in A resolves into B but not into C.
+  Include paths use MSBuild backslashes, resolved relative to the referencing
+  `.csproj`'s own directory. A manifest that is unreadable, non-UTF-8, or
+  malformed XML contributes no references (its own boundary and namespaces are
+  unaffected); a scanned `.csproj` declaring a DTD is refused, closing the XML
+  entity-expansion denial-of-service vector. A bad `.csproj` never aborts the
+  scan.
+
+  Capabilities that await repository context (#484): C/C++ resolution through
+  configured include directories (quoted includes beyond the importer's own
+  directory, and angle-bracket includes through proven roots, preferably from
+  `compile_commands.json`).
 
   This layer is **optional**: it needs the `tree-sitter` parser, shipped as the
   `sumo-qa[treesitter]` extra. With the extra absent the scan still succeeds: it
@@ -432,7 +474,7 @@ regenerate locally before comparison.
 | 5 | `sumo_qa_query_repo_map`, bounded ranked search over the map; wiring of `sumo-qa-reviewing-before-merge`, `sumo-qa-preparing-for-work`, and `sumo-qa-strategising` to prefer the map when present and fall back to a repo walk when absent |
 | 6 | `sumo-qa analyze` / `sumo-qa status` CLI commands (#160): terminal-facing wrappers over the same `scan_repo` / load+validate services, with `--json`; bare `sumo-qa` still launches the MCP server |
 | 7 | Local QA report (#157): `sumo-qa report` / `sumo_qa_generate_qa_report` compose the repo-map, diff-impact, risk-ledger, and context-bundle artifacts into the static `.sumo-qa/qa-report.html` page with honest not-available states ([QA-REPORT.md](QA-REPORT.md)) |
-| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra); per-language resolvers with scanner-owned extensions (#483) run their path-only rules at scan time, repository-context capabilities land with #484; every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
+| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra); per-language resolvers with scanner-owned extensions (#483) run their path-only rules at scan time, repository-context capabilities land per language via the #484 preparation pass (Rust #358, C# #542); every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
 
 `configured_by` and `command_runs` edges are deferred. The scanner emits
 `likely_tests` edges always, and `imports` edges when the `[treesitter]` extra
