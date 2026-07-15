@@ -44,16 +44,19 @@ INTENTIONALLY BOUNDED (residual named and accepted), never open or unaddressed.
 - **Classification:** intentionally bounded, with the boundary now MEASURED (#528):
   serve-time overlays cannot reduce end-to-end session cost; the profile's honest
   contract is decisive, low-ceremony output plus a lean tool path, with no cost claim.
-- **Control (merged):** `SUMO_QA_OUTPUT_PROFILE=concise|default|strict` serve-time
-  overlays on the single skill-serving path. Every overlay restates the never-optional
-  floor (Iron Law, HARD-GATE, evidence for claims, confirmation before writes/installs).
+- **Control:** `SUMO_QA_OUTPUT_PROFILE=concise|default|lean|strict` on the single
+  skill-serving path: `concise`/`strict` are serve-time overlays (merged #215/#471) and
+  `lean` (added #528) serves the progressive-loading route in place of the body. Every
+  overlay (and the lean route) restates the never-optional floor (Iron Law, HARD-GATE,
+  evidence for claims, confirmation before writes/installs).
   Unrecognised values fall back to `default`; the overlay rides the oversize pointer only
   when the combination itself fits the token cap.
 - **Owner / delivery:** issue #215, PR #471 (merged 2026-07-13).
 - **Evidence:** `src/sumo_qa/skill_prompts.py`; the profile suite in
-  `tests/test_skill_prompts.py` (14 tests: byte-for-byte default through the real
+  `tests/test_skill_prompts.py` (18 tests: byte-for-byte default through the real
   registration path, overlay prepending, env-var call-time selection, invalid fallback,
-  mandatory-gate preservation, token-cap degradation); documentation contract in
+  mandatory-gate preservation, token-cap degradation, the concise tool-budget contract,
+  and lean progressive-route serving with its over-cap pointer floor); documentation contract in
   `docs/CONFIGURATION.md`, `docs/TOOLS.md`, `docs/SKILLS.md`, and `docs/ARCHITECTURE.md`.
   Live merge-gate proof: sha256-verified byte identity of default serving and the router
   against the pre-change code, overlay heads with the gate language intact; see the batch

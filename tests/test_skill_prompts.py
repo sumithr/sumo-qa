@@ -468,23 +468,48 @@ def test_lean_profile_is_env_selectable(tmp_path, monkeypatch) -> None:
     assert "above the" not in out.lower()
 
 
-def test_lean_pointer_never_exceeds_cap(tmp_path) -> None:
-    """Same #393 discipline for lean: with a cap the bare pointer fits under but
-    overlay + pointer does NOT, the overlay is dropped rather than recreating an
-    over-cap response. A broken implementation that always prepends the lean
-    overlay overflows the cap; the correct one serves the in-cap pointer alone."""
-    from sumo_qa.skill_prompts import _LEAN_OVERLAY, _approx_tokens, _make_skill_callable
+def test_lean_over_cap_serves_the_minimal_pointer_never_the_body(tmp_path) -> None:
+    """The honest #393 invariant for lean is "never serve the over-cap BODY", NOT
+    "the served pointer always fits the cap". The progressive-loading pointer has a
+    floor size and cannot shrink below it, so under a cap below that floor the pointer
+    legitimately exceeds the cap - but it is still the minimal payload and still far
+    under the over-cap body the host would refuse. Two regimes, both must hold: the
+    body is never served, and what IS served is exactly the minimal pointer.
+
+    Regression: the previous version asserted served <= cap at cap=200, above the
+    ~195-token pointer floor, so it silently passed a claim (pointer always <= cap)
+    that is false for a sub-floor cap - masking the real, weaker-but-honest contract."""
+    from sumo_qa.skill_prompts import (
+        _LEAN_OVERLAY,
+        _approx_tokens,
+        _lean_pointer_text,
+        _make_skill_callable,
+    )
 
     skill_dir = tmp_path / "skill"
     skill_dir.mkdir()
-    (skill_dir / "SKILL.md").write_text(
-        "---\ndescription: d\n---\n# Body\n" + ("x " * 2000), encoding="utf-8"
-    )
-    fn = _make_skill_callable(skill_dir / "SKILL.md", token_cap=200, profile="lean")
-    out = fn()
-    assert _approx_tokens(out) <= 200
-    assert "sumo_qa_load_skill_context" in out
-    assert not out.startswith(_LEAN_OVERLAY)
+    marker = "OVERCAP_BODY_MARKER_z9"
+    body = "---\ndescription: d\n---\n# Body\n" + (marker + " x ") * 2000
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+
+    bare_pointer = _lean_pointer_text(skill_dir.name, _approx_tokens(body))
+    floor = _approx_tokens(bare_pointer)
+
+    # Regime 1: cap between the bare pointer and overlay + pointer -> overlay
+    # dropped, the in-cap bare pointer served (never the body).
+    out1 = _make_skill_callable(skill_dir / "SKILL.md", token_cap=floor + 5, profile="lean")()
+    assert marker not in out1  # the over-cap body is never served
+    assert out1 == bare_pointer  # exactly the minimal pointer
+    assert not out1.startswith(_LEAN_OVERLAY)  # overlay dropped to fit
+    assert _approx_tokens(out1) <= floor + 5  # fits the cap in this regime
+
+    # Regime 2: cap BELOW the bare-pointer floor -> the body is STILL never served;
+    # the minimal pointer is served even though it exceeds this sub-floor cap,
+    # because it is the smallest payload available.
+    out2 = _make_skill_callable(skill_dir / "SKILL.md", token_cap=floor - 20, profile="lean")()
+    assert marker not in out2  # the over-cap body is STILL never served
+    assert out2 == bare_pointer  # the minimal pointer, not a larger payload
+    assert _approx_tokens(out2) > floor - 20  # honestly above the sub-floor cap
 
 
 def test_overlays_stay_within_a_bounded_token_budget() -> None:
