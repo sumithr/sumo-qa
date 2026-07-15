@@ -4,7 +4,7 @@ The sumo-qa MCP ships a library of skills under [`skills/`](../skills/). Each is
 `SKILL.md` file the host LLM follows literally: YAML frontmatter, an Iron Law, a
 checklist, a Process Flow section, a Red Flags table, examples.
 
-Each skill is also exposed as an MCP tool with the same name (e.g. `sumo_qa_deciding_approach`). The tool returns the SKILL.md body verbatim under the default output profile (a non-default `SUMO_QA_OUTPUT_PROFILE` prepends a small overlay, see [Configuration](CONFIGURATION.md#output-verbosity-and-strictness-profiles)), so hosts that don't have a native skill loader (JetBrains AI Assistant, Junie, VS Code Copilot) get the same content.
+Each skill is also exposed as an MCP tool with the same name (e.g. `sumo_qa_deciding_approach`). The tool returns the SKILL.md body verbatim under the default output profile (`concise` and `strict` prepend a small overlay, and the experimental `lean` profile serves the skill's progressive-loading route in place of the full body; see [Configuration](CONFIGURATION.md#output-verbosity-and-strictness-profiles)), so under `default` hosts that don't have a native skill loader (JetBrains AI Assistant, Junie, VS Code Copilot) get the same content.
 
 **SKILL.md prose defines host-neutral obligations**, capability contracts like *"maintain an ordered work tracker"* or *"dispatch a fresh delegated worker"*. The same body is exposed to every host through whichever surface that host provides (native slash command, MCP tool, agentic-mode tool selection). Skill bodies and contract docs deliberately avoid naming any one host's tools; see `using-sumo-qa` → *Shared vocabulary* for the canonical capability terms each host adapts, and `tests/test_skill_conformance.py` for the regression guard.
 
@@ -14,7 +14,7 @@ Slash-menu conventions differ per host:
 - **JetBrains AI Assistant**: `/sumo_qa_deciding_approach` (underscores): comes from the MCP tool. Every MCP entry is slash-invocable.
 - **JetBrains Junie / VS Code Copilot**: Natural language; the AI picks the tool by description in Agent mode.
 
-All paths invoke the same SKILL.md body. Under a non-default `SUMO_QA_OUTPUT_PROFILE` the MCP skill tool prepends a small output-profile overlay to that body; native skill files and the progressive-loading loader (`sumo_qa_load_skill_context`) always carry the canonical text.
+All paths invoke the same SKILL.md body. Under a non-default `SUMO_QA_OUTPUT_PROFILE` the MCP skill tool reshapes what it serves: `concise` and `strict` prepend a small output-profile overlay to that body, while the experimental `lean` profile serves the skill's progressive-loading route (a pointer to `sumo_qa_load_skill_context`) in place of the full body. Native skill files and the progressive-loading loader (`sumo_qa_load_skill_context`) always carry the canonical text.
 
 ## The skills
 
@@ -67,7 +67,7 @@ A skill body can be loaded whole, or in slices, through the partial loader (`sum
 
 - **manifest**: compact routing metadata (description, token weights, section/module ids, which sections are `required`). A *navigation aid*, not the instruction. Use it to pick a skill and see its shape.
 - **section** / **module**: one verbatim slice of the body (e.g. just the Iron Law, or one lazy module). **Canonical**: cite or follow it directly.
-- **full**: the entire canonical body, byte-for-byte identical to the zero-argument skill tool under the default output profile (under `concise`/`strict` the skill tool prepends the profile overlay; this loader always serves the canonical bytes). **Canonical**: load it when you are about to *execute* the skill and need the exact procedure wording. If a body would exceed the host's per-response token cap (today only `sumo-qa-reviewing-before-merge`), `mode="full"` and the zero-argument tool both return a compact `oversize` pointer to the manifest/section/module slices instead of the over-cap body the host would refuse (#393), so load that skill progressively.
+- **full**: the entire canonical body, byte-for-byte identical to the zero-argument skill tool under the default output profile (under `concise`/`strict` the skill tool prepends the profile overlay, and under the experimental `lean` profile it serves a progressive-loading pointer in place of the body; this loader always serves the canonical bytes). **Canonical**: load it when you are about to *execute* the skill and need the exact procedure wording. If a body would exceed the host's per-response token cap (today only `sumo-qa-reviewing-before-merge`), `mode="full"` and the zero-argument tool both return a compact `oversize` pointer to the manifest/section/module slices instead of the over-cap body the host would refuse (#393), so load that skill progressively.
 
 **Canonical vs compact.** `section`, `module`, and `full` are verbatim from the file and may be followed as authoritative. The manifest paths are compact summaries for routing only, never treat a manifest description or section list as the procedure. When a workflow is actually running and depends on exact wording (Iron Law, HARD-GATE, the step-by-step checklist), load the full body or the specific section, not the manifest.
 
