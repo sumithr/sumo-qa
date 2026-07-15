@@ -272,11 +272,11 @@ def test_skill_tool_description_matches_frontmatter() -> None:
 # ---------------------------------------------------------------------------
 # Output-profile overlay (issue #215)
 #
-# SUMO_QA_OUTPUT_PROFILE=concise|default|strict tunes how much ceremony wraps a
-# served skill body WITHOUT editing any SKILL.md (a shared serve-time overlay,
-# not a per-skill rewrite). `default` must serve the body byte-for-byte
-# (backwards compatible); `concise`/`strict` prepend a small, bounded overlay
-# that reshapes output but can never downgrade a mandatory gate.
+# SUMO_QA_OUTPUT_PROFILE=concise|default|lean|strict tunes how sumo-qa serves a
+# skill body WITHOUT editing any SKILL.md. `default` must serve the body
+# byte-for-byte (backwards compatible); `concise`/`strict` prepend a small,
+# bounded overlay; `lean` serves the progressive-loading route in place of the
+# body. No profile can downgrade a mandatory gate.
 # ---------------------------------------------------------------------------
 
 
@@ -476,9 +476,9 @@ def test_lean_over_cap_serves_the_minimal_pointer_never_the_body(tmp_path) -> No
     under the over-cap body the host would refuse. Two regimes, both must hold: the
     body is never served, and what IS served is exactly the minimal pointer.
 
-    Regression: the previous version asserted served <= cap at cap=200, above the
-    ~195-token pointer floor, so it silently passed a claim (pointer always <= cap)
-    that is false for a sub-floor cap - masking the real, weaker-but-honest contract."""
+    Regression: the previous version asserted served <= cap at cap=200, above this
+    fixture's ~166-token pointer floor, so it silently passed a claim (pointer always
+    <= cap) that is false for a sub-floor cap, masking the real, honest contract."""
     from sumo_qa.skill_prompts import (
         _LEAN_OVERLAY,
         _approx_tokens,

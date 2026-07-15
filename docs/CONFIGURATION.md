@@ -22,9 +22,10 @@ bundled defaults.
 `SUMO_QA_OUTPUT_PROFILE` tunes how much ceremony wraps the skill guidance
 sumo-qa serves, so a small docs-only or test-only edit does not feel like a
 full QA audit while security, API, migration, and release-gate work still gets
-strict handling. It is a serve-time overlay on the single skill-serving path,
-so no skill file is edited and the canonical `SKILL.md` content stays readable
-and host-neutral.
+strict handling. It reshapes only the single skill-serving path at serve time
+(an overlay for `concise`/`strict`, a progressive-loading route for `lean`), so
+no skill file is edited and the canonical `SKILL.md` content stays readable and
+host-neutral.
 
 | Value | Effect |
 |---|---|

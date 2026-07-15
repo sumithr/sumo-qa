@@ -162,7 +162,7 @@ def _resolve_output_profile(override: str | None = None) -> str:
 
 
 def _profile_overlay(profile: str) -> str:
-    """Return the serve-time overlay prepended to a skill body for `profile`.
+    """Return the serve-time overlay prepended to the served output for `profile`.
 
     `default` returns "" (the body is served byte-for-byte). `concise` and
     `strict` return a small, bounded directive block that reshapes the host's
@@ -289,8 +289,9 @@ def _make_skill_callable(path: Path, token_cap: int | None = None, profile: str 
     The active output profile (#215) is resolved FRESH on each call (env var >
     documented default), so a host config change takes effect without a rebind —
     the same freshness philosophy as reading the SKILL.md each call. For
-    `concise`/`strict` a small overlay is prepended to the body; `default` leaves
-    the body byte-for-byte unchanged. `profile` is an explicit override used by
+    `concise`/`strict` a small overlay is prepended to the body; `lean` serves the
+    skill's progressive-loading route (a pointer) in place of the body; `default`
+    leaves the body byte-for-byte unchanged. `profile` is an explicit override used by
     tests (falls through to the env var when None).
 
     When the composed body would exceed the per-response token cap (#393), the

@@ -4,7 +4,7 @@ The sumo-qa MCP exposes a small, thin tool surface: skill tools, knowledge loade
 
 ## Skill tools
 
-Each returns the full body of a `skills/<name>/SKILL.md` file. The host LLM treats the returned markdown as the procedure to follow (Iron Law + checklist + flowchart + Red Flags + examples). A body that would exceed the host's per-response token cap (the heaviest skill, `sumo-qa-reviewing-before-merge`) is returned as a compact pointer to the progressive-loading slices instead of the over-cap body the host would refuse (see [Progressive skill loading](#progressive-skill-loading); #393).
+Each returns the full body of a `skills/<name>/SKILL.md` file under the `default` output profile (`concise`/`strict` prepend a small overlay; the experimental `lean` profile serves a progressive-loading pointer instead of the body; see the Output profile note below). The host LLM treats the returned markdown as the procedure to follow (Iron Law + checklist + flowchart + Red Flags + examples). A body that would exceed the host's per-response token cap (the heaviest skill, `sumo-qa-reviewing-before-merge`) is returned as a compact pointer to the progressive-loading slices instead of the over-cap body the host would refuse (see [Progressive skill loading](#progressive-skill-loading); #393).
 
 The skill bodies are host-neutral: they declare capability obligations (ordered work tracker, structured user-choice prompt, fresh delegated worker; see `using-sumo-qa` → *Shared vocabulary*) rather than naming any one host's specific tools. Adapters surface the same bodies through host-specific UIs (Claude Code slash commands, JetBrains MCP slash commands, Copilot agentic-mode tool selection, etc.).
 

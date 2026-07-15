@@ -9,8 +9,9 @@ instead of the whole SKILL.md body.
 
 Why a sibling module rather than extending ``skill_prompts``: the existing
 ``skill_prompts`` module owns the *registration* of each SKILL.md as a
-zero-argument MCP tool that returns the full body. Those tools keep returning
-the body byte-for-byte for every UNDER-CAP skill (the ``mode="full"`` contract
+zero-argument MCP tool that returns the full body under the default output
+profile. Those tools keep returning the body byte-for-byte for every UNDER-CAP
+skill under ``default`` (the ``mode="full"`` contract
 here is verified against them); a body over the host's per-response token cap
 degrades to a progressive-loading pointer through BOTH paths instead of
 failing opaquely (#393). This module only *reads*; it reuses
@@ -415,8 +416,10 @@ def load_skill_context(
       * ``"full"``     — the entire SKILL.md body, byte-for-byte identical to
         the existing zero-argument skill tool for this skill under the default
         output profile (under a non-default ``SUMO_QA_OUTPUT_PROFILE`` the skill
-        tool prepends the #215 profile overlay while this loader always serves
-        the canonical body, keeping ``content_hash`` stable across profiles).
+        tool reshapes its output: ``concise``/``strict`` prepend the #215 overlay
+        and ``lean`` serves a progressive-loading pointer, while this loader
+        always serves the canonical body, keeping ``content_hash`` stable across
+        profiles).
         When that body exceeds the per-response token cap (``token_cap`` > env
         var > default),
         an oversize pointer envelope (``oversize=True``, no ``content``) naming

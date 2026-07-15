@@ -1930,8 +1930,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         values rather than raising. Read-only and local-only: no network, no
         extraction, no caching. The existing zero-argument skill tools still
         return full bodies unchanged under the default output profile; a
-        non-default `SUMO_QA_OUTPUT_PROFILE` (#215) prepends a small verbosity
-        overlay to those skill-tool bodies, while this index stays unchanged."""
+        non-default `SUMO_QA_OUTPUT_PROFILE` (#215/#528) reshapes those skill-tool
+        bodies (`concise`/`strict` prepend a verbosity overlay, `lean` serves a
+        progressive-loading pointer), while this index stays unchanged."""
         return json.dumps(_list_skill_manifests(detail), ensure_ascii=False, indent=2)
 
     @mcp.tool(annotations=_read_only_local)
@@ -1954,7 +1955,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
           - "full"     — the entire SKILL.md body, byte-for-byte identical to the
             existing zero-argument skill tool for `skill_name` under the default
             output profile (under `concise`/`strict` the skill tool prepends the
-            #215 profile overlay while this loader always serves the canonical
+            #215 profile overlay, and under `lean` it serves a progressive-loading
+            pointer, while this loader always serves the canonical
             body, keeping `content_hash` stable across profiles); a body over the
             host's per-response token cap is returned as an `oversize` pointer
             to the manifest/section/module slices instead of failing (#393).
