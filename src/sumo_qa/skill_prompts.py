@@ -162,11 +162,13 @@ def _resolve_output_profile(override: str | None = None) -> str:
 
 
 def _profile_overlay(profile: str) -> str:
-    """Return the serve-time overlay prepended to the served output for `profile`.
+    """Return the serve-time overlay for `profile` (prepended to the served
+    output, or dropped when the composed payload would exceed the token cap).
 
     `default` returns "" (the body is served byte-for-byte). `concise` and
-    `strict` return a small, bounded directive block that reshapes the host's
-    output while restating the never-optional gate floor."""
+    `strict` return a small, bounded directive block prepended to the body;
+    `lean` returns one prepended to the progressive-loading pointer. Every
+    non-empty overlay restates the never-optional gate floor."""
     return _PROFILE_OVERLAYS.get(profile, "")
 
 
