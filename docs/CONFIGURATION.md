@@ -31,14 +31,14 @@ host-neutral.
 |---|---|
 | `concise` | Shortest useful answer AND leanest tool path: one focused risk/test summary, findings over framing, no formal section headers or evidence tables unless the skill marks them mandatory; load only what the skill's gates require, skip supplementary loads and sweeps, never re-load content already in context (#528). |
 | `default` | Current behaviour. The skill body is served byte-for-byte, unchanged. |
-| `lean` | Experimental (#528): serves each skill's progressive-loading route (manifest pointer) instead of the full body, so the host loads only the sections its gates require, plus the concise decisiveness contract. Measured at n=3: roughly 4 percent cheaper on mean session tokens, within run noise; quality held. |
+| `lean` | Experimental (#528): serves each skill's progressive-loading route (manifest pointer) instead of the full body, so the host loads only the sections its gates require, plus the concise decisiveness contract. Measured across two n=3 A/Bs (sonnet plus a fresh haiku re-run with an Opus quality judge): no material cost change vs default (within run noise; quality held). It does not reduce session cost. |
 | `strict` | Full ceremony: each gate stated explicitly, evidence as a table, every named risk mapped to its test, and an explicit residual-risk section. |
 
 Profiles shape ceremony and the tool path, not the session price. Measured
-end-to-end with a real headless agent (#528, three A/Bs, 2026-07-14/15):
+end-to-end with a real headless agent (#528, four A/Bs, 2026-07-14/15):
 `concise` does not reduce total session tokens, and even `lean` (serving the
-progressive route instead of full bodies) moves the mean only ~4 percent at
-n=3, within run noise. Session cost is dominated by the per-turn context
+progressive route instead of full bodies) shows no material cost change at n=3,
+the direction not even stable across runs (within a large noise band). Session cost is dominated by the per-turn context
 re-read multiplied by turn count, which serving changes cannot shrink; the
 lever with real headroom is fewer turns (a composite flow surface), tracked as
 #536. Pick `concise` for decisive, low-ceremony output and `lean` to
