@@ -184,12 +184,12 @@ What the slice-2 scanner produces:
   - **Repository context activated**: resolution rules that need
     per-repository configuration or cross-file indexes activate only when a
     scan-local preparation pass derives that context from the repository
-    itself. The preparation foundation ships with the Rust and
-    TypeScript/JavaScript slices: each scan prepares a fresh, scan-scoped
-    resolver, never mutating the registered one, so sequential and concurrent
-    scans share nothing, and an unreadable or malformed config degrades to
-    path-only resolution with one deterministic `other` warning per affected
-    file. Languages whose context derivation has not landed yet (#484)
+    itself. The preparation foundation ships with the Rust,
+    TypeScript/JavaScript, and PHP slices: each scan prepares a fresh,
+    scan-scoped resolver, never mutating the registered one, so sequential and
+    concurrent scans share nothing, and an unreadable or malformed config
+    degrades to path-only resolution with one deterministic `other` warning per
+    affected file. Languages whose context derivation has not landed yet (#484)
     deliberately **under-edge**: no edge is emitted rather than a guessed one.
 
   Every registered resolver is extension activated: **Python** (the reference
@@ -210,7 +210,8 @@ What the slice-2 scanner produces:
     macro, absolute/directory-spelled, and repo-root-escaping includes emit
     no edge.
   - **PHP**: a relative `require`/`include` (including `__DIR__`-anchored
-    forms) resolves at scan time with no Composer context.
+    forms) resolves at scan time with no Composer context; PSR-4 `use`
+    mapping is additionally repository context activated (see below).
   - **C#**: `.cs` files classify, stamp `csharp`, and reach the registered
     resolver; with no namespace index supplied, `using` directives resolve to
     nothing (no edges) rather than guessing.
@@ -234,11 +235,19 @@ What the slice-2 scanner produces:
   fallback; an unreadable or malformed config degrades to path-only with one
   deterministic `other` warning per affected file.
 
-  Capabilities that await repository context (#484): Composer PSR-4 `use`
-  mapping, C# namespace / `global using` fan-out, and C/C++ resolution through
-  configured include directories (quoted includes beyond the importer's own
-  directory, and angle-bracket includes through proven roots, preferably
-  from `compile_commands.json`).
+  **PHP** is additionally repository context activated (#484): each scan
+  reads every `composer.json` and resolves PSR-4 `use` imports against the
+  autoload roots (production and dev, #479's precedence) of each importer's
+  NEAREST manifest, anchored to that manifest's own directory, so one
+  Composer package's map never resolves an import written in a sibling
+  package. A missing manifest is the normal path-only fallback; an unreadable
+  or unusable one degrades the same way plus one deterministic `other`
+  warning, never aborting the scan.
+
+  Capabilities that await repository context (#484): C# namespace / `global
+  using` fan-out, and C/C++ resolution through configured include directories
+  (quoted includes beyond the importer's own directory, and angle-bracket
+  includes through proven roots, preferably from `compile_commands.json`).
 
   This layer is **optional**: it needs the `tree-sitter` parser, shipped as the
   `sumo-qa[treesitter]` extra. With the extra absent the scan still succeeds: it
