@@ -33,7 +33,7 @@ _COLD_CONTEXT_VARS = {
 
 
 def _read(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _file_sha256(path: Path) -> str:
@@ -69,7 +69,7 @@ def _promptfoo_file_content(value: object, *, config_dir: Path) -> str | None:
     if not isinstance(value, str) or not value.startswith("file://"):
         return None
     path = (config_dir / value.removeprefix("file://")).resolve()
-    content = path.read_text()
+    content = path.read_text(encoding="utf-8")
     if path.suffix in {".yaml", ".yml"}:
         return json.dumps(yaml.safe_load(content), ensure_ascii=False, separators=(",", ":"))
     if path.suffix == ".json":
@@ -193,7 +193,7 @@ def compare_evidence(
         current_model, current_scenarios, current_metadata = build_prompts(group)
         _, current_baseline_scenarios, _ = build_prompts(
             group,
-            skill_content=SKILL_PATH.read_text(),
+            skill_content=SKILL_PATH.read_text(encoding="utf-8"),
         )
         current_config, current_tests, _ = load_group(group)
         current_defaults = current_config.get("defaultTest", {})

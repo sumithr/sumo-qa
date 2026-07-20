@@ -63,7 +63,7 @@ def _resolve_file_value(value: Any, *, config_dir: Path) -> Any:
     if not isinstance(value, str) or not value.startswith("file://"):
         return value
     path = (config_dir / value.removeprefix("file://")).resolve()
-    content = path.read_text()
+    content = path.read_text(encoding="utf-8")
     if path.suffix in {".yaml", ".yml"}:
         return yaml.safe_load(content)
     if path.suffix == ".json":
@@ -93,7 +93,7 @@ def _render_prompt(template: str, variables: dict[str, Any]) -> str:
 def load_group(group_name: str) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
     group = PINNED_GROUPS[group_name]
     config_path = EVAL_ROOT / group.config
-    config = yaml.safe_load(config_path.read_text())
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     matcher = re.compile(group.description_pattern)
     tests = [test for test in config["tests"] if matcher.search(test["description"])]
     if not tests:
@@ -107,7 +107,7 @@ def build_prompts(
     skill_content: str | None = None,
 ) -> tuple[str, list[tuple[str, str]], dict[str, str]]:
     config, tests, config_hash = load_group(group_name)
-    compact_prompt = PROMPT_PATH.read_text()
+    compact_prompt = PROMPT_PATH.read_text(encoding="utf-8")
     config_dir = (EVAL_ROOT / PINNED_GROUPS[group_name].config).parent
     defaults = {
         key: _resolve_file_value(value, config_dir=config_dir)
@@ -202,7 +202,10 @@ def write_grade_config(group_name: str, reviews: list[str], output_dir: Path) ->
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"candidate-{group_name}-grade-config.yaml"
-    path.write_text(yaml.safe_dump(grade_config, sort_keys=False, allow_unicode=True))
+    path.write_text(
+        yaml.safe_dump(grade_config, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -325,9 +328,10 @@ def run_group(group_name: str, output_dir: Path) -> Path:
     result_path = output_dir / f"candidate-{group_name}.json"
     model_outputs_path = output_dir / f"candidate-{group_name}-outputs.json"
     result_path.write_text(
-        json.dumps({"group": group_name, **metadata, "results": results}, indent=2) + "\n"
+        json.dumps({"group": group_name, **metadata, "results": results}, indent=2) + "\n",
+        encoding="utf-8",
     )
-    model_outputs_path.write_text(json.dumps(reviews, indent=2) + "\n")
+    model_outputs_path.write_text(json.dumps(reviews, indent=2) + "\n", encoding="utf-8")
     write_grade_config(group_name, reviews, output_dir)
     return result_path
 
@@ -339,7 +343,7 @@ def main() -> None:
     parser.add_argument("--grade-from-result", type=Path)
     args = parser.parse_args()
     if args.grade_from_result is not None:
-        result = json.loads(args.grade_from_result.read_text())
+        result = json.loads(args.grade_from_result.read_text(encoding="utf-8"))
         reviews = [validate_result_record(item)[0] for item in result["results"]]
         print(write_grade_config(args.group, reviews, args.output_dir))
         return

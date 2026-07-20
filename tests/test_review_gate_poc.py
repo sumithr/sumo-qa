@@ -202,8 +202,10 @@ def test_pinned_candidate_set_contains_exactly_seven_scenarios() -> None:
 
 
 def test_candidate_prompts_replace_only_the_skill_with_compact_contract() -> None:
-    compact_contract = Path("experiments/issue_557/compact_review_prompt.md").read_text()
-    full_skill = Path("skills/sumo-qa-reviewing-before-merge/SKILL.md").read_text()
+    compact_contract = Path("experiments/issue_557/compact_review_prompt.md").read_text(
+        encoding="utf-8"
+    )
+    full_skill = Path("skills/sumo-qa-reviewing-before-merge/SKILL.md").read_text(encoding="utf-8")
     for group in PINNED_GROUPS:
         _, scenarios, _ = build_prompts(group)
         _, baseline_scenarios, _ = build_prompts(group, skill_content=full_skill)
@@ -219,14 +221,16 @@ def test_candidate_prompts_replace_only_the_skill_with_compact_contract() -> Non
 
 
 def test_compact_contract_is_bounded() -> None:
-    compact_contract = Path("experiments/issue_557/compact_review_prompt.md").read_text()
+    compact_contract = Path("experiments/issue_557/compact_review_prompt.md").read_text(
+        encoding="utf-8"
+    )
 
     assert len(compact_contract) <= 5_500
 
 
 def test_grade_config_uses_echo_with_original_rubric(tmp_path: Path) -> None:
     grade_path = write_grade_config("core", ["Verdict: NOT SAFE TO MERGE"], tmp_path)
-    grade_config = yaml.safe_load(grade_path.read_text())
+    grade_config = yaml.safe_load(grade_path.read_text(encoding="utf-8"))
 
     assert grade_config["providers"] == ["echo"]
     assert grade_config["prompts"] == ["{{output}}"]
@@ -247,7 +251,9 @@ def test_comparison_requires_quality_and_token_reduction(tmp_path: Path) -> None
         model, scenarios, metadata = build_prompts(group)
         _, baseline_scenarios, _ = build_prompts(
             group,
-            skill_content=Path("skills/sumo-qa-reviewing-before-merge/SKILL.md").read_text(),
+            skill_content=Path("skills/sumo-qa-reviewing-before-merge/SKILL.md").read_text(
+                encoding="utf-8"
+            ),
         )
         config, current_tests, _ = load_group(group)
         default_test = config["defaultTest"]
@@ -359,7 +365,8 @@ def test_comparison_requires_quality_and_token_reduction(tmp_path: Path) -> None
                         "results": baseline_rows,
                     },
                 }
-            )
+            ),
+            encoding="utf-8",
         )
         (candidate_dir / f"candidate-{group}.json").write_text(
             json.dumps(
@@ -373,7 +380,8 @@ def test_comparison_requires_quality_and_token_reduction(tmp_path: Path) -> None
                     "model": model,
                     "results": candidate_results,
                 }
-            )
+            ),
+            encoding="utf-8",
         )
         (candidate_dir / f"candidate-{group}-grade.json").write_text(
             json.dumps(
@@ -398,7 +406,8 @@ def test_comparison_requires_quality_and_token_reduction(tmp_path: Path) -> None
                         "results": candidate_grade_rows,
                     },
                 }
-            )
+            ),
+            encoding="utf-8",
         )
 
     comparison = compare_evidence(baseline_dir, candidate_dir)
@@ -417,88 +426,88 @@ def test_comparison_requires_quality_and_token_reduction(tmp_path: Path) -> None
     assert insufficient_savings["tokens"]["target_met"] is False
 
     candidate_path = candidate_dir / "candidate-core.json"
-    original_candidate = candidate_path.read_text()
+    original_candidate = candidate_path.read_text(encoding="utf-8")
     tampered_candidate = json.loads(original_candidate)
     tampered_candidate["results"][0]["review"] = "Verdict: SAFE TO MERGE"
-    candidate_path.write_text(json.dumps(tampered_candidate))
+    candidate_path.write_text(json.dumps(tampered_candidate), encoding="utf-8")
     stale_review = compare_evidence(baseline_dir, candidate_dir)
     assert stale_review["verdict"] == "NOT PROVEN"
     assert stale_review["integrity"]["candidate_responses_revalidate"] is False
-    candidate_path.write_text(original_candidate)
+    candidate_path.write_text(original_candidate, encoding="utf-8")
 
     missing_attempts = json.loads(original_candidate)
     missing_attempts["results"][0]["attempts"] = []
-    candidate_path.write_text(json.dumps(missing_attempts))
+    candidate_path.write_text(json.dumps(missing_attempts), encoding="utf-8")
     invalid_usage = compare_evidence(baseline_dir, candidate_dir)
     assert invalid_usage["verdict"] == "NOT PROVEN"
     assert invalid_usage["integrity"]["usage_is_valid"] is False
-    candidate_path.write_text(original_candidate)
+    candidate_path.write_text(original_candidate, encoding="utf-8")
 
     grade_path = candidate_dir / "candidate-core-grade.json"
-    original_grade = grade_path.read_text()
+    original_grade = grade_path.read_text(encoding="utf-8")
     stale_grade = json.loads(original_grade)
     stale_grade["results"]["results"][0]["testCase"]["vars"]["output"] = "stale review"
-    grade_path.write_text(json.dumps(stale_grade))
+    grade_path.write_text(json.dumps(stale_grade), encoding="utf-8")
     unbound_grade = compare_evidence(baseline_dir, candidate_dir)
     assert unbound_grade["verdict"] == "NOT PROVEN"
     assert unbound_grade["integrity"]["grades_bind_validated_reviews"] is False
-    grade_path.write_text(original_grade)
+    grade_path.write_text(original_grade, encoding="utf-8")
 
     wrong_graded_output = json.loads(original_grade)
     wrong_graded_output["results"]["results"][0]["prompt"]["raw"] = "other output"
     wrong_graded_output["results"]["results"][0]["response"]["output"] = "other output"
-    grade_path.write_text(json.dumps(wrong_graded_output))
+    grade_path.write_text(json.dumps(wrong_graded_output), encoding="utf-8")
     mismatched_grade = compare_evidence(baseline_dir, candidate_dir)
     assert mismatched_grade["verdict"] == "NOT PROVEN"
     assert mismatched_grade["integrity"]["grades_bind_validated_reviews"] is False
-    grade_path.write_text(original_grade)
+    grade_path.write_text(original_grade, encoding="utf-8")
 
     inconsistent_grade = json.loads(original_grade)
     inconsistent_grade["results"]["results"][0]["gradingResult"]["pass"] = False
-    grade_path.write_text(json.dumps(inconsistent_grade))
+    grade_path.write_text(json.dumps(inconsistent_grade), encoding="utf-8")
     invalid_grade_result = compare_evidence(baseline_dir, candidate_dir)
     assert invalid_grade_result["verdict"] == "NOT PROVEN"
     assert invalid_grade_result["integrity"]["grading_results_are_consistent"] is False
-    grade_path.write_text(original_grade)
+    grade_path.write_text(original_grade, encoding="utf-8")
 
     unrelated_candidate = json.loads(original_candidate)
     unrelated_candidate["model"] = "unrelated-model"
-    candidate_path.write_text(json.dumps(unrelated_candidate))
+    candidate_path.write_text(json.dumps(unrelated_candidate), encoding="utf-8")
     baseline_path = baseline_dir / "issue557-baseline-core.json"
-    original_baseline = baseline_path.read_text()
+    original_baseline = baseline_path.read_text(encoding="utf-8")
     unrelated_baseline = json.loads(original_baseline)
     unrelated_baseline["results"]["results"][0]["provider"]["id"] = "openai:chat:unrelated-model"
-    baseline_path.write_text(json.dumps(unrelated_baseline))
+    baseline_path.write_text(json.dumps(unrelated_baseline), encoding="utf-8")
     stale_model = compare_evidence(baseline_dir, candidate_dir)
     assert stale_model["verdict"] == "NOT PROVEN"
     assert stale_model["integrity"]["current_configs_match"] is False
     assert stale_model["integrity"]["candidate_models_match"] is False
-    candidate_path.write_text(original_candidate)
-    baseline_path.write_text(original_baseline)
+    candidate_path.write_text(original_candidate, encoding="utf-8")
+    baseline_path.write_text(original_baseline, encoding="utf-8")
 
     wrong_prompt = json.loads(original_baseline)
     wrong_prompt["results"]["results"][0]["prompt"]["raw"] = Path(
         "skills/sumo-qa-reviewing-before-merge/SKILL.md"
-    ).read_text()
-    baseline_path.write_text(json.dumps(wrong_prompt))
+    ).read_text(encoding="utf-8")
+    baseline_path.write_text(json.dumps(wrong_prompt), encoding="utf-8")
     stale_prompt = compare_evidence(baseline_dir, candidate_dir)
     assert stale_prompt["verdict"] == "NOT PROVEN"
     assert stale_prompt["integrity"]["baseline_contains_current_context"] is False
-    baseline_path.write_text(original_baseline)
+    baseline_path.write_text(original_baseline, encoding="utf-8")
 
     wrong_embedded_config = json.loads(original_baseline)
     wrong_embedded_config["config"]["providers"] = [{"id": "openai:chat:stale"}]
-    baseline_path.write_text(json.dumps(wrong_embedded_config))
+    baseline_path.write_text(json.dumps(wrong_embedded_config), encoding="utf-8")
     stale_embedded_config = compare_evidence(baseline_dir, candidate_dir)
     assert stale_embedded_config["verdict"] == "NOT PROVEN"
     assert stale_embedded_config["integrity"]["embedded_configs_match"] is False
-    baseline_path.write_text(original_baseline)
+    baseline_path.write_text(original_baseline, encoding="utf-8")
 
     failing_grade_path = candidate_dir / "candidate-adversarial-grade.json"
-    failing_grade = json.loads(failing_grade_path.read_text())
+    failing_grade = json.loads(failing_grade_path.read_text(encoding="utf-8"))
     failing_grade["results"]["results"][0]["success"] = False
     failing_grade["results"]["results"][0]["score"] = 0.7
-    failing_grade_path.write_text(json.dumps(failing_grade))
+    failing_grade_path.write_text(json.dumps(failing_grade), encoding="utf-8")
 
     regressed_quality = compare_evidence(baseline_dir, candidate_dir)
     assert regressed_quality["verdict"] == "NOT PROVEN"
