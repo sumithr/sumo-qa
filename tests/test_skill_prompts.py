@@ -103,9 +103,30 @@ def test_skill_tool_body_matches_skill_md_content() -> None:
                 f"tool {tool_name!r} pointer does not name the progressive-loading route"
             )
         else:
-            assert expected_text in bodies[tool_name], (
-                f"tool {tool_name!r} body does not contain SKILL.md content"
+            assert bodies[tool_name] == expected_text, (
+                f"tool {tool_name!r} body is not byte-for-byte the SKILL.md content"
             )
+
+
+def test_output_profile_env_is_inert_after_revert(tmp_path, monkeypatch) -> None:
+    """The output-profile feature was removed (#556 reverts #215/#471). Setting
+    SUMO_QA_OUTPUT_PROFILE must have NO effect: the served body stays byte-for-byte
+    the SKILL.md content. This guards against a silent reintroduction of a
+    serve-time overlay under the old env var."""
+    from sumo_qa.skill_prompts import _make_skill_callable
+
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    raw = "---\ndescription: d\n---\n# Body\n" + "word " * 40
+    (skill_dir / "SKILL.md").write_text(raw, encoding="utf-8")
+
+    assert _make_skill_callable(skill_dir / "SKILL.md")() == raw
+    for value in ("concise", "strict", "lean", "nonsense"):
+        monkeypatch.setenv("SUMO_QA_OUTPUT_PROFILE", value)
+        assert _make_skill_callable(skill_dir / "SKILL.md")() == raw, (
+            f"SUMO_QA_OUTPUT_PROFILE={value!r} changed the served body; "
+            f"the removed profile feature must stay inert"
+        )
 
 
 # ---------------------------------------------------------------------------
