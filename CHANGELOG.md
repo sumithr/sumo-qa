@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.0](https://github.com/sumithr/sumo-qa/compare/v0.59.0...v0.60.0) (2026-07-20)
+
+
+### Features
+
+* **repo-map:** activate C# project-scoped namespace resolution during scan ([#542](https://github.com/sumithr/sumo-qa/issues/542)) ([#548](https://github.com/sumithr/sumo-qa/issues/548)) ([3369e53](https://github.com/sumithr/sumo-qa/commit/3369e539882dd791d78500266edd679679779831))
+
 ## [0.59.0](https://github.com/sumithr/sumo-qa/compare/v0.58.0...v0.59.0) (2026-07-20)
 
 
