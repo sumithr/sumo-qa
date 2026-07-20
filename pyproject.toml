@@ -315,6 +315,10 @@ also_copy = [
   "knowledge/",
   "skills/",
   "hooks/",
+  # tests/test_review_gate_poc.py imports the issue #557 proof harness from the
+  # repo-root experiments package. Mirror it so mutmut's isolated test tree can
+  # collect that test module. This package is not shipped in the wheel.
+  "experiments/",
   # plugin_packaging/ lives at the repo root (not under src/). Tests in
   # tests/test_plugin_packaging_*.py import it directly; without copying
   # it into the mutants/ mirror those tests fail to collect, mutmut's
