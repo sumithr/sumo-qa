@@ -1,0 +1,9 @@
+{
+  "name": "sumo-qa/php-blog",
+  "description": "Composer package A for the #484 PHP PSR-4 scan-activation tests. Its Blog\\ PSR-4 root is anchored to THIS package's src/, and must never resolve an import written in the sibling shop package.",
+  "autoload": {
+    "psr-4": {
+      "Blog\\": "src/"
+    }
+  }
+}
