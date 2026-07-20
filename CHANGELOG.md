@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.0](https://github.com/sumithr/sumo-qa/compare/v0.58.0...v0.59.0) (2026-07-20)
+
+
+### Features
+
+* **repo-map:** activate PHP composer PSR-4 resolution during scan ([#541](https://github.com/sumithr/sumo-qa/issues/541)) ([#547](https://github.com/sumithr/sumo-qa/issues/547)) ([3d431c1](https://github.com/sumithr/sumo-qa/commit/3d431c1895ad8ba24e08071b5a3166971a840c4f))
+
 ## [0.58.0](https://github.com/sumithr/sumo-qa/compare/v0.57.1...v0.58.0) (2026-07-20)
 
 
