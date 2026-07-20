@@ -19,8 +19,12 @@ negative:
   directory). The true negative is sibling-package isolation: one package's
   PSR-4 map must NOT resolve an import written in a sibling Composer package.
 - C#: ``.cs`` files become ``source_file`` nodes stamped ``csharp`` and reach
-  resolver dispatch (proven by a spy on the registered resolver); namespace
-  fan-out edges are deliberately NOT asserted (#484 owns the namespace index).
+  resolver dispatch (proven by a spy on the registered resolver); this fixture
+  carries no ``.csproj``, so with no project ownership the per-project
+  preparation pass (#542) has nothing to scope a fan-out to and the edge set
+  stays empty — the missing-config path-only fallback. Project-scoped namespace
+  fan-out over committed ``.csproj`` boundaries lives in
+  ``tests/test_repo_map_csharp_scan.py``.
 
 Without the extra, the same files still classify as correctly typed source
 nodes and the scan degrades through the existing single warning path.
@@ -250,11 +254,12 @@ def test_scan_php_pathologically_nested_composer_does_not_abort_scan(tmp_path: P
 
 @_needs_ts
 def test_scan_csharp_sources_reach_resolver_dispatch(monkeypatch):
-    # .cs files must classify as csharp source nodes AND reach the registered
-    # resolver (proven by a spy on extract). Namespace fan-out edges are
-    # deliberately NOT asserted: the registered resolver's namespace index is
-    # empty until #484 threads a per-scan index, so the exact edge set is
-    # empty (a true negative pinning the #484 boundary).
+    # .cs files must classify as csharp source nodes AND reach resolver dispatch
+    # (proven by a spy on the class-level extract, which fires on the prepared
+    # scan-local instance too). This fixture has no .csproj, so the per-project
+    # preparation pass (#542) finds no project ownership and the exact edge set
+    # is empty (the missing-config path-only fallback); committed-.csproj
+    # fan-out is exercised in tests/test_repo_map_csharp_scan.py.
     resolver = get_resolver("csharp")
     assert resolver is not None
     dispatched: list[int] = []

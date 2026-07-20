@@ -185,6 +185,15 @@ _MANIFEST_NAMES: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Build-manifest EXTENSIONS (as opposed to the exact filenames in
+# `_MANIFEST_NAMES`). A C# project file (`MyApp.csproj`) is the project manifest
+# that marks a project boundary; the C# import resolver reads its LOCATION from
+# the scanned node set (`ScanContext.files`) to scope namespace fan-out per
+# project (#542), exactly as the Rust resolver reads `Cargo.toml`. The file must
+# therefore classify as a node; its varied basename means it is owned by suffix,
+# not by an entry in `_MANIFEST_NAMES`.
+_MANIFEST_EXTS: Final[frozenset[str]] = frozenset({".csproj"})
+
 _INFRA_NAMES: Final[frozenset[str]] = frozenset(
     {"Dockerfile", "docker-compose.yml", "docker-compose.yaml"}
 )
@@ -375,7 +384,7 @@ def _classify(rel: Path) -> NodeType | None:
     if name in _CI_FILENAMES:
         return "ci_workflow"
 
-    if name in _MANIFEST_NAMES:
+    if name in _MANIFEST_NAMES or ext in _MANIFEST_EXTS:
         return "manifest"
 
     if "migrations" in parts or name == "schema.sql" or ext == ".sql":
