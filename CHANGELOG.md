@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.57.1](https://github.com/sumithr/sumo-qa/compare/v0.57.0...v0.57.1) (2026-07-20)
+
+
+### Reverts
+
+* remove the output-profile feature ([#215](https://github.com/sumithr/sumo-qa/issues/215)/[#471](https://github.com/sumithr/sumo-qa/issues/471)) as a negative result ([#556](https://github.com/sumithr/sumo-qa/issues/556)) ([c5eee44](https://github.com/sumithr/sumo-qa/commit/c5eee44ffa669ecc8c2bf7d36ad5879f0dffdb4b))
+
 ## [0.57.0](https://github.com/sumithr/sumo-qa/compare/v0.56.0...v0.57.0) (2026-07-14)
 
 
