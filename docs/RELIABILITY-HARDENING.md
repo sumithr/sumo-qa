@@ -41,30 +41,30 @@ INTENTIONALLY BOUNDED (residual named and accepted), never open or unaddressed.
 
 ### 2. Verbosity fatigue
 
-- **Classification:** intentionally bounded (mechanism merged and pinned; host compliance
-  is behavioral).
-- **Control (merged):** `SUMO_QA_OUTPUT_PROFILE=concise|default|strict` serve-time
-  overlays on the single skill-serving path. Every overlay restates the never-optional
-  floor (Iron Law, HARD-GATE, evidence for claims, confirmation before writes/installs).
-  Unrecognised values fall back to `default`; the overlay rides the oversize pointer only
-  when the combination itself fits the token cap.
-- **Owner / delivery:** issue #215, PR #471 (merged 2026-07-13).
-- **Evidence:** `src/sumo_qa/skill_prompts.py`; the profile suite in
-  `tests/test_skill_prompts.py` (14 tests: byte-for-byte default through the real
-  registration path, overlay prepending, env-var call-time selection, invalid fallback,
-  mandatory-gate preservation, token-cap degradation); documentation contract in
-  `docs/CONFIGURATION.md`, `docs/TOOLS.md`, `docs/SKILLS.md`, and `docs/ARCHITECTURE.md`.
-  Live merge-gate proof: sha256-verified byte identity of default serving and the router
-  against the pre-change code, overlay heads with the gate language intact; see the batch
-  proof comment on PR #471.
-- **Default / compatibility:** `default` serves every body byte-for-byte. The overlay
-  applies to the skill-tool surface only; `sumo_qa_load_skill_context` and the
-  `sumoqa://` resources always serve the canonical body so `content_hash`
-  change-detection stays stable across profiles.
-- **Residual limit:** whether a host LLM actually emits shorter output under `concise`
-  is host-behavioral and cannot be proven by unit tests or disk-reading evals; the issue
-  author left that acceptance box unchecked by design. The discharge path is a live
-  A/B comparison across MCP builds.
+- **Classification:** intentionally bounded, no serve-time control. A serve-time
+  output-profile mechanism was tried and reverted (a documented negative result).
+- **Control:** none shipped. `SUMO_QA_OUTPUT_PROFILE` (the `concise`/`strict` serve-time
+  overlays, #215/#471) was reverted after the #528 investigation measured that a
+  serve-time prompt overlay cannot reliably reduce the reply a host emits: a prepended
+  brevity instruction loses to the model's task-completion drive. A strong model, given
+  the tightened contract and grounded input, still produced a full structured QA plan;
+  a weak model ignored the instruction amid large (~10x) run-to-run variance. Rather than
+  ship a knob that does not do its job, the feature was removed.
+- **Owner / delivery:** issue #215, PR #471 (merged 2026-07-13); reverted under the #528
+  investigation (this removal reverts commit `577527e`).
+- **Evidence:** the removal reverts `577527e` and its documentation; the #528
+  investigation records the A/B measurements and the strong-model contrast that showed no
+  reliable reduction. The skill-serving path returns to serving each `SKILL.md` body
+  byte-for-byte (the pre-#215 behavior), with the #393 over-cap progressive-loading
+  pointer unchanged.
+- **Default / compatibility:** the removal is behavior-preserving for the common case:
+  the zero-argument skill tools serve the canonical body (the same bytes `default`
+  served), and the `sumo_qa_load_skill_context` loader and `sumoqa://` resources are
+  unchanged.
+- **Residual limit:** verbosity is left to the host. If reply length must be controlled,
+  the effective levers are host-side (the host's own output settings) or fewer, more
+  structured turns, not a served overlay. The original acceptance box (does the host
+  actually emit shorter output) has now been answered: not via a serve-time overlay.
 
 ### 3. Enforcement uncertainty (unsupported workflow claims)
 
