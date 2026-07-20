@@ -35,25 +35,35 @@ Resolution rules (ported from UA):
 - **tsconfig ``paths`` / ``baseUrl`` aliases** map a non-relative specifier to
   one or more repo roots before probing (``@app/*`` → ``src/app/*``;
   ``baseUrl: "src"`` makes a bare ``util`` resolve from ``src/``). The alias
-  config is supplied at construction via :func:`parse_tsconfig`.
+  config comes either from a :class:`TsConfig` injected at construction, or —
+  during a real scan — from scan-local preparation (see below). Windows backslash
+  separators in a ``baseUrl`` / ``paths`` target are normalized to ``/`` so they
+  match the ``/``-joined repo paths. A tsconfig's ``extends`` field is ignored
+  (no base-config inheritance): only the config's own ``baseUrl`` / ``paths`` are
+  read.
 - **Bare specifiers** with no alias/baseUrl hit (``react``, ``lodash``,
   ``@scope/pkg``) are external → an empty list, the normal "not ours" outcome.
 
-**Note on alias resolution end-to-end.** The :class:`~sumo_qa.repo_map_resolvers.base.Resolver`
+**Scan-local tsconfig context (#484 TS/JS slice).** The base
+:class:`~sumo_qa.repo_map_resolvers.base.Resolver`
 ``resolve(importer, imp, file_set)`` contract passes neither the repo root nor
-file contents, so the resolver cannot itself read ``tsconfig.json`` during a
-scan. The two resolvers self-registered here therefore carry **no** tsconfig and
-resolve relative imports + barrels only — the bulk of intra-repo TS/JS edges.
-Alias/baseUrl resolution is a fully-implemented, fully-tested capability that
-activates once a ``TsConfig`` is supplied; wiring the orchestrator to discover
-and thread the project's ``tsconfig.json`` into the resolver is a foundation
-follow-up (it would change ``infer_imports_edges`` / the ``Resolver`` protocol,
-out of scope for this slice — see #354).
+file contents, so a resolver cannot itself read ``tsconfig.json`` mid-``resolve``.
+The two resolvers self-registered here therefore carry **no** tsconfig and stay
+path-only (relative imports + barrels — the bulk of intra-repo TS/JS edges).
+Alias/baseUrl resolution is activated by the preparation lifecycle:
+:meth:`TypeScriptResolver.prepare` derives a :class:`_TsConfigIndex` from the
+scan's bounded source reads — every ``tsconfig.json`` parsed and keyed by its
+own directory — and returns a NEW scan-local resolver carrying it, so the
+registered singleton is never mutated with repository data and sequential /
+concurrent scans share nothing. A real ``scan_repo`` then resolves each
+importer's non-relative specifiers against its NEAREST applicable tsconfig
+(:meth:`_nearest_tsconfig`); unrelated workspaces' alias tables are never
+flattened into one. A missing config is the silent path-only fallback; an
+unreadable or malformed config degrades to path-only with one deterministic
+``other`` warning, never aborting the scan.
 
-**Known limitations (tsconfig alias path, not yet scan-active).** Because the
-alias path is dormant at scan time (no tsconfig is threaded through the
-foundation ``resolve()`` contract), its precision refinements belong to the
-future tsconfig-threading slice rather than this one:
+**Known limitations (alias matcher).** Two precision gaps in the ``paths``
+matcher, independent of scan activation:
 
 - Matched ``paths`` patterns are tried in JSON declaration order, not by
   specificity, so a catch-all ``"*"`` declared before a more-specific alias can
@@ -65,9 +75,11 @@ future tsconfig-threading slice rather than this one:
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, register
+from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, ScanContext, register
 from sumo_qa.repo_map_treesitter import TSNode, parse
 
 # TS/JS resolution extension order: TS source, then declarations, then JS
@@ -131,15 +143,39 @@ class TsConfig:
     """Module-resolution slice of a ``tsconfig.json``, repo-relative.
 
     ``base_url`` is ``compilerOptions.baseUrl`` resolved to a repo-relative
-    directory (``""`` = repo root, ``None`` = not configured). ``paths`` is the
-    ``compilerOptions.paths`` map as an ordered tuple of
+    directory (``""`` = repo root, ``None`` = not configured, or an
+    absolute/escaping baseUrl whose whole alias config was dropped). ``paths`` is
+    the ``compilerOptions.paths`` map as an ordered tuple of
     ``(pattern, (target, …))`` pairs, every target already joined through
-    ``base_url`` so it is repo-relative. Frozen: a parsed config is shared, not
+    ``base_url`` so it is repo-relative and every out-of-repo (absolute or
+    escaping) target already dropped. Frozen: a parsed config is shared, not
     owned.
     """
 
     base_url: str | None = None
     paths: tuple[tuple[str, tuple[str, ...]], ...] = field(default_factory=tuple)
+
+
+# Sentinel distinguishing "JSONC that will not decode" from a valid-but-empty
+# config. ``parse_tsconfig`` is a pure best-effort parser and silently yields no
+# aliases on a syntax error; scan-local preparation needs to TELL the two apart
+# to emit a malformed-config warning (see :meth:`TypeScriptResolver.prepare`).
+_MALFORMED_TSCONFIG = object()
+
+
+def _load_tsconfig_json(text: str) -> object:
+    """Parse ``text`` as JSONC, or return :data:`_MALFORMED_TSCONFIG` when it will not decode.
+
+    Besides the ordinary ``json.JSONDecodeError`` (a ``ValueError`` subclass), a
+    pathological but syntactically valid document can make the decoder raise
+    ``RecursionError`` (deeply-nested arrays/objects) or a bare ``ValueError``
+    (e.g. an integer exceeding the string-conversion limit). All are treated as a
+    malformed config so the scan degrades to path-only, never aborting.
+    """
+    try:
+        return json.loads(_strip_jsonc(text))
+    except (RecursionError, ValueError):  # ValueError covers json.JSONDecodeError
+        return _MALFORMED_TSCONFIG
 
 
 def parse_tsconfig(text: str, *, config_dir: str = "") -> TsConfig:
@@ -150,38 +186,83 @@ def parse_tsconfig(text: str, *, config_dir: str = "") -> TsConfig:
     the repo-relative directory holding the tsconfig (``""`` = repo root) so the
     returned paths are repo-relative. ``baseUrl`` defaults to the tsconfig's own
     directory when ``paths`` is present without an explicit ``baseUrl`` (modern
-    TS behaviour); targets are joined through that base.
+    TS behaviour); targets are joined through that base. Windows backslash
+    separators in ``baseUrl`` / ``paths`` targets are normalized to ``/`` so they
+    match the ``/``-joined repo paths. A syntactically broken tsconfig yields an empty
+    :class:`TsConfig` (no aliases), not a crash.
+
+    A tsconfig's ``extends`` field is ignored (no base-config inheritance): only
+    the config's OWN ``compilerOptions`` are read.
     """
-    try:
-        data = json.loads(_strip_jsonc(text))
-    except json.JSONDecodeError:
-        return TsConfig()  # a syntactically broken tsconfig yields no aliases, not a crash
+    data = _load_tsconfig_json(text)
+    if data is _MALFORMED_TSCONFIG:
+        return TsConfig()
+    return _build_tsconfig(data, config_dir)
+
+
+def _normalize_seps(path: str) -> str:
+    r"""Normalize Windows ``\`` path separators to ``/`` for repo-path matching.
+
+    A tsconfig authored on Windows may spell a ``baseUrl`` / ``paths`` target with
+    ``\`` (``src\app``); the repo-relative paths the resolver matches are always
+    ``/``-joined, so a ``\``-separated value would never match. Converting ``\`` to
+    ``/`` lets both spellings resolve identically.
+    """
+    return path.replace("\\", "/")
+
+
+def _build_tsconfig(data: object, config_dir: str) -> TsConfig:
+    """Build a :class:`TsConfig` from already-decoded JSONC ``data``.
+
+    Split from :func:`parse_tsconfig` so scan-local preparation, which has
+    already decoded the file (to detect a malformed config for its warning),
+    can reuse the exact ``baseUrl`` / ``paths`` derivation without re-parsing.
+    A non-object ``data`` (a valid JSON array, say) carries no compiler options.
+    A tsconfig's ``extends`` field is ignored (no base-config inheritance): only
+    the config's OWN ``compilerOptions`` are read.
+    """
     options = data.get("compilerOptions", {}) if isinstance(data, dict) else {}
     if not isinstance(options, dict):
         options = {}
 
     raw_base = options.get("baseUrl")
-    base_url = _join_repo(config_dir, raw_base) if isinstance(raw_base, str) else None
+    base_url: str | None = None
+    if isinstance(raw_base, str):
+        norm_base = _normalize_seps(raw_base)
+        # A configured baseUrl that is absolute (`/src`, `C:\src`) or escapes the
+        # repo root (`..` -> `_join_repo` None) points OUTSIDE the repo tree; every
+        # paths/baseUrl target relative to it escapes too. Re-anchoring to the config
+        # directory would fabricate phantom in-repo edges (a false dependency — the
+        # worst repo-map failure), so the WHOLE alias config drops to an empty
+        # TsConfig. A MISSING baseUrl (not a string) is unaffected: its paths stay
+        # relative to the tsconfig directory.
+        if _is_out_of_repo_target(config_dir, norm_base):
+            return TsConfig()
+        base_url = _join_repo(config_dir, norm_base)  # in-repo (not None)
 
-    # Targets in `paths` are relative to baseUrl; without a baseUrl they're
-    # relative to the tsconfig directory (TS >= 4.1).
+    # Targets in `paths` are relative to the baseUrl when one is configured; without
+    # any baseUrl they're relative to the tsconfig directory (TS >= 4.1). Windows
+    # `\` separators are normalized to `/` so a target matches the `/`-joined repo
+    # paths.
     target_base = base_url if base_url is not None else config_dir
-    raw_paths = options.get("paths", {})
+    raw_paths = options.get("paths")
     pairs: list[tuple[str, tuple[str, ...]]] = []
     if isinstance(raw_paths, dict):
         for pattern, targets in raw_paths.items():
             if not isinstance(targets, list):  # a malformed entry is skipped, not fatal
                 continue
-            # A target escaping the repo root via `..` (`_join_repo` -> None) names
-            # no in-repo file, so it is dropped rather than clamped to a fake path.
+            # A target that is out-of-repo — absolute (`/src`, `C:/x`) or escaping the
+            # root via `..` — names no in-repo file, so it is dropped (not clamped to a
+            # fake path); other valid targets in the same array still resolve.
             joined = tuple(
-                j
+                jp
                 for t in targets
                 if isinstance(t, str)
-                for j in (_join_repo(target_base, t),)
-                if j is not None
+                for jp in (_in_repo_target(target_base, _normalize_seps(t)),)
+                if jp is not None
             )
             pairs.append((pattern, joined))
+
     return TsConfig(base_url=base_url, paths=tuple(pairs))
 
 
@@ -265,6 +346,25 @@ def _drop_trailing_commas(text: str) -> str:
     return "".join(out)
 
 
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def _is_absolute_base(raw: str) -> bool:
+    """True when a ``baseUrl`` string is a filesystem-absolute path.
+
+    A POSIX-absolute (``/src``), UNC/root-relative (``\\srv``), or Windows
+    drive-absolute (``C:\\src`` / ``C:/src`` — a letter, ``:``, then a separator)
+    ``baseUrl`` names a location OUTSIDE the repo tree. :func:`_join_repo` would
+    silently strip the leading separator (``/src`` → ``src``) or fold the drive
+    into a repo-relative segment (``C:/src`` → ``C:/src``), re-anchoring it
+    repo-relative, so the caller must treat it like an escaping base and drop the
+    alias config rather than fabricate a phantom in-repo edge. ``raw`` is the
+    separator-normalized value, so both the backslash and forward-slash drive
+    spellings arrive as ``C:/…`` here; the pattern matches either form defensively.
+    """
+    return raw.startswith(("/", "\\")) or _WINDOWS_DRIVE_RE.match(raw) is not None
+
+
 def _join_repo(base: str, rel: str) -> str | None:
     """Join ``rel`` onto repo-relative ``base``, collapsing ``.`` / ``..``.
 
@@ -287,14 +387,81 @@ def _join_repo(base: str, rel: str) -> str | None:
     return "/".join(parts)
 
 
+def _in_repo_target(base: str, rel: str) -> str | None:
+    r"""Repo-relative join of an alias target / baseUrl ``rel`` onto ``base``, or
+    ``None`` when ``rel`` names a location OUTSIDE the repo tree.
+
+    The SINGLE choke point for the "absolute or escaping ⇒ no edge" rule, applied
+    at every alias-resolution site (a config's own ``baseUrl``, each individual
+    ``paths`` target, and the ``baseUrl`` fallback for a non-relative specifier).
+    ``rel`` is out-of-repo when it is:
+
+    - ABSOLUTE — a leading ``/`` or ``\``, or a Windows drive ``C:/`` / ``C:\``
+      (:func:`_is_absolute_base`): ``_join_repo`` would silently strip the leading
+      separator (``/src`` → ``src``) or fold the drive into a repo-relative segment,
+      re-anchoring it repo-relative into a phantom in-repo path; or
+    - ESCAPING — its ``..`` segments climb above the repo root, so ``_join_repo``
+      returns ``None``.
+
+    Either way it names no in-repo file and must yield no edge (re-anchoring it
+    repo-relative would fabricate a false dependency, the worst repo-map failure).
+    """
+    if _is_absolute_base(rel):
+        return None
+    return _join_repo(base, rel)  # None here means the `..` escaped the repo root
+
+
+def _is_out_of_repo_target(base: str, rel: str) -> bool:
+    r"""Predicate face of :func:`_in_repo_target`: ``True`` when ``rel`` is absolute
+    or escapes the repo root (relative to repo-relative ``base``), so it must emit
+    no alias edge. Used where only the yes/no is needed (dropping a config's own
+    ``baseUrl``); :func:`_in_repo_target` is used where the joined value is needed.
+    """
+    return _in_repo_target(base, rel) is None
+
+
+# tsconfig discovery + degradation for the scan-local alias context (#484).
+_TSCONFIG_NAME = "tsconfig.json"
+_MALFORMED_TSCONFIG_MESSAGE = (
+    "malformed tsconfig.json ignored by the typescript import resolver; "
+    "paths/baseUrl aliases fall back to path-only resolution"
+)
+_UNREADABLE_TSCONFIG_MESSAGE = (
+    "unreadable tsconfig.json ignored by the typescript import resolver; "
+    "paths/baseUrl aliases fall back to path-only resolution"
+)
+
+
+@dataclass(frozen=True)
+class _TsConfigIndex:
+    """Scan-local tsconfig context for one repository scan (#484 TS/JS slice).
+
+    ``configs_by_dir`` maps each repo-relative directory that holds a usable
+    ``tsconfig.json`` to its parsed :class:`TsConfig` (alias targets already
+    joined repo-relative through that directory). Built by
+    :meth:`TypeScriptResolver.prepare` from the scan's bounded source reads and
+    carried ONLY by the scan-local resolver instance — never attached to the
+    registered singleton — so sequential and concurrent scans share nothing.
+    Each importer resolves against its NEAREST entry
+    (:meth:`TypeScriptResolver._nearest_tsconfig`), so unrelated workspaces'
+    alias tables are never flattened into one.
+    """
+
+    configs_by_dir: Mapping[str, TsConfig]
+
+
 class TypeScriptResolver:
     """Approach-C resolver for TypeScript / JavaScript.
 
     One class serves both languages; ``config`` (``typescript`` / ``javascript``
     id) and ``grammar`` (``tsx`` parses ``.ts``+``.tsx``; ``javascript`` parses
-    ``.js``+``.jsx``) are set at construction. ``tsconfig`` enables alias /
-    baseUrl resolution when supplied (the self-registered instances omit it; see
-    the module docstring).
+    ``.js``+``.jsx``) are set at construction. Alias / baseUrl resolution is
+    driven by tsconfig context, supplied one of two ways: a single ``tsconfig``
+    injected at construction (the #481 unit contract), or — during a real scan —
+    a scan-local ``index`` of per-directory configs derived by :meth:`prepare`,
+    selecting each importer's NEAREST tsconfig. The self-registered instances
+    carry neither and resolve relative imports + barrels only (see the module
+    docstring).
     """
 
     def __init__(
@@ -303,10 +470,12 @@ class TypeScriptResolver:
         *,
         grammar: str = "tsx",
         tsconfig: TsConfig | None = None,
+        index: _TsConfigIndex | None = None,
     ) -> None:
         self.config = config
         self._grammar = grammar
         self._tsconfig = tsconfig
+        self._index = index
 
     # ---------- extract ----------
 
@@ -424,8 +593,9 @@ class TypeScriptResolver:
         """Map one specifier to the repo-relative file path(s) it references.
 
         Relative specifiers (``./``, ``../``, bare ``.`` / ``..``) anchor at the
-        importer's directory; non-relative specifiers go through tsconfig
-        alias / baseUrl resolution when a :class:`TsConfig` is configured, else
+        importer's directory; non-relative specifiers go through the governing
+        tsconfig's alias / baseUrl resolution (the importer's nearest scan-local
+        config, or a single injected one; see :meth:`_applicable_tsconfig`), else
         they are external (empty list). Returns paths that exist in ``file_set``,
         de-duplicated preserving first-seen order; an empty list is the normal
         "external / not ours" outcome, never an error.
@@ -439,9 +609,42 @@ class TypeScriptResolver:
             if base is None:
                 return []  # walked past the repo root
             return self._probe(base, file_set)
-        if self._tsconfig is not None:
-            return self._resolve_alias(spec, file_set)
+        tsconfig = self._applicable_tsconfig(importer)
+        if tsconfig is not None:
+            return self._resolve_alias(spec, tsconfig, file_set)
         return []
+
+    def _applicable_tsconfig(self, importer: str) -> TsConfig | None:
+        """The tsconfig governing ``importer``'s non-relative specifiers.
+
+        During a scan the resolver carries a per-directory ``index`` and picks
+        the importer's NEAREST config; the #481 unit contract injects a single
+        ``tsconfig`` used for every importer; the registered path-only singleton
+        carries neither and returns ``None`` (a non-relative specifier is then
+        external — the normal "not ours" drop).
+        """
+        if self._index is not None:
+            return self._nearest_tsconfig(importer)
+        return self._tsconfig
+
+    def _nearest_tsconfig(self, importer: str) -> TsConfig | None:
+        """The scan-local :class:`TsConfig` of ``importer``'s nearest ancestor
+        directory that holds a usable ``tsconfig.json``; ``None`` when none
+        governs it (the silent path-only fallback).
+
+        Walks the importer's own directory up to the repo root, deepest first,
+        so a nested workspace's tsconfig wins over an outer one — and a sibling
+        workspace's config, on no ancestor path, is never consulted. That
+        nearest-only walk is what keeps unrelated workspaces' alias tables from
+        flattening together (#484).
+        """
+        assert self._index is not None  # guarded by _applicable_tsconfig
+        dirs = importer.split("/")[:-1]  # drop the filename
+        for i in range(len(dirs), -1, -1):
+            tsconfig = self._index.configs_by_dir.get("/".join(dirs[:i]))
+            if tsconfig is not None:
+                return tsconfig
+        return None
 
     @staticmethod
     def _anchor(importer_dir: str, spec: str) -> str | None:
@@ -462,24 +665,28 @@ class TypeScriptResolver:
                 parts.append(seg)
         return "/".join(parts)
 
-    def _resolve_alias(self, spec: str, file_set: set[str]) -> list[str]:
+    def _resolve_alias(self, spec: str, tsconfig: TsConfig, file_set: set[str]) -> list[str]:
         """tsconfig ``paths`` then ``baseUrl`` resolution for a non-relative spec.
 
-        For a ``paths`` array TS uses the FIRST target that resolves to a file, so
-        probing stops at the first base that yields a hit; only when no pattern
-        target resolves does it fall back to ``baseUrl``.
+        ``tsconfig`` is the config governing this importer (see
+        :meth:`_applicable_tsconfig`). For a ``paths`` array TS uses the FIRST
+        target that resolves to a file, so probing stops at the first base that
+        yields a hit; only when no pattern target resolves does it fall back to
+        ``baseUrl``.
         """
-        assert self._tsconfig is not None  # guarded by the caller
-        for pattern, targets in self._tsconfig.paths:
+        for pattern, targets in tsconfig.paths:
             for base in self._match_pattern(pattern, targets, spec):
                 hits = self._probe(base, file_set)
                 if hits:  # first resolving target wins (TS module resolution)
                     return hits
-        base_url = self._tsconfig.base_url
+        base_url = tsconfig.base_url
+        # No baseUrl root to fall back to: None means it was never configured (or its
+        # whole alias config was dropped as out-of-repo).
         if base_url is None:
             return []
-        root_base = _join_repo(base_url, spec)
-        # A spec whose `..` segments escape above the baseUrl root names no file.
+        # A spec that is itself absolute, or whose `..` segments escape above the
+        # baseUrl root, names no in-repo file (`_in_repo_target` -> None).
+        root_base = _in_repo_target(base_url, spec)
         return self._probe(root_base, file_set) if root_base is not None else []
 
     @staticmethod
@@ -557,6 +764,65 @@ class TypeScriptResolver:
                 if add(f"{stem}/{barrel}" if stem else barrel):
                     break  # TS resolves to the first barrel by precedence
         return out
+
+    # ---------- scan-local preparation (#484 foundation, TS/JS slice) ----------
+
+    def prepare(self, context: ScanContext) -> TypeScriptResolver:
+        """Derive a scan-local resolver carrying per-config tsconfig context (#484).
+
+        Discovers every ``tsconfig.json`` in the scan's file set and reads each
+        through the context's bounded, memoized reads (no unbounded second
+        repository read), parsing its ``paths`` / ``baseUrl`` with #481's parser
+        keyed by its OWN directory. The returned resolver therefore selects each
+        importer's NEAREST config (:meth:`_nearest_tsconfig`) instead of a
+        flattened union of every workspace's aliases. A NEW instance is returned
+        so the registered singleton never carries repository data; everything
+        derived here dies with the scan. A tsconfig's ``extends`` field is ignored
+        (no base-config inheritance): only its own ``baseUrl`` / ``paths`` are read.
+
+        Reads no source and needs no tree-sitter (only JSON), so it is safe to
+        call regardless of the ``[treesitter]`` extra. A missing config (no file)
+        is the silent path-only fallback (no entry, no warning); a present-but-
+        broken config (unreadable / non-UTF-8 / malformed, including a
+        pathologically deep JSON that overflows the decoder) registers an EMPTY
+        :class:`TsConfig` for its own directory so it SHADOWS any ancestor's
+        aliases (:meth:`_nearest_tsconfig` stops there -> path-only, never an
+        ancestor-alias leak), with one deterministic ``other`` warning each
+        (deduped per path by the context), never aborting the scan.
+        """
+        configs_by_dir: dict[str, TsConfig] = {}
+        tsconfigs = sorted(
+            f for f in context.files if f == _TSCONFIG_NAME or f.endswith(f"/{_TSCONFIG_NAME}")
+        )
+        for path in tsconfigs:
+            directory = path.rsplit("/", 1)[0] if "/" in path else ""
+            # A present-but-broken config registers an EMPTY TsConfig so its own
+            # directory still SHADOWS any ancestor tsconfig (`_nearest_tsconfig`
+            # stops at this empty entry -> path-only for the workspace, no ancestor
+            # alias leak). Mirrors the PHP adapter's empty-root shadowing. Only a
+            # MISSING config (never in this loop) keeps the silent no-entry fallback.
+            raw = context.read(path)
+            if raw is None:
+                context.warn_config(_UNREADABLE_TSCONFIG_MESSAGE, path)
+                configs_by_dir[directory] = TsConfig()
+                continue
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                context.warn_config(_MALFORMED_TSCONFIG_MESSAGE, path)
+                configs_by_dir[directory] = TsConfig()
+                continue
+            data = _load_tsconfig_json(text)
+            if data is _MALFORMED_TSCONFIG:
+                context.warn_config(_MALFORMED_TSCONFIG_MESSAGE, path)
+                configs_by_dir[directory] = TsConfig()
+                continue
+            configs_by_dir[directory] = _build_tsconfig(data, directory)
+        return TypeScriptResolver(
+            self.config,
+            grammar=self._grammar,
+            index=_TsConfigIndex(configs_by_dir=configs_by_dir),
+        )
 
 
 register(TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx"))
