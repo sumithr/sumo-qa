@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.58.0](https://github.com/sumithr/sumo-qa/compare/v0.57.1...v0.58.0) (2026-07-20)
+
+
+### Features
+
+* **repo-map:** activate TypeScript/JavaScript tsconfig paths/baseUrl during scan ([#540](https://github.com/sumithr/sumo-qa/issues/540)) ([#546](https://github.com/sumithr/sumo-qa/issues/546)) ([e321a33](https://github.com/sumithr/sumo-qa/commit/e321a332347d716f5ab8482264103c311f28ff7d))
+
 ## [0.57.1](https://github.com/sumithr/sumo-qa/compare/v0.57.0...v0.57.1) (2026-07-20)
 
 
