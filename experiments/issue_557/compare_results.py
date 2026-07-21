@@ -11,18 +11,23 @@ from typing import Any
 
 import yaml
 
-from .run_candidate import build_prompts, load_group, validate_result_record
+from .run_candidate import (
+    FULL_REVIEW_GROUPS,
+    PINNED_GROUPS,
+    _resolve_file_value,
+    build_prompts,
+    load_group,
+    validate_result_record,
+)
 
 GROUPS = ("core", "adversarial", "verifier", "unproven")
+FULL_REVIEW_GROUP_NAMES = tuple(FULL_REVIEW_GROUPS)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_PATH = Path(__file__).with_name("compact_review_prompt.md")
 SKILL_PATH = REPO_ROOT / "skills/sumo-qa-reviewing-before-merge/SKILL.md"
 EVAL_ROOT = REPO_ROOT / "tests/evals/promptfoo"
 CONFIGS = {
-    "core": "skill-reviewing-before-merge.yaml",
-    "adversarial": "skill-reviewing-before-merge-adversarial.yaml",
-    "verifier": "skill-reviewing-before-merge-verifier-evidence.yaml",
-    "unproven": "skill-reviewing-before-merge-unproven-escalation.yaml",
+    name: selection.config for name, selection in (PINNED_GROUPS | FULL_REVIEW_GROUPS).items()
 }
 _COLD_CONTEXT_VARS = {
     "skill_content",
@@ -104,15 +109,22 @@ def _grade_config_matches(
     if not isinstance(artifact, dict) or any(review is None for review in reviews):
         return False
     current_default = current.get("defaultTest", {})
+    config_dir = (EVAL_ROOT / CONFIGS[group]).parent
     default_vars = {
-        key: value
+        key: _resolve_file_value(value, config_dir=config_dir)
         for key, value in current_default.get("vars", {}).items()
         if key not in _COLD_CONTEXT_VARS
     }
     expected_tests = [
         {
             "description": test["description"],
-            "vars": default_vars | test.get("vars", {}) | {"output": review},
+            "vars": default_vars
+            | {
+                key: _resolve_file_value(value, config_dir=config_dir)
+                for key, value in test.get("vars", {}).items()
+                if key not in _COLD_CONTEXT_VARS
+            }
+            | {"output": review},
         }
         for test, review in zip(current_tests, reviews, strict=True)
     ]
@@ -149,15 +161,20 @@ def _grading_result_matches(
         return False
     marker = f"--- CANDIDATE RESPONSE ---\n{graded_output}\n--- END CANDIDATE RESPONSE ---"
     for component, assertion in zip(components, assertions, strict=True):
-        metadata = component.get("metadata", {})
         if (
             component.get("assertion") != assertion
-            or component.get("pass") is not success
-            or component.get("score") != score
-            or _positive_usage(component.get("tokensUsed"), expected_requests=1) is None
-            or marker not in metadata.get("renderedGradingPrompt", "")
+            or type(component.get("pass")) is not bool
+            or not isinstance(component.get("score"), int | float)
         ):
             return False
+        if assertion.get("type") == "llm-rubric":
+            metadata = component.get("metadata", {})
+            if _positive_usage(
+                component.get("tokensUsed"), expected_requests=1
+            ) is None or marker not in metadata.get("renderedGradingPrompt", ""):
+                return False
+    if success is not all(component["pass"] for component in components):
+        return False
     return True
 
 
@@ -166,6 +183,7 @@ def compare_evidence(
     candidate_dir: Path,
     *,
     minimum_input_reduction_percent: float = 30.0,
+    groups: tuple[str, ...] = GROUPS,
 ) -> dict[str, Any]:
     baseline_prompt_tokens = 0
     baseline_completion_tokens = 0
@@ -186,7 +204,7 @@ def compare_evidence(
     grading_result_integrity = True
     quality_rows: list[dict[str, Any]] = []
 
-    for group in GROUPS:
+    for group in groups:
         baseline = _read(baseline_dir / f"issue557-baseline-{group}.json")
         candidate = _read(candidate_dir / f"candidate-{group}.json")
         candidate_grade = _read(candidate_dir / f"candidate-{group}-grade.json")
@@ -282,9 +300,9 @@ def compare_evidence(
             scenario_integrity &= after_description == expected_description
             scenario_integrity &= result.get("description") == expected_description
             baseline_pass = bool(before["success"])
-            candidate_pass = bool(after["success"])
+            candidate_pass = validated_review is not None and bool(after["success"])
             baseline_score = float(before["score"])
-            candidate_score = float(after["score"])
+            candidate_score = float(after["score"]) if validated_review is not None else 0.0
             model_integrity &= _provider_id(before["provider"]) == (f"openai:chat:{current_model}")
             model_integrity &= _provider_id(after["provider"]) == "echo"
             rubric_integrity &= before["testCase"]["assert"] == current_assertions
@@ -294,10 +312,14 @@ def compare_evidence(
 
             expected_baseline_vars = current_default_vars | current_test.get("vars", {})
             expected_grade_vars = {
-                key: value
+                key: _resolve_file_value(value, config_dir=(EVAL_ROOT / CONFIGS[group]).parent)
                 for key, value in current_default_vars.items()
                 if key not in _COLD_CONTEXT_VARS
-            } | current_test.get("vars", {})
+            } | {
+                key: _resolve_file_value(value, config_dir=(EVAL_ROOT / CONFIGS[group]).parent)
+                for key, value in current_test.get("vars", {}).items()
+                if key not in _COLD_CONTEXT_VARS
+            }
             scenario_integrity &= before["testCase"]["vars"] == expected_baseline_vars
             after_vars = after["testCase"]["vars"]
             scenario_integrity &= {
@@ -421,6 +443,7 @@ def compare_evidence(
             "baseline_passed": sum(row["baseline_pass"] for row in quality_rows),
             "candidate_passed": sum(row["candidate_pass"] for row in quality_rows),
             "scenario_count": len(quality_rows),
+            "config_count": len(groups),
             "preserved": quality_preserved,
             "scenarios": quality_rows,
         },
@@ -444,11 +467,17 @@ def main() -> None:
     parser.add_argument("--baseline-dir", type=Path, default=Path("/private/tmp"))
     parser.add_argument("--candidate-dir", type=Path, default=Path("/private/tmp/issue557"))
     parser.add_argument("--minimum-input-reduction-percent", type=float, default=30.0)
+    parser.add_argument(
+        "--all-review",
+        action="store_true",
+        help="compare all non-control reviewing-before-merge eval scenarios",
+    )
     args = parser.parse_args()
     result = compare_evidence(
         args.baseline_dir,
         args.candidate_dir,
         minimum_input_reduction_percent=args.minimum_input_reduction_percent,
+        groups=FULL_REVIEW_GROUP_NAMES if args.all_review else GROUPS,
     )
     print(json.dumps(result, indent=2))
 

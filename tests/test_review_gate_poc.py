@@ -13,14 +13,17 @@ import yaml
 from experiments.issue_557.compare_results import (
     CONFIGS,
     EVAL_ROOT,
+    FULL_REVIEW_GROUP_NAMES,
     GROUPS,
     PROMPT_PATH,
     compare_evidence,
 )
 from experiments.issue_557.run_candidate import (
+    FULL_REVIEW_GROUPS,
     PINNED_GROUPS,
     build_prompts,
     load_group,
+    validate_result_record,
     write_grade_config,
 )
 from sumo_qa.review_gate_poc import ReviewGateValidationError, validate_review_response
@@ -201,12 +204,27 @@ def test_pinned_candidate_set_contains_exactly_seven_scenarios() -> None:
     assert len({description for description, _ in rendered}) == 7
 
 
+def test_full_review_candidate_set_covers_every_behavior_config_and_scenario() -> None:
+    expected_configs = {
+        path.name
+        for path in EVAL_ROOT.glob("skill-reviewing-before-merge*.yaml")
+        if not path.name.endswith(".ab.yaml")
+    }
+    rendered = [
+        scenario for group in FULL_REVIEW_GROUP_NAMES for scenario in build_prompts(group)[1]
+    ]
+
+    assert len(FULL_REVIEW_GROUPS) == 19
+    assert {selection.config for selection in FULL_REVIEW_GROUPS.values()} == expected_configs
+    assert len(rendered) == 46
+
+
 def test_candidate_prompts_replace_only_the_skill_with_compact_contract() -> None:
     compact_contract = Path("experiments/issue_557/compact_review_prompt.md").read_text(
         encoding="utf-8"
     )
     full_skill = Path("skills/sumo-qa-reviewing-before-merge/SKILL.md").read_text(encoding="utf-8")
-    for group in PINNED_GROUPS:
+    for group in (*PINNED_GROUPS, *FULL_REVIEW_GROUP_NAMES):
         _, scenarios, _ = build_prompts(group)
         _, baseline_scenarios, _ = build_prompts(group, skill_content=full_skill)
         for (_, prompt), (_, baseline_prompt) in zip(scenarios, baseline_scenarios, strict=True):
@@ -237,6 +255,17 @@ def test_grade_config_uses_echo_with_original_rubric(tmp_path: Path) -> None:
     assert grade_config["tests"][0]["vars"]["output"] == "Verdict: NOT SAFE TO MERGE"
     assert grade_config["defaultTest"]["assert"][0]["type"] == "llm-rubric"
     assert grade_config["defaultTest"]["options"]["provider"]["id"] == "openai:chat:gpt-5.5"
+
+
+def test_deterministically_rejected_candidate_record_is_not_releasable() -> None:
+    with pytest.raises(ValueError, match="did not pass deterministic validation"):
+        validate_result_record(
+            {
+                "validation_passed": False,
+                "attempts": [],
+                "review": None,
+            }
+        )
 
 
 def test_comparison_requires_quality_and_token_reduction(tmp_path: Path) -> None:

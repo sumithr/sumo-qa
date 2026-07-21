@@ -26,6 +26,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_PATH = Path(__file__).with_name("compact_review_prompt.md")
 EVAL_ROOT = REPO_ROOT / "tests/evals/promptfoo"
 _VARIABLE_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
+REJECTED_REVIEW = (
+    "Deterministic gate validation rejected both candidate attempts; no review was returned."
+)
+_COLD_CONTEXT_VARS = {
+    "skill_content",
+    "loaded_classifications",
+    "loaded_rules",
+    "loaded_techniques",
+}
 
 
 @dataclass(frozen=True)
@@ -52,6 +61,22 @@ PINNED_GROUPS = {
         r"unproven-substring",
     ),
 }
+
+
+def _full_review_groups() -> dict[str, PinnedGroup]:
+    groups: dict[str, PinnedGroup] = {}
+    prefix = "skill-reviewing-before-merge"
+    for path in sorted(EVAL_ROOT.glob(f"{prefix}*.yaml")):
+        if path.name.endswith(".ab.yaml"):
+            continue
+        suffix = path.name.removeprefix(prefix).removesuffix(".yaml").removeprefix("-")
+        group_name = f"full-{suffix or 'base'}"
+        groups[group_name] = PinnedGroup(path.name, r".*")
+    return groups
+
+
+FULL_REVIEW_GROUPS = _full_review_groups()
+ALL_GROUPS = PINNED_GROUPS | FULL_REVIEW_GROUPS
 
 
 def _sha256(value: str | bytes) -> str:
@@ -91,7 +116,7 @@ def _render_prompt(template: str, variables: dict[str, Any]) -> str:
 
 
 def load_group(group_name: str) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
-    group = PINNED_GROUPS[group_name]
+    group = ALL_GROUPS[group_name]
     config_path = EVAL_ROOT / group.config
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     matcher = re.compile(group.description_pattern)
@@ -108,14 +133,13 @@ def build_prompts(
 ) -> tuple[str, list[tuple[str, str]], dict[str, str]]:
     config, tests, config_hash = load_group(group_name)
     compact_prompt = PROMPT_PATH.read_text(encoding="utf-8")
-    config_dir = (EVAL_ROOT / PINNED_GROUPS[group_name].config).parent
+    config_dir = (EVAL_ROOT / ALL_GROUPS[group_name].config).parent
     defaults = {
         key: _resolve_file_value(value, config_dir=config_dir)
         for key, value in config.get("defaultTest", {}).get("vars", {}).items()
     }
-    defaults["skill_content"] = (
-        compact_prompt if skill_content is None else skill_content
-    ).rstrip()
+    selected_skill = (compact_prompt if skill_content is None else skill_content).rstrip()
+    defaults["skill_content"] = selected_skill
     template = config["prompts"][0]
     rendered: list[tuple[str, str]] = []
     for test in tests:
@@ -123,12 +147,13 @@ def build_prompts(
             key: _resolve_file_value(value, config_dir=config_dir)
             for key, value in test.get("vars", {}).items()
         }
+        variables["skill_content"] = selected_skill
         rendered.append((test["description"], _render_prompt(template, variables)))
 
     provider = config["providers"][0]
     model = provider["id"].removeprefix("openai:chat:")
     metadata = {
-        "config": PINNED_GROUPS[group_name].config,
+        "config": ALL_GROUPS[group_name].config,
         "config_sha256": config_hash,
         "compact_prompt_sha256": _sha256(compact_prompt),
         "model": model,
@@ -175,18 +200,24 @@ def write_grade_config(group_name: str, reviews: list[str], output_dir: Path) ->
         )
 
     default_test = config["defaultTest"]
+    config_dir = (EVAL_ROOT / ALL_GROUPS[group_name].config).parent
     default_vars = {
-        key: value
+        key: _resolve_file_value(value, config_dir=config_dir)
         for key, value in default_test.get("vars", {}).items()
-        if key
-        not in {"skill_content", "loaded_classifications", "loaded_rules", "loaded_techniques"}
+        if key not in _COLD_CONTEXT_VARS
     }
     grade_tests = []
     for test, review in zip(tests, reviews, strict=True):
         grade_tests.append(
             {
                 "description": test["description"],
-                "vars": default_vars | test.get("vars", {}) | {"output": review},
+                "vars": default_vars
+                | {
+                    key: _resolve_file_value(value, config_dir=config_dir)
+                    for key, value in test.get("vars", {}).items()
+                    if key not in _COLD_CONTEXT_VARS
+                }
+                | {"output": review},
             }
         )
 
@@ -211,6 +242,8 @@ def write_grade_config(group_name: str, reviews: list[str], output_dir: Path) ->
 
 def validate_result_record(record: dict[str, Any]) -> tuple[str, int, int]:
     """Revalidate one stored candidate record and return review plus billed usage."""
+    if record.get("validation_passed") is False:
+        raise ValueError("candidate did not pass deterministic validation")
     attempts = record.get("attempts")
     if not isinstance(attempts, list) or not 1 <= len(attempts) <= 2:
         raise ValueError("candidate record must contain one or two attempts")
@@ -274,6 +307,7 @@ def run_group(group_name: str, output_dir: Path) -> Path:
             messages = [{"role": "user", "content": prompt}]
             attempts: list[dict[str, Any]] = []
             validated = None
+            validation_error: str | None = None
             for attempt_number in (1, 2):
                 raw, usage = _completion(
                     client,
@@ -286,11 +320,9 @@ def run_group(group_name: str, output_dir: Path) -> Path:
                     validated = validate_review_response(raw)
                     break
                 except ReviewGateValidationError as exc:
+                    validation_error = str(exc)
                     if attempt_number == 2:
-                        raise RuntimeError(
-                            f"deterministic validation failed twice for {description}: {exc}; "
-                            f"last response={raw!r}"
-                        ) from exc
+                        break
                     messages.extend(
                         [
                             {"role": "assistant", "content": raw},
@@ -309,8 +341,22 @@ def run_group(group_name: str, output_dir: Path) -> Path:
                         ]
                     )
 
-            if validated is None:  # pragma: no cover - loop either validates or raises
-                raise AssertionError("candidate validation did not terminate")
+            if validated is None:
+                reviews.append(REJECTED_REVIEW)
+                results.append(
+                    {
+                        "description": description,
+                        "rendered_prompt_sha256": _sha256(prompt),
+                        "rendered_prompt_characters": len(prompt),
+                        "attempts": attempts,
+                        "validation_passed": False,
+                        "validation_error": validation_error,
+                        "gate_report": None,
+                        "safe_to_merge": None,
+                        "review": None,
+                    }
+                )
+                continue
             reviews.append(validated.review)
             results.append(
                 {
@@ -318,6 +364,8 @@ def run_group(group_name: str, output_dir: Path) -> Path:
                     "rendered_prompt_sha256": _sha256(prompt),
                     "rendered_prompt_characters": len(prompt),
                     "attempts": attempts,
+                    "validation_passed": True,
+                    "validation_error": None,
                     "gate_report": validated.report.model_dump(),
                     "safe_to_merge": validated.safe_to_merge,
                     "review": validated.review,
@@ -338,13 +386,31 @@ def run_group(group_name: str, output_dir: Path) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("group", choices=PINNED_GROUPS)
+    parser.add_argument("group", nargs="?", choices=ALL_GROUPS)
+    parser.add_argument(
+        "--all-review",
+        action="store_true",
+        help="run all non-control reviewing-before-merge eval scenarios",
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("/private/tmp/issue557"))
     parser.add_argument("--grade-from-result", type=Path)
     args = parser.parse_args()
+    if args.all_review:
+        if args.group is not None or args.grade_from_result is not None:
+            parser.error("--all-review cannot be combined with group or --grade-from-result")
+        for group_name in FULL_REVIEW_GROUPS:
+            print(run_group(group_name, args.output_dir))
+        return
+    if args.group is None:
+        parser.error("group is required unless --all-review is used")
     if args.grade_from_result is not None:
         result = json.loads(args.grade_from_result.read_text(encoding="utf-8"))
-        reviews = [validate_result_record(item)[0] for item in result["results"]]
+        reviews = [
+            REJECTED_REVIEW
+            if item.get("validation_passed") is False
+            else validate_result_record(item)[0]
+            for item in result["results"]
+        ]
         print(write_grade_config(args.group, reviews, args.output_dir))
         return
     print(run_group(args.group, args.output_dir))
