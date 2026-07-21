@@ -15,7 +15,10 @@ from .run_candidate import (
     FULL_REVIEW_GROUPS,
     PINNED_GROUPS,
     _resolve_file_value,
+    build_direct_config,
     build_prompts,
+    candidate_prompt,
+    candidate_prompt_for_group,
     load_group,
     validate_result_record,
 )
@@ -70,6 +73,35 @@ def _positive_usage(usage: object, *, expected_requests: int) -> tuple[int, int]
     return prompt, completion
 
 
+def _direct_positive_usage(
+    usage: object,
+    *,
+    minimum_requests: int,
+) -> tuple[int, int] | None:
+    """Validate direct-run usage while allowing explicit infrastructure retries."""
+    if not isinstance(usage, dict):
+        return None
+    prompt = usage.get("prompt")
+    completion = usage.get("completion")
+    total = usage.get("total")
+    requests = usage.get("numRequests")
+    if (
+        type(prompt) is not int
+        or type(completion) is not int
+        or type(total) is not int
+        or type(requests) is not int
+        or prompt <= 0
+        or completion <= 0
+        or total < prompt + completion
+        or requests < minimum_requests
+    ):
+        return None
+    # Reasoning providers include hidden reasoning in ``total`` but not in
+    # ``completion``. Treat every non-input token as completion-side usage so
+    # aggregate and per-row totals remain comparable across providers.
+    return prompt, total - prompt
+
+
 def _promptfoo_file_content(value: object, *, config_dir: Path) -> str | None:
     if not isinstance(value, str) or not value.startswith("file://"):
         return None
@@ -98,6 +130,28 @@ def _baseline_config_matches(artifact: object, current: dict[str, Any]) -> bool:
     )
 
 
+def _direct_config_matches(artifact: object, expected: dict[str, Any]) -> bool:
+    """Match generated configs while allowing Promptfoo's serialized grader object."""
+    if not isinstance(artifact, dict):
+        return False
+    adjusted = dict(expected)
+    adjusted_default = dict(expected.get("defaultTest", {}))
+    adjusted_options = dict(adjusted_default.get("options", {}))
+    adjusted_options["provider"] = (
+        artifact.get("defaultTest", {}).get("options", {}).get("provider")
+    )
+    adjusted_default["options"] = adjusted_options
+    adjusted["defaultTest"] = adjusted_default
+    return _baseline_config_matches(artifact, adjusted)
+
+
+def _judge_model(row: dict[str, Any]) -> object:
+    provider = row.get("testCase", {}).get("options", {}).get("provider")
+    if isinstance(provider, dict):
+        return provider.get("modelName") or provider.get("id")
+    return provider
+
+
 def _grade_config_matches(
     artifact: object,
     current: dict[str, Any],
@@ -105,6 +159,7 @@ def _grade_config_matches(
     reviews: list[str | None],
     *,
     group: str,
+    allow_provider_override: bool = False,
 ) -> bool:
     if not isinstance(artifact, dict) or any(review is None for review in reviews):
         return False
@@ -129,13 +184,17 @@ def _grade_config_matches(
         for test, review in zip(current_tests, reviews, strict=True)
     ]
     artifact_default = artifact.get("defaultTest", {})
+    expected_options = current_default.get("options", {})
+    if allow_provider_override:
+        expected_options = dict(expected_options)
+        expected_options["provider"] = artifact_default.get("options", {}).get("provider")
     return (
         artifact.get("description") == f"Issue #557 unchanged-rubric grading: {group}"
         and artifact.get("providers") == ["echo"]
         and artifact.get("prompts") == ["{{output}}"]
         and artifact.get("tests") == expected_tests
         and artifact_default.get("assert") == current_default.get("assert", [])
-        and artifact_default.get("options") == current_default.get("options", {})
+        and artifact_default.get("options") == expected_options
     )
 
 
@@ -144,6 +203,7 @@ def _grading_result_matches(
     *,
     assertions: list[dict[str, Any]],
     graded_output: str,
+    allow_reasoning_usage: bool = False,
 ) -> bool:
     grading = row.get("gradingResult")
     if not isinstance(grading, dict):
@@ -157,7 +217,13 @@ def _grading_result_matches(
         return False
     if grading.get("pass") is not success or grading.get("score") != score:
         return False
-    if _positive_usage(grading.get("tokensUsed"), expected_requests=1) is None:
+
+    def usage_validator(usage: object) -> tuple[int, int] | None:
+        if allow_reasoning_usage:
+            return _direct_positive_usage(usage, minimum_requests=1)
+        return _positive_usage(usage, expected_requests=1)
+
+    if usage_validator(grading.get("tokensUsed")) is None:
         return False
     marker = f"--- CANDIDATE RESPONSE ---\n{graded_output}\n--- END CANDIDATE RESPONSE ---"
     for component, assertion in zip(components, assertions, strict=True):
@@ -169,9 +235,9 @@ def _grading_result_matches(
             return False
         if assertion.get("type") == "llm-rubric":
             metadata = component.get("metadata", {})
-            if _positive_usage(
-                component.get("tokensUsed"), expected_requests=1
-            ) is None or marker not in metadata.get("renderedGradingPrompt", ""):
+            if usage_validator(component.get("tokensUsed")) is None or marker not in metadata.get(
+                "renderedGradingPrompt", ""
+            ):
                 return False
     if success is not all(component["pass"] for component in components):
         return False
@@ -184,6 +250,7 @@ def compare_evidence(
     *,
     minimum_input_reduction_percent: float = 30.0,
     groups: tuple[str, ...] = GROUPS,
+    candidate_profile: str = "compact",
 ) -> dict[str, Any]:
     baseline_prompt_tokens = 0
     baseline_completion_tokens = 0
@@ -208,7 +275,10 @@ def compare_evidence(
         baseline = _read(baseline_dir / f"issue557-baseline-{group}.json")
         candidate = _read(candidate_dir / f"candidate-{group}.json")
         candidate_grade = _read(candidate_dir / f"candidate-{group}-grade.json")
-        current_model, current_scenarios, current_metadata = build_prompts(group)
+        current_model, current_scenarios, current_metadata = build_prompts(
+            group,
+            candidate_profile=candidate_profile,
+        )
         _, current_baseline_scenarios, _ = build_prompts(
             group,
             skill_content=SKILL_PATH.read_text(encoding="utf-8"),
@@ -401,7 +471,10 @@ def compare_evidence(
         if baseline_total_tokens > 0
         else 0.0
     )
-    same_candidate_prompt = prompt_hashes == {_file_sha256(PROMPT_PATH)}
+    expected_candidate_hash = hashlib.sha256(
+        candidate_prompt(candidate_profile).encode()
+    ).hexdigest()
+    same_candidate_prompt = prompt_hashes == {expected_candidate_hash}
     integrity_preserved = (
         same_candidate_prompt
         and config_integrity
@@ -462,23 +535,311 @@ def compare_evidence(
     }
 
 
+def compare_direct_evidence(
+    baseline_dir: Path,
+    candidate_dir: Path,
+    *,
+    candidate_profile: str,
+    minimum_input_reduction_percent: float = 0.0,
+    groups: tuple[str, ...] = FULL_REVIEW_GROUP_NAMES,
+    baseline_profile: str | None = None,
+    target_provider_id: str | None = None,
+) -> dict[str, Any]:
+    """Compare a plain reduced skill against the full-skill Promptfoo baseline."""
+    baseline_prompt_tokens = 0
+    baseline_completion_tokens = 0
+    candidate_prompt_tokens = 0
+    candidate_completion_tokens = 0
+    config_integrity = True
+    scenario_integrity = True
+    prompt_integrity = True
+    model_integrity = True
+    rubric_integrity = True
+    usage_integrity = True
+    grading_integrity = True
+    quality_rows: list[dict[str, Any]] = []
+    full_skill = SKILL_PATH.read_text(encoding="utf-8")
+    candidate_hashes: set[str] = set()
+    identity_preserved_count = 0
+
+    for group in groups:
+        baseline_path = (
+            baseline_dir / f"candidate-direct-{group}.json"
+            if baseline_profile is not None
+            else baseline_dir / f"issue557-baseline-{group}.json"
+        )
+        candidate_path = candidate_dir / f"candidate-direct-{group}-merged.json"
+        if not candidate_path.exists():
+            candidate_path = candidate_dir / f"candidate-direct-{group}.json"
+        baseline = _read(baseline_path)
+        candidate = _read(candidate_path)
+        current_config, current_tests, _ = load_group(group)
+        expected_candidate_config = build_direct_config(
+            group,
+            candidate_profile=candidate_profile,
+        )
+        reduced_skill = candidate_prompt_for_group(candidate_profile, group)
+        candidate_hashes.add(hashlib.sha256(reduced_skill.encode()).hexdigest())
+        _, baseline_scenarios, _ = build_prompts(group, skill_content=full_skill)
+        current_model, candidate_scenarios, _ = build_prompts(
+            group,
+            skill_content=reduced_skill,
+        )
+        baseline_rows = baseline["results"]["results"]
+        candidate_rows = candidate["results"]["results"]
+        expected_count = len(current_tests)
+        if not (
+            len(baseline_rows)
+            == len(candidate_rows)
+            == len(baseline_scenarios)
+            == len(candidate_scenarios)
+            == expected_count
+        ):
+            raise ValueError(f"scenario count mismatch for {group}")
+
+        expected_baseline_config = (
+            build_direct_config(group, candidate_profile=baseline_profile)
+            if baseline_profile is not None
+            else current_config
+        )
+        config_integrity &= _direct_config_matches(
+            baseline.get("config"),
+            expected_baseline_config,
+        )
+        config_integrity &= _direct_config_matches(
+            candidate.get("config"),
+            expected_candidate_config,
+        )
+        baseline_usage = _direct_positive_usage(
+            baseline["results"]["stats"].get("tokenUsage"),
+            minimum_requests=expected_count,
+        )
+        candidate_usage = _direct_positive_usage(
+            candidate["results"]["stats"].get("tokenUsage"),
+            minimum_requests=expected_count,
+        )
+        if baseline_usage is None or candidate_usage is None:
+            usage_integrity = False
+        else:
+            baseline_prompt_tokens += baseline_usage[0]
+            baseline_completion_tokens += baseline_usage[1]
+            candidate_prompt_tokens += candidate_usage[0]
+            candidate_completion_tokens += candidate_usage[1]
+
+        baseline_row_usage = [0, 0]
+        candidate_row_usage = [0, 0]
+        assertions = current_config.get("defaultTest", {}).get("assert", [])
+        options = current_config.get("defaultTest", {}).get("options", {})
+        option_shape = {key: value for key, value in options.items() if key != "provider"}
+        for before, after, baseline_scenario, candidate_scenario, current_test in zip(
+            baseline_rows,
+            candidate_rows,
+            baseline_scenarios,
+            candidate_scenarios,
+            current_tests,
+            strict=True,
+        ):
+            description = current_test["description"]
+            scenario_integrity &= before["testCase"]["description"] == description
+            scenario_integrity &= after["testCase"]["description"] == description
+            prompt_integrity &= before["prompt"]["raw"] == baseline_scenario[1]
+            prompt_integrity &= after["prompt"]["raw"] == candidate_scenario[1]
+            expected_provider = target_provider_id or f"openai:chat:{current_model}"
+            model_integrity &= _provider_id(before["provider"]) == expected_provider
+            model_integrity &= _provider_id(after["provider"]) == expected_provider
+            rubric_integrity &= before["testCase"]["assert"] == assertions
+            rubric_integrity &= after["testCase"]["assert"] == assertions
+            rubric_integrity &= {
+                key: value
+                for key, value in before["testCase"]["options"].items()
+                if key != "provider"
+            } == option_shape
+            rubric_integrity &= {
+                key: value
+                for key, value in after["testCase"]["options"].items()
+                if key != "provider"
+            } == option_shape
+            rubric_integrity &= _judge_model(before) == _judge_model(after)
+
+            before_output = before.get("response", {}).get("output")
+            after_output = after.get("response", {}).get("output")
+            if not isinstance(before_output, str) or not isinstance(after_output, str):
+                grading_integrity = False
+                before_output = before_output if isinstance(before_output, str) else ""
+                after_output = after_output if isinstance(after_output, str) else ""
+            grading_integrity &= _grading_result_matches(
+                before,
+                assertions=assertions,
+                graded_output=before_output,
+                allow_reasoning_usage=True,
+            )
+            grading_integrity &= _grading_result_matches(
+                after,
+                assertions=assertions,
+                graded_output=after_output,
+                allow_reasoning_usage=True,
+            )
+            for row, totals in ((before, baseline_row_usage), (after, candidate_row_usage)):
+                response_usage = _direct_positive_usage(
+                    row.get("response", {}).get("tokenUsage"),
+                    minimum_requests=1,
+                )
+                if response_usage is None:
+                    usage_integrity = False
+                else:
+                    totals[0] += response_usage[0]
+                    totals[1] += response_usage[1]
+
+            baseline_pass = bool(before["success"])
+            candidate_pass = bool(after["success"])
+            baseline_score = float(before["score"])
+            candidate_score = float(after["score"])
+            unchanged_prompt = baseline_scenario[1] == candidate_scenario[1]
+            quality_preserved = (
+                unchanged_prompt
+                or candidate_pass
+                or (not baseline_pass and candidate_score >= baseline_score)
+            )
+            identity_preserved_count += int(unchanged_prompt)
+            quality_rows.append(
+                {
+                    "group": group,
+                    "description": description,
+                    "baseline_pass": baseline_pass,
+                    "candidate_pass": candidate_pass,
+                    "baseline_score": baseline_score,
+                    "candidate_score": candidate_score,
+                    "unchanged_prompt": unchanged_prompt,
+                    "quality_preserved": quality_preserved,
+                }
+            )
+
+        if baseline_usage is not None:
+            usage_integrity &= tuple(baseline_row_usage) == baseline_usage
+        if candidate_usage is not None:
+            usage_integrity &= tuple(candidate_row_usage) == candidate_usage
+
+    input_reduction_percent = (
+        round(
+            100 * (baseline_prompt_tokens - candidate_prompt_tokens) / baseline_prompt_tokens,
+            2,
+        )
+        if baseline_prompt_tokens > 0
+        else 0.0
+    )
+    baseline_total = baseline_prompt_tokens + baseline_completion_tokens
+    candidate_total = candidate_prompt_tokens + candidate_completion_tokens
+    total_reduction_percent = (
+        round(100 * (baseline_total - candidate_total) / baseline_total, 2)
+        if baseline_total > 0
+        else 0.0
+    )
+    integrity_preserved = all(
+        (
+            config_integrity,
+            scenario_integrity,
+            prompt_integrity,
+            model_integrity,
+            rubric_integrity,
+            usage_integrity,
+            grading_integrity,
+        )
+    )
+    quality_preserved = all(row["quality_preserved"] for row in quality_rows)
+    token_target_met = input_reduction_percent >= minimum_input_reduction_percent
+    proven = integrity_preserved and quality_preserved and token_target_met
+    return {
+        "verdict": "PROVEN" if proven else "NOT PROVEN",
+        "candidate_profile": candidate_profile,
+        "candidate_prompt_sha256": (
+            next(iter(candidate_hashes)) if len(candidate_hashes) == 1 else None
+        ),
+        "candidate_prompt_sha256s": sorted(candidate_hashes),
+        "integrity": {
+            "preserved": integrity_preserved,
+            "configs_match": config_integrity,
+            "scenarios_match": scenario_integrity,
+            "rendered_prompts_match": prompt_integrity,
+            "models_match": model_integrity,
+            "rubrics_and_judges_match": rubric_integrity,
+            "usage_is_valid": usage_integrity,
+            "grading_results_are_consistent": grading_integrity,
+        },
+        "quality": {
+            "baseline_passed": sum(row["baseline_pass"] for row in quality_rows),
+            "candidate_passed": sum(row["candidate_pass"] for row in quality_rows),
+            "scenario_count": len(quality_rows),
+            "config_count": len(groups),
+            "preserved": quality_preserved,
+            "preserved_by_identical_prompt": identity_preserved_count,
+            "scenarios": quality_rows,
+        },
+        "tokens": {
+            "baseline_input": baseline_prompt_tokens,
+            "candidate_input": candidate_prompt_tokens,
+            "input_reduction_percent": input_reduction_percent,
+            "minimum_input_reduction_percent": minimum_input_reduction_percent,
+            "target_met": token_target_met,
+            "baseline_completion": baseline_completion_tokens,
+            "candidate_completion": candidate_completion_tokens,
+            "baseline_total": baseline_total,
+            "candidate_total": candidate_total,
+            "total_reduction_percent": total_reduction_percent,
+        },
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline-dir", type=Path, default=Path("/private/tmp"))
     parser.add_argument("--candidate-dir", type=Path, default=Path("/private/tmp/issue557"))
     parser.add_argument("--minimum-input-reduction-percent", type=float, default=30.0)
     parser.add_argument(
+        "--profile",
+        choices=(
+            "compact",
+            "full-gated",
+            "core-gated",
+            "full-plain",
+            "routed-root-plain",
+            "balanced-plain",
+            "warm-plain",
+            "core-plain",
+        ),
+        default="compact",
+    )
+    parser.add_argument("--direct-baseline-profile", choices=("full-plain",))
+    parser.add_argument("--direct-provider-id")
+    parser.add_argument(
+        "--direct",
+        action="store_true",
+        help="compare direct Promptfoo candidate artifacts without the deterministic gate",
+    )
+    parser.add_argument(
         "--all-review",
         action="store_true",
         help="compare all non-control reviewing-before-merge eval scenarios",
     )
     args = parser.parse_args()
-    result = compare_evidence(
-        args.baseline_dir,
-        args.candidate_dir,
-        minimum_input_reduction_percent=args.minimum_input_reduction_percent,
-        groups=FULL_REVIEW_GROUP_NAMES if args.all_review else GROUPS,
-    )
+    if args.direct:
+        if not args.all_review or not args.profile.endswith("-plain"):
+            parser.error("--direct requires --all-review and a *-plain profile")
+        result = compare_direct_evidence(
+            args.baseline_dir,
+            args.candidate_dir,
+            minimum_input_reduction_percent=args.minimum_input_reduction_percent,
+            candidate_profile=args.profile,
+            baseline_profile=args.direct_baseline_profile,
+            target_provider_id=args.direct_provider_id,
+        )
+    else:
+        result = compare_evidence(
+            args.baseline_dir,
+            args.candidate_dir,
+            minimum_input_reduction_percent=args.minimum_input_reduction_percent,
+            groups=FULL_REVIEW_GROUP_NAMES if args.all_review else GROUPS,
+            candidate_profile=args.profile,
+        )
     print(json.dumps(result, indent=2))
 
 

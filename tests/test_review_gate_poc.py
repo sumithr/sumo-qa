@@ -16,12 +16,17 @@ from experiments.issue_557.compare_results import (
     FULL_REVIEW_GROUP_NAMES,
     GROUPS,
     PROMPT_PATH,
+    _direct_positive_usage,
     compare_evidence,
 )
 from experiments.issue_557.run_candidate import (
     FULL_REVIEW_GROUPS,
     PINNED_GROUPS,
+    _render_prompt,
+    build_direct_config,
     build_prompts,
+    candidate_prompt,
+    candidate_prompt_for_group,
     load_group,
     validate_result_record,
     write_grade_config,
@@ -244,6 +249,101 @@ def test_compact_contract_is_bounded() -> None:
     )
 
     assert len(compact_contract) <= 5_500
+
+
+def test_quality_sweep_profiles_use_current_skill_content() -> None:
+    full_skill = Path("skills/sumo-qa-reviewing-before-merge/SKILL.md").read_text(encoding="utf-8")
+    full_gated = candidate_prompt("full-gated")
+    core_gated = candidate_prompt("core-gated")
+
+    assert full_skill.rstrip() in full_gated
+    assert "## Machine-enforced response contract" in full_gated
+    assert core_gated.startswith(full_skill.split("### Risk-to-test ledger appendix")[0])
+    assert "### Risk-to-test ledger appendix" not in core_gated
+    assert "## Red Flags" not in core_gated
+    assert len(core_gated) < len(full_gated)
+
+    full_plain = candidate_prompt("full-plain")
+    routed_root_plain = candidate_prompt("routed-root-plain")
+    balanced_plain = candidate_prompt("balanced-plain")
+    warm_plain = candidate_prompt("warm-plain")
+    core_plain = candidate_prompt("core-plain")
+    assert full_plain == full_skill
+    assert "### Risk-to-test ledger appendix" not in routed_root_plain
+    assert "## Red Flags — STOP and rework" in routed_root_plain
+    assert "## Examples" in routed_root_plain
+    assert "Residual concerns are omitted or stated as `none`" in balanced_plain
+    assert "## Examples" in balanced_plain
+    assert "## Red Flags" not in warm_plain
+    assert "## Next skill in the chain" in warm_plain
+    assert "### Risk-to-test ledger appendix" not in core_plain
+    assert (
+        len(core_plain)
+        < len(warm_plain)
+        < len(balanced_plain)
+        < len(routed_root_plain)
+        < len(full_plain)
+    )
+
+
+def test_direct_config_replaces_test_level_skill_overrides() -> None:
+    direct = build_direct_config("full-ac-coverage", candidate_profile="warm-plain")
+    expected_skill = candidate_prompt("warm-plain").rstrip()
+
+    assert direct["defaultTest"]["vars"]["skill_content"] == expected_skill
+    assert all("skill_content" not in test["vars"] for test in direct["tests"])
+    assert len(direct["tests"]) == 3
+    assert direct["providers"] == load_group("full-ac-coverage")[0]["providers"]
+
+
+def test_direct_config_preserves_rubric_lists_and_stringifies_cold_context() -> None:
+    base = build_direct_config("full-base", candidate_profile="full-plain")
+    adversarial = build_direct_config("full-adversarial", candidate_profile="full-plain")
+    base_variables = base["defaultTest"]["vars"]
+    adversarial_variables = adversarial["defaultTest"]["vars"]
+
+    assert isinstance(base_variables["anti_patterns"], list)
+    assert isinstance(adversarial_variables["loaded_rules"], str)
+    assert isinstance(json.loads(adversarial_variables["loaded_rules"]), dict)
+    assert all(isinstance(test["vars"]["anti_patterns"], list) for test in adversarial["tests"])
+
+
+def test_direct_usage_includes_hidden_reasoning_and_allows_retries() -> None:
+    usage = {
+        "prompt": 100,
+        "completion": 20,
+        "total": 150,
+        "numRequests": 3,
+    }
+
+    assert _direct_positive_usage(usage, minimum_requests=2) == (100, 50)
+    assert _direct_positive_usage(usage, minimum_requests=4) is None
+
+
+def test_routed_root_loads_optional_appendices_only_for_explicit_requests() -> None:
+    root = candidate_prompt("routed-root-plain")
+    full = candidate_prompt("full-plain")
+
+    assert candidate_prompt_for_group("routed-root-plain", "full-base") == root
+    assert candidate_prompt_for_group("routed-root-plain", "full-ledger") == full
+    assert candidate_prompt_for_group("routed-root-plain", "full-scorecard") == full
+
+
+def test_direct_candidate_prompts_replace_only_the_skill_body() -> None:
+    profile = "warm-plain"
+    for group in FULL_REVIEW_GROUP_NAMES:
+        direct = build_direct_config(group, candidate_profile=profile)
+        defaults = direct["defaultTest"]["vars"]
+        actual = [
+            (
+                test["description"],
+                _render_prompt(direct["prompts"][0], defaults | test.get("vars", {})),
+            )
+            for test in direct["tests"]
+        ]
+        expected = build_prompts(group, skill_content=candidate_prompt(profile))[1]
+
+        assert actual == expected
 
 
 def test_grade_config_uses_echo_with_original_rubric(tmp_path: Path) -> None:

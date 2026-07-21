@@ -25,6 +25,52 @@ from sumo_qa.review_gate_poc import ReviewGateValidationError, validate_review_r
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_PATH = Path(__file__).with_name("compact_review_prompt.md")
 EVAL_ROOT = REPO_ROOT / "tests/evals/promptfoo"
+SKILL_PATH = REPO_ROOT / "skills/sumo-qa-reviewing-before-merge/SKILL.md"
+_MACHINE_CONTRACT_MARKER = "## Machine-enforced response contract"
+_CORE_CUT_MARKER = "### Risk-to-test ledger appendix"
+_PROCESS_FLOW_MARKER = "## Process Flow"
+_RED_FLAGS_MARKER = "## Red Flags — STOP and rework"
+_EXAMPLES_MARKER = "## Examples"
+_NEXT_SKILL_MARKER = "## Next skill in the chain"
+_BALANCED_RED_FLAGS = """## Red Flags — mandatory pre-verdict guard
+
+Before the verdict, rework the review if any statement below is true:
+
+- Verification is stale/partial, or SAFE is inferred from a green suite without a fresh
+  failure-mode-matching test for every named risk.
+- A discovered risk is demoted to a residual; an UNCOVERED/UNPROVEN risk lacks its
+  discriminating input; or that input is deferred to Codex. These remain SAFE-blockers.
+- A parser is called proven from code reading or non-discriminating cases. For fence length,
+  require the 4-tick-outer/3-tick-inner case; char-only comparison is the defect.
+- Executable behavior is treated as trivial because it lives outside app/src/lib. Hooks,
+  scripts, CI commands, and automation still require the runtime sweep and ledger.
+- An external-output matcher relies on a hand-authored fixture, or a real-run-traceable
+  contract is re-blocked by speculative variants. State internal/self-produced declinations.
+- A test-only change is accepted because it is green without proving each assertion fails
+  against the broken behavior.
+- Applicable standards, changed files, repository test layout, or a required user
+  confirmation gate were skipped.
+- Residual concerns are omitted or stated as `none`. Name the concrete remaining limits,
+  including what the completed verification did not exercise.
+- Any supplied AC is omitted, fetched by the skill, fabricated, raised beyond its stated
+  behavior, or marked MET without both the implementing diff and fresh matching evidence.
+  Every UNMET/UNVERIFIED AC blocks SAFE.
+- A relevant surface verifier used the wrong runtime/env/scope/tree, sibling results replace
+  a combined-tree run, the primary feature flow was not exercised, a guard lacks a true
+  negative, or an A/B control can pass through pre-existing rules. Each is a SAFE-blocker.
+- A readiness scorecard contradicts the risk/AC ledger or treats stale/unknown evidence as
+  ready. Fix the source rows, never weaken the scorecard or rubric.
+"""
+CANDIDATE_PROFILES = (
+    "compact",
+    "full-gated",
+    "core-gated",
+    "full-plain",
+    "routed-root-plain",
+    "balanced-plain",
+    "warm-plain",
+    "core-plain",
+)
 _VARIABLE_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
 REJECTED_REVIEW = (
     "Deterministic gate validation rejected both candidate attempts; no review was returned."
@@ -96,6 +142,19 @@ def _resolve_file_value(value: Any, *, config_dir: Path) -> Any:
     return content.rstrip()
 
 
+def _resolve_direct_config_value(
+    value: Any,
+    *,
+    config_dir: Path,
+    stringify_structured: bool,
+) -> Any:
+    """Resolve file vars without changing structured rubric variables."""
+    resolved = _resolve_file_value(value, config_dir=config_dir)
+    if stringify_structured and isinstance(resolved, dict | list):
+        return json.dumps(resolved, ensure_ascii=False, separators=(",", ":"))
+    return resolved
+
+
 def _render_prompt(template: str, variables: dict[str, Any]) -> str:
     missing: set[str] = set()
 
@@ -115,6 +174,56 @@ def _render_prompt(template: str, variables: dict[str, Any]) -> str:
     return rendered
 
 
+def candidate_prompt(profile: str) -> str:
+    """Build one reproducible candidate from the current production skill."""
+    compact = PROMPT_PATH.read_text(encoding="utf-8")
+    if profile == "compact":
+        return compact
+    if profile not in CANDIDATE_PROFILES:
+        raise ValueError(f"unknown candidate profile: {profile}")
+
+    behavior = SKILL_PATH.read_text(encoding="utf-8")
+    if profile == "full-plain":
+        return behavior
+    if profile == "routed-root-plain":
+        return (
+            behavior[: behavior.index(_CORE_CUT_MARKER)].rstrip()
+            + "\n\n"
+            + behavior[behavior.index(_PROCESS_FLOW_MARKER) :]
+        )
+    if profile == "balanced-plain":
+        return (
+            behavior[: behavior.index(_RED_FLAGS_MARKER)].rstrip()
+            + "\n\n"
+            + _BALANCED_RED_FLAGS.rstrip()
+            + "\n\n"
+            + behavior[behavior.index(_EXAMPLES_MARKER) :]
+        )
+    if profile == "warm-plain":
+        return (
+            behavior[: behavior.index(_RED_FLAGS_MARKER)].rstrip()
+            + "\n\n"
+            + behavior[behavior.index(_NEXT_SKILL_MARKER) :]
+        )
+    if profile == "core-plain":
+        return behavior[: behavior.index(_CORE_CUT_MARKER)].rstrip() + "\n"
+
+    contract = compact[compact.index(_MACHINE_CONTRACT_MARKER) :].rstrip()
+    if profile == "core-gated":
+        behavior = behavior[: behavior.index(_CORE_CUT_MARKER)]
+    return f"{behavior.rstrip()}\n\n{contract}\n"
+
+
+def candidate_prompt_for_group(profile: str, group_name: str) -> str:
+    """Apply explicit-intent cold routes without making a QA judgment."""
+    if profile == "routed-root-plain" and group_name in {
+        "full-ledger",
+        "full-scorecard",
+    }:
+        return candidate_prompt("full-plain")
+    return candidate_prompt(profile)
+
+
 def load_group(group_name: str) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
     group = ALL_GROUPS[group_name]
     config_path = EVAL_ROOT / group.config
@@ -130,15 +239,16 @@ def build_prompts(
     group_name: str,
     *,
     skill_content: str | None = None,
+    candidate_profile: str = "compact",
 ) -> tuple[str, list[tuple[str, str]], dict[str, str]]:
     config, tests, config_hash = load_group(group_name)
-    compact_prompt = PROMPT_PATH.read_text(encoding="utf-8")
+    selected_candidate = candidate_prompt_for_group(candidate_profile, group_name)
     config_dir = (EVAL_ROOT / ALL_GROUPS[group_name].config).parent
     defaults = {
         key: _resolve_file_value(value, config_dir=config_dir)
         for key, value in config.get("defaultTest", {}).get("vars", {}).items()
     }
-    selected_skill = (compact_prompt if skill_content is None else skill_content).rstrip()
+    selected_skill = (selected_candidate if skill_content is None else skill_content).rstrip()
     defaults["skill_content"] = selected_skill
     template = config["prompts"][0]
     rendered: list[tuple[str, str]] = []
@@ -155,7 +265,8 @@ def build_prompts(
     metadata = {
         "config": ALL_GROUPS[group_name].config,
         "config_sha256": config_hash,
-        "compact_prompt_sha256": _sha256(compact_prompt),
+        "compact_prompt_sha256": _sha256(selected_candidate),
+        "candidate_profile": candidate_profile,
         "model": model,
     }
     return model, rendered, metadata
@@ -240,6 +351,58 @@ def write_grade_config(group_name: str, reviews: list[str], output_dir: Path) ->
     return path
 
 
+def build_direct_config(group_name: str, *, candidate_profile: str) -> dict[str, Any]:
+    """Build a Promptfoo config that replaces only the production skill body."""
+    config, tests, _ = load_group(group_name)
+    config_dir = (EVAL_ROOT / ALL_GROUPS[group_name].config).parent
+    selected_skill = candidate_prompt_for_group(candidate_profile, group_name).rstrip()
+    direct = dict(config)
+    direct["description"] = f"Issue #557 direct candidate: {group_name} ({candidate_profile})"
+    default_test = dict(config.get("defaultTest", {}))
+    default_test["vars"] = {
+        key: _resolve_direct_config_value(
+            value,
+            config_dir=config_dir,
+            stringify_structured=key in _COLD_CONTEXT_VARS,
+        )
+        for key, value in default_test.get("vars", {}).items()
+    } | {"skill_content": selected_skill}
+    direct["defaultTest"] = default_test
+    direct["tests"] = []
+    for test in tests:
+        direct_test = dict(test)
+        direct_test["vars"] = {
+            key: _resolve_direct_config_value(
+                value,
+                config_dir=config_dir,
+                stringify_structured=key in _COLD_CONTEXT_VARS,
+            )
+            for key, value in test.get("vars", {}).items()
+            if key != "skill_content"
+        }
+        direct["tests"].append(direct_test)
+    return direct
+
+
+def write_direct_config(
+    group_name: str,
+    output_dir: Path,
+    *,
+    candidate_profile: str,
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"candidate-direct-{group_name}-config.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            build_direct_config(group_name, candidate_profile=candidate_profile),
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def validate_result_record(record: dict[str, Any]) -> tuple[str, int, int]:
     """Revalidate one stored candidate record and return review plus billed usage."""
     if record.get("validation_passed") is False:
@@ -294,12 +457,15 @@ def validate_result_record(record: dict[str, Any]) -> tuple[str, int, int]:
     return validated.review, prompt_tokens, completion_tokens
 
 
-def run_group(group_name: str, output_dir: Path) -> Path:
+def run_group(group_name: str, output_dir: Path, *, candidate_profile: str = "compact") -> Path:
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is required")
 
-    model, scenarios, metadata = build_prompts(group_name)
+    model, scenarios, metadata = build_prompts(
+        group_name,
+        candidate_profile=candidate_profile,
+    )
     results: list[dict[str, Any]] = []
     reviews: list[str] = []
     with httpx.Client(timeout=300) as client:
@@ -393,14 +559,34 @@ def main() -> None:
         help="run all non-control reviewing-before-merge eval scenarios",
     )
     parser.add_argument("--output-dir", type=Path, default=Path("/private/tmp/issue557"))
+    parser.add_argument("--profile", choices=CANDIDATE_PROFILES, default="compact")
     parser.add_argument("--grade-from-result", type=Path)
+    parser.add_argument(
+        "--write-direct-configs",
+        action="store_true",
+        help="write direct Promptfoo configs without running the deterministic gate",
+    )
     args = parser.parse_args()
     if args.all_review:
         if args.group is not None or args.grade_from_result is not None:
             parser.error("--all-review cannot be combined with group or --grade-from-result")
+        if args.write_direct_configs:
+            if not args.profile.endswith("-plain"):
+                parser.error("--write-direct-configs requires a *-plain profile")
+            for group_name in FULL_REVIEW_GROUPS:
+                print(
+                    write_direct_config(
+                        group_name,
+                        args.output_dir,
+                        candidate_profile=args.profile,
+                    )
+                )
+            return
         for group_name in FULL_REVIEW_GROUPS:
-            print(run_group(group_name, args.output_dir))
+            print(run_group(group_name, args.output_dir, candidate_profile=args.profile))
         return
+    if args.write_direct_configs:
+        parser.error("--write-direct-configs requires --all-review")
     if args.group is None:
         parser.error("group is required unless --all-review is used")
     if args.grade_from_result is not None:
@@ -413,7 +599,7 @@ def main() -> None:
         ]
         print(write_grade_config(args.group, reviews, args.output_dir))
         return
-    print(run_group(args.group, args.output_dir))
+    print(run_group(args.group, args.output_dir, candidate_profile=args.profile))
 
 
 if __name__ == "__main__":

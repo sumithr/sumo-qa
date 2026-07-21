@@ -100,6 +100,43 @@ making the QA judgments.
 The POC remains isolated. It is not registered as an MCP tool and does not
 change the default server, skill, installer, host configuration, or routing.
 
+## Quality-constrained reduction sweep
+
+The follow-up searched for a smaller reduction instead of assuming the 85%
+cut was the right target.
+
+| Candidate | Input-token effect | Valid quality evidence | Decision |
+|---|---:|---:|---|
+| Full skill plus deterministic response gate | 4.25% higher | 39/46 vs 40/46 baseline | Reject |
+| Compact prompt | 85.41% lower | 31/46 vs 40/46 baseline; 12 regressions | Reject |
+| Full root minus the optional ledger and scorecard appendices, with explicit routes back to the full skill | 6.69% lower | Corrected AC screen: 1/3 vs 2/3 full-skill baseline | Reject |
+
+The routed candidate retained the original red flags, examples, process flow,
+and every non-appendix instruction. It still regressed on the AC-UNMET case:
+the response correctly blocked merge but classified changelog evidence as
+`UNVERIFIED` where the unchanged rubric required `MET`. This is a shape failure,
+not a reason to loosen the rubric.
+
+The 6.69% figure is provider-reported generation usage across all 46 scenarios
+(908,313 full-skill input tokens versus 847,554 routed input tokens). Those
+usage records remain valid because the generation prompts were correct. The
+first fallback quality sweep is invalid: the experiment serializer converted
+structured anti-pattern lists to JSON strings, so the judge iterated their
+characters. Its grades are not used here. The serializer now keeps rubric
+lists native and stringifies only structured cold context inserted into the
+candidate prompt; a regression test guards both representations.
+
+A corrected exhaustive rerun could not complete: the target OpenAI account
+returns `429 insufficient_quota`, and the Gemini fallback stopped returning
+even a single judge result within six minutes. The fail-closed conclusion is
+therefore: **no non-zero reduction is proven quality-neutral.** Production skill
+content remains unchanged.
+
+The balance rule for any next candidate is now explicit: route one
+self-contained section at a time, rerun all 46 unchanged rubrics on the target
+model, and accept only candidates with zero per-scenario regressions. Token
+savings are optimized only inside that quality constraint.
+
 ## Evidence and revisions
 
 - Baseline source revision: `d9aecf6` (`origin/main` when captured).
