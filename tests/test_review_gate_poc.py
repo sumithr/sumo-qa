@@ -15,7 +15,6 @@ from experiments.issue_557.compare_results import (
     EVAL_ROOT,
     FULL_REVIEW_GROUP_NAMES,
     GROUPS,
-    PROMPT_PATH,
     _direct_positive_usage,
     compare_evidence,
 )
@@ -373,7 +372,7 @@ def test_comparison_requires_quality_and_token_reduction(tmp_path: Path) -> None
     candidate_dir = tmp_path / "candidate"
     baseline_dir.mkdir()
     candidate_dir.mkdir()
-    prompt_hash = hashlib.sha256(PROMPT_PATH.read_bytes()).hexdigest()
+    prompt_hash = hashlib.sha256(candidate_prompt("compact").encode()).hexdigest()
     raw_response = _response()
     validated = validate_review_response(raw_response)
     for index, group in enumerate(GROUPS):
