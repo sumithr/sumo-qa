@@ -114,6 +114,7 @@ from sumo_qa.repo_map_resolvers.base import (
     LanguageConfig,
     RawImport,
     ScanContext,
+    is_out_of_repo_specifier,
     register,
 )
 from sumo_qa.repo_map_treesitter import TSNode, parse
@@ -180,6 +181,31 @@ _UNUSABLE_PROJECT_MESSAGE = (
 # them.
 _PROJECT_REFERENCE_TAG = "ProjectReference"
 _INCLUDE_ATTR = "Include"
+_CONDITION_ATTR = "Condition"
+
+
+def _is_literal_false_condition(condition: str) -> bool:
+    """True when an MSBuild ``Condition`` attribute is the literal boolean false.
+
+    MSBuild treats a bare ``false`` and a single-quoted ``'false'`` (both
+    case-insensitive) as a false condition that disables the element, so a
+    ``<ProjectReference ... Condition="false"/>`` is a build dependency that is
+    not actually referenced and must emit no cross-project edge (#563). Full
+    MSBuild condition evaluation (property expansion, ``==`` comparisons) is out
+    of scope; only the literal-false spelling is recognised. Any other condition
+    — a property expression, ``true``, an empty string — is treated as ENABLED
+    (the reference is kept) rather than guessed at, so a real conditional
+    reference is never silently dropped.
+
+    Surrounding whitespace of the whole condition is trimmed (MSBuild's scanner
+    skips it), but whitespace INSIDE the quotes is NOT: MSBuild preserves a
+    quoted string's contents and only its exact boolean spellings convert, so
+    ``'false'`` is literal false while ``' false '`` is not — the latter is kept.
+    """
+    stripped = condition.strip()
+    if len(stripped) >= 2 and stripped[0] == "'" and stripped[-1] == "'":
+        stripped = stripped[1:-1]
+    return stripped.lower() == "false"
 
 
 def _local_name(tag: str) -> str:
@@ -233,6 +259,15 @@ def _parse_project_references(
     ``csproj_dir``, and reduced to the referenced project's ROOT directory (the
     directory holding the referenced ``.csproj``).
 
+    Two references are skipped before that join. A reference carrying a
+    literal-false ``Condition`` (``Condition="false"`` / ``Condition="'false'"``,
+    case-insensitive — see :func:`_is_literal_false_condition`) is a disabled
+    build dependency and contributes no edge. An ABSOLUTE include — POSIX
+    ``/B/B.csproj`` or a Windows drive ``C:\\B\\B.csproj`` — names a project
+    OUTSIDE the repo; ``posixpath.join`` would fold the drive into a repo-relative
+    segment (``A/C:/B/B.csproj``), so an adversarial repo holding that literal path
+    would emit a phantom cross-project edge. Both are dropped (#563).
+
     When ``project_files`` is given — the scan's set of every scanned ``.csproj``
     path — a reference resolves ONLY if the exact referenced ``.csproj`` is among
     them. A reference to a ``.csproj`` that is not a known project contributes
@@ -283,7 +318,17 @@ def _parse_project_references(
         include = element.get(_INCLUDE_ATTR)
         if not include:
             continue
-        target = posixpath.normpath(posixpath.join(csproj_dir, include.replace("\\", "/")))
+        condition = element.get(_CONDITION_ATTR)
+        if condition is not None and _is_literal_false_condition(condition):
+            continue  # a disabled (literal-false Condition) reference: no edge
+        normalized = include.replace("\\", "/")
+        if is_out_of_repo_specifier(normalized):
+            # An ABSOLUTE include — POSIX `/B/B.csproj`, or a drive `C:\B\B.csproj`
+            # that `posixpath.join` would fold into a repo-relative segment
+            # (`A/C:/B/B.csproj`) — names a project outside the repo, so it emits no
+            # edge rather than a phantom cross-project one (#563).
+            continue
+        target = posixpath.normpath(posixpath.join(csproj_dir, normalized))
         if project_files is not None and target not in project_files:
             continue  # reference to a .csproj that is not a known project: no edge
         references.add(target.rsplit("/", 1)[0] if "/" in target else "")
@@ -420,7 +465,10 @@ class CSharpResolver:
         ``namespace A.B { ... }`` and ``namespace A.B;`` each declare ``A.B``;
         a nested ``namespace Inner`` inside ``namespace Outer`` declares the
         full dotted ``Outer.Inner`` (C# composes the enclosing namespace into
-        the child's fully-qualified name).
+        the child's fully-qualified name). The walk is iterative
+        (:meth:`_collect_namespaces`), so a pathologically deep nest of
+        ``namespace`` declarations degrades to a path-shaped stack in heap rather
+        than overflowing the recursion limit and aborting the scan (#563).
         """
         root = parse("csharp", src)
         out: set[str] = set()
@@ -428,17 +476,33 @@ class CSharpResolver:
         return out
 
     def _collect_namespaces(self, node: TSNode, *, prefix: str, out: set[str]) -> None:
-        if node.kind in (_NAMESPACE_DECL, _FILE_SCOPED_NAMESPACE_DECL):
-            name = self._namespace_name(node)
-            if name is None:  # pragma: no cover -- defensive: a namespace decl always has a name
-                return
-            full = f"{prefix}.{name}" if prefix else name
-            out.add(full)
-            for child in node.children:
-                self._collect_namespaces(child, prefix=full, out=out)
-            return
-        for child in node.children:
-            self._collect_namespaces(child, prefix=prefix, out=out)
+        """Iteratively collect declared namespaces under ``node``.
+
+        An explicit stack of ``(node, enclosing-prefix)`` rather than recursion:
+        a valid ``.cs`` file can nest ~1,500 ``namespace`` declarations, which
+        would blow CPython's recursion limit in a recursive walk and abort the
+        whole repository scan. The stack keeps the walk in bounded stack space
+        (O(depth) heap). Traversal order does not matter — ``out`` is a set — so
+        children are pushed in source order. A ``namespace`` node contributes its
+        full dotted name and pushes its children under that new prefix; any other
+        node just forwards the current prefix to its children.
+        """
+        stack: list[tuple[TSNode, str]] = [(node, prefix)]
+        while stack:
+            current, current_prefix = stack.pop()
+            if current.kind in (_NAMESPACE_DECL, _FILE_SCOPED_NAMESPACE_DECL):
+                name = self._namespace_name(current)
+                if (
+                    name is None
+                ):  # pragma: no cover -- defensive: a namespace decl always has a name
+                    continue
+                full = f"{current_prefix}.{name}" if current_prefix else name
+                out.add(full)
+                child_prefix = full
+            else:
+                child_prefix = current_prefix
+            for child in current.children:
+                stack.append((child, child_prefix))
 
     @staticmethod
     def _namespace_name(node: TSNode) -> str | None:

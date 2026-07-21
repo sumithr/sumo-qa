@@ -72,7 +72,13 @@ import posixpath
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, ScanContext, register
+from sumo_qa.repo_map_resolvers.base import (
+    LanguageConfig,
+    RawImport,
+    ScanContext,
+    is_out_of_repo_specifier,
+    register,
+)
 from sumo_qa.repo_map_treesitter import TSNode, parse
 
 PHP_CONFIG = LanguageConfig(
@@ -455,6 +461,14 @@ class PhpResolver:
         composer's directory. The empty root-namespace prefix and a repo-root
         base dir (``""``) are preserved; joining a component only when it is
         non-empty leaves a root composer's roots unchanged.
+
+        Absolute base dirs (``/src``, ``C:\\src``, a bare drive ``C:``, or a bare
+        root ``/``) are already dropped by :func:`_normalise_psr4` BEFORE they
+        reach here (that guard runs on the RAW base, before ``_normalise_dir``
+        collapses a bare ``/`` to ``""``), so every base seen here is repo-relative
+        and safe to anchor. A relative base that climbs out of the package and back
+        in (``../shared``) is a legitimate sibling root and resolves in-repo via
+        ``posixpath.normpath`` at resolve time.
         """
         return tuple(
             (prefix, tuple("/".join(p for p in (directory, base) if p) for base in bases))
@@ -476,12 +490,24 @@ def _normalise_psr4(
     :meth:`PhpResolver._resolve_psr4` pick the most specific namespace by
     scanning in order (the empty root-namespace prefix sorts last, so it only
     catches FQNs no more specific prefix claimed).
+
+    An ABSOLUTE base dir is dropped here, on the RAW value, before
+    :func:`_normalise_dir` runs: a leading ``/`` (including a bare root ``/``),
+    ``\\``, or a Windows drive ``C:`` names a filesystem path OUTSIDE the repo
+    (:func:`~sumo_qa.repo_map_resolvers.base.is_out_of_repo_specifier`). This must
+    happen BEFORE normalisation because ``_normalise_dir`` strips a trailing ``/``,
+    collapsing a bare root ``/`` to ``""`` (repo root) and hiding its absoluteness
+    — anchoring that into the composer's package dir would fabricate a phantom
+    in-repo edge (#563). A relative sibling base (``../shared``) is not absolute
+    and is kept.
     """
     normalised: list[tuple[str, tuple[str, ...]]] = []
     for prefix, value in psr4.items():
         full = prefix if not prefix or prefix.endswith("\\") else prefix + "\\"
         dirs = (value,) if isinstance(value, str) else tuple(value)
-        normalised.append((full, tuple(_normalise_dir(d) for d in dirs)))
+        normalised.append(
+            (full, tuple(_normalise_dir(d) for d in dirs if not is_out_of_repo_specifier(d)))
+        )
     normalised.sort(key=lambda item: len(item[0]), reverse=True)
     return tuple(normalised)
 

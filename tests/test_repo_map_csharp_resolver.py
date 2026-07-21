@@ -379,3 +379,81 @@ def test_parse_project_references_refuses_bomless_utf16_dtd_and_reference():
     assert b"<!DOCTYPE" not in raw  # byte DTD guard misses the interleaved-NUL DTD
     # The NUL rejection closes both: no reference, DTD never handed to expat.
     assert _parse_project_references(raw, "C", frozenset({"D/D.csproj"})) == set()
+
+
+def test_parse_project_references_drops_drive_absolute_include():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # A drive-absolute Include ("C:\B\B.csproj") folds into a repo-relative path
+    # under posixpath.join (from project "A" -> "A/C:/B/B.csproj"), so an
+    # adversarial repo containing that literal path would emit a phantom
+    # cross-project edge. An absolute include names a location outside the repo
+    # and must be dropped. A relative sibling reference in the SAME manifest still
+    # resolves, so the drop is surgical.
+    raw = (
+        b'<Project Sdk="Microsoft.NET.Sdk"><ItemGroup>'
+        b'<ProjectReference Include="C:\\B\\B.csproj" />'
+        b'<ProjectReference Include="..\\D\\D.csproj" />'
+        b"</ItemGroup></Project>"
+    )
+    known = frozenset({"A/A.csproj", "A/C:/B/B.csproj", "D/D.csproj"})
+    assert _parse_project_references(raw, "A", known) == {"D"}
+
+
+def test_parse_project_references_skips_literal_false_condition():
+    from sumo_qa.repo_map_resolvers.csharp import _parse_project_references
+
+    # A ProjectReference with a literal-false Condition — bare `false` or quoted
+    # `'false'`, case-insensitive — is a disabled build dependency MSBuild would
+    # not include, so it must emit no cross-project edge. Everything else is KEPT:
+    # no Condition (D), a real MSBuild property comparison (E), and a quoted value
+    # with INNER whitespace (F, `' false '`) — MSBuild preserves quoted contents
+    # and only recognises the EXACT boolean spelling, so `' false '` is NOT the
+    # `'false'` literal. Full condition evaluation is out of scope; only the exact
+    # literal-false spelling is recognised and any other condition is treated as
+    # enabled rather than guessed at — the guard is surgical.
+    raw = (
+        b'<Project Sdk="Microsoft.NET.Sdk"><ItemGroup>'
+        b'<ProjectReference Include="..\\B\\B.csproj" Condition="false" />'
+        b'<ProjectReference Include="..\\C\\C.csproj" Condition="\'False\'" />'
+        b'<ProjectReference Include="..\\D\\D.csproj" />'
+        b"<ProjectReference Include=\"..\\E\\E.csproj\" Condition=\"'$(Configuration)'=='Release'\" />"
+        b'<ProjectReference Include="..\\F\\F.csproj" Condition="\' false \'" />'
+        b"</ItemGroup></Project>"
+    )
+    known = frozenset(
+        {"A/A.csproj", "B/B.csproj", "C/C.csproj", "D/D.csproj", "E/E.csproj", "F/F.csproj"}
+    )
+    assert _parse_project_references(raw, "A", known) == {"D", "E", "F"}
+
+
+# ---------- deeply nested namespaces must not overflow the recursion limit (#563) ----------
+
+
+def _deeply_nested_namespaces(depth: int) -> bytes:
+    """A valid `.cs` source nesting `depth` `namespace` declarations."""
+    return (
+        "".join(f"namespace N{i} {{" for i in range(depth)) + " class C {} " + "}" * depth
+    ).encode()
+
+
+@_needs_ts
+def test_declared_namespaces_deeply_nested_does_not_overflow():
+    # ~1,500 nested `namespace` declarations exceed CPython's default recursion
+    # limit (1000). A recursive walk raises RecursionError and aborts the scan in
+    # the prepare pre-pass. The walk must complete iteratively, yielding one
+    # fully-dotted namespace per nesting level including the innermost.
+    depth = 1500
+    ns = resolver.declared_namespaces(_deeply_nested_namespaces(depth))
+    assert len(ns) == depth
+    assert "N0" in ns  # outermost
+    assert "N0." + ".".join(f"N{i}" for i in range(1, depth)) in ns  # innermost, fully dotted
+
+
+@_needs_ts
+def test_extract_deeply_nested_namespaces_does_not_overflow():
+    # The same deeply-nested source is also walked by TSNode.descendants() in
+    # extract(); a recursive generator overflows the recursion limit there too.
+    # An iterative descendant walk keeps extract from raising (no `using`
+    # directives here -> no imports, but the point is it does not crash).
+    assert resolver.extract(_deeply_nested_namespaces(1500)) == []

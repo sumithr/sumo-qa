@@ -701,4 +701,65 @@ def test_prepare_returns_new_instance_and_leaves_singleton_path_only(tmp_path: P
     prepared = singleton.prepare(context)
     assert prepared is not singleton
     assert singleton.resolve("a.php", _psr4_use("App\\User"), {"src/User.php"}) == []
-    assert prepared.resolve("a.php", _psr4_use("App\\User"), {"src/User.php"}) == ["src/User.php"]
+
+
+def test_prepare_absolute_psr4_base_dir_is_external_no_phantom_edge(tmp_path: Path):
+    # A composer mapping App\ to an ABSOLUTE base dir ("/src") names a filesystem
+    # path outside the repo. Anchoring it into the package dir ("packages/a//src")
+    # and normalising ("packages/a/src") would fabricate a phantom edge to
+    # packages/a/src/Widget.php. An absolute base dir must be treated as external
+    # (dropped), so App\Widget resolves to nothing. A relative base in the SAME
+    # composer (Lib\ -> lib/) still anchors and resolves, so the drop is surgical.
+    prepared, _ = _prepare(
+        tmp_path,
+        {
+            "packages/a/composer.json": _composer({"App\\": "/src/", "Lib\\": "lib/"}),
+            "packages/a/src/Widget.php": "<?php\n",
+            "packages/a/lib/Helper.php": "<?php\n",
+        },
+    )
+    file_set = {"packages/a/src/Widget.php", "packages/a/lib/Helper.php"}
+    assert prepared.resolve("packages/a/src/Client.php", _psr4_use("App\\Widget"), file_set) == []
+    assert prepared.resolve("packages/a/src/Client.php", _psr4_use("Lib\\Helper"), file_set) == [
+        "packages/a/lib/Helper.php"
+    ]
+
+
+def test_prepare_sibling_escaping_psr4_base_dir_still_resolves(tmp_path: Path):
+    # Only ABSOLUTE base dirs are external; a relative base that climbs out of the
+    # package and back into the repo ("../shared" from packages/a -> packages/shared)
+    # is a legitimate PSR-4 root pointing at a sibling, so it must STILL resolve.
+    # This pins that the absolute-guard does not over-drop repo-escaping-but-in-repo
+    # bases (posixpath.normpath already lands them in-repo).
+    prepared, _ = _prepare(
+        tmp_path,
+        {
+            "packages/a/composer.json": _composer({"App\\": "../shared/"}),
+            "packages/shared/Widget.php": "<?php\n",
+        },
+    )
+    file_set = {"packages/shared/Widget.php"}
+    assert prepared.resolve("packages/a/src/Client.php", _psr4_use("App\\Widget"), file_set) == [
+        "packages/shared/Widget.php"
+    ]
+
+
+def test_prepare_root_slash_psr4_base_dir_is_external_no_phantom_edge(tmp_path: Path):
+    # A PSR-4 base of EXACTLY "/" (filesystem root) is absolute/out-of-repo, but
+    # `_normalise_dir` strips its trailing slash to "" (repo root) — so the guard
+    # must reject the RAW base value BEFORE normalisation. Otherwise App\Widget
+    # anchors into the composer's package dir (packages/a/Widget.php), the exact
+    # phantom edge the absolute-base fix is meant to prevent.
+    prepared, _ = _prepare(
+        tmp_path,
+        {
+            "packages/a/composer.json": _composer({"App\\": "/"}),
+            "packages/a/Widget.php": "<?php\n",
+        },
+    )
+    assert (
+        prepared.resolve(
+            "packages/a/src/Client.php", _psr4_use("App\\Widget"), {"packages/a/Widget.php"}
+        )
+        == []
+    )

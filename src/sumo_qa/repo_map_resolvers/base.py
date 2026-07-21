@@ -21,11 +21,41 @@ slice registers only ``python``; follow-on slices register their own.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from sumo_qa.repo_map_models import RepoMapWarning
+
+# A Windows drive prefix — a letter then a colon — WITH OR WITHOUT a following
+# separator (`C:`, `C:/`, `C:\`, `C:util` all match). The colon alone marks the
+# drive; a trailing slash is not required (that separator-required gap let a bare
+# `baseUrl: "C:"` slip through as a repo-relative directory, #563).
+_DRIVE_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:")
+
+
+def is_out_of_repo_specifier(value: str) -> bool:
+    r"""True when ``value`` is a filesystem-absolute path naming a location OUTSIDE
+    the repo tree, so a resolver must emit no edge for it.
+
+    Absolute means any of: a leading ``/`` (POSIX / root-relative), a leading
+    ``\`` (UNC / Windows root), or a Windows drive ``C:`` — with OR without a
+    following separator. A naive repo-relative join would silently strip the
+    leading separator (``/src`` -> ``src``) or fold the drive into a segment
+    (``C:/x`` / ``C:`` -> a ``C:`` path component), re-anchoring an out-of-repo
+    value into a phantom in-repo path — a false dependency, the worst repo-map
+    failure. This is the SINGLE shared choke point for the "absolute value =>
+    no edge" rule, applied at every resolver entry point: the TypeScript import
+    specifier + ``baseUrl`` / ``paths`` targets, the PHP PSR-4 base dirs, and the
+    C# ``<ProjectReference>`` include paths (#563).
+
+    A repo-ESCAPING value that climbs out and lands back INSIDE the repo (a
+    sibling package / project via ``../shared``) is NOT out-of-repo — it names a
+    legitimate in-repo target — so escape handling stays with each resolver's own
+    path join, which drops only the values that climb ABOVE the repo root.
+    """
+    return value.startswith(("/", "\\")) or _DRIVE_ABSOLUTE_RE.match(value) is not None
 
 
 @dataclass(frozen=True)

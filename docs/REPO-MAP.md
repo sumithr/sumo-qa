@@ -233,7 +233,10 @@ What the slice-2 scanner produces:
   `paths`/`baseUrl` aliases resolve to real files without flattening unrelated
   workspaces' alias tables into one. A missing config is the silent path-only
   fallback; an unreadable or malformed config degrades to path-only with one
-  deterministic `other` warning per affected file.
+  deterministic `other` warning per affected file. An absolute import specifier,
+  or an absolute or repo-root-escaping `baseUrl` / `paths` target (including a
+  bare Windows drive `C:` with no trailing separator), emits no edge rather than
+  a phantom in-repo one (#563).
 
   **PHP** is additionally repository context activated (#484): each scan
   reads every `composer.json` and resolves PSR-4 `use` imports against the
@@ -242,7 +245,10 @@ What the slice-2 scanner produces:
   Composer package's map never resolves an import written in a sibling
   package. A missing manifest is the normal path-only fallback; an unreadable
   or unusable one degrades the same way plus one deterministic `other`
-  warning, never aborting the scan.
+  warning, never aborting the scan. An absolute PSR-4 base dir (`/src`, a
+  Windows drive) is treated as external and dropped rather than anchored into a
+  phantom in-repo path; a relative base that lands in a sibling package
+  (`../shared`) is a legitimate root and still resolves (#563).
 
   **C#** is likewise repository context activated (#542): each scan builds a
   `namespace -> declaring files` index scoped to each `.csproj` PROJECT
@@ -280,11 +286,18 @@ What the slice-2 scanner produces:
   grouping stay location-only. References are DIRECT ONLY, not transitive: if A
   references B and B references C, a `using` in A resolves into B but not into C.
   Include paths use MSBuild backslashes, resolved relative to the referencing
-  `.csproj`'s own directory. A manifest that is unreadable, non-UTF-8, or
-  malformed XML contributes no references (its own boundary and namespaces are
-  unaffected); a scanned `.csproj` declaring a DTD is refused, closing the XML
-  entity-expansion denial-of-service vector. A bad `.csproj` never aborts the
-  scan.
+  `.csproj`'s own directory. An absolute include (POSIX `/B/B.csproj` or a
+  Windows drive `C:\B\B.csproj`) names a project outside the repo and emits no
+  edge, and a `<ProjectReference>` carrying a literal-false `Condition`
+  (`Condition="false"` / `'false'`, case-insensitive) is skipped as a disabled
+  dependency (full MSBuild condition evaluation is out of scope, so any other
+  condition is treated as enabled) (#563). A manifest that is unreadable,
+  non-UTF-8, or malformed XML contributes no references (its own boundary and
+  namespaces are unaffected); a scanned `.csproj` declaring a DTD is refused,
+  closing the XML entity-expansion denial-of-service vector. A bad `.csproj`
+  never aborts the scan, and neither does a pathologically deep `.cs` file: a
+  namespace nesting that would overflow the recursion limit is walked
+  iteratively, so it degrades gracefully instead of aborting (#563).
 
   Capabilities that await repository context (#484): C/C++ resolution through
   configured include directories (quoted includes beyond the importer's own
