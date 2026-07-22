@@ -168,6 +168,48 @@ spending cap before the remaining 34 scenarios could complete. The acceptance
 bar remains all 46 scenarios with zero per-scenario regressions on the target
 model. Production skill content remains unchanged until that run succeeds.
 
+## ChatGPT subscription rerun
+
+`run_subscription_eval.py` reruns the same 46 scenarios through isolated
+`codex exec` sessions authenticated by the existing ChatGPT subscription. It
+removes `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `CODEX_API_KEY` from every child
+process, requires `codex login status` to report ChatGPT authentication, runs
+ephemerally in a read-only sandbox, rejects tool-use events, and writes resumable
+JSON evidence after every scenario.
+
+The judge now receives the scenario ground truth as well as the unchanged rubric.
+This prevents memory-present and memory-absent cases from being graded without
+the context needed to distinguish them. Reused baseline outputs are regraded with
+the same grounded judge as candidates.
+
+The latest complete subscription run preceded the final four contract repairs:
+
+| Measure | Full skill | Regression-guided compact | Result |
+|---|---:|---:|---:|
+| Static candidate text | 72,563 characters | 14,834 characters | 79.56% lower |
+| Generation input | 1,483,174 tokens | 1,070,031 tokens | 27.86% lower |
+| First-attempt generation input | 1,483,174 tokens | 824,631 tokens | 44.40% lower |
+| Deterministic-envelope repair input | N/A | 245,400 tokens across 13 repairs | reduces net saving |
+| Unchanged-rubric passes | 37/46 | 39/46 | candidate has four regressions |
+
+Those four failures were repaired and rerun alone through the subscription
+harness. All four preserved or improved their baseline grade, with 44.92% lower
+generation input on that subset. This targeted pass is not a replacement for a
+new 46-scenario run, so the overall result remains `NOT PROVEN`.
+
+Run the complete subscription comparison without provider API credentials:
+
+```zsh
+env -u OPENAI_API_KEY -u GEMINI_API_KEY -u CODEX_API_KEY \
+  .venv/bin/python -m experiments.issue_557.run_subscription_eval \
+  --output /private/tmp/issue557-subscription/evidence.json \
+  --workers 3 --fresh
+```
+
+The default subscription model is `gpt-5.6-luna` with low reasoning effort.
+Judge usage is excluded from the reported generation-token comparison but remains
+present in the raw evidence.
+
 ## Evidence and revisions
 
 - Baseline source revision: `d9aecf6` (`origin/main` when captured).

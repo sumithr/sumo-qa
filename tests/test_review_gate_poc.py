@@ -30,6 +30,13 @@ from experiments.issue_557.run_candidate import (
     validate_result_record,
     write_grade_config,
 )
+from experiments.issue_557.run_subscription_eval import (
+    codex_command,
+    parse_codex_jsonl,
+    render_llm_rubric,
+    subscription_environment,
+    summarize,
+)
 from sumo_qa.review_gate_poc import ReviewGateValidationError, validate_review_response
 
 
@@ -313,6 +320,127 @@ def test_repaired_compact_can_be_screened_with_direct_config() -> None:
         direct["defaultTest"]["vars"]["skill_content"]
         == candidate_prompt("repaired-compact").rstrip()
     )
+
+
+def test_subscription_environment_removes_every_metered_key() -> None:
+    env = subscription_environment(
+        {
+            "PATH": "/bin",
+            "OPENAI_API_KEY": "openai-secret",
+            "GEMINI_API_KEY": "gemini-secret",
+            "CODEX_API_KEY": "codex-secret",
+        }
+    )
+
+    assert env["PATH"] == "/bin"
+    assert env["CODEX_NON_INTERACTIVE"] == "1"
+    assert "OPENAI_API_KEY" not in env
+    assert "GEMINI_API_KEY" not in env
+    assert "CODEX_API_KEY" not in env
+
+
+def test_subscription_codex_command_is_ephemeral_and_read_only(tmp_path: Path) -> None:
+    command = codex_command(
+        model="gpt-5.6-luna",
+        reasoning_effort="low",
+        runner_dir=tmp_path,
+    )
+
+    assert command[:2] == ["codex", "exec"]
+    assert "--ephemeral" in command
+    assert "--ignore-user-config" in command
+    assert "--ignore-rules" in command
+    assert command[command.index("--sandbox") + 1] == "read-only"
+    assert command[-1] == "-"
+
+
+def test_subscription_jsonl_requires_tool_free_output_and_usage() -> None:
+    stdout = "\n".join(
+        (
+            json.dumps({"type": "thread.started", "thread_id": "thread-1"}),
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": "review"},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "turn.completed",
+                    "usage": {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 20,
+                        "output_tokens": 10,
+                        "reasoning_output_tokens": 2,
+                    },
+                }
+            ),
+        )
+    )
+
+    result = parse_codex_jsonl(stdout)
+
+    assert result.output == "review"
+    assert result.usage["input_tokens"] == 100
+    with pytest.raises(ValueError, match="forbidden item"):
+        parse_codex_jsonl(
+            stdout.replace(
+                '"agent_message", "text": "review"',
+                '"command_execution", "text": "review"',
+            )
+        )
+
+
+def test_subscription_rubric_renderer_preserves_native_lists_and_context() -> None:
+    base = render_llm_rubric("full-base", 0, "candidate output")
+    security = render_llm_rubric("full-security-relevance", 0, "candidate output")
+
+    assert "--- CANDIDATE RESPONSE ---\ncandidate output" in base
+    assert "Declares safe-to-merge without referencing fresh test output." in base
+    assert "SECURITY SHOULD BE CALLED OUT" in security
+    assert "--- LOADED CLASSIFICATIONS ---" in security
+    assert "--- SCENARIO GROUND TRUTH ---" in base
+    assert "Apply the existing rubric and decision table unchanged." in base
+    assert "[object Object]" in render_llm_rubric("full-ac-coverage", 1, "candidate output")
+    assert "{{" not in base + security
+    assert "{%" not in base + security
+
+
+def test_subscription_summary_requires_all_46_and_quality_preservation() -> None:
+    records = []
+    for index in range(46):
+        records.append(
+            {
+                "scenario_id": f"full-base:{index}",
+                "group": "full-base",
+                "index": index,
+                "baseline": {
+                    "usage": {
+                        "input_tokens": 200,
+                        "output_tokens": 20,
+                        "reasoning_output_tokens": 0,
+                    },
+                    "grade": {"pass": True},
+                },
+                "candidate": {
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 20,
+                        "reasoning_output_tokens": 0,
+                    },
+                    "grade": {"pass": True},
+                },
+                "quality_preserved": True,
+            }
+        )
+
+    result = summarize(records, minimum_input_reduction=0.01)
+
+    assert result["verdict"] == "PROVEN"
+    assert result["quality"]["regressions"] == 0
+    assert result["tokens"]["input_reduction_percent"] == 50.0
+    records[0]["quality_preserved"] = False
+    assert summarize(records, minimum_input_reduction=0.01)["verdict"] == "NOT PROVEN"
 
 
 def test_direct_config_preserves_rubric_lists_and_stringifies_cold_context() -> None:
