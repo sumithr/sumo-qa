@@ -701,6 +701,7 @@ def test_prepare_returns_new_instance_and_leaves_singleton_path_only(tmp_path: P
     prepared = singleton.prepare(context)
     assert prepared is not singleton
     assert singleton.resolve("a.php", _psr4_use("App\\User"), {"src/User.php"}) == []
+    assert prepared.resolve("a.php", _psr4_use("App\\User"), {"src/User.php"}) == ["src/User.php"]
 
 
 def test_prepare_absolute_psr4_base_dir_is_external_no_phantom_edge(tmp_path: Path):
