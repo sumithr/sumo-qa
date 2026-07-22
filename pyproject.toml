@@ -91,7 +91,7 @@ dev = [
   # the nightly gate false-DROPs every module (red 2026-06-07 → 2026-07-13).
   # Lift the cap only after verifying a release resolves source_paths
   # against the run root instead of the live cwd.
-  "mutmut>=3,<3.6",
+  "mutmut>=3,<3.7",
   # NOTE: CVE-2025-71176 (local tmpdir symlink, fixed in pytest 9.0.3) cannot be
   # remediated by upgrading while pytest-check-links is a dev dep — its latest
   # release (0.10.1) hard-caps pytest<9 and is unmaintained. The advisory is
