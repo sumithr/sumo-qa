@@ -561,6 +561,57 @@ def test_resolve_windows_drive_absolute_baseurl_emits_no_phantom_alias_edge():
     assert resolver.resolve("app.ts", imp, {"C:/src/util.ts"}) == []
 
 
+# ---------- resolve: absolute import specifier + bare-drive baseUrl (#563) ----------
+
+
+@pytest.mark.parametrize(
+    "spec",
+    ["/outside/pkg", "\\outside\\pkg", "C:/outside", "C:outside"],
+)
+def test_resolve_absolute_import_specifier_does_not_alias_resolve(spec):
+    # An absolute import specifier — POSIX ("/outside/pkg"), UNC/backslash
+    # ("\\outside\\pkg"), or a Windows drive with ("C:/outside") or WITHOUT
+    # ("C:outside") a separator — names no repo-relative module. But a catch-all
+    # `"*": ["src/fixed"]` alias uses its target VERBATIM (the specifier tail is
+    # discarded for a non-wildcard target), so an unguarded resolver maps EVERY
+    # specifier onto the phantom in-repo file src/fixed.ts. The absolute specifier
+    # must be rejected before alias matching -> no edge.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"*": ["src/fixed"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module=spec, level=0, names=(), function_local=False)
+    assert resolver.resolve("app/main.ts", imp, {"src/fixed.ts"}) == []
+
+
+def test_resolve_bare_non_relative_specifier_still_alias_resolves():
+    # Guard is surgical: a normal bare (non-absolute) specifier still resolves
+    # through the same catch-all alias, so dropping absolute specifiers does not
+    # break ordinary baseUrl/paths aliasing.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"*": ["src/fixed"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="anything", level=0, names=(), function_local=False)
+    assert resolver.resolve("app/main.ts", imp, {"src/fixed.ts"}) == ["src/fixed.ts"]
+
+
+def test_parse_tsconfig_bare_windows_drive_baseurl_drops_alias_config():
+    # A Windows drive baseUrl with NO trailing separator ("C:") is still a
+    # filesystem drive path outside the repo — the drive-absolute class does not
+    # require a following slash. `_WINDOWS_DRIVE_RE`'s separator requirement let
+    # "C:" through as a repo-relative directory; it must instead drop the WHOLE
+    # alias config (empty TsConfig) rather than re-anchor targets under "C:".
+    dropped = parse_tsconfig('{"compilerOptions": {"baseUrl": "C:", "paths": {"@x/*": ["*"]}}}')
+    assert dropped == TsConfig()
+
+
+def test_resolve_bare_windows_drive_baseurl_emits_no_phantom_alias_edge():
+    # baseUrl "C:" (bare drive, no separator) must not resolve a bare `util` onto
+    # the phantom in-repo file "C:/util.ts": the bare drive is absolute, so the
+    # alias config is dropped -> no edge.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"baseUrl": "C:"}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="util", level=0, names=(), function_local=False)
+    assert resolver.resolve("app.ts", imp, {"C:/util.ts"}) == []
+
+
 # ---------- parse_tsconfig: malformed / JSONC tolerance ----------
 
 

@@ -574,3 +574,27 @@ def test_scan_bomless_utf16_csproj_is_unusable_no_phantom_edge(tmp_path: Path):
     assert [(w.kind, w.message, w.path) for w in again.warnings if w.kind == "other"] == [
         (w.kind, w.message, w.path) for w in others
     ]
+
+
+@_needs_ts
+def test_scan_deeply_nested_namespaces_does_not_abort(tmp_path: Path):
+    # A single valid `.cs` file with ~1,500 nested `namespace` declarations
+    # overflows CPython's recursion limit in the recursive namespace/descendant
+    # walks, raising RecursionError that aborts the WHOLE repository scan (first
+    # in the prepare pre-pass's declared_namespaces, then in extract's
+    # descendants()). The iterative walks let the scan complete: the deep file is
+    # indexed without crashing, and a normal sibling project's in-project `using`
+    # still resolves — proof the scan continued past the pathological file.
+    depth = 1500
+    deep = "".join(f"namespace N{i} {{" for i in range(depth)) + " class C {} " + "}" * depth
+    _write(tmp_path, "Deep/Deep.csproj", _SDK_CSPROJ)
+    _write(tmp_path, "Deep/Deep.cs", deep)
+    _write(tmp_path, "App/App.csproj", _SDK_CSPROJ)
+    _write(tmp_path, "App/Models/Order.cs", "namespace App.Models;\n\npublic class Order { }\n")
+    _write(
+        tmp_path,
+        "App/Consumer.cs",
+        "using App.Models;\n\nnamespace App;\n\npublic class Consumer { Order o = new Order(); }\n",
+    )
+    repo_map = scan_repo(tmp_path, generator_version="t")
+    assert _APP_PAIR in _import_pairs(repo_map)

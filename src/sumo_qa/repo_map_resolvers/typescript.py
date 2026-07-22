@@ -75,11 +75,16 @@ matcher, independent of scan activation:
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, ScanContext, register
+from sumo_qa.repo_map_resolvers.base import (
+    LanguageConfig,
+    RawImport,
+    ScanContext,
+    is_out_of_repo_specifier,
+    register,
+)
 from sumo_qa.repo_map_treesitter import TSNode, parse
 
 # TS/JS resolution extension order: TS source, then declarations, then JS
@@ -346,25 +351,6 @@ def _drop_trailing_commas(text: str) -> str:
     return "".join(out)
 
 
-_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
-
-
-def _is_absolute_base(raw: str) -> bool:
-    """True when a ``baseUrl`` string is a filesystem-absolute path.
-
-    A POSIX-absolute (``/src``), UNC/root-relative (``\\srv``), or Windows
-    drive-absolute (``C:\\src`` / ``C:/src`` — a letter, ``:``, then a separator)
-    ``baseUrl`` names a location OUTSIDE the repo tree. :func:`_join_repo` would
-    silently strip the leading separator (``/src`` → ``src``) or fold the drive
-    into a repo-relative segment (``C:/src`` → ``C:/src``), re-anchoring it
-    repo-relative, so the caller must treat it like an escaping base and drop the
-    alias config rather than fabricate a phantom in-repo edge. ``raw`` is the
-    separator-normalized value, so both the backslash and forward-slash drive
-    spellings arrive as ``C:/…`` here; the pattern matches either form defensively.
-    """
-    return raw.startswith(("/", "\\")) or _WINDOWS_DRIVE_RE.match(raw) is not None
-
-
 def _join_repo(base: str, rel: str) -> str | None:
     """Join ``rel`` onto repo-relative ``base``, collapsing ``.`` / ``..``.
 
@@ -396,17 +382,18 @@ def _in_repo_target(base: str, rel: str) -> str | None:
     ``paths`` target, and the ``baseUrl`` fallback for a non-relative specifier).
     ``rel`` is out-of-repo when it is:
 
-    - ABSOLUTE — a leading ``/`` or ``\``, or a Windows drive ``C:/`` / ``C:\``
-      (:func:`_is_absolute_base`): ``_join_repo`` would silently strip the leading
-      separator (``/src`` → ``src``) or fold the drive into a repo-relative segment,
-      re-anchoring it repo-relative into a phantom in-repo path; or
+    - ABSOLUTE — a leading ``/`` or ``\``, or a Windows drive ``C:`` / ``C:/`` /
+      ``C:\`` (:func:`~sumo_qa.repo_map_resolvers.base.is_out_of_repo_specifier`):
+      ``_join_repo`` would silently strip the leading separator (``/src`` → ``src``)
+      or fold the drive into a repo-relative segment, re-anchoring it repo-relative
+      into a phantom in-repo path; or
     - ESCAPING — its ``..`` segments climb above the repo root, so ``_join_repo``
       returns ``None``.
 
     Either way it names no in-repo file and must yield no edge (re-anchoring it
     repo-relative would fabricate a false dependency, the worst repo-map failure).
     """
-    if _is_absolute_base(rel):
+    if is_out_of_repo_specifier(rel):
         return None
     return _join_repo(base, rel)  # None here means the `..` escaped the repo root
 
@@ -596,9 +583,13 @@ class TypeScriptResolver:
         importer's directory; non-relative specifiers go through the governing
         tsconfig's alias / baseUrl resolution (the importer's nearest scan-local
         config, or a single injected one; see :meth:`_applicable_tsconfig`), else
-        they are external (empty list). Returns paths that exist in ``file_set``,
-        de-duplicated preserving first-seen order; an empty list is the normal
-        "external / not ours" outcome, never an error.
+        they are external (empty list). An ABSOLUTE specifier (``/x``, ``\\x``,
+        ``C:/x``, or a bare drive ``C:x``) names no repo-relative module, so it is
+        dropped BEFORE alias resolution: otherwise a catch-all ``"*"`` alias would
+        map it verbatim onto a same-named in-repo file (a phantom edge, #563).
+        Returns paths that exist in ``file_set``, de-duplicated preserving
+        first-seen order; an empty list is the normal "external / not ours"
+        outcome, never an error.
         """
         spec = imp.module
         if not spec:
@@ -609,6 +600,8 @@ class TypeScriptResolver:
             if base is None:
                 return []  # walked past the repo root
             return self._probe(base, file_set)
+        if is_out_of_repo_specifier(spec):
+            return []  # an absolute specifier names no in-repo module; never alias-resolve
         tsconfig = self._applicable_tsconfig(importer)
         if tsconfig is not None:
             return self._resolve_alias(spec, tsconfig, file_set)
