@@ -20,6 +20,7 @@ through ``__main__.py`` which calls ``main()`` correctly.
 # tests/test_mutmut_subprocess_exclusions.py guard enforces this marker↔ignore
 # pairing loudly at PR time. See docs/DEVELOPMENT.md § Mutation testing.
 
+import asyncio
 import json
 import os
 import subprocess
@@ -27,7 +28,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
+from experiments.issue_557.run_candidate import candidate_prompt
 from sumo_qa import server as sumo_server
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -60,7 +64,7 @@ _TOOLS_LIST_REQUEST = {
 }
 
 
-def _spawn_mcp() -> subprocess.Popen:
+def _mcp_environment() -> dict[str, str]:
     # Prepend src/ to PYTHONPATH so the spawned interpreter can `import sumo_qa`
     # even when sumo-qa isn't pip-installed in the active venv. Without this,
     # `pytest --cov` works when the project is editable-installed,
@@ -70,13 +74,17 @@ def _spawn_mcp() -> subprocess.Popen:
     src_path = str(REPO_ROOT / "src")
     existing = os.environ.get("PYTHONPATH", "")
     pythonpath = f"{src_path}{os.pathsep}{existing}" if existing else src_path
+    return {**os.environ, "PYTHONPATH": pythonpath}
+
+
+def _spawn_mcp() -> subprocess.Popen:
     return subprocess.Popen(
         [sys.executable, "-m", "sumo_qa"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=str(REPO_ROOT),
-        env={**os.environ, "PYTHONPATH": pythonpath},
+        env=_mcp_environment(),
         text=True,
     )
 
@@ -164,3 +172,32 @@ def test_mcp_tools_list_count_matches_registry(mcp_proc):
     tools = response.get("result", {}).get("tools", [])
     expected = _expected_tool_count()
     assert len(tools) == expected, f"Expected {expected} tools from tools/list, got {len(tools)}"
+
+
+def test_issue_557_ab_variants_work_over_real_stdio_transport() -> None:
+    async def inspect(variant: str) -> tuple[set[str], str]:
+        parameters = StdioServerParameters(
+            command=sys.executable,
+            args=[
+                "-m",
+                "experiments.issue_557.mcp_ab_server",
+                "--variant",
+                variant,
+            ],
+            cwd=str(REPO_ROOT),
+            env=_mcp_environment(),
+        )
+        async with stdio_client(parameters) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                tools = {tool.name for tool in (await session.list_tools()).tools}
+                result = await session.call_tool("sumo_qa_reviewing_before_merge")
+                text = next(block.text for block in result.content if hasattr(block, "text"))
+                return tools, text
+
+    baseline_tools, baseline_review = asyncio.run(inspect("baseline"))
+    candidate_tools, candidate_review = asyncio.run(inspect("candidate"))
+
+    assert candidate_tools == baseline_tools
+    assert "too large to return in one response" in baseline_review
+    assert candidate_review == candidate_prompt("repaired-compact")

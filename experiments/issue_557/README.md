@@ -168,7 +168,7 @@ spending cap before the remaining 34 scenarios could complete. The acceptance
 bar remains all 46 scenarios with zero per-scenario regressions on the target
 model. Production skill content remains unchanged until that run succeeds.
 
-## ChatGPT subscription rerun
+## Raw-prompt ChatGPT subscription rerun (historical)
 
 `run_subscription_eval.py` reruns the same 46 scenarios through isolated
 `codex exec` sessions authenticated by the existing ChatGPT subscription. It
@@ -209,6 +209,43 @@ env -u OPENAI_API_KEY -u GEMINI_API_KEY -u CODEX_API_KEY \
 The default subscription model is `gpt-5.6-luna` with low reasoning effort.
 Judge usage is excluded from the reported generation-token comparison but remains
 present in the raw evidence.
+
+## Final real-MCP A/B
+
+`run_mcp_subscription_eval.py` is the final decision run. It does not embed either
+skill body in the scenario prompt. Instead, it starts an isolated copy of the real
+sumo-qa MCP server for each Codex session and requires the model to call the router
+and review-skill tools.
+
+The execution order matches the decision question:
+
+1. Candidate B runs all 46 scenarios once, is graded against the unchanged grounded
+   rubrics, and is compared with the frozen full-skill baseline grade per scenario.
+2. Production A then runs the same 46 scenario prompts once for provider-reported
+   input-token measurement only. It must follow the current progressive-loading
+   pointer through `sumo_qa_load_skill_context`.
+
+The two servers expose identical tool names, descriptions, schemas, instructions,
+and non-review results. Only the result of `sumo_qa_reviewing_before_merge` differs.
+The verdict is `PROVEN` only with all 46 A and B executions complete, zero quality
+regressions, at least 60% estimated skill-context reduction, and at least 40%
+provider-reported total input-token reduction. Candidate repair attempts count
+toward its usage.
+
+Run it using the existing ChatGPT subscription and frozen grounded baseline:
+
+```zsh
+env -u OPENAI_API_KEY -u GEMINI_API_KEY -u CODEX_API_KEY \
+  .venv/bin/python -m experiments.issue_557.run_mcp_subscription_eval \
+  --frozen-baseline-evidence /private/tmp/issue557-subscription-proof/evidence.json \
+  --output /private/tmp/issue557-mcp-ab/evidence.json \
+  --workers 2 --fresh
+```
+
+The harness independently removes those provider API keys, requires
+`codex login status` to report ChatGPT authentication, rejects shell/file/web
+activity, records every MCP result hash and size, and persists resumable evidence
+after each scenario.
 
 ## Evidence and revisions
 
