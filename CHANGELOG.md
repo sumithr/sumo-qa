@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.1](https://github.com/sumithr/sumo-qa/compare/v0.60.0...v0.60.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **repo-map:** harden import resolvers against adversarial/misconfigured input ([#563](https://github.com/sumithr/sumo-qa/issues/563)) ([#565](https://github.com/sumithr/sumo-qa/issues/565)) ([f51dc78](https://github.com/sumithr/sumo-qa/commit/f51dc78d7a36eb7918807e34552924612daaed6c))
+
 ## [0.60.0](https://github.com/sumithr/sumo-qa/compare/v0.59.0...v0.60.0) (2026-07-20)
 
 
