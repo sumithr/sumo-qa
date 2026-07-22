@@ -6,10 +6,11 @@ Project-shared automations for contributors using Claude Code in this repo. Pers
 
 | Path | Type | Triggers | Purpose |
 |---|---|---|---|
-| `settings.json` | Config | Loaded at session start | Wires the three hooks below |
+| `settings.json` | Config | Loaded at session start | Wires the three hooks below (the `Bash` entry through `route-qa-runners-prefilter.sh`) |
 | `hooks/block-generated-paths.py` | PreToolUse hook | Before any `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | Denies edits to generated / cached / captured paths (see "Protected paths" below) |
 | `hooks/validate-on-content-edit.py` | PostToolUse hook | After `Edit`, `Write`, `MultiEdit` under `knowledge/` or `standards/` | Runs `sumo-qa-validate` and surfaces schema failures in-loop |
 | `hooks/route-qa-runners.py` | PostToolUse hook | After a `Bash` `mutmut run` or `promptfoo eval` | Detects surviving mutants / eval FAILs and reminds Claude to route through the matching agent below (see "Route QA runners" below). Advisory — never blocks the Bash result |
+| `hooks/route-qa-runners-prefilter.sh` | PostToolUse prefilter | After every `Bash` command | Greps the payload for `mutmut` / `promptfoo` / `eval` and only then invokes `route-qa-runners.py`, sparing the Python start-up on unrelated commands |
 | `agents/mutation-survivor-triage.md` | Subagent | Manually invoked by Claude when classifying mutmut survivors | Classifies survivors as equivalent / tautology-killable / genuine-gap / infrastructure-noise; produces a per-module report. Read-only. |
 | `agents/eval-failure-diagnoser.md` | Subagent | Manually invoked by Claude after a failing `npm run eval` | Locates the failing promptfoo assertion and recommends a SKILL.md strengthening. Never proposes loosening the rubric. Read-only. |
 | `skills/scaffold-sumo-qa-skill/SKILL.md` | User-invocable skill | `/scaffold-sumo-qa-skill` | Scaffolds a new `sumo-qa-<name>` skill: SKILL.md skeleton, matching promptfoo eval YAML stub, and a new `## <approach-tag>` block appended to `knowledge/approaches.md`. The routing line for `skills/sumo-qa-deciding-approach/SKILL.md` is printed as a manual step the contributor adds by hand — the deciding-approach routing table is context-sensitive and resists mechanical patching. Enforces the `sumo-qa-` prefix. |
@@ -42,6 +43,8 @@ After a `Bash` command, `hooks/route-qa-runners.py` inspects the result and, whe
 - A `promptfoo eval` / `npm run eval` / `npm run eval:all` that produced a FAIL → reminder to use `eval-failure-diagnoser`.
 
 It is advisory only — it never blocks the Bash result and exits 0 on every path, including internal errors. The detection is built against **real** runner output, captured byte-for-byte under `hooks/fixtures/`: `mutmut run` reports survivors with emoji counters (`🙁` survived, `⏰` timeout, `🤔` suspicious), *never* the word "survived", and exits 0 even with survivors — so the hook parses those counters, not the exit code. `promptfoo eval` exits non-zero (100) on failure and prints `[FAIL]` in its table; either signal counts. The command shape is gated first, so reading a log (`cat mutmut.log`, `grep survived`) or a non-run subcommand (`promptfoo generate`, `npm run eval:view`) never triggers a route.
+
+`settings.json` wires the `Bash` event through `hooks/route-qa-runners-prefilter.sh`, a `/bin/sh` prefilter that greps stdin for `mutmut` / `promptfoo` / `eval` and only invokes the Python hook on a match, so every unrelated Bash call skips the interpreter start-up entirely. The token list must stay a superset of the command shapes above (`eval` is what covers `npm run eval`, which contains no "promptfoo"); `tests/test_route_qa_runners.py` pins the superset, the wrapper's transparency on routing payloads, and the settings wiring.
 
 ## Personal vs project-shared
 

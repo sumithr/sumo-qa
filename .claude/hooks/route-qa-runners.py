@@ -21,6 +21,10 @@ Detection is built against REAL runner output (see tests/test_route_qa_runners.p
 Both branches first gate on the COMMAND shape so reading a log
 (`cat mutmut.log`, `grep survived`) or a non-run subcommand
 (`promptfoo generate`, `npm run eval:view`) never triggers a route.
+
+Deployed behind route-qa-runners-prefilter.sh, which greps stdin for
+mutmut/promptfoo/eval before paying the Python start-up on every Bash call;
+keep its token list a superset of the command shapes recognised here.
 """
 
 from __future__ import annotations

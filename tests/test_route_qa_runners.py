@@ -540,3 +540,97 @@ def test_fixtures_exist(fixture_name: str) -> None:
         f"missing real-capture fixture {fixture_name}; positive detection cannot "
         "be verified against invented output."
     )
+
+
+# --------------------------------------------------------------------------- #
+# prefilter wrapper — the per-Bash-call latency gate                           #
+# --------------------------------------------------------------------------- #
+
+PREFILTER = REPO_ROOT / ".claude" / "hooks" / "route-qa-runners-prefilter.sh"
+SETTINGS = REPO_ROOT / ".claude" / "settings.json"
+
+
+def _run_prefilter(payload: dict | str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [str(PREFILTER)],
+        input=payload if isinstance(payload, str) else json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+class TestPrefilterWrapper:
+    """The wrapper spares the Python interpreter start-up on Bash calls that
+    can never route (no mutmut/promptfoo/eval token anywhere in the payload).
+    When a token IS present it must be transparent: same behaviour as invoking
+    the Python hook directly. The token set must stay a SUPERSET of the Python
+    hook's command shapes; `npm run eval` is the case with no 'promptfoo' in
+    the command, which is why 'eval' is in the set.
+    """
+
+    def test_irrelevant_command_is_silent_and_exits_zero(self) -> None:
+        result = _run_prefilter(_post_tool_use("git status", stdout="clean\n"))
+        assert result.returncode == 0, f"prefilter must exit 0; stderr={result.stderr!r}"
+        assert result.stdout.strip() == "", (
+            "prefilter emitted output for a command with no routing token."
+        )
+
+    def test_mutmut_survivors_route_through_wrapper(self) -> None:
+        out = _fixture("mutmut_survivors.stdout.txt")
+        result = _run_prefilter(_post_tool_use("uv run mutmut run", stdout=out, exit_code=0))
+        assert "mutation-survivor-triage" in _additional_context(result), (
+            "prefilter swallowed a real mutmut survivor route."
+        )
+
+    def test_npm_run_eval_fail_routes_through_wrapper(self) -> None:
+        """`npm run eval` contains no 'promptfoo' — if the wrapper's token set
+        drops 'eval', this real routing case is silently lost.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_prefilter(_post_tool_use("npm run eval", stdout=out, exit_code=100))
+        assert "eval-failure-diagnoser" in _additional_context(result), (
+            "prefilter swallowed the `npm run eval` promptfoo route."
+        )
+
+    def test_token_passthrough_still_defers_to_python_gate(self) -> None:
+        """A payload merely CONTAINING a token passes the prefilter, but the
+        Python command-shape gate must still reject it — the wrapper may only
+        remove work, never add routes.
+        """
+        out = _fixture("mutmut_survivors.stdout.txt")
+        result = _run_prefilter(_post_tool_use("cat mutmut.log", stdout=out, exit_code=0))
+        assert _additional_context(result) == ""
+
+    def test_malformed_stdin_exits_zero(self) -> None:
+        result = _run_prefilter("not json at all {{{ mutmut")
+        assert result.returncode == 0, (
+            f"prefilter must swallow malformed stdin; stderr={result.stderr!r}"
+        )
+
+    def test_wrapper_is_executable_with_shebang(self) -> None:
+        import os
+
+        assert PREFILTER.exists(), f"prefilter missing at {PREFILTER}"
+        if os.name != "nt":
+            assert os.access(PREFILTER, os.X_OK), (
+                f"{PREFILTER} is not executable; settings.json runs it as a bare command."
+            )
+        assert PREFILTER.read_text(encoding="utf-8").startswith("#!"), "prefilter missing shebang"
+
+    def test_settings_wires_bash_hook_through_prefilter(self) -> None:
+        """Deployment contract: the Bash PostToolUse entry must invoke the
+        prefilter (which invokes the Python hook), not the Python hook directly
+        — otherwise every Bash call pays the interpreter start-up again.
+        """
+        settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        bash_commands = [
+            hook["command"]
+            for entry in settings["hooks"]["PostToolUse"]
+            if entry.get("matcher") == "Bash"
+            for hook in entry["hooks"]
+        ]
+        assert bash_commands, "no Bash PostToolUse hook configured"
+        assert all(cmd.endswith("route-qa-runners-prefilter.sh") for cmd in bash_commands), (
+            f"Bash PostToolUse must route through the prefilter; got {bash_commands}"
+        )
