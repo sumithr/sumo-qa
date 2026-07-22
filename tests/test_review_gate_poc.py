@@ -250,6 +250,17 @@ def test_compact_contract_is_bounded() -> None:
     assert len(compact_contract) <= 5_500
 
 
+def test_repaired_compact_adds_only_targeted_precision_contracts() -> None:
+    compact = candidate_prompt("compact")
+    repaired = candidate_prompt("repaired-compact")
+    full = candidate_prompt("full-plain")
+
+    assert compact.split("## Machine-enforced response contract")[-1] in repaired
+    assert "## Precision contracts for review edge cases" in repaired
+    assert "4-backtick outer fence" in repaired
+    assert len(compact) < len(repaired) < len(full) // 4
+
+
 def test_quality_sweep_profiles_use_current_skill_content() -> None:
     full_skill = Path("skills/sumo-qa-reviewing-before-merge/SKILL.md").read_text(encoding="utf-8")
     full_gated = candidate_prompt("full-gated")
@@ -293,6 +304,15 @@ def test_direct_config_replaces_test_level_skill_overrides() -> None:
     assert all("skill_content" not in test["vars"] for test in direct["tests"])
     assert len(direct["tests"]) == 3
     assert direct["providers"] == load_group("full-ac-coverage")[0]["providers"]
+
+
+def test_repaired_compact_can_be_screened_with_direct_config() -> None:
+    direct = build_direct_config("full-fence-parser", candidate_profile="repaired-compact")
+
+    assert (
+        direct["defaultTest"]["vars"]["skill_content"]
+        == candidate_prompt("repaired-compact").rstrip()
+    )
 
 
 def test_direct_config_preserves_rubric_lists_and_stringifies_cold_context() -> None:

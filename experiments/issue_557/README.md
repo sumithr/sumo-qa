@@ -137,6 +137,37 @@ self-contained section at a time, rerun all 46 unchanged rubrics on the target
 model, and accept only candidates with zero per-scenario regressions. Token
 savings are optimized only inside that quality constraint.
 
+## Regression-guided compact follow-up
+
+A second compact candidate keeps the 4,131-character core and adds a
+4,866-character precision-contract layer covering only the failure classes seen
+in the 12 regressions: AC state/row discipline, executable-versus-inert scope,
+A/B isolation, producer provenance, feature-flow evidence, absent memory,
+fence-length discrimination, and readiness evidence.
+
+The targeted independent screen is positive but is not yet the final proof:
+
+| Measure | Full skill | Regression-guided compact | Result |
+|---|---:|---:|---:|
+| Candidate text | 72,563 characters | 8,997 characters | 87.60% lower |
+| Provider input, same 12 scenarios | 232,038 tokens | 41,550 tokens | 82.09% lower |
+| Provider input + completion | 237,837 tokens | 48,953 tokens | 79.42% lower |
+| Unchanged-rubric targeted screen | N/A | 12/12 passed | all original regressions repaired |
+| First-attempt deterministic validation | N/A | 11/12 | one repairable envelope-status mismatch |
+
+The provider-token comparison uses the same 12 scenario prompts and
+`google:gemini-3.1-pro-preview` for full-skill and repaired-candidate generation.
+The earlier full-skill generation usage remains valid: the prior Gemini defect
+was confined to rubric-list serialization during grading, not candidate prompt
+generation. The repaired responses were graded with the corrected native-list
+serialization and the original rubrics unchanged.
+
+This result does not supersede `NOT PROVEN`. The target OpenAI account still
+returns `429 insufficient_quota`, and Gemini reached the project's monthly
+spending cap before the remaining 34 scenarios could complete. The acceptance
+bar remains all 46 scenarios with zero per-scenario regressions on the target
+model. Production skill content remains unchanged until that run succeeds.
+
 ## Evidence and revisions
 
 - Baseline source revision: `d9aecf6` (`origin/main` when captured).

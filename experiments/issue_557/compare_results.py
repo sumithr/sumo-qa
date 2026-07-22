@@ -798,6 +798,7 @@ def main() -> None:
         "--profile",
         choices=(
             "compact",
+            "repaired-compact",
             "full-gated",
             "core-gated",
             "full-plain",

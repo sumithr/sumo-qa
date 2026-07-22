@@ -24,6 +24,7 @@ from sumo_qa.review_gate_poc import ReviewGateValidationError, validate_review_r
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_PATH = Path(__file__).with_name("compact_review_prompt.md")
+REGRESSION_CONTRACTS_PATH = Path(__file__).with_name("regression_contracts.md")
 EVAL_ROOT = REPO_ROOT / "tests/evals/promptfoo"
 SKILL_PATH = REPO_ROOT / "skills/sumo-qa-reviewing-before-merge/SKILL.md"
 _MACHINE_CONTRACT_MARKER = "## Machine-enforced response contract"
@@ -63,6 +64,7 @@ Before the verdict, rework the review if any statement below is true:
 """
 CANDIDATE_PROFILES = (
     "compact",
+    "repaired-compact",
     "full-gated",
     "core-gated",
     "full-plain",
@@ -179,6 +181,12 @@ def candidate_prompt(profile: str) -> str:
     compact = PROMPT_PATH.read_text(encoding="utf-8")
     if profile == "compact":
         return compact
+    if profile == "repaired-compact":
+        contracts = REGRESSION_CONTRACTS_PATH.read_text(encoding="utf-8").rstrip()
+        marker_index = compact.index(_MACHINE_CONTRACT_MARKER)
+        return (
+            f"{compact[:marker_index].rstrip()}\n\n{contracts}\n\n{compact[marker_index:].lstrip()}"
+        )
     if profile not in CANDIDATE_PROFILES:
         raise ValueError(f"unknown candidate profile: {profile}")
 
@@ -564,15 +572,17 @@ def main() -> None:
     parser.add_argument(
         "--write-direct-configs",
         action="store_true",
-        help="write direct Promptfoo configs without running the deterministic gate",
+        help="write direct Promptfoo configs for provider-independent screening",
     )
     args = parser.parse_args()
     if args.all_review:
         if args.group is not None or args.grade_from_result is not None:
             parser.error("--all-review cannot be combined with group or --grade-from-result")
         if args.write_direct_configs:
-            if not args.profile.endswith("-plain"):
-                parser.error("--write-direct-configs requires a *-plain profile")
+            if not (args.profile.endswith("-plain") or args.profile == "repaired-compact"):
+                parser.error(
+                    "--write-direct-configs requires a *-plain or repaired-compact profile"
+                )
             for group_name in FULL_REVIEW_GROUPS:
                 print(
                     write_direct_config(
