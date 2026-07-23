@@ -18,7 +18,14 @@ from experiments.issue_557.run_mcp_subscription_eval import (
     mcp_codex_command,
     parse_mcp_codex_jsonl,
     summarize,
+    validate_frozen_baseline_metadata,
     validate_mcp_trace,
+)
+from experiments.issue_557.run_subscription_eval import (
+    DEFAULT_MODEL,
+    DEFAULT_REASONING_EFFORT,
+    SKILL_PATH,
+    _sha256,
 )
 
 
@@ -123,6 +130,39 @@ def test_mcp_prompts_replace_embedded_skill_with_tool_directive() -> None:
     assert len(prompts) == 1
     assert MCP_SKILL_DIRECTIVE in prompts[0][1]
     assert candidate_prompt("repaired-compact") not in prompts[0][1]
+
+
+def test_frozen_baseline_metadata_does_not_require_candidate_only_fields() -> None:
+    metadata = {
+        "auth": "ChatGPT subscription",
+        "model": DEFAULT_MODEL,
+        "reasoning_effort": DEFAULT_REASONING_EFFORT,
+        "full_skill_sha256": _sha256(SKILL_PATH.read_bytes()),
+        "judge_context": "rubric+scenario-ground-truth",
+    }
+
+    validate_frozen_baseline_metadata(
+        metadata,
+        model=DEFAULT_MODEL,
+        reasoning_effort=DEFAULT_REASONING_EFFORT,
+    )
+
+
+def test_frozen_baseline_metadata_error_names_the_mismatched_field() -> None:
+    metadata = {
+        "auth": "wrong auth",
+        "model": DEFAULT_MODEL,
+        "reasoning_effort": DEFAULT_REASONING_EFFORT,
+        "full_skill_sha256": _sha256(SKILL_PATH.read_bytes()),
+        "judge_context": "rubric+scenario-ground-truth",
+    }
+
+    with pytest.raises(RuntimeError, match=r'"auth".*"expected".*"actual"'):
+        validate_frozen_baseline_metadata(
+            metadata,
+            model=DEFAULT_MODEL,
+            reasoning_effort=DEFAULT_REASONING_EFFORT,
+        )
 
 
 def test_mcp_trace_requires_progressive_loading_only_for_baseline() -> None:

@@ -249,6 +249,28 @@ def build_mcp_prompts(group: str) -> list[tuple[str, str]]:
     return build_prompts(group, skill_content=MCP_SKILL_DIRECTIVE)[1]
 
 
+def validate_frozen_baseline_metadata(
+    frozen_metadata: dict[str, Any],
+    *,
+    model: str,
+    reasoning_effort: str,
+) -> None:
+    expected = {
+        "auth": "ChatGPT subscription",
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+        "full_skill_sha256": _sha256(SKILL_PATH.read_bytes()),
+        "judge_context": "rubric+scenario-ground-truth",
+    }
+    mismatches = {
+        key: {"expected": value, "actual": frozen_metadata.get(key)}
+        for key, value in expected.items()
+        if frozen_metadata.get(key) != value
+    }
+    if mismatches:
+        raise RuntimeError(f"frozen baseline metadata mismatch: {json.dumps(mismatches)}")
+
+
 def _candidate_result(
     group: str,
     index: int,
@@ -433,16 +455,11 @@ def main() -> None:
     verify_chatgpt_auth()
     frozen_payload = json.loads(args.frozen_baseline_evidence.read_text(encoding="utf-8"))
     frozen_metadata = frozen_payload.get("metadata", {})
-    expected = {
-        "auth": "ChatGPT subscription",
-        "model": args.model,
-        "reasoning_effort": args.reasoning_effort,
-        "skill_context_token_estimator": "ceil(MCP result characters / 4)",
-        "full_skill_sha256": _sha256(SKILL_PATH.read_bytes()),
-        "judge_context": "rubric+scenario-ground-truth",
-    }
-    if any(frozen_metadata.get(key) != value for key, value in expected.items()):
-        raise RuntimeError("frozen baseline auth/model/full-skill/judge metadata does not match")
+    validate_frozen_baseline_metadata(
+        frozen_metadata,
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+    )
     frozen_by_id = {
         record["scenario_id"]: record
         for record in frozen_payload.get("records", [])
@@ -462,6 +479,7 @@ def main() -> None:
         "metered_api_keys_removed": list(METERED_KEY_NAMES),
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
+        "skill_context_token_estimator": "ceil(MCP result characters / 4)",
         "candidate_prompt_sha256": _sha256(candidate_prompt("repaired-compact")),
         "mcp_server_sha256": _sha256((Path(__file__).with_name("mcp_ab_server.py")).read_bytes()),
         "frozen_baseline": {
