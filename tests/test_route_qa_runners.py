@@ -758,6 +758,13 @@ class TestPrefilterWrapper:
             assert os.access(PREFILTER, os.X_OK), (
                 f"{PREFILTER} is not executable; settings.json runs it as a bare command."
             )
+        raw = PREFILTER.read_bytes()
+        assert b"\r\n" not in raw, (
+            f"{PREFILTER.name} has CRLF line endings. The POSIX branch dies on "
+            'them — `case "$payload" in\\r` is a syntax error — so the file is '
+            "pinned to LF in .gitattributes (`*.cmd text eol=lf`). cmd.exe reads "
+            "LF batch files fine; a CRLF checkout only ever breaks the sh side."
+        )
         body = PREFILTER.read_text(encoding="utf-8")
         # sh enters via the heredoc that hides the batch block from it.
         assert body.startswith(": << 'CMDBLOCK'"), (

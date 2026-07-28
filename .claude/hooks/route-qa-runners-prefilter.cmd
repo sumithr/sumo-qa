@@ -18,14 +18,26 @@ REM `bash` to any command containing ".sh", which would defeat the batch block.
 REM
 REM No usable interpreter is a silent exit 0, never an error: this hook is
 REM advisory, and it must never disturb the Bash result it observes.
+REM Each candidate is PROBED, not merely located on PATH. A bare existence
+REM check passes on the Windows Store alias stub (a zero-byte python.exe that
+REM opens the Store and runs nothing) and on a Python 2, either of which would
+REM consume the branch and drop the payload. The probe runs the interpreter and
+REM makes it prove it is Python 3, so an unusable candidate falls through to
+REM the next one instead of swallowing the route.
 setlocal
-for %%I in (python.exe) do if not "%%~$PATH:I"=="" (
+python -c "import sys;sys.exit(sys.version_info[0]-3)" >nul 2>nul
+if %ERRORLEVEL% equ 0 (
     python "%~dp0route-qa-runners.py"
     exit /b 0
 )
-py -3 --version >nul 2>nul
+py -3 -c "import sys;sys.exit(sys.version_info[0]-3)" >nul 2>nul
 if %ERRORLEVEL% equ 0 (
     py -3 "%~dp0route-qa-runners.py"
+    exit /b 0
+)
+python3 -c "import sys;sys.exit(sys.version_info[0]-3)" >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    python3 "%~dp0route-qa-runners.py"
     exit /b 0
 )
 exit /b 0
