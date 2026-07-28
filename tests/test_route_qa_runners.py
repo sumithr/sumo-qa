@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -593,6 +594,50 @@ class TestPrefilterWrapper:
         assert result.returncode == 0, f"prefilter must exit 0; stderr={result.stderr!r}"
         assert result.stdout.strip() == "", (
             "prefilter emitted output for a command with no routing token."
+        )
+
+    @_posix_sh_only
+    def test_token_free_payload_does_not_invoke_the_python_hook(self, tmp_path: Path) -> None:
+        """The reason this wrapper exists: no token, no Python process.
+
+        Every other test here is blind to that. Widen the `case` to `*)` and the
+        prefilter would hand every Bash call to the Python hook, which declines
+        `git status` and prints nothing — so the silence assertions above still
+        pass while the entire latency saving is gone. This test watches the
+        thing that actually regresses: run the real prefilter against a stand-in
+        for the Python hook that records each invocation, and require the
+        recording to happen ONLY for the payload carrying a token.
+        """
+        sandbox = tmp_path / "hooks"
+        sandbox.mkdir()
+        shutil.copy2(PREFILTER, sandbox / PREFILTER.name)
+        receipts = sandbox / "invocations.log"
+        stand_in = sandbox / "route-qa-runners.py"
+        stand_in.write_text(
+            f'#!/bin/sh\necho invoked >> "{receipts}"\n',
+            encoding="utf-8",
+        )
+        stand_in.chmod(0o755)
+
+        def invocations(command: str) -> int:
+            subprocess.run(
+                [str(sandbox / PREFILTER.name)],
+                input=json.dumps(_post_tool_use(command, stdout="x")),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return (
+                len(receipts.read_text(encoding="utf-8").splitlines()) if receipts.exists() else 0
+            )
+
+        assert invocations("git status") == 0, (
+            "prefilter spawned the Python hook for a token-free command; the "
+            "per-Bash-call interpreter start-up this wrapper removes is back."
+        )
+        assert invocations("npm test") == 0, "prefilter spawned the Python hook for `npm test`."
+        assert invocations("uv run mutmut run") == 1, (
+            "prefilter failed to invoke the Python hook for a real routing command."
         )
 
     @_posix_sh_only
