@@ -75,6 +75,17 @@ repos:
     rev: v0.10.0.1
     hooks:
       - id: shellcheck
+      # The route-qa-runners prefilter is a cmd.exe/sh polyglot, so it has no
+      # shebang for the auto-detection above to find and would otherwise go
+      # unlinted. Checked explicitly as `sh`: its batch block sits inside a
+      # quoted heredoc, which shellcheck treats as data, so only the POSIX
+      # branch is analysed. Mirrored in .github/workflows/lint.yml.
+      - id: shellcheck
+        alias: shellcheck-polyglot-hooks
+        name: shellcheck (cmd/sh polyglot hooks)
+        args: [--shell=sh]
+        types: [file]
+        files: ^\.claude/hooks/route-qa-runners-prefilter\.cmd$
 
   - repo: local
     hooks:
