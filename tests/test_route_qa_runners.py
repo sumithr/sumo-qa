@@ -550,15 +550,18 @@ def test_fixtures_exist(fixture_name: str) -> None:
 PREFILTER = REPO_ROOT / ".claude" / "hooks" / "route-qa-runners-prefilter.sh"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 
-# The prefilter is a `/bin/sh` script run via its shebang, so only a POSIX host
-# can execute it — Windows raises OSError [WinError 193] before the script ever
-# starts. `.claude/settings.json` is contributor tooling for the macOS/Linux dev
-# machines, so that is the platform whose behaviour these tests pin; the two
-# contracts that ARE meaningful on Windows (the shebang, and the settings.json
-# wiring) stay unconditional below. The condition is the platform alone, NOT a
-# `shutil.which("sh")` probe: the shebang names an absolute `/bin/sh`, so a PATH
-# lookup would answer a different question and could silently skip these tests
-# on a POSIX box that can in fact run them, turning a real failure green.
+# These tests exec the script directly, and Windows cannot exec a shebang script
+# that way — it raises OSError [WinError 193] before the script ever starts. That
+# is a property of THIS harness, not a statement about the hook: Claude Code runs
+# the hook itself, and the `.sh` name is chosen so its Windows handling routes the
+# command through bash (see .claude/README.md). Nothing in this repo exercises
+# that Windows path, so these tests simply pin the POSIX behaviour; the two
+# contracts that need no subprocess (the shebang, and the settings.json wiring)
+# stay unconditional below and run everywhere. The condition is the platform
+# alone, NOT a `shutil.which("sh")` probe: the shebang names an absolute
+# `/bin/sh`, so a PATH lookup would answer a different question and could
+# silently skip these tests on a POSIX box that can in fact run them, turning a
+# real failure green.
 _posix_sh_only = pytest.mark.skipif(
     sys.platform == "win32",
     reason="prefilter is a /bin/sh script; Windows cannot exec it (WinError 193)",
