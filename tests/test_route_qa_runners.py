@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -556,11 +555,12 @@ SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 # starts. `.claude/settings.json` is contributor tooling for the macOS/Linux dev
 # machines, so that is the platform whose behaviour these tests pin; the two
 # contracts that ARE meaningful on Windows (the shebang, and the settings.json
-# wiring) stay unconditional below. Same constraint the session-start Bash hook
-# tests carry, and the reason they too skip rather than shelling out to a `sh`
-# that is the WSL stub on Windows runners.
+# wiring) stay unconditional below. The condition is the platform alone, NOT a
+# `shutil.which("sh")` probe: the shebang names an absolute `/bin/sh`, so a PATH
+# lookup would answer a different question and could silently skip these tests
+# on a POSIX box that can in fact run them, turning a real failure green.
 _posix_sh_only = pytest.mark.skipif(
-    sys.platform == "win32" or shutil.which("sh") is None,
+    sys.platform == "win32",
     reason="prefilter is a /bin/sh script; Windows cannot exec it (WinError 193)",
 )
 
@@ -602,13 +602,34 @@ class TestPrefilterWrapper:
 
     @_posix_sh_only
     def test_npm_run_eval_fail_routes_through_wrapper(self) -> None:
-        """`npm run eval` contains no 'promptfoo' — if the wrapper's token set
-        drops 'eval', this real routing case is silently lost.
+        """Transparency on a REAL promptfoo FAIL capture.
+
+        Note this payload does NOT isolate the 'eval' token: real promptfoo
+        stdout prints its own name, so the wrapper would still match this one
+        via 'promptfoo' alone. `test_eval_token_alone_still_routes` is the test
+        that pins 'eval'.
         """
         out = _fixture("promptfoo_fail.stdout.txt")
         result = _run_prefilter(_post_tool_use("npm run eval", stdout=out, exit_code=100))
         assert "eval-failure-diagnoser" in _additional_context(result), (
             "prefilter swallowed the `npm run eval` promptfoo route."
+        )
+
+    @_posix_sh_only
+    def test_eval_token_alone_still_routes(self) -> None:
+        """The strict superset guard for 'eval': a payload whose ONLY token is
+        the 'eval' in `npm run eval`.
+
+        `promptfoo eval` exits 100 on a failing case and the Python hook routes
+        on that exit code alone, with no stdout marker needed. So this is a real
+        routing case in which the words 'promptfoo' and 'mutmut' appear nowhere
+        in the payload — drop `*eval*` from the prefilter's token list and the
+        route is silently lost. The fixture-backed test above cannot catch that
+        regression, because real promptfoo stdout contains 'promptfoo'.
+        """
+        result = _run_prefilter(_post_tool_use("npm run eval", stdout="", exit_code=100))
+        assert "eval-failure-diagnoser" in _additional_context(result), (
+            "prefilter dropped a routing payload whose only token was 'eval'."
         )
 
     @_posix_sh_only
