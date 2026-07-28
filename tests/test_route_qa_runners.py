@@ -38,6 +38,8 @@ JSON shape, agent named verbatim, never blocks).
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -549,6 +551,19 @@ def test_fixtures_exist(fixture_name: str) -> None:
 PREFILTER = REPO_ROOT / ".claude" / "hooks" / "route-qa-runners-prefilter.sh"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 
+# The prefilter is a `/bin/sh` script run via its shebang, so only a POSIX host
+# can execute it — Windows raises OSError [WinError 193] before the script ever
+# starts. `.claude/settings.json` is contributor tooling for the macOS/Linux dev
+# machines, so that is the platform whose behaviour these tests pin; the two
+# contracts that ARE meaningful on Windows (the shebang, and the settings.json
+# wiring) stay unconditional below. Same constraint the session-start Bash hook
+# tests carry, and the reason they too skip rather than shelling out to a `sh`
+# that is the WSL stub on Windows runners.
+_posix_sh_only = pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("sh") is None,
+    reason="prefilter is a /bin/sh script; Windows cannot exec it (WinError 193)",
+)
+
 
 def _run_prefilter(payload: dict | str) -> subprocess.CompletedProcess:
     return subprocess.run(
@@ -569,6 +584,7 @@ class TestPrefilterWrapper:
     the command, which is why 'eval' is in the set.
     """
 
+    @_posix_sh_only
     def test_irrelevant_command_is_silent_and_exits_zero(self) -> None:
         result = _run_prefilter(_post_tool_use("git status", stdout="clean\n"))
         assert result.returncode == 0, f"prefilter must exit 0; stderr={result.stderr!r}"
@@ -576,6 +592,7 @@ class TestPrefilterWrapper:
             "prefilter emitted output for a command with no routing token."
         )
 
+    @_posix_sh_only
     def test_mutmut_survivors_route_through_wrapper(self) -> None:
         out = _fixture("mutmut_survivors.stdout.txt")
         result = _run_prefilter(_post_tool_use("uv run mutmut run", stdout=out, exit_code=0))
@@ -583,6 +600,7 @@ class TestPrefilterWrapper:
             "prefilter swallowed a real mutmut survivor route."
         )
 
+    @_posix_sh_only
     def test_npm_run_eval_fail_routes_through_wrapper(self) -> None:
         """`npm run eval` contains no 'promptfoo' — if the wrapper's token set
         drops 'eval', this real routing case is silently lost.
@@ -593,6 +611,7 @@ class TestPrefilterWrapper:
             "prefilter swallowed the `npm run eval` promptfoo route."
         )
 
+    @_posix_sh_only
     def test_token_passthrough_still_defers_to_python_gate(self) -> None:
         """A payload merely CONTAINING a token passes the prefilter, but the
         Python command-shape gate must still reject it — the wrapper may only
@@ -602,6 +621,7 @@ class TestPrefilterWrapper:
         result = _run_prefilter(_post_tool_use("cat mutmut.log", stdout=out, exit_code=0))
         assert _additional_context(result) == ""
 
+    @_posix_sh_only
     def test_malformed_stdin_exits_zero(self) -> None:
         result = _run_prefilter("not json at all {{{ mutmut")
         assert result.returncode == 0, (
@@ -609,8 +629,6 @@ class TestPrefilterWrapper:
         )
 
     def test_wrapper_is_executable_with_shebang(self) -> None:
-        import os
-
         assert PREFILTER.exists(), f"prefilter missing at {PREFILTER}"
         if os.name != "nt":
             assert os.access(PREFILTER, os.X_OK), (
