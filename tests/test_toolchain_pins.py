@@ -24,9 +24,15 @@ name, so that tag would hand it every tracked `.toml` CI ignores.
 
 These assertions are deliberately pure YAML/TOML reads. The pre-push `pytest`
 and `mutmut` hooks run in isolated environments whose `additional_dependencies`
-list PyYAML but neither `identify` nor `ruff`, so a guard that imported those,
-or shelled out to the ruff binary, would raise ModuleNotFoundError there and
-take the whole pre-push suite and the mutation gate down with it.
+list PyYAML but neither `identify` nor `ruff`, so a guard that imported those
+would raise ModuleNotFoundError there, and one that shelled out to the ruff
+binary would raise FileNotFoundError, either of which takes the whole pre-push
+suite and the mutation gate down with it.
+
+Known limit: nothing here re-measures ruff's own discovery, so a config change
+that widened it (`extend-include = ["*.html"]`) would leave the hooks behind
+without failing these tests. Measuring it needs the ruff binary, which is
+exactly what the paragraph above rules out.
 """
 
 from __future__ import annotations
@@ -44,13 +50,18 @@ else:  # pragma: no cover - exercised on py3.10 only
 
 RUFF_PRE_COMMIT_REPO = "https://github.com/astral-sh/ruff-pre-commit"
 
-# Hook id -> the `types_or` it must declare, or None to require the upstream
-# default. Mirrors what each CI step discovers; re-measure with
-# `ruff check --show-files .` / `ruff format --check .` before editing.
-EXPECTED_TYPES_OR: dict[str, set[str] | None] = {
-    "ruff-check": None,
-    "ruff-format": {"python", "pyi", "jupyter", "markdown"},
-}
+# pre-commit identifies a hook by `alias` when present, else `id`, and runs
+# every entry. Three entries mirror the one `ruff check + format` CI job:
+# source linting, the ruff config files, and formatting.
+RUFF_HOOK_NAMES = frozenset({"ruff-check", "ruff-check-config", "ruff-format"})
+
+# What `ruff format --check .` discovers beyond the upstream python/pyi/jupyter
+# list. Re-measure before editing.
+RUFF_FORMAT_TYPES_OR = {"python", "pyi", "jupyter", "markdown"}
+
+# The files ruff reads as its own configuration. It special-cases these by NAME,
+# which is why they need a `files:`-scoped hook rather than a `toml` type tag.
+RUFF_CONFIG_FILES = ("pyproject.toml", "ruff.toml")
 
 
 def _repo_root() -> Path:
@@ -119,25 +130,28 @@ def _ruff_repo_entry() -> dict:
 
 
 def _ruff_hooks() -> dict[str, dict]:
-    """The ruff hook entries, keyed by id, rejecting duplicate ids.
+    """The ruff hook entries, keyed the way pre-commit identifies them.
 
-    pre-commit runs EVERY entry, so a second `- id: ruff-check` is a second
-    hook, not a redefinition. Building the dict without this check silently
-    keeps whichever one comes last, so a malformed duplicate alongside a
-    correct entry would pass every assertion below while pre-commit ran both.
+    That key is `alias` when present, else `id`, because two entries share the
+    id `ruff-check`: one lints source, one is scoped to the ruff config files.
+    pre-commit runs EVERY entry, so a repeated identity is an extra hook rather
+    than a redefinition. Keying without rejecting repeats would silently keep
+    whichever came last, letting a malformed duplicate sit beside a correct
+    entry and pass every assertion below while pre-commit ran both.
     """
     entries = _ruff_repo_entry()["hooks"]
-    ids = [hook["id"] for hook in entries]
-    duplicates = sorted({hook_id for hook_id in ids if ids.count(hook_id) > 1})
+    names = [hook.get("alias", hook["id"]) for hook in entries]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
     assert not duplicates, (
-        f"duplicate ruff hook ids in .pre-commit-config.yaml: {duplicates}. "
-        "pre-commit runs every entry, so a duplicate is an extra hook whose "
-        "settings are not the ones asserted here."
+        f"duplicate ruff hook identities in .pre-commit-config.yaml: {duplicates}. "
+        "pre-commit runs every entry and identifies a hook by alias-or-id, so a "
+        "repeat is an extra hook whose settings are not the ones asserted here. "
+        "Give the new entry its own `alias:`."
     )
-    assert set(ids) == set(EXPECTED_TYPES_OR), (
-        f"expected exactly the {sorted(EXPECTED_TYPES_OR)} hooks, got {sorted(ids)}"
+    assert set(names) == RUFF_HOOK_NAMES, (
+        f"expected exactly the {sorted(RUFF_HOOK_NAMES)} hooks, got {sorted(names)}"
     )
-    return {hook["id"]: hook for hook in entries}
+    return dict(zip(names, entries, strict=True))
 
 
 def test_ruff_is_pinned_exactly_in_pyproject() -> None:
@@ -171,32 +185,87 @@ def test_ruff_format_hook_covers_markdown() -> None:
     a drifting fence reports "ruff format...(no files to check)Skipped" at
     `git commit` and turns the required CI job red.
     """
-    declared = _ruff_hooks()["ruff-format"].get("types_or")
+    hook = _ruff_hooks()["ruff-format"]
+    declared = hook.get("types_or")
     assert declared is not None, (
         "ruff-format has no types_or override, so it inherits the upstream "
         "python/pyi/jupyter list and never sees the Markdown CI formats."
     )
-    assert set(declared) == EXPECTED_TYPES_OR["ruff-format"], (
+    assert set(declared) == RUFF_FORMAT_TYPES_OR, (
         f"ruff-format declares types_or {sorted(declared)}, expected "
-        f"{sorted(EXPECTED_TYPES_OR['ruff-format'])}. That mirrors what "
+        f"{sorted(RUFF_FORMAT_TYPES_OR)}. That mirrors what "
         "`ruff format --check .` discovers; re-measure before changing it."
+    )
+    # types_or is not the only filter pre-commit applies. An `exclude:` or a
+    # narrowing `files:` silently negates the coverage above, so the hook must
+    # carry neither.
+    for negating in ("exclude", "files"):
+        assert negating not in hook, (
+            f"ruff-format declares `{negating}: {hook[negating]!r}`, which filters "
+            "the files types_or selects. CI formats every Markdown file in the "
+            "tree, so any narrowing here reopens the gap the override closes."
+        )
+
+
+def test_ruff_check_hook_does_not_over_select_toml() -> None:
+    """The source-linting hook must not claim every `.toml` in the tree.
+
+    `ruff check` ignores Markdown, and its only non-Python inputs are
+    pyproject.toml and ruff.toml, which it special-cases by NAME. A `toml` tag
+    therefore hands the hook every tracked `.toml`, including
+    tests/fixtures/repo_map/rust_context_crate/Cargo.toml, which
+    `ruff check --show-files .` does not list, so `git commit` would lint a file
+    CI never does. (That over-selection shipped briefly on this branch.)
+
+    Asserted as "no toml tag" rather than "no types_or at all": re-stating the
+    upstream python/pyi/jupyter list explicitly is a legal, behaviour-preserving
+    way to write the same hook, and a guard that rejected it would be policing
+    spelling rather than behaviour.
+    """
+    declared = _ruff_hooks()["ruff-check"].get("types_or")
+    assert "toml" not in set(declared or ()), (
+        f"ruff-check declares types_or {sorted(declared)}, which includes 'toml'. "
+        "`ruff check` special-cases pyproject.toml and ruff.toml by name, so this "
+        "tag over-selects every other tracked .toml that CI ignores. The two config "
+        "files are covered by the files-scoped ruff-check-config hook instead."
     )
 
 
-def test_ruff_check_hook_keeps_the_upstream_file_types() -> None:
-    """ruff-check must NOT carry a types_or override.
+def test_ruff_config_files_are_linted_at_commit_time() -> None:
+    """ruff REJECTS an invalid config outright, independent of any lint rule.
 
-    `ruff check` ignores Markdown, and its only non-Python inputs are
-    pyproject.toml and ruff.toml, which it special-cases by NAME. Adding `toml`
-    therefore hands the hook every tracked `.toml` — including
-    tests/fixtures/repo_map/rust_context_crate/Cargo.toml, which
-    `ruff check --show-files .` does not list — so `git commit` would lint a
-    file CI never does. (That over-selection shipped briefly on this branch.)
+    A typo'd selector is syntactically valid TOML, so `check-toml` passes it
+    while CI dies with "Unknown rule selector `NOT-A-RULE` in `select`". The
+    source-linting hook cannot cover that, because ruff finds these two files by
+    name rather than by type, so they get their own files-scoped entry.
     """
-    declared = _ruff_hooks()["ruff-check"].get("types_or")
-    assert declared is None, (
-        f"ruff-check declares types_or {sorted(declared)}; it must keep the upstream "
-        "python/pyi/jupyter list. `ruff check` special-cases pyproject.toml and "
-        "ruff.toml by name, so a `toml` tag over-selects every other tracked .toml "
-        "that CI ignores."
+    hook = _ruff_hooks()["ruff-check-config"]
+    assert hook["id"] == "ruff-check", (
+        f"ruff-check-config must alias the ruff-check hook, not {hook['id']!r}"
+    )
+    # pre-commit ANDs every filter. The upstream ruff-check hook sets types_or
+    # to python/pyi/jupyter, so leaving it inherited and adding only `files:`
+    # intersects to the empty set: the hook reports "(no files to check)Skipped"
+    # and guards nothing while still looking correct in the config. That exact
+    # mistake shipped for one commit here, so assert the override, not just the
+    # pattern.
+    declared = hook.get("types_or")
+    assert declared is not None and "toml" in set(declared), (
+        f"ruff-check-config declares types_or {declared!r}; it must override the "
+        "upstream python/pyi/jupyter list with one containing 'toml'. pre-commit "
+        "ANDs types_or with files, so inheriting the upstream list selects nothing "
+        "and the hook silently skips every file."
+    )
+    pattern = hook.get("files")
+    assert pattern, "ruff-check-config has no `files:` pattern, so it selects nothing"
+    for name in RUFF_CONFIG_FILES:
+        assert re.search(pattern, name), (
+            f"ruff-check-config's files pattern {pattern!r} does not match {name}, "
+            "so an invalid ruff config there would pass `git commit` and fail CI."
+        )
+    # The same pattern must NOT drag in unrelated TOML, which is the whole
+    # reason this is a files-scoped hook rather than a `toml` type tag.
+    assert not re.search(pattern, "tests/fixtures/repo_map/rust_context_crate/Cargo.toml"), (
+        f"ruff-check-config's files pattern {pattern!r} also matches Cargo.toml, "
+        "which `ruff check --show-files .` does not list."
     )

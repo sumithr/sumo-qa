@@ -50,16 +50,32 @@ repos:
     # red — verified by reverting a formatted fence and watching the hook skip a
     # file the CLI reformats.
     #
-    # ruff-check deliberately keeps the upstream list. It ignores Markdown
-    # entirely, and its only non-Python files are the two config TOMLs, which it
-    # special-cases by NAME — `types_or: [..., toml]` would wrongly hand it every
-    # tracked .toml (tests/fixtures/.../Cargo.toml) that CI never lints. Those
-    # two files also carry no risk here: ruff.toml selects E/F/I/B/UP, and the
-    # only TOML rules live in the RUF family, so `ruff check` on them can raise
-    # nothing. `tests/test_toolchain_pins.py` pins this arrangement.
+    # ruff-check keeps the upstream list for source files. `types_or: [...,
+    # toml]` would be wrong: ruff special-cases the two config TOMLs by NAME, so
+    # that tag hands the hook every tracked .toml (tests/fixtures/.../Cargo.toml)
+    # which `ruff check --show-files .` does not list and CI never lints.
+    #
+    # The two config files still need their own pass, via the same aliased-hook
+    # pattern as shellcheck below. Not for lint findings — ruff.toml selects
+    # E/F/I/B/UP and every TOML rule is in the RUF family — but because ruff
+    # REJECTS an invalid config outright, independent of any rule. A typo'd
+    # selector is valid TOML, so `check-toml` passes it, while CI dies with
+    # "Unknown rule selector `NOT-A-RULE` in `select`". Verified by injecting
+    # exactly that. `tests/test_toolchain_pins.py` pins this arrangement.
     hooks:
       - id: ruff-check
         args: [--fix]
+      # types_or, not types: pre-commit ANDs every filter together, and the
+      # upstream ruff-check hook sets types_or to python/pyi/jupyter. Leaving
+      # that inherited and adding only `files:` intersects to the empty set, so
+      # the hook reports "(no files to check)Skipped" and silently guards
+      # nothing. Overriding types_or and narrowing with files gives exactly the
+      # two config names, with no other tracked .toml.
+      - id: ruff-check
+        alias: ruff-check-config
+        name: ruff check (ruff config files)
+        types_or: [toml]
+        files: ^(pyproject|ruff)\.toml$
       - id: ruff-format
         types_or: [python, pyi, jupyter, markdown]
 
