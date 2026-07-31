@@ -75,7 +75,7 @@ repos:
         alias: ruff-check-config
         name: ruff check (ruff config files)
         types_or: [toml]
-        files: ^(pyproject|ruff)\.toml$
+        files: ^\.?(pyproject|ruff)\.toml$
       - id: ruff-format
         types_or: [python, pyi, jupyter, markdown]
 

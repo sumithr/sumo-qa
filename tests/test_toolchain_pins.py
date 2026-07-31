@@ -50,9 +50,13 @@ else:  # pragma: no cover - exercised on py3.10 only
 
 RUFF_PRE_COMMIT_REPO = "https://github.com/astral-sh/ruff-pre-commit"
 
-# pre-commit identifies a hook by `alias` when present, else `id`, and runs
-# every entry. Three entries mirror the one `ruff check + format` CI job:
-# source linting, the ruff config files, and formatting.
+# pre-commit runs EVERY entry. `alias` adds a second selector rather than
+# replacing the id, so `pre-commit run ruff-check` targets both entries that
+# carry that id while `pre-commit run ruff-check-config` targets only the
+# aliased one. Keying on alias-or-id below is therefore about telling the two
+# same-id entries apart, not about mirroring pre-commit's CLI lookup.
+# Three entries mirror the one `ruff check + format` CI job: source linting,
+# the ruff config files, and formatting.
 RUFF_HOOK_NAMES = frozenset({"ruff-check", "ruff-check-config", "ruff-format"})
 
 # What `ruff format --check .` discovers beyond the upstream python/pyi/jupyter
@@ -61,7 +65,22 @@ RUFF_FORMAT_TYPES_OR = {"python", "pyi", "jupyter", "markdown"}
 
 # The files ruff reads as its own configuration. It special-cases these by NAME,
 # which is why they need a `files:`-scoped hook rather than a `toml` type tag.
-RUFF_CONFIG_FILES = ("pyproject.toml", "ruff.toml")
+# Ruff also reads `.ruff.toml`, and a nested `**/pyproject.toml` for files under
+# it; neither is tracked here, and the first is covered by the hook regex.
+RUFF_CONFIG_FILES = ("pyproject.toml", "ruff.toml", ".ruff.toml")
+
+# pre-commit ANDs every file-selecting key it understands, and offers several
+# ways to narrow a selection: types, types_or, exclude_types, files, exclude,
+# and stages (which can move a hook off `git commit` entirely). Guarding those
+# one at a time is a blocklist, and a blocklist is only ever as complete as the
+# last review — three separate holes were found that way on this branch. So
+# each ruff hook is pinned to an exact set of permitted keys instead: adding
+# ANY other key fails until someone re-reasons about what it does to coverage.
+PERMITTED_HOOK_KEYS = {
+    "ruff-check": {"id", "args"},
+    "ruff-check-config": {"id", "alias", "name", "types_or", "files"},
+    "ruff-format": {"id", "types_or"},
+}
 
 
 def _repo_root() -> Path:
@@ -154,6 +173,29 @@ def _ruff_hooks() -> dict[str, dict]:
     return dict(zip(names, entries, strict=True))
 
 
+def _assert_no_unreviewed_keys(name: str, hook: dict) -> None:
+    """Fail on any hook key outside the reviewed set for that hook.
+
+    An allowlist, not a blocklist. pre-commit ANDs `types`, `types_or`,
+    `exclude_types`, `files` and `exclude` together, and `stages` can move a
+    hook off `git commit` altogether, so there is no short list of "dangerous"
+    keys to deny — each of those silently shrinks what the hook sees while the
+    config still reads as correct. Denying them individually missed three
+    separate cases on this branch. Requiring the key set to be exactly what was
+    reviewed turns every future narrowing, including keys that do not exist
+    yet, into a failure that has to be reasoned about.
+    """
+    unreviewed = sorted(set(hook) - PERMITTED_HOOK_KEYS[name])
+    assert not unreviewed, (
+        f"{name} declares unreviewed key(s) {unreviewed}. pre-commit ANDs its "
+        "file-selecting keys, so types/exclude_types/files/exclude all narrow what "
+        "the hook sees, and `stages` can take it off `git commit` entirely — any of "
+        "which reopens the CI-vs-commit divergence these tests exist to prevent. "
+        f"If the new key is correct, add it to PERMITTED_HOOK_KEYS[{name!r}] "
+        "together with a test covering what it does."
+    )
+
+
 def test_ruff_is_pinned_exactly_in_pyproject() -> None:
     """A range here is what let CI and pre-commit run different formatters."""
     constraint = _pyproject_ruff_constraint()
@@ -196,15 +238,7 @@ def test_ruff_format_hook_covers_markdown() -> None:
         f"{sorted(RUFF_FORMAT_TYPES_OR)}. That mirrors what "
         "`ruff format --check .` discovers; re-measure before changing it."
     )
-    # types_or is not the only filter pre-commit applies. An `exclude:` or a
-    # narrowing `files:` silently negates the coverage above, so the hook must
-    # carry neither.
-    for negating in ("exclude", "files"):
-        assert negating not in hook, (
-            f"ruff-format declares `{negating}: {hook[negating]!r}`, which filters "
-            "the files types_or selects. CI formats every Markdown file in the "
-            "tree, so any narrowing here reopens the gap the override closes."
-        )
+    _assert_no_unreviewed_keys("ruff-format", hook)
 
 
 def test_ruff_check_hook_does_not_over_select_toml() -> None:
@@ -222,13 +256,15 @@ def test_ruff_check_hook_does_not_over_select_toml() -> None:
     way to write the same hook, and a guard that rejected it would be policing
     spelling rather than behaviour.
     """
-    declared = _ruff_hooks()["ruff-check"].get("types_or")
+    hook = _ruff_hooks()["ruff-check"]
+    declared = hook.get("types_or")
     assert "toml" not in set(declared or ()), (
         f"ruff-check declares types_or {sorted(declared)}, which includes 'toml'. "
         "`ruff check` special-cases pyproject.toml and ruff.toml by name, so this "
         "tag over-selects every other tracked .toml that CI ignores. The two config "
         "files are covered by the files-scoped ruff-check-config hook instead."
     )
+    _assert_no_unreviewed_keys("ruff-check", hook)
 
 
 def test_ruff_config_files_are_linted_at_commit_time() -> None:
@@ -269,3 +305,4 @@ def test_ruff_config_files_are_linted_at_commit_time() -> None:
         f"ruff-check-config's files pattern {pattern!r} also matches Cargo.toml, "
         "which `ruff check --show-files .` does not list."
     )
+    _assert_no_unreviewed_keys("ruff-check-config", hook)
