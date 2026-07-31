@@ -37,26 +37,29 @@ repos:
     # the required CI check fails on formatting alone (see the pin's comment in
     # pyproject.toml). Bump both in one commit, reformatting in the same change.
     rev: v0.16.0
-    # Matching versions is not enough: each hook also has to see the same FILES
-    # its CI counterpart does. The upstream hook definitions list only
-    # python/pyi/jupyter, and the two ruff subcommands do NOT cover the same
-    # set — measured with `ruff check --show-files .` and `ruff format --check .`
-    # on this tree:
+    # Matching versions is not enough: a hook also has to see the same FILES its
+    # CI counterpart does. Measured with `ruff check --show-files .` and
+    # `ruff format --check .` on this tree:
     #
-    #   ruff check .          253 .py + 2 .toml (pyproject.toml, ruff.toml)
+    #   ruff check .          253 .py + pyproject.toml and ruff.toml
     #   ruff format --check . 253 .py + 83 .md   (Python inside Markdown fences)
     #
-    # So each hook gets its own `types_or`. Without `markdown` on ruff-format a
-    # contributor commits a drifting fence, sees "ruff format...(no files to
-    # check)Skipped", and turns the required CI job red; verified by reverting a
-    # formatted fence and watching the hook skip a file the CLI reformats.
-    # `ruff check` ignores Markdown entirely, so `markdown` there would be
-    # noise — it needs `toml` instead, or the two config files CI lints go
-    # unlinted at commit time. `tests/test_toolchain_pins.py` pins both lists.
+    # Only ruff-format needs an override. The upstream python/pyi/jupyter list
+    # misses Markdown, so a contributor commits a drifting fence, sees
+    # "ruff format...(no files to check)Skipped", and turns the required CI job
+    # red — verified by reverting a formatted fence and watching the hook skip a
+    # file the CLI reformats.
+    #
+    # ruff-check deliberately keeps the upstream list. It ignores Markdown
+    # entirely, and its only non-Python files are the two config TOMLs, which it
+    # special-cases by NAME — `types_or: [..., toml]` would wrongly hand it every
+    # tracked .toml (tests/fixtures/.../Cargo.toml) that CI never lints. Those
+    # two files also carry no risk here: ruff.toml selects E/F/I/B/UP, and the
+    # only TOML rules live in the RUF family, so `ruff check` on them can raise
+    # nothing. `tests/test_toolchain_pins.py` pins this arrangement.
     hooks:
       - id: ruff-check
         args: [--fix]
-        types_or: [python, pyi, jupyter, toml]
       - id: ruff-format
         types_or: [python, pyi, jupyter, markdown]
 

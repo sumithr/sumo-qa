@@ -1,7 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Every gate that runs ruff must run the same ruff over the same files.
 
-Two things have to agree, and both drifted at once on PR #570:
+Two things drifted at once on PR #570.
 
 **Version.** `pyproject.toml`'s dev extras decide what the `ruff check + format`
 CI job installs and what `uv sync` puts in a contributor's venv;
@@ -11,31 +11,31 @@ fixed `rev:`. When 0.16.0 began formatting Python inside Markdown fences, the
 required job went red on a `main` nobody had touched while every contributor's
 `git commit` stayed green.
 
-**File set.** The upstream ruff-pre-commit hooks declare only python/pyi/jupyter,
-and the two ruff subcommands do not cover the same files anyway. On this tree
-`ruff check .` walks 253 .py plus 2 .toml while `ruff format --check .` walks
-253 .py plus 83 .md, so each hook needs its own `types_or` or the divergence
-simply moves from "different versions" to "different file sets".
+**File set.** Measured with `ruff check --show-files .` and
+`ruff format --check .`, CI's two steps walk different trees::
 
-Those numbers are context, not the contract: the coverage test MEASURES ruff
-rather than asserting a list, because a hard-coded list would only relocate the
-drift into a test that can itself be wrong while staying green. A new extension,
-or a ruff release that starts or stops handling a type, therefore fails here
-instead of on somebody's unrelated PR.
+    ruff check .           253 .py + pyproject.toml and ruff.toml
+    ruff format --check .  253 .py + 83 .md
+
+The upstream ruff-pre-commit hooks declare only python/pyi/jupyter, so
+ruff-format needs `markdown` or a drifting fence passes `git commit` and fails
+CI. ruff-check does NOT need `toml`: it special-cases the two config files by
+name, so that tag would hand it every tracked `.toml` CI ignores.
+
+These assertions are deliberately pure YAML/TOML reads. The pre-push `pytest`
+and `mutmut` hooks run in isolated environments whose `additional_dependencies`
+list PyYAML but neither `identify` nor `ruff`, so a guard that imported those,
+or shelled out to the ruff binary, would raise ModuleNotFoundError there and
+take the whole pre-push suite and the mutation gate down with it.
 """
 
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-import pytest
 import yaml
-from identify import identify
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -44,12 +44,13 @@ else:  # pragma: no cover - exercised on py3.10 only
 
 RUFF_PRE_COMMIT_REPO = "https://github.com/astral-sh/ruff-pre-commit"
 
-# Which CI step each hook id mirrors. The FILE SETS are deliberately not listed
-# here: they are measured from ruff itself, so this module cannot drift from
-# reality the way a hard-coded list would. As of ruff 0.16.0 the answer is
-# python+toml for check and python+markdown for format, but nothing below
-# depends on that staying true.
-RUFF_HOOK_SUBCOMMANDS = {"ruff-check": "check", "ruff-format": "format"}
+# Hook id -> the `types_or` it must declare, or None to require the upstream
+# default. Mirrors what each CI step discovers; re-measure with
+# `ruff check --show-files .` / `ruff format --check .` before editing.
+EXPECTED_TYPES_OR: dict[str, set[str] | None] = {
+    "ruff-check": None,
+    "ruff-format": {"python", "pyi", "jupyter", "markdown"},
+}
 
 
 def _repo_root() -> Path:
@@ -133,51 +134,10 @@ def _ruff_hooks() -> dict[str, dict]:
         "pre-commit runs every entry, so a duplicate is an extra hook whose "
         "settings are not the ones asserted here."
     )
-    assert set(ids) == set(RUFF_HOOK_SUBCOMMANDS), (
-        f"expected exactly the {sorted(RUFF_HOOK_SUBCOMMANDS)} hooks, got {sorted(ids)}"
+    assert set(ids) == set(EXPECTED_TYPES_OR), (
+        f"expected exactly the {sorted(EXPECTED_TYPES_OR)} hooks, got {sorted(ids)}"
     )
     return {hook["id"]: hook for hook in entries}
-
-
-def _ruff_covers(subcommand: str, path: Path) -> bool:
-    """Whether `ruff <subcommand> .` would DISCOVER a file of this type.
-
-    Probes a directory holding one copy of the file, never the file itself. An
-    explicitly named path bypasses ruff's discovery rules and is processed
-    regardless of extension — `ruff format --check marketplace.json` reports
-    "1 file would be reformatted", parsing JSON as Python — whereas the same
-    file inside a directory yields "No Python files found under the given
-    path(s)". CI runs `ruff check .` / `ruff format --check .`, both
-    directories, so discovery is the behaviour the hooks must mirror.
-
-    The scratch directory lives inside the repo so ruff resolves the same
-    ruff.toml it would in CI.
-    """
-    with tempfile.TemporaryDirectory(dir=REPO_ROOT, prefix=".ruff-probe-") as scratch:
-        probe = Path(scratch) / path.name
-        shutil.copyfile(path, probe)
-        argv = (
-            ["ruff", "check", "--show-files", scratch]
-            if subcommand == "check"
-            else ["ruff", "format", "--check", scratch]
-        )
-        result = subprocess.run(argv, cwd=REPO_ROOT, capture_output=True, text=True)
-    if subcommand == "check":
-        return bool(result.stdout.strip())
-    return bool(re.search(r"\b1 file\b", result.stdout + result.stderr))
-
-
-def _one_tracked_file_per_suffix() -> dict[str, Path]:
-    """One representative tracked file per extension, for probing ruff."""
-    listing = subprocess.run(
-        ["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
-    )
-    representatives: dict[str, Path] = {}
-    for line in listing.stdout.splitlines():
-        path = REPO_ROOT / line
-        if path.suffix and path.is_file():
-            representatives.setdefault(path.suffix, path)
-    return representatives
 
 
 def test_ruff_is_pinned_exactly_in_pyproject() -> None:
@@ -204,45 +164,39 @@ def test_pre_commit_ruff_rev_matches_the_pyproject_pin() -> None:
     )
 
 
-def test_both_ruff_hooks_declare_a_types_or_override() -> None:
-    """The upstream definitions list only python/pyi/jupyter, which is wrong for
-    both subcommands here: `ruff format` also walks Markdown (Python inside
-    fences) and `ruff check` also walks TOML. Without an override, `git commit`
-    reports "(no files to check)Skipped" for a file the CLI processes and the
-    required CI job goes red on a commit that passed every local gate.
+def test_ruff_format_hook_covers_markdown() -> None:
+    """`ruff format --check .` walks 83 Markdown files in this tree.
+
+    The upstream hook declares only python/pyi/jupyter, so without the override
+    a drifting fence reports "ruff format...(no files to check)Skipped" at
+    `git commit` and turns the required CI job red.
     """
-    for hook_id, hook in _ruff_hooks().items():
-        assert hook.get("types_or") is not None, (
-            f"{hook_id} has no types_or override, so it inherits the upstream "
-            "python/pyi/jupyter list and misses files its CI step checks."
-        )
+    declared = _ruff_hooks()["ruff-format"].get("types_or")
+    assert declared is not None, (
+        "ruff-format has no types_or override, so it inherits the upstream "
+        "python/pyi/jupyter list and never sees the Markdown CI formats."
+    )
+    assert set(declared) == EXPECTED_TYPES_OR["ruff-format"], (
+        f"ruff-format declares types_or {sorted(declared)}, expected "
+        f"{sorted(EXPECTED_TYPES_OR['ruff-format'])}. That mirrors what "
+        "`ruff format --check .` discovers; re-measure before changing it."
+    )
 
 
-@pytest.mark.parametrize("hook_id", sorted(RUFF_HOOK_SUBCOMMANDS))
-def test_each_ruff_hook_selects_exactly_what_its_subcommand_processes(hook_id: str) -> None:
-    """The hook's file selection must equal ruff's own, measured not assumed.
+def test_ruff_check_hook_keeps_the_upstream_file_types() -> None:
+    """ruff-check must NOT carry a types_or override.
 
-    Asserting a hard-coded list would only relocate the drift: the list and
-    reality could then disagree, with the list wrong and the test still green.
-    So this probes `ruff` itself with one real file per tracked extension and
-    requires the hook's `types_or` to agree on every one. A new extension, or a
-    ruff release that starts or stops handling a type, fails here rather than
-    in CI on somebody's unrelated PR.
+    `ruff check` ignores Markdown, and its only non-Python inputs are
+    pyproject.toml and ruff.toml, which it special-cases by NAME. Adding `toml`
+    therefore hands the hook every tracked `.toml` — including
+    tests/fixtures/repo_map/rust_context_crate/Cargo.toml, which
+    `ruff check --show-files .` does not list — so `git commit` would lint a
+    file CI never does. (That over-selection shipped briefly on this branch.)
     """
-    subcommand = RUFF_HOOK_SUBCOMMANDS[hook_id]
-    declared = set(_ruff_hooks()[hook_id]["types_or"])
-    mismatches = []
-    for suffix, path in sorted(_one_tracked_file_per_suffix().items()):
-        ruff_covers = _ruff_covers(subcommand, path)
-        hook_selects = bool(identify.tags_from_path(str(path)) & declared)
-        if ruff_covers != hook_selects:
-            rel = path.relative_to(REPO_ROOT)
-            mismatches.append(
-                f"  {suffix}: `ruff {subcommand}` "
-                f"{'processes' if ruff_covers else 'ignores'} {rel}, but the hook "
-                f"{'selects' if hook_selects else 'skips'} it"
-            )
-    assert not mismatches, (
-        f"{hook_id} types_or {sorted(declared)} does not match what `ruff {subcommand}` "
-        "actually processes:\n" + "\n".join(mismatches)
+    declared = _ruff_hooks()["ruff-check"].get("types_or")
+    assert declared is None, (
+        f"ruff-check declares types_or {sorted(declared)}; it must keep the upstream "
+        "python/pyi/jupyter list. `ruff check` special-cases pyproject.toml and "
+        "ruff.toml by name, so a `toml` tag over-selects every other tracked .toml "
+        "that CI ignores."
     )
