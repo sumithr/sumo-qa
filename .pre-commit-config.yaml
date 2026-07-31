@@ -37,18 +37,26 @@ repos:
     # the required CI check fails on formatting alone (see the pin's comment in
     # pyproject.toml). Bump both in one commit, reformatting in the same change.
     rev: v0.16.0
-    # `types_or` overrides the upstream hook definitions, which list only
-    # python/pyi/jupyter. ruff 0.16 formats and lints Python inside Markdown
-    # fences, and CI runs a bare `ruff check .` / `ruff format --check .` that
-    # picks those files up — so without `markdown` here a contributor commits
-    # drifting Markdown, passes `git commit` ("ruff format...(no files to
-    # check)Skipped"), and turns the required CI job red. Verified by reverting
-    # a formatted fence and watching the hook skip a file the CLI reformats.
-    # `tests/test_toolchain_pins.py` pins this list.
+    # Matching versions is not enough: each hook also has to see the same FILES
+    # its CI counterpart does. The upstream hook definitions list only
+    # python/pyi/jupyter, and the two ruff subcommands do NOT cover the same
+    # set — measured with `ruff check --show-files .` and `ruff format --check .`
+    # on this tree:
+    #
+    #   ruff check .          253 .py + 2 .toml (pyproject.toml, ruff.toml)
+    #   ruff format --check . 253 .py + 83 .md   (Python inside Markdown fences)
+    #
+    # So each hook gets its own `types_or`. Without `markdown` on ruff-format a
+    # contributor commits a drifting fence, sees "ruff format...(no files to
+    # check)Skipped", and turns the required CI job red; verified by reverting a
+    # formatted fence and watching the hook skip a file the CLI reformats.
+    # `ruff check` ignores Markdown entirely, so `markdown` there would be
+    # noise — it needs `toml` instead, or the two config files CI lints go
+    # unlinted at commit time. `tests/test_toolchain_pins.py` pins both lists.
     hooks:
       - id: ruff-check
         args: [--fix]
-        types_or: [python, pyi, jupyter, markdown]
+        types_or: [python, pyi, jupyter, toml]
       - id: ruff-format
         types_or: [python, pyi, jupyter, markdown]
 
