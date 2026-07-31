@@ -12,12 +12,13 @@ green.
 
 **Scope.** These tests cover the version agreement and nothing else. That is a
 deliberate line, drawn after several rounds of review kept finding holes in a
-broader guard here. The lint job runs `python -m ruff check .` and `python -m
-ruff format --check .` over the real tree and never reads
-`.pre-commit-config.yaml`, which means:
+broader guard here. The `ruff check + format` job runs `python -m ruff check .`
+and `python -m ruff format --check .` over the real tree; it installs ruff from
+pyproject.toml and never opens `.pre-commit-config.yaml`. (CI does read that
+file, but only by running this module under pytest.) Which means:
 
-  * A stale `rev:` is invisible to CI. Nothing but this module catches it, so
-    this module checks it.
+  * A stale `rev:` is invisible to every gate except this one. Nothing else
+    catches it, so this module checks it.
   * Every other property of the hooks — `types_or`, `args`, `files`, `exclude`,
     `stages` — only affects whether the local convenience hook mirrors CI. Break
     any of them (`--exit-zero`, `exclude_types: [markdown]`, a narrowed
@@ -120,9 +121,10 @@ def test_ruff_is_pinned_exactly_in_pyproject() -> None:
 def test_pre_commit_ruff_rev_matches_the_pyproject_pin() -> None:
     """Bumping one and not the other is the drift this test exists to catch.
 
-    CI never reads .pre-commit-config.yaml, so a stale rev here is invisible to
-    it: this assertion is the only thing standing between a version bump and a
-    contributor formatting with a different ruff than the required job.
+    The `ruff check + format` job installs ruff from pyproject.toml and never
+    opens this file, so a stale rev is invisible to it: this assertion is the
+    only thing standing between a version bump and a contributor formatting
+    with a different ruff than the required job.
     """
     constraint = _pyproject_ruff_constraint()
     rev = _ruff_repo_rev()

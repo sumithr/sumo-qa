@@ -64,8 +64,9 @@ repos:
     # exactly that.
     #
     # Only the VERSION agreement above is enforced by a test
-    # (tests/test_toolchain_pins.py), because CI never reads this file and so
-    # cannot see a stale rev. The hook shapes below are deliberately not
+    # (tests/test_toolchain_pins.py), because the `ruff check + format` job
+    # installs ruff from pyproject.toml and never opens this file, so it cannot
+    # see a stale rev. The hook shapes below are deliberately not
     # asserted anywhere: `ruff check + format` runs the real commands over the
     # real tree, so weakening a hook here (`--exit-zero`, a narrowed `files:`,
     # `exclude_types`, `stages`) still fails the required job on the next push.
