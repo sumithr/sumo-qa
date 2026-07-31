@@ -61,7 +61,16 @@ repos:
     # REJECTS an invalid config outright, independent of any rule. A typo'd
     # selector is valid TOML, so `check-toml` passes it, while CI dies with
     # "Unknown rule selector `NOT-A-RULE` in `select`". Verified by injecting
-    # exactly that. `tests/test_toolchain_pins.py` pins this arrangement.
+    # exactly that.
+    #
+    # Only the VERSION agreement above is enforced by a test
+    # (tests/test_toolchain_pins.py), because CI never reads this file and so
+    # cannot see a stale rev. The hook shapes below are deliberately not
+    # asserted anywhere: `ruff check + format` runs the real commands over the
+    # real tree, so weakening a hook here (`--exit-zero`, a narrowed `files:`,
+    # `exclude_types`, `stages`) still fails the required job on the next push.
+    # Treat what follows as the reasoning to preserve when editing, not as a
+    # contract something will catch you breaking.
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -75,7 +84,9 @@ repos:
         alias: ruff-check-config
         name: ruff check (ruff config files)
         types_or: [toml]
-        files: ^\.?(pyproject|ruff)\.toml$
+        # `.ruff.toml` is a name ruff reads; `.pyproject.toml` is not, so the
+        # optional dot belongs only on the ruff alternative.
+        files: ^(pyproject|ruff|\.ruff)\.toml$
       - id: ruff-format
         types_or: [python, pyi, jupyter, markdown]
 
