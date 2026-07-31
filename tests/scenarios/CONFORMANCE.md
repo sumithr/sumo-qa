@@ -94,12 +94,16 @@ To score your own captured run against a scenario:
 
 ```python
 from sumo_qa.conformance import (
-    load_scenarios, validate_all, format_report, transcript_from_debug_dir,
+    load_scenarios,
+    validate_all,
+    format_report,
+    transcript_from_debug_dir,
 )
 
 scenarios = load_scenarios("tests/scenarios/conformance/scenarios.yaml")
 transcript = transcript_from_debug_dir(
-    "/path/to/SUMO_QA_DEBUG_DIR", scenario_id="TS15-capabilities",
+    "/path/to/SUMO_QA_DEBUG_DIR",
+    scenario_id="TS15-capabilities",
     output_text="...the final assistant message...",
 )
 print(format_report(validate_all(scenarios, [transcript])))

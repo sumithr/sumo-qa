@@ -31,9 +31,12 @@
 # on the user's PATH (pyenv / multiple Pythons / system vs venv).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Pin matches `ruff>=0.5,<1` from pyproject.toml's dev extras. Update both
-    # together when bumping ruff.
-    rev: v0.13.0
+    # Must match `ruff==0.16.0` in pyproject.toml's dev extras EXACTLY. This rev
+    # is what runs at `git commit`; the pyproject pin is what runs in the `ruff
+    # check + format` CI job. When the two disagree, a commit passes locally and
+    # the required CI check fails on formatting alone (see the pin's comment in
+    # pyproject.toml). Bump both in one commit, reformatting in the same change.
+    rev: v0.16.0
     hooks:
       - id: ruff-check
         args: [--fix]
