@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -791,3 +792,26 @@ class TestPrefilterWrapper:
         assert all(cmd.endswith("route-qa-runners-prefilter.cmd") for cmd in bash_commands), (
             f"Bash PostToolUse must route through the prefilter; got {bash_commands}"
         )
+
+    def test_the_two_hooks_only_name_sibling_files_that_exist(self) -> None:
+        """Each hook's header points the reader at the other one by filename.
+
+        The prefilter has already been renamed twice (`.py` -> `.sh` -> `.cmd`)
+        and the Python hook's docstring was left pointing at the dead `.sh`
+        spelling. A stale name here sends a contributor looking for a file that
+        is not there, so every `route-qa-runners*` filename either hook mentions
+        has to resolve on disk.
+        """
+        pattern = re.compile(r"route-qa-runners[\w-]*\.(?:py|cmd|sh)")
+        for source, sibling in ((HOOK, PREFILTER), (PREFILTER, HOOK)):
+            named = set(pattern.findall(source.read_text(encoding="utf-8")))
+            # Naming itself would satisfy a bare non-empty check, so require the
+            # sibling by name: that is the pointer a contributor actually follows.
+            assert sibling.name in named, (
+                f"{source.name} no longer names {sibling.name}; the cross-reference was lost"
+            )
+            for name in sorted(named):
+                assert (source.parent / name).exists(), (
+                    f"{source.name} refers to {name}, which does not exist. "
+                    "Renaming a hook means updating the prose that names it."
+                )
