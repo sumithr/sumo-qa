@@ -37,10 +37,20 @@ repos:
     # the required CI check fails on formatting alone (see the pin's comment in
     # pyproject.toml). Bump both in one commit, reformatting in the same change.
     rev: v0.16.0
+    # `types_or` overrides the upstream hook definitions, which list only
+    # python/pyi/jupyter. ruff 0.16 formats and lints Python inside Markdown
+    # fences, and CI runs a bare `ruff check .` / `ruff format --check .` that
+    # picks those files up — so without `markdown` here a contributor commits
+    # drifting Markdown, passes `git commit` ("ruff format...(no files to
+    # check)Skipped"), and turns the required CI job red. Verified by reverting
+    # a formatted fence and watching the hook skip a file the CLI reformats.
+    # `tests/test_toolchain_pins.py` pins this list.
     hooks:
       - id: ruff-check
         args: [--fix]
+        types_or: [python, pyi, jupyter, markdown]
       - id: ruff-format
+        types_or: [python, pyi, jupyter, markdown]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
