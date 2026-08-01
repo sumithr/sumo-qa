@@ -4,5 +4,12 @@
 hooks/session-start text eol=lf
 *.sh text eol=lf
 
+# The cmd.exe/sh polyglot hooks carry a POSIX branch, so the same rule applies
+# to them even though the extension says Windows: a CRLF checkout would break
+# `case "$payload" in` with a `\r` syntax error the moment the file is run on
+# POSIX (WSL, or a Windows clone shared with Git Bash). cmd.exe reads LF batch
+# files fine, and `tests/test_route_qa_runners.py` pins the LF requirement.
+*.cmd text eol=lf
+
 # Python sources stay LF too for consistency with Black/ruff defaults.
 *.py text eol=lf

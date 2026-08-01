@@ -116,7 +116,16 @@ dev = [
   # bleach < 6.4.0: GHSA-gj48-438w-jh9v, GHSA-8rfp-98v4-mmr6, and
   #   GHSA-g75f-g53v-794x (the last affects exactly 6.3.0; 6.4.0 exits its range).
   "bleach>=6.4.0",
-  "ruff>=0.5,<1",
+  # EXACT pin, unlike the ranges around it. ruff is a formatter as well as a
+  # linter, and formatter output changes between pre-1.0 minors: 0.16.0 began
+  # formatting Python inside Markdown fences, which took `ruff format .` from
+  # 252 files to 332 and turned the required `ruff check + format` CI job red on
+  # a main nobody had touched. A range also cannot agree with the fixed `rev:`
+  # the ruff-pre-commit hook needs, so the open `>=0.5,<1` had CI, pre-commit
+  # and a synced venv all running different ruff versions at once. Bump this and
+  # `rev:` in .pre-commit-config.yaml together, in one commit, reformatting in
+  # the same change.
+  "ruff==0.16.0",
   # Static type checking — see [tool.mypy]. mypy is pure-Python (no Node
   # toolchain), matching the project's Python-only CI. types-PyYAML supplies
   # the stubs PyYAML doesn't ship inline. hatchling (the build backend) lets

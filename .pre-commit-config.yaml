@@ -31,13 +31,65 @@
 # on the user's PATH (pyenv / multiple Pythons / system vs venv).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Pin matches `ruff>=0.5,<1` from pyproject.toml's dev extras. Update both
-    # together when bumping ruff.
-    rev: v0.13.0
+    # Must match `ruff==0.16.0` in pyproject.toml's dev extras EXACTLY. This rev
+    # is what runs at `git commit`; the pyproject pin is what runs in the `ruff
+    # check + format` CI job. When the two disagree, a commit passes locally and
+    # the required CI check fails on formatting alone (see the pin's comment in
+    # pyproject.toml). Bump both in one commit, reformatting in the same change.
+    rev: v0.16.0
+    # Matching versions is not enough: a hook also has to see the same FILES its
+    # CI counterpart does. Measured with `ruff check --show-files .` and
+    # `ruff format --check .` on this tree:
+    #
+    #   ruff check .          253 .py + pyproject.toml and ruff.toml
+    #   ruff format --check . 253 .py + 83 .md   (Python inside Markdown fences)
+    #
+    # Only ruff-format needs an override. The upstream python/pyi/jupyter list
+    # misses Markdown, so a contributor commits a drifting fence, sees
+    # "ruff format...(no files to check)Skipped", and turns the required CI job
+    # red — verified by reverting a formatted fence and watching the hook skip a
+    # file the CLI reformats.
+    #
+    # ruff-check keeps the upstream list for source files. `types_or: [...,
+    # toml]` would be wrong: ruff special-cases the two config TOMLs by NAME, so
+    # that tag hands the hook every tracked .toml (tests/fixtures/.../Cargo.toml)
+    # which `ruff check --show-files .` does not list and CI never lints.
+    #
+    # The two config files still need their own pass, via the same aliased-hook
+    # pattern as shellcheck below. Not for lint findings — ruff.toml selects
+    # E/F/I/B/UP and every TOML rule is in the RUF family — but because ruff
+    # REJECTS an invalid config outright, independent of any rule. A typo'd
+    # selector is valid TOML, so `check-toml` passes it, while CI dies with
+    # "Unknown rule selector `NOT-A-RULE` in `select`". Verified by injecting
+    # exactly that.
+    #
+    # Only the VERSION agreement above is enforced by a test
+    # (tests/test_toolchain_pins.py), because the `ruff check + format` job
+    # installs ruff from pyproject.toml and never opens this file, so it cannot
+    # see a stale rev. The hook shapes below are deliberately not
+    # asserted anywhere: `ruff check + format` runs the real commands over the
+    # real tree, so weakening a hook here (`--exit-zero`, a narrowed `files:`,
+    # `exclude_types`, `stages`) still fails the required job on the next push.
+    # Treat what follows as the reasoning to preserve when editing, not as a
+    # contract something will catch you breaking.
     hooks:
       - id: ruff-check
         args: [--fix]
+      # types_or, not types: pre-commit ANDs every filter together, and the
+      # upstream ruff-check hook sets types_or to python/pyi/jupyter. Leaving
+      # that inherited and adding only `files:` intersects to the empty set, so
+      # the hook reports "(no files to check)Skipped" and silently guards
+      # nothing. Overriding types_or and narrowing with files gives exactly the
+      # two config names, with no other tracked .toml.
+      - id: ruff-check
+        alias: ruff-check-config
+        name: ruff check (ruff config files)
+        types_or: [toml]
+        # `.ruff.toml` is a name ruff reads; `.pyproject.toml` is not, so the
+        # optional dot belongs only on the ruff alternative.
+        files: ^(pyproject|ruff|\.ruff)\.toml$
       - id: ruff-format
+        types_or: [python, pyi, jupyter, markdown]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -75,6 +127,17 @@ repos:
     rev: v0.10.0.1
     hooks:
       - id: shellcheck
+      # The route-qa-runners prefilter is a cmd.exe/sh polyglot, so it has no
+      # shebang for the auto-detection above to find and would otherwise go
+      # unlinted. Checked explicitly as `sh`: its batch block sits inside a
+      # quoted heredoc, which shellcheck treats as data, so only the POSIX
+      # branch is analysed. Mirrored in .github/workflows/lint.yml.
+      - id: shellcheck
+        alias: shellcheck-polyglot-hooks
+        name: shellcheck (cmd/sh polyglot hooks)
+        args: [--shell=sh]
+        types: [file]
+        files: ^\.claude/hooks/route-qa-runners-prefilter\.cmd$
 
   - repo: local
     hooks:
