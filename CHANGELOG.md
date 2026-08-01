@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.2](https://github.com/sumithr/sumo-qa/compare/v0.60.1...v0.60.2) (2026-08-01)
+
+
+### Performance Improvements
+
+* **hooks:** gate route-qa-runners behind a shell prefilter ([#570](https://github.com/sumithr/sumo-qa/issues/570)) ([096e231](https://github.com/sumithr/sumo-qa/commit/096e231c8d2cae434da5f2af298e80bb76d5fffe))
+
 ## [0.60.1](https://github.com/sumithr/sumo-qa/compare/v0.60.0...v0.60.1) (2026-07-22)
 
 
