@@ -205,24 +205,40 @@ module `DROPPED` on a clean tree. An enforced-but-flaky gate trains people to
 
 - On darwin it sets `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES` in the child
   environment (extending `os.environ`, so `PATH` still resolves the `mutmut`
-  console script). Off darwin no env override is passed at all, so the Linux
-  and CI path is unchanged.
-- After each pass it counts mutants that produced no verdict. Above
-  `NOISE_THRESHOLD` (50%) the pass is treated as noise rather than signal, and
+  console script). Off darwin no env override is passed at all.
+- After each pass it asks, **per module**, whether that module produced mostly
+  no verdict (above `NOISE_THRESHOLD`, 50%). The check is deliberately not
+  aggregated across the run: `report_builder` alone is roughly half the mutant
+  population, so a total wipeout of it scores only ~48.9% of the aggregate and
+  would never trigger the retry it most needs. If any module is un-measured,
   mutmut is re-run **keeping the cache** so results accumulate, printing
   `local fork noise, converging (pass N)`. Bounded at `MAX_CONVERGE_PASSES`
-  (4) so a permanently-noisy machine terminates the push rather than hanging
-  it. A pass that is not noise-degraded exits the loop immediately, so a
-  healthy run still costs exactly one pass.
-- Residual un-judged mutants are judged honestly: they count as neither killed
-  nor survived. A kill-count shortfall is excused only as far as un-judged
-  mutants account for it, and the module is reported `NOISE-DEGRADED` with a
-  pointer to the authoritative Linux dispatch. A shortfall noise cannot explain
-  is still `DROPPED`, and **any** real survivor still fails the gate no matter
-  how noisy the run was.
+  (2): a pass costs ~6 minutes and this is a synchronous pre-push hook, so
+  turning a blocked push into a 24-minute one would not be a fix. A pass that
+  is not noise-degraded exits the loop immediately, so a healthy run costs
+  exactly one pass.
+- Passes are **folded, never replaced**. mutmut re-initialises verdicts on a
+  later run, so a survivor seen in pass 1 can come back un-judged in pass 2;
+  evaluating only the final pass would let the retry launder it. Survivor names
+  accumulate as a union and kill counts keep the best observed value, so a
+  retry can only add evidence.
+- Residual un-judged mutants count as neither killed nor survived. A module is
+  excused as `NOISE-DEGRADED` only when **that module** was genuinely not
+  measured. The earlier rule (`killed + unjudged >= baseline`) was unsound:
+  `mutmut-baseline.json` stores counts, not mutant identities, so it could
+  offset a mutant that really stopped being killed against a different mutant
+  that merely went un-judged.
+
+**The tolerance is local-only.** `evaluate()` takes `tolerate_unjudged`,
+default `False`, enabled only for a darwin `--run-mutmut` invocation. The
+nightly workflow runs this script without `--run-mutmut`, so the authoritative
+Linux gate keeps the original strict semantics and never greens a run it could
+not measure. Any real survivor fails the gate on either path.
 
 If you see `NOISE-DEGRADED`, the local run could not measure those modules; run
-`gh workflow run mutation.yml --ref <branch>` for the verdict that counts.
+`gh workflow run mutation.yml --ref <branch>` for the verdict that counts. That
+run reports "not a strict-gate pass" rather than "strict gate passed", because
+the gate it exists to enforce was not enforced.
 
 Both the nightly job and the pre-push hook compute their verdict with
 [`scripts/check_mutation_gate.py`](../scripts/check_mutation_gate.py)
