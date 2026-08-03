@@ -1,27 +1,65 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Register every skills/*/SKILL.md as an MCP tool.
 
-Single delivery channel for skills across every supported host. MCP tools
-are surfaced in the slash menu by Claude Code, IntelliJ AI Assistant, and
-VS Code + Copilot — so registering each SKILL.md as a tool means
-`/sumo_qa_deciding_approach`, `/sumo_qa_creating_test_plan`, etc. appear identically
-in every host. Calling the tool returns the SKILL.md body, which the host
-LLM follows. When the body would exceed the host's per-response token cap, a
-compact pointer to the progressive-loading slices (see #393 and
-``skill_manifest``) is returned instead, so the load never fails opaquely.
+The BASELINE delivery channel for skills across every supported host: every
+host can REACH an MCP tool, which is not true of any other channel. How each
+host surfaces them differs, so this is reachability parity, not UI parity
+(see ``docs/SKILLS.md`` for the per-host conventions):
+
+* JetBrains AI Assistant slash-invokes them (``/sumo_qa_deciding_approach``).
+* Claude Code does NOT slash-invoke MCP tools; they are called by natural
+  language. Its ``/sumo-qa-*`` slash entries come from the native skill
+  loader, not from these tools.
+* JetBrains Junie and VS Code + Copilot select them by description from
+  natural language.
+
+Calling the tool returns the SKILL.md body, which the host LLM follows. When
+the body would exceed the host's per-response token cap, a compact pointer to
+the progressive-loading slices (see #393 and ``skill_manifest``) is returned
+instead, so the load never fails opaquely.
 
 Why not also register as MCP prompts? MCP prompts are surfaced by Claude
-Code but not by IntelliJ. Registering as both creates duplicate entries
-in Claude Code's slash menu — same name, two routes — which is the
-confusion the user pushed back on. One channel keeps the experience
-identical.
+Code but not by JetBrains AI Assistant, so they cannot be the baseline. And
+registering as prompts ON TOP of tools helps nothing while costing clarity:
+Claude Code already lists each skill in its slash menu via the native loader
+(``/sumo-qa-deciding-approach``), so an MCP prompt would add a SECOND
+slash entry for the same skill under a near-identical name
+(``/sumo_qa_deciding_approach``) reached by a different route. That is the
+duplication the user pushed back on. One channel keeps the experience
+predictable.
 
-Why not also symlink into ~/.claude/skills/ for Claude Code's native
-skill loader? The native loader has richer features (auto-loads checklist
-into TodoWrite, treats Iron Law as system-prompt-grade discipline) but
-those features don't exist in IntelliJ or Copilot. Symlinking creates
-asymmetric behavior the user shouldn't have to think about. install.py
-no longer creates the symlink.
+Claude Code ALSO gets the skills natively, through its own skill loader,
+by one of two routes depending on how it was installed:
+
+* pip install + ``sumo-qa-install --claude-code``: ``installer.py``
+  (``_install_claude_code_skills_per_dir``) links each skill directory into
+  ``~/.claude/skills/``. It symlinks, falling back to ``shutil.copytree`` on
+  Windows when symlink creation raises OSError, so on Windows these can be
+  copies rather than links.
+* plugin install (``claude --plugin-dir`` or the marketplace): no entries
+  under ``~/.claude/skills/`` are created and none are needed; the plugin
+  loader reads ``skills/<name>/SKILL.md`` straight out of the plugin
+  directory.
+
+The two are additive, not exclusive (``docs/INSTALL.md``): a machine can
+have both.
+
+That asymmetry is deliberate, not an oversight. The native loader has
+richer features that no MCP tool can reproduce (it auto-loads the checklist
+into TodoWrite and treats the Iron Law as system-prompt-grade discipline),
+and it is not subject to the per-response token cap above, so an over-cap
+skill such as sumo-qa-reviewing-before-merge loads in full there while this
+route can only hand back the progressive-loading pointer. JetBrains and
+Copilot have no native loader, which is why these tools remain the baseline
+everywhere.
+
+Consequently the ``~/.claude/skills/`` entries are load-bearing only when
+they are the machine's ONLY native route, i.e. a pip/installer setup with no
+plugin install alongside. There, removing them silently downgrades Claude
+Code to the pointer route for the largest skill. Where a plugin install is
+also present, or is the only install, the plugin loader still serves the full
+body and nothing is downgraded. See ``docs/ARCHITECTURE.md`` for the per-host
+matrix and the degraded-mode note on plugin-loaded skills.
 
 The SKILL.md file is read fresh on each invocation so editing it propagates
 without restart.

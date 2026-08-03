@@ -2,11 +2,16 @@
 """Tests for src/sumo_qa/skill_prompts.py.
 
 Every skills/*/SKILL.md must register as an MCP TOOL at server startup
-(not a prompt). Single delivery channel across hosts — Claude Code,
-IntelliJ AI Assistant, and VS Code + Copilot all surface MCP tools in
-their slash menu identically. Registering as prompts would only surface
-in Claude Code, creating asymmetric behavior. See
-src/sumo_qa/skill_prompts.py module docstring for the full rationale.
+(not a prompt). Baseline delivery channel across hosts: every supported
+host can REACH an MCP tool, though how each surfaces them differs (only
+JetBrains AI Assistant slash-invokes them; Claude Code, Junie and VS Code
++ Copilot call them by natural language). Registering as prompts would
+only surface in Claude Code, creating asymmetric behavior. Claude Code
+additionally loads these skills through its native loader: via the
+``~/.claude/skills/`` entries on a pip/``sumo-qa-install`` setup, or
+straight from ``skills/<name>/SKILL.md`` in the plugin directory on a
+plugin install. See src/sumo_qa/skill_prompts.py module docstring for the
+full rationale.
 """
 
 from __future__ import annotations
