@@ -1,9 +1,9 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Register every skills/*/SKILL.md as an MCP tool.
 
-Single delivery channel for skills across every supported host. MCP tools
-are surfaced in the slash menu by Claude Code, IntelliJ AI Assistant, and
-VS Code + Copilot — so registering each SKILL.md as a tool means
+The BASELINE delivery channel for skills across every supported host. MCP
+tools are surfaced in the slash menu by Claude Code, IntelliJ AI Assistant,
+and VS Code + Copilot, so registering each SKILL.md as a tool means
 `/sumo_qa_deciding_approach`, `/sumo_qa_creating_test_plan`, etc. appear identically
 in every host. Calling the tool returns the SKILL.md body, which the host
 LLM follows. When the body would exceed the host's per-response token cap, a
@@ -12,16 +12,24 @@ compact pointer to the progressive-loading slices (see #393 and
 
 Why not also register as MCP prompts? MCP prompts are surfaced by Claude
 Code but not by IntelliJ. Registering as both creates duplicate entries
-in Claude Code's slash menu — same name, two routes — which is the
+in Claude Code's slash menu (same name, two routes), which is the
 confusion the user pushed back on. One channel keeps the experience
 identical.
 
-Why not also symlink into ~/.claude/skills/ for Claude Code's native
-skill loader? The native loader has richer features (auto-loads checklist
-into TodoWrite, treats Iron Law as system-prompt-grade discipline) but
-those features don't exist in IntelliJ or Copilot. Symlinking creates
-asymmetric behavior the user shouldn't have to think about. install.py
-no longer creates the symlink.
+Claude Code ALSO gets the skills natively: ``installer.py``
+(``_install_claude_code_skills_per_dir``) symlinks each skill directory
+into ``~/.claude/skills/``, so on that host the skills load through the
+native skill loader as well as through these tools. That asymmetry is
+deliberate, not an oversight. The native loader has richer features that no
+MCP tool can reproduce (it auto-loads the checklist into TodoWrite and
+treats the Iron Law as system-prompt-grade discipline), and it is not
+subject to the per-response token cap above, so an over-cap skill such as
+sumo-qa-reviewing-before-merge loads in full there while this route can only
+hand back the progressive-loading pointer. IntelliJ and Copilot have no
+native loader, which is why these tools remain the baseline everywhere.
+Removing the symlinks would silently downgrade Claude Code to the pointer
+route for the largest skill; see ``docs/ARCHITECTURE.md`` for the per-host
+matrix.
 
 The SKILL.md file is read fresh on each invocation so editing it propagates
 without restart.
