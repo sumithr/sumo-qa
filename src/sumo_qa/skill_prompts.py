@@ -19,10 +19,14 @@ the progressive-loading slices (see #393 and ``skill_manifest``) is returned
 instead, so the load never fails opaquely.
 
 Why not also register as MCP prompts? MCP prompts are surfaced by Claude
-Code but not by IntelliJ. Registering as both creates duplicate entries
-in Claude Code's slash menu (same name, two routes), which is the
-confusion the user pushed back on. One channel keeps the experience
-identical.
+Code but not by JetBrains AI Assistant, so they cannot be the baseline. And
+registering as prompts ON TOP of tools helps nothing while costing clarity:
+Claude Code already lists each skill in its slash menu via the native loader
+(``/sumo-qa-deciding-approach``), so an MCP prompt would add a SECOND
+slash entry for the same skill under a near-identical name
+(``/sumo_qa_deciding_approach``) reached by a different route. That is the
+duplication the user pushed back on. One channel keeps the experience
+predictable.
 
 Claude Code ALSO gets the skills natively, through its own skill loader,
 by one of two routes depending on how it was installed:
@@ -45,7 +49,7 @@ richer features that no MCP tool can reproduce (it auto-loads the checklist
 into TodoWrite and treats the Iron Law as system-prompt-grade discipline),
 and it is not subject to the per-response token cap above, so an over-cap
 skill such as sumo-qa-reviewing-before-merge loads in full there while this
-route can only hand back the progressive-loading pointer. IntelliJ and
+route can only hand back the progressive-loading pointer. JetBrains and
 Copilot have no native loader, which is why these tools remain the baseline
 everywhere.
 
