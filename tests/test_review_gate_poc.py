@@ -39,6 +39,7 @@ from experiments.issue_557.run_subscription_eval import (
     summarize,
 )
 from sumo_qa.review_gate_poc import (
+    InventoryDrift,
     ReviewContext,
     ReviewFeedback,
     ReviewGateValidationError,
@@ -252,13 +253,7 @@ def test_ledger_table_emitted_before_the_verdict_is_normalised_below_it() -> Non
 
 
 def test_supplied_context_is_carried_onto_the_validated_review() -> None:
-    context = ReviewContext(
-        acceptance_criteria=["AC1: refund reverses the ledger entry"],
-        inventory_drift_paths=["docs/tools.md"],
-        saved_review_feedback=ReviewFeedback(
-            trigger="hook change", probe="run the hook end to end"
-        ),
-    )
+    context = ReviewContext()
 
     validated = validate_review_response(_response(), context=context)
 
@@ -268,6 +263,143 @@ def test_supplied_context_is_carried_onto_the_validated_review() -> None:
 def test_supplied_context_rejects_unknown_fields() -> None:
     with pytest.raises(ValidationError):
         ReviewContext(acceptance_critera=["typo in the field name"])  # type: ignore[call-arg]
+
+
+def test_missing_row_for_a_supplied_acceptance_criterion_is_rejected() -> None:
+    context = ReviewContext(
+        acceptance_criteria=[
+            "refund reverses the ledger entry",
+            "audit log records the actor",
+        ]
+    )
+    review = (
+        "AC1: refund reverses the ledger entry | Classification: MET | Anchor: refund.py:22\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    with pytest.raises(ReviewGateValidationError, match="acceptance criterion"):
+        validate_review_response(_response(risks="failed", review=review), context=context)
+
+
+def test_acceptance_criterion_the_host_did_not_supply_is_rejected() -> None:
+    context = ReviewContext(acceptance_criteria=["refund reverses the ledger entry"])
+    review = (
+        "AC1: refund reverses the ledger entry | Classification: MET | Anchor: refund.py:22\n"
+        "AC2: invented criterion | Classification: UNMET | Anchor: none\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    with pytest.raises(ReviewGateValidationError, match="acceptance criterion"):
+        validate_review_response(_response(risks="failed", review=review), context=context)
+
+
+def test_one_row_per_supplied_acceptance_criterion_is_accepted() -> None:
+    context = ReviewContext(
+        acceptance_criteria=[
+            "refund reverses the ledger entry",
+            "audit log records the actor",
+        ]
+    )
+    review = (
+        "AC1: refund reverses the ledger entry | Classification: MET | Anchor: refund.py:22\n"
+        "AC2: audit log records the actor | Classification: UNMET | Anchor: none\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    validated = validate_review_response(_response(risks="failed", review=review), context=context)
+
+    assert validated.safe_to_merge is False
+
+
+def test_inventory_drift_row_paraphrasing_the_supplied_pair_is_rejected() -> None:
+    context = ReviewContext(
+        inventory_drift=[InventoryDrift(path="docs/tools.md", old="48 tools", new="52 tools")]
+    )
+    review = (
+        "Inventory drift anchor: docs/tools.md:12 (still 48 tools) | Coverage: UNCOVERED\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    with pytest.raises(ReviewGateValidationError, match="inventory drift"):
+        validate_review_response(_response(risks="failed", review=review), context=context)
+
+
+def test_inventory_drift_row_copying_the_supplied_pair_verbatim_is_accepted() -> None:
+    context = ReviewContext(
+        inventory_drift=[InventoryDrift(path="docs/tools.md", old="48 tools", new="52 tools")]
+    )
+    review = (
+        "Inventory drift anchor: docs/tools.md:12 (48 tools → 52 tools) | Coverage: UNCOVERED\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    validated = validate_review_response(_response(risks="failed", review=review), context=context)
+
+    assert validated.safe_to_merge is False
+
+
+def test_absent_memory_line_is_rejected_when_feedback_was_supplied() -> None:
+    context = ReviewContext(
+        saved_review_feedback=ReviewFeedback(trigger="hook change", probe="run the hook end to end")
+    )
+    review = (
+        "no saved review feedback supplied, advisory-hint check skipped\nVerdict: NOT SAFE TO MERGE"
+    )
+
+    with pytest.raises(ReviewGateValidationError, match="absent-memory"):
+        validate_review_response(_response(risks="failed", review=review), context=context)
+
+
+def test_advisory_hint_line_is_rejected_when_no_feedback_was_supplied() -> None:
+    context = ReviewContext()
+    review = (
+        "advisory hint from saved review feedback (trigger: hook change): rerun the hook\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    with pytest.raises(ReviewGateValidationError, match="advisory-hint"):
+        validate_review_response(_response(risks="failed", review=review), context=context)
+
+
+def test_none_is_rejected_as_a_coverage_status() -> None:
+    review = "Risk: retry duplication | Coverage: NONE\nVerdict: NOT SAFE TO MERGE"
+
+    with pytest.raises(ReviewGateValidationError, match="not a coverage status"):
+        validate_review_response(_response(risks="failed", review=review))
+
+
+def test_safe_verdict_with_an_unresolved_classification_is_rejected() -> None:
+    review = (
+        "Command: pytest tests/auth -q -> 42 passed\n"
+        "AC1: refund reverses the ledger entry | Classification: UNVERIFIED | Anchor: none\n"
+        "Verdict: SAFE TO MERGE"
+    )
+
+    with pytest.raises(ReviewGateValidationError, match="unresolved"):
+        validate_review_response(_response(review=review))
+
+
+def test_internal_declination_naming_an_external_producer_is_rejected() -> None:
+    context = ReviewContext(external_producers=["mutmut"])
+    review = (
+        "External-contract axis: NOT FIRED (internal/self-produced) | Producer: mutmut runner\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    with pytest.raises(ReviewGateValidationError, match="internal/self-produced"):
+        validate_review_response(_response(risks="failed", review=review), context=context)
+
+
+def test_internal_declination_without_an_external_producer_is_accepted() -> None:
+    context = ReviewContext(external_producers=["mutmut"])
+    review = (
+        "External-contract axis: NOT FIRED (internal/self-produced) | Producer: parse_fence\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    validated = validate_review_response(_response(risks="failed", review=review), context=context)
+
+    assert validated.safe_to_merge is False
 
 
 @pytest.mark.parametrize(

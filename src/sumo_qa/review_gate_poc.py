@@ -39,6 +39,14 @@ _APPENDIX_MARKER_RE = re.compile(
     r"(?i)\A\s*(?:#{1,6}\s+)?(?:readiness\s+scorecard|risk\s+ledger)\b"
 )
 _TABLE_ROW_RE = re.compile(r"\A\s*\|")
+_AC_ROW_RE = re.compile(r"(?mi)^\s*AC(?P<number>\d+)\s*:")
+_COVERAGE_NONE_RE = re.compile(r"(?mi)\bCoverage:\s*NONE\b")
+_UNRESOLVED_FIELD_RE = re.compile(
+    r"(?mi)\b(?:Classification|Coverage|Status):\s*(?P<value>UNMET|UNVERIFIED|UNCOVERED|UNPROVEN)\b"
+)
+_ABSENT_MEMORY_RE = re.compile(r"(?i)no saved review feedback supplied")
+_PRESENT_MEMORY_RE = re.compile(r"(?i)advisory hint from saved review feedback")
+_NOT_FIRED_RE = re.compile(r"(?i)\A.*External-contract axis:\s*NOT FIRED")
 
 
 class ReviewGateValidationError(ValueError):
@@ -54,6 +62,16 @@ class ReviewFeedback(BaseModel):
     probe: str
 
 
+class InventoryDrift(BaseModel):
+    """A documented inventory path the host flagged as stale, and its correction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    old: str
+    new: str
+
+
 class ReviewContext(BaseModel):
     """Host-supplied inputs the deterministic boundary checks the review against.
 
@@ -61,14 +79,14 @@ class ReviewContext(BaseModel):
     depends on what the host actually supplied -- one row per acceptance
     criterion, one row per stale path, the memory present/absent branches --
     had to be bought as prompt prose.  Carrying the supplied context here is
-    what lets those move into code; the completeness rules that consume these
-    fields land in the next step.
+    what lets those be checked in code instead.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     acceptance_criteria: list[str] = Field(default_factory=list)
-    inventory_drift_paths: list[str] = Field(default_factory=list)
+    inventory_drift: list[InventoryDrift] = Field(default_factory=list)
+    external_producers: list[str] = Field(default_factory=list)
     saved_review_feedback: ReviewFeedback | None = None
 
 
@@ -162,6 +180,78 @@ def _normalise_appendix_order(review: str) -> str:
     return "\n".join(body + appendix)
 
 
+def _check_coverage_status(review: str) -> None:
+    """``NONE`` names no coverage outcome, so it cannot stand in for one."""
+    if _COVERAGE_NONE_RE.search(review) is not None:
+        raise ReviewGateValidationError(
+            "'NONE' is not a coverage status; use 'UNCOVERED' when no matching test "
+            "ran, or 'UNPROVEN' when one ran without a discriminating assertion"
+        )
+
+
+def _check_no_unresolved_field(review: str) -> None:
+    """A favourable verdict cannot coexist with an unresolved classification."""
+    match = _UNRESOLVED_FIELD_RE.search(review)
+    if match is not None:
+        raise ReviewGateValidationError(
+            f"SAFE TO MERGE is blocked by an unresolved field: {match.group('value')}"
+        )
+
+
+def _check_acceptance_criteria(review: str, criteria: list[str]) -> None:
+    """One row per supplied criterion, and none the host did not supply."""
+    emitted = {int(match.group("number")) for match in _AC_ROW_RE.finditer(review)}
+    expected = set(range(1, len(criteria) + 1))
+    missing = sorted(expected - emitted)
+    if missing:
+        raise ReviewGateValidationError(
+            "missing a row for supplied acceptance criterion/criteria: "
+            + ", ".join(f"AC{number}" for number in missing)
+        )
+    invented = sorted(emitted - expected)
+    if invented:
+        raise ReviewGateValidationError(
+            "acceptance criterion row(s) the host did not supply: "
+            + ", ".join(f"AC{number}" for number in invented)
+        )
+
+
+def _check_inventory_drift(review: str, drift: list[InventoryDrift]) -> None:
+    """Each supplied stale path needs a row copying its pair verbatim."""
+    lines = review.splitlines()
+    for entry in drift:
+        pair = f"{entry.old} → {entry.new}"
+        if not any(entry.path in line and pair in line for line in lines):
+            raise ReviewGateValidationError(
+                f"inventory drift row for {entry.path!r} must copy the supplied pair "
+                f"verbatim: {pair!r}"
+            )
+
+
+def _check_review_feedback(review: str, feedback: ReviewFeedback | None) -> None:
+    """The present and absent memory branches are mutually exclusive."""
+    if feedback is not None and _ABSENT_MEMORY_RE.search(review) is not None:
+        raise ReviewGateValidationError(
+            "saved review feedback was supplied, so the absent-memory line must not be emitted"
+        )
+    if feedback is None and _PRESENT_MEMORY_RE.search(review) is not None:
+        raise ReviewGateValidationError(
+            "no saved review feedback was supplied, so the advisory-hint line must not be emitted"
+        )
+
+
+def _check_producers(review: str, producers: list[str]) -> None:
+    """A named tool/CLI producer is external, so it cannot be declined as internal."""
+    for line in review.splitlines():
+        if _NOT_FIRED_RE.match(line) is None:
+            continue
+        for producer in producers:
+            if producer.lower() in line.lower():
+                raise ReviewGateValidationError(
+                    f"external producer {producer!r} cannot be declined as internal/self-produced"
+                )
+
+
 def validate_review_response(
     response: str,
     *,
@@ -204,6 +294,15 @@ def validate_review_response(
             raise ReviewGateValidationError(
                 "SAFE TO MERGE is blocked by unresolved gate(s): " + ", ".join(unresolved)
             )
+
+    _check_coverage_status(review)
+    if safe_to_merge:
+        _check_no_unresolved_field(review)
+    if context is not None:
+        _check_acceptance_criteria(review, context.acceptance_criteria)
+        _check_inventory_drift(review, context.inventory_drift)
+        _check_review_feedback(review, context.saved_review_feedback)
+        _check_producers(review, context.external_producers)
 
     try:
         assert_transcript_supported(review)
