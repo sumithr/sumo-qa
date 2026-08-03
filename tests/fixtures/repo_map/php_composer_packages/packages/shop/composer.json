@@ -1,0 +1,9 @@
+{
+  "name": "sumo-qa/php-shop",
+  "description": "Composer package B for the #484 PHP PSR-4 scan-activation tests. It declares only Shop\\ -> src/, so Cart.php's `use Blog\\Post;` matches no root here and must NOT resolve to package A's Post.php (the sibling-package true negative).",
+  "autoload": {
+    "psr-4": {
+      "Shop\\": "src/"
+    }
+  }
+}

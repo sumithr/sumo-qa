@@ -28,8 +28,10 @@ from sumo_qa.repo_map_resolvers import (
 )
 from sumo_qa.repo_map_resolvers.base import (
     LanguageConfig,
+    PreparableResolver,
     RawImport,
     Resolver,
+    ScanContext,
     get_resolver,
     register,
     registered_languages,
@@ -37,8 +39,10 @@ from sumo_qa.repo_map_resolvers.base import (
 
 __all__ = [
     "LanguageConfig",
+    "PreparableResolver",
     "RawImport",
     "Resolver",
+    "ScanContext",
     "get_resolver",
     "register",
     "registered_languages",

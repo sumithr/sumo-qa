@@ -5,19 +5,16 @@
 extra); ``resolve`` is pure path arithmetic over a supplied file set and runs on
 every interpreter. The orchestrator-integration test runs ``infer_imports_edges``
 against REAL tree-sitter over a COMMITTED C++/C fixture mini-repo
-(``tests/fixtures/repo_map/cpp_project``).
+(``tests/fixtures/repo_map/cpp_project``); scan-level activation over the same
+fixture lives in ``tests/test_repo_map_scan_activation.py`` (#483).
 
-Equivalence partitioning over the include classes — quoted-relative,
-quoted-via-include-root, extensionless-header-probe, angle-bracket-system
-(dropped), external/unresolved — plus boundary value analysis for the
-repo-root-escaping ``..`` traversal.
-
-Note on scan_repo integration: the scanner's ``_LANGUAGE_BY_EXT`` does not (yet)
-map ``.cpp/.cc/.cxx/.h/.hpp/.c`` to ``cpp``/``c``, so ``scan_repo`` stamps
-``language=None`` on those files and the orchestrator skips them. The resolver is
-therefore exercised through ``infer_imports_edges`` directly with language-stamped
-nodes — the same orchestrator entry point ``scan_repo`` calls — until the
-scanner extension map is extended (a foundation change out of this slice's scope).
+Equivalence partitioning over the include classes — quoted-relative (resolves
+by exact spelling), extensionless (exact spelling, never probed to a header
+variant), angle-bracket (dropped: no proven include roots without #484
+context), macro (dropped: no literal path), external/unresolved (no edge) —
+plus boundary value analysis for the repo-root-escaping ``..`` traversal and
+true negatives pinning the corrected #359 semantics: no header-extension
+probing and no conventional ``include/``/``src/`` root guessing.
 """
 
 from __future__ import annotations
@@ -30,7 +27,7 @@ from sumo_qa.repo_map_imports import infer_imports_edges
 from sumo_qa.repo_map_models import RepoMapNode
 from sumo_qa.repo_map_resolvers import get_resolver, registered_languages
 from sumo_qa.repo_map_resolvers.base import RawImport
-from sumo_qa.repo_map_resolvers.cpp import CppResolver
+from sumo_qa.repo_map_resolvers.cpp import C_CONFIG, CPP_CONFIG, CppResolver
 from sumo_qa.repo_map_treesitter import TREESITTER_AVAILABLE
 
 cpp_resolver = CppResolver()
@@ -52,6 +49,15 @@ def test_cpp_resolver_is_registered_for_cpp():
 def test_cpp_resolver_is_registered_for_c():
     assert "c" in registered_languages()
     assert get_resolver("c") is not None
+
+
+def test_cpp_config_extensions_cover_probed_headers():
+    # #483 reconciliation: the configs declare every header spelling the
+    # scanner owns for them, including .hh/.hxx, so those files are scanned as
+    # import producers (the scanner-side halves are contract-pinned in
+    # tests/test_repo_map_resolver_scanner_contract.py).
+    assert set(CPP_CONFIG.extensions) == {".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh", ".hxx"}
+    assert set(C_CONFIG.extensions) == {".c", ".h"}
 
 
 # ---------- extract (real tree-sitter) ----------
@@ -80,8 +86,17 @@ def test_cpp_resolver_extract_extensionless_quoted_include():
 
 @_needs_ts
 def test_cpp_resolver_extract_angle_bracket_system_include_dropped():
-    # `#include <vector>` is a system header -> not a repo import; dropped.
+    # `#include <vector>` names no repo file without proven include roots
+    # (#484); dropped.
     assert cpp_resolver.extract(b"#include <vector>\n") == []
+
+
+@_needs_ts
+def test_cpp_resolver_extract_macro_include_dropped():
+    # `#include CONFIG_H` carries an identifier, not a path literal; the
+    # concrete header depends on macro expansion, so no import is recorded
+    # (#359: macro includes emit no edge).
+    assert cpp_resolver.extract(b"#include CONFIG_H\n") == []
 
 
 @_needs_ts
@@ -105,46 +120,52 @@ def test_cpp_resolver_resolve_relative_subdirectory():
     assert cpp_resolver.resolve("src/main.cpp", imp, files) == ["src/helpers/format.h"]
 
 
-def test_cpp_resolver_resolve_via_include_root():
-    # Not next to the importer -> resolves under the `include/` root.
+def test_cpp_resolver_resolve_from_repo_root_importer():
+    # An importer at the repo root has no directory prefix; the include's own
+    # spelling is the whole candidate path.
+    imp = RawImport(module="lib/util.h", level=0, names=(), function_local=False)
+    files = {"lib/util.h"}
+    assert cpp_resolver.resolve("main.cpp", imp, files) == ["lib/util.h"]
+
+
+def test_cpp_resolver_resolve_extensionless_exact_spelling():
+    # `#include "config"` names a file literally called `config`; exact
+    # spelling resolves it when it exists next to the importer.
+    imp = RawImport(module="config", level=0, names=(), function_local=False)
+    files = {"src/config"}
+    assert cpp_resolver.resolve("src/main.cpp", imp, files) == ["src/config"]
+
+
+def test_cpp_resolver_resolve_extensionless_does_not_probe_header_variants():
+    # #359 corrected semantics: `#include "config"` must NOT match config.h
+    # (or any probed header variant) — the preprocessor searches the exact
+    # spelling, and probing fabricates an edge the compiler never makes.
+    imp = RawImport(module="config", level=0, names=(), function_local=False)
+    files = {"src/config.h", "src/config.hpp"}
+    assert cpp_resolver.resolve("src/main.cpp", imp, files) == []
+
+
+def test_cpp_resolver_resolve_does_not_guess_include_root():
+    # #359 corrected semantics: a header that exists ONLY under a conventional
+    # include/ root is not provably on the compiler's search path, so no edge
+    # is emitted (under-edge until #484 supplies configured include dirs).
     imp = RawImport(module="core.h", level=0, names=(), function_local=False)
     files = {"include/core.h"}
-    assert cpp_resolver.resolve("src/app/main.cpp", imp, files) == ["include/core.h"]
+    assert cpp_resolver.resolve("src/app/main.cpp", imp, files) == []
 
 
-def test_cpp_resolver_resolve_via_src_include_root():
+def test_cpp_resolver_resolve_does_not_guess_src_root():
     imp = RawImport(module="lib.h", level=0, names=(), function_local=False)
     files = {"src/lib.h"}
-    assert cpp_resolver.resolve("app/main.cpp", imp, files) == ["src/lib.h"]
+    assert cpp_resolver.resolve("app/main.cpp", imp, files) == []
 
 
-def test_cpp_resolver_resolve_extensionless_probes_header_extension():
-    # `#include "config"` (no extension) probes header extensions -> config.h.
-    imp = RawImport(module="config", level=0, names=(), function_local=False)
-    files = {"src/config.h"}
-    assert cpp_resolver.resolve("src/main.cpp", imp, files) == ["src/config.h"]
-
-
-def test_cpp_resolver_resolve_extensionless_probes_hpp_extension():
-    imp = RawImport(module="widget", level=0, names=(), function_local=False)
-    files = {"src/widget.hpp"}
-    assert cpp_resolver.resolve("src/main.cpp", imp, files) == ["src/widget.hpp"]
-
-
-def test_cpp_resolver_resolve_relative_beats_include_root():
-    # The same header exists both next to the importer and under an include root;
-    # the relative match wins and only one edge is emitted.
+def test_cpp_resolver_resolve_relative_match_unaffected_by_same_named_root_header():
+    # The same header exists both next to the importer and under include/;
+    # exactly the importer-relative file resolves (a single unambiguous edge).
     imp = RawImport(module="util.h", level=0, names=(), function_local=False)
     files = {"src/util.h", "include/util.h"}
     assert cpp_resolver.resolve("src/main.cpp", imp, files) == ["src/util.h"]
-
-
-def test_cpp_resolver_resolve_dedups_relative_and_include_root_base():
-    # The importer lives under include/, so its relative directory and the
-    # include-root produce the SAME candidate base; it is probed once -> one edge.
-    imp = RawImport(module="core.h", level=0, names=(), function_local=False)
-    files = {"include/core.h"}
-    assert cpp_resolver.resolve("include/app.cpp", imp, files) == ["include/core.h"]
 
 
 def test_cpp_resolver_resolve_parent_traversal_within_repo():
@@ -160,9 +181,9 @@ def test_cpp_resolver_resolve_dot_segment_is_normalized():
 
 
 def test_cpp_resolver_resolve_escaping_repo_root_yields_nothing():
-    # Boundary: more `..` segments than ancestor directories walks above the repo
-    # root; it must not anchor at the root and fabricate an edge to a file that
-    # happens to exist there.
+    # Boundary: more `..` segments than ancestor directories walks above the
+    # repo root; it must not anchor at the root and fabricate an edge to a file
+    # that happens to exist there.
     imp = RawImport(module="../../../etc/passwd.h", level=0, names=(), function_local=False)
     files = {"src/main.cpp", "etc/passwd.h"}
     assert cpp_resolver.resolve("src/main.cpp", imp, files) == []
@@ -182,18 +203,40 @@ def test_cpp_resolver_resolve_external_not_found_yields_nothing():
     assert cpp_resolver.resolve("src/main.cpp", imp, files) == []
 
 
+def test_cpp_resolver_resolve_absolute_spelling_yields_nothing():
+    # `#include "/util.h"` is a filesystem-absolute path the preprocessor
+    # opens from the filesystem root, never relative to the importer. Anchoring
+    # it at the importer's directory would fabricate src/util.h here.
+    imp = RawImport(module="/util.h", level=0, names=(), function_local=False)
+    files = {"src/util.h", "util.h"}
+    assert cpp_resolver.resolve("src/main.cpp", imp, files) == []
+
+
+def test_cpp_resolver_resolve_trailing_slash_spelling_yields_nothing():
+    # `#include "util.h/"` names a directory path; POSIX open() of it as a
+    # regular file fails (ENOTDIR), so the preprocessor never finds a header.
+    # Collapsing the trailing slash to match src/util.h would fabricate an
+    # edge in exactly the guessed-edge class this resolver eliminates.
+    imp = RawImport(module="util.h/", level=0, names=(), function_local=False)
+    files = {"src/util.h"}
+    assert cpp_resolver.resolve("src/main.cpp", imp, files) == []
+
+
 # ---------- orchestrator integration (real tree-sitter, committed fixture) ----------
 
 _FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "repo_map" / "cpp_project"
 
-# repo-relative path -> language the scanner WOULD stamp once the extension map
-# is extended; supplied directly here so the orchestrator dispatches the resolver.
+# repo-relative path -> language the scanner stamps (see the activation tests
+# in tests/test_repo_map_scan_activation.py for the same fixture through
+# scan_repo itself); supplied directly here so this layer stays a focused
+# orchestrator test.
 _FIXTURE_FILES = {
     "src/main.cpp": "cpp",
     "src/util.h": "cpp",
     "src/config.h": "cpp",
     "src/dropme.h": "cpp",
     "src/helpers/format.h": "cpp",
+    "src/view.hh": "cpp",
     "include/core.h": "cpp",
     "clib/lib.c": "c",
     "clib/lib.h": "cpp",
@@ -208,26 +251,32 @@ def _fixture_nodes() -> list[RepoMapNode]:
 
 
 @_needs_ts
-def test_cpp_resolver_orchestrator_emits_quoted_include_edges():
+def test_cpp_resolver_orchestrator_emits_exactly_the_corrected_edges():
     edges = infer_imports_edges(_fixture_nodes(), _FIXTURE_ROOT)
     pairs = {(e.source, e.target) for e in edges}
 
-    # quoted include resolved relative to the including file
-    assert ("file:src/main.cpp", "file:src/util.h") in pairs
-    assert ("file:src/main.cpp", "file:src/helpers/format.h") in pairs
-    # extensionless quoted include resolved via header-extension probing
-    assert ("file:src/main.cpp", "file:src/config.h") in pairs
-    # quoted include resolved via the include/ root (not next to the importer)
-    assert ("file:src/main.cpp", "file:include/core.h") in pairs
-    # the `c`-language registration resolves a quoted include too
-    assert ("file:clib/lib.c", "file:clib/lib.h") in pairs
+    assert pairs == {
+        # quoted includes resolved relative to the including file
+        ("file:src/main.cpp", "file:src/util.h"),
+        ("file:src/main.cpp", "file:src/helpers/format.h"),
+        # a header (.hh) is itself an import producer
+        ("file:src/view.hh", "file:src/util.h"),
+        # the `c`-language registration resolves a quoted include too
+        ("file:clib/lib.c", "file:clib/lib.h"),
+    }
+    # The exact set doubles as the #359 true negatives: main.cpp's
+    # `#include "config"` matches no file (src/config.h exists but is never
+    # probed), `#include "core.h"` matches no file (include/core.h exists but
+    # conventional roots are never guessed), and `#include <dropme.h>` is an
+    # angle-bracket include (src/dropme.h exists but no edge is emitted).
 
 
 @_needs_ts
 def test_cpp_resolver_orchestrator_drops_angle_bracket_system_include():
-    # main.cpp does `#include <dropme.h>` AND src/dropme.h exists; the angle
-    # bracket means "system header", so NO edge to it (discriminating: a quoted
-    # include of the same path would resolve relative).
+    # main.cpp does `#include <dropme.h>` AND src/dropme.h exists; without
+    # proven include roots (#484) the angle-bracket include must under-edge
+    # (discriminating: a quoted include of the same path would resolve
+    # relative).
     edges = infer_imports_edges(_fixture_nodes(), _FIXTURE_ROOT)
     pairs = {(e.source, e.target) for e in edges}
     assert ("file:src/main.cpp", "file:src/dropme.h") not in pairs

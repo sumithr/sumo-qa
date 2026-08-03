@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from sumo_qa.repo_map_resolvers import get_resolver, registered_languages
-from sumo_qa.repo_map_resolvers.base import RawImport
+from sumo_qa.repo_map_resolvers.base import RawImport, ScanContext
 from sumo_qa.repo_map_resolvers.rust import RustResolver
 from sumo_qa.repo_map_scanner import scan_repo
 from sumo_qa.repo_map_treesitter import TREESITTER_AVAILABLE
@@ -663,3 +663,351 @@ def test_rust_resolver_scan_emits_import_edges_on_committed_fixture():
     node_ids = {n.id for n in repo_map.nodes}
     for src, tgt in pairs:
         assert src in node_ids and tgt in node_ids
+
+
+# ---------- scan-local crate context (#484 Rust slice): bare current-scope, ----------
+# ---------- cross-file inline modules, and provable crate membership ----------
+
+
+_CONTEXT_CRATE = Path(__file__).resolve().parent / "fixtures" / "repo_map" / "rust_context_crate"
+
+
+def _bare(module: str, names: tuple[str, ...] = ()) -> RawImport:
+    """A bare current-scope use path (level 2), as the extractor emits it."""
+    return RawImport(module=module, level=2, names=names, function_local=False)
+
+
+def _write_tree(root: Path, files: dict[str, str]) -> None:
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+def _prepared_resolver(root: Path, files: dict[str, str]) -> RustResolver:
+    """Write ``files`` under ``root`` and prepare a scan-local resolver on them."""
+    _write_tree(root, files)
+    context = ScanContext(root=root, files=frozenset(files))
+    return resolver.prepare(context)
+
+
+_CARGO_2021 = '[package]\nname = "x"\nedition = "2021"\n'
+
+
+# ---- extract: bare heads are classified by the current scope's declarations ----
+
+
+@_needs_ts
+def test_rust_resolver_extract_bare_use_with_local_mod_declaration_is_current_scope():
+    # `mod foo;` makes `foo` a module of the file's own scope, so the bare use
+    # is a provable current-scope path: rewritten self-anchored, marked level 2.
+    raws = resolver.extract(b"mod foo;\nuse foo::Bar;\n")
+    (use_raw,) = [r for r in raws if r.level != 1]
+    assert use_raw.module == "self::foo::Bar"
+    assert use_raw.level == 2
+
+
+@_needs_ts
+def test_rust_resolver_extract_bare_use_before_its_mod_declaration_still_counts():
+    # Declaration order in the file is irrelevant to Rust name resolution.
+    raws = resolver.extract(b"use foo::Bar;\nmod foo;\n")
+    (use_raw,) = [r for r in raws if r.level != 1]
+    assert use_raw.module == "self::foo::Bar"
+    assert use_raw.level == 2
+
+
+@_needs_ts
+def test_rust_resolver_extract_undeclared_bare_use_stays_external():
+    (raw,) = resolver.extract(b"use foo::Bar;\n")
+    assert raw.module == "foo::Bar"
+    assert raw.level == 0  # not provable: resolve keeps dropping it as external
+
+
+@_needs_ts
+def test_rust_resolver_extract_bare_use_inside_inline_module_uses_that_scope():
+    # The current scope of a use inside `mod tests { ... }` is the inline
+    # module, so the declaration must be in THAT frame, and the rewritten path
+    # is anchored through it.
+    raws = resolver.extract(b"mod tests {\n    mod helper;\n    use helper::X;\n}\n")
+    (use_raw,) = [r for r in raws if r.level != 1]
+    assert use_raw.module == "self::tests::helper::X"
+    assert use_raw.level == 2
+
+
+@_needs_ts
+def test_rust_resolver_extract_file_level_declaration_is_not_in_inline_scope():
+    # `mod foo;` at file level is NOT in scope inside `mod tests { ... }` —
+    # Rust child modules do not inherit the parent's items.
+    raws = resolver.extract(b"mod foo;\nmod tests {\n    use foo::X;\n}\n")
+    (use_raw,) = [r for r in raws if r.level != 1]
+    assert use_raw.module == "foo::X"
+    assert use_raw.level == 0
+
+
+@_needs_ts
+def test_rust_resolver_extract_function_local_mod_is_not_a_file_scope_declaration():
+    raws = resolver.extract(b"fn f() {\n    mod helper;\n}\nuse helper::X;\n")
+    (use_raw,) = [r for r in raws if r.level != 1]
+    assert use_raw.module == "helper::X"
+    assert use_raw.level == 0
+
+
+@_needs_ts
+def test_rust_resolver_extract_inline_module_declaration_supports_bare_use():
+    # An inline `mod cfg { ... }` also puts `cfg` in the current scope.
+    raws = resolver.extract(b"mod cfg {}\nuse cfg::V;\n")
+    (use_raw,) = raws
+    assert use_raw.module == "self::cfg::V"
+    assert use_raw.level == 2
+
+
+@_needs_ts
+def test_rust_resolver_extract_bare_group_head_with_declaration_is_current_scope():
+    raws = resolver.extract(b"mod g;\nuse g::{a, b};\n")
+    (use_raw,) = [r for r in raws if r.level != 1]
+    assert use_raw.module == "self::g"
+    assert set(use_raw.names) == {"a", "b"}
+    assert use_raw.level == 2
+
+
+# ---- resolve: bare paths need prepared context AND a uniform-paths edition ----
+
+
+def test_rust_resolver_unprepared_resolver_drops_bare_current_scope_paths():
+    # The registered path-only singleton has no repository context, so a bare
+    # path stays unresolved even when the candidate files exist.
+    files = {"Cargo.toml", "src/main.rs", "src/foo.rs", "src/foo/sub.rs"}
+    assert resolver.resolve("src/main.rs", _bare("self::foo::sub::Item"), files) == []
+
+
+@_needs_ts
+def test_rust_resolver_prepared_resolves_bare_current_scope_path(tmp_path: Path):
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "Cargo.toml": _CARGO_2021,
+            "src/main.rs": "mod foo;\nuse foo::sub::Item;\nfn main() {}\n",
+            "src/foo.rs": "pub mod sub;\n",
+            "src/foo/sub.rs": "pub struct Item;\n",
+        },
+    )
+    files = {"Cargo.toml", "src/main.rs", "src/foo.rs", "src/foo/sub.rs"}
+    assert prepared.resolve("src/main.rs", _bare("self::foo::sub::Item"), files) == [
+        "src/foo/sub.rs"
+    ]
+
+
+@_needs_ts
+def test_rust_resolver_prepared_2015_edition_keeps_bare_paths_external(tmp_path: Path):
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "Cargo.toml": '[package]\nname = "x"\nedition = "2015"\n',
+            "src/main.rs": "mod foo;\nuse foo::sub::Item;\nfn main() {}\n",
+            "src/foo.rs": "pub mod sub;\n",
+            "src/foo/sub.rs": "pub struct Item;\n",
+        },
+    )
+    files = {"Cargo.toml", "src/main.rs", "src/foo.rs", "src/foo/sub.rs"}
+    assert prepared.resolve("src/main.rs", _bare("self::foo::sub::Item"), files) == []
+
+
+@_needs_ts
+def test_rust_resolver_prepared_without_manifest_keeps_bare_paths_external(tmp_path: Path):
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "src/main.rs": "mod foo;\nuse foo::sub::Item;\nfn main() {}\n",
+            "src/foo.rs": "pub mod sub;\n",
+            "src/foo/sub.rs": "pub struct Item;\n",
+        },
+    )
+    files = {"src/main.rs", "src/foo.rs", "src/foo/sub.rs"}
+    assert prepared.resolve("src/main.rs", _bare("self::foo::sub::Item"), files) == []
+
+
+# ---- resolve: cross-file inline modules through the prepared declaration index ----
+
+
+@_needs_ts
+def test_rust_resolver_prepared_resolves_cross_file_inline_module(tmp_path: Path):
+    # `crate::cfg::Item` names a module that exists only INLINE inside lib.rs,
+    # so the prepared declaration index maps the path to the hosting file.
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "src/lib.rs": "pub mod cfg {\n    pub struct Item;\n}\n",
+            "src/consumer.rs": "use crate::cfg::Item;\n",
+        },
+    )
+    files = {"src/lib.rs", "src/consumer.rs"}
+    assert prepared.resolve("src/consumer.rs", _use("crate::cfg::Item"), files) == ["src/lib.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_prepared_resolves_nested_inline_module(tmp_path: Path):
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "src/lib.rs": "pub mod outer {\n    pub mod inner {\n        pub struct T;\n    }\n}\n",
+            "src/consumer.rs": "use crate::outer::inner::T;\n",
+        },
+    )
+    files = {"src/lib.rs", "src/consumer.rs"}
+    assert prepared.resolve("src/consumer.rs", _use("crate::outer::inner::T"), files) == [
+        "src/lib.rs"
+    ]
+
+
+@_needs_ts
+def test_rust_resolver_unprepared_cannot_see_cross_file_inline_modules():
+    files = {"src/lib.rs", "src/consumer.rs"}
+    assert resolver.resolve("src/consumer.rs", _use("crate::cfg::Item"), files) == []
+
+
+# ---- resolve: crate membership disambiguates mixed lib+bin root modules ----
+
+
+@_needs_ts
+def test_rust_resolver_prepared_membership_anchors_crate_at_the_owning_bin_root(tmp_path: Path):
+    # src/util.rs is declared ONLY by main.rs, so its `crate::Item` provably
+    # names the BINARY crate root — the path-only lib.rs default would be a
+    # wrong high-confidence edge here.
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "Cargo.toml": _CARGO_2021,
+            "src/lib.rs": "mod libmod;\n",
+            "src/libmod.rs": "pub struct L;\n",
+            "src/main.rs": "mod util;\nfn main() {}\n",
+            "src/util.rs": "use crate::Item;\n",
+        },
+    )
+    files = {"Cargo.toml", "src/lib.rs", "src/libmod.rs", "src/main.rs", "src/util.rs"}
+    assert prepared.resolve("src/util.rs", _use("crate::Item"), files) == ["src/main.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_prepared_membership_anchors_crate_at_the_owning_lib_root(tmp_path: Path):
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "Cargo.toml": _CARGO_2021,
+            "src/lib.rs": "mod util;\n",
+            "src/util.rs": "use crate::Item;\n",
+            "src/main.rs": "fn main() {}\n",
+        },
+    )
+    files = {"Cargo.toml", "src/lib.rs", "src/util.rs", "src/main.rs"}
+    assert prepared.resolve("src/util.rs", _use("crate::Item"), files) == ["src/lib.rs"]
+
+
+@_needs_ts
+def test_rust_resolver_prepared_ambiguous_membership_emits_no_root_edge(tmp_path: Path):
+    # Declared by BOTH roots: membership cannot be proven, so no root-module
+    # candidate is offered at all — under-edge instead of guessing.
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "Cargo.toml": _CARGO_2021,
+            "src/lib.rs": "mod shared;\n",
+            "src/main.rs": "mod shared;\nfn main() {}\n",
+            "src/shared.rs": "use crate::Item;\n",
+        },
+    )
+    files = {"Cargo.toml", "src/lib.rs", "src/main.rs", "src/shared.rs"}
+    assert prepared.resolve("src/shared.rs", _use("crate::Item"), files) == []
+
+
+@_needs_ts
+def test_rust_resolver_prepared_unreachable_module_emits_no_root_edge_in_lib_bin(tmp_path: Path):
+    # Reachable from NEITHER root: membership is unknown, so the two-root
+    # ambiguity again resolves to no candidate rather than the lib default.
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "Cargo.toml": _CARGO_2021,
+            "src/lib.rs": "pub struct L;\n",
+            "src/main.rs": "fn main() {}\n",
+            "src/orphan.rs": "use crate::Item;\n",
+        },
+    )
+    files = {"Cargo.toml", "src/lib.rs", "src/main.rs", "src/orphan.rs"}
+    assert prepared.resolve("src/orphan.rs", _use("crate::Item"), files) == []
+
+
+@_needs_ts
+def test_rust_resolver_prepared_single_root_keeps_path_only_behavior(tmp_path: Path):
+    # With only ONE crate root there is no membership ambiguity: the prepared
+    # resolver keeps the existing path-only result even for unreachable files.
+    prepared = _prepared_resolver(
+        tmp_path,
+        {
+            "Cargo.toml": _CARGO_2021,
+            "src/main.rs": "fn main() {}\n",
+            "src/orphan.rs": "use crate::Item;\n",
+        },
+    )
+    files = {"Cargo.toml", "src/main.rs", "src/orphan.rs"}
+    assert prepared.resolve("src/orphan.rs", _use("crate::Item"), files) == ["src/main.rs"]
+
+
+# ---- scan_repo integration on the committed context fixture ----
+
+
+@_needs_ts
+def test_rust_resolver_scan_resolves_context_dependent_edges_on_committed_fixture():
+    # End-to-end on the committed lib+bin crate (edition 2021): provable bare
+    # current-scope paths, a cross-file inline module, and provable crate
+    # membership all resolve; ambiguous membership and undeclared bare heads
+    # emit nothing.
+    repo_map = scan_repo(_CONTEXT_CRATE, generator_version="t")
+    import_edges = {(e.source, e.target): e for e in repo_map.edges if e.type == "imports"}
+    pairs = set(import_edges)
+    assert pairs == {
+        ("file:src/lib.rs", "file:src/libmod.rs"),  # mod libmod;
+        ("file:src/lib.rs", "file:src/shared.rs"),  # mod shared;
+        ("file:src/main.rs", "file:src/binmod.rs"),  # mod binmod;
+        ("file:src/main.rs", "file:src/shared.rs"),  # mod shared;
+        # use crate::inlined::Cfg (cross-file inline) + use crate::Item
+        # (sole-owner: the library declares libmod) both land on lib.rs.
+        ("file:src/libmod.rs", "file:src/lib.rs"),
+        ("file:src/binmod.rs", "file:src/binmod/helper.rs"),  # mod helper;
+        # use crate::Item from binmod.rs: sole owner is the BINARY root —
+        # the old lib.rs fallback would have been a wrong high edge.
+        ("file:src/binmod.rs", "file:src/main.rs"),
+        # use helper::deep::Feature: bare current-scope resolution.
+        ("file:src/binmod.rs", "file:src/binmod/helper/deep.rs"),
+        ("file:src/binmod/helper.rs", "file:src/binmod/helper/deep.rs"),  # pub mod deep;
+        # examples/demo.rs is its own target root: mod exhelper; + bare use.
+        ("file:examples/demo.rs", "file:examples/exhelper.rs"),
+    }
+    assert all(e.confidence == "high" for e in import_edges.values())
+    # True negatives: ambiguous membership (shared.rs is declared by BOTH
+    # roots) and the undeclared bare head emit no edge at all.
+    assert not [pair for pair in pairs if pair[0] == "file:src/shared.rs"]
+    assert not [pair for pair in pairs if pair[1] == "file:src/extern_dep.rs"]
+    # No dangling or self edges: every endpoint is a real node, no loops.
+    node_ids = {n.id for n in repo_map.nodes}
+    for src, tgt in pairs:
+        assert src in node_ids and tgt in node_ids
+        assert src != tgt
+
+
+@_needs_ts
+def test_rust_resolver_prepare_tolerates_unreadable_sources(tmp_path: Path):
+    files = {
+        "Cargo.toml": _CARGO_2021,
+        "src/main.rs": "mod foo;\nuse foo::sub::Item;\nfn main() {}\n",
+        "src/foo.rs": "pub mod sub;\n",
+        "src/foo/sub.rs": "pub struct Item;\n",
+    }
+    _write_tree(tmp_path, files)
+    # `ghost.rs` is in the scanned file set but unreadable on disk: preparation
+    # must skip it rather than abort, and the readable context still works.
+    context = ScanContext(root=tmp_path, files=frozenset(files) | {"src/ghost.rs"})
+    prepared = resolver.prepare(context)
+    file_set = set(files) | {"src/ghost.rs"}
+    assert prepared.resolve("src/main.rs", _bare("self::foo::sub::Item"), file_set) == [
+        "src/foo/sub.rs"
+    ]

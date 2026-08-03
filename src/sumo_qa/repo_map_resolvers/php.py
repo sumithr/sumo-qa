@@ -31,26 +31,30 @@ Two import kinds are recognised, distinguished by :attr:`RawImport.level`
   resolves OUTSIDE the repo, so it yields nothing too (a ``__DIR__``-anchored
   leading-``/`` path is importer-relative and IS resolved).
 
-Where these edges come from (NOT scan time today): a real ``scan_repo`` emits
-ZERO ``.php`` edges of any kind. The foundation scanner does not map ``.php``
-files (``repo_map_scanner._LANGUAGE_BY_EXT`` and ``_PROGRAMMING_LANGS`` both omit
-``.php`` / ``php``), so no ``php`` node ever reaches the import-edge layer during
-a scan. This resolver instead produces edges at the
-:func:`~sumo_qa.repo_map_imports.infer_imports_edges` orchestrator layer, given
-``php`` nodes supplied directly (see the orchestrator tests). No ``.php`` edge
-(relative ``require`` / ``include`` OR PSR-4 ``use``) resolves at scan time.
+Scan-time status: the scanner maps ``.php`` -> ``php`` (#483), so ``php``
+nodes reach the import-edge layer during a real ``scan_repo``. Relative
+``require`` / ``include`` edges resolve with NO Composer context, and since
+#484 PSR-4 ``use`` edges resolve too, through the scan-local preparation pass
+below (both pinned in ``tests/test_repo_map_scan_activation.py``).
 
 The :class:`~sumo_qa.repo_map_resolvers.base.Resolver` ``resolve`` contract
 passes only the importer path + ``file_set`` (no repo root, file contents, or
-``composer.json``), so the PSR-4 namespace roots are injected at construction
-(:meth:`PhpResolver.from_composer`) rather than read mid-scan; the
-self-registered DEFAULT resolver carries no PSR-4 roots. Full scan-time
-activation therefore requires TWO foundation changes, both out of this slice:
-(1) the scanner must stamp ``.php`` -> ``php`` (add ``.php`` to
-``_LANGUAGE_BY_EXT`` and ``php`` to ``_PROGRAMMING_LANGS``) so ``php`` nodes
-exist at all, AND (2) the composer autoload roots must be threaded through the
-scan so PSR-4 ``use`` edges (not just relative ``require`` / ``include`` edges)
-resolve.
+``composer.json``), so the PSR-4 namespace roots cannot be read inside
+``resolve``. They are supplied one of two ways: injected at construction
+(:meth:`PhpResolver.from_composer`) for a directly-wired resolver, or — during
+a real scan — derived per package by :meth:`PhpResolver.prepare`, which reads
+each ``composer.json`` from the scan's :class:`ScanContext` and returns a
+scan-local resolver carrying a :class:`_ComposerIndex`. The self-registered
+DEFAULT singleton carries neither and is never mutated with repository data;
+each scan gets its own prepared instance (#484).
+
+**Scan-local Composer context (#484).** :meth:`prepare` selects, per importer,
+the NEAREST ``composer.json`` and resolves its PSR-4 roots relative to that
+manifest's OWN directory, so one package's autoload map never resolves an
+import written in a sibling package. A missing manifest is the normal
+path-only fallback; an unreadable or unusable one degrades the same way plus
+one deterministic ``other`` warning and still shadows any outer composer, and
+the scan is never aborted.
 
 Known limitations (safe: each yields NO edge rather than a wrong one):
 
@@ -63,10 +67,18 @@ Known limitations (safe: each yields NO edge rather than a wrong one):
 
 from __future__ import annotations
 
+import json
 import posixpath
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
-from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, register
+from sumo_qa.repo_map_resolvers.base import (
+    LanguageConfig,
+    RawImport,
+    ScanContext,
+    is_out_of_repo_specifier,
+    register,
+)
 from sumo_qa.repo_map_treesitter import TSNode, parse
 
 PHP_CONFIG = LanguageConfig(
@@ -105,6 +117,55 @@ _FUNCTION_KINDS = frozenset(
 _LEVEL_USE = 0  # namespace `use` import; module is the FQN
 _LEVEL_REQUIRE = 1  # filesystem require/include import; module is the path literal
 
+# Composer manifest handling for the scan-local PSR-4 roots (#484).
+_COMPOSER_MANIFEST = "composer.json"
+_MALFORMED_COMPOSER_MESSAGE = (
+    "unusable composer.json ignored by the php import resolver; "
+    "PSR-4 use imports under it fall back to path-only resolution"
+)
+_UNREADABLE_COMPOSER_MESSAGE = (
+    "unreadable composer.json ignored by the php import resolver; "
+    "PSR-4 use imports under it fall back to path-only resolution"
+)
+
+# The normalised PSR-4 shape shared across the resolver and its scan-local
+# index: ``((prefix, (base-dir, …)), …)`` sorted longest-prefix-first.
+_Psr4Roots = tuple[tuple[str, tuple[str, ...]], ...]
+
+
+@dataclass(frozen=True)
+class _ComposerIndex:
+    """Scan-local Composer PSR-4 context for one repository scan (#484).
+
+    Built by :meth:`PhpResolver.prepare` from the scan's bounded ``composer.json``
+    reads, carried only by the scan-local resolver instance, and discarded with
+    the scan — never attached to the registered singleton.
+
+    ``roots_by_dir`` maps each directory holding a ``composer.json`` to that
+    package's PSR-4 ``(prefix, base-dirs)`` pairs (longest-prefix-first), with
+    every base dir anchored to the composer's OWN directory so a package's roots
+    resolve under that package, not the repo root. An unusable manifest is
+    registered with EMPTY roots so it still shadows an outer composer (its
+    package degrades to path-only rather than borrowing an ancestor's map).
+    """
+
+    roots_by_dir: Mapping[str, _Psr4Roots]
+
+    def roots_for(self, importer: str) -> _Psr4Roots:
+        """The PSR-4 roots of ``importer``'s NEAREST ``composer.json``.
+
+        Walks the importer's ancestor directories deepest-first and returns the
+        first that holds a ``composer.json``; ``()`` when none does (the normal
+        path-only fallback for a file no Composer package governs). The nearest
+        package wins, so sibling packages never share roots.
+        """
+        parts = importer.split("/")[:-1]
+        for i in range(len(parts), -1, -1):
+            roots = self.roots_by_dir.get("/".join(parts[:i]))
+            if roots is not None:
+                return roots
+        return ()
+
 
 class PhpResolver:
     """Approach-C resolver for PHP (ported from Understand-Anything).
@@ -112,13 +173,21 @@ class PhpResolver:
     PSR-4 autoload roots (namespace prefix → base dir) are supplied at
     construction; the module-default registered resolver carries none (see the
     scan-time caveat in the module docstring). Build one from a parsed
-    ``composer.json`` with :meth:`from_composer`.
+    ``composer.json`` with :meth:`from_composer`. A scan-local instance carries
+    a per-scan :class:`_ComposerIndex` (see :meth:`prepare`) so PSR-4 resolution
+    follows each importer's nearest composer; ``index`` is ``None`` for the
+    registered path-only singleton.
     """
 
     config = PHP_CONFIG
 
-    def __init__(self, psr4: Mapping[str, str | Sequence[str]] | None = None) -> None:
+    def __init__(
+        self,
+        psr4: Mapping[str, str | Sequence[str]] | None = None,
+        index: _ComposerIndex | None = None,
+    ) -> None:
         self._psr4 = _normalise_psr4(psr4 or {})
+        self._index = index
 
     @classmethod
     def from_composer(cls, composer: Mapping[str, object]) -> PhpResolver:
@@ -281,7 +350,19 @@ class PhpResolver:
         """
         if imp.level == _LEVEL_REQUIRE:
             return self._resolve_require(importer, imp.module, file_set)
-        return self._resolve_psr4(imp.module, file_set)
+        return self._resolve_psr4(self._psr4_for(importer), imp.module, file_set)
+
+    def _psr4_for(self, importer: str) -> _Psr4Roots:
+        """The PSR-4 roots governing ``importer``.
+
+        With scan-local context (:meth:`prepare`) this is the importer's NEAREST
+        ``composer.json``'s directory-anchored roots, so a sibling package's map
+        never applies. Without it (the registered singleton or a
+        directly-constructed resolver) the roots injected at construction are
+        used unchanged (#479)."""
+        if self._index is None:
+            return self._psr4
+        return self._index.roots_for(importer)
 
     @staticmethod
     def _resolve_require(importer: str, raw: str, file_set: set[str]) -> list[str]:
@@ -292,23 +373,26 @@ class PhpResolver:
         candidate = posixpath.normpath(posixpath.join(importer_dir, raw.lstrip("/")))
         return [candidate] if candidate in file_set else []
 
-    def _resolve_psr4(self, fqn: str, file_set: set[str]) -> list[str]:
-        """Resolve a fully-qualified name via the PSR-4 autoload roots.
+    def _resolve_psr4(self, roots: _Psr4Roots, fqn: str, file_set: set[str]) -> list[str]:
+        """Resolve a fully-qualified name via the supplied PSR-4 autoload roots.
 
-        Roots are tried longest-prefix-first (``self._psr4`` is pre-sorted), so
-        the most specific namespace wins. The matched prefix is replaced by its
-        base directory and the namespace tail becomes a ``.php`` path. The
-        LONGEST matching prefix is definitive (strict PSR-4): the first of its
-        base dirs whose candidate exists is returned, and if none exists the
-        lookup STOPS rather than falling back to a shorter matching prefix. A
-        PSR-4 autoloader never falls back that way, so falling through to a
-        shorter prefix could emit an autoloader-incorrect edge. The empty
-        root-namespace prefix (``""``, composer's ``{"": "src/"}``) matches any
-        FQN and maps its full namespace path under the base dir
-        (``Acme\\Widget`` -> ``src/Acme/Widget.php``); sorted last, it only
-        catches FQNs no more specific prefix claimed. No matching prefix
-        (vendor / external) returns ``[]``."""
-        for prefix, dirs in self._psr4:
+        ``roots`` are the roots governing the importer (see :meth:`_psr4_for`):
+        the injected ones for a directly-wired resolver, or the importer's
+        nearest composer's directory-anchored roots during a real scan. They are
+        tried longest-prefix-first (pre-sorted), so the most specific namespace
+        wins. The matched prefix is replaced by its base directory and the
+        namespace tail becomes a ``.php`` path. The LONGEST matching prefix is
+        definitive (strict PSR-4): the first of its base dirs whose candidate
+        exists is returned, and if none exists the lookup STOPS rather than
+        falling back to a shorter matching prefix. A PSR-4 autoloader never falls
+        back that way, so falling through to a shorter prefix could emit an
+        autoloader-incorrect edge. The empty root-namespace prefix (``""``,
+        composer's ``{"": "src/"}``) matches any FQN and maps its full namespace
+        path under the base dir (``Acme\\Widget`` -> ``src/Acme/Widget.php``);
+        sorted last, it only catches FQNs no more specific prefix claimed. No
+        matching prefix (vendor / external), or empty ``roots`` (no governing
+        composer), returns ``[]``."""
+        for prefix, dirs in roots:
             if fqn.startswith(prefix):
                 relative = fqn[len(prefix) :].replace("\\", "/") + ".php"
                 for base in dirs:
@@ -317,6 +401,79 @@ class PhpResolver:
                         return [candidate]
                 return []  # longest matching prefix is definitive; no shorter-prefix fallback
         return []
+
+    # ---------- scan-local preparation (#484 foundation, PHP slice) ----------
+
+    def prepare(self, context: ScanContext) -> PhpResolver:
+        """Derive a scan-local resolver carrying Composer PSR-4 context (#484).
+
+        Reads every ``composer.json`` in the scan through the context's bounded,
+        memoized reads and returns a NEW resolver instance whose PSR-4
+        resolution is driven per package by each manifest's autoload roots
+        (production/dev precedence from #479's :meth:`from_composer`), anchored
+        to that composer's directory. The registered singleton is never mutated,
+        so scans share nothing. A missing manifest is the silent path-only
+        fallback; an unreadable or unusable one degrades the same way plus one
+        deterministic ``other`` warning and still shadows any outer composer —
+        the scan is never aborted. No tree-sitter is needed here (``composer.json``
+        is JSON), so preparation runs regardless of the extra; the orchestrator
+        still gates dispatch on tree-sitter availability.
+        """
+        roots_by_dir: dict[str, _Psr4Roots] = {}
+        manifests = sorted(
+            f
+            for f in context.files
+            if f == _COMPOSER_MANIFEST or f.endswith(f"/{_COMPOSER_MANIFEST}")
+        )
+        for manifest in manifests:
+            directory = manifest.rsplit("/", 1)[0] if "/" in manifest else ""
+            raw = context.read(manifest)
+            if raw is None:
+                context.warn_config(_UNREADABLE_COMPOSER_MESSAGE, manifest)
+                roots_by_dir[directory] = ()  # shadow the outer composer; path-only
+                continue
+            try:
+                composer = json.loads(raw.decode("utf-8"))
+            except (RecursionError, ValueError):
+                # ValueError covers a non-UTF-8 decode (UnicodeDecodeError) and
+                # malformed JSON (json.JSONDecodeError); RecursionError covers a
+                # pathologically-nested-but-valid manifest. All degrade the same
+                # way -- one deterministic warning, empty shadowing roots -- so
+                # an unusable composer.json never aborts the scan.
+                context.warn_config(_MALFORMED_COMPOSER_MESSAGE, manifest)
+                roots_by_dir[directory] = ()
+                continue
+            if not isinstance(composer, Mapping):
+                context.warn_config(_MALFORMED_COMPOSER_MESSAGE, manifest)
+                roots_by_dir[directory] = ()
+                continue
+            roots_by_dir[directory] = self._prefix_roots(
+                directory, PhpResolver.from_composer(composer)._psr4
+            )
+        return PhpResolver(index=_ComposerIndex(roots_by_dir=roots_by_dir))
+
+    @staticmethod
+    def _prefix_roots(directory: str, psr4: _Psr4Roots) -> _Psr4Roots:
+        """Anchor each PSR-4 base dir to the composer's ``directory``.
+
+        A composer at ``packages/a/composer.json`` declaring ``App\\`` -> ``src/``
+        autoloads ``packages/a/src/…``, so the base dir is joined onto the
+        composer's directory. The empty root-namespace prefix and a repo-root
+        base dir (``""``) are preserved; joining a component only when it is
+        non-empty leaves a root composer's roots unchanged.
+
+        Absolute base dirs (``/src``, ``C:\\src``, a bare drive ``C:``, or a bare
+        root ``/``) are already dropped by :func:`_normalise_psr4` BEFORE they
+        reach here (that guard runs on the RAW base, before ``_normalise_dir``
+        collapses a bare ``/`` to ``""``), so every base seen here is repo-relative
+        and safe to anchor. A relative base that climbs out of the package and back
+        in (``../shared``) is a legitimate sibling root and resolves in-repo via
+        ``posixpath.normpath`` at resolve time.
+        """
+        return tuple(
+            (prefix, tuple("/".join(p for p in (directory, base) if p) for base in bases))
+            for prefix, bases in psr4
+        )
 
 
 def _normalise_psr4(
@@ -333,12 +490,24 @@ def _normalise_psr4(
     :meth:`PhpResolver._resolve_psr4` pick the most specific namespace by
     scanning in order (the empty root-namespace prefix sorts last, so it only
     catches FQNs no more specific prefix claimed).
+
+    An ABSOLUTE base dir is dropped here, on the RAW value, before
+    :func:`_normalise_dir` runs: a leading ``/`` (including a bare root ``/``),
+    ``\\``, or a Windows drive ``C:`` names a filesystem path OUTSIDE the repo
+    (:func:`~sumo_qa.repo_map_resolvers.base.is_out_of_repo_specifier`). This must
+    happen BEFORE normalisation because ``_normalise_dir`` strips a trailing ``/``,
+    collapsing a bare root ``/`` to ``""`` (repo root) and hiding its absoluteness
+    — anchoring that into the composer's package dir would fabricate a phantom
+    in-repo edge (#563). A relative sibling base (``../shared``) is not absolute
+    and is kept.
     """
     normalised: list[tuple[str, tuple[str, ...]]] = []
     for prefix, value in psr4.items():
         full = prefix if not prefix or prefix.endswith("\\") else prefix + "\\"
         dirs = (value,) if isinstance(value, str) else tuple(value)
-        normalised.append((full, tuple(_normalise_dir(d) for d in dirs)))
+        normalised.append(
+            (full, tuple(_normalise_dir(d) for d in dirs if not is_out_of_repo_specifier(d)))
+        )
     normalised.sort(key=lambda item: len(item[0]), reverse=True)
     return tuple(normalised)
 

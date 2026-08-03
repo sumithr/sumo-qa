@@ -31,13 +31,18 @@
 # on the user's PATH (pyenv / multiple Pythons / system vs venv).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Pin matches `ruff>=0.5,<1` from pyproject.toml's dev extras. Update both
-    # together when bumping ruff.
-    rev: v0.13.0
+    # Keep in lockstep with the `ruff==` pin in pyproject.toml's dev extras.
+    rev: v0.16.1
     hooks:
       - id: ruff-check
         args: [--fix]
+      - id: ruff-check
+        alias: ruff-check-config
+        name: ruff check (ruff config files)
+        types_or: [toml]
+        files: ^(pyproject|ruff|\.ruff)\.toml$
       - id: ruff-format
+        types_or: [python, pyi, jupyter, markdown]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -75,6 +80,17 @@ repos:
     rev: v0.10.0.1
     hooks:
       - id: shellcheck
+      # The route-qa-runners prefilter is a cmd.exe/sh polyglot, so it has no
+      # shebang for the auto-detection above to find and would otherwise go
+      # unlinted. Checked explicitly as `sh`: its batch block sits inside a
+      # quoted heredoc, which shellcheck treats as data, so only the POSIX
+      # branch is analysed. Mirrored in .github/workflows/lint.yml.
+      - id: shellcheck
+        alias: shellcheck-polyglot-hooks
+        name: shellcheck (cmd/sh polyglot hooks)
+        args: [--shell=sh]
+        types: [file]
+        files: ^\.claude/hooks/route-qa-runners-prefilter\.cmd$
 
   - repo: local
     hooks:

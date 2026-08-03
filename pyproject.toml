@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.55.1"
+version = "0.60.4"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
@@ -38,7 +38,17 @@ dependencies = [
   # Loose pins so the package builds against whatever pre-built wheels are
   # available for the user's Python version. Tighten only when a specific
   # incompatibility is found.
-  "mcp>=1.12,<2",
+  # mcp < 1.28.1: GHSA-jpw9-pfvf-9f58, GHSA-hvrp-rf83-w775 (both >=1.27.2),
+  #   GHSA-vj7q-gjh5-988w (>=1.28.1). A security floor, not a feature floor:
+  #   a fresh resolve already picks a safe 1.x, but the constraint is what the
+  #   built wheel carries, so without the floor pip and Poetry stay free to
+  #   resolve a vulnerable version.
+  # The <2 cap is load-bearing: mcp 2.0.0 deletes mcp.server.fastmcp, which
+  #   build_mcp_server() is written against, so 2.x cannot import let alone
+  #   run. Lifting it is a migration (30 @mcp.tool sites, plus the
+  #   _tool_manager / fn_metadata internals that _slim_tool_schemas and
+  #   _drop_structured_output depend on), not a version bump.
+  "mcp>=1.28.1,<2",
   "pydantic>=2.8,<3",
   "PyYAML>=6,<7",
   # Security floors for transitive deps pulled by `mcp` (FastMCP). mcp 1.28.0
@@ -116,7 +126,16 @@ dev = [
   # bleach < 6.4.0: GHSA-gj48-438w-jh9v, GHSA-8rfp-98v4-mmr6, and
   #   GHSA-g75f-g53v-794x (the last affects exactly 6.3.0; 6.4.0 exits its range).
   "bleach>=6.4.0",
-  "ruff>=0.5,<1",
+  # EXACT pin, unlike the ranges around it. ruff is a formatter as well as a
+  # linter, and formatter output changes between pre-1.0 minors: 0.16.0 began
+  # formatting Python inside Markdown fences, which took `ruff format .` from
+  # 252 files to 332 and turned the required `ruff check + format` CI job red on
+  # a main nobody had touched. A range also cannot agree with the fixed `rev:`
+  # the ruff-pre-commit hook needs, so the open `>=0.5,<1` had CI, pre-commit
+  # and a synced venv all running different ruff versions at once. Bump this and
+  # `rev:` in .pre-commit-config.yaml together, in one commit, reformatting in
+  # the same change.
+  "ruff==0.16.1",
   # Static type checking — see [tool.mypy]. mypy is pure-Python (no Node
   # toolchain), matching the project's Python-only CI. types-PyYAML supplies
   # the stubs PyYAML doesn't ship inline. hatchling (the build backend) lets
@@ -146,7 +165,7 @@ vertex = [
 # `parse()`, property accessors, `type` not `kind()`), and the two APIs are
 # mutually exclusive — repo_map_treesitter targets the upstream shape (#491).
 treesitter = [
-  "tree-sitter>=0.25,<0.26",
+  "tree-sitter>=0.25,<0.27",
   "tree-sitter-language-pack>=1.12.5,<2",
 ]
 

@@ -38,6 +38,10 @@ JSON shape, agent named verbatim, never blocks).
 from __future__ import annotations
 
 import json
+import os
+import re
+import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -540,3 +544,274 @@ def test_fixtures_exist(fixture_name: str) -> None:
         f"missing real-capture fixture {fixture_name}; positive detection cannot "
         "be verified against invented output."
     )
+
+
+# --------------------------------------------------------------------------- #
+# prefilter wrapper — the per-Bash-call latency gate                           #
+# --------------------------------------------------------------------------- #
+
+PREFILTER = REPO_ROOT / ".claude" / "hooks" / "route-qa-runners-prefilter.cmd"
+SETTINGS = REPO_ROOT / ".claude" / "settings.json"
+
+# The prefilter is a polyglot (see the file, and hooks/run-hook.cmd for the same
+# trick): cmd.exe runs its batch block, POSIX sh skips that as a heredoc and runs
+# the shell body. The two branches do deliberately DIFFERENT things — POSIX gets
+# the token prefilter, Windows pipes straight to the Python hook — so each is
+# pinned by its own platform-gated test rather than one shared assertion. Both
+# platforms run in CI (the pytest matrix covers ubuntu, macos, and windows), so
+# neither branch rests on inference.
+_posix_only = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX branch of the polyglot prefilter; cmd.exe runs the batch branch instead",
+)
+_windows_only = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="batch branch of the polyglot prefilter; only cmd.exe executes it",
+)
+
+
+def _run_prefilter(payload: dict | str, script: Path | None = None) -> subprocess.CompletedProcess:
+    """Run the prefilter the way Claude Code does: as a shell command string.
+
+    Not `subprocess.run([path])`. The polyglot carries no shebang (line 1 must
+    be the batch-block heredoc for cmd.exe's sake), so exec'ing it directly
+    raises OSError [Errno 8] Exec format error; it is the shell's ENOEXEC
+    fallback that runs it as a script. Claude Code hook commands ARE shell
+    strings — `hooks/hooks.json` passes `run-hook.cmd` an argument, which only
+    parses in a shell — so shelling out here is the faithful harness, and
+    exec'ing directly would be testing something production never does.
+    """
+    return subprocess.run(
+        ["/bin/sh", "-c", shlex.quote(str(script or PREFILTER))],
+        input=payload if isinstance(payload, str) else json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+class TestPrefilterWrapper:
+    """The wrapper spares the Python interpreter start-up on Bash calls that
+    can never route (no mutmut/promptfoo/eval token anywhere in the payload).
+    When a token IS present it must be transparent: same behaviour as invoking
+    the Python hook directly. The token set must stay a SUPERSET of the Python
+    hook's command shapes; `npm run eval` is the case with no 'promptfoo' in
+    the command, which is why 'eval' is in the set.
+    """
+
+    @_posix_only
+    def test_irrelevant_command_is_silent_and_exits_zero(self) -> None:
+        result = _run_prefilter(_post_tool_use("git status", stdout="clean\n"))
+        assert result.returncode == 0, f"prefilter must exit 0; stderr={result.stderr!r}"
+        assert result.stdout.strip() == "", (
+            "prefilter emitted output for a command with no routing token."
+        )
+
+    @_posix_only
+    def test_token_free_payload_does_not_invoke_the_python_hook(self, tmp_path: Path) -> None:
+        """The reason this wrapper exists: no token, no Python process.
+
+        Every other test here is blind to that. Widen the `case` to `*)` and the
+        prefilter would hand every Bash call to the Python hook, which declines
+        `git status` and prints nothing — so the silence assertions above still
+        pass while the entire latency saving is gone. This test watches the
+        thing that actually regresses: run the real prefilter against a stand-in
+        for the Python hook that records each invocation, and require the
+        recording to happen ONLY for the payload carrying a token.
+        """
+        sandbox = tmp_path / "hooks"
+        sandbox.mkdir()
+        shutil.copy2(PREFILTER, sandbox / PREFILTER.name)
+        receipts = sandbox / "invocations.log"
+        stand_in = sandbox / "route-qa-runners.py"
+        stand_in.write_text(
+            f'#!/bin/sh\necho invoked >> "{receipts}"\n',
+            encoding="utf-8",
+        )
+        stand_in.chmod(0o755)
+
+        def invocations(command: str) -> int:
+            _run_prefilter(_post_tool_use(command, stdout="x"), script=sandbox / PREFILTER.name)
+            return (
+                len(receipts.read_text(encoding="utf-8").splitlines()) if receipts.exists() else 0
+            )
+
+        assert invocations("git status") == 0, (
+            "prefilter spawned the Python hook for a token-free command; the "
+            "per-Bash-call interpreter start-up this wrapper removes is back."
+        )
+        assert invocations("npm test") == 0, "prefilter spawned the Python hook for `npm test`."
+        assert invocations("uv run mutmut run") == 1, (
+            "prefilter failed to invoke the Python hook for a real routing command."
+        )
+
+    @_posix_only
+    def test_mutmut_survivors_route_through_wrapper(self) -> None:
+        out = _fixture("mutmut_survivors.stdout.txt")
+        result = _run_prefilter(_post_tool_use("uv run mutmut run", stdout=out, exit_code=0))
+        assert "mutation-survivor-triage" in _additional_context(result), (
+            "prefilter swallowed a real mutmut survivor route."
+        )
+
+    @_posix_only
+    def test_npm_run_eval_fail_routes_through_wrapper(self) -> None:
+        """Transparency on a REAL promptfoo FAIL capture.
+
+        Note this payload does NOT isolate the 'eval' token: real promptfoo
+        stdout prints its own name, so the wrapper would still match this one
+        via 'promptfoo' alone. `test_eval_token_alone_still_routes` is the test
+        that pins 'eval'.
+        """
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_prefilter(_post_tool_use("npm run eval", stdout=out, exit_code=100))
+        assert "eval-failure-diagnoser" in _additional_context(result), (
+            "prefilter swallowed the `npm run eval` promptfoo route."
+        )
+
+    @_posix_only
+    def test_eval_token_alone_still_routes(self) -> None:
+        """The strict superset guard for 'eval': a payload whose ONLY token is
+        the 'eval' in `npm run eval`.
+
+        `promptfoo eval` exits 100 on a failing case and the Python hook routes
+        on that exit code alone, with no stdout marker needed. So this is a real
+        routing case in which the words 'promptfoo' and 'mutmut' appear nowhere
+        in the payload — drop `*eval*` from the prefilter's token list and the
+        route is silently lost. The fixture-backed test above cannot catch that
+        regression, because real promptfoo stdout contains 'promptfoo'.
+        """
+        result = _run_prefilter(_post_tool_use("npm run eval", stdout="", exit_code=100))
+        assert "eval-failure-diagnoser" in _additional_context(result), (
+            "prefilter dropped a routing payload whose only token was 'eval'."
+        )
+
+    @_posix_only
+    def test_token_passthrough_still_defers_to_python_gate(self) -> None:
+        """A payload merely CONTAINING a token passes the prefilter, but the
+        Python command-shape gate must still reject it — the wrapper may only
+        remove work, never add routes.
+        """
+        out = _fixture("mutmut_survivors.stdout.txt")
+        result = _run_prefilter(_post_tool_use("cat mutmut.log", stdout=out, exit_code=0))
+        assert _additional_context(result) == ""
+
+    @_posix_only
+    def test_malformed_stdin_exits_zero(self) -> None:
+        result = _run_prefilter("not json at all {{{ mutmut")
+        assert result.returncode == 0, (
+            f"prefilter must swallow malformed stdin; stderr={result.stderr!r}"
+        )
+
+    @_windows_only
+    def test_windows_branch_routes_through_cmd(self) -> None:
+        """The Windows contributor's path, run for real on windows-latest.
+
+        cmd.exe executes the batch branch, which pipes straight to the Python
+        hook — no token prefilter, no Git Bash, exactly the behaviour
+        settings.json had before this wrapper existed. Asserting this on the
+        real interpreter is the whole reason the wrapper is a `.cmd`: the
+        Windows leg is proven by CI, not inferred from documentation.
+        """
+        out = _fixture("mutmut_survivors.stdout.txt")
+        result = subprocess.run(
+            ["cmd.exe", "/c", str(PREFILTER)],
+            input=json.dumps(_post_tool_use("uv run mutmut run", stdout=out, exit_code=0)),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert "mutation-survivor-triage" in _additional_context(result), (
+            "the batch branch did not route a real mutmut survivor payload; a "
+            f"Windows contributor loses the reminder. stderr={result.stderr!r}"
+        )
+
+    @_windows_only
+    def test_windows_branch_stays_silent_on_a_clean_run(self) -> None:
+        """The batch branch defers every routing decision to the Python hook,
+        so a clean mutmut run must produce no reminder there either.
+        """
+        out = _fixture("mutmut_clean.stdout.txt")
+        result = subprocess.run(
+            ["cmd.exe", "/c", str(PREFILTER)],
+            input=json.dumps(_post_tool_use("mutmut run", stdout=out, exit_code=0)),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert _additional_context(result) == "", (
+            f"batch branch routed a clean mutmut run; stdout={result.stdout!r}"
+        )
+
+    def test_wrapper_is_a_runnable_polyglot(self) -> None:
+        """Both interpreters must find their own entry point.
+
+        The `.cmd` extension is load-bearing (cmd.exe only executes batch files
+        by it, and Claude Code's Windows handling would prepend `bash` to a
+        `.sh` command and defeat the batch block), so a rename back to `.sh` has
+        to fail here rather than silently strand Windows.
+        """
+        assert PREFILTER.exists(), f"prefilter missing at {PREFILTER}"
+        assert PREFILTER.suffix == ".cmd", (
+            f"{PREFILTER.name} must keep the .cmd extension; cmd.exe will not "
+            "execute the batch branch otherwise."
+        )
+        if os.name != "nt":
+            assert os.access(PREFILTER, os.X_OK), (
+                f"{PREFILTER} is not executable; settings.json runs it as a bare command."
+            )
+        raw = PREFILTER.read_bytes()
+        assert b"\r\n" not in raw, (
+            f"{PREFILTER.name} has CRLF line endings. The POSIX branch dies on "
+            'them — `case "$payload" in\\r` is a syntax error — so the file is '
+            "pinned to LF in .gitattributes (`*.cmd text eol=lf`). cmd.exe reads "
+            "LF batch files fine; a CRLF checkout only ever breaks the sh side."
+        )
+        body = PREFILTER.read_text(encoding="utf-8")
+        # sh enters via the heredoc that hides the batch block from it.
+        assert body.startswith(": << 'CMDBLOCK'"), (
+            "POSIX branch unreachable: the batch block must be opened as a "
+            "quoted heredoc on line 1, or sh will try to run it."
+        )
+        assert "\nCMDBLOCK\n" in body, "heredoc never closed; the sh branch is dead code"
+        # cmd.exe enters via the batch block.
+        assert "@echo off" in body, "batch branch missing; Windows would echo every line"
+
+    def test_settings_wires_bash_hook_through_prefilter(self) -> None:
+        """Deployment contract: the Bash PostToolUse entry must invoke the
+        prefilter (which invokes the Python hook), not the Python hook directly
+        — otherwise every Bash call pays the interpreter start-up again.
+        """
+        settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        bash_commands = [
+            hook["command"]
+            for entry in settings["hooks"]["PostToolUse"]
+            if entry.get("matcher") == "Bash"
+            for hook in entry["hooks"]
+        ]
+        assert bash_commands, "no Bash PostToolUse hook configured"
+        assert all(cmd.endswith("route-qa-runners-prefilter.cmd") for cmd in bash_commands), (
+            f"Bash PostToolUse must route through the prefilter; got {bash_commands}"
+        )
+
+    def test_the_two_hooks_only_name_sibling_files_that_exist(self) -> None:
+        """Each hook's header points the reader at the other one by filename.
+
+        The prefilter has already been renamed twice (`.py` -> `.sh` -> `.cmd`)
+        and the Python hook's docstring was left pointing at the dead `.sh`
+        spelling. A stale name here sends a contributor looking for a file that
+        is not there, so every `route-qa-runners*` filename either hook mentions
+        has to resolve on disk.
+        """
+        pattern = re.compile(r"route-qa-runners[\w-]*\.(?:py|cmd|sh)")
+        for source, sibling in ((HOOK, PREFILTER), (PREFILTER, HOOK)):
+            named = set(pattern.findall(source.read_text(encoding="utf-8")))
+            # Naming itself would satisfy a bare non-empty check, so require the
+            # sibling by name: that is the pointer a contributor actually follows.
+            assert sibling.name in named, (
+                f"{source.name} no longer names {sibling.name}; the cross-reference was lost"
+            )
+            for name in sorted(named):
+                assert (source.parent / name).exists(), (
+                    f"{source.name} refers to {name}, which does not exist. "
+                    "Renaming a hook means updating the prose that names it."
+                )

@@ -107,10 +107,20 @@ class TSNode:
         )
 
     def descendants(self) -> Iterator[TSNode]:
-        """Pre-order walk over self and every descendant."""
-        yield self
-        for child in self.children:
-            yield from child.descendants()
+        """Pre-order walk over self and every descendant.
+
+        Iterative (an explicit stack, not recursion) so a pathologically deep
+        parse tree — e.g. a ``.cs`` file nesting ~1,500 ``namespace`` blocks —
+        does not overflow CPython's recursion limit and abort the scan; the walk
+        costs O(depth) heap instead of stack frames. Children are pushed
+        reversed so the leftmost is yielded first, preserving the pre-order,
+        source-order sequence the recursive form produced (#563).
+        """
+        stack = [self]
+        while stack:
+            node = stack.pop()
+            yield node
+            stack.extend(reversed(list(node.children)))
 
 
 def parse(language: str, src: bytes) -> TSNode:

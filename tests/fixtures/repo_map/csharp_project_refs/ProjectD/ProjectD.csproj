@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>ProjectD</RootNamespace>
+  </PropertyGroup>
+  <!-- ProjectD references nothing: the ProjectC -> ProjectD edge is
+       directional, so ProjectD's own `using ProjectC.App` must not resolve. -->
+</Project>

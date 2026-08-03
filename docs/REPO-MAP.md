@@ -166,39 +166,144 @@ What the slice-2 scanner produces:
   (no dangling edges, same discipline as `likely_tests`). `confidence` is
   `high` for a module-level or class-body import (tight coupling) and `medium`
   for a function-local / lazy import (deferred coupling); the strongest signal
-  per `(source, target)` is kept when a pair is seen more than once. The
-  **Python** reference resolver ships first (relative-import dot-anchoring,
-  PEP-328 implicit namespace packages, an absolute-import `sys.path` walk-up
-  that prefers the deepest source root, and specifier submodule probing;
-  wildcard `from x import *` and qualified specifiers are skipped). Other
-  languages are follow-on slices. A C# resolver (#362) is registered at the
-  resolver layer: each `using` fans out to the project files declaring that
-  namespace (package-level fan-out), with `System.*` and external assemblies
-  dropped. Its cross-file namespace index is not yet wired into the scan, so
-  `.cs` import edges await a foundation pass.
-  languages are follow-on slices. A **PHP** resolver also ships (PSR-4 `use`
-  mapping via the `composer.json` autoload roots, relative `require`/`include`
-  paths, vendor/external namespaces dropped), but it is **not yet wired into
-  `scan_repo`**: the scanner does not map `.php` files, so a scan emits no PHP
-  edges today. The resolver instead runs at the `infer_imports_edges`
-  orchestrator layer given `php` nodes supplied directly. Scan-time activation
-  needs two foundation changes: the scanner must stamp `.php` → `php`, AND the
-  composer autoload roots must be threaded through the scan.
-  wildcard `from x import *` and qualified specifiers are skipped). A **Java**
-  resolver also ships: it maps a fully-qualified `import a.b.C` to a source file
-  under any source root (e.g. `src/main/java/a/b/C.java`), fans a wildcard
-  `import a.b.*` out to every type in the package directory, resolves a static
-  import to its declaring type, and drops `java.*` / `javax.*` and other
-  external packages. Other languages are follow-on slices.
-  wildcard `from x import *` and qualified specifiers are skipped). A
-  **TypeScript/JavaScript** resolver follows, registered for both `.ts/.tsx`
-  and `.js/.jsx/.mjs/.cjs` files: relative-path resolution with extension
-  probing (`.ts/.tsx/.d.ts/.js/.jsx`, plus a `.js`→`.ts` source fallback) and
-  `index.*` barrels, with bare specifiers (`react`, `lodash`) treated as
-  external and dropped. It also implements `tsconfig.json` `paths`/`baseUrl`
-  alias resolution, which activates once a parsed `tsconfig` is supplied to the
-  resolver (threading the project's `tsconfig.json` through the orchestrator is
-  a follow-on slice). Other languages are follow-on slices too.
+  per `(source, target)` is kept when a pair is seen more than once.
+
+  A language's resolver capabilities activate in two distinct steps, and the
+  difference matters when reading a map:
+
+  - **Extension activated**: the scanner owns the language's file extensions,
+    so they classify as source/test nodes, stamp a language id that dispatches
+    to the registered resolver, and every resolution rule that needs only the
+    importing file's path works end to end through `scan_repo`. A contract
+    test (`tests/test_repo_map_resolver_scanner_contract.py`) pins every
+    resolver-declared extension to scanner ownership so the two metadata
+    surfaces cannot silently drift; explicitly ambiguous extensions live in
+    its one documented exception mapping (`.h` stamps `cpp` as the documented
+    ambiguous-header default while the shared include extractor serves both C
+    and C++, and a `.c` translation unit stays `c`).
+  - **Repository context activated**: resolution rules that need
+    per-repository configuration or cross-file indexes activate only when a
+    scan-local preparation pass derives that context from the repository
+    itself. The preparation foundation ships with the Rust,
+    TypeScript/JavaScript, PHP, and C# slices: each scan prepares a fresh,
+    scan-scoped resolver, never mutating the registered one, so sequential and
+    concurrent scans share nothing, and an unreadable or malformed config
+    degrades to path-only resolution with one deterministic `other` warning per
+    affected file. Languages whose context derivation has not landed yet (#484)
+    deliberately **under-edge**: no edge is emitted rather than a guessed one.
+
+  Every registered resolver is extension activated: **Python** (the reference
+  resolver: relative-import dot-anchoring, PEP-328 implicit namespace
+  packages, an absolute-import source-root walk-up, specifier submodule
+  probing; wildcard `from x import *` and qualified specifiers skipped),
+  **TypeScript/JavaScript** (relative-path resolution with extension probing
+  and `index.*` barrels; bare specifiers dropped as external), **Go**,
+  **Ruby**, **Java** (fully-qualified, wildcard, and static imports against
+  source roots; `java.*` / `javax.*` and other external packages dropped),
+  **Rust**, and, activated by #483:
+
+  - **C/C++** (#359): a quoted `#include "x"` resolves against the including
+    file's own directory by exact spelling (POSIX forward-slash spellings;
+    an MSVC-style backslash spelling never resolves). Header extensions are
+    never synthesized (`#include "config"` does not match `config.h`),
+    conventional `include/`/`src/` roots are never guessed, and angle-bracket,
+    macro, absolute/directory-spelled, and repo-root-escaping includes emit
+    no edge.
+  - **PHP**: a relative `require`/`include` (including `__DIR__`-anchored
+    forms) resolves at scan time with no Composer context; PSR-4 `use`
+    mapping is additionally repository context activated (see below).
+  - **C#**: `.cs` files classify, stamp `csharp`, and reach the registered
+    resolver. A `using` names a namespace, not a file, so its fan-out needs a
+    cross-file, per-project index (repository context activated below, #542).
+
+  **Rust** is additionally repository context activated (#358): each scan
+  derives scan-local crate context from the repository's own sources and
+  `Cargo.toml` editions, resolving provable bare current-scope imports
+  (`mod foo;` plus `use foo::Bar;` under an explicit 2018+ edition,
+  workspace-inherited editions included), cross-file inline-module
+  references, and mixed lib+bin root modules by walked crate membership.
+  Ambiguity under-edges: a shared module declared by both roots, an unknown
+  or 2015 edition, or an undeclared bare head emits no edge rather than a
+  guessed one.
+
+  **TypeScript/JavaScript** is additionally repository context activated
+  (#484): each scan derives a scan-local index of the repository's own
+  `tsconfig.json` files (keyed by their own directory) and resolves each
+  importer's non-relative specifiers against its NEAREST applicable config, so
+  `paths`/`baseUrl` aliases resolve to real files without flattening unrelated
+  workspaces' alias tables into one. A missing config is the silent path-only
+  fallback; an unreadable or malformed config degrades to path-only with one
+  deterministic `other` warning per affected file. An absolute import specifier,
+  or an absolute or repo-root-escaping `baseUrl` / `paths` target (including a
+  bare Windows drive `C:` with no trailing separator), emits no edge rather than
+  a phantom in-repo one (#563).
+
+  **PHP** is additionally repository context activated (#484): each scan
+  reads every `composer.json` and resolves PSR-4 `use` imports against the
+  autoload roots (production and dev, #479's precedence) of each importer's
+  NEAREST manifest, anchored to that manifest's own directory, so one
+  Composer package's map never resolves an import written in a sibling
+  package. A missing manifest is the normal path-only fallback; an unreadable
+  or unusable one degrades the same way plus one deterministic `other`
+  warning, never aborting the scan. An absolute PSR-4 base dir (`/src`, a
+  Windows drive) is treated as external and dropped rather than anchored into a
+  phantom in-repo path; a relative base that lands in a sibling package
+  (`../shared`) is a legitimate root and still resolves (#563).
+
+  **C#** is likewise repository context activated (#542): each scan builds a
+  `namespace -> declaring files` index scoped to each `.csproj` PROJECT
+  boundary (the nearest ancestor directory holding one, classified as a
+  manifest node so its location is visible to the preparation pass). A
+  `.csproj`'s LOCATION marks that boundary and the namespace-index grouping: an
+  SDK-style project globs the `.cs` files beneath its directory, so the manifest
+  only needs to be present. A `using` fans out within the importer's own project
+  and into any project it explicitly references (see below); a namespace
+  declared in an UNREFERENCED different project does not resolve, so there is no
+  repository-global fan-out once project ownership is known. A `using
+  global::X.Y` names the same namespace as `using X.Y` (the `global::` alias
+  qualifier only forces root-namespace lookup), so it is stripped and both
+  resolve identically (#548). A `.cs` file with no owning `.csproj` falls back
+  to path-only resolution (no fan-out, and no warning, since the config is
+  merely absent rather than broken). The only "unusable" case is an UNREADABLE
+  or non-UTF-8 `.csproj`: its location still bounds the project (so its files
+  never leak into an ancestor project), but its namespaces stay unindexed, so
+  every `using` beneath it falls back to path-only resolution with one
+  deterministic `other` warning. A UTF-8 `.csproj` whose XML is invalid is NOT
+  unusable: the boundary holds and its `.cs` namespaces still index.
+  `System.*` and external assemblies always drop. A `global using` emits the
+  edge from its own declaring file; re-applying one file's global usings to its
+  sibling files is a documented limitation (the per-file extract/resolve
+  contract has no implicit-import hook).
+
+  **C# `<ProjectReference>` cross-project edges (#548):** per-project scoping
+  has one explicit escape hatch. An SDK `.csproj` names its build dependencies
+  with `<ProjectReference Include="..\Other\Other.csproj" />`; when that element
+  is present, a `using` in the referencing project also fans out into the
+  referenced project's declarers, so a namespace declared in an explicitly
+  referenced project resolves. This is the one place the manifest's XML is
+  parsed (tolerantly, matching by local name so an old-style project's MSBuild
+  XML namespace does not hide the element); the boundary and the namespace-index
+  grouping stay location-only. References are DIRECT ONLY, not transitive: if A
+  references B and B references C, a `using` in A resolves into B but not into C.
+  Include paths use MSBuild backslashes, resolved relative to the referencing
+  `.csproj`'s own directory. An absolute include (POSIX `/B/B.csproj` or a
+  Windows drive `C:\B\B.csproj`) names a project outside the repo and emits no
+  edge, and a `<ProjectReference>` carrying a literal-false `Condition`
+  (`Condition="false"` / `'false'`, case-insensitive) is skipped as a disabled
+  dependency (full MSBuild condition evaluation is out of scope, so any other
+  condition is treated as enabled) (#563). A manifest that is unreadable,
+  non-UTF-8, or malformed XML contributes no references (its own boundary and
+  namespaces are unaffected); a scanned `.csproj` declaring a DTD is refused,
+  closing the XML entity-expansion denial-of-service vector. A bad `.csproj`
+  never aborts the scan, and neither does a pathologically deep `.cs` file: a
+  namespace nesting that would overflow the recursion limit is walked
+  iteratively, so it degrades gracefully instead of aborting (#563).
+
+  Capabilities that await repository context (#484): C/C++ resolution through
+  configured include directories (quoted includes beyond the importer's own
+  directory, and angle-bracket includes through proven roots, preferably from
+  `compile_commands.json`).
+
   This layer is **optional**: it needs the `tree-sitter` parser, shipped as the
   `sumo-qa[treesitter]` extra. With the extra absent the scan still succeeds: it
   records a `RepoMapWarning` and emits only `likely_tests` edges, so the map
@@ -209,9 +314,11 @@ What the slice-2 scanner produces:
   (`test`/`lint`/`format`/`build`/`other`) is guessed from the script
   name. `pyproject.toml` scripts are categorised as `other` until a
   follow-up adds smarter detection.
-- **Warnings** for files that didn't classify (`unsupported_language`)
-  or were intentionally skipped (`skipped_file`, e.g. images, archives,
-  compiled binaries).
+- **Warnings** for files that didn't classify (`unsupported_language`),
+  files that were intentionally skipped (`skipped_file`, e.g. images,
+  archives, compiled binaries), and config input a resolver's scan-local
+  preparation could not use (`other`, e.g. a malformed `Cargo.toml`: one
+  deterministic warning per affected file, never an aborted scan).
 
 Determinism: nodes are sorted by path; edges by `(source, target)`;
 commands by `(source, name)`. Fingerprints are content-hashed, so only
@@ -380,8 +487,7 @@ regenerate locally before comparison.
 | 5 | `sumo_qa_query_repo_map`, bounded ranked search over the map; wiring of `sumo-qa-reviewing-before-merge`, `sumo-qa-preparing-for-work`, and `sumo-qa-strategising` to prefer the map when present and fall back to a repo walk when absent |
 | 6 | `sumo-qa analyze` / `sumo-qa status` CLI commands (#160): terminal-facing wrappers over the same `scan_repo` / load+validate services, with `--json`; bare `sumo-qa` still launches the MCP server |
 | 7 | Local QA report (#157): `sumo-qa report` / `sumo_qa_generate_qa_report` compose the repo-map, diff-impact, risk-ledger, and context-bundle artifacts into the static `.sumo-qa/qa-report.html` page with honest not-available states ([QA-REPORT.md](QA-REPORT.md)) |
-| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra), Python and Java resolvers shipped; every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
-| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra), Python and TypeScript/JavaScript resolvers shipped; every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
+| import-edge layer | `imports` edges via tree-sitter (the optional `sumo-qa[treesitter]` extra); per-language resolvers with scanner-owned extensions (#483) run their path-only rules at scan time, repository-context capabilities land per language via the #484 preparation pass (Rust #358, C# #542); every consumer inherits dependency-awareness because the one-hop traversal is already generic over `edge.type` |
 
 `configured_by` and `command_runs` edges are deferred. The scanner emits
 `likely_tests` edges always, and `imports` edges when the `[treesitter]` extra
