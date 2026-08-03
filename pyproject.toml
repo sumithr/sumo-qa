@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.60.2"
+version = "0.60.4"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
@@ -135,7 +135,7 @@ dev = [
   # and a synced venv all running different ruff versions at once. Bump this and
   # `rev:` in .pre-commit-config.yaml together, in one commit, reformatting in
   # the same change.
-  "ruff==0.16.0",
+  "ruff==0.16.1",
   # Static type checking — see [tool.mypy]. mypy is pure-Python (no Node
   # toolchain), matching the project's Python-only CI. types-PyYAML supplies
   # the stubs PyYAML doesn't ship inline. hatchling (the build backend) lets

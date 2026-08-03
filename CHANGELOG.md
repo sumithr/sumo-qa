@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.60.4](https://github.com/sumithr/sumo-qa/compare/v0.60.3...v0.60.4) (2026-08-03)
+
+
+### Tests
+
+* **lint:** drop the toolchain-pin guard ([#577](https://github.com/sumithr/sumo-qa/issues/577)) ([9d7f42d](https://github.com/sumithr/sumo-qa/commit/9d7f42dfb8f60b469fc3c3aeee1201fd754c13c7))
+
+## [0.60.3](https://github.com/sumithr/sumo-qa/compare/v0.60.2...v0.60.3) (2026-08-03)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump promptfoo and override transitive advisories to clear npm audit ([#579](https://github.com/sumithr/sumo-qa/issues/579)) ([eea45a1](https://github.com/sumithr/sumo-qa/commit/eea45a12568f93a8c081fba7d94d12adfc81fc19))
+* **deps:** floor mcp at 1.28.1 to close three transport advisories ([#578](https://github.com/sumithr/sumo-qa/issues/578)) ([567714e](https://github.com/sumithr/sumo-qa/commit/567714ef965b80f09e96f83776734612dd4b25e0))
+
+
+### Build System
+
+* **deps-dev:** bump ruff to 0.16.1 and sync the pre-commit rev ([#582](https://github.com/sumithr/sumo-qa/issues/582)) ([e037904](https://github.com/sumithr/sumo-qa/commit/e03790410029111c7b6b8e6ad7a5aa00b7187997))
+* **deps-dev:** update tree-sitter requirement from &lt;0.26,&gt;=0.25 to &gt;=0.25,&lt;0.27 ([#489](https://github.com/sumithr/sumo-qa/issues/489)) ([81d3d49](https://github.com/sumithr/sumo-qa/commit/81d3d492d16e297530a478281c0f077e61150e28))
+* **deps:** bump actions/setup-node from 6 to 7 ([#553](https://github.com/sumithr/sumo-qa/issues/553)) ([32129a0](https://github.com/sumithr/sumo-qa/commit/32129a01bf3f3605426012c6cde6e7b2e122fdb7))
+
 ## [0.60.2](https://github.com/sumithr/sumo-qa/compare/v0.60.1...v0.60.2) (2026-08-01)
 
 
