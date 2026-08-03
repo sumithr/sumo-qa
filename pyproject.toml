@@ -165,7 +165,7 @@ vertex = [
 # `parse()`, property accessors, `type` not `kind()`), and the two APIs are
 # mutually exclusive — repo_map_treesitter targets the upstream shape (#491).
 treesitter = [
-  "tree-sitter>=0.25,<0.26",
+  "tree-sitter>=0.25,<0.27",
   "tree-sitter-language-pack>=1.12.5,<2",
 ]
 
