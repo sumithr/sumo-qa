@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.4](https://github.com/sumithr/sumo-qa/compare/v0.60.3...v0.60.4) (2026-08-03)
+
+
+### Tests
+
+* **lint:** drop the toolchain-pin guard ([#577](https://github.com/sumithr/sumo-qa/issues/577)) ([9d7f42d](https://github.com/sumithr/sumo-qa/commit/9d7f42dfb8f60b469fc3c3aeee1201fd754c13c7))
+
 ## [0.60.3](https://github.com/sumithr/sumo-qa/compare/v0.60.2...v0.60.3) (2026-08-03)
 
 
