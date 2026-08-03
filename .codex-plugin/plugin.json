@@ -20,5 +20,5 @@
   "name": "sumo-qa",
   "repository": "https://github.com/sumithr/sumo-qa",
   "skills": "./skills/",
-  "version": "0.60.4"
+  "version": "0.60.5"
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.60.5](https://github.com/sumithr/sumo-qa/compare/v0.60.4...v0.60.5) (2026-08-03)
+
+
+### Build System
+
+* **deps:** bump actions/checkout from 5 to 7 ([#463](https://github.com/sumithr/sumo-qa/issues/463)) ([f2af4bc](https://github.com/sumithr/sumo-qa/commit/f2af4bc8538b7b70e330c3e1d8bfc8471dca9441))
+* **deps:** bump actions/setup-python from 6 to 7 ([#552](https://github.com/sumithr/sumo-qa/issues/552)) ([3d04f92](https://github.com/sumithr/sumo-qa/commit/3d04f92658ba3d40538515a9735f3bd75ebca08e))
+
 ## [0.60.4](https://github.com/sumithr/sumo-qa/compare/v0.60.3...v0.60.4) (2026-08-03)
 
 
