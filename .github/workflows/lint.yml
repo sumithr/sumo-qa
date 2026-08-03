@@ -76,6 +76,12 @@ jobs:
       - name: shellcheck
         run: shellcheck hooks/session-start scripts/check_markdown_links.sh scripts/pip_audit.sh install.sh
 
+      # The prefilter is a cmd.exe/sh polyglot with no shebang, so it needs an
+      # explicit --shell; its batch block is a quoted heredoc that shellcheck
+      # reads as data, leaving just the POSIX branch to analyse.
+      - name: shellcheck (cmd/sh polyglot hooks)
+        run: shellcheck --shell=sh .claude/hooks/route-qa-runners-prefilter.cmd
+
   markdown-links:
     name: markdown link existence
     # CI mirror of the local `markdown-link-existence` pre-commit hook.
