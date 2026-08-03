@@ -184,6 +184,31 @@ def test_noise_degraded_detection_fires_only_above_threshold():
     assert gate.is_noise_degraded({"m": {"unjudged": 0, "total": 0}}) is False
 
 
+def test_detection_is_per_module_not_diluted_by_healthy_ones():
+    """A total wipeout of one large module must still trigger a re-run even when
+    the other modules are healthy. report_builder alone is ~half the mutant
+    population, so an aggregate denominator would leave it at 48.9% - under
+    threshold - and the module most needing a retry would never get one."""
+    current = {"big": {"unjudged": 793, "total": 793}, "rest": {"unjudged": 0, "total": 828}}
+    assert sum(m["unjudged"] for m in current.values()) / 1621 < 0.5  # aggregate would miss it
+    assert gate.is_noise_degraded(current) is True
+
+
+def test_merge_passes_never_erases_a_survivor_seen_in_an_earlier_pass():
+    """P1: mutmut re-initialises verdicts on a later run, so a survivor observed
+    in pass 1 can come back un-judged in pass 2. Judging only the final pass
+    would let the retry launder a real survivor."""
+    pass1 = {
+        "mod": {"killed": 0, "survived": 1, "unjudged": 3, "total": 4, "survivor_names": ["s"]}
+    }
+    pass2 = {"mod": {"killed": 3, "survived": 0, "unjudged": 1, "total": 4, "survivor_names": []}}
+    merged = gate.merge_passes(pass1, pass2)
+    assert merged["mod"]["survivor_names"] == ["s"]
+    assert merged["mod"]["survived"] == 1
+    assert merged["mod"]["killed"] == 3, "best observed kill count is kept"
+    assert merged["mod"]["unjudged"] == 1, "un-judged takes the converged value"
+
+
 def test_converge_loop_reruns_keeping_cache_until_noise_clears(tmp_path, monkeypatch, capsys):
     """R2: the loop must re-run mutmut when the pass was noise-degraded, and it
     must NOT pass --clean/rm the cache; keeping the cache is what lets the
@@ -226,9 +251,15 @@ def test_converge_loop_is_bounded(tmp_path, monkeypatch, capsys):
         return R()
 
     monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate.sys, "platform", "darwin")
     argv = _write_fixtures(tmp_path, {"mod": {"killed": 3}}, {"mod": {"m1": -11}})
-    gate.main(["--run-mutmut", *argv])
+    rc = gate.main(["--run-mutmut", *argv])
     assert len(runs) == gate.MAX_CONVERGE_PASSES
+    assert gate.MAX_CONVERGE_PASSES <= 2, (
+        "a pass costs ~6 min in a synchronous pre-push hook; a blocked push must "
+        "not become a 24-minute one"
+    )
+    assert rc == 0, "an un-measurable local run must not block the push"
     assert "noise-degraded" in capsys.readouterr().out
 
 
@@ -274,42 +305,99 @@ def test_darwin_sets_objc_fork_safety_in_child_env(tmp_path, monkeypatch):
     assert "PATH" in runs[0], "must extend os.environ, not replace it"
 
 
-def test_noise_degraded_does_not_block_when_shortfall_is_explained_by_noise(tmp_path, capsys):
-    """The whole point of #523: a clean tree must push green. The kill shortfall
-    is fully accounted for by un-judged mutants, so this is 'could not measure',
-    not 'a regression'."""
-    argv = _write_fixtures(
-        tmp_path,
-        {"mod": {"killed": 3}},
-        {"mod": {"m1": 1, "m2": -11, "m3": -11}},
+def _run_local_darwin(tmp_path, monkeypatch, baseline, metas):
+    """Drive main() down the LOCAL macOS --run-mutmut path with mutmut stubbed to
+    a no-op, so the noise tolerance is in force."""
+    monkeypatch.setattr(gate.sys, "platform", "darwin")
+
+    def fake_run(cmd, **kwargs):
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    argv = _write_fixtures(tmp_path, baseline, metas)
+    return gate.main(["--run-mutmut", *argv])
+
+
+def test_noise_degraded_does_not_block_the_local_push(tmp_path, monkeypatch, capsys):
+    """The whole point of #523: a clean tree must push green locally when the
+    module was not measured at all (2 of 3 mutants un-judged)."""
+    rc = _run_local_darwin(
+        tmp_path, monkeypatch, {"mod": {"killed": 3}}, {"mod": {"m1": 1, "m2": -11, "m3": -11}}
     )
-    assert gate.main(argv) == 0
+    assert rc == 0
     out = capsys.readouterr().out
     assert "NOISE-DEGRADED" in out
     assert "Linux" in out, "must point at the authoritative gate"
+    assert "Strict gate passed" not in out, "must not claim a gate it did not enforce"
 
 
-def test_genuine_drop_still_fails_even_with_some_noise(tmp_path, capsys):
-    """R1: noise must excuse only as much as it accounts for. 1 killed + 1
-    unjudged cannot explain a baseline of 3."""
+def test_linux_ci_path_keeps_strict_semantics_and_still_fails(tmp_path, capsys):
+    """P1: the noise tolerance is a LOCAL affordance. The nightly workflow runs
+    this script with no --run-mutmut, so the identical .meta that is tolerated
+    locally must still be a hard DROPPED on the authoritative gate."""
     argv = _write_fixtures(
-        tmp_path,
-        {"mod": {"killed": 3}},
-        {"mod": {"m1": 1, "m2": -11, "m3": 34}},
+        tmp_path, {"mod": {"killed": 3}}, {"mod": {"m1": 1, "m2": -11, "m3": -11}}
     )
     assert gate.main(argv) == 1
     assert "killed dropped from 3 -> 1" in capsys.readouterr().out
 
 
-def test_survivor_still_fails_in_a_noise_degraded_run(tmp_path, capsys):
-    """R1, the load-bearing one: a real survivor is a real failure no matter how
-    noisy the rest of the run was. Noise must never launder a survivor."""
-    argv = _write_fixtures(
+def test_unrelated_noise_cannot_launder_a_real_kill_count_drop(tmp_path, monkeypatch, capsys):
+    """P1: the baseline holds COUNTS, not mutant identities, so `killed +
+    unjudged >= baseline` could offset a mutant that genuinely stopped being
+    killed against a different mutant that merely went un-judged. Here `c`
+    really regressed (34 = skipped) and only `d` is noise: 1 of 4 un-judged is
+    not a wipeout, so this must still fail."""
+    rc = _run_local_darwin(
         tmp_path,
+        monkeypatch,
+        {"mod": {"killed": 3}},
+        {"mod": {"a": 1, "b": 1, "c": 34, "d": -11}},
+    )
+    assert rc == 1
+    assert "killed dropped from 3 -> 2" in capsys.readouterr().out
+
+
+def test_survivor_still_fails_in_a_noise_degraded_run(tmp_path, monkeypatch, capsys):
+    """The load-bearing one: a real survivor is a real failure no matter how
+    noisy the rest of the run was. Noise must never launder a survivor."""
+    rc = _run_local_darwin(
+        tmp_path,
+        monkeypatch,
         {"mod": {"killed": 1}},
         {"mod": {"m_survivor": 0, "m1": -11, "m2": -11, "m3": -11}},
     )
-    assert gate.main(argv) == 1
+    assert rc == 1
     out = capsys.readouterr().out
     assert "100% kill rate required" in out
     assert "m_survivor" in out
+
+
+def test_survivor_from_an_earlier_pass_survives_the_converge_loop(tmp_path, monkeypatch, capsys):
+    """P1 end-to-end: pass 1 sees a survivor amid noise, pass 2 comes back clean
+    with that mutant un-judged. Evaluating only the final pass would green it."""
+    monkeypatch.setattr(gate.sys, "platform", "darwin")
+    runs = []
+    metas = [
+        {"mod": {"s": 0, "a": -11, "b": -11, "c": -11}},  # survivor + wipeout
+        {"mod": {"s": None, "a": 1, "b": 1, "c": 1}},  # survivor now un-judged
+    ]
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+        _rewrite_meta(tmp_path, metas[min(len(runs) - 1, len(metas) - 1)])
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 3}}, metas[0])
+    assert gate.main(["--run-mutmut", *argv]) == 1, "the pass-1 survivor must still fail the gate"
+    out = capsys.readouterr().out
+    assert "100% kill rate required" in out
+    assert "s" in out

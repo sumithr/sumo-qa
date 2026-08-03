@@ -76,10 +76,11 @@ SEGFAULT_EXIT_CODES = {-11, -9}
 # than signal.
 NOISE_THRESHOLD = 0.5
 
-# Upper bound on `mutmut run` passes. The cache is KEPT between passes, so
-# results accumulate; the bound exists so a permanently-noisy machine
-# terminates the push instead of hanging it.
-MAX_CONVERGE_PASSES = 4
+# Upper bound on `mutmut run` passes. A pass costs ~6 minutes, and this runs
+# synchronously in a pre-push hook, so the bound is deliberately tight: turning
+# a blocked push into a 24-minute one is not a fix. #523's own evidence is that
+# a single extra pass resolved the wipeout both times it was observed.
+MAX_CONVERGE_PASSES = 2
 
 _FORK_SAFETY_ENV = "OBJC_DISABLE_INITIALIZE_FORK_SAFETY"
 
@@ -104,14 +105,53 @@ def module_stats(meta_path: Path) -> dict:
     return module_stats_from_exit_codes(meta.get("exit_code_by_key", {}))
 
 
-def is_noise_degraded(current: dict, threshold: float = NOISE_THRESHOLD) -> bool:
-    """True when most of the run produced no usable verdict, i.e. the pass tells
-    us nothing and judging it would be a false verdict rather than a real one."""
-    total = sum(stats.get("total", 0) for stats in current.values())
+def module_is_noise_degraded(stats: dict, threshold: float = NOISE_THRESHOLD) -> bool:
+    """True when THIS module produced mostly no verdict, so its counts are not a
+    measurement of anything.
+
+    Deliberately per-module, not aggregated over the run. report_builder alone is
+    roughly half the mutant population, so an aggregate denominator lets a total
+    wipeout of one big module sit under the threshold while the other modules
+    dilute it - the module that most needs a re-run would never get one.
+    """
+    total = stats.get("total", 0)
     if not total:
         return False
-    unjudged = sum(stats.get("unjudged", 0) for stats in current.values())
-    return unjudged / total > threshold
+    return stats.get("unjudged", 0) / total > threshold
+
+
+def is_noise_degraded(current: dict, threshold: float = NOISE_THRESHOLD) -> bool:
+    """True when ANY module was not measured. One un-measured module is reason
+    enough to spend another pass; the bound keeps that affordable."""
+    return any(module_is_noise_degraded(stats, threshold) for stats in current.values())
+
+
+def merge_passes(acc: dict | None, new: dict) -> dict:
+    """Fold a fresh pass into the accumulated best-known state.
+
+    A later pass must never ERASE evidence an earlier one produced. mutmut
+    re-initialises verdicts on a subsequent run, so a survivor observed in pass 1
+    can come back as un-judged in pass 2; taking only the final pass would let a
+    genuine survivor vanish behind the retry that was supposed to reduce noise.
+    Survivor names therefore accumulate as a union and killed counts take the
+    best observed value, while un-judged counts take the latest (converging)
+    value.
+    """
+    if acc is None:
+        return new
+    merged: dict = {}
+    for module, fresh in new.items():
+        prior = acc.get(module, {})
+        names = sorted(set(prior.get("survivor_names", [])) | set(fresh.get("survivor_names", [])))
+        merged[module] = {
+            "killed": max(prior.get("killed", 0), fresh.get("killed", 0)),
+            "survived": len(names),
+            "unjudged": fresh.get("unjudged", 0),
+            "total": fresh.get("total", 0) or prior.get("total", 0),
+            "missing": bool(fresh.get("missing")) and bool(prior.get("missing")),
+            "survivor_names": names,
+        }
+    return merged
 
 
 def mutmut_child_env() -> dict | None:
@@ -127,8 +167,17 @@ def mutmut_child_env() -> dict | None:
     return {**os.environ, _FORK_SAFETY_ENV: "YES"}
 
 
-def evaluate(baseline_per_module: dict, current: dict) -> tuple[list[str], list[str]]:
-    """Return (summary table lines, failure lines); empty failures == gate passed."""
+def evaluate(
+    baseline_per_module: dict, current: dict, tolerate_unjudged: bool = False
+) -> tuple[list[str], list[str]]:
+    """Return (summary table lines, failure lines); empty failures == gate passed.
+
+    `tolerate_unjudged` is OFF by default and is enabled ONLY for a local darwin
+    `--run-mutmut` invocation. The nightly Linux workflow calls this script with
+    no `--run-mutmut` (.github/workflows/mutation.yml), so it keeps the original
+    strict semantics exactly: the authoritative gate must never green a run it
+    could not measure.
+    """
     failed: list[str] = []
     lines = [
         "| Module | Baseline killed | Current killed | Survivors | Verdict |",
@@ -141,7 +190,6 @@ def evaluate(baseline_per_module: dict, current: dict) -> tuple[list[str], list[
         base_killed = base["killed"]
         curr_killed = curr["killed"]
         survived = curr["survived"]
-        unjudged = curr.get("unjudged", 0)
         if curr.get("missing"):
             verdict = "MISSING"
             failed.append(f"{module}: .meta file not found - did mutmut run complete?")
@@ -151,9 +199,13 @@ def evaluate(baseline_per_module: dict, current: dict) -> tuple[list[str], list[
             verdict = "SURVIVED"
             failed.append(f"{module}: {survived} mutant(s) survived - 100% kill rate required")
         elif curr_killed < base_killed:
-            # Excuse the shortfall only as far as un-judged mutants account for
-            # it. A drop that noise cannot explain is still a real regression.
-            if curr_killed + unjudged >= base_killed:
+            # Excused ONLY when this module was genuinely not measured, i.e. most
+            # of ITS mutants produced no verdict. The earlier arithmetic
+            # (curr_killed + unjudged >= base_killed) was unsound: the baseline
+            # holds counts, not per-mutant identities, so it could offset a
+            # mutant that really stopped being killed against a DIFFERENT mutant
+            # that merely went un-judged, and pass a real regression.
+            if tolerate_unjudged and module_is_noise_degraded(curr):
                 verdict = "NOISE-DEGRADED"
             else:
                 verdict = "DROPPED"
@@ -230,7 +282,9 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return result.returncode
-            current = read_current()
+            # Fold, never replace: a retry must not erase a survivor an earlier
+            # pass already observed.
+            current = merge_passes(current, read_current())
             if not is_noise_degraded(current):
                 break
         else:
@@ -242,7 +296,10 @@ def main(argv: list[str] | None = None) -> int:
     if current is None:
         current = read_current()
 
-    lines, failed = evaluate(load_baseline(), current)
+    # The noise tolerance is a LOCAL macOS affordance only. CI runs this script
+    # without --run-mutmut, so it keeps the original strict semantics.
+    tolerate = bool(args.run_mutmut) and sys.platform == "darwin"
+    lines, failed = evaluate(load_baseline(), current, tolerate_unjudged=tolerate)
     summary = "\n".join(lines)
     print(summary)
     if any("NOISE-DEGRADED" in line for line in lines):
@@ -274,6 +331,14 @@ def main(argv: list[str] | None = None) -> int:
                 for n in names:
                     print(f"    - {n}")
         return 1
+    if any("NOISE-DEGRADED" in line for line in lines):
+        # Do NOT claim the strict gate passed: NOISE-DEGRADED explicitly permits
+        # a kill count below baseline, so this run did not enforce it.
+        print(
+            "\nNo survivors, and no unexplained kill-count drop. NOT a strict-gate pass: "
+            "the NOISE-DEGRADED modules above were not measured locally."
+        )
+        return 0
     print("\nAll modules: kill counts >= baseline and 0 survivors. Strict gate passed.")
     return 0
 
