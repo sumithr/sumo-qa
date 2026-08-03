@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.6](https://github.com/sumithr/sumo-qa/compare/v0.60.5...v0.60.6) (2026-08-03)
+
+
+### Documentation
+
+* **skills:** correct skill_prompts docstring on the ~/.claude/skills symlinks ([#585](https://github.com/sumithr/sumo-qa/issues/585)) ([624dbd9](https://github.com/sumithr/sumo-qa/commit/624dbd92137b1b2cc2779e57e3a5f0fee25a712d))
+
 ## [0.60.5](https://github.com/sumithr/sumo-qa/compare/v0.60.4...v0.60.5) (2026-08-03)
 
 
