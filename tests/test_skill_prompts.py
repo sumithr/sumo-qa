@@ -6,9 +6,10 @@ Every skills/*/SKILL.md must register as an MCP TOOL at server startup
 IntelliJ AI Assistant, and VS Code + Copilot all surface MCP tools in
 their slash menu identically. Registering as prompts would only surface
 in Claude Code, creating asymmetric behavior. Claude Code additionally
-loads these skills natively via the ``~/.claude/skills/`` symlinks the
-installer writes. See src/sumo_qa/skill_prompts.py module docstring for
-the full rationale.
+loads these skills through its native loader: via the ``~/.claude/skills/``
+symlinks on a pip/``sumo-qa-install`` setup, or straight from
+``skills/<name>/SKILL.md`` in the plugin directory on a plugin install.
+See src/sumo_qa/skill_prompts.py module docstring for the full rationale.
 """
 
 from __future__ import annotations

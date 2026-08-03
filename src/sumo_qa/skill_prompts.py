@@ -16,20 +16,30 @@ in Claude Code's slash menu (same name, two routes), which is the
 confusion the user pushed back on. One channel keeps the experience
 identical.
 
-Claude Code ALSO gets the skills natively: ``installer.py``
-(``_install_claude_code_skills_per_dir``) symlinks each skill directory
-into ``~/.claude/skills/``, so on that host the skills load through the
-native skill loader as well as through these tools. That asymmetry is
-deliberate, not an oversight. The native loader has richer features that no
-MCP tool can reproduce (it auto-loads the checklist into TodoWrite and
-treats the Iron Law as system-prompt-grade discipline), and it is not
-subject to the per-response token cap above, so an over-cap skill such as
-sumo-qa-reviewing-before-merge loads in full there while this route can only
-hand back the progressive-loading pointer. IntelliJ and Copilot have no
-native loader, which is why these tools remain the baseline everywhere.
-Removing the symlinks would silently downgrade Claude Code to the pointer
-route for the largest skill; see ``docs/ARCHITECTURE.md`` for the per-host
-matrix.
+Claude Code ALSO gets the skills natively, through its own skill loader,
+by one of two routes depending on how it was installed:
+
+* pip install + ``sumo-qa-install --claude-code``: ``installer.py``
+  (``_install_claude_code_skills_per_dir``) symlinks each skill directory
+  into ``~/.claude/skills/``.
+* plugin install (``claude --plugin-dir`` or the marketplace): no symlinks
+  are created and none are needed; the plugin loader reads
+  ``skills/<name>/SKILL.md`` straight out of the plugin directory.
+
+That asymmetry is deliberate, not an oversight. The native loader has
+richer features that no MCP tool can reproduce (it auto-loads the checklist
+into TodoWrite and treats the Iron Law as system-prompt-grade discipline),
+and it is not subject to the per-response token cap above, so an over-cap
+skill such as sumo-qa-reviewing-before-merge loads in full there while this
+route can only hand back the progressive-loading pointer. IntelliJ and
+Copilot have no native loader, which is why these tools remain the baseline
+everywhere.
+
+Consequently the symlinks are load-bearing ONLY on the pip/installer setup,
+where removing them silently downgrades Claude Code to the pointer route for
+the largest skill. A plugin install is unaffected, because its native route
+never went through ``~/.claude/skills/``. See ``docs/ARCHITECTURE.md`` for
+the per-host matrix and the degraded-mode note on plugin-loaded skills.
 
 The SKILL.md file is read fresh on each invocation so editing it propagates
 without restart.
