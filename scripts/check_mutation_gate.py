@@ -28,9 +28,9 @@ Two independent failure conditions (both must pass):
      Checked FIRST: a survivor is unambiguous evidence of a weak test and is
      never excused, however noisy the rest of the run was.
   2. Regression catch: any module's killed count below the committed
-     baseline in mutmut-baseline.json -> DROPPED, EXCEPT where un-judged
-     mutants account for the shortfall -> NOISE-DEGRADED (not a failure; see
-     below).
+     baseline in mutmut-baseline.json -> DROPPED, EXCEPT on a LOCAL darwin
+     --run-mutmut invocation where that module produced mostly no verdict at
+     all -> NOISE-DEGRADED (not a failure; see below).
 
 With --run-mutmut the script invokes the `mutmut run` console script (never
 `python -m mutmut`; see docs/DEVELOPMENT.md) and propagates a non-zero mutmut
@@ -43,12 +43,22 @@ with at generation time and never fills in when the run aborts before
 executing them. Both are outside the killed set and both differ from 0, so
 both used to read as killed=0/survived=0 and report every module DROPPED on a
 clean tree, blocking the push. So --run-mutmut now sets
-OBJC_DISABLE_INITIALIZE_FORK_SAFETY on darwin, re-runs a noise-dominated pass
-(cache KEPT, bounded by MAX_CONVERGE_PASSES) to let results converge, and
-judges any residue honestly: un-judged mutants are neither killed nor
-survived, and a shortfall they explain is reported NOISE-DEGRADED with a
-pointer to the authoritative Linux dispatch. Off darwin nothing changes: no
-env override, and a healthy pass exits the loop after exactly one run.
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY on darwin, and re-runs any pass in which
+some module was not measured (cache KEPT, bounded by MAX_CONVERGE_PASSES),
+FOLDING each pass into the last rather than replacing it - mutmut
+re-initialises verdicts on a later run, so evaluating only the final pass could
+erase a survivor an earlier one saw.
+
+Residual un-judged mutants count as neither killed nor survived, and a module
+is excused only when THAT module was genuinely not measured (not by comparing
+counts: the baseline stores counts, not mutant identities, so a count
+comparison can offset a real lost kill against an unrelated un-judged mutant).
+
+The tolerance is LOCAL-ONLY: evaluate() takes tolerate_unjudged, default False,
+enabled only for a darwin --run-mutmut invocation. .github/workflows/mutation.yml
+runs this script WITHOUT --run-mutmut, so the authoritative Linux gate keeps the
+original strict semantics and never greens a run it could not measure. A real
+survivor fails on either path.
 """
 
 from __future__ import annotations
