@@ -38,7 +38,17 @@ dependencies = [
   # Loose pins so the package builds against whatever pre-built wheels are
   # available for the user's Python version. Tighten only when a specific
   # incompatibility is found.
-  "mcp>=1.12,<2",
+  # mcp < 1.28.1: GHSA-jpw9-pfvf-9f58, GHSA-hvrp-rf83-w775 (both >=1.27.2),
+  #   GHSA-vj7q-gjh5-988w (>=1.28.1). A security floor, not a feature floor:
+  #   a fresh resolve already picks a safe 1.x, but the constraint is what the
+  #   built wheel carries, so without the floor pip and Poetry stay free to
+  #   resolve a vulnerable version.
+  # The <2 cap is load-bearing: mcp 2.0.0 deletes mcp.server.fastmcp, which
+  #   build_mcp_server() is written against, so 2.x cannot import let alone
+  #   run. Lifting it is a migration (30 @mcp.tool sites, plus the
+  #   _tool_manager / fn_metadata internals that _slim_tool_schemas and
+  #   _drop_structured_output depend on), not a version bump.
+  "mcp>=1.28.1,<2",
   "pydantic>=2.8,<3",
   "PyYAML>=6,<7",
   # Security floors for transitive deps pulled by `mcp` (FastMCP). mcp 1.28.0
