@@ -38,7 +38,7 @@ dependencies = [
   # Loose pins so the package builds against whatever pre-built wheels are
   # available for the user's Python version. Tighten only when a specific
   # incompatibility is found.
-  "mcp>=1.12,<2",
+  "mcp>=1.12,<3",
   "pydantic>=2.8,<3",
   "PyYAML>=6,<7",
   # Security floors for transitive deps pulled by `mcp` (FastMCP). mcp 1.28.0
