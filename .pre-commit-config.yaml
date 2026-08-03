@@ -63,14 +63,19 @@ repos:
     # "Unknown rule selector `NOT-A-RULE` in `select`". Verified by injecting
     # exactly that.
     #
-    # Only the VERSION agreement above is enforced by a test
-    # (tests/test_toolchain_pins.py), because the `ruff check + format` job
-    # installs ruff from pyproject.toml and never opens this file, so it cannot
-    # see a stale rev. The hook shapes below are deliberately not
-    # asserted anywhere: `ruff check + format` runs the real commands over the
-    # real tree, so weakening a hook here (`--exit-zero`, a narrowed `files:`,
-    # `exclude_types`, `stages`) still fails the required job on the next push.
-    # Treat what follows as the reasoning to preserve when editing, not as a
+    # NOTHING here is enforced by a test, deliberately. `ruff check + format`
+    # runs the real commands over the real tree, so weakening a hook
+    # (`--exit-zero`, a narrowed `files:`, `exclude_types`, `stages`) still
+    # fails the required job on the next push.
+    #
+    # The one exception CI cannot see is the `rev:` above: the lint job installs
+    # ruff from pyproject.toml and never opens this file, so a rev that drifts
+    # from the pyproject pin puts contributors on a different formatter than the
+    # required job and stays quiet until someone's unrelated PR goes red. That
+    # is the PR #570 failure. Bump `rev:` and the pyproject pin in ONE commit,
+    # reformatting in that same change.
+    #
+    # Treat everything below as the reasoning to preserve when editing, not as a
     # contract something will catch you breaking.
     hooks:
       - id: ruff-check
