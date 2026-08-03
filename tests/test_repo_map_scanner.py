@@ -224,6 +224,7 @@ def test_fallback_walk_skips_known_caches(tmp_path: Path):
         ("docs/guide.md", "docs"),
         ("pyproject.toml", "manifest"),
         ("package.json", "manifest"),
+        ("src/MyApp.csproj", "manifest"),
         (".github/workflows/ci.yml", "ci_workflow"),
         ("tests/fixtures/sample.json", "fixture"),
         ("migrations/0001_init.sql", "migration_schema"),

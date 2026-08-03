@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.60.2](https://github.com/sumithr/sumo-qa/compare/v0.60.1...v0.60.2) (2026-08-01)
+
+
+### Performance Improvements
+
+* **hooks:** gate route-qa-runners behind a shell prefilter ([#570](https://github.com/sumithr/sumo-qa/issues/570)) ([096e231](https://github.com/sumithr/sumo-qa/commit/096e231c8d2cae434da5f2af298e80bb76d5fffe))
+
+## [0.60.1](https://github.com/sumithr/sumo-qa/compare/v0.60.0...v0.60.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* **repo-map:** harden import resolvers against adversarial/misconfigured input ([#563](https://github.com/sumithr/sumo-qa/issues/563)) ([#565](https://github.com/sumithr/sumo-qa/issues/565)) ([f51dc78](https://github.com/sumithr/sumo-qa/commit/f51dc78d7a36eb7918807e34552924612daaed6c))
+
+## [0.60.0](https://github.com/sumithr/sumo-qa/compare/v0.59.0...v0.60.0) (2026-07-20)
+
+
+### Features
+
+* **repo-map:** activate C# project-scoped namespace resolution during scan ([#542](https://github.com/sumithr/sumo-qa/issues/542)) ([#548](https://github.com/sumithr/sumo-qa/issues/548)) ([3369e53](https://github.com/sumithr/sumo-qa/commit/3369e539882dd791d78500266edd679679779831))
+
+## [0.59.0](https://github.com/sumithr/sumo-qa/compare/v0.58.0...v0.59.0) (2026-07-20)
+
+
+### Features
+
+* **repo-map:** activate PHP composer PSR-4 resolution during scan ([#541](https://github.com/sumithr/sumo-qa/issues/541)) ([#547](https://github.com/sumithr/sumo-qa/issues/547)) ([3d431c1](https://github.com/sumithr/sumo-qa/commit/3d431c1895ad8ba24e08071b5a3166971a840c4f))
+
+## [0.58.0](https://github.com/sumithr/sumo-qa/compare/v0.57.1...v0.58.0) (2026-07-20)
+
+
+### Features
+
+* **repo-map:** activate TypeScript/JavaScript tsconfig paths/baseUrl during scan ([#540](https://github.com/sumithr/sumo-qa/issues/540)) ([#546](https://github.com/sumithr/sumo-qa/issues/546)) ([e321a33](https://github.com/sumithr/sumo-qa/commit/e321a332347d716f5ab8482264103c311f28ff7d))
+
+## [0.57.1](https://github.com/sumithr/sumo-qa/compare/v0.57.0...v0.57.1) (2026-07-20)
+
+
+### Reverts
+
+* remove the output-profile feature ([#215](https://github.com/sumithr/sumo-qa/issues/215)/[#471](https://github.com/sumithr/sumo-qa/issues/471)) as a negative result ([#556](https://github.com/sumithr/sumo-qa/issues/556)) ([c5eee44](https://github.com/sumithr/sumo-qa/commit/c5eee44ffa669ecc8c2bf7d36ad5879f0dffdb4b))
+
 ## [0.57.0](https://github.com/sumithr/sumo-qa/compare/v0.56.0...v0.57.0) (2026-07-14)
 
 

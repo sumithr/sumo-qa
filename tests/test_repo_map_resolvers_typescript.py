@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from sumo_qa.repo_map_models import RepoMapNode
+from sumo_qa.repo_map_models import RepoMapNode, RepoMapWarning
 from sumo_qa.repo_map_resolvers import get_resolver, registered_languages
-from sumo_qa.repo_map_resolvers.base import RawImport
+from sumo_qa.repo_map_resolvers.base import RawImport, ScanContext
 from sumo_qa.repo_map_resolvers.typescript import (
     JAVASCRIPT_CONFIG,
     TYPESCRIPT_CONFIG,
@@ -420,6 +420,198 @@ def test_resolve_baseurl_specifier_escaping_root_yields_no_edge():
     assert resolver.resolve("src/app.ts", imp, _FILE_SET) == []
 
 
+def test_resolve_absolute_paths_targets_dropped_but_relative_sibling_resolves():
+    # CLASS (paths target): a paths TARGET that is absolute — POSIX ("/src/*") or a
+    # Windows drive ("C:/x/*") — points OUTSIDE the repo. `_join_repo` would strip the
+    # leading "/" (or fold the drive) and re-anchor it repo-relative, fabricating an
+    # in-repo edge to src/util.ts (a phantom dependency). Both absolute targets must
+    # be rejected. A VALID relative target in the SAME array ("lib/*") still resolves,
+    # so the drop is surgical (no over-correction). Declaration order puts the absolute
+    # targets FIRST, so a resolver that failed to drop them would (wrongly) return the
+    # phantom src/util.ts edge instead of lib/util.ts.
+    tsconfig = parse_tsconfig(
+        '{"compilerOptions": {"paths": {"@x/*": ["/src/*", "C:/x/*", "lib/*"]}}}'
+    )
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@x/util", level=0, names=(), function_local=False)
+    assert resolver.resolve("app.ts", imp, {"src/util.ts", "lib/util.ts"}) == ["lib/util.ts"]
+
+
+def test_resolve_paths_target_only_absolute_yields_no_edge():
+    # CLASS (paths target): when EVERY target of an alias is absolute (out-of-repo),
+    # the alias resolves to nothing — never a phantom in-repo edge from stripping the
+    # leading "/".
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"@y/*": ["/src/*"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@y/util", level=0, names=(), function_local=False)
+    assert resolver.resolve("app.ts", imp, {"src/util.ts"}) == []
+
+
+def test_resolve_deep_escaping_relative_paths_target_yields_no_edge():
+    # CLASS GUARD (paths target): a relative paths target whose `..` segments climb
+    # FAR above the repo root ("../../../outside/*") lands outside the project, so it
+    # names no in-repo file and yields no edge — the escaping-target half of the same
+    # class as the absolute-target drop.
+    tsconfig = parse_tsconfig(
+        '{"compilerOptions": {"paths": {"@out/*": ["../../../outside/*"]}}}',
+        config_dir="packages/app",
+    )
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@out/util", level=0, names=(), function_local=False)
+    assert resolver.resolve("packages/app/src/main.ts", imp, {"outside/util.ts"}) == []
+
+
+def test_parse_tsconfig_baseurl_outside_repo_drops_alias_config():
+    # A baseUrl that points OUTSIDE the repo tree — either escaping via `..`
+    # ("../../../out" from packages/app) or an absolute filesystem path ("/src") —
+    # names no in-repo directory, so every paths/baseUrl target under it escapes
+    # too. Parse must drop the WHOLE alias config (empty TsConfig) rather than
+    # silently re-anchor the targets to the tsconfig directory.
+    escaping = parse_tsconfig(
+        '{"compilerOptions": {"baseUrl": "../../../out", "paths": {"@x/*": ["src/*"]}}}',
+        config_dir="packages/app",
+    )
+    assert escaping == TsConfig()
+    absolute = parse_tsconfig('{"compilerOptions": {"baseUrl": "/src", "paths": {"@x/*": ["*"]}}}')
+    assert absolute == TsConfig()
+
+
+def test_resolve_escaping_baseurl_emits_no_phantom_alias_edge():
+    # An ESCAPING baseUrl ("../../../outside") points at a tree OUTSIDE the repo,
+    # so `@x/*`: ["src/*"] targets escape too. It must NOT re-anchor to the config
+    # directory: doing so maps `@x/tool` from packages/app/src/tool.ts onto the
+    # real in-repo file packages/app/src/tool.ts — a PHANTOM edge (false
+    # dependency), the worst repo-map failure. The alias must resolve to nothing.
+    tsconfig = parse_tsconfig(
+        '{"compilerOptions": {"baseUrl": "../../../outside", "paths": {"@x/*": ["src/*"]}}}',
+        config_dir="packages/app",
+    )
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@x/tool", level=0, names=(), function_local=False)
+    file_set = {"packages/app/src/tool.ts"}
+    assert resolver.resolve("packages/app/src/tool.ts", imp, file_set) == []
+
+
+def test_resolve_absolute_baseurl_emits_no_phantom_alias_edge():
+    # An ABSOLUTE baseUrl ("/src") is a filesystem path outside the repo, not a
+    # repo-relative directory. Reinterpreting it as repo-relative `src` maps a bare
+    # `util` onto the same-named in-repo file src/util.ts — a PHANTOM edge. The
+    # absolute baseUrl must emit no alias edge (path-only fallback).
+    tsconfig = parse_tsconfig('{"compilerOptions": {"baseUrl": "/src"}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="util", level=0, names=(), function_local=False)
+    assert resolver.resolve("app.ts", imp, {"src/util.ts"}) == []
+
+
+# ---------- resolve: Windows `\` path separators in baseUrl / paths ----------
+
+
+def test_resolve_baseurl_with_windows_separators_normalizes_and_resolves():
+    # A tsconfig authored on Windows may spell baseUrl with `\` ("src\\app"). The
+    # repo-relative paths the resolver matches are always `/`-joined, so the `\`
+    # must be normalized to `/` for a bare specifier to resolve: `util` under
+    # baseUrl "src\\app" -> src/app/util.ts.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"baseUrl": "src\\\\app"}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="util", level=0, names=(), function_local=False)
+    assert resolver.resolve("src/app/main.ts", imp, {"src/app/util.ts"}) == ["src/app/util.ts"]
+
+
+def test_resolve_paths_target_with_windows_separators_normalizes_and_resolves():
+    # A `\`-separated paths TARGET ("src\\app/*") normalizes so the alias resolves
+    # to the `/`-joined repo file: `@x/util` -> src/app/util.ts.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"@x/*": ["src\\\\app/*"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@x/util", level=0, names=(), function_local=False)
+    assert resolver.resolve("src/main.ts", imp, {"src/app/util.ts"}) == ["src/app/util.ts"]
+
+
+def test_resolve_paths_target_forward_slash_still_resolves():
+    # Regression guard: the plain `/`-separated target keeps resolving; separator
+    # normalization must be a no-op on an already-`/`-joined target.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"@x/*": ["src/app/*"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="@x/util", level=0, names=(), function_local=False)
+    assert resolver.resolve("src/main.ts", imp, {"src/app/util.ts"}) == ["src/app/util.ts"]
+
+
+def test_parse_tsconfig_windows_drive_absolute_baseurl_drops_alias_config():
+    # A Windows DRIVE-ABSOLUTE baseUrl points OUTSIDE the repo tree just like a
+    # POSIX-absolute "/src": both the `\`-spelled "C:\\src" (normalized to "C:/src")
+    # and the already-`/`-spelled "C:/src" name a filesystem drive path, so the WHOLE
+    # alias config is dropped (empty TsConfig) rather than re-anchored repo-relative
+    # into a phantom "C:/src/..." tree.
+    backslash = parse_tsconfig(
+        '{"compilerOptions": {"baseUrl": "C:\\\\src", "paths": {"@x/*": ["*"]}}}'
+    )
+    assert backslash == TsConfig()
+    forward = parse_tsconfig('{"compilerOptions": {"baseUrl": "C:/src", "paths": {"@x/*": ["*"]}}}')
+    assert forward == TsConfig()
+
+
+def test_resolve_windows_drive_absolute_baseurl_emits_no_phantom_alias_edge():
+    # A Windows DRIVE-ABSOLUTE baseUrl ("C:\\src") is a filesystem path outside the
+    # repo, not a repo-relative directory. Normalizing `\` -> `/` yields "C:/src";
+    # treating THAT as repo-relative would map a bare `util` onto the phantom in-repo
+    # file "C:/src/util.ts" — a false dependency. The drive-absolute baseUrl must be
+    # detected as absolute and drop the whole alias config -> no edge.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"baseUrl": "C:\\\\src"}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="util", level=0, names=(), function_local=False)
+    assert resolver.resolve("app.ts", imp, {"C:/src/util.ts"}) == []
+
+
+# ---------- resolve: absolute import specifier + bare-drive baseUrl (#563) ----------
+
+
+@pytest.mark.parametrize(
+    "spec",
+    ["/outside/pkg", "\\outside\\pkg", "C:/outside", "C:outside"],
+)
+def test_resolve_absolute_import_specifier_does_not_alias_resolve(spec):
+    # An absolute import specifier — POSIX ("/outside/pkg"), UNC/backslash
+    # ("\\outside\\pkg"), or a Windows drive with ("C:/outside") or WITHOUT
+    # ("C:outside") a separator — names no repo-relative module. But a catch-all
+    # `"*": ["src/fixed"]` alias uses its target VERBATIM (the specifier tail is
+    # discarded for a non-wildcard target), so an unguarded resolver maps EVERY
+    # specifier onto the phantom in-repo file src/fixed.ts. The absolute specifier
+    # must be rejected before alias matching -> no edge.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"*": ["src/fixed"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module=spec, level=0, names=(), function_local=False)
+    assert resolver.resolve("app/main.ts", imp, {"src/fixed.ts"}) == []
+
+
+def test_resolve_bare_non_relative_specifier_still_alias_resolves():
+    # Guard is surgical: a normal bare (non-absolute) specifier still resolves
+    # through the same catch-all alias, so dropping absolute specifiers does not
+    # break ordinary baseUrl/paths aliasing.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"paths": {"*": ["src/fixed"]}}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="anything", level=0, names=(), function_local=False)
+    assert resolver.resolve("app/main.ts", imp, {"src/fixed.ts"}) == ["src/fixed.ts"]
+
+
+def test_parse_tsconfig_bare_windows_drive_baseurl_drops_alias_config():
+    # A Windows drive baseUrl with NO trailing separator ("C:") is still a
+    # filesystem drive path outside the repo — the drive-absolute class does not
+    # require a following slash. `_WINDOWS_DRIVE_RE`'s separator requirement let
+    # "C:" through as a repo-relative directory; it must instead drop the WHOLE
+    # alias config (empty TsConfig) rather than re-anchor targets under "C:".
+    dropped = parse_tsconfig('{"compilerOptions": {"baseUrl": "C:", "paths": {"@x/*": ["*"]}}}')
+    assert dropped == TsConfig()
+
+
+def test_resolve_bare_windows_drive_baseurl_emits_no_phantom_alias_edge():
+    # baseUrl "C:" (bare drive, no separator) must not resolve a bare `util` onto
+    # the phantom in-repo file "C:/util.ts": the bare drive is absolute, so the
+    # alias config is dropped -> no edge.
+    tsconfig = parse_tsconfig('{"compilerOptions": {"baseUrl": "C:"}}')
+    resolver = TypeScriptResolver(TYPESCRIPT_CONFIG, grammar="tsx", tsconfig=tsconfig)
+    imp = RawImport(module="util", level=0, names=(), function_local=False)
+    assert resolver.resolve("app.ts", imp, {"C:/util.ts"}) == []
+
+
 # ---------- parse_tsconfig: malformed / JSONC tolerance ----------
 
 
@@ -448,11 +640,13 @@ def test_parse_tsconfig_joins_parent_relative_targets_through_config_dir():
     assert dict(cfg.paths)["@s/*"] == ("shared/*",)
 
 
-def test_parse_tsconfig_tolerates_jsonc_escaped_string():
-    # A backslash-escaped string (e.g. a Windows path) must survive comment/
-    # trailing-comma stripping intact.
+def test_parse_tsconfig_jsonc_escaped_windows_baseurl_is_normalized():
+    # A backslash-escaped string (a Windows-path baseUrl) survives comment/
+    # trailing-comma stripping intact, and is THEN normalized `\` -> `/` so it
+    # matches the `/`-joined repo paths (Windows-separator support). A stripper bug
+    # that mangled the escape would yield a different value, so this still guards it.
     cfg = parse_tsconfig('{"compilerOptions": {"baseUrl": "src\\\\app"}}')
-    assert cfg.base_url == "src\\app"
+    assert cfg.base_url == "src/app"
 
 
 def test_parse_tsconfig_returns_empty_on_malformed_json():
@@ -509,3 +703,232 @@ def test_unsupported_language_node_has_no_typescript_resolver():
     # And a non-source node language id we do support still dispatches.
     node = RepoMapNode(id="file:x.ts", type="source_file", path="x.ts", language="typescript")
     assert get_resolver(node.language) is not None
+
+
+# ---------- scan-local tsconfig context (#484 TS/JS slice): per-importer ----------
+# ---------- nearest-config alias resolution, no singleton mutation, degradation ----------
+
+_WORKSPACES = Path(__file__).parent / "fixtures" / "repo_map" / "ts_workspaces"
+
+
+def _alias(module: str) -> RawImport:
+    """A non-relative (alias/baseUrl) specifier, as the extractor emits it."""
+    return RawImport(module=module, level=0, names=(), function_local=False)
+
+
+def _write_tree(root: Path, files: dict[str, str]) -> None:
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+def _prepared_on(
+    root: Path, files: dict[str, str], warnings: list[RepoMapWarning] | None = None
+) -> TypeScriptResolver:
+    """Write ``files`` under ``root`` and prepare a scan-local resolver on them."""
+    _write_tree(root, files)
+    context = ScanContext(root=root, files=frozenset(files), warnings=warnings)
+    return ts.prepare(context)
+
+
+# Two sibling workspaces, each with its OWN tsconfig alias table.
+_TWO_WORKSPACES = {
+    "packages/app/tsconfig.json": (
+        '{"compilerOptions": {"baseUrl": "src", "paths": {"@app/*": ["*"]}}}'
+    ),
+    "packages/app/src/main.ts": "export const a = 1;",
+    "packages/app/src/widget.ts": "export const w = 1;",
+    "packages/lib/tsconfig.json": (
+        '{"compilerOptions": {"baseUrl": "src", "paths": {"@lib/*": ["*"]}}}'
+    ),
+    "packages/lib/src/main.ts": "export const b = 1;",
+    "packages/lib/src/helper.ts": "export const h = 1;",
+}
+
+
+# ---- resolve: the prepared resolver selects the importer's NEAREST tsconfig ----
+
+
+def test_prepared_resolver_resolves_an_importers_own_workspace_alias(tmp_path: Path):
+    # `@app/widget` from packages/app/src/main.ts resolves against app's OWN
+    # tsconfig (baseUrl src, "@app/*": ["*"]) -> packages/app/src/widget.ts.
+    prepared = _prepared_on(tmp_path, _TWO_WORKSPACES)
+    file_set = set(_TWO_WORKSPACES)
+    assert prepared.resolve("packages/app/src/main.ts", _alias("@app/widget"), file_set) == [
+        "packages/app/src/widget.ts"
+    ]
+    assert prepared.resolve("packages/lib/src/main.ts", _alias("@lib/helper"), file_set) == [
+        "packages/lib/src/helper.ts"
+    ]
+
+
+def test_prepared_resolver_does_not_flatten_sibling_workspace_aliases(tmp_path: Path):
+    # TRUE NEGATIVE: `@app/widget` from packages/lib/src/main.ts must NOT resolve
+    # — lib's nearest tsconfig defines no `@app` alias. A resolver that flattened
+    # both workspace configs into one alias table would (wrongly) reach
+    # packages/app/src/widget.ts.
+    prepared = _prepared_on(tmp_path, _TWO_WORKSPACES)
+    file_set = set(_TWO_WORKSPACES)
+    assert prepared.resolve("packages/lib/src/main.ts", _alias("@app/widget"), file_set) == []
+
+
+def test_prepared_resolver_missing_config_is_silent_path_only_fallback(tmp_path: Path):
+    # No tsconfig anywhere above the importer: an alias specifier is external
+    # (dropped) with no warning — the silent path-only fallback.
+    warnings: list[RepoMapWarning] = []
+    files = {"src/main.ts": "export const a = 1;", "src/widget.ts": "export const w = 1;"}
+    prepared = _prepared_on(tmp_path, files, warnings=warnings)
+    assert prepared.resolve("src/main.ts", _alias("@app/widget"), set(files)) == []
+    assert warnings == []
+
+
+# ---- singleton immutability: the registered resolver is never mutated ----
+
+
+@_needs_ts
+def test_scan_preparation_never_mutates_the_registered_typescript_singleton():
+    # A context-rich scan activates aliases scan-locally; the registered
+    # singleton must stay path-only and keep dropping non-relative specifiers.
+    scan_repo(_WORKSPACES, generator_version="t")
+    singleton = get_resolver("typescript")
+    assert singleton is not None
+    file_set = {
+        "packages/app/src/main.ts",
+        "packages/app/src/widget.ts",
+        "packages/app/tsconfig.json",
+    }
+    assert singleton.resolve("packages/app/src/main.ts", _alias("@app/widget"), file_set) == []
+
+
+# ---- config degradation: malformed / non-UTF-8 / unreadable tsconfig ----
+
+
+def test_prepared_malformed_tsconfig_degrades_with_one_other_warning(tmp_path: Path):
+    warnings: list[RepoMapWarning] = []
+    files = {
+        "tsconfig.json": "{ this is not valid json",
+        "src/main.ts": "export const a = 1;",
+        "src/widget.ts": "export const w = 1;",
+    }
+    prepared = _prepared_on(tmp_path, files, warnings=warnings)
+    # The scan completes and the alias is simply unavailable (path-only).
+    assert prepared.resolve("src/main.ts", _alias("@app/widget"), set(files)) == []
+    others = [w for w in warnings if w.kind == "other"]
+    assert len(others) == 1
+    assert others[0].path == "tsconfig.json"
+
+
+def test_prepared_non_utf8_tsconfig_degrades_with_one_other_warning(tmp_path: Path):
+    warnings: list[RepoMapWarning] = []
+    (tmp_path / "tsconfig.json").write_bytes(b"\xff\xfe{}")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.ts").write_text("export const a = 1;", encoding="utf-8")
+    files = {"tsconfig.json", "src/main.ts"}
+    context = ScanContext(root=tmp_path, files=frozenset(files), warnings=warnings)
+    prepared = ts.prepare(context)
+    assert prepared.resolve("src/main.ts", _alias("@app/widget"), set(files)) == []
+    others = [w for w in warnings if w.kind == "other"]
+    assert len(others) == 1
+    assert others[0].path == "tsconfig.json"
+
+
+def test_prepared_unreadable_tsconfig_degrades_with_one_other_warning(tmp_path: Path, monkeypatch):
+    warnings: list[RepoMapWarning] = []
+    files = {"tsconfig.json": "{}", "src/main.ts": "export const a = 1;"}
+    _write_tree(tmp_path, files)
+    real_read = ScanContext.read
+
+    def failing_read(self, rel_path: str):
+        if rel_path == "tsconfig.json":
+            return None  # simulate an unreadable config portably (no chmod on Windows)
+        return real_read(self, rel_path)
+
+    monkeypatch.setattr(ScanContext, "read", failing_read)
+    context = ScanContext(root=tmp_path, files=frozenset(files), warnings=warnings)
+    prepared = ts.prepare(context)
+    assert prepared.resolve("src/main.ts", _alias("@app/widget"), set(files)) == []
+    others = [w for w in warnings if w.kind == "other"]
+    assert len(others) == 1
+    assert others[0].path == "tsconfig.json"
+
+
+# A NESTED broken tsconfig sits under an ancestor tsconfig that DOES define a
+# matching alias — the shadowing regression fixture for Fix A.
+_BROKEN_NESTED_UNDER_ALIASING_ANCESTOR = {
+    # Ancestor (repo root) config: `@shared/*` -> shared/* would resolve a real file.
+    "tsconfig.json": '{"compilerOptions": {"baseUrl": ".", "paths": {"@shared/*": ["shared/*"]}}}',
+    "shared/thing.ts": "export const t = 1;",
+    # Nested workspace whose OWN tsconfig is broken (would-be alias consumer).
+    "packages/app/tsconfig.json": "{ this is not valid json",
+    "packages/app/src/main.ts": 'import { t } from "@shared/thing";',
+}
+
+
+def test_prepared_broken_nested_tsconfig_shadows_ancestor_alias_no_leak(tmp_path: Path):
+    # Fix A: a workspace whose OWN tsconfig is present-but-broken must fall back to
+    # PATH-ONLY, never inherit an ancestor's alias table. If the broken nested config
+    # registered NO index entry, `_nearest_tsconfig` would walk past it up to the root
+    # config and (wrongly) resolve `@shared/thing` -> shared/thing.ts — an ancestor
+    # leak. Registering an EMPTY TsConfig at the broken dir (mirroring the PHP
+    # empty-root shadow) stops the walk there, so the aliased import resolves to
+    # NOTHING. Still exactly one deterministic `other` warning (the nested config).
+    warnings: list[RepoMapWarning] = []
+    prepared = _prepared_on(tmp_path, _BROKEN_NESTED_UNDER_ALIASING_ANCESTOR, warnings=warnings)
+    file_set = set(_BROKEN_NESTED_UNDER_ALIASING_ANCESTOR)
+    assert prepared.resolve("packages/app/src/main.ts", _alias("@shared/thing"), file_set) == []
+    others = [w for w in warnings if w.kind == "other"]
+    assert len(others) == 1
+    assert others[0].path == "packages/app/tsconfig.json"
+
+
+def test_prepared_pathologically_nested_tsconfig_does_not_abort_scan(tmp_path: Path):
+    # Fix B: a VALID but pathologically deeply-nested JSON tsconfig makes json.loads
+    # raise RecursionError (the C scanner's recursion-call guard), which `_load_
+    # tsconfig_json` must catch as malformed rather than let it propagate and abort
+    # the whole scan. 200000 levels clears the guard on every supported runtime
+    # (pre-3.12 gates at the Python recursion limit, 3.12+ at the C-stack limit), so
+    # preparation completes and the alias degrades to path-only with one warning.
+    warnings: list[RepoMapWarning] = []
+    deep_json = "[" * 200000 + "]" * 200000  # syntactically valid, but nests too deep
+    files = {
+        "tsconfig.json": deep_json,
+        "src/main.ts": "export const a = 1;",
+        "src/widget.ts": "export const w = 1;",
+    }
+    prepared = _prepared_on(tmp_path, files, warnings=warnings)
+    assert prepared.resolve("src/main.ts", _alias("@app/widget"), set(files)) == []
+    others = [w for w in warnings if w.kind == "other"]
+    assert len(others) == 1
+    assert others[0].path == "tsconfig.json"
+
+
+# ---- scan_repo integration on the committed sibling-workspace fixture ----
+
+
+@_needs_ts
+def test_scan_resolves_nearest_tsconfig_alias_per_workspace_exact_edge_set():
+    # Decision table over (importer's nearest tsconfig, specifier) -> resolved edge:
+    #   app/main + @app/widget -> app's config resolves      -> edge (positive)
+    #   lib/main + @lib/helper -> lib's config resolves      -> edge (positive)
+    #   lib/main + @app/widget -> lib's config has NO @app    -> NO edge (true negative)
+    # A resolver that flattened both workspace configs into one alias table would
+    # emit the third (phantom) cross-config edge, so the EXACT set below fails it.
+    repo_map = scan_repo(_WORKSPACES, generator_version="t")
+    import_edges = {(e.source, e.target): e for e in repo_map.edges if e.type == "imports"}
+    pairs = set(import_edges)
+    assert pairs == {
+        ("file:packages/app/src/main.ts", "file:packages/app/src/widget.ts"),
+        ("file:packages/lib/src/main.ts", "file:packages/lib/src/helper.ts"),
+    }
+    # Explicit true negative: the sibling-workspace alias resolved no edge.
+    assert (
+        "file:packages/lib/src/main.ts",
+        "file:packages/app/src/widget.ts",
+    ) not in pairs
+    # Module-level ES imports -> high confidence; no dangling or self edges.
+    assert all(e.confidence == "high" for e in import_edges.values())
+    node_ids = {n.id for n in repo_map.nodes}
+    for src, tgt in pairs:
+        assert src in node_ids and tgt in node_ids
+        assert src != tgt

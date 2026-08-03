@@ -62,6 +62,7 @@ Added the regression test:
 ```python
 # pricing/test_discount_calculator.py
 
+
 def test_vip_with_promo_does_not_stack_discounts():
     """Regression: VIP tier + promo code must not stack — VIP wins outright."""
     order = Order(

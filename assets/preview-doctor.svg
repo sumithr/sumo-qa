@@ -5,7 +5,7 @@
 <text x="1144" y="78" text-anchor="end" font-family="Georgia, 'Times New Roman', serif" font-size="19" font-style="italic" fill="#7A1F1F">sumo-qa-doctor &#8212; one read-only command to verify any host setup</text>
 <line x1="56" y1="104" x2="1144" y2="104" stroke="#1C1917" stroke-width="1" stroke-opacity="0.35"/>
 <text x="56" y="148" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" font-weight="bold" fill="#1C1917">$ sumo-qa-doctor</text>
-<text x="56" y="186" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] python_version — Python 3.14.4; sumo-qa 0.57.0</text>
+<text x="56" y="186" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] python_version — Python 3.14.4; sumo-qa 0.60.2</text>
 <text x="56" y="210" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] install_mode — editable install (skills/ under ~/sumo-qa)</text>
 <text x="56" y="234" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] binary_discoverable — sumo-qa on PATH at ~/Desktop/repos/apo/sumo-qa/.venv/bin/sumo-qa</text>
 <text x="56" y="258" xml:space="preserve" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14.5" fill="#5C554E">[OK] uvx_available — uvx on PATH at ~/Desktop/repos/apo/sumo-qa/.venv/bin/uvx</text>

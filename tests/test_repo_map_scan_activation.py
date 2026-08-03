@@ -13,12 +13,18 @@ negative:
   resolve through conventional ``include/``/``src/`` roots; angle-bracket
   includes emit no edge (no proven include roots exist until #484 supplies
   repository context, so the correct behavior is under-edge).
-- PHP: a relative ``require``/``include`` edge resolves with NO Composer
-  context; PSR-4 ``use`` fan-out is deliberately NOT asserted (#484 owns the
-  Composer root threading).
+- PHP: a relative ``require``/``include`` edge resolves; since #484 a PSR-4
+  ``use`` edge also resolves through the scan-local Composer preparation pass
+  (the nearest ``composer.json``'s autoload roots, anchored to its own
+  directory). The true negative is sibling-package isolation: one package's
+  PSR-4 map must NOT resolve an import written in a sibling Composer package.
 - C#: ``.cs`` files become ``source_file`` nodes stamped ``csharp`` and reach
-  resolver dispatch (proven by a spy on the registered resolver); namespace
-  fan-out edges are deliberately NOT asserted (#484 owns the namespace index).
+  resolver dispatch (proven by a spy on the registered resolver); this fixture
+  carries no ``.csproj``, so with no project ownership the per-project
+  preparation pass (#542) has nothing to scope a fan-out to and the edge set
+  stays empty — the missing-config path-only fallback. Project-scoped namespace
+  fan-out over committed ``.csproj`` boundaries lives in
+  ``tests/test_repo_map_csharp_scan.py``.
 
 Without the extra, the same files still classify as correctly typed source
 nodes and the scan degrades through the existing single warning path.
@@ -162,26 +168,85 @@ def test_scan_committed_cpp_fixture_exact_edge_set():
     assert _node(repo_map, "clib/lib.c").language == "c"
 
 
-# ---------- PHP (committed fixture, no Composer context) ----------
+# ---------- PHP (committed fixtures, Composer PSR-4 activated since #484) ----------
 
 
 @_needs_ts
-def test_scan_php_relative_require_emits_edge_without_composer_context():
-    # The committed PHP fixture has a composer.json, but scan-time resolution
-    # deliberately does NOT read it (#484 owns Composer root threading). The
-    # relative `require __DIR__ . '/../helpers.php'` resolves; the PSR-4
-    # `use App\Models\User;` and the vendor `use Monolog\Logger;` do not.
-    # The exact-set assertion IS the PSR-4 true negative.
+def test_scan_php_emits_psr4_and_require_edges():
+    # The committed single-package PHP fixture end to end: since #484 the scan
+    # reads the fixture's composer.json (`App\` -> `src/`) through the
+    # preparation pass, so the PSR-4 `use App\Models\User;` resolves to
+    # src/Models/User.php AND the relative `require __DIR__ . '/../helpers.php'`
+    # resolves to src/helpers.php. The vendor `use Monolog\Logger;` matches no
+    # PSR-4 root and maps to no node, so it stays absent -- the exact set IS
+    # that vendor true negative.
     repo_map = scan_repo(_FIXTURES / "php", generator_version="t")
     assert _import_pairs(repo_map) == {
-        (
-            "file:src/Controllers/UserController.php",
-            "file:src/helpers.php",
-        )
+        ("file:src/Controllers/UserController.php", "file:src/Models/User.php"),
+        ("file:src/Controllers/UserController.php", "file:src/helpers.php"),
     }
     controller = _node(repo_map, "src/Controllers/UserController.php")
     assert controller.type == "source_file"
     assert controller.language == "php"
+
+
+@_needs_ts
+def test_scan_php_psr4_does_not_leak_to_sibling_composer_package():
+    # The committed multi-package fixture (#484): package `blog` declares
+    # `Blog\` -> its own src/, package `shop` declares only `Shop\` -> its own
+    # src/. The intra-package `use Blog\Post;` in blog/PostController.php
+    # resolves (positive); the sibling `use Blog\Post;` in shop/Cart.php matches
+    # no root in shop's composer.json, so it must NOT resolve to blog's Post.php.
+    # The EXACT edge set is the discriminator: an over-matching resolver that
+    # merged both packages' PSR-4 maps (or applied blog's map globally) would
+    # add the cross-package edge and fail this assertion.
+    repo_map = scan_repo(_FIXTURES / "php_composer_packages", generator_version="t")
+    positive = (
+        "file:packages/blog/src/PostController.php",
+        "file:packages/blog/src/Post.php",
+    )
+    cross_package = (
+        "file:packages/shop/src/Cart.php",
+        "file:packages/blog/src/Post.php",
+    )
+    pairs = _import_pairs(repo_map)
+    assert pairs == {positive}
+    assert cross_package not in pairs  # sibling-package true negative, made explicit
+    assert _node(repo_map, "packages/shop/src/Cart.php").language == "php"
+
+
+@_needs_ts
+def test_scan_php_pathologically_nested_composer_does_not_abort_scan(tmp_path: Path):
+    # A composer.json whose JSON is VALID but pathologically nested makes
+    # json.loads raise RecursionError. That must degrade EXACTLY like a
+    # malformed manifest -- one deterministic `other` warning, EMPTY PSR-4 roots
+    # that shadow any outer composer (path-only) -- and must NEVER abort
+    # scan_repo. AC: "unreadable or malformed config must not abort the scan."
+    depth = 100_000
+    pathological = "[" * depth + "]" * depth  # valid JSON, deeply nested -> RecursionError
+    _write(tmp_path, "packages/app/composer.json", pathological)
+    _write(
+        tmp_path,
+        "packages/app/src/Service.php",
+        "<?php\nuse App\\Models\\User;\nrequire __DIR__ . '/helper.php';\n",
+    )
+    # Present so a resolver that did NOT degrade would map the PSR-4 use to it --
+    # the discriminator proving the pathological composer really fell to path-only.
+    _write(tmp_path, "packages/app/src/Models/User.php", "<?php\n")
+    _write(tmp_path, "packages/app/src/helper.php", "<?php\n")
+
+    repo_map = scan_repo(tmp_path, generator_version="t")  # must not raise
+
+    # The PSR-4 `use App\Models\User;` resolves to nothing (composer unusable),
+    # while the relative `require __DIR__ . '/helper.php'` still resolves -- proof
+    # the scan completed and edges keep flowing. The exact set makes the PSR-4
+    # true negative explicit despite User.php being present.
+    assert _import_pairs(repo_map) == {
+        ("file:packages/app/src/Service.php", "file:packages/app/src/helper.php"),
+    }
+    others = [w for w in repo_map.warnings if w.kind == "other"]
+    assert len(others) == 1  # exactly one deterministic degradation warning
+    assert others[0].path == "packages/app/composer.json"
 
 
 # ---------- C# (committed fixture, dispatch without namespace context) ----------
@@ -189,11 +254,12 @@ def test_scan_php_relative_require_emits_edge_without_composer_context():
 
 @_needs_ts
 def test_scan_csharp_sources_reach_resolver_dispatch(monkeypatch):
-    # .cs files must classify as csharp source nodes AND reach the registered
-    # resolver (proven by a spy on extract). Namespace fan-out edges are
-    # deliberately NOT asserted: the registered resolver's namespace index is
-    # empty until #484 threads a per-scan index, so the exact edge set is
-    # empty (a true negative pinning the #484 boundary).
+    # .cs files must classify as csharp source nodes AND reach resolver dispatch
+    # (proven by a spy on the class-level extract, which fires on the prepared
+    # scan-local instance too). This fixture has no .csproj, so the per-project
+    # preparation pass (#542) finds no project ownership and the exact edge set
+    # is empty (the missing-config path-only fallback); committed-.csproj
+    # fan-out is exercised in tests/test_repo_map_csharp_scan.py.
     resolver = get_resolver("csharp")
     assert resolver is not None
     dispatched: list[int] = []

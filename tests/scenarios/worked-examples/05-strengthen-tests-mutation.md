@@ -161,6 +161,7 @@ Tautology check. Closest existing test:
 def test_free_shipping_below_cutoff():
     assert calculate_shipping(total=Decimal("499.99")) == Decimal("0.00")
 
+
 def test_paid_shipping_above_cutoff():
     assert calculate_shipping(total=Decimal("500.01")) == Decimal("4.99")
 ```
@@ -222,6 +223,7 @@ Existing tests at this branch:
 def test_member_with_promo_gets_combined_discount():
     assert combined_discount(is_member=True, has_promo=True) == Decimal("0.20")
 
+
 def test_no_member_no_promo_no_discount():
     assert combined_discount(is_member=False, has_promo=False) == Decimal("0.00")
 ```
@@ -233,10 +235,13 @@ Not a tautology. Real, and the technique shifts: this is a compound condition wi
 Proposed strengthening — parametrise the two missing rows of the decision table:
 
 ```python
-@pytest.mark.parametrize("is_member,has_promo,expected", [
-    (True,  False, Decimal("0.00")),  # member alone, no promo → no discount
-    (False, True,  Decimal("0.00")),  # promo alone, not a member → no discount
-])
+@pytest.mark.parametrize(
+    "is_member,has_promo,expected",
+    [
+        (True, False, Decimal("0.00")),  # member alone, no promo → no discount
+        (False, True, Decimal("0.00")),  # promo alone, not a member → no discount
+    ],
+)
 def test_combined_discount_requires_both_member_and_promo(is_member, has_promo, expected):
     assert combined_discount(is_member=is_member, has_promo=has_promo) == expected
 ```
