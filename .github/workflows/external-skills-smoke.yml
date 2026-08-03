@@ -71,7 +71,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           # Pin a single Python version — this is a smoke test of the
           # real-CLI vector, not a Python-compatibility matrix. test.yml
