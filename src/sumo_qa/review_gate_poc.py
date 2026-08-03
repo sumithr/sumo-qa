@@ -13,6 +13,8 @@ import json
 import re
 from dataclasses import dataclass
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from sumo_qa.gate_evidence_models import GateClaim, GateReport
 from sumo_qa.gate_evidence_validation import (
     GateEvidenceValidationError,
@@ -32,10 +34,42 @@ _CODE_FENCE_RE = re.compile(
     re.DOTALL,
 )
 _VERDICT_RE = re.compile(r"(?mi)^\s*Verdict:\s*(?P<verdict>NOT SAFE TO MERGE|SAFE TO MERGE)\b.*$")
+# The two optional appendices the review contract allows after the verdict.
+_APPENDIX_MARKER_RE = re.compile(
+    r"(?i)\A\s*(?:#{1,6}\s+)?(?:readiness\s+scorecard|risk\s+ledger)\b"
+)
+_TABLE_ROW_RE = re.compile(r"\A\s*\|")
 
 
 class ReviewGateValidationError(ValueError):
     """The model response cannot pass the deterministic review boundary."""
+
+
+class ReviewFeedback(BaseModel):
+    """Saved review feedback the host supplied for this diff."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trigger: str
+    probe: str
+
+
+class ReviewContext(BaseModel):
+    """Host-supplied inputs the deterministic boundary checks the review against.
+
+    The validator previously saw only the model's response, so every rule that
+    depends on what the host actually supplied -- one row per acceptance
+    criterion, one row per stale path, the memory present/absent branches --
+    had to be bought as prompt prose.  Carrying the supplied context here is
+    what lets those move into code; the completeness rules that consume these
+    fields land in the next step.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    inventory_drift_paths: list[str] = Field(default_factory=list)
+    saved_review_feedback: ReviewFeedback | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +79,7 @@ class ValidatedReview:
     report: GateReport
     review: str
     safe_to_merge: bool
+    context: ReviewContext | None = None
 
 
 def _split_envelopes(response: str) -> tuple[object, str]:
@@ -84,8 +119,55 @@ def _verdict(review: str) -> bool:
     return matches[0].group("verdict") == "SAFE TO MERGE"
 
 
-def validate_review_response(response: str) -> ValidatedReview:
-    """Validate mechanics while preserving the model-authored review verbatim.
+def _partition_appendices(lines: list[str]) -> tuple[list[str], list[str]]:
+    """Split review lines into body lines and appended scorecard/ledger lines."""
+    body: list[str] = []
+    appendix: list[str] = []
+    in_appendix = False
+    for line in lines:
+        if _APPENDIX_MARKER_RE.match(line):
+            in_appendix = True
+        elif in_appendix and line.strip() and not _TABLE_ROW_RE.match(line):
+            # Prose resumed, so the appended block ended here.
+            in_appendix = False
+        (appendix if in_appendix else body).append(line)
+    return body, appendix
+
+
+def _normalise_appendix_order(review: str) -> str:
+    """Move an appended scorecard/ledger below the verdict line.
+
+    The review contract requires the literal verdict line to precede the
+    scorecard heading and the risk-ledger table.  That is presentation order,
+    not judgment, so the boundary repairs it rather than spending prompt tokens
+    instructing it.  Every model-authored line survives verbatim; only the
+    order of the blocks changes, and a review already in contract order is
+    returned untouched.
+    """
+    lines = review.splitlines()
+    first_marker = next(
+        (index for index, line in enumerate(lines) if _APPENDIX_MARKER_RE.match(line)),
+        None,
+    )
+    if first_marker is None:
+        return review
+    verdict_index = next(
+        (index for index, line in enumerate(lines) if _VERDICT_RE.match(line)),
+        None,
+    )
+    if verdict_index is None or verdict_index < first_marker:
+        return review
+
+    body, appendix = _partition_appendices(lines)
+    return "\n".join(body + appendix)
+
+
+def validate_review_response(
+    response: str,
+    *,
+    context: ReviewContext | None = None,
+) -> ValidatedReview:
+    """Validate mechanics while preserving the model-authored review.
 
     The function does not classify the change, identify risks, choose a test
     technique, set test depth, or produce a verdict.  It accepts those model
@@ -94,8 +176,13 @@ def validate_review_response(response: str) -> ValidatedReview:
     * a typed evidence report exists;
     * the mandatory workflow stages are represented exactly once;
     * a favourable verdict is impossible unless every mandatory stage passed
-      and no additional gate is unresolved; and
-    * pass/safe prose cites an observable evidence source.
+      and no additional gate is unresolved;
+    * pass/safe prose cites an observable evidence source; and
+    * an appended scorecard/ledger sits below the verdict line, repaired
+      deterministically rather than instructed in the prompt.
+
+    ``context`` carries what the host supplied for this review so completeness
+    rules can be checked in code instead of prose.
     """
 
     report_data, review = _split_envelopes(response)
@@ -106,6 +193,7 @@ def validate_review_response(response: str) -> ValidatedReview:
 
     claims = _required_claims(report)
     safe_to_merge = _verdict(review)
+    review = _normalise_appendix_order(review)
     if safe_to_merge:
         unresolved_required = sorted(
             gate for gate in REQUIRED_REVIEW_GATES if claims[gate].status != "passed"
@@ -122,4 +210,9 @@ def validate_review_response(response: str) -> ValidatedReview:
     except GateEvidenceValidationError as exc:
         raise ReviewGateValidationError(str(exc)) from exc
 
-    return ValidatedReview(report=report, review=review, safe_to_merge=safe_to_merge)
+    return ValidatedReview(
+        report=report,
+        review=review,
+        safe_to_merge=safe_to_merge,
+        context=context,
+    )

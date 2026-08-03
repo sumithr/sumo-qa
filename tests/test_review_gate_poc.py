@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from experiments.issue_557.compare_results import (
     CONFIGS,
@@ -37,7 +38,12 @@ from experiments.issue_557.run_subscription_eval import (
     subscription_environment,
     summarize,
 )
-from sumo_qa.review_gate_poc import ReviewGateValidationError, validate_review_response
+from sumo_qa.review_gate_poc import (
+    ReviewContext,
+    ReviewFeedback,
+    ReviewGateValidationError,
+    validate_review_response,
+)
 
 
 def _response(
@@ -182,6 +188,86 @@ def test_model_owned_judgment_is_returned_byte_for_byte() -> None:
     assert validated.review == review
     assert "retry duplication" in validated.review
     assert "state transition testing" in validated.review
+
+
+def _nonblank_lines(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.strip()]
+
+
+def test_scorecard_emitted_before_the_verdict_is_normalised_below_it() -> None:
+    # The contract layer buys this ordering rule with prompt tokens ("the
+    # literal `Verdict: ...` line must appear before the scorecard heading or
+    # table").  It is pure structure, so code can enforce it for free.
+    review = (
+        "## Readiness scorecard\n"
+        "| Signal | Result |\n"
+        "| --- | --- |\n"
+        "| Coverage | not measured |\n"
+        "Risk: stale changelog anchor at CHANGELOG.md:12.\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    validated = validate_review_response(_response(risks="failed", review=review))
+
+    assert validated.review.index("Verdict: NOT SAFE TO MERGE") < validated.review.index(
+        "## Readiness scorecard"
+    )
+    # Only the ordering may change: every model-authored line survives verbatim,
+    # so the normaliser cannot drop or invent judgment.
+    assert sorted(_nonblank_lines(validated.review)) == sorted(_nonblank_lines(review))
+
+
+def test_review_already_in_contract_order_is_returned_unchanged() -> None:
+    # Adjacent class: correctly-ordered output must pass through untouched, or
+    # the normaliser is scrambling reviews that were already right.
+    review = (
+        "Risk: stale changelog anchor at CHANGELOG.md:12.\n"
+        "Verdict: NOT SAFE TO MERGE\n"
+        "## Readiness scorecard\n"
+        "| Signal | Result |\n"
+        "| --- | --- |\n"
+        "| Coverage | not measured |"
+    )
+
+    validated = validate_review_response(_response(risks="failed", review=review))
+
+    assert validated.review == review
+
+
+def test_ledger_table_emitted_before_the_verdict_is_normalised_below_it() -> None:
+    review = (
+        "Risk ledger:\n"
+        "| Risk | Statement | Source | Test / check | Evidence | Residual |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| R1 | retry duplication | worker.py:41 | none | planned | blocker |\n"
+        "Verdict: NOT SAFE TO MERGE"
+    )
+
+    validated = validate_review_response(_response(risks="failed", review=review))
+
+    assert validated.review.index("Verdict: NOT SAFE TO MERGE") < validated.review.index(
+        "Risk ledger:"
+    )
+    assert sorted(_nonblank_lines(validated.review)) == sorted(_nonblank_lines(review))
+
+
+def test_supplied_context_is_carried_onto_the_validated_review() -> None:
+    context = ReviewContext(
+        acceptance_criteria=["AC1: refund reverses the ledger entry"],
+        inventory_drift_paths=["docs/tools.md"],
+        saved_review_feedback=ReviewFeedback(
+            trigger="hook change", probe="run the hook end to end"
+        ),
+    )
+
+    validated = validate_review_response(_response(), context=context)
+
+    assert validated.context is context
+
+
+def test_supplied_context_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        ReviewContext(acceptance_critera=["typo in the field name"])  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize(
