@@ -85,7 +85,7 @@ jobs:
         # (the test guard is `shutil.which("npx") is None`) and the
         # workflow would produce no signal at all — the opposite of
         # what scheduling this is for. Node 20 is the current LTS.
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
 
