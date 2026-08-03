@@ -35,6 +35,16 @@ def _load_gate():
 gate = _load_gate()
 
 
+def _rewrite_meta(tmp_path, metas):
+    """Overwrite the .meta files in place, used by the converge-loop stubs to
+    simulate a later mutmut pass producing different results."""
+    meta_root = tmp_path / "mutants" / "src" / "sumo_qa"
+    for module, exit_codes in metas.items():
+        (meta_root / f"{module}.py.meta").write_text(
+            json.dumps({"exit_code_by_key": exit_codes}), encoding="utf-8"
+        )
+
+
 def _write_fixtures(tmp_path, baseline, metas):
     baseline_path = tmp_path / "mutmut-baseline.json"
     baseline_path.write_text(json.dumps({"per_module": baseline}), encoding="utf-8")
@@ -113,11 +123,21 @@ def test_github_step_summary_written_when_env_set(tmp_path, monkeypatch):
 
 
 def test_crashed_mutmut_run_propagates_without_judging_stale_meta(tmp_path, monkeypatch, capsys):
-    """--run-mutmut with a non-zero mutmut exit must NOT read .meta files:
-    a crashed run leaves stale results, and judging them is a false verdict."""
+    """--run-mutmut with a non-zero mutmut exit must NOT read the baseline or the
+    .meta files: a crashed run leaves stale results, and judging them is a false
+    verdict.
+
+    Runs from an EMPTY cwd on purpose. Without the chdir this test passes even
+    when main() reads the baseline eagerly, because pytest's cwd is the repo
+    root where mutmut-baseline.json exists -- it would pass against a broken
+    implementation, which is no test at all. The chdir is also what reproduces
+    the real failure: the gate runs inside mutmut's own `mutants/` working copy
+    during the clean-test phase, and the baseline is not copied there, so an
+    eager read raises FileNotFoundError and aborts the whole mutation run.
+    """
     calls = {}
 
-    def fake_run(cmd):
+    def fake_run(cmd, **kwargs):
         calls["cmd"] = cmd
 
         class R:
@@ -126,7 +146,170 @@ def test_crashed_mutmut_run_propagates_without_judging_stale_meta(tmp_path, monk
         return R()
 
     monkeypatch.setattr(gate.subprocess, "run", fake_run)
-    # No baseline/meta fixtures on purpose: reading them would raise.
+    monkeypatch.chdir(tmp_path)
+    assert not (tmp_path / "mutmut-baseline.json").exists()
     assert gate.main(["--run-mutmut", "--max-children", "1"]) == 7
     assert calls["cmd"] == ["mutmut", "run", "--max-children", "1"]
     assert "not judging stale .meta files" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# macOS fork-noise converge loop (#523)
+#
+# On macOS the fork-based runner intermittently produces a run in which most
+# mutants yield no usable verdict: either a segfault (-11/-9) or, when the run
+# aborts before executing them, the `null` that mutmut pre-populates
+# exit_code_by_key with at generation time. Neither is in KILLED_EXIT_CODES nor
+# equals 0, so both collapse to killed=0/survived=0 and the gate reports every
+# module DROPPED on a clean tree, blocking the push. An enforced-but-flaky gate
+# trains people to bypass it, which defeats the enforcement it exists for.
+# ---------------------------------------------------------------------------
+
+
+def test_segfault_and_null_both_count_as_unjudged_not_killed_or_survived():
+    """The two shapes of a wiped-out run. `null` matters as much as -11: mutmut
+    pre-populates every key with null, so an abort-before-execute looks
+    identical to a segfault in the verdict."""
+    stats = gate.module_stats_from_exit_codes(
+        {"seg": -11, "sigkill": -9, "never_ran": None, "killed": 1, "survivor": 0}
+    )
+    assert stats["killed"] == 1
+    assert stats["survived"] == 1
+    assert stats["unjudged"] == 3
+
+
+def test_noise_degraded_detection_fires_only_above_threshold():
+    assert gate.is_noise_degraded({"m": {"unjudged": 6, "total": 10}}) is True
+    assert gate.is_noise_degraded({"m": {"unjudged": 5, "total": 10}}) is False
+    assert gate.is_noise_degraded({"m": {"unjudged": 0, "total": 0}}) is False
+
+
+def test_converge_loop_reruns_keeping_cache_until_noise_clears(tmp_path, monkeypatch, capsys):
+    """R2: the loop must re-run mutmut when the pass was noise-degraded, and it
+    must NOT pass --clean/rm the cache; keeping the cache is what lets the
+    surviving results accumulate across passes."""
+    runs = []
+    metas = [
+        {"mod": {"m1": -11, "m2": -11, "m3": -11}},  # pass 1: wiped out
+        {"mod": {"m1": 1, "m2": 1, "m3": 1}},  # pass 2: converged
+    ]
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+        _rewrite_meta(tmp_path, metas[len(runs) - 1])
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 3}}, metas[0])
+    assert gate.main(["--run-mutmut", *argv]) == 0
+    assert len(runs) == 2, "should re-run exactly once, then stop when clean"
+    assert not any("--clean" in c for c in runs), "cache must be kept across passes"
+    assert "converging (pass 2)" in capsys.readouterr().out
+
+
+def test_converge_loop_is_bounded(tmp_path, monkeypatch, capsys):
+    """R2: a permanently-noisy machine must not loop forever, since the push has to
+    terminate one way or the other."""
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+        _rewrite_meta(tmp_path, {"mod": {"m1": -11, "m2": -11, "m3": -11}})
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 3}}, {"mod": {"m1": -11}})
+    gate.main(["--run-mutmut", *argv])
+    assert len(runs) == gate.MAX_CONVERGE_PASSES
+    assert "noise-degraded" in capsys.readouterr().out
+
+
+def test_linux_path_takes_no_extra_passes_and_sets_no_fork_env(tmp_path, monkeypatch):
+    """R3 + AC3: a clean non-darwin run must call mutmut exactly once and must
+    not inject the macOS-only fork-safety variable."""
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append((cmd, kwargs.get("env")))
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 1}}, {"mod": {"m1": 1}})
+    assert gate.main(["--run-mutmut", *argv]) == 0
+    assert len(runs) == 1
+    assert runs[0][1] is None, "no env override on Linux"
+
+
+def test_darwin_sets_objc_fork_safety_in_child_env(tmp_path, monkeypatch):
+    """The documented prerequisite for a usable local run; without it nearly
+    every mutant segfaults."""
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(kwargs.get("env"))
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate.sys, "platform", "darwin")
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 1}}, {"mod": {"m1": 1}})
+    assert gate.main(["--run-mutmut", *argv]) == 0
+    assert runs[0]["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] == "YES"
+    assert "PATH" in runs[0], "must extend os.environ, not replace it"
+
+
+def test_noise_degraded_does_not_block_when_shortfall_is_explained_by_noise(tmp_path, capsys):
+    """The whole point of #523: a clean tree must push green. The kill shortfall
+    is fully accounted for by un-judged mutants, so this is 'could not measure',
+    not 'a regression'."""
+    argv = _write_fixtures(
+        tmp_path,
+        {"mod": {"killed": 3}},
+        {"mod": {"m1": 1, "m2": -11, "m3": -11}},
+    )
+    assert gate.main(argv) == 0
+    out = capsys.readouterr().out
+    assert "NOISE-DEGRADED" in out
+    assert "Linux" in out, "must point at the authoritative gate"
+
+
+def test_genuine_drop_still_fails_even_with_some_noise(tmp_path, capsys):
+    """R1: noise must excuse only as much as it accounts for. 1 killed + 1
+    unjudged cannot explain a baseline of 3."""
+    argv = _write_fixtures(
+        tmp_path,
+        {"mod": {"killed": 3}},
+        {"mod": {"m1": 1, "m2": -11, "m3": 34}},
+    )
+    assert gate.main(argv) == 1
+    assert "killed dropped from 3 -> 1" in capsys.readouterr().out
+
+
+def test_survivor_still_fails_in_a_noise_degraded_run(tmp_path, capsys):
+    """R1, the load-bearing one: a real survivor is a real failure no matter how
+    noisy the rest of the run was. Noise must never launder a survivor."""
+    argv = _write_fixtures(
+        tmp_path,
+        {"mod": {"killed": 1}},
+        {"mod": {"m_survivor": 0, "m1": -11, "m2": -11, "m3": -11}},
+    )
+    assert gate.main(argv) == 1
+    out = capsys.readouterr().out
+    assert "100% kill rate required" in out
+    assert "m_survivor" in out

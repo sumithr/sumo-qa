@@ -24,14 +24,31 @@ mutants/src/sumo_qa/<module>.py.meta contains a JSON object whose
   all others       -> suspicious
 
 Two independent failure conditions (both must pass):
-  1. Regression catch: any module's killed count below the committed
-     baseline in mutmut-baseline.json -> DROPPED.
-  2. Strict-100% gate: any surviving (exit code 0) mutant -> SURVIVED.
+  1. Strict-100% gate: any surviving (exit code 0) mutant -> SURVIVED.
+     Checked FIRST: a survivor is unambiguous evidence of a weak test and is
+     never excused, however noisy the rest of the run was.
+  2. Regression catch: any module's killed count below the committed
+     baseline in mutmut-baseline.json -> DROPPED, EXCEPT where un-judged
+     mutants account for the shortfall -> NOISE-DEGRADED (not a failure; see
+     below).
 
-With --run-mutmut the script first invokes the `mutmut run` console script
-(never `python -m mutmut`; see docs/DEVELOPMENT.md) and propagates a non-zero
-mutmut exit immediately - a crashed run leaves stale .meta files behind, and
-judging those would be a false verdict.
+With --run-mutmut the script invokes the `mutmut run` console script (never
+`python -m mutmut`; see docs/DEVELOPMENT.md) and propagates a non-zero mutmut
+exit immediately - a crashed run leaves stale .meta files behind, and judging
+those would be a false verdict.
+
+macOS fork noise (#523). A wiped-out run yields mutants with no verdict at
+all: a segfault (-11/-9), or the `null` mutmut pre-populates exit_code_by_key
+with at generation time and never fills in when the run aborts before
+executing them. Both are outside the killed set and both differ from 0, so
+both used to read as killed=0/survived=0 and report every module DROPPED on a
+clean tree, blocking the push. So --run-mutmut now sets
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY on darwin, re-runs a noise-dominated pass
+(cache KEPT, bounded by MAX_CONVERGE_PASSES) to let results converge, and
+judges any residue honestly: un-judged mutants are neither killed nor
+survived, and a shortfall they explain is reported NOISE-DEGRADED with a
+pointer to the authoritative Linux dispatch. Off darwin nothing changes: no
+env override, and a healthy pass exits the loop after exactly one run.
 """
 
 from __future__ import annotations
@@ -46,20 +63,68 @@ from pathlib import Path
 # Killed exit codes - copied from mutmut/__main__.py status_by_exit_code.
 KILLED_EXIT_CODES = {1, 3, -24}
 
+# Exit codes that carry NO verdict about the mutant (#523). Two shapes:
+#   -11 / -9  the fork-based runner segfaulted the child on macOS;
+#   None      mutmut pre-populates exit_code_by_key with null at generation
+#             time and fills it in as each mutant completes, so a run that
+#             aborts before executing them leaves null behind.
+# Neither is in KILLED_EXIT_CODES nor equals 0, so both used to collapse to
+# killed=0/survived=0 and report every module DROPPED on a clean tree.
+SEGFAULT_EXIT_CODES = {-11, -9}
 
-def module_stats(meta_path: Path) -> dict:
-    """Summarise one module's .meta file into killed/survived/total counts."""
-    if not meta_path.exists():
-        return {"killed": 0, "survived": 0, "total": 0, "missing": True}
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    exit_codes = meta.get("exit_code_by_key", {})
+# Fraction of un-judged mutants above which a pass is treated as noise rather
+# than signal.
+NOISE_THRESHOLD = 0.5
+
+# Upper bound on `mutmut run` passes. The cache is KEPT between passes, so
+# results accumulate; the bound exists so a permanently-noisy machine
+# terminates the push instead of hanging it.
+MAX_CONVERGE_PASSES = 4
+
+_FORK_SAFETY_ENV = "OBJC_DISABLE_INITIALIZE_FORK_SAFETY"
+
+
+def module_stats_from_exit_codes(exit_codes: dict) -> dict:
+    """Summarise one module's exit codes into killed/survived/unjudged counts."""
     return {
         "killed": sum(1 for ec in exit_codes.values() if ec in KILLED_EXIT_CODES),
         "survived": sum(1 for ec in exit_codes.values() if ec == 0),
+        "unjudged": sum(1 for ec in exit_codes.values() if ec is None or ec in SEGFAULT_EXIT_CODES),
         "total": len(exit_codes),
         "missing": False,
         "survivor_names": sorted(k for k, ec in exit_codes.items() if ec == 0),
     }
+
+
+def module_stats(meta_path: Path) -> dict:
+    """Summarise one module's .meta file into killed/survived/unjudged counts."""
+    if not meta_path.exists():
+        return {"killed": 0, "survived": 0, "unjudged": 0, "total": 0, "missing": True}
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    return module_stats_from_exit_codes(meta.get("exit_code_by_key", {}))
+
+
+def is_noise_degraded(current: dict, threshold: float = NOISE_THRESHOLD) -> bool:
+    """True when most of the run produced no usable verdict, i.e. the pass tells
+    us nothing and judging it would be a false verdict rather than a real one."""
+    total = sum(stats.get("total", 0) for stats in current.values())
+    if not total:
+        return False
+    unjudged = sum(stats.get("unjudged", 0) for stats in current.values())
+    return unjudged / total > threshold
+
+
+def mutmut_child_env() -> dict | None:
+    """Child env for `mutmut run`, or None to inherit unchanged.
+
+    On darwin the fork-based runner segfaults nearly every mutant without
+    OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES. Extends os.environ rather than
+    replacing it so PATH (which resolves the `mutmut` console script) survives.
+    Returns None off darwin so the Linux/CI path is byte-for-byte unchanged.
+    """
+    if sys.platform != "darwin":
+        return None
+    return {**os.environ, _FORK_SAFETY_ENV: "YES"}
 
 
 def evaluate(baseline_per_module: dict, current: dict) -> tuple[list[str], list[str]]:
@@ -70,19 +135,29 @@ def evaluate(baseline_per_module: dict, current: dict) -> tuple[list[str], list[
         "| --- | --- | --- | --- | --- |",
     ]
     for module, base in baseline_per_module.items():
-        curr = current.get(module, {"killed": 0, "survived": 0, "total": 0, "missing": True})
+        curr = current.get(
+            module, {"killed": 0, "survived": 0, "unjudged": 0, "total": 0, "missing": True}
+        )
         base_killed = base["killed"]
         curr_killed = curr["killed"]
         survived = curr["survived"]
+        unjudged = curr.get("unjudged", 0)
         if curr.get("missing"):
             verdict = "MISSING"
             failed.append(f"{module}: .meta file not found - did mutmut run complete?")
-        elif curr_killed < base_killed:
-            verdict = "DROPPED"
-            failed.append(f"{module}: killed dropped from {base_killed} -> {curr_killed}")
         elif survived > 0:
+            # Checked BEFORE the kill-count comparison: a survivor is unambiguous
+            # evidence of a weak test, and no amount of fork noise may launder it.
             verdict = "SURVIVED"
             failed.append(f"{module}: {survived} mutant(s) survived - 100% kill rate required")
+        elif curr_killed < base_killed:
+            # Excuse the shortfall only as far as un-judged mutants account for
+            # it. A drop that noise cannot explain is still a real regression.
+            if curr_killed + unjudged >= base_killed:
+                verdict = "NOISE-DEGRADED"
+            else:
+                verdict = "DROPPED"
+                failed.append(f"{module}: killed dropped from {base_killed} -> {curr_killed}")
         else:
             verdict = "OK"
         lines.append(f"| {module} | {base_killed} | {curr_killed} | {survived} | {verdict} |")
@@ -116,26 +191,71 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # The baseline is read LAZILY, never before `mutmut run` has succeeded.
+    # A crashed mutmut must propagate its exit code without touching the
+    # baseline or the .meta files (judging stale results is a false verdict),
+    # and the gate also runs inside mutmut's own `mutants/` working copy during
+    # the clean-test phase, where mutmut-baseline.json is not present at all.
+    baseline_per_module: dict | None = None
+
+    def load_baseline() -> dict:
+        nonlocal baseline_per_module
+        if baseline_per_module is None:
+            baseline_per_module = json.loads(args.baseline.read_text(encoding="utf-8"))[
+                "per_module"
+            ]
+        return baseline_per_module
+
+    def read_current() -> dict:
+        return {
+            module: module_stats(args.meta_root / f"{module}.py.meta") for module in load_baseline()
+        }
+
+    current = None
     if args.run_mutmut:
         cmd = ["mutmut", "run"]
         if args.max_children is not None:
             cmd += ["--max-children", str(args.max_children)]
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
+        env = mutmut_child_env()
+        run_kwargs = {"env": env} if env is not None else {}
+        for attempt in range(1, MAX_CONVERGE_PASSES + 1):
+            if attempt > 1:
+                # The cache is deliberately kept: results accumulate across
+                # passes, which is what lets a noisy machine converge.
+                print(f"local fork noise, converging (pass {attempt}); max {MAX_CONVERGE_PASSES}")
+            result = subprocess.run(cmd, **run_kwargs)
+            if result.returncode != 0:
+                print(
+                    f"mutmut run failed (exit {result.returncode}); not judging stale .meta files.",
+                    file=sys.stderr,
+                )
+                return result.returncode
+            current = read_current()
+            if not is_noise_degraded(current):
+                break
+        else:
             print(
-                f"mutmut run failed (exit {result.returncode}); not judging stale .meta files.",
-                file=sys.stderr,
+                f"\nStill noise-degraded after {MAX_CONVERGE_PASSES} passes; judging what "
+                "verdicts exist."
             )
-            return result.returncode
 
-    baseline_per_module = json.loads(args.baseline.read_text(encoding="utf-8"))["per_module"]
-    current = {
-        module: module_stats(args.meta_root / f"{module}.py.meta") for module in baseline_per_module
-    }
+    if current is None:
+        current = read_current()
 
-    lines, failed = evaluate(baseline_per_module, current)
+    lines, failed = evaluate(load_baseline(), current)
     summary = "\n".join(lines)
     print(summary)
+    if any("NOISE-DEGRADED" in line for line in lines):
+        # Say plainly that this is "could not measure", not "your tree is fine",
+        # and name the gate that can actually answer the question.
+        print(
+            "\nNOISE-DEGRADED: those modules had mutants that produced no verdict "
+            "(segfault, or never executed), a known macOS fork-runner failure rather "
+            "than a signal about your tree. Un-judged mutants count as neither killed "
+            "nor survived, so the shortfall is not treated as a regression. Any real "
+            "survivor still fails the gate. The authoritative verdict is the Linux "
+            "dispatch: gh workflow run mutation.yml --ref <branch>."
+        )
     # Surface to GitHub Actions step summary when running in CI.
     gh_summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if gh_summary_path:

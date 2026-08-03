@@ -190,6 +190,40 @@ and crashes the trampoline). On macOS the fork-based runner can segfault, the
 faithful run is the Linux CI one; the local hook uses `--max-children 1` to reduce
 flakiness.
 
+### macOS fork noise: the converge loop
+
+An intermittent macOS failure used to block clean pushes outright. When the
+fork-based runner wipes out, its mutants produce no verdict at all: either a
+segfault (`-11`/`-9`), or the `null` that mutmut pre-populates
+`exit_code_by_key` with at generation time and never fills in because the run
+aborted before executing them. Neither is in `KILLED_EXIT_CODES` nor equals
+`0`, so both used to collapse to `killed=0`/`survived=0` and report **every**
+module `DROPPED` on a clean tree. An enforced-but-flaky gate trains people to
+`--no-verify` past it, which defeats the point of enforcing it.
+
+`check_mutation_gate.py --run-mutmut` now handles that directly:
+
+- On darwin it sets `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES` in the child
+  environment (extending `os.environ`, so `PATH` still resolves the `mutmut`
+  console script). Off darwin no env override is passed at all, so the Linux
+  and CI path is unchanged.
+- After each pass it counts mutants that produced no verdict. Above
+  `NOISE_THRESHOLD` (50%) the pass is treated as noise rather than signal, and
+  mutmut is re-run **keeping the cache** so results accumulate, printing
+  `local fork noise, converging (pass N)`. Bounded at `MAX_CONVERGE_PASSES`
+  (4) so a permanently-noisy machine terminates the push rather than hanging
+  it. A pass that is not noise-degraded exits the loop immediately, so a
+  healthy run still costs exactly one pass.
+- Residual un-judged mutants are judged honestly: they count as neither killed
+  nor survived. A kill-count shortfall is excused only as far as un-judged
+  mutants account for it, and the module is reported `NOISE-DEGRADED` with a
+  pointer to the authoritative Linux dispatch. A shortfall noise cannot explain
+  is still `DROPPED`, and **any** real survivor still fails the gate no matter
+  how noisy the run was.
+
+If you see `NOISE-DEGRADED`, the local run could not measure those modules; run
+`gh workflow run mutation.yml --ref <branch>` for the verdict that counts.
+
 Both the nightly job and the pre-push hook compute their verdict with
 [`scripts/check_mutation_gate.py`](../scripts/check_mutation_gate.py)
 (tested by `tests/test_check_mutation_gate.py`). The verdict is read from
