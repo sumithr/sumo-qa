@@ -36,7 +36,7 @@ repos:
     # check + format` CI job. When the two disagree, a commit passes locally and
     # the required CI check fails on formatting alone (see the pin's comment in
     # pyproject.toml). Bump both in one commit, reformatting in the same change.
-    rev: v0.16.0
+    rev: v0.16.1
     # Matching versions is not enough: a hook also has to see the same FILES its
     # CI counterpart does. Measured with `ruff check --show-files .` and
     # `ruff format --check .` on this tree:
