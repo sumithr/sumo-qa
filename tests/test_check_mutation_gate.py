@@ -458,3 +458,34 @@ def test_tolerance_requires_darwin_not_just_run_mutmut(tmp_path, monkeypatch, ca
     out = capsys.readouterr().out
     assert "NOT-MEASURED" not in out
     assert "killed dropped from 3 -> 1" in out
+
+
+def test_merge_keeps_earlier_pass_when_a_later_meta_is_empty_or_truncated():
+    """P1: guarding on `missing` alone was not enough. An EXISTING but empty
+    .meta reports missing=False with zeroed counts, and a truncated one reports
+    fewer mutants than the prior pass; folding either in wipes the earlier
+    pass's un-judged count and an un-measured module reads as measured. The
+    honest signal is population size, not file existence."""
+    pass1 = {"mod": {"killed": 1, "survived": 0, "unjudged": 1, "total": 2, "missing": False}}
+
+    empty = {"mod": {"killed": 0, "survived": 0, "unjudged": 0, "total": 0, "missing": False}}
+    merged_empty = gate.merge_passes(pass1, empty)
+    assert merged_empty["mod"]["unjudged"] == 1
+    assert gate.any_not_measured(merged_empty) is True
+
+    truncated = {"mod": {"killed": 1, "survived": 0, "unjudged": 0, "total": 1, "missing": False}}
+    merged_trunc = gate.merge_passes(pass1, truncated)
+    assert merged_trunc["mod"]["unjudged"] == 1, "a shrunken population is not a measurement"
+    assert gate.any_not_measured(merged_trunc) is True
+
+
+def test_merge_still_accepts_a_pass_that_measured_at_least_as_much():
+    """The complement: a fresh pass covering the same or a larger population IS
+    informative and must be folded in, or the converge loop could never
+    converge."""
+    pass1 = {"mod": {"killed": 0, "survived": 0, "unjudged": 2, "total": 2, "missing": False}}
+    pass2 = {"mod": {"killed": 2, "survived": 0, "unjudged": 0, "total": 2, "missing": False}}
+    merged = gate.merge_passes(pass1, pass2)
+    assert merged["mod"]["unjudged"] == 0
+    assert merged["mod"]["killed"] == 2
+    assert gate.any_not_measured(merged) is False

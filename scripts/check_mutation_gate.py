@@ -160,11 +160,13 @@ def merge_passes(acc: dict | None, new: dict) -> dict:
         if not prior:
             merged[module] = fresh
             continue
-        if fresh.get("missing"):
-            # A pass whose .meta vanished carries NO information. Folding its
-            # zeros in would wipe the earlier pass's un-judged count and make an
-            # un-measured module read as measured, producing an unearned pass.
-            # The earlier pass is strictly more informative, so keep it.
+        if fresh.get("missing") or fresh.get("total", 0) < prior.get("total", 0):
+            # Keep the earlier pass whenever the fresh one saw FEWER mutants.
+            # Guarding on `missing` alone was not enough: an existing but empty
+            # or truncated .meta reports missing=False with zeroed counts, so
+            # folding it in wipes the earlier pass's un-judged count and an
+            # un-measured module reads as measured, producing an unearned pass.
+            # Population size is the honest signal, and it subsumes `missing`.
             merged[module] = prior
             continue
         names = sorted(set(prior.get("survivor_names", [])) | set(fresh.get("survivor_names", [])))
