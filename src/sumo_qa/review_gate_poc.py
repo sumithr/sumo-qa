@@ -207,12 +207,17 @@ def _check_acceptance_criteria(review: str, criteria: list[str]) -> None:
         raise ReviewGateValidationError(
             "missing a row for supplied acceptance criterion/criteria: "
             + ", ".join(f"AC{number}" for number in missing)
+            + ". Emit one line per supplied criterion, in order: "
+            "'AC<n>: <criterion> | Classification: <MET | UNMET | UNVERIFIED> | "
+            "Anchor: <evidence>'"
         )
     invented = sorted(emitted - expected)
     if invented:
         raise ReviewGateValidationError(
             "acceptance criterion row(s) the host did not supply: "
             + ", ".join(f"AC{number}" for number in invented)
+            + f". Exactly {len(criteria)} criteria were supplied; never add, infer, or "
+            "fetch one the host did not supply"
         )
 
 
@@ -224,7 +229,10 @@ def _check_inventory_drift(review: str, drift: list[InventoryDrift]) -> None:
         if not any(entry.path in line and pair in line for line in lines):
             raise ReviewGateValidationError(
                 f"inventory drift row for {entry.path!r} must copy the supplied pair "
-                f"verbatim: {pair!r}"
+                f"verbatim: {pair!r}. Emit one row per supplied stale path: "
+                "'Inventory drift anchor: <path>:<line> (<old> → <new>) | Required "
+                "update: this file | Diff updated it: <YES | NO> | Coverage: "
+                "<COVERED | UNCOVERED>'"
             )
 
 
@@ -232,11 +240,16 @@ def _check_review_feedback(review: str, feedback: ReviewFeedback | None) -> None
     """The present and absent memory branches are mutually exclusive."""
     if feedback is not None and _ABSENT_MEMORY_RE.search(review) is not None:
         raise ReviewGateValidationError(
-            "saved review feedback was supplied, so the absent-memory line must not be emitted"
+            "saved review feedback was supplied, so the absent-memory line must not be "
+            "emitted. Emit only: 'advisory hint from saved review feedback (trigger: "
+            f"{feedback.trigger}): {feedback.probe}'"
         )
     if feedback is None and _PRESENT_MEMORY_RE.search(review) is not None:
         raise ReviewGateValidationError(
-            "no saved review feedback was supplied, so the advisory-hint line must not be emitted"
+            "no saved review feedback was supplied, so the advisory-hint line must not "
+            "be emitted. Emit only: 'no saved review feedback supplied, advisory-hint "
+            "check skipped', then perform ordinary discovery without attributing any "
+            "risk to memory"
         )
 
 
@@ -248,7 +261,10 @@ def _check_producers(review: str, producers: list[str]) -> None:
         for producer in producers:
             if producer.lower() in line.lower():
                 raise ReviewGateValidationError(
-                    f"external producer {producer!r} cannot be declined as internal/self-produced"
+                    f"external producer {producer!r} cannot be declined as "
+                    "internal/self-produced. A named tool, CLI, API, or subprocess is "
+                    "always external to the changed consumer, so the external-contract "
+                    "axis fires and needs run-traceable evidence"
                 )
 
 

@@ -25,6 +25,7 @@ from experiments.issue_557.run_candidate import (
     _render_prompt,
     build_direct_config,
     build_prompts,
+    build_review_context,
     candidate_prompt,
     candidate_prompt_for_group,
     load_group,
@@ -258,6 +259,31 @@ def test_supplied_context_is_carried_onto_the_validated_review() -> None:
     validated = validate_review_response(_response(), context=context)
 
     assert validated.context is context
+
+
+def test_review_context_is_built_from_the_real_ac_scenario_fixtures() -> None:
+    # The eval fixture plays the host. If this stops extracting, the boundary
+    # silently validates nothing and the stripped prompt rules go unenforced.
+    _, tests, _ = load_group("full-ac-coverage")
+
+    counts = [len(build_review_context(test["vars"]).acceptance_criteria) for test in tests]
+
+    assert counts == [3, 2, 2]
+
+
+def test_review_context_tracks_saved_feedback_presence_per_scenario() -> None:
+    _, tests, _ = load_group("full-feedback-memory")
+
+    contexts = [build_review_context(test["vars"]) for test in tests]
+
+    assert [context.saved_review_feedback is not None for context in contexts] == [True, False]
+    supplied = contexts[0].saved_review_feedback
+    assert supplied is not None
+    assert "timezone or day-boundary logic" in supplied.trigger
+
+
+def test_review_context_is_empty_without_ground_truth() -> None:
+    assert build_review_context({}) == ReviewContext()
 
 
 def test_supplied_context_rejects_unknown_fields() -> None:

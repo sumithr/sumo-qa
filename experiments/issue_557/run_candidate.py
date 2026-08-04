@@ -20,7 +20,12 @@ from typing import Any
 import httpx
 import yaml
 
-from sumo_qa.review_gate_poc import ReviewGateValidationError, validate_review_response
+from sumo_qa.review_gate_poc import (
+    ReviewContext,
+    ReviewFeedback,
+    ReviewGateValidationError,
+    validate_review_response,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_PATH = Path(__file__).with_name("compact_review_prompt.md")
@@ -28,6 +33,59 @@ REGRESSION_CONTRACTS_PATH = Path(__file__).with_name("regression_contracts.md")
 EVAL_ROOT = REPO_ROOT / "tests/evals/promptfoo"
 SKILL_PATH = REPO_ROOT / "skills/sumo-qa-reviewing-before-merge/SKILL.md"
 _MACHINE_CONTRACT_MARKER = "## Machine-enforced response contract"
+
+# The eval fixture plays the host: its ground-truth block is what a real host
+# would hand the boundary as structured context.  Only sections with a stable
+# heading are parsed; anything free-form stays instructed in the prompt.
+_AC_SECTION_RE = re.compile(
+    r"^#+[ \t]*Host-supplied acceptance criteria[^\n]*\n(?P<body>.*?)(?=^#+[ \t]|\Z)",
+    re.DOTALL | re.MULTILINE | re.IGNORECASE,
+)
+_AC_BULLET_RE = re.compile(r"^[ \t]*-[ \t]*AC(?P<number>\d+):[ \t]*(?P<text>.+)$", re.MULTILINE)
+_FEEDBACK_SECTION_RE = re.compile(
+    r"^#+[ \t]*SAVED REVIEW FEEDBACK[^\n]*\n(?P<body>.*?)(?=^#+[ \t]|\Z)",
+    re.DOTALL | re.MULTILINE | re.IGNORECASE,
+)
+_FEEDBACK_FIELD_RE = re.compile(
+    r"^[ \t]*(?:-[ \t]*)?(?P<key>trigger_signal|recommended_probe):[ \t]*(?P<value>.+)$",
+    re.MULTILINE,
+)
+
+
+def build_review_context(variables: dict[str, Any]) -> ReviewContext:
+    """Build the host-supplied context the deterministic boundary checks against.
+
+    Extracts only what the scenario states under a stable heading.  Inventory
+    drift pairs and external producer names are free prose in these fixtures, so
+    they are deliberately NOT extracted -- their rules stay in the prompt rather
+    than being silently unenforced.
+    """
+    ground_truth = variables.get("ground_truth_context")
+    if not isinstance(ground_truth, str):
+        return ReviewContext()
+
+    criteria: list[str] = []
+    section = _AC_SECTION_RE.search(ground_truth)
+    if section is not None:
+        criteria = [
+            match.group("text").strip() for match in _AC_BULLET_RE.finditer(section.group("body"))
+        ]
+
+    feedback: ReviewFeedback | None = None
+    feedback_section = _FEEDBACK_SECTION_RE.search(ground_truth)
+    if feedback_section is not None:
+        fields = {
+            match.group("key"): match.group("value").strip()
+            for match in _FEEDBACK_FIELD_RE.finditer(feedback_section.group("body"))
+        }
+        if "trigger_signal" in fields and "recommended_probe" in fields:
+            feedback = ReviewFeedback(
+                trigger=fields["trigger_signal"], probe=fields["recommended_probe"]
+            )
+
+    return ReviewContext(acceptance_criteria=criteria, saved_review_feedback=feedback)
+
+
 _CORE_CUT_MARKER = "### Risk-to-test ledger appendix"
 _PROCESS_FLOW_MARKER = "## Process Flow"
 _RED_FLAGS_MARKER = "## Red Flags — STOP and rework"

@@ -22,11 +22,12 @@ When acceptance criteria are supplied, emit one line for every criterion:
 MET requires both an implementing diff anchor and a fresh test ID/assertion proving the
 criterion's stated runtime behavior. A documentation-only or inert-artifact criterion is
 MET when the supplied diff directly shows the required content at the exact artifact anchor;
-do not demand a runtime test for that criterion. UNMET means the behavior is absent from the diff. UNVERIFIED
-means the diff plausibly implements it but fresh path-matching evidence is missing. Every
-UNMET or UNVERIFIED criterion blocks SAFE; all-MET criteria do not create an extra blocker.
-Never fetch, infer, or add criteria that the host did not supply. If none were supplied, say
-the AC check was skipped and do not turn a feature-flow gap into an UNMET criterion.
+do not demand a runtime test for that criterion. UNMET means the behavior is absent from the
+diff. UNVERIFIED means the diff plausibly implements it but fresh path-matching evidence is
+missing. Every UNMET or UNVERIFIED criterion blocks SAFE; all-MET criteria do not create an
+extra blocker. Never fetch, infer, or add criteria that the host did not supply. If none were
+supplied, say the AC check was skipped and do not turn a feature-flow gap into an UNMET
+criterion.
 
 ### Executable scope and inert configuration
 
@@ -96,7 +97,7 @@ counts, treat the verifier as discharged and do not demand a redundant rerun.
 
 Use saved review feedback only when it is actually supplied and its trigger matches this
 diff. Quote the supplied trigger and probe when used. If none is supplied, state exactly:
-`no saved review feedback supplied — advisory-hint check skipped`, then perform ordinary
+`no saved review feedback supplied, advisory-hint check skipped`, then perform ordinary
 discovery without attributing any risk to memory or a previous review.
 The present and absent branches are mutually exclusive. When matching feedback is supplied,
 emit `advisory hint from saved review feedback (trigger: <verbatim trigger>): <verbatim
@@ -120,8 +121,6 @@ its recommendation from the same risk/AC evidence: uncovered blockers yield `blo
 stale or incomplete evidence yields `insufficient_evidence`; neither may read ready. Include
 coverage or mutation signals only if they actually ran. Otherwise report each as
 `not measured`, never green or passing.
-The literal `Verdict: ...` line must appear before the scorecard heading or table. The
-scorecard is always below the completed prose verdict, never before its verdict line.
 
 ### Inventory and repo-map evidence
 

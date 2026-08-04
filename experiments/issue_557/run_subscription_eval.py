@@ -21,7 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from sumo_qa.review_gate_poc import ReviewGateValidationError, validate_review_response
+from sumo_qa.review_gate_poc import (
+    ReviewContext,
+    ReviewGateValidationError,
+    validate_review_response,
+)
 
 from .run_candidate import (
     ALL_GROUPS,
@@ -30,6 +34,7 @@ from .run_candidate import (
     _render_prompt,
     _resolve_file_value,
     build_prompts,
+    build_review_context,
     candidate_prompt,
     load_group,
 )
@@ -293,6 +298,7 @@ def generate_candidate(
     reasoning_effort: str,
     runner_dir: Path,
     timeout_seconds: int,
+    context: ReviewContext | None = None,
 ) -> tuple[str, list[dict[str, Any]], dict[str, int]]:
     attempts: list[dict[str, Any]] = []
     first = run_codex(
@@ -304,7 +310,7 @@ def generate_candidate(
     )
     attempts.append({"output": first.output, "usage": first.usage})
     try:
-        validated = validate_review_response(first.output)
+        validated = validate_review_response(first.output, context=context)
     except ReviewGateValidationError as exc:
         repair = run_codex(
             _generation_prompt(prompt)
@@ -318,7 +324,7 @@ def generate_candidate(
             timeout_seconds=timeout_seconds,
         )
         attempts.append({"output": repair.output, "usage": repair.usage})
-        validated = validate_review_response(repair.output)
+        validated = validate_review_response(repair.output, context=context)
     return validated.review, attempts, _sum_usage([item["usage"] for item in attempts])
 
 
@@ -444,6 +450,7 @@ def _scenario_record(
         reasoning_effort=reasoning_effort,
         runner_dir=runner_dir,
         timeout_seconds=timeout_seconds,
+        context=build_review_context(tests[index].get("vars") or {}),
     )
     candidate_grade, candidate_grade_usage = grade_output(
         group,
