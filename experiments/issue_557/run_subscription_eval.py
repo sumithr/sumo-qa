@@ -28,9 +28,11 @@ from sumo_qa.review_gate_poc import (
 )
 
 from .run_candidate import (
+    _MACHINE_CONTRACT_MARKER,
     ALL_GROUPS,
     EVAL_ROOT,
     FULL_REVIEW_GROUPS,
+    PROMPT_PATH,
     _render_prompt,
     _resolve_file_value,
     build_prompts,
@@ -68,6 +70,12 @@ review response, without commentary about this evaluation.
 --- BEGIN EVALUATION TASK ---
 """
 _GENERATION_SUFFIX = "\n--- END EVALUATION TASK ---\n"
+# The response-contract section of the compact prompt, reused for repairs so a
+# repair carries the required shape without the scenario task around it.
+_RESPONSE_CONTRACT = (
+    _MACHINE_CONTRACT_MARKER
+    + PROMPT_PATH.read_text(encoding="utf-8").split(_MACHINE_CONTRACT_MARKER)[-1]
+)
 
 
 @dataclass(frozen=True)
@@ -281,6 +289,29 @@ def _generation_prompt(prompt: str) -> str:
     return f"{_GENERATION_PREFIX}{prompt}{_GENERATION_SUFFIX}"
 
 
+def repair_prompt(previous_output: str, error: str) -> str:
+    """Envelope-only repair that does not resend the scenario task.
+
+    A failed response contract is a shape defect, not a judgment defect: the
+    previous response already carries the QA judgment, and the validation error
+    names the required shape.  Resending the whole task (skill body, diff,
+    ground truth) to fix one field is what made repairs cost roughly a second
+    full generation.
+    """
+    return (
+        f"{_GENERATION_PREFIX}"
+        "A previous review response failed deterministic response-contract "
+        "validation. Repair the response contract only.\n\n"
+        f"{_RESPONSE_CONTRACT}\n\n"
+        f"--- VALIDATION ERROR ---\n{error}\n--- END VALIDATION ERROR ---\n\n"
+        f"--- PREVIOUS RESPONSE ---\n{previous_output}\n--- END PREVIOUS RESPONSE ---\n\n"
+        "Return the complete corrected GATE_REPORT and REVIEW envelopes. Preserve "
+        "every QA judgment, risk, citation, and the verdict exactly as written; "
+        "change only what the validation error requires."
+        f"{_GENERATION_SUFFIX}"
+    )
+
+
 def _sum_usage(items: list[dict[str, int]]) -> dict[str, int]:
     keys = (
         "input_tokens",
@@ -313,11 +344,7 @@ def generate_candidate(
         validated = validate_review_response(first.output, context=context)
     except ReviewGateValidationError as exc:
         repair = run_codex(
-            _generation_prompt(prompt)
-            + "\nThe previous response failed deterministic validation:\n"
-            + f"{exc}\n\nPrevious response:\n{first.output}\n\n"
-            + "Return the complete corrected GATE_REPORT and REVIEW envelopes. "
-            + "Fix only the response contract; do not change the QA judgment.",
+            repair_prompt(first.output, str(exc)),
             model=model,
             reasoning_effort=reasoning_effort,
             runner_dir=runner_dir,

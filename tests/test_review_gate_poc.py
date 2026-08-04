@@ -36,6 +36,7 @@ from experiments.issue_557.run_subscription_eval import (
     codex_command,
     parse_codex_jsonl,
     render_llm_rubric,
+    repair_prompt,
     subscription_environment,
     summarize,
 )
@@ -280,6 +281,26 @@ def test_review_context_tracks_saved_feedback_presence_per_scenario() -> None:
     supplied = contexts[0].saved_review_feedback
     assert supplied is not None
     assert "timezone or day-boundary logic" in supplied.trigger
+
+
+def test_repair_prompt_omits_the_scenario_task_but_carries_the_contract() -> None:
+    # A repair fixes response shape, not judgment. Resending the scenario task
+    # made each repair cost a second full generation (25.41 points of the 46
+    # scenario run's token reduction).
+    _, tests, _ = load_group("full-ac-coverage")
+    _, candidate_prompts, _ = build_prompts(
+        "full-ac-coverage", candidate_profile="repaired-compact"
+    )
+    scenario_prompt = candidate_prompts[0][1]
+    skill_body = str(tests[0]["vars"]["skill_content"])
+
+    prompt = repair_prompt("<GATE_REPORT>...</GATE_REPORT>", "an 'unverified' gate claim must...")
+
+    assert "## Machine-enforced response contract" in prompt
+    assert "an 'unverified' gate claim must..." in prompt
+    assert "<GATE_REPORT>...</GATE_REPORT>" in prompt
+    assert skill_body not in prompt
+    assert len(prompt) < len(scenario_prompt) // 2
 
 
 def test_review_context_is_empty_without_ground_truth() -> None:
