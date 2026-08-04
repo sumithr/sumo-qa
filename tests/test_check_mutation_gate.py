@@ -408,3 +408,53 @@ def test_survivor_from_an_earlier_pass_survives_the_converge_loop(tmp_path, monk
     out = capsys.readouterr().out
     assert "100% kill rate required" in out
     assert "s" in out
+
+
+def test_unjudged_mutant_is_not_measured_even_when_kill_floor_is_met(tmp_path, monkeypatch, capsys):
+    """P1: the invariant is 'any un-judged mutant means this module was not
+    measured', and that must hold regardless of the kill count. A module at or
+    above baseline with an un-judged mutant previously fell through to OK and
+    the run printed 'Strict gate passed', which is the unearned pass claim this
+    design exists to prevent. Newly-generated mutants going un-judged is the
+    realistic case."""
+    rc = _run_local_darwin(
+        tmp_path,
+        monkeypatch,
+        {"mod": {"killed": 1}},
+        {"mod": {"a": 1, "b": -11}},  # kill floor met, one un-judged
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "NOT-MEASURED" in out
+    assert "Strict gate passed" not in out, "must not claim a gate it did not enforce"
+
+
+def test_merge_keeps_earlier_pass_when_a_later_meta_goes_missing():
+    """P1: a pass whose .meta vanished carries no information. Folding its zeros
+    in would wipe the earlier pass's un-judged count and make an un-measured
+    module read as fully measured."""
+    pass1 = {"mod": {"killed": 1, "survived": 0, "unjudged": 1, "total": 2, "missing": False}}
+    pass2 = {"mod": {"killed": 0, "survived": 0, "unjudged": 0, "total": 0, "missing": True}}
+    merged = gate.merge_passes(pass1, pass2)
+    assert merged["mod"]["unjudged"] == 1, "un-measured state must survive a missing later pass"
+    assert gate.any_not_measured(merged) is True
+
+
+def test_tolerance_requires_darwin_not_just_run_mutmut(tmp_path, monkeypatch, capsys):
+    """P3: pins the platform half of the guard. An implementation broken to
+    `tolerate = bool(args.run_mutmut)` would let a NOISY non-darwin run reach
+    NOT-MEASURED; with clean metadata only, that break is invisible."""
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+
+    def fake_run(cmd, **kwargs):
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 3}}, {"mod": {"a": 1, "b": -11, "c": -11}})
+    assert gate.main(["--run-mutmut", *argv]) == 1, "non-darwin must stay strict even with noise"
+    out = capsys.readouterr().out
+    assert "NOT-MEASURED" not in out
+    assert "killed dropped from 3 -> 1" in out

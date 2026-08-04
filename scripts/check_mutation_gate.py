@@ -157,13 +157,23 @@ def merge_passes(acc: dict | None, new: dict) -> dict:
     merged: dict = {}
     for module, fresh in new.items():
         prior = acc.get(module, {})
+        if not prior:
+            merged[module] = fresh
+            continue
+        if fresh.get("missing"):
+            # A pass whose .meta vanished carries NO information. Folding its
+            # zeros in would wipe the earlier pass's un-judged count and make an
+            # un-measured module read as measured, producing an unearned pass.
+            # The earlier pass is strictly more informative, so keep it.
+            merged[module] = prior
+            continue
         names = sorted(set(prior.get("survivor_names", [])) | set(fresh.get("survivor_names", [])))
         merged[module] = {
             "killed": max(prior.get("killed", 0), fresh.get("killed", 0)),
             "survived": len(names),
             "unjudged": fresh.get("unjudged", 0),
-            "total": fresh.get("total", 0) or prior.get("total", 0),
-            "missing": bool(fresh.get("missing")) and bool(prior.get("missing")),
+            "total": max(fresh.get("total", 0), prior.get("total", 0)),
+            "missing": False,
             "survivor_names": names,
         }
     return merged
@@ -213,17 +223,18 @@ def evaluate(
             # evidence of a weak test, and no amount of fork noise may launder it.
             verdict = "SURVIVED"
             failed.append(f"{module}: {survived} mutant(s) survived - 100% kill rate required")
+        elif tolerate_unjudged and module_not_measured(curr):
+            # Checked BEFORE the kill-count comparison, and independently of it.
+            # "Any un-judged mutant means this module was not measured" has to
+            # hold whatever the kill count says: a module sitting at or above
+            # baseline with un-judged mutants is still un-measured, and letting
+            # it read OK would produce exactly the unearned "strict gate passed"
+            # claim this design exists to prevent. Newly-generated mutants that
+            # go un-judged are the realistic case.
+            verdict = "NOT-MEASURED"
         elif curr_killed < base_killed:
-            # On the LOCAL path a module with any un-judged mutant was not
-            # measured, so no regression claim can honestly be made about it.
-            # This is NOT "noise explains the shortfall" - that claim is
-            # unprovable from counts alone. It is "this run did not measure
-            # this module", and the caller is told to go run the Linux gate.
-            if tolerate_unjudged and module_not_measured(curr):
-                verdict = "NOT-MEASURED"
-            else:
-                verdict = "DROPPED"
-                failed.append(f"{module}: killed dropped from {base_killed} -> {curr_killed}")
+            verdict = "DROPPED"
+            failed.append(f"{module}: killed dropped from {base_killed} -> {curr_killed}")
         else:
             verdict = "OK"
         lines.append(f"| {module} | {base_killed} | {curr_killed} | {survived} | {verdict} |")
