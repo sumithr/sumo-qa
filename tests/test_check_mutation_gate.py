@@ -154,15 +154,19 @@ def test_crashed_mutmut_run_propagates_without_judging_stale_meta(tmp_path, monk
 
 
 # ---------------------------------------------------------------------------
-# macOS fork-noise converge loop (#523)
+# macOS fork noise: the local gate is advisory (#523)
 #
-# On macOS the fork-based runner intermittently produces a run in which most
-# mutants yield no usable verdict: either a segfault (-11/-9) or, when the run
-# aborts before executing them, the `null` that mutmut pre-populates
-# exit_code_by_key with at generation time. Neither is in KILLED_EXIT_CODES nor
-# equals 0, so both collapse to killed=0/survived=0 and the gate reports every
-# module DROPPED on a clean tree, blocking the push. An enforced-but-flaky gate
-# trains people to bypass it, which defeats the enforcement it exists for.
+# On macOS the fork-based runner intermittently produces a run in which mutants
+# yield no usable verdict: either a segfault (-11/-9) or, when the run aborts
+# before executing them, the `null` that mutmut pre-populates exit_code_by_key
+# with at generation time. Neither is in KILLED_EXIT_CODES nor equals 0, so both
+# collapse to killed=0/survived=0 and the gate reported every module DROPPED on
+# a clean tree, blocking the push. An enforced-but-flaky gate trains people to
+# bypass it, which defeats the enforcement it exists for.
+#
+# There is no converge loop and no threshold. Both were tried and both were
+# unsound; see the module docstring of scripts/check_mutation_gate.py. Every
+# verdict now comes from exactly one metadata snapshot.
 # ---------------------------------------------------------------------------
 
 
@@ -244,7 +248,7 @@ def _run_local_darwin(tmp_path, monkeypatch, baseline, metas):
     return gate.main(["--run-mutmut", *argv])
 
 
-def test_noise_degraded_does_not_block_the_local_push(tmp_path, monkeypatch, capsys):
+def test_unmeasured_run_does_not_block_the_local_push(tmp_path, monkeypatch, capsys):
     """The whole point of #523: a clean tree must push green locally when the
     module was not measured at all (2 of 3 mutants un-judged)."""
     rc = _run_local_darwin(
@@ -297,7 +301,7 @@ def test_a_real_drop_hidden_by_noise_locally_is_still_caught_on_ci(tmp_path, mon
     assert "killed dropped from 3 -> 2" in capsys.readouterr().out
 
 
-def test_survivor_still_fails_in_a_noise_degraded_run(tmp_path, monkeypatch, capsys):
+def test_survivor_still_fails_in_an_unmeasured_run(tmp_path, monkeypatch, capsys):
     """The load-bearing one: a real survivor is a real failure no matter how
     noisy the rest of the run was. Noise must never launder a survivor."""
     rc = _run_local_darwin(
