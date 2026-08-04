@@ -676,7 +676,10 @@ def main() -> None:
             if f"{group}:{index}" not in baseline_by_id
         ]
         if missing_baselines:
-            raise RuntimeError(f"baseline evidence is missing scenarios: {missing_baselines}")
+            # A scenario that errored in the frozen run has no baseline to reuse.
+            # Regenerate just those rather than discarding every reusable
+            # baseline; the metadata check above already pins model/auth/skill.
+            print(f"regenerating baseline for {len(missing_baselines)}: {missing_baselines}")
     records_by_id: dict[str, dict[str, Any]] = {}
     if args.output.exists() and not args.fresh:
         existing = json.loads(args.output.read_text(encoding="utf-8"))
