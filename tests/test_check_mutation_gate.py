@@ -178,20 +178,14 @@ def test_segfault_and_null_both_count_as_unjudged_not_killed_or_survived():
     assert stats["unjudged"] == 3
 
 
-def test_noise_degraded_detection_fires_only_above_threshold():
-    assert gate.is_noise_degraded({"m": {"unjudged": 6, "total": 10}}) is True
-    assert gate.is_noise_degraded({"m": {"unjudged": 5, "total": 10}}) is False
-    assert gate.is_noise_degraded({"m": {"unjudged": 0, "total": 0}}) is False
-
-
-def test_detection_is_per_module_not_diluted_by_healthy_ones():
-    """A total wipeout of one large module must still trigger a re-run even when
-    the other modules are healthy. report_builder alone is ~half the mutant
-    population, so an aggregate denominator would leave it at 48.9% - under
-    threshold - and the module most needing a retry would never get one."""
-    current = {"big": {"unjudged": 793, "total": 793}, "rest": {"unjudged": 0, "total": 828}}
-    assert sum(m["unjudged"] for m in current.values()) / 1621 < 0.5  # aggregate would miss it
-    assert gate.is_noise_degraded(current) is True
+def test_not_measured_detection_has_no_threshold():
+    """No threshold is sound here: the baseline stores counts, not identities, so
+    a shortfall can never be attributed to the mutants that went un-judged. A
+    single un-judged mutant means the module was not fully measured."""
+    assert gate.module_not_measured({"unjudged": 1, "total": 1000}) is True
+    assert gate.module_not_measured({"unjudged": 0, "total": 1000}) is False
+    assert gate.any_not_measured({"a": {"unjudged": 0}, "b": {"unjudged": 1}}) is True
+    assert gate.any_not_measured({"a": {"unjudged": 0}, "b": {"unjudged": 0}}) is False
 
 
 def test_merge_passes_never_erases_a_survivor_seen_in_an_earlier_pass():
@@ -260,7 +254,7 @@ def test_converge_loop_is_bounded(tmp_path, monkeypatch, capsys):
         "not become a 24-minute one"
     )
     assert rc == 0, "an un-measurable local run must not block the push"
-    assert "noise-degraded" in capsys.readouterr().out
+    assert "un-measured" in capsys.readouterr().out
 
 
 def test_linux_path_takes_no_extra_passes_and_sets_no_fork_env(tmp_path, monkeypatch):
@@ -329,9 +323,10 @@ def test_noise_degraded_does_not_block_the_local_push(tmp_path, monkeypatch, cap
     )
     assert rc == 0
     out = capsys.readouterr().out
-    assert "NOISE-DEGRADED" in out
+    assert "NOT-MEASURED" in out
     assert "Linux" in out, "must point at the authoritative gate"
     assert "Strict gate passed" not in out, "must not claim a gate it did not enforce"
+    assert "makes no claim" in out, "exit 0 must mean 'not blocking', not 'clean'"
 
 
 def test_linux_ci_path_keeps_strict_semantics_and_still_fails(tmp_path, capsys):
@@ -345,19 +340,31 @@ def test_linux_ci_path_keeps_strict_semantics_and_still_fails(tmp_path, capsys):
     assert "killed dropped from 3 -> 1" in capsys.readouterr().out
 
 
-def test_unrelated_noise_cannot_launder_a_real_kill_count_drop(tmp_path, monkeypatch, capsys):
-    """P1: the baseline holds COUNTS, not mutant identities, so `killed +
-    unjudged >= baseline` could offset a mutant that genuinely stopped being
-    killed against a different mutant that merely went un-judged. Here `c`
-    really regressed (34 = skipped) and only `d` is noise: 1 of 4 un-judged is
-    not a wipeout, so this must still fail."""
-    rc = _run_local_darwin(
-        tmp_path,
-        monkeypatch,
-        {"mod": {"killed": 3}},
-        {"mod": {"a": 1, "b": 1, "c": 34, "d": -11}},
-    )
-    assert rc == 1
+def test_a_real_drop_hidden_by_noise_locally_is_still_caught_on_ci(tmp_path, monkeypatch, capsys):
+    """The honest limit of the local gate, pinned on purpose.
+
+    `c` genuinely regressed (34 = skipped, was a kill) and `d` is un-judged. The
+    baseline holds counts, not mutant identities, so NOTHING can attribute the
+    shortfall locally: the run simply did not measure this module. So the local
+    path reports NOT-MEASURED and does not block, deliberately making no claim.
+
+    What stops that regression reaching main is the CI path, which is strict:
+    the SAME .meta must still be a hard DROPPED there. If this test ever starts
+    passing on both paths, the safety net is gone.
+    """
+    metas = {"mod": {"a": 1, "b": 1, "c": 34, "d": -11}}
+    baseline = {"mod": {"killed": 3}}
+
+    rc_local = _run_local_darwin(tmp_path, monkeypatch, baseline, metas)
+    local_out = capsys.readouterr().out
+    assert rc_local == 0, "local is advisory: it must not block"
+    assert "NOT-MEASURED" in local_out
+    assert "Strict gate passed" not in local_out
+
+    ci_dir = tmp_path / "ci"
+    ci_dir.mkdir()
+    argv = _write_fixtures(ci_dir, baseline, metas)
+    assert gate.main(argv) == 1, "CI must still catch the drop the local run could not judge"
     assert "killed dropped from 3 -> 2" in capsys.readouterr().out
 
 

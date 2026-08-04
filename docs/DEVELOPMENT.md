@@ -190,71 +190,53 @@ and crashes the trampoline). On macOS the fork-based runner can segfault, the
 faithful run is the Linux CI one; the local hook uses `--max-children 1` to reduce
 flakiness.
 
-### macOS fork noise: the converge loop
+### macOS fork noise: the local gate is advisory
 
 An intermittent macOS failure used to block clean pushes outright. When the
 fork-based runner wipes out, its mutants produce no verdict at all: either a
 segfault (`-11`/`-9`), or the `null` that mutmut pre-populates
 `exit_code_by_key` with at generation time and never fills in because the run
 aborted before executing them. Neither is in `KILLED_EXIT_CODES` nor equals
-`0`, so both used to collapse to `killed=0`/`survived=0` and report **every**
-module `DROPPED` on a clean tree. An enforced-but-flaky gate trains people to
+`0`, so both collapsed to `killed=0`/`survived=0` and reported **every** module
+`DROPPED` on a clean tree. An enforced-but-flaky gate trains people to
 `--no-verify` past it, which defeats the point of enforcing it.
 
-`check_mutation_gate.py --run-mutmut` now handles that directly:
+`check_mutation_gate.py --run-mutmut` now:
 
-- On darwin it sets `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES` in the child
+- On darwin sets `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES` in the child
   environment (extending `os.environ`, so `PATH` still resolves the `mutmut`
   console script). Off darwin no env override is passed at all.
-- After each pass it asks, **per module**, whether that module produced mostly
-  no verdict (above `NOISE_THRESHOLD`, 50%). The check is deliberately not
-  aggregated across the run: `report_builder` alone is roughly half the mutant
-  population, so a total wipeout of it scores only ~48.9% of the aggregate and
-  would never trigger the retry it most needs. If any module is un-measured,
-  mutmut is re-run **keeping the cache** so results accumulate, printing
-  `local fork noise, converging (pass N)`. Bounded at `MAX_CONVERGE_PASSES`
-  (2): a pass costs ~6 minutes and this is a synchronous pre-push hook, so
-  turning a blocked push into a 24-minute one would not be a fix. A pass that
-  is not noise-degraded exits the loop immediately, so a healthy run costs
-  exactly one pass.
-- Passes are **folded, never replaced**. mutmut re-initialises verdicts on a
+- Re-runs once if any mutant came back un-judged, **keeping the cache** so
+  results accumulate, printing `local fork noise, converging (pass N)`.
+  Bounded at `MAX_CONVERGE_PASSES` (2): a pass costs ~6 minutes in a
+  synchronous pre-push hook, so turning a blocked push into a 24-minute one
+  would not be a fix. A fully-measured pass exits immediately, so a healthy run
+  costs exactly one pass.
+- **Folds passes, never replaces them.** mutmut re-initialises verdicts on a
   later run, so a survivor seen in pass 1 can come back un-judged in pass 2;
   evaluating only the final pass would let the retry launder it. Survivor names
-  accumulate as a union and kill counts keep the best observed value, so a
-  retry can only add evidence.
-- Residual un-judged mutants count as neither killed nor survived. A module is
-  excused as `NOISE-DEGRADED` only when **that module** was genuinely not
-  measured. The earlier rule (`killed + unjudged >= baseline`) was unsound:
-  `mutmut-baseline.json` stores counts, not mutant identities, so it could
-  offset a mutant that really stopped being killed against a different mutant
-  that merely went un-judged.
+  accumulate as a union and kill counts keep the best observed value.
+- If un-judged mutants remain, those modules are reported `NOT-MEASURED` and
+  the push is not blocked. Exit 0 there means *"not blocking"*, never *"gate
+  passed"*, and the output says so explicitly.
 
-**The tolerance is local-only.** `evaluate()` takes `tolerate_unjudged`,
-default `False`, enabled only for a darwin `--run-mutmut` invocation. The
-nightly workflow runs this script without `--run-mutmut`, so the authoritative
-Linux gate keeps the original strict semantics and never greens a run it could
-not measure. Any real survivor fails the gate on either path.
+**Why there is no noise threshold.** `mutmut-baseline.json` stores kill
+*counts*, not mutant identities, so a shortfall can never be attributed to the
+mutants that actually went un-judged. Every threshold therefore fails on one
+side or the other: above it, a single un-judged mutant excuses an unrelated
+real regression in the same module; below it, partial fork noise on a clean
+tree still reports `DROPPED`, which is the original bug. So the local run makes
+no attribution claim at all.
 
-If you see `NOISE-DEGRADED`, the local run could not measure those modules; run
-`gh workflow run mutation.yml --ref <branch>` for the verdict that counts. That
-run reports "not a strict-gate pass" rather than "strict gate passed", because
-the gate it exists to enforce was not enforced.
+**The tolerance is local-only, and that is the safety net.** `evaluate()` takes
+`tolerate_unjudged`, default `False`, enabled only for a darwin `--run-mutmut`
+invocation. The nightly workflow runs this script without `--run-mutmut`, so
+the authoritative Linux gate keeps the original strict semantics: a kill-count
+drop the local run could not judge is still a hard `DROPPED` there. A real
+surviving mutant fails on both paths, always.
 
-Both the nightly job and the pre-push hook compute their verdict with
-[`scripts/check_mutation_gate.py`](../scripts/check_mutation_gate.py)
-(tested by `tests/test_check_mutation_gate.py`). The verdict is read from
-mutmut's `.meta` files, never from `mutmut run`'s exit status: mutmut exits
-0 even when mutants survive, so a bare `mutmut run` hook can never fail on
-a survivor-introducing push (root-caused 2026-07-13).
-
-mutmut is version-capped (`>=3,<3.6`, pinned in both `pyproject.toml`'s dev
-extra and the pre-push hook's `additional_dependencies`; keep the two in
-lockstep): 3.6.0's `record_trampoline_hit` resolves its relative
-`source_paths` against the live cwd with `strict=True`, so any test that
-`chdir`s away and then calls a mutated-module function crashes the
-stats-collection run and zero mutants execute ("failed to collect stats").
-Lift the cap only after verifying a newer release resolves `source_paths`
-against the run root instead of the cwd.
+If you see `NOT-MEASURED`, the local run did not gate those modules. Run
+`gh workflow run mutation.yml --ref <branch>` for a verdict.
 
 ### Subprocess-spawning tests (the marker convention)
 

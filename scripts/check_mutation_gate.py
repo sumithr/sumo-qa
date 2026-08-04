@@ -29,8 +29,8 @@ Two independent failure conditions (both must pass):
      never excused, however noisy the rest of the run was.
   2. Regression catch: any module's killed count below the committed
      baseline in mutmut-baseline.json -> DROPPED, EXCEPT on a LOCAL darwin
-     --run-mutmut invocation where that module produced mostly no verdict at
-     all -> NOISE-DEGRADED (not a failure; see below).
+     --run-mutmut invocation where that module has ANY un-judged mutant
+     -> NOT-MEASURED (not a failure, and not a pass either; see below).
 
 With --run-mutmut the script invokes the `mutmut run` console script (never
 `python -m mutmut`; see docs/DEVELOPMENT.md) and propagates a non-zero mutmut
@@ -49,10 +49,17 @@ FOLDING each pass into the last rather than replacing it - mutmut
 re-initialises verdicts on a later run, so evaluating only the final pass could
 erase a survivor an earlier one saw.
 
-Residual un-judged mutants count as neither killed nor survived, and a module
-is excused only when THAT module was genuinely not measured (not by comparing
-counts: the baseline stores counts, not mutant identities, so a count
-comparison can offset a real lost kill against an unrelated un-judged mutant).
+If un-judged mutants remain, the LOCAL run reports NOT-MEASURED for those
+modules and does not block the push. That is deliberately not a claim that the
+tree is clean, and exit 0 here means "not blocking", never "gate passed".
+
+No threshold is used, because none is sound. mutmut-baseline.json stores kill
+COUNTS, not mutant identities, so a shortfall can never be attributed to the
+mutants that actually went un-judged. Any threshold therefore fails on one side
+or the other: above it, a single un-judged mutant excuses an unrelated real
+regression in the same module; below it, partial fork noise on a clean tree
+still reports DROPPED, which is the original push-blocking bug. So the local
+run makes no attribution claim at all.
 
 The tolerance is LOCAL-ONLY: evaluate() takes tolerate_unjudged, default False,
 enabled only for a darwin --run-mutmut invocation. .github/workflows/mutation.yml
@@ -81,10 +88,6 @@ KILLED_EXIT_CODES = {1, 3, -24}
 # Neither is in KILLED_EXIT_CODES nor equals 0, so both used to collapse to
 # killed=0/survived=0 and report every module DROPPED on a clean tree.
 SEGFAULT_EXIT_CODES = {-11, -9}
-
-# Fraction of un-judged mutants above which a pass is treated as noise rather
-# than signal.
-NOISE_THRESHOLD = 0.5
 
 # Upper bound on `mutmut run` passes. A pass costs ~6 minutes, and this runs
 # synchronously in a pre-push hook, so the bound is deliberately tight: turning
@@ -115,25 +118,27 @@ def module_stats(meta_path: Path) -> dict:
     return module_stats_from_exit_codes(meta.get("exit_code_by_key", {}))
 
 
-def module_is_noise_degraded(stats: dict, threshold: float = NOISE_THRESHOLD) -> bool:
-    """True when THIS module produced mostly no verdict, so its counts are not a
-    measurement of anything.
+def module_not_measured(stats: dict) -> bool:
+    """True when ANY of this module's mutants produced no verdict.
 
-    Deliberately per-module, not aggregated over the run. report_builder alone is
-    roughly half the mutant population, so an aggregate denominator lets a total
-    wipeout of one big module sit under the threshold while the other modules
-    dilute it - the module that most needs a re-run would never get one.
+    Deliberately NOT a threshold. A threshold is unsound in both directions
+    here, because mutmut-baseline.json stores kill COUNTS and not mutant
+    identities, so a shortfall can never be attributed to the mutants that
+    actually went un-judged:
+      - above the threshold, one un-judged mutant excuses an unrelated real
+        regression in the same module;
+      - below it, partial fork noise on a clean tree still reports DROPPED,
+        which is the original push-blocking bug.
+    So a run with any un-judged mutant simply is not a measurement, and the
+    local gate says so instead of guessing.
     """
-    total = stats.get("total", 0)
-    if not total:
-        return False
-    return stats.get("unjudged", 0) / total > threshold
+    return stats.get("unjudged", 0) > 0
 
 
-def is_noise_degraded(current: dict, threshold: float = NOISE_THRESHOLD) -> bool:
-    """True when ANY module was not measured. One un-measured module is reason
-    enough to spend another pass; the bound keeps that affordable."""
-    return any(module_is_noise_degraded(stats, threshold) for stats in current.values())
+def any_not_measured(current: dict) -> bool:
+    """True when any module was not fully measured. One un-judged mutant is
+    reason enough to spend the single retry; the bound keeps that affordable."""
+    return any(module_not_measured(stats) for stats in current.values())
 
 
 def merge_passes(acc: dict | None, new: dict) -> dict:
@@ -209,14 +214,13 @@ def evaluate(
             verdict = "SURVIVED"
             failed.append(f"{module}: {survived} mutant(s) survived - 100% kill rate required")
         elif curr_killed < base_killed:
-            # Excused ONLY when this module was genuinely not measured, i.e. most
-            # of ITS mutants produced no verdict. The earlier arithmetic
-            # (curr_killed + unjudged >= base_killed) was unsound: the baseline
-            # holds counts, not per-mutant identities, so it could offset a
-            # mutant that really stopped being killed against a DIFFERENT mutant
-            # that merely went un-judged, and pass a real regression.
-            if tolerate_unjudged and module_is_noise_degraded(curr):
-                verdict = "NOISE-DEGRADED"
+            # On the LOCAL path a module with any un-judged mutant was not
+            # measured, so no regression claim can honestly be made about it.
+            # This is NOT "noise explains the shortfall" - that claim is
+            # unprovable from counts alone. It is "this run did not measure
+            # this module", and the caller is told to go run the Linux gate.
+            if tolerate_unjudged and module_not_measured(curr):
+                verdict = "NOT-MEASURED"
             else:
                 verdict = "DROPPED"
                 failed.append(f"{module}: killed dropped from {base_killed} -> {curr_killed}")
@@ -295,11 +299,11 @@ def main(argv: list[str] | None = None) -> int:
             # Fold, never replace: a retry must not erase a survivor an earlier
             # pass already observed.
             current = merge_passes(current, read_current())
-            if not is_noise_degraded(current):
+            if not any_not_measured(current):
                 break
         else:
             print(
-                f"\nStill noise-degraded after {MAX_CONVERGE_PASSES} passes; judging what "
+                f"\nStill un-measured after {MAX_CONVERGE_PASSES} passes; reporting what "
                 "verdicts exist."
             )
 
@@ -312,16 +316,15 @@ def main(argv: list[str] | None = None) -> int:
     lines, failed = evaluate(load_baseline(), current, tolerate_unjudged=tolerate)
     summary = "\n".join(lines)
     print(summary)
-    if any("NOISE-DEGRADED" in line for line in lines):
-        # Say plainly that this is "could not measure", not "your tree is fine",
-        # and name the gate that can actually answer the question.
+    if any("NOT-MEASURED" in line for line in lines):
+        # Say plainly that this run did not gate, rather than implying it did.
         print(
-            "\nNOISE-DEGRADED: those modules had mutants that produced no verdict "
-            "(segfault, or never executed), a known macOS fork-runner failure rather "
-            "than a signal about your tree. Un-judged mutants count as neither killed "
-            "nor survived, so the shortfall is not treated as a regression. Any real "
-            "survivor still fails the gate. The authoritative verdict is the Linux "
-            "dispatch: gh workflow run mutation.yml --ref <branch>."
+            "\nNOT-MEASURED: those modules had mutants that produced no verdict "
+            "(segfault, or never executed), a known macOS fork-runner failure. This "
+            "run therefore did NOT enforce the mutation gate on them, and is not "
+            "evidence that they are clean. It makes no claim either way. Any real "
+            "survivor still fails, here and everywhere. For an actual verdict run "
+            "the Linux gate: gh workflow run mutation.yml --ref <branch>."
         )
     # Surface to GitHub Actions step summary when running in CI.
     gh_summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -341,12 +344,12 @@ def main(argv: list[str] | None = None) -> int:
                 for n in names:
                     print(f"    - {n}")
         return 1
-    if any("NOISE-DEGRADED" in line for line in lines):
-        # Do NOT claim the strict gate passed: NOISE-DEGRADED explicitly permits
-        # a kill count below baseline, so this run did not enforce it.
+    if any("NOT-MEASURED" in line for line in lines):
+        # Do NOT claim the strict gate passed: it was not enforced on those
+        # modules. Exit 0 means "not blocking your push", never "gate passed".
         print(
-            "\nNo survivors, and no unexplained kill-count drop. NOT a strict-gate pass: "
-            "the NOISE-DEGRADED modules above were not measured locally."
+            "\nNo survivors found. NOT a strict-gate pass: the NOT-MEASURED modules "
+            "above were not gated locally. Not blocking the push."
         )
         return 0
     print("\nAll modules: kill counts >= baseline and 0 survivors. Strict gate passed.")
