@@ -206,27 +206,27 @@ aborted before executing them. Neither is in `KILLED_EXIT_CODES` nor equals
 - On darwin sets `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES` in the child
   environment (extending `os.environ`, so `PATH` still resolves the `mutmut`
   console script). Off darwin no env override is passed at all.
-- Re-runs once if any mutant came back un-judged, **keeping the cache** so
-  results accumulate, printing `local fork noise, converging (pass N)`.
-  Bounded at `MAX_CONVERGE_PASSES` (2): a pass costs ~6 minutes in a
-  synchronous pre-push hook, so turning a blocked push into a 24-minute one
-  would not be a fix. A fully-measured pass exits immediately, so a healthy run
-  costs exactly one pass.
-- **Folds passes, never replaces them.** mutmut re-initialises verdicts on a
-  later run, so a survivor seen in pass 1 can come back un-judged in pass 2;
-  evaluating only the final pass would let the retry launder it. Survivor names
-  accumulate as a union and kill counts keep the best observed value.
-- If un-judged mutants remain, those modules are reported `NOT-MEASURED` and
-  the push is not blocked. Exit 0 there means *"not blocking"*, never *"gate
-  passed"*, and the output says so explicitly.
+- Runs mutmut **exactly once** and reads exactly one metadata snapshot.
+- Reports any module with an un-judged mutant as `NOT-MEASURED`, whatever its
+  kill count, and does not block. **Exit 0 there means "not blocking", never
+  "gate passed"**, and the output says so.
 
-**Why there is no noise threshold.** `mutmut-baseline.json` stores kill
+**One snapshot per verdict, by design.** An earlier revision retried a noisy
+run and folded the passes together to recover a strict local verdict. That fold
+produced an unearned "strict gate passed" in five consecutive review rounds
+through five structurally different holes, because the data cannot support it:
+combining a kill count observed in one pass with a completeness observed in
+another asserts something no single observation made. The invariant is now
+trivial to keep true, and there is no cross-pass arithmetic to get wrong. What
+is given up is recovering a strict local verdict after a transient noisy pass;
+in exchange a local run costs ~6 minutes rather than up to ~12.
+
+**Why there is no noise threshold either.** `mutmut-baseline.json` stores kill
 *counts*, not mutant identities, so a shortfall can never be attributed to the
-mutants that actually went un-judged. Every threshold therefore fails on one
-side or the other: above it, a single un-judged mutant excuses an unrelated
-real regression in the same module; below it, partial fork noise on a clean
-tree still reports `DROPPED`, which is the original bug. So the local run makes
-no attribution claim at all.
+mutants that went un-judged. Every threshold fails on one side or the other:
+above it, a single un-judged mutant excuses an unrelated real regression in the
+same module; below it, partial fork noise on a clean tree still reports
+`DROPPED`, the original bug. So the local run makes no attribution claim at all.
 
 **The tolerance is local-only, and that is the safety net.** `evaluate()` takes
 `tolerate_unjudged`, default `False`, enabled only for a darwin `--run-mutmut`

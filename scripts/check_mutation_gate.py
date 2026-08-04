@@ -42,15 +42,22 @@ all: a segfault (-11/-9), or the `null` mutmut pre-populates exit_code_by_key
 with at generation time and never fills in when the run aborts before
 executing them. Both are outside the killed set and both differ from 0, so
 both used to read as killed=0/survived=0 and report every module DROPPED on a
-clean tree, blocking the push. So --run-mutmut now sets
-OBJC_DISABLE_INITIALIZE_FORK_SAFETY on darwin, and re-runs any pass in which
-some module was not measured (cache KEPT, bounded by MAX_CONVERGE_PASSES),
-FOLDING each pass into the last rather than replacing it - mutmut
-re-initialises verdicts on a later run, so evaluating only the final pass could
-erase a survivor an earlier one saw.
+clean tree, blocking the push. So --run-mutmut sets
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY on darwin, and any module with an un-judged
+mutant is reported NOT-MEASURED on the LOCAL path instead of blocking the push.
 
-If un-judged mutants remain, the LOCAL run reports NOT-MEASURED for those
-modules and does not block the push. That is deliberately not a claim that the
+SINGLE PASS by design. An earlier revision retried a noisy run and folded the
+passes together to recover a real local verdict. That fold produced an unearned
+"strict gate passed" in five consecutive review rounds, through five
+structurally different holes, because the underlying data cannot support it:
+combining a kill count observed in one pass with a completeness observed in
+another asserts something no single observation ever made. The invariant now is
+simply that EVERY module verdict comes from exactly ONE metadata snapshot. Any
+survivor in that snapshot fails; any un-judged mutant in it yields NOT-MEASURED;
+only a snapshot with zero un-judged mutants may reach OK or DROPPED. What is
+given up is recovering a strict local verdict after a transient noisy pass, and
+that is worth it: the local result is advisory anyway, and a run now costs ~6
+minutes rather than up to ~12. That is deliberately not a claim that the
 tree is clean, and exit 0 here means "not blocking", never "gate passed".
 
 No threshold is used, because none is sound. mutmut-baseline.json stores kill
@@ -88,12 +95,6 @@ KILLED_EXIT_CODES = {1, 3, -24}
 # Neither is in KILLED_EXIT_CODES nor equals 0, so both used to collapse to
 # killed=0/survived=0 and report every module DROPPED on a clean tree.
 SEGFAULT_EXIT_CODES = {-11, -9}
-
-# Upper bound on `mutmut run` passes. A pass costs ~6 minutes, and this runs
-# synchronously in a pre-push hook, so the bound is deliberately tight: turning
-# a blocked push into a 24-minute one is not a fix. #523's own evidence is that
-# a single extra pass resolved the wipeout both times it was observed.
-MAX_CONVERGE_PASSES = 2
 
 _FORK_SAFETY_ENV = "OBJC_DISABLE_INITIALIZE_FORK_SAFETY"
 
@@ -133,52 +134,6 @@ def module_not_measured(stats: dict) -> bool:
     local gate says so instead of guessing.
     """
     return stats.get("unjudged", 0) > 0
-
-
-def any_not_measured(current: dict) -> bool:
-    """True when any module was not fully measured. One un-judged mutant is
-    reason enough to spend the single retry; the bound keeps that affordable."""
-    return any(module_not_measured(stats) for stats in current.values())
-
-
-def merge_passes(acc: dict | None, new: dict) -> dict:
-    """Fold a fresh pass into the accumulated best-known state.
-
-    A later pass must never ERASE evidence an earlier one produced. mutmut
-    re-initialises verdicts on a subsequent run, so a survivor observed in pass 1
-    can come back as un-judged in pass 2; taking only the final pass would let a
-    genuine survivor vanish behind the retry that was supposed to reduce noise.
-    Survivor names therefore accumulate as a union and killed counts take the
-    best observed value, while un-judged counts take the latest (converging)
-    value.
-    """
-    if acc is None:
-        return new
-    merged: dict = {}
-    for module, fresh in new.items():
-        prior = acc.get(module, {})
-        if not prior:
-            merged[module] = fresh
-            continue
-        if fresh.get("missing") or fresh.get("total", 0) < prior.get("total", 0):
-            # Keep the earlier pass whenever the fresh one saw FEWER mutants.
-            # Guarding on `missing` alone was not enough: an existing but empty
-            # or truncated .meta reports missing=False with zeroed counts, so
-            # folding it in wipes the earlier pass's un-judged count and an
-            # un-measured module reads as measured, producing an unearned pass.
-            # Population size is the honest signal, and it subsumes `missing`.
-            merged[module] = prior
-            continue
-        names = sorted(set(prior.get("survivor_names", [])) | set(fresh.get("survivor_names", [])))
-        merged[module] = {
-            "killed": max(prior.get("killed", 0), fresh.get("killed", 0)),
-            "survived": len(names),
-            "unjudged": fresh.get("unjudged", 0),
-            "total": max(fresh.get("total", 0), prior.get("total", 0)),
-            "missing": False,
-            "survivor_names": names,
-        }
-    return merged
 
 
 def mutmut_child_env() -> dict | None:
@@ -297,28 +252,14 @@ def main(argv: list[str] | None = None) -> int:
             cmd += ["--max-children", str(args.max_children)]
         env = mutmut_child_env()
         run_kwargs = {"env": env} if env is not None else {}
-        for attempt in range(1, MAX_CONVERGE_PASSES + 1):
-            if attempt > 1:
-                # The cache is deliberately kept: results accumulate across
-                # passes, which is what lets a noisy machine converge.
-                print(f"local fork noise, converging (pass {attempt}); max {MAX_CONVERGE_PASSES}")
-            result = subprocess.run(cmd, **run_kwargs)
-            if result.returncode != 0:
-                print(
-                    f"mutmut run failed (exit {result.returncode}); not judging stale .meta files.",
-                    file=sys.stderr,
-                )
-                return result.returncode
-            # Fold, never replace: a retry must not erase a survivor an earlier
-            # pass already observed.
-            current = merge_passes(current, read_current())
-            if not any_not_measured(current):
-                break
-        else:
+        result = subprocess.run(cmd, **run_kwargs)
+        if result.returncode != 0:
             print(
-                f"\nStill un-measured after {MAX_CONVERGE_PASSES} passes; reporting what "
-                "verdicts exist."
+                f"mutmut run failed (exit {result.returncode}); not judging stale .meta files.",
+                file=sys.stderr,
             )
+            return result.returncode
+        current = read_current()
 
     if current is None:
         current = read_current()

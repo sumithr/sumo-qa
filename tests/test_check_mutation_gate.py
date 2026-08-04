@@ -184,77 +184,6 @@ def test_not_measured_detection_has_no_threshold():
     single un-judged mutant means the module was not fully measured."""
     assert gate.module_not_measured({"unjudged": 1, "total": 1000}) is True
     assert gate.module_not_measured({"unjudged": 0, "total": 1000}) is False
-    assert gate.any_not_measured({"a": {"unjudged": 0}, "b": {"unjudged": 1}}) is True
-    assert gate.any_not_measured({"a": {"unjudged": 0}, "b": {"unjudged": 0}}) is False
-
-
-def test_merge_passes_never_erases_a_survivor_seen_in_an_earlier_pass():
-    """P1: mutmut re-initialises verdicts on a later run, so a survivor observed
-    in pass 1 can come back un-judged in pass 2. Judging only the final pass
-    would let the retry launder a real survivor."""
-    pass1 = {
-        "mod": {"killed": 0, "survived": 1, "unjudged": 3, "total": 4, "survivor_names": ["s"]}
-    }
-    pass2 = {"mod": {"killed": 3, "survived": 0, "unjudged": 1, "total": 4, "survivor_names": []}}
-    merged = gate.merge_passes(pass1, pass2)
-    assert merged["mod"]["survivor_names"] == ["s"]
-    assert merged["mod"]["survived"] == 1
-    assert merged["mod"]["killed"] == 3, "best observed kill count is kept"
-    assert merged["mod"]["unjudged"] == 1, "un-judged takes the converged value"
-
-
-def test_converge_loop_reruns_keeping_cache_until_noise_clears(tmp_path, monkeypatch, capsys):
-    """R2: the loop must re-run mutmut when the pass was noise-degraded, and it
-    must NOT pass --clean/rm the cache; keeping the cache is what lets the
-    surviving results accumulate across passes."""
-    runs = []
-    metas = [
-        {"mod": {"m1": -11, "m2": -11, "m3": -11}},  # pass 1: wiped out
-        {"mod": {"m1": 1, "m2": 1, "m3": 1}},  # pass 2: converged
-    ]
-
-    def fake_run(cmd, **kwargs):
-        runs.append(cmd)
-        _rewrite_meta(tmp_path, metas[len(runs) - 1])
-
-        class R:
-            returncode = 0
-
-        return R()
-
-    monkeypatch.setattr(gate.subprocess, "run", fake_run)
-    argv = _write_fixtures(tmp_path, {"mod": {"killed": 3}}, metas[0])
-    assert gate.main(["--run-mutmut", *argv]) == 0
-    assert len(runs) == 2, "should re-run exactly once, then stop when clean"
-    assert not any("--clean" in c for c in runs), "cache must be kept across passes"
-    assert "converging (pass 2)" in capsys.readouterr().out
-
-
-def test_converge_loop_is_bounded(tmp_path, monkeypatch, capsys):
-    """R2: a permanently-noisy machine must not loop forever, since the push has to
-    terminate one way or the other."""
-    runs = []
-
-    def fake_run(cmd, **kwargs):
-        runs.append(cmd)
-        _rewrite_meta(tmp_path, {"mod": {"m1": -11, "m2": -11, "m3": -11}})
-
-        class R:
-            returncode = 0
-
-        return R()
-
-    monkeypatch.setattr(gate.subprocess, "run", fake_run)
-    monkeypatch.setattr(gate.sys, "platform", "darwin")
-    argv = _write_fixtures(tmp_path, {"mod": {"killed": 3}}, {"mod": {"m1": -11}})
-    rc = gate.main(["--run-mutmut", *argv])
-    assert len(runs) == gate.MAX_CONVERGE_PASSES
-    assert gate.MAX_CONVERGE_PASSES <= 2, (
-        "a pass costs ~6 min in a synchronous pre-push hook; a blocked push must "
-        "not become a 24-minute one"
-    )
-    assert rc == 0, "an un-measurable local run must not block the push"
-    assert "un-measured" in capsys.readouterr().out
 
 
 def test_linux_path_takes_no_extra_passes_and_sets_no_fork_env(tmp_path, monkeypatch):
@@ -383,33 +312,6 @@ def test_survivor_still_fails_in_a_noise_degraded_run(tmp_path, monkeypatch, cap
     assert "m_survivor" in out
 
 
-def test_survivor_from_an_earlier_pass_survives_the_converge_loop(tmp_path, monkeypatch, capsys):
-    """P1 end-to-end: pass 1 sees a survivor amid noise, pass 2 comes back clean
-    with that mutant un-judged. Evaluating only the final pass would green it."""
-    monkeypatch.setattr(gate.sys, "platform", "darwin")
-    runs = []
-    metas = [
-        {"mod": {"s": 0, "a": -11, "b": -11, "c": -11}},  # survivor + wipeout
-        {"mod": {"s": None, "a": 1, "b": 1, "c": 1}},  # survivor now un-judged
-    ]
-
-    def fake_run(cmd, **kwargs):
-        runs.append(cmd)
-        _rewrite_meta(tmp_path, metas[min(len(runs) - 1, len(metas) - 1)])
-
-        class R:
-            returncode = 0
-
-        return R()
-
-    monkeypatch.setattr(gate.subprocess, "run", fake_run)
-    argv = _write_fixtures(tmp_path, {"mod": {"killed": 3}}, metas[0])
-    assert gate.main(["--run-mutmut", *argv]) == 1, "the pass-1 survivor must still fail the gate"
-    out = capsys.readouterr().out
-    assert "100% kill rate required" in out
-    assert "s" in out
-
-
 def test_unjudged_mutant_is_not_measured_even_when_kill_floor_is_met(tmp_path, monkeypatch, capsys):
     """P1: the invariant is 'any un-judged mutant means this module was not
     measured', and that must hold regardless of the kill count. A module at or
@@ -427,17 +329,6 @@ def test_unjudged_mutant_is_not_measured_even_when_kill_floor_is_met(tmp_path, m
     out = capsys.readouterr().out
     assert "NOT-MEASURED" in out
     assert "Strict gate passed" not in out, "must not claim a gate it did not enforce"
-
-
-def test_merge_keeps_earlier_pass_when_a_later_meta_goes_missing():
-    """P1: a pass whose .meta vanished carries no information. Folding its zeros
-    in would wipe the earlier pass's un-judged count and make an un-measured
-    module read as fully measured."""
-    pass1 = {"mod": {"killed": 1, "survived": 0, "unjudged": 1, "total": 2, "missing": False}}
-    pass2 = {"mod": {"killed": 0, "survived": 0, "unjudged": 0, "total": 0, "missing": True}}
-    merged = gate.merge_passes(pass1, pass2)
-    assert merged["mod"]["unjudged"] == 1, "un-measured state must survive a missing later pass"
-    assert gate.any_not_measured(merged) is True
 
 
 def test_tolerance_requires_darwin_not_just_run_mutmut(tmp_path, monkeypatch, capsys):
@@ -460,32 +351,37 @@ def test_tolerance_requires_darwin_not_just_run_mutmut(tmp_path, monkeypatch, ca
     assert "killed dropped from 3 -> 1" in out
 
 
-def test_merge_keeps_earlier_pass_when_a_later_meta_is_empty_or_truncated():
-    """P1: guarding on `missing` alone was not enough. An EXISTING but empty
-    .meta reports missing=False with zeroed counts, and a truncated one reports
-    fewer mutants than the prior pass; folding either in wipes the earlier
-    pass's un-judged count and an un-measured module reads as measured. The
-    honest signal is population size, not file existence."""
-    pass1 = {"mod": {"killed": 1, "survived": 0, "unjudged": 1, "total": 2, "missing": False}}
+def test_local_run_reads_exactly_one_snapshot_and_never_retries(tmp_path, monkeypatch, capsys):
+    """The invariant that replaced the fold (#523, five review rounds).
 
-    empty = {"mod": {"killed": 0, "survived": 0, "unjudged": 0, "total": 0, "missing": False}}
-    merged_empty = gate.merge_passes(pass1, empty)
-    assert merged_empty["mod"]["unjudged"] == 1
-    assert gate.any_not_measured(merged_empty) is True
+    Every module verdict must come from exactly ONE metadata snapshot. The
+    earlier design retried a noisy run and merged the passes to recover a strict
+    local verdict; combining a kill count seen in one pass with a completeness
+    seen in another asserted something no single observation made, and produced
+    an unearned 'strict gate passed' five times through five different holes.
 
-    truncated = {"mod": {"killed": 1, "survived": 0, "unjudged": 0, "total": 1, "missing": False}}
-    merged_trunc = gate.merge_passes(pass1, truncated)
-    assert merged_trunc["mod"]["unjudged"] == 1, "a shrunken population is not a measurement"
-    assert gate.any_not_measured(merged_trunc) is True
+    So: one mutmut invocation, one read, no folding. If that snapshot has an
+    un-judged mutant the module is NOT-MEASURED, whatever its kill count.
+    """
+    monkeypatch.setattr(gate.sys, "platform", "darwin")
+    runs = []
 
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+        # A wiped-out pass. Under the old design this triggered a retry.
+        _rewrite_meta(tmp_path, {"mod": {"a": -11, "b": -11}})
 
-def test_merge_still_accepts_a_pass_that_measured_at_least_as_much():
-    """The complement: a fresh pass covering the same or a larger population IS
-    informative and must be folded in, or the converge loop could never
-    converge."""
-    pass1 = {"mod": {"killed": 0, "survived": 0, "unjudged": 2, "total": 2, "missing": False}}
-    pass2 = {"mod": {"killed": 2, "survived": 0, "unjudged": 0, "total": 2, "missing": False}}
-    merged = gate.merge_passes(pass1, pass2)
-    assert merged["mod"]["unjudged"] == 0
-    assert merged["mod"]["killed"] == 2
-    assert gate.any_not_measured(merged) is False
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 2}}, {"mod": {"a": 1, "b": 1}})
+    rc = gate.main(["--run-mutmut", *argv])
+
+    assert len(runs) == 1, "exactly one pass: no retry, and so nothing to fold"
+    assert rc == 0, "an un-measured local run must not block the push"
+    out = capsys.readouterr().out
+    assert "NOT-MEASURED" in out
+    assert "Strict gate passed" not in out
