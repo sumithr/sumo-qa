@@ -29,13 +29,41 @@ _ENVELOPE_RE = re.compile(
     r"<REVIEW>\s*(?P<review>.*?)\s*</REVIEW>\s*\Z",
     re.DOTALL,
 )
+# A complete envelope pair. The lazy REVIEW group would otherwise absorb a second
+# pair, validating the first report while the second is never parsed. Counting
+# whole pairs, not lone tags, lets review prose mention a tag by name.
+_ENVELOPE_PAIR_RE = re.compile(r"<GATE_REPORT>.*?</GATE_REPORT>\s*<REVIEW>", re.DOTALL)
 _CODE_FENCE_RE = re.compile(
     r"\A\s*```(?:text|json)?\s*\n(?P<body>.*?)\n```\s*\Z",
     re.DOTALL,
 )
-# Anchored to end-of-line: the contract requires a literal verdict line, so a
-# trailing qualifier ("... only if a future test passes") is not a verdict.
-_VERDICT_RE = re.compile(r"(?mi)^\s*Verdict:\s*(?P<verdict>NOT SAFE TO MERGE|SAFE TO MERGE)\s*$")
+# One literal, case-sensitive line. Only horizontal whitespace is allowed around
+# the verdict, so it cannot be split across lines and a trailing qualifier
+# ("... only if a future test passes") is not a verdict.
+_VERDICT_RE = re.compile(
+    r"(?m)^[ \t]*Verdict:[ \t]*(?P<verdict>NOT SAFE TO MERGE|SAFE TO MERGE)[ \t]*$"
+)
+# A second verdict statement beside the one well-formed line must not be
+# ignored. Two shapes count as a declaration line:
+#
+# * a verdict phrase anywhere on a line, in either direction, in any order
+#   relative to the word "verdict" ("Verdict (final): NOT SAFE TO MERGE",
+#   "NOT SAFE TO MERGE is the final verdict.", "The final verdict is\nNOT SAFE
+#   TO MERGE."). The phrase tolerates stray whitespace, including one line
+#   break inside it. A line that merely quotes the phrase ("must say SAFE TO
+#   MERGE") is also counted: textually it states a verdict, and the contract
+#   asks for exactly one;
+# * a "verdict:" label decorated only with Markdown punctuation ("**Verdict:**",
+#   "> verdict:", "_Verdict:_", a split "Verdict:" line). A label with other
+#   decoration and no phrase ("Verdict (final):" alone) states no direction, so
+#   it is deliberately not chased: it cannot carry a contradictory verdict.
+#
+# Neither pattern uses `\b`: "_" is a word character, so a word boundary would
+# let Markdown emphasis ("_NOT SAFE TO MERGE_") slip past. Only letter/digit
+# adjacency is excluded, so an identifier that merely contains the characters
+# ("UNSAFE to MERGED", "reviewVerdict:") is not a declaration.
+_VERDICT_LABEL_RE = re.compile(r"(?i)(?<![A-Za-z0-9])verdict[ \t]*[*_`]*[ \t]*:")
+_VERDICT_PHRASE_RE = re.compile(r"(?i)(?<![A-Za-z0-9])SAFE\s+TO\s+MERGE(?![A-Za-z0-9])")
 # The two optional appendices the review contract allows after the verdict.
 _APPENDIX_MARKER_RE = re.compile(
     r"(?i)\A\s*(?:#{1,6}\s+)?(?:readiness\s+scorecard|risk\s+ledger)\b"
@@ -106,7 +134,7 @@ def _split_envelopes(response: str) -> tuple[object, str]:
     fenced = _CODE_FENCE_RE.fullmatch(response)
     envelope_text = fenced.group("body") if fenced is not None else response
     match = _ENVELOPE_RE.fullmatch(envelope_text)
-    if match is None:
+    if match is None or len(_ENVELOPE_PAIR_RE.findall(envelope_text)) != 1:
         raise ReviewGateValidationError(
             "response must contain exactly one GATE_REPORT and REVIEW envelope "
             "with no content outside the envelopes"
@@ -130,9 +158,16 @@ def _required_claims(report: GateReport) -> dict[str, GateClaim]:
     return claims_by_gate
 
 
+def _declaration_lines(review: str) -> set[int]:
+    """Indices of the lines on which a verdict declaration starts."""
+    starts = [match.start() for match in _VERDICT_LABEL_RE.finditer(review)]
+    starts += [match.start() for match in _VERDICT_PHRASE_RE.finditer(review)]
+    return {review.count("\n", 0, start) for start in starts}
+
+
 def _verdict(review: str) -> bool:
     matches = list(_VERDICT_RE.finditer(review))
-    if len(matches) != 1:
+    if len(matches) != 1 or len(_declaration_lines(review)) != 1:
         raise ReviewGateValidationError(
             "review must contain exactly one verdict line: SAFE TO MERGE or NOT SAFE TO MERGE"
         )

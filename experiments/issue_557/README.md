@@ -6,7 +6,7 @@ the full review skill's quality across the existing review behavior corpus.
 | Measure | Full review skill | Compact code-gated candidate | Result |
 |---|---:|---:|---:|
 | Unchanged-rubric passes | 40/46 | 31/46 | 9 fewer passes |
-| Per-scenario quality regressions | 0 | 12 | quality criterion failed |
+| Per-scenario quality regressions (grade-only rule) | 0 | 12 | quality criterion failed |
 | Model input tokens | 865,740 | 126,342 | 85.41% lower |
 | Candidate-generation input + completion | 1,079,443 | 291,169 | 73.03% lower |
 
@@ -76,8 +76,13 @@ Every current-skill behavior config was included.
 | vacuous-test | 2 | 1 | 1 | 0 |
 | verifier-evidence | 3 | 3 | 3 | 0 |
 
-The 12 per-scenario regressions include baseline passes that became failures and
-baseline failures whose score decreased. The lost behaviors include acceptance
+The 12 per-scenario regressions were counted under the grade-only rule in force
+when the run was made: baseline passes that became failures and baseline
+failures whose score decreased. The current comparator also counts each repaired
+scenario as a regression regardless of its grade. The evidence directory for
+that run is no longer available to recompute, so under the current rule the
+count is between 12 and 14, depending on whether the two repaired scenarios were
+already among the 12. The lost behaviors include acceptance
 criteria coverage, executable-hook discovery, benign-config negative control,
 eval-validity reasoning, internal-versus-external producer discrimination,
 feature-flow evidence, absent-memory handling, fence-parser discrimination, and
@@ -231,14 +236,30 @@ and review-skill tools.
 
 The execution order matches the decision question:
 
-1. Candidate B runs all 46 scenarios once, is graded against the unchanged grounded
+1. Candidate B runs all 46 scenarios, is graded against the unchanged grounded
    rubrics, and is compared with the frozen full-skill baseline grade per scenario.
+   A scenario whose first attempt fails deterministic validation gets one repair
+   attempt so its usage is counted, but a repaired scenario is recorded as a
+   quality regression: only a first-attempt pass preserves quality.
 2. Production A then runs the same 46 scenario prompts once for provider-reported
    input-token measurement only. It must follow the current progressive-loading
    pointer through `sumo_qa_load_skill_context`.
 
 The two servers expose identical tool names, descriptions, schemas, instructions,
 and non-review results. Only the result of `sumo_qa_reviewing_before_merge` differs.
+The candidate server still serves the full review skill through
+`sumo_qa_load_skill_context`, so a candidate trace is rejected if it loads that
+skill there, or if any review-tool result does not hash to the candidate prompt.
+Every frozen baseline record must match the current scenario id, description,
+config hash, and full-skill prompt hash, and carry a graded output with a
+boolean `pass` and a `score` between 0 and 1, before it is compared against.
+The frozen grade itself is trusted as captured: the evidence file hash is
+recorded in the metadata and this runner does not regrade it. Verifying a
+frozen grade would mean regrading all 46 baseline outputs through the judge,
+which is a cost and behaviour change deliberately left outside this harness. Evidence written by an earlier
+harness revision cannot be resumed, because the metadata pins this module's own
+file hash; such a run either continues under the current checks or starts again
+with `--fresh`.
 The verdict is `PROVEN` only with all 46 A and B executions complete, zero quality
 regressions, at least 60% estimated skill-context reduction, and at least 40%
 provider-reported total input-token reduction. Candidate repair attempts count

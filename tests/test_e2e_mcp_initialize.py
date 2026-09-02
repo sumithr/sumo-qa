@@ -31,7 +31,6 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from experiments.issue_557.run_candidate import candidate_prompt
 from sumo_qa import server as sumo_server
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -175,6 +174,10 @@ def test_mcp_tools_list_count_matches_registry(mcp_proc):
 
 
 def test_issue_557_ab_variants_work_over_real_stdio_transport() -> None:
+    # Imported here, not at module level, so the production initialize and
+    # tools/list contract tests above collect without the POC package.
+    from experiments.issue_557.run_candidate import candidate_prompt
+
     async def inspect(variant: str) -> tuple[set[str], str]:
         parameters = StdioServerParameters(
             command=sys.executable,

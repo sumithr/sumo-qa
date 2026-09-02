@@ -457,6 +457,26 @@ def test_internal_declination_without_an_external_producer_is_accepted() -> None
         "Verdict: MAYBE",
         "Verdict: SAFE TO MERGE only if a future test passes",
         "Verdict: NOT SAFE TO MERGE, pending a rerun",
+        "Verdict:\nSAFE TO MERGE",
+        "Verdict:\nSAFE TO MERGE\nonly if a future test passes",
+        "Verdict: safe to merge",
+        "Command: pytest -q -> 1 passed\nverdict: not safe to merge\nVerdict: SAFE TO MERGE",
+        "Verdict:\nNOT SAFE TO MERGE\nVerdict: SAFE TO MERGE",
+        "**Verdict:** NOT SAFE TO MERGE\nCommand: pytest -q -> 1 passed\nVerdict: SAFE TO MERGE",
+        "**Verdict**: NOT SAFE TO MERGE\nVerdict: SAFE TO MERGE",
+        "> Verdict: NOT SAFE TO MERGE\nVerdict: SAFE TO MERGE",
+        "Final verdict: NOT SAFE TO MERGE\nVerdict: SAFE TO MERGE",
+        "Verdict (final): NOT SAFE TO MERGE\nCommand: pytest -q -> 1 passed\nVerdict: SAFE TO MERGE",
+        "<strong>Verdict</strong>: NOT SAFE TO MERGE\nVerdict: SAFE TO MERGE",
+        "The overall verdict is not safe to merge.\nVerdict: SAFE TO MERGE",
+        "Verdict (final): NOT SAFE  TO MERGE\nVerdict: SAFE TO MERGE",
+        "The overall verdict is NOT SAFE\nTO MERGE.\nVerdict: SAFE TO MERGE",
+        "NOT SAFE TO MERGE is the final verdict.\nVerdict: SAFE TO MERGE",
+        "The final verdict is\nNOT SAFE TO MERGE.\nVerdict: SAFE TO MERGE",
+        "This change is safe to merge once the flag ships.\nVerdict: SAFE TO MERGE",
+        "Command: pytest -q -> 1 passed\n_NOT SAFE TO MERGE_\nVerdict: SAFE TO MERGE",
+        "_Verdict:_ NOT SAFE TO MERGE\nVerdict: SAFE TO MERGE",
+        "_Verdict:_\nVerdict: SAFE TO MERGE",
     ],
 )
 def test_exactly_one_supported_verdict_is_required(review: str) -> None:
@@ -467,6 +487,45 @@ def test_exactly_one_supported_verdict_is_required(review: str) -> None:
 def test_content_outside_envelopes_is_rejected() -> None:
     with pytest.raises(ReviewGateValidationError, match="outside the envelopes"):
         validate_review_response(f"preamble\n{_response()}")
+
+
+def test_second_envelope_pair_is_rejected() -> None:
+    # The lazy REVIEW group would otherwise absorb a second GATE_REPORT/REVIEW
+    # pair, validating the first report while the second is never parsed.
+    single = _response()
+    with pytest.raises(ReviewGateValidationError, match="exactly one GATE_REPORT"):
+        validate_review_response(f"{single}\n{single}")
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "AC1: verdict discipline | Classification: MET | Anchor: the verdict line below",
+        # Letter-adjacent characters are an identifier, not the phrase.
+        "Renamed enum member UNSAFE to MERGED.",
+        # Letter-adjacent "Verdict:" is an identifier, not a label.
+        "The reviewVerdict: field is serialized.",
+        # A decorated label with no phrase states no direction.
+        "Verdict (final):",
+    ],
+)
+def test_review_prose_may_name_the_verdict_without_declaring_one(prose: str) -> None:
+    review = f"Command: pytest -q -> 1 passed\n{prose}\nVerdict: SAFE TO MERGE"
+    validated = validate_review_response(_response(review=review))
+    assert validated.review == review
+    assert validated.safe_to_merge is True
+
+
+@pytest.mark.parametrize("tag", ["</REVIEW>", "<REVIEW>", "<GATE_REPORT>", "</GATE_REPORT>"])
+def test_review_prose_may_mention_an_envelope_tag(tag: str) -> None:
+    review = (
+        "Command: pytest -q -> 1 passed\n"
+        f"The parser rejected a stray {tag} as expected.\n"
+        "Verdict: SAFE TO MERGE"
+    )
+    validated = validate_review_response(_response(review=review))
+    assert validated.review == review
+    assert validated.safe_to_merge is True
 
 
 def test_single_presentation_fence_around_envelopes_is_accepted() -> None:
@@ -984,6 +1043,15 @@ def test_comparison_requires_quality_and_token_reduction(tmp_path: Path) -> None
     invalid_usage = compare_evidence(baseline_dir, candidate_dir)
     assert invalid_usage["verdict"] == "NOT PROVEN"
     assert invalid_usage["integrity"]["usage_is_valid"] is False
+    candidate_path.write_text(original_candidate, encoding="utf-8")
+
+    for malformed in (1, [1], [None]):
+        malformed_attempts_record = json.loads(original_candidate)
+        malformed_attempts_record["results"][0]["attempts"] = malformed
+        candidate_path.write_text(json.dumps(malformed_attempts_record), encoding="utf-8")
+        malformed_attempts = compare_evidence(baseline_dir, candidate_dir)
+        assert malformed_attempts["verdict"] == "NOT PROVEN"
+        assert malformed_attempts["integrity"]["candidate_responses_revalidate"] is False
     candidate_path.write_text(original_candidate, encoding="utf-8")
 
     grade_path = candidate_dir / "candidate-core-grade.json"

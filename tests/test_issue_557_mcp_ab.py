@@ -9,16 +9,18 @@ import json
 import pytest
 
 from experiments.issue_557.mcp_ab_server import build_variant_server
-from experiments.issue_557.run_candidate import candidate_prompt
+from experiments.issue_557.run_candidate import build_prompts, candidate_prompt, load_group
 from experiments.issue_557.run_mcp_subscription_eval import (
     MCP_SKILL_DIRECTIVE,
     McpCall,
     McpCodexResult,
     build_mcp_prompts,
+    candidate_quality_preserved,
     mcp_codex_command,
     parse_mcp_codex_jsonl,
     summarize,
     validate_frozen_baseline_metadata,
+    validate_frozen_baseline_record,
     validate_mcp_trace,
 )
 from experiments.issue_557.run_subscription_eval import (
@@ -182,6 +184,154 @@ def test_mcp_trace_requires_progressive_loading_only_for_baseline() -> None:
             result("using_sumo_qa", "sumo_qa_reviewing_before_merge", server="foreign"),
             variant="candidate",
         )
+
+
+def test_mcp_trace_rejects_a_candidate_that_reads_the_full_review_skill() -> None:
+    compact = candidate_prompt("repaired-compact")
+    expected = _sha256(compact)
+
+    def result(*calls: McpCall) -> McpCodexResult:
+        return McpCodexResult(output="review", usage={}, calls=list(calls))
+
+    router = McpCall("issue557", "using_sumo_qa", {}, "router")
+    review = McpCall("issue557", "sumo_qa_reviewing_before_merge", {}, compact)
+    other_skill = McpCall(
+        "issue557",
+        "sumo_qa_load_skill_context",
+        {"skill_name": "sumo-qa-finding-test-data"},
+        "other skill",
+    )
+    validate_mcp_trace(
+        result(router, review, other_skill),
+        variant="candidate",
+        candidate_review_sha256=expected,
+    )
+
+    leaked = McpCall(
+        "issue557",
+        "sumo_qa_load_skill_context",
+        {"skill_name": "sumo-qa-reviewing-before-merge", "section": "verdict-format-discipline"},
+        "full skill section",
+    )
+    with pytest.raises(ValueError, match="full review skill"):
+        validate_mcp_trace(
+            result(router, review, leaked),
+            variant="candidate",
+            candidate_review_sha256=expected,
+        )
+    leaked_as_json_string = McpCall(
+        "issue557",
+        "sumo_qa_load_skill_context",
+        json.dumps({"skill_name": "sumo-qa-reviewing-before-merge"}),
+        "full skill",
+    )
+    with pytest.raises(ValueError, match="full review skill"):
+        validate_mcp_trace(
+            result(router, review, leaked_as_json_string),
+            variant="candidate",
+            candidate_review_sha256=expected,
+        )
+    # The rule keys on the exact skill_name, so another skill whose arguments
+    # merely mention the review skill is not a false positive.
+    mentions_only = McpCall(
+        "issue557",
+        "sumo_qa_load_skill_context",
+        {"skill_name": "sumo-qa-finding-test-data", "known_hash": "sumo-qa-reviewing-before-merge"},
+        "other skill",
+    )
+    validate_mcp_trace(
+        result(router, review, mentions_only),
+        variant="candidate",
+        candidate_review_sha256=expected,
+    )
+
+    swapped = McpCall("issue557", "sumo_qa_reviewing_before_merge", {}, "full skill body")
+    with pytest.raises(ValueError, match="does not match the candidate prompt"):
+        validate_mcp_trace(
+            result(router, swapped),
+            variant="candidate",
+            candidate_review_sha256=expected,
+        )
+
+    # The baseline is required to load the full skill; the candidate rule must
+    # not fire on it.
+    validate_mcp_trace(result(router, swapped, leaked), variant="baseline")
+
+
+def test_frozen_baseline_record_must_match_the_current_scenario() -> None:
+    group = "core"
+    _, tests, config_hash = load_group(group)
+    baseline_prompt = build_prompts(
+        group,
+        skill_content=SKILL_PATH.read_text(encoding="utf-8"),
+    )[1][0][1]
+    record = {
+        "scenario_id": f"{group}:0",
+        "description": tests[0]["description"],
+        "config_sha256": config_hash,
+        "baseline": {
+            "prompt_sha256": _sha256(baseline_prompt),
+            "output": "Verdict: NOT SAFE TO MERGE",
+            "grade": {"pass": True, "score": 1.0},
+        },
+    }
+
+    validate_frozen_baseline_record(record, group=group, index=0)
+
+    for broken_grade in (
+        None,
+        {"pass": "yes", "score": 1.0},
+        {"pass": True, "score": "1"},
+        {"pass": False, "score": -1.0},
+        {"pass": True, "score": 1.5},
+        {"pass": False, "score": float("nan")},
+    ):
+        broken = {**record, "baseline": {**record["baseline"], "grade": broken_grade}}
+        with pytest.raises(RuntimeError, match="lacks a graded output"):
+            validate_frozen_baseline_record(broken, group=group, index=0)
+    no_output = {**record, "baseline": {**record["baseline"], "output": ""}}
+    with pytest.raises(RuntimeError, match="lacks a graded output"):
+        validate_frozen_baseline_record(no_output, group=group, index=0)
+
+    stale_config = {**record, "config_sha256": "stale"}
+    with pytest.raises(RuntimeError, match=r'"config_sha256".*"expected".*"actual"'):
+        validate_frozen_baseline_record(stale_config, group=group, index=0)
+    stale_prompt = {**record, "baseline": {"prompt_sha256": "stale"}}
+    with pytest.raises(RuntimeError, match=r'"baseline_prompt_sha256"'):
+        validate_frozen_baseline_record(stale_prompt, group=group, index=0)
+    missing_baseline = {key: value for key, value in record.items() if key != "baseline"}
+    with pytest.raises(RuntimeError, match=r'"baseline_prompt_sha256"'):
+        validate_frozen_baseline_record(missing_baseline, group=group, index=0)
+
+
+def test_repaired_candidate_cannot_preserve_quality() -> None:
+    passing = {"pass": True, "score": 1.0}
+    failing_baseline = {"pass": False, "score": 0.4}
+
+    assert candidate_quality_preserved(passing, passing, attempt_count=1) is True
+    assert candidate_quality_preserved(passing, passing, attempt_count=2) is False
+    assert (
+        candidate_quality_preserved({"pass": False, "score": 0.9}, passing, attempt_count=1)
+        is False
+    )
+    assert (
+        candidate_quality_preserved(
+            {"pass": False, "score": 0.5}, failing_baseline, attempt_count=1
+        )
+        is True
+    )
+    assert (
+        candidate_quality_preserved(
+            {"pass": False, "score": 0.3}, failing_baseline, attempt_count=1
+        )
+        is False
+    )
+    assert (
+        candidate_quality_preserved(
+            {"pass": False, "score": 0.5}, failing_baseline, attempt_count=2
+        )
+        is False
+    )
 
 
 def test_mcp_summary_requires_all_46_scenarios_and_both_reduction_thresholds() -> None:

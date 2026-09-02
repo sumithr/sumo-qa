@@ -480,6 +480,8 @@ def validate_result_record(record: dict[str, Any]) -> tuple[str, int, int]:
     prompt_tokens = 0
     completion_tokens = 0
     for index, attempt in enumerate(attempts, start=1):
+        if not isinstance(attempt, dict):
+            raise ValueError("candidate attempt must be an object")
         if attempt.get("number") != index:
             raise ValueError("candidate attempt numbers must be sequential")
         usage = attempt.get("usage")

@@ -51,6 +51,7 @@ and self-contained. Load the review discipline through MCP before answering.
 MCP_SUFFIX = "\n--- END EVALUATION TASK ---\n"
 _FORBIDDEN_ITEMS = {"command_execution", "file_change", "web_search", "image_generation"}
 _REQUIRED_TOOLS = ("using_sumo_qa", "sumo_qa_reviewing_before_merge")
+REVIEW_SKILL_NAME = "sumo-qa-reviewing-before-merge"
 
 
 @dataclass(frozen=True)
@@ -204,7 +205,35 @@ def _normalised_tool_name(name: str) -> str:
     return re.split(r"__|/", name)[-1]
 
 
-def validate_mcp_trace(result: McpCodexResult, *, variant: str) -> None:
+def _loaded_skill_name(arguments: Any) -> str | None:
+    """The ``skill_name`` a ``sumo_qa_load_skill_context`` call targeted, if any."""
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(arguments, dict):
+        return None
+    value = arguments.get("skill_name")
+    return value if isinstance(value, str) else None
+
+
+def validate_mcp_trace(
+    result: McpCodexResult,
+    *,
+    variant: str,
+    candidate_review_sha256: str | None = None,
+) -> None:
+    """Reject a trace that breaks the A/B question.
+
+    Both variants must stay on the issue557 server and reach the router and
+    review tools. The baseline must follow the progressive-loading pointer.
+    The candidate must not read the full review skill through
+    ``sumo_qa_load_skill_context`` (the candidate server still serves it there),
+    and when ``candidate_review_sha256`` is given every review-tool result must
+    hash to the candidate prompt, so a compact-prompt pass cannot be earned on
+    full-skill guidance.
+    """
     foreign_servers = sorted(
         {call.server for call in result.calls if call.server != MCP_SERVER_NAME}
     )
@@ -216,6 +245,23 @@ def validate_mcp_trace(result: McpCodexResult, *, variant: str) -> None:
         raise ValueError(f"{variant} skipped required MCP tools: {missing}; called={sorted(tools)}")
     if variant == "baseline" and "sumo_qa_load_skill_context" not in tools:
         raise ValueError("baseline did not follow the progressive skill-loading pointer")
+    if variant != "candidate":
+        return
+    for call in result.calls:
+        name = _normalised_tool_name(call.tool)
+        if (
+            name == "sumo_qa_load_skill_context"
+            and _loaded_skill_name(call.arguments) == REVIEW_SKILL_NAME
+        ):
+            raise ValueError(
+                "candidate loaded the full review skill through sumo_qa_load_skill_context"
+            )
+        if (
+            name == "sumo_qa_reviewing_before_merge"
+            and candidate_review_sha256 is not None
+            and _sha256(call.result_text) != candidate_review_sha256
+        ):
+            raise ValueError("candidate review-tool result does not match the candidate prompt")
 
 
 def _serialise_calls(calls: list[McpCall]) -> list[dict[str, Any]]:
@@ -271,6 +317,71 @@ def validate_frozen_baseline_metadata(
         raise RuntimeError(f"frozen baseline metadata mismatch: {json.dumps(mismatches)}")
 
 
+def validate_frozen_baseline_record(record: dict[str, Any], *, group: str, index: int) -> None:
+    """A frozen baseline grade is reusable only for the scenario it was captured on."""
+    _, tests, config_hash = load_group(group)
+    full_skill = SKILL_PATH.read_text(encoding="utf-8")
+    baseline_prompt = build_prompts(group, skill_content=full_skill)[1][index][1]
+    expected = {
+        "scenario_id": f"{group}:{index}",
+        "description": tests[index]["description"],
+        "config_sha256": config_hash,
+        "baseline_prompt_sha256": _sha256(baseline_prompt),
+    }
+    baseline = record.get("baseline")
+    actual = {
+        "scenario_id": record.get("scenario_id"),
+        "description": record.get("description"),
+        "config_sha256": record.get("config_sha256"),
+        "baseline_prompt_sha256": (
+            baseline.get("prompt_sha256") if isinstance(baseline, dict) else None
+        ),
+    }
+    mismatches = {
+        key: {"expected": value, "actual": actual[key]}
+        for key, value in expected.items()
+        if actual[key] != value
+    }
+    if mismatches:
+        raise RuntimeError(
+            f"frozen baseline record mismatch for {group}:{index}: {json.dumps(mismatches)}"
+        )
+    grade = baseline.get("grade") if isinstance(baseline, dict) else None
+    output = baseline.get("output") if isinstance(baseline, dict) else None
+    if (
+        not isinstance(output, str)
+        or not output
+        or not isinstance(grade, dict)
+        or not isinstance(grade.get("pass"), bool)
+        or type(grade.get("score")) not in (int, float)
+        or not 0 <= grade["score"] <= 1
+    ):
+        raise RuntimeError(
+            f"frozen baseline record for {group}:{index} lacks a graded output: "
+            "expected baseline.output (non-empty text) and baseline.grade with a boolean "
+            "'pass' and a numeric 'score' between 0 and 1"
+        )
+
+
+def candidate_quality_preserved(
+    grade: dict[str, Any],
+    baseline_grade: dict[str, Any],
+    *,
+    attempt_count: int,
+) -> bool:
+    """Only a first-attempt candidate can preserve quality.
+
+    A repair turn carries the validation error and the previous response, which
+    the frozen baseline never received, so a repaired pass is not one-prompt
+    evidence. It still counts toward candidate token usage.
+    """
+    if attempt_count != 1:
+        return False
+    if baseline_grade["pass"]:
+        return bool(grade["pass"])
+    return bool(grade["pass"]) or grade["score"] >= baseline_grade["score"]
+
+
 def _candidate_result(
     group: str,
     index: int,
@@ -283,6 +394,7 @@ def _candidate_result(
     timeout_seconds: int,
 ) -> dict[str, Any]:
     prompt = build_mcp_prompts(group)[index][1]
+    review_sha256 = _sha256(candidate_prompt("repaired-compact"))
     attempts: list[McpCodexResult] = []
     first = run_mcp_codex(
         prompt,
@@ -292,7 +404,7 @@ def _candidate_result(
         runner_dir=runner_dir,
         timeout_seconds=timeout_seconds,
     )
-    validate_mcp_trace(first, variant="candidate")
+    validate_mcp_trace(first, variant="candidate", candidate_review_sha256=review_sha256)
     attempts.append(first)
     try:
         validated = validate_review_response(first.output)
@@ -308,7 +420,7 @@ def _candidate_result(
             runner_dir=runner_dir,
             timeout_seconds=timeout_seconds,
         )
-        validate_mcp_trace(repair, variant="candidate")
+        validate_mcp_trace(repair, variant="candidate", candidate_review_sha256=review_sha256)
         attempts.append(repair)
         validated = validate_review_response(repair.output)
 
@@ -323,11 +435,7 @@ def _candidate_result(
         timeout_seconds=timeout_seconds,
     )
     baseline_grade = frozen["baseline"]["grade"]
-    preserved = (
-        grade["pass"]
-        if baseline_grade["pass"]
-        else grade["pass"] or grade["score"] >= baseline_grade["score"]
-    )
+    preserved = candidate_quality_preserved(grade, baseline_grade, attempt_count=len(attempts))
     calls = [call for attempt in attempts for call in attempt.calls]
     usage = _sum_usage([attempt.usage for attempt in attempts])
     return {
@@ -338,6 +446,9 @@ def _candidate_result(
         "grade": grade,
         "grade_usage": grade_usage,
         "frozen_baseline_grade": baseline_grade,
+        "graded_quality_preserved": candidate_quality_preserved(
+            grade, baseline_grade, attempt_count=1
+        ),
         "quality_preserved": preserved,
     }
 
@@ -470,6 +581,8 @@ def main() -> None:
     ]
     if len(scenarios) != 46 or any(f"{g}:{i}" not in frozen_by_id for g, i in scenarios):
         raise RuntimeError("frozen baseline must contain all 46 matching scenarios")
+    for group, index in scenarios:
+        validate_frozen_baseline_record(frozen_by_id[f"{group}:{index}"], group=group, index=index)
 
     runner_dir = args.output.parent / "codex-mcp-runner"
     runner_dir.mkdir(parents=True, exist_ok=True)
@@ -482,6 +595,9 @@ def main() -> None:
         "skill_context_token_estimator": "ceil(MCP result characters / 4)",
         "candidate_prompt_sha256": _sha256(candidate_prompt("repaired-compact")),
         "mcp_server_sha256": _sha256((Path(__file__).with_name("mcp_ab_server.py")).read_bytes()),
+        # Pin this harness, so evidence written before a trace or quality rule
+        # changed cannot be resumed under the new rules without --fresh.
+        "harness_sha256": _sha256(Path(__file__).read_bytes()),
         "frozen_baseline": {
             "path": str(args.frozen_baseline_evidence),
             "sha256": _sha256(args.frozen_baseline_evidence.read_bytes()),

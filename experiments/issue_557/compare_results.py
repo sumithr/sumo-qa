@@ -374,7 +374,8 @@ def compare_evidence(
             # A second attempt was generated after a corrective user turn that the
             # baseline never received, so its grade is not a one-prompt comparison
             # against the pinned scenario and cannot count as preserved quality.
-            repaired = len(result.get("attempts") or []) > 1
+            attempts = result.get("attempts")
+            repaired = isinstance(attempts, list) and len(attempts) > 1
             first_attempt_pass = candidate_pass and not repaired
             baseline_score = float(before["score"])
             candidate_score = float(after["score"]) if validated_review is not None else 0.0
