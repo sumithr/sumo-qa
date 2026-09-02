@@ -40,9 +40,39 @@ _ORIGINAL_EXECUTE_EXTERNAL: Callable[..., dict[str, str]] | None = None
 _LEADING_NOISE_RE = re.compile(r"\A(?:\s|\ufeff|<!--.*?-->)*", re.DOTALL)
 
 
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\n.*?\n---[ \t]*\n", re.DOTALL)
+
+
+def _without_frontmatter(text: str) -> str:
+    """The skill body a model reads: leading noise and the YAML frontmatter removed."""
+    return _FRONTMATTER_RE.sub("", _LEADING_NOISE_RE.sub("", text), count=1)
+
+
 def _normalised(text: str) -> str:
     """Collapse whitespace differences that do not change what the model reads."""
     return "\n".join(line.rstrip() for line in text.strip().splitlines())
+
+
+def _content_lines(text: str) -> set[str]:
+    """The substantive lines of a skill body: frontmatter, blanks and short lines dropped."""
+    return {
+        line.strip() for line in _without_frontmatter(text).splitlines() if len(line.strip()) >= 24
+    }
+
+
+def shares_skill_body(candidate: str, reference: str, *, threshold: float = 0.8) -> bool:
+    """Whether ``candidate`` carries ``reference``'s body: at least ``threshold`` of the
+    reference's substantive lines appear verbatim in the candidate.
+
+    An identity check by hash or equality misses a copy that was renamed,
+    stripped of its frontmatter, edited, or is an older revision; line overlap
+    recognises all of those while an unrelated skill shares almost no lines.
+    """
+    reference_lines = _content_lines(reference)
+    if not reference_lines:
+        return False
+    candidate_lines = _content_lines(candidate)
+    return len(reference_lines & candidate_lines) / len(reference_lines) >= threshold
 
 
 def _install_external_skill_override() -> None:
@@ -76,7 +106,9 @@ def _install_external_skill_override() -> None:
         record = production.get(REVIEW_SKILL_DIRECTORY)
         if record is None:
             return False
-        return _normalised(body) == _normalised(record["_full"])
+        # A copy whose directory and name: line were both changed, and whose
+        # body was edited, is still the review skill if it carries its lines.
+        return shares_skill_body(body, record["_full"])
 
     def execute_external_skill(
         skill: str,

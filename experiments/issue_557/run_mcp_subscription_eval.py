@@ -22,6 +22,7 @@ from typing import Any
 
 from sumo_qa.review_gate_poc import ReviewGateValidationError, validate_review_response
 
+from .mcp_ab_server import shares_skill_body
 from .run_candidate import FULL_REVIEW_GROUPS, build_prompts, candidate_prompt, load_group
 from .run_subscription_eval import (
     DEFAULT_MODEL,
@@ -229,6 +230,28 @@ def _loaded_skill_name(arguments: Any) -> str | None:
     return _string_argument(arguments, "skill_name")
 
 
+def _served_bodies(result_text: str) -> list[str]:
+    """The raw result plus every string inside it if it is JSON (skill_body etc.)."""
+    bodies = [result_text]
+    try:
+        payload = json.loads(result_text)
+    except (TypeError, ValueError):
+        return bodies
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            bodies.append(value)
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(payload)
+    return bodies
+
+
 def _names_review_skill(value: str | None) -> bool:
     """Whether an external-skill name resolves to the review skill.
 
@@ -282,13 +305,21 @@ def validate_mcp_trace(
                 f"candidate read MCP resources directly ({name}); resource reads are "
                 "invisible to the skill-context token estimate"
             )
-        if name == "sumo_qa_execute_external_skill" and _names_review_skill(
-            _string_argument(call.arguments, "skill")
-        ):
-            raise ValueError(
-                "candidate executed the review skill as an external skill; that path "
-                "is not part of the compact profile"
+        if name == "sumo_qa_execute_external_skill":
+            # Reject by name, and by what came back: an alias or symlink that the
+            # name rule cannot see still returns the review skill's lines.
+            named = _names_review_skill(_string_argument(call.arguments, "skill"))
+            full_skill = SKILL_PATH.read_text(encoding="utf-8")
+            compact = candidate_prompt("repaired-compact")
+            served_review = any(
+                shares_skill_body(body, full_skill) or shares_skill_body(body, compact)
+                for body in _served_bodies(call.result_text)
             )
+            if named or served_review:
+                raise ValueError(
+                    "candidate executed the review skill as an external skill; that path "
+                    "is not part of the compact profile"
+                )
         if (
             name == "sumo_qa_load_skill_context"
             and _loaded_skill_name(call.arguments) == REVIEW_SKILL_NAME
@@ -323,6 +354,8 @@ def _skill_context_tokens(calls: list[dict[str, Any]]) -> int:
         "using_sumo_qa",
         "sumo_qa_reviewing_before_merge",
         "sumo_qa_load_skill_context",
+        # Any external-skill load is skill context too, whatever it was named.
+        "sumo_qa_execute_external_skill",
     }
     return sum(
         call["estimated_result_tokens"]

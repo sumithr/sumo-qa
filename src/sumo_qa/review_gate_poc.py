@@ -64,9 +64,10 @@ _VERDICT_RE = re.compile(
 # adjacency is excluded, so an identifier that merely contains the characters
 # ("UNSAFE to MERGED", "reviewVerdict:") is not a declaration.
 # The bare unresolved values a field guard looks for. An angle-bracketed value
-# ("<UNMET>") is the value, not an HTML tag, so tags exclude that shape.
+# ("<UNMET>", "<UNMET/>", "<**UNMET**>", "<UNMET | Anchor: none>") is the value,
+# not an HTML tag, so a tag body may not contain a bare value anywhere.
 _UNRESOLVED_VALUES = r"(?:UNMET|UNVERIFIED|UNCOVERED|UNPROVEN|NONE)"
-_TAG_BODY = rf"(?!{_UNRESOLVED_VALUES}[ \t]*>)[^<>\n]*>"
+_TAG_BODY = rf"(?![^<>\n]*(?<![A-Za-z0-9]){_UNRESOLVED_VALUES}(?!_*[A-Za-z0-9]))[^<>\n]*>"
 _COLON_ENTITY = r"(?:#0*58;|#[xX]0*3[aA];|colon;)"
 
 

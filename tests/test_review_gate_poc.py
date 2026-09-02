@@ -423,6 +423,9 @@ def test_advisory_hint_line_is_rejected_when_no_feedback_was_supplied() -> None:
         "<em>NONE</em>",
         "&nbsp;NONE",
         "&#160;NONE",
+        "<NONE>",
+        "<NONE/>",
+        "<**NONE**>",
     ],
 )
 def test_none_is_rejected_as_a_coverage_status(value: str) -> None:
@@ -459,6 +462,12 @@ def test_none_is_rejected_behind_a_decorated_coverage_label(label: str) -> None:
         "<strong>UNMET</strong>",
         "&nbsp;UNMET",
         "&#160;&nbsp;UNVERIFIED",
+        # Angle-bracket wrappers are the value, not an HTML tag.
+        "<UNMET>",
+        "<UNMET/>",
+        "<UNMET\u00a0>",
+        "<**UNMET**>",
+        "<UNCOVERED | see below>",
     ],
 )
 def test_safe_verdict_with_an_unresolved_classification_is_rejected(value: str) -> None:

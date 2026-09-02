@@ -147,7 +147,20 @@ def test_mcp_ab_candidate_serves_compact_prompt_for_a_host_installed_review_skil
         "copy-older-revision": "\n".join(lines[:-3]) + "\n",
         "copy-edited": "\n\n" + full_skill + "\n<!-- local note -->\n",
         "copy-commented": "\n<!-- local note -->\n" + full_skill,
+        # The realistic rename: the frontmatter name now names the new directory.
+        "copy-renamed-frontmatter": full_skill.replace(
+            "name: sumo-qa-reviewing-before-merge", "name: copy-renamed-frontmatter", 1
+        ),
+        # Frontmatter dropped entirely; only the body the model reads remains.
+        "copy-no-frontmatter": full_skill.split("\n---\n", 1)[1],
+        # Directory, frontmatter name and body all changed: still the review skill.
+        "copy-edited-everywhere": full_skill.replace(
+            "name: sumo-qa-reviewing-before-merge", "name: copy-edited-everywhere", 1
+        )
+        + "\nLocal host edit.\n",
     }
+    assert "name: sumo-qa-reviewing-before-merge" not in variants["copy-renamed-frontmatter"]
+    assert not variants["copy-no-frontmatter"].startswith("---")
     for name, body in variants.items():
         (tmp_path / ".claude" / "skills" / name).mkdir(parents=True)
         (tmp_path / ".claude" / "skills" / name / "SKILL.md").write_text(body, encoding="utf-8")
@@ -177,8 +190,10 @@ def test_mcp_ab_candidate_serves_compact_prompt_for_a_host_installed_review_skil
         external_skills.execute_external_skill(_OTHER, scope="global", home=tmp_path)["skill_body"]
         == "# other skill\n"
     )
-    # A renamed host copy of the review skill is recognised by its body, even
-    # when the copy differs by whitespace, a BOM, or is an older revision.
+    # A renamed host copy of the review skill is recognised by its directory
+    # name, its frontmatter name, or (for a renamed or stripped frontmatter)
+    # its body, even when the copy differs by whitespace, a BOM, or is an older
+    # revision.
     for name in ("my-review-copy", *variants):
         served = external_skills.execute_external_skill(name, scope="global", home=tmp_path)
         assert served["skill_body"] == candidate_prompt("repaired-compact"), name
@@ -428,10 +443,48 @@ def test_mcp_trace_rejects_a_candidate_that_reads_the_full_review_skill() -> Non
         variant="candidate",
         candidate_review_sha256=expected,
     )
-
     # The baseline is required to load the full skill; the candidate rule must
     # not fire on it.
     validate_mcp_trace(result(router, swapped, leaked), variant="baseline")
+
+    # An alias the name rule cannot see is caught by what it returned.
+    full_skill = SKILL_PATH.read_text(encoding="utf-8")
+    for served in (full_skill, compact, json.dumps({"skill_body": full_skill})):
+        aliased = McpCall(
+            "issue557",
+            "sumo_qa_execute_external_skill",
+            {"skill": "aliases/review-current"},
+            served,
+        )
+        with pytest.raises(ValueError, match="external skill"):
+            validate_mcp_trace(
+                result(router, review, aliased),
+                variant="candidate",
+                candidate_review_sha256=expected,
+            )
+
+
+def test_external_skill_loads_count_as_skill_context() -> None:
+    from experiments.issue_557.run_mcp_subscription_eval import _skill_context_tokens
+
+    calls = [
+        {"tool": "sumo_qa_execute_external_skill", "estimated_result_tokens": 40},
+        {"tool": "sumo_qa_find_test_data", "estimated_result_tokens": 7},
+    ]
+    assert _skill_context_tokens(calls) == 40
+
+
+def test_shares_skill_body_recognises_edits_but_not_other_skills() -> None:
+    from experiments.issue_557.mcp_ab_server import shares_skill_body
+
+    full_skill = SKILL_PATH.read_text(encoding="utf-8")
+    lines = full_skill.splitlines()
+    assert shares_skill_body(full_skill, full_skill)
+    assert shares_skill_body("\n".join(lines[: len(lines) * 9 // 10]), full_skill)
+    assert shares_skill_body(full_skill + "\nLocal host edit.\n", full_skill)
+    assert not shares_skill_body("# other skill\n\nSome unrelated guidance here.\n", full_skill)
+    assert not shares_skill_body("", full_skill)
+    assert not shares_skill_body(full_skill, "")
 
 
 def test_frozen_baseline_record_must_match_the_current_scenario() -> None:
