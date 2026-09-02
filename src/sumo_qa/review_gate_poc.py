@@ -63,9 +63,34 @@ _VERDICT_RE = re.compile(
 # let Markdown emphasis ("_NOT SAFE TO MERGE_") slip past. Only letter/digit
 # adjacency is excluded, so an identifier that merely contains the characters
 # ("UNSAFE to MERGED", "reviewVerdict:") is not a declaration.
-_VERDICT_LABEL_RE = re.compile(
-    r"(?i)(?<![A-Za-z0-9])verdict(?:<[^>\n]*>|&[A-Za-z0-9#]+;|[^A-Za-z0-9:\n])*:"
-)
+# The bare unresolved values a field guard looks for. An angle-bracketed value
+# ("<UNMET>") is the value, not an HTML tag, so tags exclude that shape.
+_UNRESOLVED_VALUES = r"(?:UNMET|UNVERIFIED|UNCOVERED|UNPROVEN|NONE)"
+_TAG_BODY = rf"(?!{_UNRESOLVED_VALUES}[ \t]*>)[^<>\n]*>"
+_COLON_ENTITY = r"(?:#0*58;|#[xX]0*3[aA];|colon;)"
+
+
+def _decoration(*, before_colon: bool) -> str:
+    """Zero or more decoration tokens on one line: punctuation, HTML tags, entities.
+
+    Every alternative is exclusive at its position (a "<" is a tag start or
+    explicitly not one; an "&" is an entity or explicitly not one; the single
+    character class excludes both), so the pattern cannot backtrack
+    exponentially on inputs such as "verdict<><><>...". Plain letters and
+    digits are never decoration, so a different word cannot be skipped over.
+    Before a label's colon the class stops at ":" and leaves a colon entity to
+    the colon pattern.
+    """
+    if before_colon:
+        entity = rf"&(?!{_COLON_ENTITY})[A-Za-z0-9#]+;"
+        single = r"[^A-Za-z0-9<&:\n]"
+    else:
+        entity = r"&[A-Za-z0-9#]+;"
+        single = r"[^A-Za-z0-9<&\n]"
+    return rf"(?:<{_TAG_BODY}|<(?!{_TAG_BODY})|{entity}|&(?![A-Za-z0-9#]+;)|{single})*"
+
+
+_VERDICT_LABEL_RE = re.compile(rf"(?i)(?<![A-Za-z0-9])verdict{_decoration(before_colon=True)}:")
 _VERDICT_PHRASE_RE = re.compile(r"(?i)(?<![A-Za-z0-9])SAFE\s+TO\s+MERGE(?![A-Za-z0-9])")
 # The two optional appendices the review contract allows after the verdict.
 _APPENDIX_MARKER_RE = re.compile(
@@ -75,20 +100,19 @@ _TABLE_ROW_RE = re.compile(r"\A\s*\|")
 _AC_ROW_RE = re.compile(r"(?mi)^\s*AC(?P<number>\d+)\s*:")
 # Any decoration between a label and its value: punctuation of any kind
 # ("**", "`", "_", "~~", "(", quotes, "["), an HTML tag ("<strong>") or an HTML
-# entity ("&nbsp;", "&#160;"), on the same line. Plain letters and digits are
-# not decoration, so a different word cannot be skipped to reach the value.
-_DECORATION = r"(?:<[^>\n]*>|&[A-Za-z0-9#]+;|[^A-Za-z0-9\n])*"
+# entity ("&nbsp;", "&#160;"), on the same line.
+_DECORATION = _decoration(before_colon=False)
 # After the value: not a letter/digit, and not "_" followed by one, so the
 # value is neither a prefix of a longer word ("UNMETERED") nor of an identifier
 # ("UNMET_BY_DESIGN"), while Markdown emphasis ("_UNMET_") still counts.
 _VALUE_END = r"(?!_?[A-Za-z0-9])"
 # The label side takes the same decoration ("**Classification**:",
 # "_Coverage:_", "<strong>Status</strong>:", "Classification :") and the colon
-# may be an HTML entity. The decoration class stops at a colon so the label's
-# own colon is the one matched; backtracking hands an entity colon to _COLON.
+# may be an HTML entity, including leading-zero numeric forms ("&#058;",
+# "&#x03A;").
 _LABEL_START = r"(?<![A-Za-z0-9])"
-_LABEL_DECORATION = r"(?:<[^>\n]*>|&[A-Za-z0-9#]+;|[^A-Za-z0-9:\n])*"
-_COLON = r"(?::|&#58;|&#[xX]3[aA];|&colon;)"
+_LABEL_DECORATION = _decoration(before_colon=True)
+_COLON = rf"(?::|&{_COLON_ENTITY})"
 # Both field guards tolerate that decoration around the value ("**UNMET**",
 # "~~UNMET~~", "(UNMET)", "<strong>UNMET</strong>", "&nbsp;UNMET").
 _COVERAGE_NONE_RE = re.compile(

@@ -41,6 +41,9 @@ from experiments.issue_557.run_subscription_eval import (
     summarize,
 )
 from sumo_qa.review_gate_poc import (
+    _COVERAGE_NONE_RE,
+    _UNRESOLVED_FIELD_RE,
+    _VERDICT_LABEL_RE,
     InventoryDrift,
     ReviewContext,
     ReviewFeedback,
@@ -478,6 +481,10 @@ def test_safe_verdict_with_an_unresolved_classification_is_rejected(value: str) 
         "`Classification`: UNMET",
         "Classification : UNMET",
         "Classification&#58; UNMET",
+        "Classification&#058; UNMET",
+        "Classification&#0000058; UNMET",
+        "Classification&#x03A; UNMET",
+        "Classification&#X0003a; UNVERIFIED",
         "Classification&colon; UNCOVERED",
         "**Status**: UNPROVEN",
     ],
@@ -571,6 +578,27 @@ def test_exactly_one_supported_verdict_is_required(review: str) -> None:
 def test_content_outside_envelopes_is_rejected() -> None:
     with pytest.raises(ReviewGateValidationError, match="outside the envelopes"):
         validate_review_response(f"preamble\n{_response()}")
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "verdict" + "<>" * 40,
+        "verdict" + "<&" * 40,
+        "Classification" + "<>" * 40 + " UNMET",
+        "Classification: " + "<>" * 40 + " UNMET",
+        "Coverage: " + "&;" * 40 + " NONE",
+    ],
+)
+def test_decoration_patterns_do_not_backtrack_exponentially(hostile: str) -> None:
+    # CodeQL flagged the tag/single-character overlap as exponential; each
+    # alternative is now exclusive at its position, so this stays linear.
+    import time
+
+    started = time.perf_counter()
+    for pattern in (_VERDICT_LABEL_RE, _UNRESOLVED_FIELD_RE, _COVERAGE_NONE_RE):
+        pattern.search(hostile)
+    assert time.perf_counter() - started < 0.5
 
 
 def test_second_envelope_pair_is_rejected() -> None:

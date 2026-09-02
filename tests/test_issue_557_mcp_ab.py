@@ -136,6 +136,19 @@ def test_mcp_ab_candidate_serves_compact_prompt_for_a_host_installed_review_skil
     renamed = tmp_path / ".claude" / "skills" / "my-review-copy"
     renamed.mkdir(parents=True)
     (renamed / "SKILL.md").write_text(full_skill, encoding="utf-8")
+    # Copies that differ from the bundled body without changing what the model
+    # reads, plus an older revision that still declares its frontmatter name.
+    lines = full_skill.splitlines()
+    variants = {
+        "copy-trailing-newline": full_skill + "\n\n",
+        "copy-stripped": full_skill.strip(),
+        "copy-bom": "\ufeff" + full_skill,
+        "copy-leading-blank": "\n" + full_skill,
+        "copy-older-revision": "\n".join(lines[:-3]) + "\n",
+    }
+    for name, body in variants.items():
+        (tmp_path / ".claude" / "skills" / name).mkdir(parents=True)
+        (tmp_path / ".claude" / "skills" / name / "SKILL.md").write_text(body, encoding="utf-8")
 
     set_active_variant("baseline")
     assert (
@@ -162,10 +175,11 @@ def test_mcp_ab_candidate_serves_compact_prompt_for_a_host_installed_review_skil
         external_skills.execute_external_skill(_OTHER, scope="global", home=tmp_path)["skill_body"]
         == "# other skill\n"
     )
-    # A renamed host copy of the review skill is recognised by its body.
-    assert external_skills.execute_external_skill("my-review-copy", scope="global", home=tmp_path)[
-        "skill_body"
-    ] == candidate_prompt("repaired-compact")
+    # A renamed host copy of the review skill is recognised by its body, even
+    # when the copy differs by whitespace, a BOM, or is an older revision.
+    for name in ("my-review-copy", *variants):
+        served = external_skills.execute_external_skill(name, scope="global", home=tmp_path)
+        assert served["skill_body"] == candidate_prompt("repaired-compact"), name
     # Any spelling the filesystem resolves (case-insensitive hosts) is covered.
     for spelling in (_REVIEW.upper(), _REVIEW.replace("-", "_")):
         try:

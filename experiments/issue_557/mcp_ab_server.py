@@ -34,6 +34,11 @@ _ORIGINAL_SKILL_RECORDS: Callable[[], dict[str, dict[str, Any]]] | None = None
 _ORIGINAL_EXECUTE_EXTERNAL: Callable[..., dict[str, str]] | None = None
 
 
+def _normalised(text: str) -> str:
+    """Collapse whitespace differences that do not change what the model reads."""
+    return "\n".join(line.rstrip() for line in text.strip().splitlines())
+
+
 def _install_external_skill_override() -> None:
     """Serve the active variant when a host-installed review skill is executed."""
     global _ORIGINAL_EXECUTE_EXTERNAL
@@ -46,17 +51,26 @@ def _install_external_skill_override() -> None:
 
     def is_review_skill(payload: dict[str, str]) -> bool:
         # Case-insensitive filesystems resolve any spelling of the directory,
-        # and a host copy may be renamed, so match the body as well as the name.
+        # and a host copy may be renamed, edited, or an older revision, so
+        # match the directory name, the frontmatter name, and a
+        # whitespace-normalised body, not only an exact hash.
         directory = Path(payload["path"]).parent.name.lower().replace("_", "-")
         if directory == REVIEW_SKILL_DIRECTORY:
             return True
         from sumo_qa import skill_manifest
+        from sumo_qa.skill_prompts import _parse_frontmatter
 
+        body = payload["skill_body"].lstrip("\ufeff")
+        declared = _parse_frontmatter(body).get("name")
+        if isinstance(declared, str) and (
+            declared.strip().lower().replace("_", "-") == REVIEW_SKILL_DIRECTORY
+        ):
+            return True
         production = (_ORIGINAL_SKILL_RECORDS or skill_manifest._skill_records)()
         record = production.get(REVIEW_SKILL_DIRECTORY)
-        return record is not None and (
-            skill_manifest._content_hash(payload["skill_body"]) == record["content_hash"]
-        )
+        if record is None:
+            return False
+        return _normalised(body) == _normalised(record["_full"])
 
     def execute_external_skill(
         skill: str,
