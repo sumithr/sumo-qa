@@ -82,12 +82,21 @@ _DECORATION = r"(?:<[^>\n]*>|&[A-Za-z0-9#]+;|[^A-Za-z0-9\n])*"
 # value is neither a prefix of a longer word ("UNMETERED") nor of an identifier
 # ("UNMET_BY_DESIGN"), while Markdown emphasis ("_UNMET_") still counts.
 _VALUE_END = r"(?!_?[A-Za-z0-9])"
+# The label side takes the same decoration ("**Classification**:",
+# "_Coverage:_", "<strong>Status</strong>:", "Classification :") and the colon
+# may be an HTML entity. The decoration class stops at a colon so the label's
+# own colon is the one matched; backtracking hands an entity colon to _COLON.
+_LABEL_START = r"(?<![A-Za-z0-9])"
+_LABEL_DECORATION = r"(?:<[^>\n]*>|&[A-Za-z0-9#]+;|[^A-Za-z0-9:\n])*"
+_COLON = r"(?::|&#58;|&#[xX]3[aA];|&colon;)"
 # Both field guards tolerate that decoration around the value ("**UNMET**",
 # "~~UNMET~~", "(UNMET)", "<strong>UNMET</strong>", "&nbsp;UNMET").
-_COVERAGE_NONE_RE = re.compile(rf"(?mi)\bCoverage:{_DECORATION}NONE{_VALUE_END}")
+_COVERAGE_NONE_RE = re.compile(
+    rf"(?mi){_LABEL_START}Coverage{_LABEL_DECORATION}{_COLON}{_DECORATION}NONE{_VALUE_END}"
+)
 _UNRESOLVED_FIELD_RE = re.compile(
-    rf"(?mi)\b(?:Classification|Coverage|Status):{_DECORATION}"
-    rf"(?P<value>UNMET|UNVERIFIED|UNCOVERED|UNPROVEN){_VALUE_END}"
+    rf"(?mi){_LABEL_START}(?:Classification|Coverage|Status){_LABEL_DECORATION}{_COLON}"
+    rf"{_DECORATION}(?P<value>UNMET|UNVERIFIED|UNCOVERED|UNPROVEN){_VALUE_END}"
 )
 _ABSENT_MEMORY_RE = re.compile(r"(?i)no saved review feedback supplied")
 _PRESENT_MEMORY_RE = re.compile(r"(?i)advisory hint from saved review feedback")

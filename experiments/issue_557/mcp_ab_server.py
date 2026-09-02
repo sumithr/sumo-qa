@@ -44,6 +44,20 @@ def _install_external_skill_override() -> None:
     original = external_skills.execute_external_skill
     _ORIGINAL_EXECUTE_EXTERNAL = original
 
+    def is_review_skill(payload: dict[str, str]) -> bool:
+        # Case-insensitive filesystems resolve any spelling of the directory,
+        # and a host copy may be renamed, so match the body as well as the name.
+        directory = Path(payload["path"]).parent.name.lower().replace("_", "-")
+        if directory == REVIEW_SKILL_DIRECTORY:
+            return True
+        from sumo_qa import skill_manifest
+
+        production = (_ORIGINAL_SKILL_RECORDS or skill_manifest._skill_records)()
+        record = production.get(REVIEW_SKILL_DIRECTORY)
+        return record is not None and (
+            skill_manifest._content_hash(payload["skill_body"]) == record["content_hash"]
+        )
+
     def execute_external_skill(
         skill: str,
         intent: str = "",
@@ -53,7 +67,7 @@ def _install_external_skill_override() -> None:
     ) -> dict[str, str]:
         payload = original(skill, intent, scope, cwd, home)
         compact = _ACTIVE_COMPACT
-        if compact is not None and Path(payload["path"]).parent.name == REVIEW_SKILL_DIRECTORY:
+        if compact is not None and is_review_skill(payload):
             payload = {**payload, "skill_body": compact}
         return payload
 

@@ -430,6 +430,17 @@ def test_none_is_rejected_as_a_coverage_status(value: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "label",
+    ["**Coverage**:", "_Coverage:_", "<strong>Coverage</strong>:", "`Coverage`:", "Coverage :"],
+)
+def test_none_is_rejected_behind_a_decorated_coverage_label(label: str) -> None:
+    review = f"Risk: retry duplication | {label} NONE\nVerdict: NOT SAFE TO MERGE"
+
+    with pytest.raises(ReviewGateValidationError, match="not a coverage status"):
+        validate_review_response(_response(risks="failed", review=review))
+
+
+@pytest.mark.parametrize(
     "value",
     [
         "UNVERIFIED",
@@ -451,6 +462,30 @@ def test_safe_verdict_with_an_unresolved_classification_is_rejected(value: str) 
     review = (
         "Command: pytest tests/auth -q -> 42 passed\n"
         f"AC1: refund reverses the ledger entry | Classification: {value} | Anchor: none\n"
+        "Verdict: SAFE TO MERGE"
+    )
+
+    with pytest.raises(ReviewGateValidationError, match="unresolved"):
+        validate_review_response(_response(review=review))
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        "**Classification**: UNMET",
+        "_Classification:_ UNMET",
+        "<strong>Classification</strong>: UNVERIFIED",
+        "`Classification`: UNMET",
+        "Classification : UNMET",
+        "Classification&#58; UNMET",
+        "Classification&colon; UNCOVERED",
+        "**Status**: UNPROVEN",
+    ],
+)
+def test_safe_verdict_with_a_decorated_unresolved_label_is_rejected(row: str) -> None:
+    review = (
+        "Command: pytest tests/auth -q -> 42 passed\n"
+        f"AC1: refund reverses the ledger entry | {row} | Anchor: none\n"
         "Verdict: SAFE TO MERGE"
     )
 

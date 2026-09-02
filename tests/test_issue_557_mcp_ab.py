@@ -133,6 +133,9 @@ def test_mcp_ab_candidate_serves_compact_prompt_for_a_host_installed_review_skil
     other = tmp_path / ".claude" / "skills" / _OTHER
     other.mkdir(parents=True)
     (other / "SKILL.md").write_text("# other skill\n", encoding="utf-8")
+    renamed = tmp_path / ".claude" / "skills" / "my-review-copy"
+    renamed.mkdir(parents=True)
+    (renamed / "SKILL.md").write_text(full_skill, encoding="utf-8")
 
     set_active_variant("baseline")
     assert (
@@ -159,6 +162,19 @@ def test_mcp_ab_candidate_serves_compact_prompt_for_a_host_installed_review_skil
         external_skills.execute_external_skill(_OTHER, scope="global", home=tmp_path)["skill_body"]
         == "# other skill\n"
     )
+    # A renamed host copy of the review skill is recognised by its body.
+    assert external_skills.execute_external_skill("my-review-copy", scope="global", home=tmp_path)[
+        "skill_body"
+    ] == candidate_prompt("repaired-compact")
+    # Any spelling the filesystem resolves (case-insensitive hosts) is covered.
+    for spelling in (_REVIEW.upper(), _REVIEW.replace("-", "_")):
+        try:
+            resolved = external_skills.execute_external_skill(
+                spelling, scope="global", home=tmp_path
+            )
+        except external_skills.ExternalSkillError:
+            continue  # case-sensitive filesystem: nothing to serve
+        assert resolved["skill_body"] == candidate_prompt("repaired-compact"), spelling
 
     clear_variant_override()
     assert (
