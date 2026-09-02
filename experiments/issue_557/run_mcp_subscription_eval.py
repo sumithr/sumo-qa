@@ -52,6 +52,11 @@ MCP_SUFFIX = "\n--- END EVALUATION TASK ---\n"
 _FORBIDDEN_ITEMS = {"command_execution", "file_change", "web_search", "image_generation"}
 _REQUIRED_TOOLS = ("using_sumo_qa", "sumo_qa_reviewing_before_merge")
 REVIEW_SKILL_NAME = "sumo-qa-reviewing-before-merge"
+# Codex's built-in MCP resource tools. A resource read is invisible to the
+# skill-context token estimate, so the candidate may not use them.
+_RESOURCE_TOOLS = frozenset(
+    {"read_mcp_resource", "list_mcp_resources", "list_mcp_resource_templates"}
+)
 
 
 @dataclass(frozen=True)
@@ -228,11 +233,13 @@ def validate_mcp_trace(
 
     Both variants must stay on the issue557 server and reach the router and
     review tools. The baseline must follow the progressive-loading pointer.
-    The candidate must not read the full review skill through
-    ``sumo_qa_load_skill_context`` (the candidate server still serves it there),
-    and when ``candidate_review_sha256`` is given every review-tool result must
-    hash to the candidate prompt, so a compact-prompt pass cannot be earned on
-    full-skill guidance.
+    The candidate server serves the compact prompt on every review-skill
+    surface, so no MCP path returns the full skill; the trace rules below keep
+    the token accounting honest on top of that. The candidate must not load the
+    review skill through ``sumo_qa_load_skill_context`` (the compact profile is
+    one tool call), must not read MCP resources directly (invisible to the
+    skill-context estimate), and when ``candidate_review_sha256`` is given every
+    review-tool result must hash to the candidate prompt.
     """
     foreign_servers = sorted(
         {call.server for call in result.calls if call.server != MCP_SERVER_NAME}
@@ -249,6 +256,11 @@ def validate_mcp_trace(
         return
     for call in result.calls:
         name = _normalised_tool_name(call.tool)
+        if name in _RESOURCE_TOOLS:
+            raise ValueError(
+                f"candidate read MCP resources directly ({name}); resource reads are "
+                "invisible to the skill-context token estimate"
+            )
         if (
             name == "sumo_qa_load_skill_context"
             and _loaded_skill_name(call.arguments) == REVIEW_SKILL_NAME

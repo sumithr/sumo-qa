@@ -53,16 +53,17 @@ _VERDICT_RE = re.compile(
 #   break inside it. A line that merely quotes the phrase ("must say SAFE TO
 #   MERGE") is also counted: textually it states a verdict, and the contract
 #   asks for exactly one;
-# * a "verdict:" label decorated only with Markdown punctuation ("**Verdict:**",
-#   "> verdict:", "_Verdict:_", a split "Verdict:" line). A label with other
-#   decoration and no phrase ("Verdict (final):" alone) states no direction, so
-#   it is deliberately not chased: it cannot carry a contradictory verdict.
+# * a "verdict:" label decorated only with punctuation or HTML tags
+#   ("**Verdict:**", "> verdict:", "_Verdict:_", "<strong>Verdict</strong>:", a
+#   split "Verdict:" line). A label with a worded qualifier and no phrase
+#   ("Verdict (final):" alone) states no direction, so it is deliberately not
+#   chased: it cannot carry a contradictory verdict.
 #
 # Neither pattern uses `\b`: "_" is a word character, so a word boundary would
 # let Markdown emphasis ("_NOT SAFE TO MERGE_") slip past. Only letter/digit
 # adjacency is excluded, so an identifier that merely contains the characters
 # ("UNSAFE to MERGED", "reviewVerdict:") is not a declaration.
-_VERDICT_LABEL_RE = re.compile(r"(?i)(?<![A-Za-z0-9])verdict[ \t]*[*_`]*[ \t]*:")
+_VERDICT_LABEL_RE = re.compile(r"(?i)(?<![A-Za-z0-9])verdict(?:<[^>\n]*>|[^A-Za-z0-9:\n])*:")
 _VERDICT_PHRASE_RE = re.compile(r"(?i)(?<![A-Za-z0-9])SAFE\s+TO\s+MERGE(?![A-Za-z0-9])")
 # The two optional appendices the review contract allows after the verdict.
 _APPENDIX_MARKER_RE = re.compile(
@@ -70,9 +71,19 @@ _APPENDIX_MARKER_RE = re.compile(
 )
 _TABLE_ROW_RE = re.compile(r"\A\s*\|")
 _AC_ROW_RE = re.compile(r"(?mi)^\s*AC(?P<number>\d+)\s*:")
-_COVERAGE_NONE_RE = re.compile(r"(?mi)\bCoverage:\s*NONE\b")
+# Any decoration between a label and its value: punctuation of any kind
+# ("**", "`", "_", "~~", "(", quotes, "[") or an HTML tag ("<strong>"), on the
+# same line. Letters and digits are not decoration, so a different word cannot
+# be skipped to reach the value.
+_DECORATION = r"(?:<[^>\n]*>|[^A-Za-z0-9\n])*"
+# Both field guards tolerate that decoration around the value ("**UNMET**",
+# "~~UNMET~~", "(UNMET)", "<strong>UNMET</strong>") and exclude letter/digit
+# adjacency rather than using a trailing `\b`, for the same reason as the
+# verdict patterns below.
+_COVERAGE_NONE_RE = re.compile(rf"(?mi)\bCoverage:{_DECORATION}NONE(?![A-Za-z0-9])")
 _UNRESOLVED_FIELD_RE = re.compile(
-    r"(?mi)\b(?:Classification|Coverage|Status):\s*(?P<value>UNMET|UNVERIFIED|UNCOVERED|UNPROVEN)\b"
+    rf"(?mi)\b(?:Classification|Coverage|Status):{_DECORATION}"
+    r"(?P<value>UNMET|UNVERIFIED|UNCOVERED|UNPROVEN)(?![A-Za-z0-9])"
 )
 _ABSENT_MEMORY_RE = re.compile(r"(?i)no saved review feedback supplied")
 _PRESENT_MEMORY_RE = re.compile(r"(?i)advisory hint from saved review feedback")

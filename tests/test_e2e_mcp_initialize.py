@@ -30,6 +30,7 @@ from pathlib import Path
 import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from pydantic import AnyUrl
 
 from sumo_qa import server as sumo_server
 
@@ -178,7 +179,7 @@ def test_issue_557_ab_variants_work_over_real_stdio_transport() -> None:
     # tools/list contract tests above collect without the POC package.
     from experiments.issue_557.run_candidate import candidate_prompt
 
-    async def inspect(variant: str) -> tuple[set[str], str]:
+    async def inspect(variant: str) -> tuple[set[str], str, str]:
         parameters = StdioServerParameters(
             command=sys.executable,
             args=[
@@ -196,11 +197,21 @@ def test_issue_557_ab_variants_work_over_real_stdio_transport() -> None:
                 tools = {tool.name for tool in (await session.list_tools()).tools}
                 result = await session.call_tool("sumo_qa_reviewing_before_merge")
                 text = next(block.text for block in result.content if hasattr(block, "text"))
-                return tools, text
+                resource = await session.read_resource(
+                    AnyUrl("sumoqa://skills/sumo-qa-reviewing-before-merge/full")
+                )
+                resource_text = next(
+                    content.text for content in resource.contents if hasattr(content, "text")
+                )
+                return tools, text, resource_text
 
-    baseline_tools, baseline_review = asyncio.run(inspect("baseline"))
-    candidate_tools, candidate_review = asyncio.run(inspect("candidate"))
+    baseline_tools, baseline_review, baseline_resource = asyncio.run(inspect("baseline"))
+    candidate_tools, candidate_review, candidate_resource = asyncio.run(inspect("candidate"))
+    compact = candidate_prompt("repaired-compact")
 
     assert candidate_tools == baseline_tools
     assert "too large to return in one response" in baseline_review
-    assert candidate_review == candidate_prompt("repaired-compact")
+    assert candidate_review == compact
+    # The resource path serves the same variant body as the tool path.
+    assert json.loads(candidate_resource)["content"] == compact
+    assert compact not in baseline_resource

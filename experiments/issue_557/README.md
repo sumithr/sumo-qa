@@ -246,10 +246,14 @@ The execution order matches the decision question:
    pointer through `sumo_qa_load_skill_context`.
 
 The two servers expose identical tool names, descriptions, schemas, instructions,
-and non-review results. Only the result of `sumo_qa_reviewing_before_merge` differs.
-The candidate server still serves the full review skill through
-`sumo_qa_load_skill_context`, so a candidate trace is rejected if it loads that
-skill there, or if any review-tool result does not hash to the candidate prompt.
+and non-review results. For the review skill, the candidate serves the compact
+prompt on every surface that can carry a skill body: the skill tool,
+`sumo_qa_load_skill_context`, the manifest index, and the `sumoqa://` resources,
+so no MCP path returns the full skill to the candidate. A candidate trace is
+still rejected if it calls `sumo_qa_load_skill_context` for the review skill,
+reads MCP resources directly (those reads are invisible to the skill-context
+token estimate), or returns a review-tool result that does not hash to the
+candidate prompt.
 Every frozen baseline record must match the current scenario id, description,
 config hash, and full-skill prompt hash, and carry a graded output with a
 boolean `pass` and a `score` between 0 and 1, before it is compared against.

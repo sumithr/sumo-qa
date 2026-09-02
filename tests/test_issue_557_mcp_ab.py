@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from experiments.issue_557.mcp_ab_server import build_variant_server
+from experiments.issue_557.mcp_ab_server import build_variant_server, clear_variant_override
 from experiments.issue_557.run_candidate import build_prompts, candidate_prompt, load_group
 from experiments.issue_557.run_mcp_subscription_eval import (
     MCP_SKILL_DIRECTIVE,
@@ -29,6 +29,13 @@ from experiments.issue_557.run_subscription_eval import (
     SKILL_PATH,
     _sha256,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_production_skill_records():
+    # The candidate override is process-wide state; never let it outlive a test.
+    yield
+    clear_variant_override()
 
 
 def _tool_text(server, name: str, arguments: dict | None = None) -> str:
@@ -53,22 +60,64 @@ def test_mcp_ab_variants_keep_identical_tool_surfaces() -> None:
     assert surface(candidate) == surface(baseline)
 
 
-def test_mcp_ab_candidate_changes_only_direct_review_skill_result() -> None:
-    baseline = build_variant_server("baseline")
-    candidate = build_variant_server("candidate")
+def _resource_text(server, uri: str) -> str:
+    async def read() -> str:
+        contents = list(await server.read_resource(uri))
+        return str(contents[0].content)
 
-    baseline_review = _tool_text(baseline, "sumo_qa_reviewing_before_merge")
-    candidate_review = _tool_text(candidate, "sumo_qa_reviewing_before_merge")
-    loader_arguments = {
-        "skill_name": "sumo-qa-reviewing-before-merge",
-        "mode": "manifest",
+    return asyncio.run(read())
+
+
+_REVIEW = "sumo-qa-reviewing-before-merge"
+_OTHER = "sumo-qa-finding-test-data"
+
+
+def _review_surfaces(server) -> dict[str, str]:
+    """Every MCP surface that can hand out the review skill's body."""
+    return {
+        "tool": _tool_text(server, "sumo_qa_reviewing_before_merge"),
+        "loader_full": _tool_text(
+            server, "sumo_qa_load_skill_context", {"skill_name": _REVIEW, "mode": "full"}
+        ),
+        "loader_manifest": _tool_text(
+            server, "sumo_qa_load_skill_context", {"skill_name": _REVIEW, "mode": "manifest"}
+        ),
+        "resource_full": _resource_text(server, f"sumoqa://skills/{_REVIEW}/full"),
+        "resource_manifest": _resource_text(server, f"sumoqa://skills/{_REVIEW}/manifest"),
+        "index": _resource_text(server, "sumoqa://skills"),
     }
 
-    assert "too large to return in one response" in baseline_review
-    assert candidate_review == candidate_prompt("repaired-compact")
-    assert _tool_text(candidate, "sumo_qa_load_skill_context", loader_arguments) == _tool_text(
-        baseline, "sumo_qa_load_skill_context", loader_arguments
+
+def test_mcp_ab_candidate_serves_compact_prompt_on_every_review_surface() -> None:
+    # The record override is process-wide, so read each variant's surfaces
+    # right after building it.
+    baseline = build_variant_server("baseline")
+    baseline_surfaces = _review_surfaces(baseline)
+    baseline_other = _tool_text(
+        baseline, "sumo_qa_load_skill_context", {"skill_name": _OTHER, "mode": "full"}
     )
+    candidate = build_variant_server("candidate")
+    candidate_surfaces = _review_surfaces(candidate)
+    candidate_other = _tool_text(
+        candidate, "sumo_qa_load_skill_context", {"skill_name": _OTHER, "mode": "full"}
+    )
+    compact = candidate_prompt("repaired-compact")
+    full_skill = SKILL_PATH.read_text(encoding="utf-8")
+    full_marker = full_skill.splitlines()[-1]
+
+    assert "too large to return in one response" in baseline_surfaces["tool"]
+    assert candidate_surfaces["tool"] == compact
+    for surface in ("loader_full", "resource_full"):
+        assert json.loads(candidate_surfaces[surface])["content"] == compact, surface
+        assert full_marker not in candidate_surfaces[surface], surface
+        assert compact not in baseline_surfaces[surface], surface
+    compact_hash = _sha256(compact)
+    for surface in ("loader_manifest", "resource_manifest", "index"):
+        assert compact_hash in candidate_surfaces[surface], surface
+        assert compact_hash not in baseline_surfaces[surface], surface
+    # Every other skill is untouched.
+    assert candidate_other == baseline_other
+    assert full_marker not in candidate_other
 
 
 def test_mcp_ab_rejects_unknown_variant() -> None:
@@ -252,6 +301,21 @@ def test_mcp_trace_rejects_a_candidate_that_reads_the_full_review_skill() -> Non
             variant="candidate",
             candidate_review_sha256=expected,
         )
+
+    resource_read = McpCall(
+        "issue557",
+        "read_mcp_resource",
+        {"uri": "sumoqa://skills/sumo-qa-reviewing-before-merge/full"},
+        "anything",
+    )
+    with pytest.raises(ValueError, match="read MCP resources directly"):
+        validate_mcp_trace(
+            result(router, review, resource_read),
+            variant="candidate",
+            candidate_review_sha256=expected,
+        )
+    # Resource reads are ordinary production behaviour for the baseline.
+    validate_mcp_trace(result(router, swapped, leaked, resource_read), variant="baseline")
 
     # The baseline is required to load the full skill; the candidate rule must
     # not fire on it.

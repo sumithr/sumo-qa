@@ -1,9 +1,17 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Run the production sumo-qa MCP surface with one issue #557 skill variant.
 
-The baseline is byte-for-byte production behavior. The candidate changes only
-the callable behind ``sumo_qa_reviewing_before_merge``; every tool name,
-description, schema, server instruction, and non-review result remains the same.
+The baseline is byte-for-byte production behavior. The candidate replaces the
+review skill's body on every surface that can serve a skill body: the
+``sumo_qa_reviewing_before_merge`` tool, ``sumo_qa_load_skill_context`` and
+``sumo_qa_list_skill_manifests``, and the ``sumoqa://skills/...`` resources.
+Every tool name, description, schema, server instruction, and non-review result
+remains the same, so no MCP path can hand the candidate the full review skill.
+
+The record override is process-wide state, because the manifest loader resolves
+its records at request time, not at server build time. One process serves one
+variant; ``build_variant_server`` switches the active variant for in-process
+tests.
 """
 
 from __future__ import annotations
@@ -12,10 +20,65 @@ import argparse
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from .run_candidate import candidate_prompt
 
 REVIEW_SKILL_DIRECTORY = "sumo-qa-reviewing-before-merge"
+
+# The compact body currently served for the review skill, or None for baseline.
+_ACTIVE_COMPACT: str | None = None
+_ORIGINAL_SKILL_RECORDS: Callable[[], dict[str, dict[str, Any]]] | None = None
+
+
+def _install_records_override() -> None:
+    """Route the manifest loader (tools and resources) through the active variant."""
+    global _ORIGINAL_SKILL_RECORDS
+    from sumo_qa import skill_manifest
+
+    if _ORIGINAL_SKILL_RECORDS is not None:
+        return
+    original = skill_manifest._skill_records
+    _ORIGINAL_SKILL_RECORDS = original
+
+    def skill_records() -> dict[str, dict[str, Any]]:
+        records = original()
+        compact = _ACTIVE_COMPACT
+        record = records.get(REVIEW_SKILL_DIRECTORY)
+        if compact is not None and record is not None:
+            records[REVIEW_SKILL_DIRECTORY] = {
+                **record,
+                "content_hash": skill_manifest._content_hash(compact),
+                "estimated_tokens_full": skill_manifest._approx_tokens(compact),
+                "sections": skill_manifest._index_sections(compact),
+                "modules": [],
+                "_full": compact,
+            }
+        return records
+
+    skill_manifest._skill_records = skill_records
+
+
+def set_active_variant(variant: str) -> None:
+    """Select which review-skill body the manifest loader serves in this process."""
+    global _ACTIVE_COMPACT
+    _install_records_override()
+    _ACTIVE_COMPACT = candidate_prompt("repaired-compact") if variant == "candidate" else None
+
+
+def clear_variant_override() -> None:
+    """Remove the process-wide override entirely, restoring production records.
+
+    In-process tests call this after each A/B test so no later test in the same
+    pytest process sees the candidate's review skill body.
+    """
+    global _ACTIVE_COMPACT, _ORIGINAL_SKILL_RECORDS
+    from sumo_qa import skill_manifest
+
+    if _ORIGINAL_SKILL_RECORDS is not None:
+        skill_manifest._skill_records = _ORIGINAL_SKILL_RECORDS
+        _ORIGINAL_SKILL_RECORDS = None
+    _ACTIVE_COMPACT = None
 
 
 @contextmanager
@@ -44,6 +107,7 @@ def build_variant_server(variant: str):
 
     from sumo_qa.server import build_mcp_server
 
+    set_active_variant(variant)
     if variant == "baseline":
         return build_mcp_server()
     with candidate_skill_override():

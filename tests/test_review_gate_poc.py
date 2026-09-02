@@ -408,22 +408,52 @@ def test_advisory_hint_line_is_rejected_when_no_feedback_was_supplied() -> None:
         validate_review_response(_response(risks="failed", review=review), context=context)
 
 
-def test_none_is_rejected_as_a_coverage_status() -> None:
-    review = "Risk: retry duplication | Coverage: NONE\nVerdict: NOT SAFE TO MERGE"
+@pytest.mark.parametrize(
+    "value", ["NONE", "**NONE**", "`NONE`", "_NONE_", "~~NONE~~", "(NONE)", "<em>NONE</em>"]
+)
+def test_none_is_rejected_as_a_coverage_status(value: str) -> None:
+    review = f"Risk: retry duplication | Coverage: {value}\nVerdict: NOT SAFE TO MERGE"
 
     with pytest.raises(ReviewGateValidationError, match="not a coverage status"):
         validate_review_response(_response(risks="failed", review=review))
 
 
-def test_safe_verdict_with_an_unresolved_classification_is_rejected() -> None:
+@pytest.mark.parametrize(
+    "value",
+    [
+        "UNVERIFIED",
+        "**UNMET**",
+        "`UNMET`",
+        "_UNMET_",
+        "**UNCOVERED**",
+        "_UNPROVEN_",
+        "~~UNMET~~",
+        "(UNMET)",
+        '"UNMET"',
+        "[UNMET]",
+        "<strong>UNMET</strong>",
+    ],
+)
+def test_safe_verdict_with_an_unresolved_classification_is_rejected(value: str) -> None:
     review = (
         "Command: pytest tests/auth -q -> 42 passed\n"
-        "AC1: refund reverses the ledger entry | Classification: UNVERIFIED | Anchor: none\n"
+        f"AC1: refund reverses the ledger entry | Classification: {value} | Anchor: none\n"
         "Verdict: SAFE TO MERGE"
     )
 
     with pytest.raises(ReviewGateValidationError, match="unresolved"):
         validate_review_response(_response(review=review))
+
+
+def test_resolved_classification_is_not_mistaken_for_an_unresolved_one() -> None:
+    # "UNMETERED" and "UNCOVERED_BY_DESIGN" are identifiers, not the bare values.
+    review = (
+        "Command: pytest tests/auth -q -> 42 passed\n"
+        "AC1: metering | Classification: MET | Anchor: Coverage: COVERED (UNMETERED path)\n"
+        "Verdict: SAFE TO MERGE"
+    )
+    validated = validate_review_response(_response(review=review))
+    assert validated.safe_to_merge is True
 
 
 def test_internal_declination_naming_an_external_producer_is_rejected() -> None:
@@ -477,6 +507,8 @@ def test_internal_declination_without_an_external_producer_is_accepted() -> None
         "Command: pytest -q -> 1 passed\n_NOT SAFE TO MERGE_\nVerdict: SAFE TO MERGE",
         "_Verdict:_ NOT SAFE TO MERGE\nVerdict: SAFE TO MERGE",
         "_Verdict:_\nVerdict: SAFE TO MERGE",
+        "<strong>Verdict</strong>:\nVerdict: SAFE TO MERGE",
+        "~~Verdict~~:\nVerdict: SAFE TO MERGE",
     ],
 )
 def test_exactly_one_supported_verdict_is_required(review: str) -> None:
