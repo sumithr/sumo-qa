@@ -4,7 +4,9 @@
 The baseline is byte-for-byte production behavior. The candidate replaces the
 review skill's body on every surface that can serve a skill body: the
 ``sumo_qa_reviewing_before_merge`` tool, ``sumo_qa_load_skill_context`` and
-``sumo_qa_list_skill_manifests``, and the ``sumoqa://skills/...`` resources.
+``sumo_qa_list_skill_manifests``, the ``sumoqa://skills/...`` resources, and
+``sumo_qa_execute_external_skill`` when it resolves a host-installed copy of the
+review skill.
 Every tool name, description, schema, server instruction, and non-review result
 remains the same, so no MCP path can hand the candidate the full review skill.
 
@@ -29,6 +31,37 @@ REVIEW_SKILL_DIRECTORY = "sumo-qa-reviewing-before-merge"
 # The compact body currently served for the review skill, or None for baseline.
 _ACTIVE_COMPACT: str | None = None
 _ORIGINAL_SKILL_RECORDS: Callable[[], dict[str, dict[str, Any]]] | None = None
+_ORIGINAL_EXECUTE_EXTERNAL: Callable[..., dict[str, str]] | None = None
+
+
+def _install_external_skill_override() -> None:
+    """Serve the active variant when a host-installed review skill is executed."""
+    global _ORIGINAL_EXECUTE_EXTERNAL
+    from sumo_qa import external_skills, server
+
+    if _ORIGINAL_EXECUTE_EXTERNAL is not None:
+        return
+    original = external_skills.execute_external_skill
+    _ORIGINAL_EXECUTE_EXTERNAL = original
+
+    def execute_external_skill(
+        skill: str,
+        intent: str = "",
+        scope: str = "auto",
+        cwd: Path | None = None,
+        home: Path | None = None,
+    ) -> dict[str, str]:
+        payload = original(skill, intent, scope, cwd, home)
+        compact = _ACTIVE_COMPACT
+        if compact is not None and Path(payload["path"]).parent.name == REVIEW_SKILL_DIRECTORY:
+            payload = {**payload, "skill_body": compact}
+        return payload
+
+    external_skills.execute_external_skill = execute_external_skill
+    for module in (server,):
+        for name, value in list(vars(module).items()):
+            if value is original:
+                setattr(module, name, execute_external_skill)
 
 
 def _install_records_override() -> None:
@@ -63,6 +96,7 @@ def set_active_variant(variant: str) -> None:
     """Select which review-skill body the manifest loader serves in this process."""
     global _ACTIVE_COMPACT
     _install_records_override()
+    _install_external_skill_override()
     _ACTIVE_COMPACT = candidate_prompt("repaired-compact") if variant == "candidate" else None
 
 
@@ -72,12 +106,19 @@ def clear_variant_override() -> None:
     In-process tests call this after each A/B test so no later test in the same
     pytest process sees the candidate's review skill body.
     """
-    global _ACTIVE_COMPACT, _ORIGINAL_SKILL_RECORDS
-    from sumo_qa import skill_manifest
+    global _ACTIVE_COMPACT, _ORIGINAL_SKILL_RECORDS, _ORIGINAL_EXECUTE_EXTERNAL
+    from sumo_qa import external_skills, server, skill_manifest
 
     if _ORIGINAL_SKILL_RECORDS is not None:
         skill_manifest._skill_records = _ORIGINAL_SKILL_RECORDS
         _ORIGINAL_SKILL_RECORDS = None
+    if _ORIGINAL_EXECUTE_EXTERNAL is not None:
+        patched = external_skills.execute_external_skill
+        external_skills.execute_external_skill = _ORIGINAL_EXECUTE_EXTERNAL
+        for name, value in list(vars(server).items()):
+            if value is patched:
+                setattr(server, name, _ORIGINAL_EXECUTE_EXTERNAL)
+        _ORIGINAL_EXECUTE_EXTERNAL = None
     _ACTIVE_COMPACT = None
 
 

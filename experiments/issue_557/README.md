@@ -248,12 +248,13 @@ The execution order matches the decision question:
 The two servers expose identical tool names, descriptions, schemas, instructions,
 and non-review results. For the review skill, the candidate serves the compact
 prompt on every surface that can carry a skill body: the skill tool,
-`sumo_qa_load_skill_context`, the manifest index, and the `sumoqa://` resources,
-so no MCP path returns the full skill to the candidate. A candidate trace is
-still rejected if it calls `sumo_qa_load_skill_context` for the review skill,
-reads MCP resources directly (those reads are invisible to the skill-context
-token estimate), or returns a review-tool result that does not hash to the
-candidate prompt.
+`sumo_qa_load_skill_context`, the manifest index, the `sumoqa://` resources, and
+`sumo_qa_execute_external_skill` when it resolves a host-installed copy of the
+review skill, so no MCP path returns the full skill to the candidate. A
+candidate trace is still rejected if it calls `sumo_qa_load_skill_context` or
+`sumo_qa_execute_external_skill` for the review skill, reads MCP resources
+directly (those reads are invisible to the skill-context token estimate), or
+returns a review-tool result that does not hash to the candidate prompt.
 Every frozen baseline record must match the current scenario id, description,
 config hash, and full-skill prompt hash, and carry a graded output with a
 boolean `pass` and a `score` between 0 and 1, before it is compared against.

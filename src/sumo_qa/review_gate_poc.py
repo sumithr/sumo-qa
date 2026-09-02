@@ -63,7 +63,9 @@ _VERDICT_RE = re.compile(
 # let Markdown emphasis ("_NOT SAFE TO MERGE_") slip past. Only letter/digit
 # adjacency is excluded, so an identifier that merely contains the characters
 # ("UNSAFE to MERGED", "reviewVerdict:") is not a declaration.
-_VERDICT_LABEL_RE = re.compile(r"(?i)(?<![A-Za-z0-9])verdict(?:<[^>\n]*>|[^A-Za-z0-9:\n])*:")
+_VERDICT_LABEL_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])verdict(?:<[^>\n]*>|&[A-Za-z0-9#]+;|[^A-Za-z0-9:\n])*:"
+)
 _VERDICT_PHRASE_RE = re.compile(r"(?i)(?<![A-Za-z0-9])SAFE\s+TO\s+MERGE(?![A-Za-z0-9])")
 # The two optional appendices the review contract allows after the verdict.
 _APPENDIX_MARKER_RE = re.compile(
@@ -72,18 +74,20 @@ _APPENDIX_MARKER_RE = re.compile(
 _TABLE_ROW_RE = re.compile(r"\A\s*\|")
 _AC_ROW_RE = re.compile(r"(?mi)^\s*AC(?P<number>\d+)\s*:")
 # Any decoration between a label and its value: punctuation of any kind
-# ("**", "`", "_", "~~", "(", quotes, "[") or an HTML tag ("<strong>"), on the
-# same line. Letters and digits are not decoration, so a different word cannot
-# be skipped to reach the value.
-_DECORATION = r"(?:<[^>\n]*>|[^A-Za-z0-9\n])*"
+# ("**", "`", "_", "~~", "(", quotes, "["), an HTML tag ("<strong>") or an HTML
+# entity ("&nbsp;", "&#160;"), on the same line. Plain letters and digits are
+# not decoration, so a different word cannot be skipped to reach the value.
+_DECORATION = r"(?:<[^>\n]*>|&[A-Za-z0-9#]+;|[^A-Za-z0-9\n])*"
+# After the value: not a letter/digit, and not "_" followed by one, so the
+# value is neither a prefix of a longer word ("UNMETERED") nor of an identifier
+# ("UNMET_BY_DESIGN"), while Markdown emphasis ("_UNMET_") still counts.
+_VALUE_END = r"(?!_?[A-Za-z0-9])"
 # Both field guards tolerate that decoration around the value ("**UNMET**",
-# "~~UNMET~~", "(UNMET)", "<strong>UNMET</strong>") and exclude letter/digit
-# adjacency rather than using a trailing `\b`, for the same reason as the
-# verdict patterns below.
-_COVERAGE_NONE_RE = re.compile(rf"(?mi)\bCoverage:{_DECORATION}NONE(?![A-Za-z0-9])")
+# "~~UNMET~~", "(UNMET)", "<strong>UNMET</strong>", "&nbsp;UNMET").
+_COVERAGE_NONE_RE = re.compile(rf"(?mi)\bCoverage:{_DECORATION}NONE{_VALUE_END}")
 _UNRESOLVED_FIELD_RE = re.compile(
     rf"(?mi)\b(?:Classification|Coverage|Status):{_DECORATION}"
-    r"(?P<value>UNMET|UNVERIFIED|UNCOVERED|UNPROVEN)(?![A-Za-z0-9])"
+    rf"(?P<value>UNMET|UNVERIFIED|UNCOVERED|UNPROVEN){_VALUE_END}"
 )
 _ABSENT_MEMORY_RE = re.compile(r"(?i)no saved review feedback supplied")
 _PRESENT_MEMORY_RE = re.compile(r"(?i)advisory hint from saved review feedback")

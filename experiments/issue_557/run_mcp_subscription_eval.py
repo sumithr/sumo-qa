@@ -210,8 +210,8 @@ def _normalised_tool_name(name: str) -> str:
     return re.split(r"__|/", name)[-1]
 
 
-def _loaded_skill_name(arguments: Any) -> str | None:
-    """The ``skill_name`` a ``sumo_qa_load_skill_context`` call targeted, if any."""
+def _string_argument(arguments: Any, key: str) -> str | None:
+    """One string argument of an MCP call, from a dict or JSON-string payload."""
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments)
@@ -219,8 +219,20 @@ def _loaded_skill_name(arguments: Any) -> str | None:
             return None
     if not isinstance(arguments, dict):
         return None
-    value = arguments.get("skill_name")
+    value = arguments.get(key)
     return value if isinstance(value, str) else None
+
+
+def _loaded_skill_name(arguments: Any) -> str | None:
+    """The ``skill_name`` a ``sumo_qa_load_skill_context`` call targeted, if any."""
+    return _string_argument(arguments, "skill_name")
+
+
+def _names_review_skill(value: str | None) -> bool:
+    """Whether an external-skill name resolves to the review skill."""
+    if value is None:
+        return False
+    return value.strip().lower().replace("_", "-").endswith(REVIEW_SKILL_NAME)
 
 
 def validate_mcp_trace(
@@ -236,10 +248,11 @@ def validate_mcp_trace(
     The candidate server serves the compact prompt on every review-skill
     surface, so no MCP path returns the full skill; the trace rules below keep
     the token accounting honest on top of that. The candidate must not load the
-    review skill through ``sumo_qa_load_skill_context`` (the compact profile is
-    one tool call), must not read MCP resources directly (invisible to the
-    skill-context estimate), and when ``candidate_review_sha256`` is given every
-    review-tool result must hash to the candidate prompt.
+    review skill through ``sumo_qa_load_skill_context`` or
+    ``sumo_qa_execute_external_skill`` (the compact profile is one tool call),
+    must not read MCP resources directly (invisible to the skill-context
+    estimate), and when ``candidate_review_sha256`` is given every review-tool
+    result must hash to the candidate prompt.
     """
     foreign_servers = sorted(
         {call.server for call in result.calls if call.server != MCP_SERVER_NAME}
@@ -260,6 +273,13 @@ def validate_mcp_trace(
             raise ValueError(
                 f"candidate read MCP resources directly ({name}); resource reads are "
                 "invisible to the skill-context token estimate"
+            )
+        if name == "sumo_qa_execute_external_skill" and _names_review_skill(
+            _string_argument(call.arguments, "skill")
+        ):
+            raise ValueError(
+                "candidate executed the review skill as an external skill; that path "
+                "is not part of the compact profile"
             )
         if (
             name == "sumo_qa_load_skill_context"

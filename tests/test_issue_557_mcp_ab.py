@@ -120,6 +120,53 @@ def test_mcp_ab_candidate_serves_compact_prompt_on_every_review_surface() -> Non
     assert full_marker not in candidate_other
 
 
+def test_mcp_ab_candidate_serves_compact_prompt_for_a_host_installed_review_skill(
+    tmp_path,
+) -> None:
+    from experiments.issue_557.mcp_ab_server import set_active_variant
+    from sumo_qa import external_skills, server
+
+    installed = tmp_path / ".claude" / "skills" / _REVIEW
+    installed.mkdir(parents=True)
+    full_skill = SKILL_PATH.read_text(encoding="utf-8")
+    (installed / "SKILL.md").write_text(full_skill, encoding="utf-8")
+    other = tmp_path / ".claude" / "skills" / _OTHER
+    other.mkdir(parents=True)
+    (other / "SKILL.md").write_text("# other skill\n", encoding="utf-8")
+
+    set_active_variant("baseline")
+    assert (
+        external_skills.execute_external_skill(_REVIEW, scope="global", home=tmp_path)["skill_body"]
+        == full_skill
+    )
+
+    set_active_variant("candidate")
+    candidate = external_skills.execute_external_skill(_REVIEW, scope="global", home=tmp_path)
+    assert candidate["skill_body"] == candidate_prompt("repaired-compact")
+    assert candidate["path"] == (installed / "SKILL.md").as_posix()
+    # The server's own binding is patched too, not only the module attribute.
+    server_bound = [
+        value
+        for value in vars(server).values()
+        if callable(value) and getattr(value, "__name__", "") == "execute_external_skill"
+    ]
+    assert server_bound and all(
+        bound(_REVIEW, scope="global", home=tmp_path)["skill_body"]
+        == candidate_prompt("repaired-compact")
+        for bound in server_bound
+    )
+    assert (
+        external_skills.execute_external_skill(_OTHER, scope="global", home=tmp_path)["skill_body"]
+        == "# other skill\n"
+    )
+
+    clear_variant_override()
+    assert (
+        external_skills.execute_external_skill(_REVIEW, scope="global", home=tmp_path)["skill_body"]
+        == full_skill
+    )
+
+
 def test_mcp_ab_rejects_unknown_variant() -> None:
     with pytest.raises(ValueError, match="unknown MCP A/B variant"):
         build_variant_server("unknown")
@@ -316,6 +363,30 @@ def test_mcp_trace_rejects_a_candidate_that_reads_the_full_review_skill() -> Non
         )
     # Resource reads are ordinary production behaviour for the baseline.
     validate_mcp_trace(result(router, swapped, leaked, resource_read), variant="baseline")
+
+    external_review = McpCall(
+        "issue557",
+        "sumo_qa_execute_external_skill",
+        {"skill": "sumo_qa_reviewing_before_merge", "intent": "review"},
+        "full skill body",
+    )
+    with pytest.raises(ValueError, match="external skill"):
+        validate_mcp_trace(
+            result(router, review, external_review),
+            variant="candidate",
+            candidate_review_sha256=expected,
+        )
+    external_other = McpCall(
+        "issue557",
+        "sumo_qa_execute_external_skill",
+        json.dumps({"skill": "sumo-qa-finding-test-data"}),
+        "other skill body",
+    )
+    validate_mcp_trace(
+        result(router, review, external_other),
+        variant="candidate",
+        candidate_review_sha256=expected,
+    )
 
     # The baseline is required to load the full skill; the candidate rule must
     # not fire on it.

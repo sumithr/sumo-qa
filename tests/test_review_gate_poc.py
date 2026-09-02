@@ -409,7 +409,18 @@ def test_advisory_hint_line_is_rejected_when_no_feedback_was_supplied() -> None:
 
 
 @pytest.mark.parametrize(
-    "value", ["NONE", "**NONE**", "`NONE`", "_NONE_", "~~NONE~~", "(NONE)", "<em>NONE</em>"]
+    "value",
+    [
+        "NONE",
+        "**NONE**",
+        "`NONE`",
+        "_NONE_",
+        "~~NONE~~",
+        "(NONE)",
+        "<em>NONE</em>",
+        "&nbsp;NONE",
+        "&#160;NONE",
+    ],
 )
 def test_none_is_rejected_as_a_coverage_status(value: str) -> None:
     review = f"Risk: retry duplication | Coverage: {value}\nVerdict: NOT SAFE TO MERGE"
@@ -432,6 +443,8 @@ def test_none_is_rejected_as_a_coverage_status(value: str) -> None:
         '"UNMET"',
         "[UNMET]",
         "<strong>UNMET</strong>",
+        "&nbsp;UNMET",
+        "&#160;&nbsp;UNVERIFIED",
     ],
 )
 def test_safe_verdict_with_an_unresolved_classification_is_rejected(value: str) -> None:
@@ -445,13 +458,17 @@ def test_safe_verdict_with_an_unresolved_classification_is_rejected(value: str) 
         validate_review_response(_response(review=review))
 
 
-def test_resolved_classification_is_not_mistaken_for_an_unresolved_one() -> None:
-    # "UNMETERED" and "UNCOVERED_BY_DESIGN" are identifiers, not the bare values.
-    review = (
-        "Command: pytest tests/auth -q -> 42 passed\n"
-        "AC1: metering | Classification: MET | Anchor: Coverage: COVERED (UNMETERED path)\n"
-        "Verdict: SAFE TO MERGE"
-    )
+@pytest.mark.parametrize(
+    "row",
+    [
+        # A longer word or an identifier is not the bare value.
+        "AC1: metering | Classification: MET | Anchor: Coverage: COVERED (UNMETERED path)",
+        "AC1: metering | Classification: UNMET_BY_DESIGN | Anchor: documented exclusion",
+        "Risk: retry | Coverage: UNCOVERED_BY_DESIGN | Anchor: documented exclusion",
+    ],
+)
+def test_resolved_classification_is_not_mistaken_for_an_unresolved_one(row: str) -> None:
+    review = f"Command: pytest tests/auth -q -> 42 passed\n{row}\nVerdict: SAFE TO MERGE"
     validated = validate_review_response(_response(review=review))
     assert validated.safe_to_merge is True
 
