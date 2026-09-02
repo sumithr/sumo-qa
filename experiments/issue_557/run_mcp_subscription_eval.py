@@ -229,10 +229,22 @@ def _loaded_skill_name(arguments: Any) -> str | None:
 
 
 def _names_review_skill(value: str | None) -> bool:
-    """Whether an external-skill name resolves to the review skill."""
+    """Whether an external-skill name resolves to the review skill.
+
+    The resolver joins the raw name onto a skills root, so a path-shaped name
+    ("../../skills/<name>/.") resolves the same directory as the bare name;
+    the last real path segment is what names the skill.
+    """
     if value is None:
         return False
-    return value.strip().lower().replace("_", "-").endswith(REVIEW_SKILL_NAME)
+    segments = [
+        segment
+        for segment in value.strip().replace("\\", "/").split("/")
+        if segment not in {"", "."}
+    ]
+    if not segments:
+        return False
+    return segments[-1].lower().replace("_", "-") == REVIEW_SKILL_NAME
 
 
 def validate_mcp_trace(

@@ -60,7 +60,7 @@ def _install_external_skill_override() -> None:
         from sumo_qa import skill_manifest
         from sumo_qa.skill_prompts import _parse_frontmatter
 
-        body = payload["skill_body"].lstrip("\ufeff")
+        body = payload["skill_body"].lstrip("\ufeff").lstrip()
         declared = _parse_frontmatter(body).get("name")
         if isinstance(declared, str) and (
             declared.strip().lower().replace("_", "-") == REVIEW_SKILL_DIRECTORY

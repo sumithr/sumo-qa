@@ -102,15 +102,19 @@ _AC_ROW_RE = re.compile(r"(?mi)^\s*AC(?P<number>\d+)\s*:")
 # ("**", "`", "_", "~~", "(", quotes, "["), an HTML tag ("<strong>") or an HTML
 # entity ("&nbsp;", "&#160;"), on the same line.
 _DECORATION = _decoration(before_colon=False)
-# After the value: not a letter/digit, and not "_" followed by one, so the
-# value is neither a prefix of a longer word ("UNMETERED") nor of an identifier
-# ("UNMET_BY_DESIGN"), while Markdown emphasis ("_UNMET_") still counts.
-_VALUE_END = r"(?!_?[A-Za-z0-9])"
+# After the value: not a letter/digit, and not underscores followed by one, so
+# the value is neither a prefix of a longer word ("UNMETERED") nor of an
+# identifier ("UNMET_BY_DESIGN", "UNMET__BY_DESIGN"), while Markdown emphasis
+# ("_UNMET_") still counts.
+_VALUE_END = r"(?!_*[A-Za-z0-9])"
 # The label side takes the same decoration ("**Classification**:",
 # "_Coverage:_", "<strong>Status</strong>:", "Classification :") and the colon
 # may be an HTML entity, including leading-zero numeric forms ("&#058;",
 # "&#x03A;").
-_LABEL_START = r"(?<![A-Za-z0-9])"
+# Before the label: not a letter/digit, and not a letter/digit plus "_", so an
+# identifier ("serialized_Classification:") is not a label while emphasis
+# ("_Classification:_") still is. Lookbehinds must be fixed-width, hence two.
+_LABEL_START = r"(?<![A-Za-z0-9])(?<![A-Za-z0-9]_)"
 _LABEL_DECORATION = _decoration(before_colon=True)
 _COLON = rf"(?::|&{_COLON_ENTITY})"
 # Both field guards tolerate that decoration around the value ("**UNMET**",

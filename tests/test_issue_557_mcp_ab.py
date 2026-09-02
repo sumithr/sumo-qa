@@ -145,6 +145,7 @@ def test_mcp_ab_candidate_serves_compact_prompt_for_a_host_installed_review_skil
         "copy-bom": "\ufeff" + full_skill,
         "copy-leading-blank": "\n" + full_skill,
         "copy-older-revision": "\n".join(lines[:-3]) + "\n",
+        "copy-edited": "\n\n" + full_skill + "\n<!-- local note -->\n",
     }
     for name, body in variants.items():
         (tmp_path / ".claude" / "skills" / name).mkdir(parents=True)
@@ -394,18 +395,25 @@ def test_mcp_trace_rejects_a_candidate_that_reads_the_full_review_skill() -> Non
     # Resource reads are ordinary production behaviour for the baseline.
     validate_mcp_trace(result(router, swapped, leaked, resource_read), variant="baseline")
 
-    external_review = McpCall(
-        "issue557",
-        "sumo_qa_execute_external_skill",
-        {"skill": "sumo_qa_reviewing_before_merge", "intent": "review"},
-        "full skill body",
-    )
-    with pytest.raises(ValueError, match="external skill"):
-        validate_mcp_trace(
-            result(router, review, external_review),
-            variant="candidate",
-            candidate_review_sha256=expected,
+    for spelling in (
+        "sumo_qa_reviewing_before_merge",
+        "sumo-qa-reviewing-before-merge/",
+        "sumo-qa-reviewing-before-merge/.",
+        "../../skills/sumo-qa-reviewing-before-merge/.",
+        "./SUMO-QA-REVIEWING-BEFORE-MERGE//./",
+    ):
+        external_review = McpCall(
+            "issue557",
+            "sumo_qa_execute_external_skill",
+            {"skill": spelling, "intent": "review"},
+            "full skill body",
         )
+        with pytest.raises(ValueError, match="external skill"):
+            validate_mcp_trace(
+                result(router, review, external_review),
+                variant="candidate",
+                candidate_review_sha256=expected,
+            )
     external_other = McpCall(
         "issue557",
         "sumo_qa_execute_external_skill",

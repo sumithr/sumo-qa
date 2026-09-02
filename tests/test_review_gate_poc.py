@@ -506,7 +506,10 @@ def test_safe_verdict_with_a_decorated_unresolved_label_is_rejected(row: str) ->
         # A longer word or an identifier is not the bare value.
         "AC1: metering | Classification: MET | Anchor: Coverage: COVERED (UNMETERED path)",
         "AC1: metering | Classification: UNMET_BY_DESIGN | Anchor: documented exclusion",
+        "AC1: metering | Classification: UNMET__BY_DESIGN | Anchor: documented exclusion",
         "Risk: retry | Coverage: UNCOVERED_BY_DESIGN | Anchor: documented exclusion",
+        "The serialized_Classification: UNMET field is a fixture identifier.",
+        "Note: testStatus: UNMET is the fixture's field name.",
     ],
 )
 def test_resolved_classification_is_not_mistaken_for_an_unresolved_one(row: str) -> None:
