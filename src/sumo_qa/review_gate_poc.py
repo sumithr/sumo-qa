@@ -33,7 +33,9 @@ _CODE_FENCE_RE = re.compile(
     r"\A\s*```(?:text|json)?\s*\n(?P<body>.*?)\n```\s*\Z",
     re.DOTALL,
 )
-_VERDICT_RE = re.compile(r"(?mi)^\s*Verdict:\s*(?P<verdict>NOT SAFE TO MERGE|SAFE TO MERGE)\b.*$")
+# Anchored to end-of-line: the contract requires a literal verdict line, so a
+# trailing qualifier ("... only if a future test passes") is not a verdict.
+_VERDICT_RE = re.compile(r"(?mi)^\s*Verdict:\s*(?P<verdict>NOT SAFE TO MERGE|SAFE TO MERGE)\s*$")
 # The two optional appendices the review contract allows after the verdict.
 _APPENDIX_MARKER_RE = re.compile(
     r"(?i)\A\s*(?:#{1,6}\s+)?(?:readiness\s+scorecard|risk\s+ledger)\b"

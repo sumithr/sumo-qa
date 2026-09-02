@@ -35,6 +35,18 @@ integrity checks passed, including prompt substitution, config hashes, scenario
 variables, models, rubrics, judge bindings, stored-response revalidation, and
 token accounting.
 
+Repaired responses are not one-prompt evidence. When the first attempt fails
+deterministic validation, the second attempt is generated after a corrective
+user turn that the full-skill baseline never receives, so a pass on a repaired
+response can reflect that extra feedback turn rather than the compact prompt
+and gate. The comparator records each scenario's `repaired` flag, reports
+`repaired_count` and `candidate_passed_first_attempt` alongside the graded
+`candidate_passed`, and counts a repaired scenario as a quality regression
+regardless of its rubric grade. Repair attempts still count toward candidate
+token usage. The 31/46 above is the graded figure; two of the 46 scenarios in
+that run were repaired, so the one-prompt pass count is at most 31 and the
+`NOT PROVEN` verdict stands under either reading.
+
 The nine `.ab.yaml` configs are intentionally excluded. They are historical
 controls whose test rows embed two or three fixed skill bodies. Replacing those
 control bodies with one candidate would destroy the A/B question they measure.

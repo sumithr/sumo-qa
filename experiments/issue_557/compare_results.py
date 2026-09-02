@@ -371,6 +371,11 @@ def compare_evidence(
             scenario_integrity &= result.get("description") == expected_description
             baseline_pass = bool(before["success"])
             candidate_pass = validated_review is not None and bool(after["success"])
+            # A second attempt was generated after a corrective user turn that the
+            # baseline never received, so its grade is not a one-prompt comparison
+            # against the pinned scenario and cannot count as preserved quality.
+            repaired = len(result.get("attempts") or []) > 1
+            first_attempt_pass = candidate_pass and not repaired
             baseline_score = float(before["score"])
             candidate_score = float(after["score"]) if validated_review is not None else 0.0
             model_integrity &= _provider_id(before["provider"]) == (f"openai:chat:{current_model}")
@@ -432,9 +437,9 @@ def compare_evidence(
                 baseline_row_prompt_tokens += row_usage[0]
                 baseline_row_completion_tokens += row_usage[1]
             quality_preserved = (
-                candidate_pass
+                first_attempt_pass
                 if baseline_pass
-                else (candidate_pass or candidate_score >= baseline_score)
+                else (first_attempt_pass or (not repaired and candidate_score >= baseline_score))
             )
             quality_rows.append(
                 {
@@ -444,6 +449,8 @@ def compare_evidence(
                     "baseline_score": baseline_score,
                     "candidate_pass": candidate_pass,
                     "candidate_score": candidate_score,
+                    "repaired": repaired,
+                    "first_attempt_pass": first_attempt_pass,
                     "quality_preserved": quality_preserved,
                 }
             )
@@ -515,6 +522,10 @@ def compare_evidence(
         "quality": {
             "baseline_passed": sum(row["baseline_pass"] for row in quality_rows),
             "candidate_passed": sum(row["candidate_pass"] for row in quality_rows),
+            "candidate_passed_first_attempt": sum(
+                row["first_attempt_pass"] for row in quality_rows
+            ),
+            "repaired_count": sum(row["repaired"] for row in quality_rows),
             "scenario_count": len(quality_rows),
             "config_count": len(groups),
             "preserved": quality_preserved,

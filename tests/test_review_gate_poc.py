@@ -455,6 +455,8 @@ def test_internal_declination_without_an_external_producer_is_accepted() -> None
         "No exact verdict line.",
         "Verdict: SAFE TO MERGE\nVerdict: NOT SAFE TO MERGE",
         "Verdict: MAYBE",
+        "Verdict: SAFE TO MERGE only if a future test passes",
+        "Verdict: NOT SAFE TO MERGE, pending a rerun",
     ],
 )
 def test_exactly_one_supported_verdict_is_required(review: str) -> None:
@@ -1043,6 +1045,39 @@ def test_comparison_requires_quality_and_token_reduction(tmp_path: Path) -> None
     assert stale_embedded_config["verdict"] == "NOT PROVEN"
     assert stale_embedded_config["integrity"]["embedded_configs_match"] is False
     baseline_path.write_text(original_baseline, encoding="utf-8")
+
+    repaired_candidate = json.loads(original_candidate)
+    repaired_candidate["results"][0]["attempts"] = [
+        {
+            "number": 1,
+            "usage": {"prompt_tokens": 100, "completion_tokens": 40, "total_tokens": 140},
+            "response": "not an envelope",
+        },
+        {
+            "number": 2,
+            "usage": {"prompt_tokens": 150, "completion_tokens": 90, "total_tokens": 240},
+            "response": raw_response,
+        },
+    ]
+    candidate_path.write_text(json.dumps(repaired_candidate), encoding="utf-8")
+    repaired = compare_evidence(baseline_dir, candidate_dir)
+    # The repaired answer came from an extra corrective turn the baseline never
+    # received, so it cannot support the one-prompt quality claim even though
+    # the rubric graded the final response as a pass.
+    assert repaired["verdict"] == "NOT PROVEN"
+    assert repaired["integrity"]["preserved"] is True
+    repaired_row = next(row for row in repaired["quality"]["scenarios"] if row["repaired"])
+    assert repaired_row["candidate_pass"] is True
+    assert repaired_row["first_attempt_pass"] is False
+    assert repaired_row["quality_preserved"] is False
+    assert repaired["quality"]["repaired_count"] == 1
+    assert repaired["quality"]["candidate_passed"] == 7
+    assert repaired["quality"]["candidate_passed_first_attempt"] == 6
+    assert repaired["quality"]["preserved"] is False
+    assert all(row["repaired"] is False for row in comparison["quality"]["scenarios"])
+    assert comparison["quality"]["repaired_count"] == 0
+    assert comparison["quality"]["candidate_passed_first_attempt"] == 7
+    candidate_path.write_text(original_candidate, encoding="utf-8")
 
     failing_grade_path = candidate_dir / "candidate-adversarial-grade.json"
     failing_grade = json.loads(failing_grade_path.read_text(encoding="utf-8"))
