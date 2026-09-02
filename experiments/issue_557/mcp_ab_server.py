@@ -19,6 +19,7 @@ tests.
 from __future__ import annotations
 
 import argparse
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,6 +33,11 @@ REVIEW_SKILL_DIRECTORY = "sumo-qa-reviewing-before-merge"
 _ACTIVE_COMPACT: str | None = None
 _ORIGINAL_SKILL_RECORDS: Callable[[], dict[str, dict[str, Any]]] | None = None
 _ORIGINAL_EXECUTE_EXTERNAL: Callable[..., dict[str, str]] | None = None
+
+
+# Whitespace, a BOM, or HTML comments that may precede a copied SKILL.md's
+# frontmatter without changing what the model reads.
+_LEADING_NOISE_RE = re.compile(r"\A(?:\s|\ufeff|<!--.*?-->)*", re.DOTALL)
 
 
 def _normalised(text: str) -> str:
@@ -60,7 +66,7 @@ def _install_external_skill_override() -> None:
         from sumo_qa import skill_manifest
         from sumo_qa.skill_prompts import _parse_frontmatter
 
-        body = payload["skill_body"].lstrip("\ufeff").lstrip()
+        body = _LEADING_NOISE_RE.sub("", payload["skill_body"])
         declared = _parse_frontmatter(body).get("name")
         if isinstance(declared, str) and (
             declared.strip().lower().replace("_", "-") == REVIEW_SKILL_DIRECTORY

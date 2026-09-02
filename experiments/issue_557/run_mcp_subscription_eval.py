@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import posixpath
 import re
 import subprocess
 import sys
@@ -237,14 +238,9 @@ def _names_review_skill(value: str | None) -> bool:
     """
     if value is None:
         return False
-    segments = [
-        segment
-        for segment in value.strip().replace("\\", "/").split("/")
-        if segment not in {"", "."}
-    ]
-    if not segments:
-        return False
-    return segments[-1].lower().replace("_", "-") == REVIEW_SKILL_NAME
+    normalised = posixpath.normpath(value.strip().replace("\\", "/"))
+    name = posixpath.basename(normalised)
+    return name.lower().replace("_", "-") == REVIEW_SKILL_NAME
 
 
 def validate_mcp_trace(

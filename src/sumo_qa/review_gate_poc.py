@@ -111,10 +111,12 @@ _VALUE_END = r"(?!_*[A-Za-z0-9])"
 # "_Coverage:_", "<strong>Status</strong>:", "Classification :") and the colon
 # may be an HTML entity, including leading-zero numeric forms ("&#058;",
 # "&#x03A;").
-# Before the label: not a letter/digit, and not a letter/digit plus "_", so an
-# identifier ("serialized_Classification:") is not a label while emphasis
-# ("_Classification:_") still is. Lookbehinds must be fixed-width, hence two.
-_LABEL_START = r"(?<![A-Za-z0-9])(?<![A-Za-z0-9]_)"
+# Before the label: not a letter/digit, and not a letter/digit plus one to
+# three underscores, so an identifier ("serialized_Classification:",
+# "serialized__Classification:") is not a label while emphasis
+# ("_Classification:_", "__Classification__:") still is. Lookbehinds must be
+# fixed-width, hence one per underscore count.
+_LABEL_START = r"(?<![A-Za-z0-9])(?<![A-Za-z0-9]_)(?<![A-Za-z0-9]__)(?<![A-Za-z0-9]___)"
 _LABEL_DECORATION = _decoration(before_colon=True)
 _COLON = rf"(?::|&{_COLON_ENTITY})"
 # Both field guards tolerate that decoration around the value ("**UNMET**",

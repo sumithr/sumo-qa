@@ -146,6 +146,7 @@ def test_mcp_ab_candidate_serves_compact_prompt_for_a_host_installed_review_skil
         "copy-leading-blank": "\n" + full_skill,
         "copy-older-revision": "\n".join(lines[:-3]) + "\n",
         "copy-edited": "\n\n" + full_skill + "\n<!-- local note -->\n",
+        "copy-commented": "\n<!-- local note -->\n" + full_skill,
     }
     for name, body in variants.items():
         (tmp_path / ".claude" / "skills" / name).mkdir(parents=True)
@@ -401,6 +402,8 @@ def test_mcp_trace_rejects_a_candidate_that_reads_the_full_review_skill() -> Non
         "sumo-qa-reviewing-before-merge/.",
         "../../skills/sumo-qa-reviewing-before-merge/.",
         "./SUMO-QA-REVIEWING-BEFORE-MERGE//./",
+        "sumo-qa-reviewing-before-merge/references/..",
+        "sumo-qa-finding-test-data/../sumo-qa-reviewing-before-merge/./x/..",
     ):
         external_review = McpCall(
             "issue557",

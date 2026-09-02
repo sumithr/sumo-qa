@@ -487,6 +487,7 @@ def test_safe_verdict_with_an_unresolved_classification_is_rejected(value: str) 
         "Classification&#X0003a; UNVERIFIED",
         "Classification&colon; UNCOVERED",
         "**Status**: UNPROVEN",
+        "__Classification__: UNMET",
     ],
 )
 def test_safe_verdict_with_a_decorated_unresolved_label_is_rejected(row: str) -> None:
@@ -509,6 +510,8 @@ def test_safe_verdict_with_a_decorated_unresolved_label_is_rejected(row: str) ->
         "AC1: metering | Classification: UNMET__BY_DESIGN | Anchor: documented exclusion",
         "Risk: retry | Coverage: UNCOVERED_BY_DESIGN | Anchor: documented exclusion",
         "The serialized_Classification: UNMET field is a fixture identifier.",
+        "The serialized__Classification: UNMET field is a fixture identifier.",
+        "The serialized___Classification: UNMET field is a fixture identifier.",
         "Note: testStatus: UNMET is the fixture's field name.",
     ],
 )
