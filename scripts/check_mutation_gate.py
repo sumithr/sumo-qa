@@ -77,12 +77,16 @@ survivor fails on either path.
 Changed-only scoping (#641, LOCAL hook only). `--changed-only` narrows a
 `--run-mutmut` pass to what the push touches, instead of the whole gate on any
 test-file edit (a cold full pass is 15+ minutes at --max-children 1):
-  - the changed files are `git diff --name-only <from>...HEAD`, <from> being
-    PRE_COMMIT_FROM_REF when pre-commit supplies a real sha, else origin/main;
+  - the changed files are `git diff --name-only --no-renames origin/main...<to>`
+    (<to> = PRE_COMMIT_TO_REF, the revision being pushed, else HEAD) unioned
+    with `<to>...<from>` when PRE_COMMIT_FROM_REF is a real sha, so whatever a
+    force-push removes from the remote is in scope too;
   - a changed `paths_to_mutate` module selects the glob `sumo_qa.<module>.*`;
   - a changed tests/**/*.py selects one glob per mutated function the cached
-    mutants/mutmut-stats.json maps that file to (a test that exercises no
-    mutated function cannot create a survivor, so it selects nothing);
+    mutants/mutmut-stats.json maps that file to; a file the stats pass ran
+    (or mutmut ignores) that maps to nothing exercises no mutated function
+    and selects nothing; a file the stats have never seen that still exists
+    (new since the last pass, or a rename target) -> the full run;
   - the globs go to `mutmut run` as positional mutant names, which also limits
     mutmut's clean-test pass to the mapped tests;
   - nothing selected -> exit 0 without running mutmut; a test change with no
@@ -163,52 +167,88 @@ def module_not_measured(stats: dict) -> bool:
 _ZERO_SHA = "0" * 40
 
 
-def resolve_changed_since_ref(environ: dict) -> str:
-    """The ref the push is measured against.
+def resolve_push_range(environ: dict) -> tuple[str | None, str]:
+    """(from, to) for the push being gated.
 
-    pre-commit exports PRE_COMMIT_FROM_REF on pre-push: the remote branch's
-    current sha, or all zeros for a branch that does not exist remotely yet.
-    Anything else (no env, the zero sha) falls back to origin/main."""
-    ref = environ.get("PRE_COMMIT_FROM_REF", "")
-    if ref and ref != _ZERO_SHA:
-        return ref
-    return "origin/main"
+    pre-commit exports PRE_COMMIT_FROM_REF (the remote branch's current sha, or
+    all zeros when the branch does not exist remotely yet) and
+    PRE_COMMIT_TO_REF (the local revision being pushed). TO is what must be
+    scoped, not HEAD: `git push HEAD:other` or pushing a branch that is not
+    checked out makes them differ. Outside pre-commit: (None, HEAD)."""
+    from_ref = environ.get("PRE_COMMIT_FROM_REF", "")
+    to_ref = environ.get("PRE_COMMIT_TO_REF", "") or "HEAD"
+    if not from_ref or from_ref == _ZERO_SHA:
+        return None, to_ref
+    return from_ref, to_ref
 
 
-def changed_files_since(ref: str) -> list[str] | None:
-    """Files changed on HEAD since it diverged from ``ref`` (three-dot diff, so
-    a stale remote ref does not drag main's own changes into scope).
+def _git_diff_names(spec: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--no-renames", spec],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def changed_files_since(from_ref: str | None, to_ref: str) -> list[str] | None:
+    """Files the push can affect, as the union of two diffs:
+
+    * ``origin/main...<to>``: what the branch changes relative to main. Main's
+      own commits never enter scope (they were gated on main), so a rebase
+      does not blow the scope up.
+    * ``<to>...<from>`` (when the remote branch exists): whatever the push
+      REMOVES from the remote. A force-push that drops a commit which had
+      strengthened a test is invisible to a merge-base diff of the new side.
 
     ``--no-renames`` so a renamed test shows as delete + add: the deleted (old)
-    path is the one the stats map knows, and it is what puts the functions
-    that test covered back in scope. Returns None when git cannot answer
+    path is the one the stats map knows. Returns None when git cannot answer
     (unknown ref, not a repo); the caller then runs the full gate."""
     try:
-        result = subprocess.run(
-            ["git", "diff", "--name-only", "--no-renames", f"{ref}...HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        files = set(_git_diff_names(f"origin/main...{to_ref}"))
+        if from_ref is not None:
+            files |= set(_git_diff_names(f"{to_ref}...{from_ref}"))
     except (OSError, subprocess.CalledProcessError):
         return None
-    return [line for line in result.stdout.splitlines() if line]
+    return sorted(files)
+
+
+def _mutmut_table(path: Path) -> dict:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    return data.get("tool", {}).get("mutmut", {})
 
 
 def mutated_modules_from_pyproject(path: Path) -> list[str]:
     """Module stems of ``[tool.mutmut] paths_to_mutate``, read live so the
     scope never drifts from the gate's own target list."""
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
-    paths = data.get("tool", {}).get("mutmut", {}).get("paths_to_mutate", [])
-    return [Path(p).stem for p in paths]
+    return [Path(p).stem for p in _mutmut_table(path).get("paths_to_mutate", [])]
 
 
-def load_stats_map(path: Path) -> dict | None:
-    """mutmut's cached mangled-function -> test-ids map, or None when cold."""
+def ignored_tests_from_pyproject(path: Path) -> set[str]:
+    """Test files mutmut never runs (``--ignore=`` in pytest_add_cli_args), so
+    a change to them cannot move the gate."""
+    args = _mutmut_table(path).get("pytest_add_cli_args", [])
+    return {a[len("--ignore=") :] for a in args if a.startswith("--ignore=")}
+
+
+class Stats:
+    """The parts of mutants/mutmut-stats.json the scope needs: the mangled
+    function -> test ids map, and every test FILE the stats pass ran
+    (duration_by_test covers the whole suite, mapped or not)."""
+
+    def __init__(self, by_function: dict, seen_test_files: set[str]) -> None:
+        self.by_function = by_function
+        self.seen_test_files = seen_test_files
+
+
+def load_stats(path: Path) -> Stats | None:
+    """mutmut's cached stats, or None when cold."""
     if not path.exists():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
-    return data.get("tests_by_mangled_function_name", {})
+    seen = {t.split("::", 1)[0] for t in data.get("duration_by_test", {})}
+    return Stats(data.get("tests_by_mangled_function_name", {}), seen)
 
 
 class Scope:
@@ -248,7 +288,11 @@ def _forces_full_run(path: str) -> bool:
 
 
 def select_scope(
-    changed_files: list[str] | None, mutated_modules: list[str], stats_map: dict | None
+    changed_files: list[str] | None,
+    mutated_modules: list[str],
+    stats: Stats | None,
+    ignored_tests: set[str] | None = None,
+    exists=os.path.exists,
 ) -> Scope:
     """Decide what a changed-only pass must run. See the module docstring."""
     if changed_files is None:
@@ -268,15 +312,34 @@ def select_scope(
     module_hits = {m for m in mutated_modules if f"src/sumo_qa/{m}.py" in changed}
     changed_tests = {f for f in changed if _is_test_module(f)}
 
-    if changed_tests and stats_map is None:
+    if changed_tests and stats is None:
         return Scope(
             modules=set(mutated_modules),
             full_run=True,
             reason="a test file changed but mutants/mutmut-stats.json is cold; falling back to the full run",
         )
 
+    # A test module the stats pass has never run (and mutmut does not ignore)
+    # may be new since the last pass or a rename target: the map cannot say
+    # which functions it covers, so run everything. A deleted unseen file
+    # never ran against a mutant and selects nothing.
+    unseen = sorted(
+        f
+        for f in changed_tests
+        if stats is not None
+        and f not in stats.seen_test_files
+        and f not in (ignored_tests or set())
+        and exists(f)
+    )
+    if unseen:
+        return Scope(
+            modules=set(mutated_modules),
+            full_run=True,
+            reason=f"{', '.join(unseen)} not in the cached stats (new or renamed); running the full gate",
+        )
+
     function_hits: set[str] = set()
-    for key, tests in (stats_map or {}).items():
+    for key, tests in (stats.by_function if stats is not None else {}).items():
         if any(t.split("::", 1)[0] in changed_tests for t in tests):
             module = key.split(".")[1] if key.startswith("sumo_qa.") else ""
             if module in mutated_modules and module not in module_hits:
@@ -430,13 +493,15 @@ def main(argv: list[str] | None = None) -> int:
 
     scope: Scope | None = None
     if args.changed_only:
-        ref = resolve_changed_since_ref(os.environ)
+        from_ref, to_ref = resolve_push_range(os.environ)
         scope = select_scope(
-            changed_files_since(ref),
+            changed_files_since(from_ref, to_ref),
             mutated_modules_from_pyproject(args.pyproject),
-            load_stats_map(args.stats),
+            load_stats(args.stats),
+            ignored_tests_from_pyproject(args.pyproject),
         )
-        print(f"changed-only (since {ref}): {scope.reason}")
+        span = f"origin/main...{to_ref}" + (f" plus {to_ref}...{from_ref}" if from_ref else "")
+        print(f"changed-only ({span}): {scope.reason}")
         if not scope.globs and not scope.full_run:
             return 0
         if scope.full_run:

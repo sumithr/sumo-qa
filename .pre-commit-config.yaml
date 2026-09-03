@@ -206,11 +206,14 @@ repos:
         # mutants of the functions mutmut's cached stats map it to (and only
         # their tests in the clean pass); a test that exercises no mutated
         # function selects nothing and the hook exits 0 without running
-        # mutmut. A test change on a cold cache (no mutants/mutmut-stats.json,
-        # e.g. a fresh worktree) falls back to the full pass, since the map
-        # cannot be inverted safely, and so does a change to pyproject.toml,
-        # conftest.py, or non-test support code under tests/ (never in the
-        # map, yet able to weaken many tests). Out-of-scope modules are
+        # mutmut. The scope is the revision being pushed (PRE_COMMIT_TO_REF)
+        # against origin/main, plus anything a force-push removes from the
+        # remote. The full pass still runs when the scope cannot be trusted:
+        # a test change on a cold cache (no mutants/mutmut-stats.json, e.g. a
+        # fresh worktree), a changed test file the stats have never seen (new
+        # or renamed), a change to pyproject.toml, conftest.py, or non-test
+        # support code under tests/ (never in the map, yet able to weaken
+        # many tests), or git failing to diff. Out-of-scope modules are
         # reported SKIPPED and the pass is reported as scoped, not total.
         # The nightly Linux mutation.yml stays a full pass and is the
         # authoritative verdict.
