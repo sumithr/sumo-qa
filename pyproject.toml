@@ -70,9 +70,12 @@ dependencies = [
   "python-multipart>=0.0.31",
   # pydantic-settings < 2.14.2: GHSA-4xgf-cpjx-pc3j.
   "pydantic-settings>=2.14.2",
-  # cryptography < 48.0.1: GHSA-537c-gmf6-5ccf. In the core closure via
-  # mcp[crypto] -> pyjwt[crypto] -> cryptography (also via the `vertex` extra).
-  "cryptography>=48.0.1",
+  # cryptography < 50.0.0: GHSA-g6cj-pr64-35w5 (PKCS#7 Bleichenbacher oracle),
+  #   GHSA-jwv3-5hgf-82ww (exponential path-building), GHSA-m2h6-j472-rp4c
+  #   (wildcard DNS permittedSubtrees escape), GHSA-537c-gmf6-5ccf.
+  # In the core closure via mcp[crypto] -> pyjwt[crypto] -> cryptography
+  # (also via the `vertex` extra).
+  "cryptography>=50.0.0",
   # TOML reader for the slice-2 repo-map scanner's pyproject.toml parsing.
   # tomllib is stdlib on 3.11+; 3.10 (still supported per requires-python)
   # needs the tomli backport. dev extras already pull tomli for plugin_packaging,
@@ -120,12 +123,16 @@ dev = [
   # resolution drags in vulnerable bleach/tornado, so the pip-audit hook fails
   # until they are floored here. Drop once a maintained link-checker replaces
   # pytest-check-links (see the pytest<9 cap note above).
-  # tornado < 6.5.7: GHSA-pw6j-qg29-8w7f, CVE-2026-49853, CVE-2026-49854,
-  #   CVE-2026-49855.
-  "tornado>=6.5.7",
+  # tornado < 6.5.8: CVE-2026-82397. tornado < 6.5.7: GHSA-pw6j-qg29-8w7f,
+  #   CVE-2026-49853, CVE-2026-49854, CVE-2026-49855.
+  "tornado>=6.5.8",
   # bleach < 6.4.0: GHSA-gj48-438w-jh9v, GHSA-8rfp-98v4-mmr6, and
   #   GHSA-g75f-g53v-794x (the last affects exactly 6.3.0; 6.4.0 exits its range).
   "bleach>=6.4.0",
+  # mistune < 3.3.0: PYSEC-2026-2210 through PYSEC-2026-2218, PYSEC-2026-2652.
+  "mistune>=3.3.0",
+  # soupsieve < 2.8.4: PYSEC-2026-3071, PYSEC-2026-3072 (via beautifulsoup4).
+  "soupsieve>=2.8.4",
   # EXACT pin, unlike the ranges around it. ruff is a formatter as well as a
   # linter, and formatter output changes between pre-1.0 minors: 0.16.0 began
   # formatting Python inside Markdown fences, which took `ruff format .` from
@@ -151,6 +158,10 @@ dev = [
 ]
 vertex = [
   "google-cloud-aiplatform>=1.71.0",
+  # Security floor for a transitive dep of google-auth (pyasn1-modules -> pyasn1);
+  # the pip-audit gate installs this extra, so the floor has to live here.
+  # pyasn1 < 0.6.4: PYSEC-2026-3455, PYSEC-2026-3456, PYSEC-2026-3457.
+  "pyasn1>=0.6.4",
 ]
 # Optional import-graph parser for the repo-map scanner's `imports` edge layer
 # (#354). The core install stays pure-Python; this extra adds the tree-sitter
