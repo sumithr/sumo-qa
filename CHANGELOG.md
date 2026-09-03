@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.9](https://github.com/sumithr/sumo-qa/compare/v0.60.8...v0.60.9) (2026-09-03)
+
+
+### Bug Fixes
+
+* **deps:** migrate the MCP server to mcp 2.x ([#600](https://github.com/sumithr/sumo-qa/issues/600)) ([a10787f](https://github.com/sumithr/sumo-qa/commit/a10787fe57a51bad8ef937019c383105e45e79ba))
+
 ## [0.60.8](https://github.com/sumithr/sumo-qa/compare/v0.60.7...v0.60.8) (2026-09-03)
 
 
