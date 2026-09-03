@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.60.7](https://github.com/sumithr/sumo-qa/compare/v0.60.6...v0.60.7) (2026-09-03)
+
+
+### Bug Fixes
+
+* **mutation-gate:** survive macOS fork noise instead of blocking clean pushes ([#594](https://github.com/sumithr/sumo-qa/issues/594)) ([7eeb205](https://github.com/sumithr/sumo-qa/commit/7eeb20538aaa17ae959e308d338059bf20d4aee4))
+
+
+### Build System
+
+* **deps-dev:** bump @xmldom/xmldom from 0.9.10 to 0.9.12 ([#632](https://github.com/sumithr/sumo-qa/issues/632)) ([18a8bbb](https://github.com/sumithr/sumo-qa/commit/18a8bbb3dcb599cf01595d745f59c45c41f56889))
+* **deps-dev:** bump fast-uri from 3.1.5 to 3.1.7 ([#633](https://github.com/sumithr/sumo-qa/issues/633)) ([b3c9102](https://github.com/sumithr/sumo-qa/commit/b3c9102998d2279b5edea809c4285fb88f9cba80))
+* **deps-dev:** bump ip-address from 10.2.0 to 10.4.0 ([#593](https://github.com/sumithr/sumo-qa/issues/593)) ([afe30a6](https://github.com/sumithr/sumo-qa/commit/afe30a67e9c4e1f1f30b3056ce8c8aa86d6d7802))
+* **deps-dev:** bump ruff from 0.16.1 to 0.16.5 ([#601](https://github.com/sumithr/sumo-qa/issues/601)) ([59e5080](https://github.com/sumithr/sumo-qa/commit/59e50801c9e82ef25b2f46997b0d2007ff8cd18f))
+* **deps-dev:** bump socket.io-parser from 4.2.6 to 4.2.7 ([#596](https://github.com/sumithr/sumo-qa/issues/596)) ([00051c8](https://github.com/sumithr/sumo-qa/commit/00051c81bb194b88f77b720e72ef5b525b0f4740))
+
 ## [0.60.6](https://github.com/sumithr/sumo-qa/compare/v0.60.5...v0.60.6) (2026-08-03)
 
 
