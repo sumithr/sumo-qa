@@ -208,7 +208,10 @@ repos:
         # function selects nothing and the hook exits 0 without running
         # mutmut. A test change on a cold cache (no mutants/mutmut-stats.json,
         # e.g. a fresh worktree) falls back to the full pass, since the map
-        # cannot be inverted safely. Out-of-scope modules are reported SKIPPED.
+        # cannot be inverted safely, and so does a change to pyproject.toml,
+        # conftest.py, or non-test support code under tests/ (never in the
+        # map, yet able to weaken many tests). Out-of-scope modules are
+        # reported SKIPPED and the pass is reported as scoped, not total.
         # The nightly Linux mutation.yml stays a full pass and is the
         # authoritative verdict.
         #
@@ -250,7 +253,7 @@ repos:
           - "tomli>=2,<3; python_version < '3.11'"
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
-        files: ^(src/sumo_qa/(knowledge_loaders|rules|standards|tdm_validation|coverage_models|report_builder)\.py|tests/.*\.py)$
+        files: ^(src/sumo_qa/(knowledge_loaders|rules|standards|tdm_validation|coverage_models|report_builder)\.py|tests/.*\.py|conftest\.py|pyproject\.toml)$
         stages: [pre-push]
 
       - id: pytest

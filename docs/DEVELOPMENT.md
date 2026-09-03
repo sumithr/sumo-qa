@@ -199,8 +199,12 @@ changed `paths_to_mutate` module selects `sumo_qa.<module>.*`; a changed test
 file selects one glob per mutated function that `mutants/mutmut-stats.json`
 maps it to, so mutmut also limits its clean-test pass to those tests. Nothing
 selected means the hook exits 0 without running mutmut; a test edit on a cold
-cache (no stats file, as in a fresh worktree) falls back to the full pass.
-Only in-scope modules are judged, the rest print `SKIPPED`. The nightly job
+cache (no stats file, as in a fresh worktree) falls back to the full pass, as
+does any change to `pyproject.toml`, `conftest.py`, or non-test support code
+under `tests/` (helpers and fixtures never appear in the map, yet can weaken
+many tests). Renames are diffed with `--no-renames`, so the old path keeps its
+functions in scope. Only in-scope modules are judged, the rest print `SKIPPED`
+and the pass is reported as scoped, never as "all modules". The nightly job
 never passes the flag, so CI is always the full gate.
 
 Both the nightly job and the pre-push hook compute their verdict with

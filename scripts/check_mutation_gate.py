@@ -87,6 +87,9 @@ test-file edit (a cold full pass is 15+ minutes at --max-children 1):
     mutmut's clean-test pass to the mapped tests;
   - nothing selected -> exit 0 without running mutmut; a test change with no
     stats file -> the full run (the map cannot be inverted safely);
+  - pyproject.toml, conftest.py, or any tests/ .py that is not a test module
+    (helpers, fixtures) -> the full run: those never appear in the map yet can
+    weaken many tests; git failing to diff -> the full run too;
   - only in-scope modules are judged; the rest are listed SKIPPED, never
     MISSING. mutation.yml never passes the flag, so CI stays a full pass.
 """
@@ -172,15 +175,23 @@ def resolve_changed_since_ref(environ: dict) -> str:
     return "origin/main"
 
 
-def changed_files_since(ref: str) -> list[str]:
+def changed_files_since(ref: str) -> list[str] | None:
     """Files changed on HEAD since it diverged from ``ref`` (three-dot diff, so
-    a stale remote ref does not drag main's own changes into scope)."""
-    result = subprocess.run(
-        ["git", "diff", "--name-only", f"{ref}...HEAD"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    a stale remote ref does not drag main's own changes into scope).
+
+    ``--no-renames`` so a renamed test shows as delete + add: the deleted (old)
+    path is the one the stats map knows, and it is what puts the functions
+    that test covered back in scope. Returns None when git cannot answer
+    (unknown ref, not a repo); the caller then runs the full gate."""
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "--no-renames", f"{ref}...HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
     return [line for line in result.stdout.splitlines() if line]
 
 
@@ -218,13 +229,44 @@ class Scope:
         self.reason = reason
 
 
+# Files whose change can move the gate without ever appearing in mutmut's
+# test-to-function map: the mutmut config itself, and pytest support code
+# (conftest, helpers, fixtures) that pytest never reports as a test node id.
+_FULL_RUN_PATHS = {"pyproject.toml", "conftest.py"}
+
+
+def _is_test_module(path: str) -> bool:
+    return (
+        path.startswith("tests/") and Path(path).name.startswith("test_") and path.endswith(".py")
+    )
+
+
+def _forces_full_run(path: str) -> bool:
+    if path in _FULL_RUN_PATHS:
+        return True
+    return path.startswith("tests/") and path.endswith(".py") and not _is_test_module(path)
+
+
 def select_scope(
-    changed_files: list[str], mutated_modules: list[str], stats_map: dict | None
+    changed_files: list[str] | None, mutated_modules: list[str], stats_map: dict | None
 ) -> Scope:
     """Decide what a changed-only pass must run. See the module docstring."""
+    if changed_files is None:
+        return Scope(
+            modules=set(mutated_modules),
+            full_run=True,
+            reason="git could not diff against the base ref; running the full gate",
+        )
     changed = set(changed_files)
+    forcing = sorted(f for f in changed if _forces_full_run(f))
+    if forcing:
+        return Scope(
+            modules=set(mutated_modules),
+            full_run=True,
+            reason=f"{', '.join(forcing)} changed (config or test support code); running the full gate",
+        )
     module_hits = {m for m in mutated_modules if f"src/sumo_qa/{m}.py" in changed}
-    changed_tests = {f for f in changed if f.startswith("tests/") and f.endswith(".py")}
+    changed_tests = {f for f in changed if _is_test_module(f)}
 
     if changed_tests and stats_map is None:
         return Scope(
@@ -466,6 +508,15 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "\nNo survivors found. NOT a strict-gate pass: the NOT-MEASURED modules "
             "above were not gated locally. Not blocking the push."
+        )
+        return 0
+    if scope is not None:
+        skipped = sum(1 for line in lines if line.endswith("| SKIPPED |"))
+        judged = ", ".join(sorted(scope.modules))
+        plural = "s" if skipped != 1 else ""
+        print(
+            f"\nIn-scope modules: kill counts >= baseline and 0 survivors. "
+            f"Scoped strict gate passed for {judged} ({skipped} module{plural} skipped)."
         )
         return 0
     print("\nAll modules: kill counts >= baseline and 0 survivors. Strict gate passed.")

@@ -498,7 +498,8 @@ def test_changed_only_passes_the_selected_globs_to_mutmut_and_judges_only_that_m
     out = capsys.readouterr().out
     assert "| mod | 1 | 1 | 0 | OK |" in out
     assert "| other | 5 | - | - | SKIPPED |" in out
-    assert "Strict gate passed" in out
+    assert "All modules" not in out, "a scoped pass must not claim every module was gated"
+    assert "Scoped strict gate passed for mod (1 module skipped)" in out
 
 
 def test_changed_only_survivor_in_scope_still_fails(tmp_path, monkeypatch, capsys):
@@ -586,7 +587,7 @@ def test_changed_files_since_uses_a_three_dot_diff(monkeypatch):
         "src/sumo_qa/rules.py",
         "tests/test_rules.py",
     ]
-    assert calls == [["git", "diff", "--name-only", "origin/main...HEAD"]]
+    assert calls == [["git", "diff", "--name-only", "--no-renames", "origin/main...HEAD"]]
 
 
 def test_mutated_modules_from_pyproject_reads_the_live_list(tmp_path):
@@ -598,3 +599,49 @@ def test_mutated_modules_from_pyproject_reads_the_live_list(tmp_path):
         "rules",
         "standards",
     ]
+
+
+def test_scope_forces_a_full_run_for_test_support_files():
+    """conftest / helpers / fixtures never appear as pytest node ids, so the
+    stats map cannot attribute them; a change there can weaken many tests."""
+    for path in [
+        "tests/conftest.py",
+        "tests/_helpers.py",
+        "tests/fixtures/mock_slow_mcp_server.py",
+        "conftest.py",
+    ]:
+        scope = gate.select_scope([path], ["rules"], _STATS)
+        assert scope.full_run is True, path
+        assert path in scope.reason
+
+
+def test_scope_forces_a_full_run_when_the_mutmut_config_changes():
+    scope = gate.select_scope(["pyproject.toml"], ["rules"], _STATS)
+    assert scope.full_run is True
+    assert "pyproject.toml" in scope.reason
+
+
+def test_scope_a_new_test_file_with_no_mapping_selects_nothing():
+    """A brand-new test can only add kills. With --no-renames a rename shows as
+    delete + add, and the deleted (old) path is what carries the mapping."""
+    scope = gate.select_scope(["tests/test_brand_new.py"], ["rules"], _STATS)
+    assert scope.globs == [] and scope.full_run is False
+    renamed = gate.select_scope(
+        ["tests/test_rules.py", "tests/test_rules_v2.py"], ["rules"], _STATS
+    )
+    assert renamed.globs == ["sumo_qa.rules.x_load*", "sumo_qa.rules.xǁRuleǁapply*"]
+
+
+def test_scope_falls_back_to_a_full_run_when_git_cannot_diff():
+    scope = gate.select_scope(None, ["rules", "standards"], _STATS)
+    assert scope.full_run is True
+    assert scope.modules == {"rules", "standards"}
+    assert "git" in scope.reason
+
+
+def test_changed_files_since_returns_none_when_git_fails(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise gate.subprocess.CalledProcessError(128, cmd, stderr="fatal: bad revision")
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    assert gate.changed_files_since("deadbeef") is None
