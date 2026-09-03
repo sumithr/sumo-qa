@@ -1,5 +1,8 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import codecs
+import locale
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -25,16 +28,71 @@ def test_missing_rules_file_returns_empty_engine(tmp_path: Path) -> None:
 
     evaluation = engine.evaluate([])
 
-    assert evaluation == {
-        "matched_rules": [],
-        "must_consider": [],
-        "suggested_test_types": [],
-        "avoid_testing": [],
-        "risk_templates": [],
-        "test_design_techniques": [],
-        "quality_characteristics": [],
-        "templates_by_classification": {},
-    }
+    assert evaluation == _EMPTY_EVALUATION
+
+
+def test_missing_rules_file_engine_answers_a_real_classification(tmp_path: Path) -> None:
+    """A missing rules file yields an engine that still evaluates a non-empty
+    query to the empty shape, rather than blowing up on its rule store.
+
+    Kills the `cls({})` → `cls(None)` mutant in from_file: an engine built on
+    None survives `evaluate([])` (the membership test is never reached) but
+    raises TypeError as soon as a classification name is looked up.
+    """
+    engine = StandardsRulesEngine.from_file(tmp_path / "does_not_exist.yaml")
+
+    evaluation = engine.evaluate(["async_flow_change"])
+
+    assert evaluation == _EMPTY_EVALUATION
+
+
+_EMPTY_EVALUATION = {
+    "matched_rules": [],
+    "must_consider": [],
+    "suggested_test_types": [],
+    "avoid_testing": [],
+    "risk_templates": [],
+    "test_design_techniques": [],
+    "quality_characteristics": [],
+    "templates_by_classification": {},
+}
+
+
+@pytest.mark.skipif(
+    sys.flags.utf8_mode == 1,
+    reason="UTF-8 mode pins the locale default to UTF-8; the contract is vacuous here",
+)
+def test_from_file_decodes_utf8_regardless_of_host_locale(tmp_path: Path) -> None:
+    """A rules file is decoded as UTF-8 whatever the host locale says.
+
+    Kills the `encoding="utf-8"` dropped / `encoding=None` mutants in
+    from_file. The file is written as raw UTF-8 bytes (allow_unicode, so YAML
+    does not escape them to ASCII). Under a "C" locale the mutant decodes
+    with the host default instead: ASCII on POSIX (UnicodeDecodeError) or the
+    ANSI code page on Windows (mojibake); either way the equality below fails,
+    while the original loads the text verbatim. The pragma on the `with` line
+    keeps mutmut from scoring these, so this test is the guard; it restores
+    the locale on every exit path.
+    """
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        yaml.safe_dump(
+            {"docs_change": {"must_consider": ["café → naïve façade"]}}, allow_unicode=True
+        ),
+        encoding="utf-8",
+    )
+    original_locale = locale.setlocale(locale.LC_CTYPE)
+    try:
+        locale.setlocale(locale.LC_CTYPE, "C")
+        # getpreferredencoding(False) exists on 3.10 (getencoding is 3.11+);
+        # codecs.lookup normalises aliases such as "UTF8" or Windows "cp65001".
+        if codecs.lookup(locale.getpreferredencoding(False)).name == "utf-8":
+            pytest.skip("this host's C locale still defaults to UTF-8; contract is vacuous here")
+        engine = StandardsRulesEngine.from_file(rules_path)
+    finally:
+        locale.setlocale(locale.LC_CTYPE, original_locale)
+
+    assert engine.evaluate(["docs_change"])["must_consider"] == ["café → naïve façade"]
 
 
 def test_evaluate_surfaces_istqb_test_design_techniques() -> None:

@@ -188,11 +188,12 @@ def test_assess_freshness_default_now_is_timezone_aware() -> None:
 
 
 def test_assess_freshness_unknown_status_preserves_kwargs() -> None:
-    """Kills mutmut_8 / _9: dropping `last_validated_at=None` or `age_days=None`
-    from the FreshnessMetadata constructor for the unknown-status case.
+    """Pins the unknown-status shape: BOTH optional fields come back as None.
 
-    Asserts the returned metadata has BOTH fields explicitly set
-    (would default to non-None / wrong-typed if removed from kwargs).
+    Dropping `last_validated_at=None` / `age_days=None` from the constructor
+    is an equivalent mutation (the model defaults both to None), so those two
+    mutants are suppressed by the statement-level pragma in assess_freshness
+    rather than killed here; this test guards the observable contract.
     """
     result = tv.assess_freshness(None)
     assert result.status == "unknown"

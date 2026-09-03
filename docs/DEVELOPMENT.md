@@ -197,14 +197,25 @@ mutmut's `.meta` files, never from `mutmut run`'s exit status: mutmut exits
 0 even when mutants survive, so a bare `mutmut run` hook can never fail on
 a survivor-introducing push (root-caused 2026-07-13).
 
-mutmut is version-capped (`>=3,<3.6`, pinned in both `pyproject.toml`'s dev
+mutmut is version-capped (`>=3.7,<3.8`, pinned in both `pyproject.toml`'s dev
 extra and the pre-push hook's `additional_dependencies`; keep the two in
-lockstep): 3.6.0's `record_trampoline_hit` resolves its relative
-`source_paths` against the live cwd with `strict=True`, so any test that
-`chdir`s away and then calls a mutated-module function crashes the
-stats-collection run and zero mutants execute ("failed to collect stats").
-Lift the cap only after verifying a newer release resolves `source_paths`
-against the run root instead of the cwd.
+lockstep). The floor excludes 3.6.0, whose `record_trampoline_hit` resolved
+its relative `source_paths` against the live cwd with `strict=True`, so any
+test that `chdir`s away and then calls a mutated-module function crashed the
+stats-collection run and zero mutants executed ("failed to collect stats");
+3.7.0 resolves `source_paths` once at config load. The ceiling is per-minor
+because mutmut minors move the mutant set and the pragma rules (see below), so
+a bump is a re-run-the-gate-and-ratchet-the-baseline task, not a range edit.
+
+**Pragma placement (mutmut 3.7).** `# pragma: no mutate` is read only as a
+trailing comment on a *statement* or a compound-statement header (`with …:`,
+`if …:`, `def …:`); it suppresses the mutants whose node starts on that
+statement's first line. A pragma on a continuation line inside an expression
+(a comprehension clause, a kwarg line of a multi-line call) is ignored. For a
+multi-line call whose Call-level mutants (kwarg→None, kwarg-drop) are
+equivalent, put the pragma after the closing paren: it silences the Call
+node's mutants and leaves the inner kwarg-value mutants live. Pair every
+pragma with a one-line rationale naming why the mutation is equivalent.
 
 
 ### macOS fork noise: the local gate is advisory

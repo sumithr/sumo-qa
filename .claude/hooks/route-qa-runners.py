@@ -11,7 +11,8 @@ Detection is built against REAL runner output (see tests/test_route_qa_runners.p
 
   * `mutmut run` reports survivors with EMOJI counters, never the word
     "survived" — real output is `… ⏰ {timeout}  🤔 {suspicious}  🙁 {survived} …`
-    (mutmut 3.5.0 __main__.print_stats). The matcher parses those counters; a
+    (mutmut 3.5.0 __main__.print_stats; layout verified byte-identical on a
+    real 3.7.0 run, 2026-09-03). The matcher parses those counters; a
     non-zero survived / timeout / suspicious count means action is needed. The
     exit code is useless here: `mutmut run` exits 0 even with survivors.
 
@@ -53,7 +54,8 @@ _LAUNCHERS = {
 _LAUNCHERS_TAKING_RUN = {"uv", "poetry", "pdm", "hatch", "rye", "pipenv"}
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
-# mutmut survivor-status emoji counters (mutmut 3.5.0 emoji_by_status).
+# mutmut survivor-status emoji counters (mutmut 3.5.0 emoji_by_status; the
+# same three emojis, in the same layout, in 3.7.0).
 _MUTMUT_STATUS_EMOJI = {
     "survived": "🙁",
     "timeout": "⏰",

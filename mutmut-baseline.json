@@ -2,12 +2,12 @@
   "baseline_date": "2026-05-15",
   "branch": "feat/qa-phase4.2-mutation-survivor-strengthening",
   "phase": "4.2",
-  "mutmut_version": "3.5.0",
+  "mutmut_version": "3.7.0",
   "python_version": "3.14.4",
   "_notes": [
     "Floor-only baseline. The CI mutation workflow has two gates: (a) regression",
-    "catch — fails if any module's killed count drops below the per-module 'killed'",
-    "value below, and (b) strict-100% — fails if any mutant survives. Post-Phase-4.2",
+    "catch \u2014 fails if any module's killed count drops below the per-module 'killed'",
+    "value below, and (b) strict-100% \u2014 fails if any mutant survives. Post-Phase-4.2",
     "we expect 0 survivors per module, so gate (b) is the binding check.",
     "Phase 4.2 added 13 strengthening tests against the 33 remaining Linux-CI",
     "survivors (22 in tdm_validation, 11 in knowledge_loaders) plus 7 # pragma:",
@@ -15,14 +15,14 @@
     "in load_rules, 2 FreshnessMetadata default-value kwargs in assess_freshness,",
     "1 _lowest_confidence rank-dict magnitude). PR #32 separately removed",
     "sumo_qa_load_specialty_tools (9 mutants) from knowledge_loaders' total.",
-    "Survivor-mutant-name lists were dropped — they are stale across source",
+    "Survivor-mutant-name lists were dropped \u2014 they are stale across source",
     "refactors and the workflow only reads 'killed'.",
-    "2026-06-13 (#147 follow-up): added coverage_models — the persisted",
+    "2026-06-13 (#147 follow-up): added coverage_models \u2014 the persisted",
     "coverage/mutation artifact validation. A local clean run killed all 87",
     "mutants (0 survivors); 1 equivalent join-separator mutant carries a",
     "# pragma: no mutate. Local macOS runs segfault non-deterministically, so",
     "Linux CI is authoritative for the count.",
-    "2026-06-14 (#409): added report_builder — the QA-report ingestion +",
+    "2026-06-14 (#409): added report_builder \u2014 the QA-report ingestion +",
     "render-ready projection. A local clean run killed all 793 mutants (0",
     "survivors). Dead/redundant branches carry # pragma: no mutate with",
     "rationale; the scorecard signal-threading kwargs sit on continuation",
@@ -45,20 +45,40 @@
     "The 4 pragma'd lines remove 18 mutants from generation (490 -> 472),",
     "so the floor moves to the new full-kill count: knowledge_loaders",
     "443 -> 472 (0 survivors). Local converged clean run; Linux CI",
-    "authoritative as ever."
+    "authoritative as ever.",
+    "2026-09-03 (#580): mutmut cap lifted to >=3.7,<3.8 (3.6.0 stays excluded;",
+    "see pyproject.toml). 3.7 reads `# pragma: no mutate` only as a",
+    "statement-level / compound-header comment and adds kwarg->None and",
+    "kwarg-drop Call mutants, which surfaced 21 survivors on the 3.5 tree:",
+    "7 formerly-pragma'd equivalents (knowledge_loaders 5, tdm_validation 2)",
+    "and 14 new open()/constructor kwarg mutants (rules 5, standards 9). Killed",
+    "11 with tests (knowledge_loaders 5 XX-strip/XX-regex, rules cls(None),",
+    "standards title/severity/qa_focus/name/source None); suppressed the other",
+    "10 with re-placed statement-level pragmas + rationale (open() kwargs in",
+    "rules/standards, assess_freshness equivalent kwarg drops; the",
+    "locale-dependent encoding variants are pinned by locale tests). Also",
+    "dropped the stale 3.5-dispatcher pragmas on the load_catalogue /",
+    "load_catalogue_entry `format` defaults (3.7 forwards raw args, so those",
+    "mutants are observable and now killed by tests). Floors move to",
+    "the new full-kill counts: knowledge_loaders 472 -> 491, rules 41 -> 81,",
+    "standards 25 -> 70, tdm_validation 203 (unchanged), coverage_models 87,",
+    "report_builder 793. The pre-fix local darwin run (1745 mutants, 21",
+    "survivors) matched the Linux CI run on Dependabot #597 mutant-for-mutant;",
+    "the final run (1725 mutants, 0 survivors, 0 un-judged) sets the floors. Linux",
+    "CI remains authoritative."
   ],
   "per_module": {
     "knowledge_loaders": {
       "file": "src/sumo_qa/knowledge_loaders.py",
-      "killed": 472
+      "killed": 491
     },
     "rules": {
       "file": "src/sumo_qa/rules.py",
-      "killed": 41
+      "killed": 81
     },
     "standards": {
       "file": "src/sumo_qa/standards.py",
-      "killed": 25
+      "killed": 70
     },
     "tdm_validation": {
       "file": "src/sumo_qa/tdm_validation.py",

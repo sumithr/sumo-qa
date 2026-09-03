@@ -52,16 +52,13 @@ def _classification_filter_terms(classification: str | None) -> set[str] | None:
     """
     if classification is None:
         return None
+    # Only backtick/quote chars are stripped; any other edge character is kept.
+    # Both strip calls are pinned by test_classification_filter_strips_backticks_and_quotes
+    # (strip→None) and test_filter_terms_strip_only_quote_chars (XX-quoted variants).
     return {
-        # pragma: no mutate — XX-quoted strip variant is equivalent (no realistic
-        # classification name contains a literal 'X' distinct from the trimmed
-        # quote chars). The strip→None variant is covered by
-        # test_classification_filter_strips_backticks_and_quotes.
-        part.strip("`'\"")  # pragma: no mutate
+        part.strip("`'\"")
         for part in re.split(r"[\s,;]+", str(classification))
-        # pragma: no mutate — same rationale as the result-expression strip above;
-        # filter behaviour is verified by the same strengthening test.
-        if part.strip("`'\"")  # pragma: no mutate
+        if part.strip("`'\"")
     }
 
 
@@ -71,18 +68,15 @@ def _metadata_terms(value: Any) -> set[str]:
     if isinstance(value, str):
         return _classification_filter_terms(value) or set()
     if isinstance(value, (list, tuple, set)):
+        # Same contract as _classification_filter_terms, applied per list item.
+        # Pinned by test_metadata_terms_strips_backticks_in_list_inputs
+        # (strip→None) and test_metadata_terms_strip_only_quote_chars_and_split
+        # (XX-quoted strip / XX-wrapped split-regex variants).
         return {
-            # pragma: no mutate — XX-quoted strip variant is equivalent (see
-            # rationale in _classification_filter_terms). Strip→None covered by
-            # test_metadata_terms_strips_backticks_in_list_inputs.
-            part.strip("`'\"")  # pragma: no mutate
+            part.strip("`'\"")
             for item in value
-            # pragma: no mutate — regex XX-wrapped variant matches only inputs
-            # containing literal "XX...XX"; equivalent for realistic metadata.
-            for part in re.split(r"[\s,;]+", str(item))  # pragma: no mutate
-            # pragma: no mutate — same rationale as the result-expression strip
-            # above; covered by the same metadata strengthening test.
-            if part.strip("`'\"")  # pragma: no mutate
+            for part in re.split(r"[\s,;]+", str(item))
+            if part.strip("`'\"")
         }
     return {str(value)}
 
@@ -342,11 +336,11 @@ def _missing_catalogue_error(catalogue: str, exc: OSError) -> dict[str, Any]:
 def load_catalogue_entry(
     catalogue: str,
     name: str | None = None,
-    # pragma rationale (#503): x_load_catalogue_entry__mutmut_1/2 mutate this
-    # default, but the mutmut-3.5 dispatcher keeps the original signature and
-    # forwards its defaults explicitly, so a mutated default inside the
-    # generated body is dead code — unkillable by construction.
-    format: str = "full",  # pragma: no mutate
+    # mutmut >=3.7 forwards raw *args/**kwargs, so a mutated default IS
+    # observable; the "full" default mutants are killed by
+    # test_load_catalogue_entry_defaults_to_full (a pragma here would be
+    # inert anyway: only statement-level / def-line comments count).
+    format: str = "full",
 ) -> dict[str, Any]:
     """Return one catalogue entry by name.
 
@@ -407,10 +401,9 @@ def load_catalogue_entry(
     }
 
 
-# pragma rationale (#503): x_load_catalogue__mutmut_1/2 mutate the "full"
-# default — dead code under the mutmut-3.5 dispatcher (same as
-# load_catalogue_entry above: the trampoline forwards original defaults).
-def load_catalogue(catalogue: str, format: str = "full") -> dict[str, Any]:  # pragma: no mutate
+# mutmut >=3.7 forwards raw *args/**kwargs, so the "full" default is
+# observable and its mutants are killed by test_load_catalogue_defaults_to_full.
+def load_catalogue(catalogue: str, format: str = "full") -> dict[str, Any]:
     """Return a whole catalogue in ``full`` or ``compact`` form.
 
     ``format="full"`` (default) returns ``{..., "canonical": true, "text": <the

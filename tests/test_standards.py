@@ -1,4 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import codecs
+import locale
+import sys
 from pathlib import Path
 
 import pytest
@@ -182,6 +185,102 @@ def test_pack_with_optional_description_and_domain_loads(tmp_path: Path) -> None
     engine = StandardsEngine.from_directory(tmp_path)
 
     assert "test-pack@0.0.1" in engine.evaluate("custom-workflow").pack_versions
+
+
+def test_load_pack_carries_every_declared_field_through(tmp_path: Path) -> None:
+    """Every field declared in a pack YAML reaches the loaded pack and its
+    evaluated checks unchanged.
+
+    Kills the kwarg→None mutants mutmut >=3.7 generates on the StandardCheck /
+    StandardsPack constructors in _load_pack (title, severity, qa_focus, name,
+    source). Check-level fields are observable through evaluate(); the pack's
+    name and source path have no public reader yet, so they are asserted on
+    the loaded pack itself (the same access the hypothesis suite uses).
+    """
+    pack = {
+        "id": "field-pack",
+        "version": "9.9.9",
+        "name": "Field Round-Trip Pack",
+        "checks": [
+            {
+                "id": "roundtrip.check",
+                "title": "Round-trip title",
+                "applies_to": ["roundtrip"],
+                "severity": "high",
+                "qa_focus": "Every declared field survives loading.",
+                "pass_criteria": ["title, severity and qa_focus match the YAML"],
+            }
+        ],
+    }
+    pack_path = tmp_path / "field-pack.yaml"
+    pack_path.write_text(yaml.safe_dump(pack, sort_keys=False), encoding="utf-8")
+
+    engine = StandardsEngine.from_directory(tmp_path)
+    evaluation = engine.evaluate("roundtrip")
+
+    assert evaluation.checks == [
+        {
+            "id": "roundtrip.check",
+            "title": "Round-trip title",
+            "severity": "high",
+            "qa_focus": "Every declared field survives loading.",
+            "pass_criteria": ["title, severity and qa_focus match the YAML"],
+        }
+    ]
+    assert evaluation.prompts == ["Round-trip title: Every declared field survives loading."]
+    assert evaluation.pack_versions == ["field-pack@9.9.9"]
+
+    (loaded,) = engine._packs
+    assert loaded.name == "Field Round-Trip Pack"
+    assert loaded.source == pack_path
+
+
+@pytest.mark.skipif(
+    sys.flags.utf8_mode == 1,
+    reason="UTF-8 mode pins the locale default to UTF-8; the contract is vacuous here",
+)
+def test_load_pack_decodes_utf8_regardless_of_host_locale(tmp_path: Path) -> None:
+    """A standards pack is decoded as UTF-8 whatever the host locale says.
+
+    Kills the `encoding="utf-8"` dropped / `encoding=None` mutants in
+    _load_pack. The pack is written as raw UTF-8 bytes (allow_unicode). Under
+    a "C" locale the mutant decodes with the host default instead: ASCII on
+    POSIX (UnicodeDecodeError) or the ANSI code page on Windows (mojibake);
+    either way the equality below fails, while the original loads the text
+    verbatim. The pragma on the `with` line keeps mutmut from scoring these,
+    so this test is the guard; it restores the locale on every exit path.
+    """
+    pack = {
+        "id": "utf8-pack",
+        "version": "0.0.1",
+        "name": "UTF-8 Pack",
+        "checks": [
+            {
+                "id": "utf8.check",
+                "title": "Décodage",
+                "applies_to": ["utf8"],
+                "severity": "low",
+                "qa_focus": "Vérifie l'encodage → UTF-8.",
+                "pass_criteria": ["non-ASCII text round-trips"],
+            }
+        ],
+    }
+    (tmp_path / "utf8-pack.yaml").write_text(
+        yaml.safe_dump(pack, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    original_locale = locale.setlocale(locale.LC_CTYPE)
+    try:
+        locale.setlocale(locale.LC_CTYPE, "C")
+        # getpreferredencoding(False) exists on 3.10 (getencoding is 3.11+);
+        # codecs.lookup normalises aliases such as "UTF8" or Windows "cp65001".
+        if codecs.lookup(locale.getpreferredencoding(False)).name == "utf-8":
+            pytest.skip("this host's C locale still defaults to UTF-8; contract is vacuous here")
+        engine = StandardsEngine.from_directory(tmp_path)
+    finally:
+        locale.setlocale(locale.LC_CTYPE, original_locale)
+
+    evaluation = engine.evaluate("utf8")
+    assert evaluation.prompts == ["Décodage: Vérifie l'encodage → UTF-8."]
 
 
 def test_from_directory_raises_when_dir_does_not_exist(tmp_path: Path) -> None:

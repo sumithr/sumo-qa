@@ -215,6 +215,29 @@ def test_compact_catalogue_is_marked_non_canonical():
     assert compact["format"] == "compact"
 
 
+def test_load_catalogue_defaults_to_full():
+    """Omitting `format` is the same call as `format="full"`.
+
+    Kills the `"full"` default-value mutants on load_catalogue: a mutated
+    default ("XXfullXX" / "FULL") is an unknown format, so the zero-format
+    call would return the error envelope instead of the canonical text.
+    """
+    default = knowledge_loaders.load_catalogue("classifications")
+    assert default == knowledge_loaders.load_catalogue("classifications", format="full")
+    assert default["format"] == "full"
+    assert default["canonical"] is True
+
+
+def test_load_catalogue_entry_defaults_to_full():
+    """Same contract for the single-entry loader's `format` default."""
+    default = knowledge_loaders.load_catalogue_entry("classifications", name="api_contract_change")
+    assert default == knowledge_loaders.load_catalogue_entry(
+        "classifications", name="api_contract_change", format="full"
+    )
+    assert default["format"] == "full"
+    assert default["canonical"] is True
+
+
 def test_full_catalogue_via_new_loader_is_canonical_and_verbatim():
     # Decision table: (format=full) -> canonical=True, text byte-equal to the
     # backward-compatible loader.

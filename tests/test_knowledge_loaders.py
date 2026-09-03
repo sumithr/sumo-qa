@@ -492,6 +492,41 @@ def test_metadata_terms_strips_backticks_in_list_inputs():
     assert _metadata_terms(["```", "'''", '"""']) == set()
 
 
+def test_filter_terms_strip_only_quote_chars():
+    """Only backtick/quote characters are stripped from a classification token;
+    any other edge character is preserved.
+
+    Kills the XX-quoted strip variants on both strip calls in
+    _classification_filter_terms (result expression + if-filter). Under the
+    mutant `strip("XX`'\\"XX")` a bare "X" token strips to empty and is dropped,
+    and "Xray_change" loses its leading letter. These lines carried an inline
+    `# pragma: no mutate` that mutmut >=3.7 no longer reads (it only honours
+    statement-level pragmas), so the contract is pinned by a test instead.
+    """
+    from sumo_qa.knowledge_loaders import _classification_filter_terms
+
+    assert _classification_filter_terms("X, Xray_change") == {"X", "Xray_change"}
+    assert _classification_filter_terms("`X`") == {"X"}
+
+
+def test_metadata_terms_strip_only_quote_chars_and_split():
+    """List-branch counterpart of test_filter_terms_strip_only_quote_chars.
+
+    Kills the XX-quoted strip variants on both strip calls in the list branch
+    of _metadata_terms, and the XX-wrapped split-regex variant: a comma-joined
+    item must be tokenised into its parts (the mutant regex
+    `XX[\\s,;]+XX` never matches, so the item would pass through whole).
+    """
+    from sumo_qa.knowledge_loaders import _metadata_terms
+
+    assert _metadata_terms(["X", "Xray_change, api_contract_change"]) == {
+        "X",
+        "Xray_change",
+        "api_contract_change",
+    }
+    assert _metadata_terms(("`X`",)) == {"X"}
+
+
 def test_load_rules_resolves_aliases_for_multiple_terms_in_one_call(tmp_path, monkeypatch):
     """When several terms are requested and the first is a direct hit while a
     later one needs alias resolution, both must end up in the response.
