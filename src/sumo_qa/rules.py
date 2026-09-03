@@ -57,7 +57,16 @@ class StandardsRulesEngine:
         if not rules_path.exists():
             return cls({})
 
-        with rules_path.open("r", encoding="utf-8") as handle:
+        # Trailing pragma (line-granular, so it covers every mutant on this
+        # line). Genuinely equivalent: "UTF-8" is a codec alias of "utf-8",
+        # and dropping "r" leaves open()'s default mode. NOT equivalent but
+        # unscorable here: dropping/None-ing `encoding` falls back to the host
+        # locale, which only differs from UTF-8 on a non-UTF-8 locale; that
+        # contract is pinned by test_from_file_decodes_utf8_regardless_of_host_locale
+        # (under a "C" locale the mutant raises UnicodeDecodeError on POSIX or
+        # mis-decodes on Windows). The "r"→"R"/"XXrXX" variants are killed by
+        # any read of the file.
+        with rules_path.open("r", encoding="utf-8") as handle:  # pragma: no mutate
             raw = yaml.safe_load(handle) or {}
 
         rules: dict[str, ChangeRule] = {}

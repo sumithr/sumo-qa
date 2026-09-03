@@ -76,7 +76,11 @@ class StandardsEngine:
 
     @staticmethod
     def _load_pack(path: Path) -> StandardsPack:
-        with path.open("r", encoding="utf-8") as handle:
+        # Trailing pragma: same rationale as StandardsRulesEngine.from_file.
+        # "UTF-8" alias and dropped "r" are equivalent; the encoding-dropped
+        # variants are locale-dependent and pinned by
+        # test_load_pack_decodes_utf8_regardless_of_host_locale instead.
+        with path.open("r", encoding="utf-8") as handle:  # pragma: no mutate
             raw = yaml.safe_load(handle) or {}
 
         try:

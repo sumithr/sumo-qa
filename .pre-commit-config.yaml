@@ -226,12 +226,12 @@ repos:
         additional_dependencies:
           - "hypothesis>=6,<7"
           - "mcp>=1.12,<2"
-          # <3.6 mirrors the pyproject dev pin: mutmut 3.6.0's
-          # record_trampoline_hit resolves relative source_paths against the
-          # live cwd with strict=True, so chdir-ing tests crash the
-          # stats-collection run ("failed to collect stats"). See the pin
-          # comment in pyproject.toml [project.optional-dependencies] dev.
-          - "mutmut>=3,<3.6"
+          # >=3.7,<3.8 mirrors the pyproject dev pin: 3.6.0 resolved relative
+          # source_paths against the live cwd (chdir-ing tests crashed the
+          # stats-collection run), 3.7 fixed that but changed pragma
+          # placement and the mutant set, so the baseline is per-minor. See
+          # the pin comment in pyproject.toml [project.optional-dependencies].
+          - "mutmut>=3.7,<3.8"
           - "pydantic>=2.8,<3"
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"

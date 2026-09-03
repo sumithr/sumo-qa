@@ -95,16 +95,20 @@ dev = [
   # dev host regardless of the interpreter version — hence unconditional
   # here, while the wheel keeps the conditional runtime declaration above.
   "tomli>=2,<3",
-  # <3.6: mutmut 3.6.0 (2026-06-06) added `p.resolve(strict=True)` over
-  # Config.source_paths inside record_trampoline_hit (mutmut/__main__.py).
-  # source_paths are RELATIVE, so any test that monkeypatch.chdir()s away
-  # from the run root and then calls a mutated-module function raises
-  # FileNotFoundError ('<tmp>/src/sumo_qa'), the stats-collection clean run
-  # aborts under -x ("failed to collect stats"), zero mutants execute, and
-  # the nightly gate false-DROPs every module (red 2026-06-07 → 2026-07-13).
-  # Lift the cap only after verifying a release resolves source_paths
-  # against the run root instead of the live cwd.
-  "mutmut>=3,<3.6",
+  # >=3.7: mutmut 3.6.0 (2026-06-06) resolved relative Config.source_paths
+  # against the live cwd with strict=True inside record_trampoline_hit, so any
+  # test that monkeypatch.chdir()s away and then calls a mutated-module
+  # function crashed the stats-collection run and zero mutants executed
+  # (nightly gate red 2026-06-07 → 2026-07-13). 3.7.0 resolves source_paths
+  # once at config load (resolved_mutated_source_paths), verified by a full
+  # green gate run on 2026-09-03 (#580). No fixed 3.6.x exists, so the floor
+  # is 3.7, never a bare `<3.8` (which would admit 3.6.0).
+  # <3.8: mutmut 3.7 changed `# pragma: no mutate` to a STATEMENT-level /
+  # compound-header comment (mutmut/mutation/pragma_handling.py) and added
+  # kwarg→None / kwarg-drop Call mutants, which moved the baseline; a minor
+  # bump must re-run the gate and ratchet mutmut-baseline.json, not just
+  # widen the range. Keep in lockstep with .pre-commit-config.yaml.
+  "mutmut>=3.7,<3.8",
   # NOTE: CVE-2025-71176 (local tmpdir symlink, fixed in pytest 9.0.3) cannot be
   # remediated by upgrading while pytest-check-links is a dev dep — its latest
   # release (0.10.1) hard-caps pytest<9 and is unmaintained. The advisory is
