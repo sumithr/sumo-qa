@@ -43,18 +43,19 @@ dependencies = [
   #   a fresh resolve already picks a safe 1.x, but the constraint is what the
   #   built wheel carries, so without the floor pip and Poetry stay free to
   #   resolve a vulnerable version.
-  # The <2 cap is load-bearing: mcp 2.0.0 deletes mcp.server.fastmcp, which
-  #   build_mcp_server() is written against, so 2.x cannot import let alone
-  #   run. Lifting it is a migration (30 @mcp.tool sites, plus the
-  #   _tool_manager / fn_metadata internals that _slim_tool_schemas and
-  #   _drop_structured_output depend on), not a version bump.
-  "mcp>=1.28.1,<2",
+  # mcp >= 2: build_mcp_server() is written against the 2.x surface
+  #   (mcp.server.mcpserver.MCPServer, snake_case ToolAnnotations fields,
+  #   CallToolResult from call_tool). 1.x cannot import it, so the floor is
+  #   a hard API floor, which also subsumes the security floor above.
+  # The <3 cap is load-bearing: the 1 -> 2 jump renamed the server class
+  #   and every camelCase field; expect 3.x to be a migration, not a bump.
+  "mcp>=2,<3",
   "pydantic>=2.8,<3",
   "PyYAML>=6,<7",
-  # Security floors for transitive deps pulled by `mcp` (FastMCP). mcp 1.28.0
-  # still declares loose floors (pyjwt>=2.10.1, python-multipart>=0.0.9,
-  # pydantic-settings>=2.5.2, starlette>=0.27), so the vulnerable versions
-  # resolve unless we floor them here. Declared directly (not just a uv
+  # Security floors for transitive deps pulled by `mcp`. mcp 2.1.1 still
+  # declares loose floors (pyjwt>=2.10.1, python-multipart>=0.0.9,
+  # starlette>=0.27 below py3.14), so the vulnerable versions resolve unless
+  # we floor them here. Declared directly (not just a uv
   # constraint) so the floor propagates to the built wheel and protects
   # pip/Poetry installers too, not only uv resolution. Drop each once `mcp`
   # (or the named parent) requires a safe floor itself.
@@ -68,8 +69,6 @@ dependencies = [
   # python-multipart < 0.0.31: GHSA-5rvq-cxj2-64vf, GHSA-vffw-93wf-4j4q,
   #   GHSA-6jv3-5f52-599m, GHSA-v9pg-7xvm-68hf.
   "python-multipart>=0.0.31",
-  # pydantic-settings < 2.14.2: GHSA-4xgf-cpjx-pc3j.
-  "pydantic-settings>=2.14.2",
   # cryptography < 50.0.0: GHSA-g6cj-pr64-35w5 (PKCS#7 Bleichenbacher oracle),
   #   GHSA-jwv3-5hgf-82ww (exponential path-building), GHSA-m2h6-j472-rp4c
   #   (wildcard DNS permittedSubtrees escape), GHSA-537c-gmf6-5ccf.

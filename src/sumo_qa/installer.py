@@ -1276,7 +1276,7 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
     ``initialize`` + ``notifications/initialized`` + ``tools/list`` handshake
     one message at a time, reading each response off stdout BEFORE sending
     the next request. Critically, stdin stays open until both responses have
-    been collected — closing stdin signals EOF to FastMCP's async stdio
+    been collected — closing stdin signals EOF to MCPServer's async stdio
     transport, which cancels any in-flight ``ListToolsRequest`` work before
     its response reaches stdout. That was the root cause of the ubuntu
     install-smoke flake: ``subprocess.run`` writes all stdin in one shot and

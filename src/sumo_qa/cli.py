@@ -423,10 +423,10 @@ def console_main() -> None:
         # terminal user gets usage/errors, never a silent stdio-server hang.
         _sys.exit(main(argv))
     # Bare invocation (empty argv) launches the MCP server, unchanged. ``main``
-    # (the server entry point) is imported lazily here, but note FastMCP itself
+    # (the server entry point) is imported lazily here, but note MCPServer itself
     # is only imported inside ``server.build_mcp_server()`` — which the product
     # CLI path never calls — so it is that deferral, not this one, that spares
-    # the CLI the FastMCP import cost (``sumo_qa.server`` is already imported at
+    # the CLI the MCPServer import cost (``sumo_qa.server`` is already imported at
     # this module's top for ``_build_scan_summary`` / ``_package_version``).
     from sumo_qa.server import main as _server_main
 

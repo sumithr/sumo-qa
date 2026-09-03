@@ -2,7 +2,7 @@
 """Tests for the additive MCP resources/resource-templates over the skill index.
 
 Issue #289 (epic #137, Lever 3). The resources expose the SAME content the
-``skill_manifest`` loader already serves, as FastMCP resources/templates:
+``skill_manifest`` loader already serves, as MCPServer resources/templates:
 
   * ``sumoqa://skills``                              (static index)
   * ``sumoqa://skills/{skill_name}/manifest``        (template)
@@ -68,7 +68,7 @@ def module_mcp(monkeypatch, tmp_path):
 
 
 def _read(mcp, uri: str) -> str:
-    """Read one resource URI through FastMCP and return its text content."""
+    """Read one resource URI through MCPServer and return its text content."""
     contents = list(asyncio.run(mcp.read_resource(uri)))
     assert len(contents) == 1, f"expected one content block for {uri}, got {contents!r}"
     return contents[0].content
@@ -89,7 +89,7 @@ def _a_skill_with_sections() -> str:
 
 
 def test_resource_templates_are_registered(mcp):
-    templates = {t.uriTemplate for t in asyncio.run(mcp.list_resource_templates())}
+    templates = {t.uri_template for t in asyncio.run(mcp.list_resource_templates())}
     assert "sumoqa://skills/{skill_name}/manifest" in templates
     assert "sumoqa://skills/{skill_name}/sections/{section_id}" in templates
     assert "sumoqa://skills/{skill_name}/modules/{module_id}" in templates
@@ -196,25 +196,28 @@ def test_module_resource_on_skill_without_modules_returns_error_envelope(mcp):
     assert "available_modules" in payload
 
 
+def _assert_rejected_by_sdk_security(mcp, uri: str) -> None:
+    """A traversal param never reaches the loader: mcp 2.x's ``ResourceSecurity``
+    validates the DECODED template params (so ``..%2f`` is caught) and the
+    resource manager surfaces the rejection as ``ResourceNotFoundError``
+    chained from ``ResourceSecurityError``. Asserting on the cause proves the
+    security layer fired rather than a plain template miss. The loader's own
+    traversal guard stays as defence-in-depth (tests/test_skill_manifest.py)."""
+    from mcp.server.mcpserver.exceptions import ResourceNotFoundError
+    from mcp.server.mcpserver.resources.templates import ResourceSecurityError
+
+    with pytest.raises(ResourceNotFoundError) as excinfo:
+        asyncio.run(mcp.read_resource(uri))
+    assert isinstance(excinfo.value.__cause__, ResourceSecurityError)
+
+
 def test_module_path_traversal_is_rejected(module_mcp):
     server, skill, _module_id = module_mcp
-    # The fake skill HAS modules, so the "no modules" guard does not short
-    # circuit — the traversal value reaches the per-module lookup and trips
-    # the loader's traversal guard. FastMCP passes the param through verbatim
-    # (no URL-decoding), so the `..` segment survives to the loader.
-    body = _read(server, f"sumoqa://skills/{skill}/modules/..%2fsecrets")
-    payload = json.loads(body)
-    assert "error" in payload
-    assert "traversal" in payload["error"].lower()
+    # The fake skill HAS modules, so a permissive server would reach the
+    # per-module lookup; the SDK rejects the `..` segment before that.
+    _assert_rejected_by_sdk_security(server, f"sumoqa://skills/{skill}/modules/..%2fsecrets")
 
 
 def test_section_path_traversal_is_rejected(mcp):
     skill = _a_skill_with_sections()
-    # FastMCP passes template params through verbatim (no URL-decoding), so a
-    # literal `/` would not match the single-segment template at all. A value
-    # carrying a `..` segment DOES match and reaches the loader, whose
-    # traversal guard must reject it (".." in value). `%2f` stays literal.
-    body = _read(mcp, f"sumoqa://skills/{skill}/sections/..%2fsecrets")
-    payload = json.loads(body)
-    assert "error" in payload
-    assert "traversal" in payload["error"].lower()
+    _assert_rejected_by_sdk_security(mcp, f"sumoqa://skills/{skill}/sections/..%2fsecrets")

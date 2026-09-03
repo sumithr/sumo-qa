@@ -165,7 +165,7 @@ _HEAVY_TOOL_NAMES_DELETED = {
 def test_builds_mcp_server_with_registered_tools() -> None:
     server = build_mcp_server()
 
-    assert type(server).__name__ == "FastMCP"
+    assert type(server).__name__ == "MCPServer"
 
 
 _ATOMIC_TOOL_NAME_GROUPS = (
@@ -279,10 +279,17 @@ def test_knowledge_loader_tools_are_registered():
 
 
 def _tool_text(result) -> str:
+    """Text of a tool result: a str, a content-block list, a single block, or
+    the ``CallToolResult`` that ``MCPServer.call_tool()`` returns (mcp 2.x),
+    whose text lives in ``.content``. Never falls back to ``str()`` on a
+    result object, which would match via its repr rather than its content."""
     if isinstance(result, str):
         return result
     if isinstance(result, list):
         return "\n".join(getattr(item, "text", str(item)) for item in result)
+    content = getattr(result, "content", None)
+    if isinstance(content, list):
+        return _tool_text(content)
     return getattr(result, "text", str(result))
 
 
@@ -320,10 +327,9 @@ def test_skill_loading_tools_return_json_via_call_tool() -> None:
     server = build_mcp_server()
 
     def _text(result) -> str:
-        # call_tool returns (content_list, structured_result); the JSON string
-        # this tool emits is the text of the first content block.
-        content = result[0] if isinstance(result, tuple) else result
-        return _tool_text(content)
+        # call_tool returns a CallToolResult; the JSON string this tool emits
+        # is the text of the first content block.
+        return _tool_text(result.content)
 
     async def run() -> tuple[str, str]:
         manifests = await server.call_tool("sumo_qa_list_skill_manifests", {})
@@ -352,8 +358,7 @@ def test_list_skill_manifests_detail_via_call_tool() -> None:
     server = build_mcp_server()
 
     def _text(result) -> str:
-        content = result[0] if isinstance(result, tuple) else result
-        return _tool_text(content)
+        return _tool_text(result.content)
 
     async def run() -> tuple[str, str, str]:
         default = await server.call_tool("sumo_qa_list_skill_manifests", {})
@@ -579,7 +584,7 @@ def test_build_mcp_server_raises_when_mcp_not_installed() -> None:
     import sys
     from unittest.mock import patch
 
-    with patch.dict(sys.modules, {"mcp.server.fastmcp": None, "mcp.types": None}):
+    with patch.dict(sys.modules, {"mcp.server.mcpserver": None, "mcp.types": None}):
         import pytest
 
         with pytest.raises((RuntimeError, ImportError)):
@@ -587,20 +592,20 @@ def test_build_mcp_server_raises_when_mcp_not_installed() -> None:
 
 
 def test_server_instructions_enforce_qa_routing() -> None:
-    """FastMCP `instructions=` must carry the routing directive so hosts
+    """MCPServer `instructions=` must carry the routing directive so hosts
     that surface server-level instructions (not just repo files) see the
     rule at session start."""
     server = build_mcp_server()
     text = getattr(server, "instructions", "") or ""
     assert "ROUTING DIRECTIVE" in text, (
-        "FastMCP instructions lost the ROUTING DIRECTIVE header (#238)."
+        "MCPServer instructions lost the ROUTING DIRECTIVE header (#238)."
     )
     assert "sumo_qa_using_sumo_qa" in text, (
-        "FastMCP instructions must name the entry router `sumo_qa_using_sumo_qa`."
+        "MCPServer instructions must name the entry router `sumo_qa_using_sumo_qa`."
     )
     # Forbids silent supplementation from training data.
     assert "sumo_qa_load_" in text, (
-        "FastMCP instructions must require `sumo_qa_load_*` for citing "
+        "MCPServer instructions must require `sumo_qa_load_*` for citing "
         "principles/techniques/classifications/approaches."
     )
 

@@ -51,9 +51,9 @@ def test_tool_is_registered(server):
 
 def test_tool_advertises_read_only_annotation(server):
     ann = server._tool_manager._tools["sumo_qa_format_qa_scorecard"].annotations
-    assert ann.readOnlyHint is True
-    assert ann.destructiveHint is False
-    assert ann.openWorldHint is False
+    assert ann.read_only_hint is True
+    assert ann.destructive_hint is False
+    assert ann.open_world_hint is False
 
 
 def test_tool_description_is_declarative(server):

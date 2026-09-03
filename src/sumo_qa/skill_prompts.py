@@ -209,7 +209,7 @@ def _make_skill_callable(path: Path, token_cap: int | None = None):
 
     The factory closes over `path` so each generated function returns its OWN
     skill content. Using a factory (instead of a default-argument closure)
-    keeps the function's signature parameter-free, which FastMCP's tool
+    keeps the function's signature parameter-free, which MCPServer's tool
     introspection requires.
 
     When the body would exceed the per-response token cap (#393), the function

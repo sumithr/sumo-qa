@@ -2,7 +2,7 @@
 """Unit tests for sumo_qa.server_schemas.
 
 These tests pin the Pydantic output models against the live return shapes of
-the four test-data MCP tools. The models exist so FastMCP can emit a real
+the four test-data MCP tools. The models exist so MCPServer can emit a real
 ``outputSchema`` for each tool; if a tool starts returning a key the model
 doesn't declare, ``extra="forbid"`` makes the model reject the dict and the
 test here fails — surfacing the drift in this file rather than silently
@@ -507,7 +507,7 @@ def test_execute_external_skill_output_rejects_unknown_field(tmp_path: Path) -> 
 # ErrorEnvelope
 #
 # The error arm of every tool's return annotation. Pinning this shape stops
-# FastMCP from emitting an unconstrained ``additionalProperties: true`` branch
+# MCPServer from emitting an unconstrained ``additionalProperties: true`` branch
 # in the discriminated union outputSchema.
 # ---------------------------------------------------------------------------
 
