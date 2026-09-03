@@ -279,10 +279,17 @@ def test_knowledge_loader_tools_are_registered():
 
 
 def _tool_text(result) -> str:
+    """Text of a tool result: a str, a content-block list, a single block, or
+    the ``CallToolResult`` that ``MCPServer.call_tool()`` returns (mcp 2.x),
+    whose text lives in ``.content``. Never falls back to ``str()`` on a
+    result object, which would match via its repr rather than its content."""
     if isinstance(result, str):
         return result
     if isinstance(result, list):
         return "\n".join(getattr(item, "text", str(item)) for item in result)
+    content = getattr(result, "content", None)
+    if isinstance(content, list):
+        return _tool_text(content)
     return getattr(result, "text", str(result))
 
 
