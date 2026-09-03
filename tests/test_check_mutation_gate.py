@@ -470,7 +470,11 @@ def test_push_range_uses_pre_commit_refs_when_real():
 def _scoped_argv(tmp_path, monkeypatch, changed, stats):
     """Drive --changed-only with git, pyproject and the stats file all stubbed."""
     monkeypatch.setattr(gate, "changed_files_since", lambda from_ref, to_ref: list(changed))
-    monkeypatch.setattr(gate, "mutated_modules_from_pyproject", lambda path: ["mod", "other"])
+    monkeypatch.setattr(
+        gate,
+        "mutated_modules_from_pyproject",
+        lambda path: {"mod": "src/sumo_qa/mod.py", "other": "src/sumo_qa/other.py"},
+    )
     monkeypatch.setattr(gate, "ignored_tests_from_pyproject", lambda path: set())
     stats_path = tmp_path / "mutants" / "mutmut-stats.json"
     if stats is not None:
@@ -644,15 +648,26 @@ def test_changed_files_since_without_a_remote_ref_diffs_only_against_main(monkey
     assert calls == [["git", "diff", "--name-only", "--no-renames", "origin/main...HEAD"]]
 
 
-def test_mutated_modules_from_pyproject_reads_the_live_list(tmp_path):
+def test_mutated_modules_from_pyproject_keeps_the_real_paths(tmp_path):
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.mutmut]\npaths_to_mutate = ["src/sumo_qa/rules.py", "src/sumo_qa/standards.py"]\n',
+        '[tool.mutmut]\npaths_to_mutate = ["src/sumo_qa/rules.py", "src/sumo_qa/sub/deep.py"]\n',
         encoding="utf-8",
     )
-    assert gate.mutated_modules_from_pyproject(tmp_path / "pyproject.toml") == [
-        "rules",
-        "standards",
-    ]
+    assert gate.mutated_modules_from_pyproject(tmp_path / "pyproject.toml") == {
+        "rules": "src/sumo_qa/rules.py",
+        "deep": "src/sumo_qa/sub/deep.py",
+    }
+
+
+def test_scope_matches_a_nested_mutated_module_by_its_configured_path():
+    """The changed-path check must use the configured path, never rebuild
+    src/sumo_qa/<stem>.py: a nested entry would otherwise fall out of scope
+    and a survivor-introducing edit to it would run nothing."""
+    scope = gate.select_scope(
+        ["src/sumo_qa/sub/deep.py"], {"deep": "src/sumo_qa/sub/deep.py"}, _STATS
+    )
+    assert scope.globs == ["sumo_qa.deep.*"]
+    assert scope.modules == {"deep"}
 
 
 def test_scope_forces_a_full_run_for_test_support_files():

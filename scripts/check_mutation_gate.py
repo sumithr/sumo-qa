@@ -219,10 +219,12 @@ def _mutmut_table(path: Path) -> dict:
     return data.get("tool", {}).get("mutmut", {})
 
 
-def mutated_modules_from_pyproject(path: Path) -> list[str]:
-    """Module stems of ``[tool.mutmut] paths_to_mutate``, read live so the
-    scope never drifts from the gate's own target list."""
-    return [Path(p).stem for p in _mutmut_table(path).get("paths_to_mutate", [])]
+def mutated_modules_from_pyproject(path: Path) -> dict[str, str]:
+    """``[tool.mutmut] paths_to_mutate`` as {module stem: repo-relative path},
+    read live so the scope never drifts from the gate's own target list. The
+    path is kept (not rebuilt from the stem) so a nested entry still matches
+    the git diff."""
+    return {Path(p).stem: p for p in _mutmut_table(path).get("paths_to_mutate", [])}
 
 
 def ignored_tests_from_pyproject(path: Path) -> set[str]:
@@ -289,12 +291,17 @@ def _forces_full_run(path: str) -> bool:
 
 def select_scope(
     changed_files: list[str] | None,
-    mutated_modules: list[str],
+    mutated_modules: dict[str, str] | list[str],
     stats: Stats | None,
     ignored_tests: set[str] | None = None,
     exists=os.path.exists,
 ) -> Scope:
-    """Decide what a changed-only pass must run. See the module docstring."""
+    """Decide what a changed-only pass must run. See the module docstring.
+
+    ``mutated_modules`` maps module stem -> repo-relative path (a bare list of
+    stems is accepted and assumed to live at ``src/sumo_qa/<stem>.py``)."""
+    if not isinstance(mutated_modules, dict):
+        mutated_modules = {m: f"src/sumo_qa/{m}.py" for m in mutated_modules}
     if changed_files is None:
         return Scope(
             modules=set(mutated_modules),
@@ -309,7 +316,7 @@ def select_scope(
             full_run=True,
             reason=f"{', '.join(forcing)} changed (config or test support code); running the full gate",
         )
-    module_hits = {m for m in mutated_modules if f"src/sumo_qa/{m}.py" in changed}
+    module_hits = {m for m, module_path in mutated_modules.items() if module_path in changed}
     changed_tests = {f for f in changed if _is_test_module(f)}
 
     if changed_tests and stats is None:
