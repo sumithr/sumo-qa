@@ -206,6 +206,55 @@ stats-collection run and zero mutants execute ("failed to collect stats").
 Lift the cap only after verifying a newer release resolves `source_paths`
 against the run root instead of the cwd.
 
+
+### macOS fork noise: the local gate is advisory
+
+An intermittent macOS failure used to block clean pushes outright. When the
+fork-based runner wipes out, its mutants produce no verdict at all: either a
+segfault (`-11`/`-9`), or the `null` that mutmut pre-populates
+`exit_code_by_key` with at generation time and never fills in because the run
+aborted before executing them. Neither is in `KILLED_EXIT_CODES` nor equals
+`0`, so both collapsed to `killed=0`/`survived=0` and reported **every** module
+`DROPPED` on a clean tree. An enforced-but-flaky gate trains people to
+`--no-verify` past it, which defeats the point of enforcing it.
+
+`check_mutation_gate.py --run-mutmut` now:
+
+- On darwin sets `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES` in the child
+  environment (extending `os.environ`, so `PATH` still resolves the `mutmut`
+  console script). Off darwin no env override is passed at all.
+- Runs mutmut **exactly once** and reads exactly one metadata snapshot.
+- Reports any module with an un-judged mutant as `NOT-MEASURED`, whatever its
+  kill count, and does not block. **Exit 0 there means "not blocking", never
+  "gate passed"**, and the output says so.
+
+**One snapshot per verdict, by design.** An earlier revision retried a noisy
+run and folded the passes together to recover a strict local verdict. That fold
+produced an unearned "strict gate passed" in five consecutive review rounds
+through five structurally different holes, because the data cannot support it:
+combining a kill count observed in one pass with a completeness observed in
+another asserts something no single observation made. The invariant is now
+trivial to keep true, and there is no cross-pass arithmetic to get wrong. What
+is given up is recovering a strict local verdict after a transient noisy pass;
+in exchange a local run costs ~6 minutes rather than up to ~12.
+
+**Why there is no noise threshold either.** `mutmut-baseline.json` stores kill
+*counts*, not mutant identities, so a shortfall can never be attributed to the
+mutants that went un-judged. Every threshold fails on one side or the other:
+above it, a single un-judged mutant excuses an unrelated real regression in the
+same module; below it, partial fork noise on a clean tree still reports
+`DROPPED`, the original bug. So the local run makes no attribution claim at all.
+
+**The tolerance is local-only, and that is the safety net.** `evaluate()` takes
+`tolerate_unjudged`, default `False`, enabled only for a darwin `--run-mutmut`
+invocation. The nightly workflow runs this script without `--run-mutmut`, so
+the authoritative Linux gate keeps the original strict semantics: a kill-count
+drop the local run could not judge is still a hard `DROPPED` there. A real
+surviving mutant fails on both paths, always.
+
+If you see `NOT-MEASURED`, the local run did not gate those modules. Run
+`gh workflow run mutation.yml --ref <branch>` for a verdict.
+
 ### Subprocess-spawning tests (the marker convention)
 
 mutmut mutates a function by injecting a *trampoline* into it; when the function
