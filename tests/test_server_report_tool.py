@@ -48,9 +48,9 @@ def test_tool_is_registered(server):
 
 def test_tool_advertises_writer_local_annotation(server):
     ann = server._tool_manager._tools["sumo_qa_generate_qa_report"].annotations
-    assert ann.readOnlyHint is False
-    assert ann.destructiveHint is False
-    assert ann.openWorldHint is False
+    assert ann.read_only_hint is False
+    assert ann.destructive_hint is False
+    assert ann.open_world_hint is False
 
 
 def test_default_call_is_side_effect_free(tool, tmp_path):

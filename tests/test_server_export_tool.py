@@ -59,7 +59,7 @@ def test_export_title_param_survives_schema_title_slimming(server):
     # `export_title` and carries no top-level `title` property (the bug shape).
     tools = asyncio.run(server.list_tools())
     export = next(t for t in tools if t.name == "sumo_qa_export_test_cases")
-    props = (export.inputSchema or {}).get("properties", {})
+    props = (export.input_schema or {}).get("properties", {})
     assert "export_title" in props, f"export_title missing from served schema: {sorted(props)}"
     assert "title" not in props
 
@@ -67,11 +67,11 @@ def test_export_title_param_survives_schema_title_slimming(server):
 def test_tool_advertises_writer_local_annotation(server):
     # The tool writes ONLY when output_path is explicitly supplied (default None
     # stays side-effect-free), mirroring scan_repo's writer-local precedent
-    # (write_to defaults None). readOnlyHint is therefore False.
+    # (write_to defaults None). read_only_hint is therefore False.
     ann = server._tool_manager._tools["sumo_qa_export_test_cases"].annotations
-    assert ann.readOnlyHint is False
-    assert ann.destructiveHint is False
-    assert ann.openWorldHint is False
+    assert ann.read_only_hint is False
+    assert ann.destructive_hint is False
+    assert ann.open_world_hint is False
 
 
 def test_tool_description_is_declarative(server):

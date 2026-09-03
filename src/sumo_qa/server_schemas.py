@@ -1,7 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Pydantic output models for the structured sumo-qa MCP tools.
 
-FastMCP auto-derives ``outputSchema`` on each tool from the function's return-
+MCPServer auto-derives ``outputSchema`` on each tool from the function's return-
 type annotation when that annotation is a Pydantic BaseModel. Models here
 mirror the shapes the tools already return — they do NOT add, rename, or
 re-type fields. Drift between a model and the tool's actual return is a bug
@@ -11,7 +11,7 @@ Error envelope: every tool can also return the existing dict-based
 ``{"isError": True, "error": {...}}`` shape on failure (built by
 ``server._error_envelope``). That shape is modelled by :class:`ErrorEnvelope`
 below, and each tool's annotated return is ``ModelName | ErrorEnvelope`` —
-Pydantic accepts both branches and FastMCP emits a discriminated union
+Pydantic accepts both branches and MCPServer emits a discriminated union
 outputSchema keyed on ``isError``. Using a bare ``dict`` here would emit
 ``additionalProperties: true`` on the error arm and silently widen the
 public outputSchema, defeating the contract this module exists to provide.
@@ -63,11 +63,11 @@ class ErrorEnvelope(_StrictBase):
     """The MCP tool error envelope returned by ``sumo_qa.server._error_envelope``.
 
     Used as the typed alternative to a bare ``dict`` in every tool's return
-    annotation. Without this, FastMCP would emit an unconstrained
+    annotation. Without this, MCPServer would emit an unconstrained
     ``additionalProperties: true`` schema arm, allowing any shape through and
     defeating the outputSchema contract.
 
-    ``isError`` is ``Literal[True]`` so Pydantic + FastMCP treat it as a
+    ``isError`` is ``Literal[True]`` so Pydantic + MCPServer treat it as a
     discriminator, routing between each tool's success model and this
     envelope in the emitted ``anyOf``/``oneOf`` schema.
     """

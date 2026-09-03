@@ -225,7 +225,7 @@ repos:
         language: python
         additional_dependencies:
           - "hypothesis>=6,<7"
-          - "mcp>=1.12,<2"
+          - "mcp>=2,<3"
           # >=3.7,<3.8 mirrors the pyproject dev pin: 3.6.0 resolved relative
           # source_paths against the live cwd (chdir-ing tests crashed the
           # stats-collection run), 3.7 fixed that but changed pragma
@@ -268,7 +268,7 @@ repos:
         language: python
         additional_dependencies:
           - "hypothesis>=6,<7"
-          - "mcp>=1.12,<2"
+          - "mcp>=2,<3"
           - "pydantic>=2.8,<3"
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"

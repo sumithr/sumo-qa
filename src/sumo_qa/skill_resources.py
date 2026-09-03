@@ -22,9 +22,11 @@ URI scheme (one static resource + four templates):
 The loader never raises: unknown skill/section/module and path-traversal
 attempts come back as the loader's structured error envelope, which is
 serialised as the resource content (so a host sees an actionable error, not a
-transport-level failure). FastMCP passes URI-template parameters through
-verbatim (no URL-decoding), so a ``..`` segment in a param value reaches the
-loader and trips its traversal guard.
+transport-level failure). A ``..`` path component, null byte, or absolute
+path in a template param is rejected earlier by the SDK's ``ResourceSecurity``
+policy (checked on the decoded value, so ``..%2f`` is caught too) and
+surfaces as a JSON-RPC ``-32602`` "Unknown resource" error; the loader's own
+traversal guard remains as defence-in-depth behind it.
 
 Additive guarantee: these are ``@mcp.resource`` registrations, not tools, so
 ``tools/list`` is unchanged — no per-section / per-module tool is created.
@@ -50,7 +52,7 @@ def _dumps(payload: Any) -> str:
 def register_skill_resources(mcp: Any) -> None:
     """Register the skill index static resource + the four resource-templates.
 
-    Mirrors ``skill_prompts.register_skills_as_prompts``: takes the FastMCP
+    Mirrors ``skill_prompts.register_skills_as_prompts``: takes the MCPServer
     server and attaches resources via its decorator API. Idempotent per
     server instance (each ``build_mcp_server`` builds a fresh ``mcp``)."""
 

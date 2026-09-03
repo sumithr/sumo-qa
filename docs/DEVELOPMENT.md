@@ -171,7 +171,7 @@ python -m mypy        # or `uv run mypy`
 Configuration lives in `[tool.mypy]` in `pyproject.toml` (targets Python 3.10,
 the lowest supported runtime; checks `src/sumo_qa` only, tests are out of
 scope). The `mypy` job in [`.github/workflows/lint.yml`](../.github/workflows/lint.yml)
-runs the same command on every PR. The few dynamic surfaces (FastMCP decorator
+runs the same command on every PR. The few dynamic surfaces (MCPServer decorator
 returns, a Pydantic opt-out attribute) carry narrow `# type: ignore[<code>]`
 comments with rationale; `warn_unused_ignores` is on, so a suppression that
 stops being needed fails the check until removed.

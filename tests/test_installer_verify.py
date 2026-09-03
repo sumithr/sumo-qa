@@ -7,7 +7,7 @@ These exercise the hardened verification step that replaces the legacy
   1. Drives an ``initialize`` + ``notifications/initialized`` + ``tools/list``
      handshake against the spawned MCP — one message at a time, reading each
      response BEFORE sending the next. Critically, stdin stays open until
-     both responses have arrived (closing it early signals EOF to FastMCP's
+     both responses have arrived (closing it early signals EOF to MCPServer's
      async stdio transport and cancels the in-flight tools/list response —
      that was the ubuntu install-smoke flake's root cause).
   2. Parses each stdout line as JSON-RPC, defensively skipping non-JSON noise.

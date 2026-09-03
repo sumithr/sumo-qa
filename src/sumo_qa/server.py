@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from sumo_qa import paths
+from sumo_qa import __version__, paths
 from sumo_qa.capabilities import build_capabilities
 from sumo_qa.debug_capture import maybe_capture
 from sumo_qa.external_skills import (
@@ -488,13 +488,13 @@ def _slim_tool_schemas(mcp: Any) -> None:
     """Remove auto-generated schema ``title`` keys from every registered tool's
     input and output schema, in place, once at build time.
 
-    Reaches into the FastMCP tool registry because that is the only surface
+    Reaches into the MCPServer tool registry because that is the only surface
     that holds the generated schemas. ``Tool.output_schema`` is a
     ``cached_property`` over ``fn_metadata.output_schema``, so the memoised
     value is dropped after the source dict is stripped, forcing the served
     schema to recompute from the slimmed source. The loop is pinned by
     tests/test_tool_schema_titles.py against the real served ``tools/list``,
-    so a future FastMCP internal change fails loudly rather than silently
+    so a future MCPServer internal change fails loudly rather than silently
     re-inflating the surface."""
     for tool in mcp._tool_manager.list_tools():
         tool.parameters = _strip_schema_titles(tool.parameters)
@@ -506,10 +506,10 @@ def _slim_tool_schemas(mcp: Any) -> None:
 def _drop_structured_output(mcp: Any) -> None:
     """Stop emitting an ``outputSchema`` for every tool, once at build time.
 
-    FastMCP derives an ``outputSchema`` from each tool's return annotation and
+    MCPServer derives an ``outputSchema`` from each tool's return annotation and
     ships it in ``tools/list``; measured across this server it is ~18k approx
     tokens — the single largest always-on surface, paid on every turn the
-    server is connected. It buys nothing for the host LLM: FastMCP's
+    server is connected. It buys nothing for the host LLM: MCPServer's
     ``convert_result`` ALWAYS computes the same text content via
     ``_convert_to_content`` (a tool's Pydantic return is rendered to indented
     JSON) and only ADDITIONALLY attaches a ``structuredContent`` block when an
@@ -520,13 +520,13 @@ def _drop_structured_output(mcp: Any) -> None:
     The tools' return models are still constructed (and so validated) inside
     each tool body, so correctness is unchanged; only the host-side re-
     validation against the published schema goes away. Nulling
-    ``output_schema``/``output_model``/``wrap_output`` matches FastMCP's own
+    ``output_schema``/``output_model``/``wrap_output`` matches MCPServer's own
     ``structured_output=False`` state, so each tool returns plain text content.
 
     A post-build pass (over the final tool registry) so it covers every
     registration path — decorators, skill prompts, resources — uniformly,
     mirroring _slim_tool_schemas. Pinned by tests/test_tool_schema_titles.py
-    (no ``outputSchema`` served) so a FastMCP internal change fails loudly."""
+    (no ``outputSchema`` served) so a MCPServer internal change fails loudly."""
     for tool in mcp._tool_manager.list_tools():
         fn_metadata = tool.fn_metadata
         fn_metadata.output_schema = None
@@ -537,14 +537,17 @@ def _drop_structured_output(mcp: Any) -> None:
 
 def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     try:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
         from mcp.types import ToolAnnotations
     except ImportError as exc:
         raise RuntimeError("The MCP SDK is not installed. Run `pip install -e .`.") from exc
 
     qa_service = service or build_service()
-    mcp = FastMCP(
+    mcp = MCPServer(
         "sumo-qa",
+        # mcp 2.x reports an empty serverInfo.version unless the server names
+        # its own; 1.x silently reported the SDK's version, which was wrong.
+        version=__version__,
         instructions=(
             "ROUTING DIRECTIVE — for any QA-shaped request (testing, test plan, "
             "test strategy, test approach, regression scope, risk-based testing, "
@@ -570,36 +573,36 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     # Standard annotation patterns. The QA test-data reasoning tools are read-only
     # and idempotent. Only `sumo_qa_register_known_good_test_data` writes to disk,
     # and even then the operation is additive (never deletes), so
-    # destructiveHint stays false.
+    # destructive_hint stays false.
     _read_only_local = ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
     )
     _writer_local = ToolAnnotations(
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=False,
     )
     _read_only_external = ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     )
     _read_only_external_local = ToolAnnotations(
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
     )
     _writer_external = ToolAnnotations(
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     )
 
     @mcp.tool(annotations=_read_only_local)

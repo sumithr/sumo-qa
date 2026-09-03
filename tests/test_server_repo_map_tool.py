@@ -38,14 +38,14 @@ def test_scan_repo_tool_is_registered(server) -> None:
 
 def test_scan_repo_tool_advertises_writer_annotation(server) -> None:
     # The tool can write the artifact to an arbitrary path via ``write_to``,
-    # so it must NOT advertise ``readOnlyHint`` — a host that trusts that hint
+    # so it must NOT advertise ``read_only_hint`` — a host that trusts that hint
     # could auto-run the tool or skip write confirmation and silently overwrite
     # a local file. Register as a (non-destructive, local) writer instead.
     info = server._tool_manager._tools["sumo_qa_scan_repo"]
     ann = info.annotations
-    assert ann.readOnlyHint is False
-    assert ann.destructiveHint is False
-    assert ann.openWorldHint is False
+    assert ann.read_only_hint is False
+    assert ann.destructive_hint is False
+    assert ann.open_world_hint is False
 
 
 def test_scan_repo_tool_description_is_declarative(server) -> None:

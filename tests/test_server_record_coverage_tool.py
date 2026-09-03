@@ -42,9 +42,9 @@ def test_tools_registered(server):
 def test_record_tools_advertise_writer_local_annotation(server):
     for name in ("sumo_qa_record_coverage", "sumo_qa_record_mutation"):
         ann = server._tool_manager._tools[name].annotations
-        assert ann.readOnlyHint is False
-        assert ann.destructiveHint is False
-        assert ann.openWorldHint is False
+        assert ann.read_only_hint is False
+        assert ann.destructive_hint is False
+        assert ann.open_world_hint is False
 
 
 def test_record_coverage_writes_artifact(record_coverage, tmp_path):

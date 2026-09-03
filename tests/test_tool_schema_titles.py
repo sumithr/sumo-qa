@@ -34,11 +34,11 @@ def test_served_tools_list_has_no_schema_titles() -> None:
 
     offenders = {
         tool.name: (
-            _count_titles(tool.inputSchema or {}),
-            _count_titles(tool.outputSchema or {}),
+            _count_titles(tool.input_schema or {}),
+            _count_titles(tool.output_schema or {}),
         )
         for tool in tools
-        if _count_titles(tool.inputSchema or {}) or _count_titles(tool.outputSchema or {})
+        if _count_titles(tool.input_schema or {}) or _count_titles(tool.output_schema or {})
     }
     assert not offenders, (
         f"{len(offenders)} tool(s) still emit auto-generated schema `title` "
@@ -49,10 +49,10 @@ def test_served_tools_list_has_no_schema_titles() -> None:
 def test_served_tools_list_emits_no_output_schema() -> None:
     """No tool ships an ``outputSchema`` in the served ``tools/list``.
 
-    FastMCP derives an ``outputSchema`` from each tool's return annotation —
+    MCPServer derives an ``outputSchema`` from each tool's return annotation —
     measured at ~18k approx tokens across this server, the single largest
     always-on surface. The host LLM reads the tool's text content, which is
-    identical whether or not the schema is published (FastMCP computes the
+    identical whether or not the schema is published (MCPServer computes the
     unstructured content unconditionally and only ADDS a ``structuredContent``
     block when a schema is present), so the schema is pure overhead.
     ``build_mcp_server`` drops it; this pins that it stays gone.
@@ -61,7 +61,7 @@ def test_served_tools_list_emits_no_output_schema() -> None:
     tools = asyncio.run(mcp.list_tools())
     assert tools, "expected a non-empty tools/list"
 
-    with_output_schema = [tool.name for tool in tools if tool.outputSchema is not None]
+    with_output_schema = [tool.name for tool in tools if tool.output_schema is not None]
     assert not with_output_schema, (
         f"{len(with_output_schema)} tool(s) still ship an outputSchema in "
         f"tools/list: {with_output_schema}"
