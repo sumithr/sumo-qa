@@ -190,6 +190,19 @@ and crashes the trampoline). On macOS the fork-based runner can segfault, the
 faithful run is the Linux CI one; the local hook uses `--max-children 1` to reduce
 flakiness.
 
+The local hook passes `--changed-only`, which scopes the pass to what the push
+touches instead of running every mutant on any test edit (a cold full pass is
+15+ minutes at `--max-children 1`). The changed files are
+`git diff --name-only <from>...HEAD`, where `<from>` is the `PRE_COMMIT_FROM_REF`
+pre-commit exports (or `origin/main` for a branch with no remote yet). A
+changed `paths_to_mutate` module selects `sumo_qa.<module>.*`; a changed test
+file selects one glob per mutated function that `mutants/mutmut-stats.json`
+maps it to, so mutmut also limits its clean-test pass to those tests. Nothing
+selected means the hook exits 0 without running mutmut; a test edit on a cold
+cache (no stats file, as in a fresh worktree) falls back to the full pass.
+Only in-scope modules are judged, the rest print `SKIPPED`. The nightly job
+never passes the flag, so CI is always the full gate.
+
 Both the nightly job and the pre-push hook compute their verdict with
 [`scripts/check_mutation_gate.py`](../scripts/check_mutation_gate.py)
 (tested by `tests/test_check_mutation_gate.py`). The verdict is read from

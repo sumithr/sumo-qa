@@ -198,11 +198,19 @@ repos:
         stages: [pre-commit]
 
       - id: mutmut
-        name: mutmut (pre-push, on changes to mutated modules or tests)
+        name: mutmut (pre-push, scoped to the changed mutated modules / tests)
         # Runs the mutation gate locally before push. Fires only when one of the
-        # mutated modules or any test file changes — mutation testing is
-        # fast on the warm cache, so unrelated edits (docs / CI / installer /
-        # server) skip it.
+        # mutated modules or any test file changes, and --changed-only (#641)
+        # then narrows the pass to what the push touches: a changed mutated
+        # module runs that module's mutants; a changed test file runs the
+        # mutants of the functions mutmut's cached stats map it to (and only
+        # their tests in the clean pass); a test that exercises no mutated
+        # function selects nothing and the hook exits 0 without running
+        # mutmut. A test change on a cold cache (no mutants/mutmut-stats.json,
+        # e.g. a fresh worktree) falls back to the full pass, since the map
+        # cannot be inverted safely. Out-of-scope modules are reported SKIPPED.
+        # The nightly Linux mutation.yml stays a full pass and is the
+        # authoritative verdict.
         #
         # The entry is scripts/check_mutation_gate.py (shared verbatim with
         # .github/workflows/mutation.yml), NOT bare `mutmut run`: `mutmut run`
@@ -221,7 +229,7 @@ repos:
         # via SIGSEGV → all "suspicious" → strict-100% gate false-fails). Linux
         # CI runs multi-worker without issue; the local hook trades wall-clock
         # for portability across the team's MacBooks.
-        entry: python scripts/check_mutation_gate.py --run-mutmut --max-children 1
+        entry: python scripts/check_mutation_gate.py --run-mutmut --max-children 1 --changed-only
         language: python
         additional_dependencies:
           - "hypothesis>=6,<7"

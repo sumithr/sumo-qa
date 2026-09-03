@@ -389,3 +389,212 @@ def test_local_run_reads_exactly_one_snapshot_and_never_retries(tmp_path, monkey
     out = capsys.readouterr().out
     assert "NOT-MEASURED" in out
     assert "Strict gate passed" not in out
+
+
+# ---------------------------------------------------------------------------
+# --changed-only scoping (#641): the local hook runs only what the push touches
+# ---------------------------------------------------------------------------
+
+_STATS = {
+    "sumo_qa.rules.x_load": ["tests/test_rules.py::test_a", "tests/test_other.py::test_b"],
+    "sumo_qa.rules.xǁRuleǁapply": ["tests/test_rules.py::test_d"],
+    "sumo_qa.standards.x_parse": ["tests/test_standards.py::test_c"],
+}
+
+
+def test_scope_selects_the_module_glob_for_a_changed_mutated_module():
+    scope = gate.select_scope(
+        changed_files=["src/sumo_qa/rules.py", "docs/x.md", "src/sumo_qa/server.py"],
+        mutated_modules=["rules", "standards"],
+        stats_map=_STATS,
+    )
+    assert scope.globs == ["sumo_qa.rules.*"]
+    assert scope.modules == {"rules"}
+    assert scope.full_run is False
+
+
+def test_scope_maps_a_changed_test_file_to_the_functions_it_exercises():
+    scope = gate.select_scope(["tests/test_rules.py"], ["rules", "standards"], _STATS)
+    # One glob per mapped function (sorted, deterministic), module derived from it.
+    assert scope.globs == ["sumo_qa.rules.x_load*", "sumo_qa.rules.xǁRuleǁapply*"]
+    assert scope.modules == {"rules"}
+
+
+def test_scope_module_glob_subsumes_function_globs_of_the_same_module():
+    scope = gate.select_scope(["src/sumo_qa/rules.py", "tests/test_rules.py"], ["rules"], _STATS)
+    assert scope.globs == ["sumo_qa.rules.*"]
+
+
+def test_scope_is_empty_when_nothing_relevant_changed():
+    scope = gate.select_scope(["README.md", "tests/test_cli.py"], ["rules"], _STATS)
+    assert scope.globs == []
+    assert scope.modules == set()
+    assert scope.full_run is False
+
+
+def test_scope_falls_back_to_a_full_run_when_a_test_changed_but_stats_are_cold():
+    scope = gate.select_scope(["tests/test_rules.py"], ["rules", "standards"], None)
+    assert scope.full_run is True
+    assert scope.globs == []
+    assert scope.modules == {"rules", "standards"}
+    assert "stats" in scope.reason
+
+
+def test_changed_since_ref_prefers_pre_commit_from_ref_when_real():
+    assert gate.resolve_changed_since_ref({"PRE_COMMIT_FROM_REF": "abc123"}) == "abc123"
+    assert gate.resolve_changed_since_ref({"PRE_COMMIT_FROM_REF": "0" * 40}) == "origin/main"
+    assert gate.resolve_changed_since_ref({}) == "origin/main"
+
+
+def _scoped_argv(tmp_path, monkeypatch, changed, stats):
+    """Drive --changed-only with git, pyproject and the stats file all stubbed."""
+    monkeypatch.setattr(gate, "changed_files_since", lambda ref: list(changed))
+    monkeypatch.setattr(gate, "mutated_modules_from_pyproject", lambda path: ["mod", "other"])
+    stats_path = tmp_path / "mutants" / "mutmut-stats.json"
+    if stats is not None:
+        stats_path.write_text(
+            json.dumps({"tests_by_mangled_function_name": stats}), encoding="utf-8"
+        )
+    return ["--run-mutmut", "--changed-only", "--stats", str(stats_path)]
+
+
+def test_changed_only_with_nothing_in_scope_exits_zero_without_running_mutmut(
+    tmp_path, monkeypatch, capsys
+):
+    runs = []
+    monkeypatch.setattr(gate.subprocess, "run", lambda *a, **k: runs.append(a))
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 1}}, {"mod": {"m1": 1}})
+    argv += _scoped_argv(tmp_path, monkeypatch, ["README.md"], {})
+    assert gate.main(argv) == 0
+    assert runs == []
+    assert "nothing in scope" in capsys.readouterr().out
+
+
+def test_changed_only_passes_the_selected_globs_to_mutmut_and_judges_only_that_module(
+    tmp_path, monkeypatch, capsys
+):
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+    # `other` has a SURVIVOR in its (stale, out-of-scope) meta: it must not fail the push.
+    argv = _write_fixtures(
+        tmp_path,
+        {"mod": {"killed": 1}, "other": {"killed": 5}},
+        {"mod": {"m1": 1}, "other": {"o1": 0}},
+    )
+    argv += _scoped_argv(tmp_path, monkeypatch, ["src/sumo_qa/mod.py"], {})
+    argv += ["--max-children", "1"]
+    assert gate.main(argv) == 0
+    assert runs == [["mutmut", "run", "--max-children", "1", "sumo_qa.mod.*"]]
+    out = capsys.readouterr().out
+    assert "| mod | 1 | 1 | 0 | OK |" in out
+    assert "| other | 5 | - | - | SKIPPED |" in out
+    assert "Strict gate passed" in out
+
+
+def test_changed_only_survivor_in_scope_still_fails(tmp_path, monkeypatch, capsys):
+    def fake_run(cmd, **kwargs):
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 2}}, {"mod": {"m1": 1, "m2": 0}})
+    argv += _scoped_argv(tmp_path, monkeypatch, ["src/sumo_qa/mod.py"], {})
+    assert gate.main(argv) == 1
+    assert "SURVIVED" in capsys.readouterr().out
+
+
+def test_changed_only_test_change_with_cold_stats_runs_the_full_gate(tmp_path, monkeypatch, capsys):
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+    argv = _write_fixtures(
+        tmp_path,
+        {"mod": {"killed": 1}, "other": {"killed": 1}},
+        {"mod": {"m1": 1}, "other": {"o1": 1}},
+    )
+    argv += _scoped_argv(tmp_path, monkeypatch, ["tests/test_mod.py"], None)
+    assert gate.main(argv) == 0
+    assert runs == [["mutmut", "run"]], "no globs: the whole gate runs"
+    out = capsys.readouterr().out
+    assert "full run" in out
+    assert "SKIPPED" not in out
+
+
+def test_changed_only_requires_run_mutmut(tmp_path, capsys):
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 1}}, {"mod": {"m1": 1}})
+    assert gate.main(["--changed-only", *argv]) == 2
+    assert "--changed-only requires --run-mutmut" in capsys.readouterr().err
+
+
+def test_default_path_is_unchanged_without_changed_only(tmp_path, monkeypatch):
+    """The CI path never passes --changed-only: no git call, no glob, all modules judged."""
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+    monkeypatch.setattr(
+        gate, "changed_files_since", lambda ref: (_ for _ in ()).throw(AssertionError("git called"))
+    )
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 1}}, {"mod": {"m1": 1}})
+    assert gate.main(["--run-mutmut", *argv]) == 0
+    assert runs == [["mutmut", "run"]]
+
+
+def test_changed_files_since_uses_a_three_dot_diff(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+
+        class R:
+            returncode = 0
+            stdout = "src/sumo_qa/rules.py\n\ntests/test_rules.py\n"
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    assert gate.changed_files_since("origin/main") == [
+        "src/sumo_qa/rules.py",
+        "tests/test_rules.py",
+    ]
+    assert calls == [["git", "diff", "--name-only", "origin/main...HEAD"]]
+
+
+def test_mutated_modules_from_pyproject_reads_the_live_list(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.mutmut]\npaths_to_mutate = ["src/sumo_qa/rules.py", "src/sumo_qa/standards.py"]\n',
+        encoding="utf-8",
+    )
+    assert gate.mutated_modules_from_pyproject(tmp_path / "pyproject.toml") == [
+        "rules",
+        "standards",
+    ]

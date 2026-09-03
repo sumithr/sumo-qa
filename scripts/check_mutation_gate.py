@@ -73,6 +73,22 @@ enabled only for a darwin --run-mutmut invocation. .github/workflows/mutation.ym
 runs this script WITHOUT --run-mutmut, so the authoritative Linux gate keeps the
 original strict semantics and never greens a run it could not measure. A real
 survivor fails on either path.
+
+Changed-only scoping (#641, LOCAL hook only). `--changed-only` narrows a
+`--run-mutmut` pass to what the push touches, instead of the whole gate on any
+test-file edit (a cold full pass is 15+ minutes at --max-children 1):
+  - the changed files are `git diff --name-only <from>...HEAD`, <from> being
+    PRE_COMMIT_FROM_REF when pre-commit supplies a real sha, else origin/main;
+  - a changed `paths_to_mutate` module selects the glob `sumo_qa.<module>.*`;
+  - a changed tests/**/*.py selects one glob per mutated function the cached
+    mutants/mutmut-stats.json maps that file to (a test that exercises no
+    mutated function cannot create a survivor, so it selects nothing);
+  - the globs go to `mutmut run` as positional mutant names, which also limits
+    mutmut's clean-test pass to the mapped tests;
+  - nothing selected -> exit 0 without running mutmut; a test change with no
+    stats file -> the full run (the map cannot be inverted safely);
+  - only in-scope modules are judged; the rest are listed SKIPPED, never
+    MISSING. mutation.yml never passes the flag, so CI stays a full pass.
 """
 
 from __future__ import annotations
@@ -83,6 +99,11 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - 3.10 only
+    import tomli as tomllib
 
 # Killed exit codes - copied from mutmut/__main__.py status_by_exit_code.
 KILLED_EXIT_CODES = {1, 3, -24}
@@ -136,6 +157,97 @@ def module_not_measured(stats: dict) -> bool:
     return stats.get("unjudged", 0) > 0
 
 
+_ZERO_SHA = "0" * 40
+
+
+def resolve_changed_since_ref(environ: dict) -> str:
+    """The ref the push is measured against.
+
+    pre-commit exports PRE_COMMIT_FROM_REF on pre-push: the remote branch's
+    current sha, or all zeros for a branch that does not exist remotely yet.
+    Anything else (no env, the zero sha) falls back to origin/main."""
+    ref = environ.get("PRE_COMMIT_FROM_REF", "")
+    if ref and ref != _ZERO_SHA:
+        return ref
+    return "origin/main"
+
+
+def changed_files_since(ref: str) -> list[str]:
+    """Files changed on HEAD since it diverged from ``ref`` (three-dot diff, so
+    a stale remote ref does not drag main's own changes into scope)."""
+    result = subprocess.run(
+        ["git", "diff", "--name-only", f"{ref}...HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def mutated_modules_from_pyproject(path: Path) -> list[str]:
+    """Module stems of ``[tool.mutmut] paths_to_mutate``, read live so the
+    scope never drifts from the gate's own target list."""
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    paths = data.get("tool", {}).get("mutmut", {}).get("paths_to_mutate", [])
+    return [Path(p).stem for p in paths]
+
+
+def load_stats_map(path: Path) -> dict | None:
+    """mutmut's cached mangled-function -> test-ids map, or None when cold."""
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data.get("tests_by_mangled_function_name", {})
+
+
+class Scope:
+    """What a changed-only pass must run. A plain class, not a dataclass: the
+    test suite loads this script via spec_from_file_location without a
+    sys.modules entry, which dataclass decoration needs on 3.14."""
+
+    def __init__(
+        self,
+        globs: list[str] | None = None,
+        modules: set[str] | None = None,
+        full_run: bool = False,
+        reason: str = "",
+    ) -> None:
+        self.globs = globs or []
+        self.modules = modules or set()
+        self.full_run = full_run
+        self.reason = reason
+
+
+def select_scope(
+    changed_files: list[str], mutated_modules: list[str], stats_map: dict | None
+) -> Scope:
+    """Decide what a changed-only pass must run. See the module docstring."""
+    changed = set(changed_files)
+    module_hits = {m for m in mutated_modules if f"src/sumo_qa/{m}.py" in changed}
+    changed_tests = {f for f in changed if f.startswith("tests/") and f.endswith(".py")}
+
+    if changed_tests and stats_map is None:
+        return Scope(
+            modules=set(mutated_modules),
+            full_run=True,
+            reason="a test file changed but mutants/mutmut-stats.json is cold; falling back to the full run",
+        )
+
+    function_hits: set[str] = set()
+    for key, tests in (stats_map or {}).items():
+        if any(t.split("::", 1)[0] in changed_tests for t in tests):
+            module = key.split(".")[1] if key.startswith("sumo_qa.") else ""
+            if module in mutated_modules and module not in module_hits:
+                function_hits.add(key)
+
+    globs = [f"sumo_qa.{m}.*" for m in sorted(module_hits)]
+    globs += [f"{key}*" for key in sorted(function_hits)]
+    modules = set(module_hits) | {key.split(".")[1] for key in function_hits}
+    if not globs:
+        return Scope(reason="nothing in scope: no mutated module or mapped test changed")
+    return Scope(globs=globs, modules=modules, reason=f"scoped to {', '.join(globs)}")
+
+
 def mutmut_child_env() -> dict | None:
     """Child env for `mutmut run`, or None to inherit unchanged.
 
@@ -150,7 +262,10 @@ def mutmut_child_env() -> dict | None:
 
 
 def evaluate(
-    baseline_per_module: dict, current: dict, tolerate_unjudged: bool = False
+    baseline_per_module: dict,
+    current: dict,
+    tolerate_unjudged: bool = False,
+    modules_in_scope: set[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Return (summary table lines, failure lines); empty failures == gate passed.
 
@@ -166,6 +281,11 @@ def evaluate(
         "| --- | --- | --- | --- | --- |",
     ]
     for module, base in baseline_per_module.items():
+        if modules_in_scope is not None and module not in modules_in_scope:
+            # Not touched by this push (#641): its .meta is whatever the last
+            # pass left, so it carries no verdict about this change.
+            lines.append(f"| {module} | {base['killed']} | - | - | SKIPPED |")
+            continue
         curr = current.get(
             module, {"killed": 0, "survived": 0, "unjudged": 0, "total": 0, "missing": True}
         )
@@ -212,6 +332,23 @@ def main(argv: list[str] | None = None) -> int:
         help="forwarded to `mutmut run` (macOS fork-segfault mitigation)",
     )
     parser.add_argument(
+        "--changed-only",
+        action="store_true",
+        help="with --run-mutmut: run only the mutants the push touches (#641)",
+    )
+    parser.add_argument(
+        "--stats",
+        type=Path,
+        default=Path("mutants/mutmut-stats.json"),
+        help="mutmut's cached stats file (inverted to map changed tests to mutants)",
+    )
+    parser.add_argument(
+        "--pyproject",
+        type=Path,
+        default=Path("pyproject.toml"),
+        help="where [tool.mutmut] paths_to_mutate is read from",
+    )
+    parser.add_argument(
         "--baseline",
         type=Path,
         default=Path("mutmut-baseline.json"),
@@ -245,11 +382,31 @@ def main(argv: list[str] | None = None) -> int:
             module: module_stats(args.meta_root / f"{module}.py.meta") for module in load_baseline()
         }
 
+    if args.changed_only and not args.run_mutmut:
+        print("--changed-only requires --run-mutmut", file=sys.stderr)
+        return 2
+
+    scope: Scope | None = None
+    if args.changed_only:
+        ref = resolve_changed_since_ref(os.environ)
+        scope = select_scope(
+            changed_files_since(ref),
+            mutated_modules_from_pyproject(args.pyproject),
+            load_stats_map(args.stats),
+        )
+        print(f"changed-only (since {ref}): {scope.reason}")
+        if not scope.globs and not scope.full_run:
+            return 0
+        if scope.full_run:
+            scope = None
+
     current = None
     if args.run_mutmut:
         cmd = ["mutmut", "run"]
         if args.max_children is not None:
             cmd += ["--max-children", str(args.max_children)]
+        if scope is not None:
+            cmd += scope.globs
         env = mutmut_child_env()
         run_kwargs = {"env": env} if env is not None else {}
         result = subprocess.run(cmd, **run_kwargs)
@@ -267,7 +424,12 @@ def main(argv: list[str] | None = None) -> int:
     # The noise tolerance is a LOCAL macOS affordance only. CI runs this script
     # without --run-mutmut, so it keeps the original strict semantics.
     tolerate = bool(args.run_mutmut) and sys.platform == "darwin"
-    lines, failed = evaluate(load_baseline(), current, tolerate_unjudged=tolerate)
+    lines, failed = evaluate(
+        load_baseline(),
+        current,
+        tolerate_unjudged=tolerate,
+        modules_in_scope=scope.modules if scope is not None else None,
+    )
     summary = "\n".join(lines)
     print(summary)
     if any("NOT-MEASURED" in line for line in lines):
