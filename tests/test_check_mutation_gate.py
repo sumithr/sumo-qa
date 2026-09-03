@@ -36,8 +36,8 @@ gate = _load_gate()
 
 
 def _rewrite_meta(tmp_path, metas):
-    """Overwrite the .meta files in place, used by the converge-loop stubs to
-    simulate a later mutmut pass producing different results."""
+    """Overwrite the .meta files in place. The stubbed `mutmut run` calls this
+    so the gate reads the snapshot a real run would have written."""
     meta_root = tmp_path / "mutants" / "src" / "sumo_qa"
     for module, exit_codes in metas.items():
         (meta_root / f"{module}.py.meta").write_text(
@@ -190,7 +190,7 @@ def test_not_measured_detection_has_no_threshold():
     assert gate.module_not_measured({"unjudged": 0, "total": 1000}) is False
 
 
-def test_linux_path_takes_no_extra_passes_and_sets_no_fork_env(tmp_path, monkeypatch):
+def test_linux_path_runs_mutmut_once_and_sets_no_fork_env(tmp_path, monkeypatch):
     """R3 + AC3: a clean non-darwin run must call mutmut exactly once and must
     not inject the macOS-only fork-safety variable."""
     runs = []
