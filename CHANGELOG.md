@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.60.8](https://github.com/sumithr/sumo-qa/compare/v0.60.7...v0.60.8) (2026-09-03)
+
+
+### Bug Fixes
+
+* **deps:** floor cryptography&gt;=50.0.0 and other pip-audit findings ([#638](https://github.com/sumithr/sumo-qa/issues/638)) ([c2b1cd2](https://github.com/sumithr/sumo-qa/commit/c2b1cd239d1acd0bfc274d7c399ed8a7b21e49d6))
+
+
+### Miscellaneous Chores
+
+* **mutation-gate:** lift mutmut cap to &gt;=3.7,&lt;3.8 and re-baseline the gate ([#637](https://github.com/sumithr/sumo-qa/issues/637)) ([f9a2755](https://github.com/sumithr/sumo-qa/commit/f9a2755716b682139178a3805ed8183bc83f85d1))
+
 ## [0.60.7](https://github.com/sumithr/sumo-qa/compare/v0.60.6...v0.60.7) (2026-09-03)
 
 
