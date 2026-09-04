@@ -86,7 +86,11 @@ mutation=None, scope=None, local_head_sha=None, max_reasons=25)` returns
   inside the host token budget.
 - `compact_summary`: a one-line roll-up to drop inline in short answers.
 - `serialized`: a JSON-able snapshot of every fact above, for any downstream
-  consumer that wants the rendered scorecard's facts. (The #157 local QA report
+  consumer that wants the rendered scorecard's facts. It is stamped
+  `schema_version: "1.1"`: 1.1 added the `unverified` dimension status to the
+  1.0 enum (`ok`, `gap`, `blocker`, `stale`, `not_measured`); the snapshot's
+  keys are unchanged, so a consumer that validates the status enum reads the
+  version to know which enum applies. (The #157 local QA report
   does not read this snapshot, it composes its own `QaScorecard` from the same
   ledger + bundle, making this module the single source of truth for the
   readiness verdict.)

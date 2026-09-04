@@ -54,6 +54,10 @@ risks) carries its own status so the markdown table and the serialized snapshot
                       failing result).
 * ``stale``         — evidence exists but is not trustworthy now (stale / unknown
                       freshness).
+* ``unverified``    — a fresh-passing bundle fact whose bundle names a
+                      ``head_sha`` that could not be checked against the local
+                      tree (no local HEAD). Not known-stale, never ``ok``;
+                      the verdict is ``insufficient_evidence``. Schema 1.1.
 * ``not_measured``  — the optional signal was not supplied. Distinct from a
                       *passing* signal: an absent coverage/mutation artifact is
                       reported as ``not_measured`` and never assumed green, so it
@@ -73,7 +77,10 @@ from sumo_qa.context_bundle_models import (
 )
 from sumo_qa.ledger_models import RiskLedger, RiskLedgerRow
 
-SCORECARD_SCHEMA_VERSION: Final[Literal["1.0"]] = "1.0"
+#: 1.1 (issue #401) widened ``DimensionStatus`` with ``unverified``; a consumer
+#: validating the 1.0 status enum can tell from the stamp alone that the wider
+#: enum applies. The input shape is unchanged.
+SCORECARD_SCHEMA_VERSION: Final[Literal["1.1"]] = "1.1"
 
 #: Plain-language labels + freshness words for the human-facing recommendation
 #: reasons. The reasons surface verbatim in the scorecard output AND in the
@@ -100,7 +107,8 @@ ScorecardRecommendation = Literal[
 
 #: Per-dimension status. ``not_measured`` (absent optional signal) is held
 #: distinct from ``ok`` so an unsupplied coverage/mutation artifact is never read
-#: as passing.
+#: as passing. ``unverified`` arrived with schema 1.1 (see
+#: ``SCORECARD_SCHEMA_VERSION``).
 DimensionStatus = Literal[
     "ok",
     "gap",
@@ -211,7 +219,7 @@ class QaScorecard(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["1.0"] = SCORECARD_SCHEMA_VERSION
+    schema_version: Literal["1.1"] = SCORECARD_SCHEMA_VERSION
     scope: str | None = Field(
         default=None,
         description="Optional short label for what is being assessed (a PR title, a release name).",

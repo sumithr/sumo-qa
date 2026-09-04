@@ -240,3 +240,15 @@ def test_is_ready_implies_no_gating_stale_evidence():
     snap = serialize_scorecard(card)
     assert snap["is_ready"] is True
     assert snap["stale_evidence"] == []
+
+
+def test_serialized_unverified_status_ships_under_schema_1_1():
+    # #401 widened the dimension-status enum with `unverified`. A consumer
+    # validating the documented 1.0 enum (ok/gap/blocker/stale/not_measured)
+    # must be able to tell from the stamp alone that the wider enum applies,
+    # so the snapshot that can carry the new value advertises schema 1.1.
+    card = QaScorecard(context_bundle=ContextBundle(head_sha="1111111aaaa", test_evidence=_fact()))
+    snap = serialize_scorecard(card, local_head_sha=None)
+    statuses = {d["name"]: d["status"] for d in snap["dimensions"]}
+    assert statuses["Test evidence"] == "unverified"
+    assert snap["schema_version"] == "1.1"
