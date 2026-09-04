@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.0](https://github.com/sumithr/sumo-qa/compare/v0.60.9...v0.61.0) (2026-09-04)
+
+
+### Features
+
+* **mutation-gate:** scope the local pre-push mutmut run to the changed files ([#642](https://github.com/sumithr/sumo-qa/issues/642)) ([0ccb172](https://github.com/sumithr/sumo-qa/commit/0ccb1722ced39065ff0739049f03c65890956ce6))
+
 ## [0.60.9](https://github.com/sumithr/sumo-qa/compare/v0.60.8...v0.60.9) (2026-09-03)
 
 
