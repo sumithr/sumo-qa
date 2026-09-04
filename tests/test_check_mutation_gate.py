@@ -389,3 +389,383 @@ def test_local_run_reads_exactly_one_snapshot_and_never_retries(tmp_path, monkey
     out = capsys.readouterr().out
     assert "NOT-MEASURED" in out
     assert "Strict gate passed" not in out
+
+
+# ---------------------------------------------------------------------------
+# --changed-only scoping (#641): the local hook runs only what the push touches
+# ---------------------------------------------------------------------------
+
+_STATS = gate.Stats(
+    {
+        "sumo_qa.rules.x_load": ["tests/test_rules.py::test_a", "tests/test_other.py::test_b"],
+        "sumo_qa.rules.xǁRuleǁapply": ["tests/test_rules.py::test_d"],
+        "sumo_qa.standards.x_parse": ["tests/test_standards.py::test_c"],
+    },
+    seen_test_files={
+        "tests/test_rules.py",
+        "tests/test_other.py",
+        "tests/test_standards.py",
+        "tests/test_cli.py",
+    },
+)
+
+
+def test_scope_selects_the_module_glob_for_a_changed_mutated_module():
+    scope = gate.select_scope(
+        changed_files=["src/sumo_qa/rules.py", "docs/x.md", "src/sumo_qa/server.py"],
+        mutated_modules=["rules", "standards"],
+        stats=_STATS,
+    )
+    assert scope.globs == ["sumo_qa.rules.*"]
+    assert scope.modules == {"rules"}
+    assert scope.full_run is False
+
+
+def test_scope_maps_a_changed_test_file_to_the_functions_it_exercises():
+    scope = gate.select_scope(
+        ["tests/test_rules.py"], ["rules", "standards"], _STATS, exists=lambda p: True
+    )
+    # One glob per mapped function (sorted, deterministic), module derived from it.
+    assert scope.globs == ["sumo_qa.rules.x_load*", "sumo_qa.rules.xǁRuleǁapply*"]
+    assert scope.modules == {"rules"}
+
+
+def test_scope_module_glob_subsumes_function_globs_of_the_same_module():
+    scope = gate.select_scope(
+        ["src/sumo_qa/rules.py", "tests/test_rules.py"], ["rules"], _STATS, exists=lambda p: True
+    )
+    assert scope.globs == ["sumo_qa.rules.*"]
+
+
+def test_scope_is_empty_when_nothing_relevant_changed():
+    scope = gate.select_scope(
+        ["README.md", "tests/test_cli.py"], ["rules"], _STATS, exists=lambda p: False
+    )
+    assert scope.globs == []
+    assert scope.modules == set()
+    assert scope.full_run is False
+
+
+def test_scope_falls_back_to_a_full_run_when_a_test_changed_but_stats_are_cold():
+    scope = gate.select_scope(["tests/test_rules.py"], ["rules", "standards"], None)
+    assert scope.full_run is True
+    assert scope.globs == []
+    assert scope.modules == {"rules", "standards"}
+    assert "stats" in scope.reason
+
+
+def test_push_range_uses_pre_commit_refs_when_real():
+    """pre-commit exports the remote's current sha (FROM) and the local revision
+    being pushed (TO). TO is what the hook must scope, not HEAD: `git push
+    HEAD:other` or pushing a non-checked-out branch makes them differ."""
+    env = {"PRE_COMMIT_FROM_REF": "abc123", "PRE_COMMIT_TO_REF": "def456"}
+    assert gate.resolve_push_range(env) == ("abc123", "def456")
+    assert gate.resolve_push_range({"PRE_COMMIT_FROM_REF": "0" * 40, "PRE_COMMIT_TO_REF": "d"}) == (
+        None,
+        "d",
+    )
+    assert gate.resolve_push_range({}) == (None, "HEAD")
+
+
+def _scoped_argv(tmp_path, monkeypatch, changed, stats):
+    """Drive --changed-only with git, pyproject and the stats file all stubbed."""
+    monkeypatch.setattr(gate, "changed_files_since", lambda from_ref, to_ref: list(changed))
+    monkeypatch.setattr(
+        gate,
+        "mutated_modules_from_pyproject",
+        lambda path: {"mod": "src/sumo_qa/mod.py", "other": "src/sumo_qa/other.py"},
+    )
+    monkeypatch.setattr(gate, "ignored_tests_from_pyproject", lambda path: set())
+    stats_path = tmp_path / "mutants" / "mutmut-stats.json"
+    if stats is not None:
+        stats_path.write_text(
+            json.dumps({"tests_by_mangled_function_name": stats, "duration_by_test": {}}),
+            encoding="utf-8",
+        )
+    return ["--run-mutmut", "--changed-only", "--stats", str(stats_path)]
+
+
+def test_changed_only_with_nothing_in_scope_exits_zero_without_running_mutmut(
+    tmp_path, monkeypatch, capsys
+):
+    runs = []
+    monkeypatch.setattr(gate.subprocess, "run", lambda *a, **k: runs.append(a))
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 1}}, {"mod": {"m1": 1}})
+    argv += _scoped_argv(tmp_path, monkeypatch, ["README.md"], {})
+    assert gate.main(argv) == 0
+    assert runs == []
+    assert "nothing in scope" in capsys.readouterr().out
+
+
+def test_changed_only_passes_the_selected_globs_to_mutmut_and_judges_only_that_module(
+    tmp_path, monkeypatch, capsys
+):
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+    # `other` has a SURVIVOR in its (stale, out-of-scope) meta: it must not fail the push.
+    argv = _write_fixtures(
+        tmp_path,
+        {"mod": {"killed": 1}, "other": {"killed": 5}},
+        {"mod": {"m1": 1}, "other": {"o1": 0}},
+    )
+    argv += _scoped_argv(tmp_path, monkeypatch, ["src/sumo_qa/mod.py"], {})
+    argv += ["--max-children", "1"]
+    assert gate.main(argv) == 0
+    assert runs == [["mutmut", "run", "--max-children", "1", "sumo_qa.mod.*"]]
+    out = capsys.readouterr().out
+    assert "| mod | 1 | 1 | 0 | OK |" in out
+    assert "| other | 5 | - | - | SKIPPED |" in out
+    assert "All modules" not in out, "a scoped pass must not claim every module was gated"
+    assert "Scoped strict gate passed for mod (1 module skipped)" in out
+
+
+def test_changed_only_survivor_in_scope_still_fails(tmp_path, monkeypatch, capsys):
+    def fake_run(cmd, **kwargs):
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 2}}, {"mod": {"m1": 1, "m2": 0}})
+    argv += _scoped_argv(tmp_path, monkeypatch, ["src/sumo_qa/mod.py"], {})
+    assert gate.main(argv) == 1
+    assert "SURVIVED" in capsys.readouterr().out
+
+
+def test_changed_only_test_change_with_cold_stats_runs_the_full_gate(tmp_path, monkeypatch, capsys):
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+    argv = _write_fixtures(
+        tmp_path,
+        {"mod": {"killed": 1}, "other": {"killed": 1}},
+        {"mod": {"m1": 1}, "other": {"o1": 1}},
+    )
+    argv += _scoped_argv(tmp_path, monkeypatch, ["tests/test_mod.py"], None)
+    assert gate.main(argv) == 0
+    assert runs == [["mutmut", "run"]], "no globs: the whole gate runs"
+    out = capsys.readouterr().out
+    assert "full run" in out
+    assert "SKIPPED" not in out
+
+
+def test_changed_only_requires_run_mutmut(tmp_path, capsys):
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 1}}, {"mod": {"m1": 1}})
+    assert gate.main(["--changed-only", *argv]) == 2
+    assert "--changed-only requires --run-mutmut" in capsys.readouterr().err
+
+
+def test_default_path_is_unchanged_without_changed_only(tmp_path, monkeypatch):
+    """The CI path never passes --changed-only: no git call, no glob, all modules judged."""
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+
+        class R:
+            returncode = 0
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    monkeypatch.setattr(gate.sys, "platform", "linux")
+    monkeypatch.setattr(
+        gate,
+        "changed_files_since",
+        lambda from_ref, to_ref: (_ for _ in ()).throw(AssertionError("git called")),
+    )
+    argv = _write_fixtures(tmp_path, {"mod": {"killed": 1}}, {"mod": {"m1": 1}})
+    assert gate.main(["--run-mutmut", *argv]) == 0
+    assert runs == [["mutmut", "run"]]
+
+
+def test_changed_files_since_unions_branch_changes_with_removed_remote_history(monkeypatch):
+    """Two diffs, both --no-renames: origin/main...<to> is what the branch
+    changes (main's own commits never enter scope); <to>...<from> is whatever
+    a force-push drops from the remote (a merge-base diff would miss a
+    removed test-strengthening commit)."""
+    calls = []
+    outputs = {
+        "origin/main...def456": "src/sumo_qa/rules.py\n\ntests/test_rules.py\n",
+        "def456...abc123": "tests/test_dropped.py\n",
+    }
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+
+        class R:
+            returncode = 0
+            stdout = outputs[cmd[-1]]
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    assert gate.changed_files_since("abc123", "def456") == [
+        "src/sumo_qa/rules.py",
+        "tests/test_dropped.py",
+        "tests/test_rules.py",
+    ]
+    assert calls == [
+        ["git", "diff", "--name-only", "--no-renames", "origin/main...def456"],
+        ["git", "diff", "--name-only", "--no-renames", "def456...abc123"],
+    ]
+
+
+def test_changed_files_since_without_a_remote_ref_diffs_only_against_main(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+
+        class R:
+            returncode = 0
+            stdout = "tests/test_rules.py\n"
+
+        return R()
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    assert gate.changed_files_since(None, "HEAD") == ["tests/test_rules.py"]
+    assert calls == [["git", "diff", "--name-only", "--no-renames", "origin/main...HEAD"]]
+
+
+def test_mutated_modules_from_pyproject_keeps_the_real_paths(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.mutmut]\npaths_to_mutate = ["src/sumo_qa/rules.py", "src/sumo_qa/sub/deep.py"]\n',
+        encoding="utf-8",
+    )
+    assert gate.mutated_modules_from_pyproject(tmp_path / "pyproject.toml") == {
+        "rules": "src/sumo_qa/rules.py",
+        "deep": "src/sumo_qa/sub/deep.py",
+    }
+
+
+def test_scope_matches_a_nested_mutated_module_by_its_configured_path():
+    """The changed-path check must use the configured path, never rebuild
+    src/sumo_qa/<stem>.py: a nested entry would otherwise fall out of scope
+    and a survivor-introducing edit to it would run nothing."""
+    scope = gate.select_scope(
+        ["src/sumo_qa/sub/deep.py"], {"deep": "src/sumo_qa/sub/deep.py"}, _STATS
+    )
+    assert scope.globs == ["sumo_qa.deep.*"]
+    assert scope.modules == {"deep"}
+
+
+def test_scope_forces_a_full_run_for_test_support_files():
+    """conftest / helpers / fixtures never appear as pytest node ids, so the
+    stats map cannot attribute them; a change there can weaken many tests."""
+    for path in [
+        "tests/conftest.py",
+        "tests/_helpers.py",
+        "tests/fixtures/mock_slow_mcp_server.py",
+        "conftest.py",
+    ]:
+        scope = gate.select_scope([path], ["rules"], _STATS)
+        assert scope.full_run is True, path
+        assert path in scope.reason
+
+
+def test_scope_forces_a_full_run_when_the_mutmut_config_changes():
+    scope = gate.select_scope(["pyproject.toml"], ["rules"], _STATS)
+    assert scope.full_run is True
+    assert "pyproject.toml" in scope.reason
+
+
+def test_scope_unseen_changed_test_that_exists_forces_a_full_run():
+    """A test module the stats pass has never run (added in an earlier push
+    that ran nothing, or a rename target) may now be weakening assertions and
+    the map cannot say which functions it covers: run everything. A file the
+    stats DID run but that maps to nothing exercises no mutated function and
+    selects nothing; so does a DELETED unseen file (it never ran against a
+    mutant); so does a file mutmut is configured to ignore."""
+    unseen = gate.select_scope(
+        ["tests/test_brand_new.py"], ["rules"], _STATS, exists=lambda p: True
+    )
+    assert unseen.full_run is True
+    assert "tests/test_brand_new.py" in unseen.reason
+    seen_unmapped = gate.select_scope(
+        ["tests/test_cli.py"], ["rules"], _STATS, exists=lambda p: True
+    )
+    assert seen_unmapped.globs == [] and seen_unmapped.full_run is False
+    gone = gate.select_scope(["tests/test_gone.py"], ["rules"], _STATS, exists=lambda p: False)
+    assert gone.globs == [] and gone.full_run is False
+    ignored = gate.select_scope(
+        ["tests/test_doctor.py"], ["rules"], _STATS, {"tests/test_doctor.py"}, exists=lambda p: True
+    )
+    assert ignored.globs == [] and ignored.full_run is False
+
+
+def test_scope_rename_keeps_the_old_paths_functions_in_scope():
+    """--no-renames shows a rename as delete + add. The old path is mapped and
+    selects its functions; the new path is unseen and exists, so the safe
+    answer is the full run (mutmut then collects stats for the new file)."""
+    scope = gate.select_scope(
+        ["tests/test_rules.py", "tests/test_rules_v2.py"],
+        ["rules"],
+        _STATS,
+        exists=lambda p: p == "tests/test_rules_v2.py",
+    )
+    assert scope.full_run is True
+
+
+def test_changed_files_since_returns_none_when_git_fails_on_either_diff(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise gate.subprocess.CalledProcessError(128, cmd, stderr="fatal: bad revision")
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    assert gate.changed_files_since("deadbeef", "HEAD") is None
+
+
+def test_scope_falls_back_to_a_full_run_when_git_cannot_diff():
+    scope = gate.select_scope(None, ["rules", "standards"], _STATS)
+    assert scope.full_run is True
+    assert scope.modules == {"rules", "standards"}
+    assert "git" in scope.reason
+
+
+def test_load_stats_reads_the_function_map_and_every_seen_test_file(tmp_path):
+    path = tmp_path / "mutmut-stats.json"
+    path.write_text(
+        json.dumps(
+            {
+                "tests_by_mangled_function_name": {
+                    "sumo_qa.rules.x_load": ["tests/test_rules.py::t"]
+                },
+                "duration_by_test": {"tests/test_rules.py::t": 0.1, "tests/test_cli.py::u": 0.2},
+            }
+        ),
+        encoding="utf-8",
+    )
+    stats = gate.load_stats(path)
+    assert stats.by_function == {"sumo_qa.rules.x_load": ["tests/test_rules.py::t"]}
+    assert stats.seen_test_files == {"tests/test_rules.py", "tests/test_cli.py"}
+    assert gate.load_stats(tmp_path / "missing.json") is None
+
+
+def test_ignored_tests_from_pyproject_reads_the_mutmut_ignore_list(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.mutmut]\npytest_add_cli_args = ["--no-cov", "--ignore=tests/test_doctor.py"]\n',
+        encoding="utf-8",
+    )
+    assert gate.ignored_tests_from_pyproject(tmp_path / "pyproject.toml") == {
+        "tests/test_doctor.py"
+    }

@@ -190,6 +190,29 @@ and crashes the trampoline). On macOS the fork-based runner can segfault, the
 faithful run is the Linux CI one; the local hook uses `--max-children 1` to reduce
 flakiness.
 
+The local hook passes `--changed-only`, which scopes the pass to what the push
+touches instead of running every mutant on any test edit (a cold full pass is
+15+ minutes at `--max-children 1`). The changed files are the union of
+`git diff --name-only --no-renames origin/main...<to>` (what the branch changes;
+`<to>` is the `PRE_COMMIT_TO_REF` pre-commit exports, the revision actually
+being pushed) and `<to>...<from>` when `PRE_COMMIT_FROM_REF` is a real sha
+(whatever a force-push removes from the remote). A changed `paths_to_mutate`
+module selects `sumo_qa.<module>.*`; a changed test file selects one glob per
+mutated function that `mutants/mutmut-stats.json` maps it to, so mutmut also
+limits its clean-test pass to those tests. A test file the stats pass ran (or
+mutmut ignores) that maps to nothing exercises no mutated function and selects
+nothing. Nothing selected means the hook exits 0 without running mutmut.
+
+The full pass still runs when the scope cannot be trusted: a test edit on a
+cold cache (no stats file, as in a fresh worktree); a changed test file the
+stats have never seen (new since the last pass, or a rename target; renames
+are diffed with `--no-renames`, so the old path also keeps its functions in
+scope); any change to `pyproject.toml`, `conftest.py`, or non-test support code
+under `tests/` (helpers and fixtures never appear in the map, yet can weaken
+many tests); or git failing to diff. Only in-scope modules are judged, the
+rest print `SKIPPED` and the pass is reported as scoped, never as "all
+modules". The nightly job never passes the flag, so CI is always the full gate.
+
 Both the nightly job and the pre-push hook compute their verdict with
 [`scripts/check_mutation_gate.py`](../scripts/check_mutation_gate.py)
 (tested by `tests/test_check_mutation_gate.py`). The verdict is read from
