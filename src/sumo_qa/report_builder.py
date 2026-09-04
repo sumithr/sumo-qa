@@ -30,6 +30,7 @@ inventory as honest not-supplied states.
 from __future__ import annotations
 
 import json
+import subprocess
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,13 +42,14 @@ from sumo_qa.context_bundle_models import (
     ContextBundle,
     _sha_equivalent,
     detect_local_conflict,
+    local_verification_warning,
 )
 from sumo_qa.context_bundle_validation import load_context_bundle
 from sumo_qa.coverage_models import load_coverage_artifact, load_mutation_artifact
 from sumo_qa.ledger_models import RiskLedger
 from sumo_qa.ledger_validation import load_ledger
 from sumo_qa.repo_map_models import DiffImpact, RepoMap
-from sumo_qa.repo_map_scanner import _detect_git_commit
+from sumo_qa.repo_map_scanner import _git_env
 from sumo_qa.repo_map_validation import load_repo_map
 from sumo_qa.report_models import (
     PRESENT_STATUSES,
@@ -100,6 +102,10 @@ class ReportInputs(BaseModel):
 
     root: str
     current_commit: str | None = None
+    #: Why ``current_commit`` is None (not a git repository, git missing), so
+    #: the unverifiable-bundle warning can say what to fix. None when HEAD
+    #: was resolved.
+    head_unavailable_reason: str | None = None
     repo_map: RepoMap | None = None
     repo_map_source: ArtifactSource
     diff_impact: DiffImpact | None = None
@@ -113,6 +119,40 @@ class ReportInputs(BaseModel):
     mutation: MutationSignal | None = None
     mutation_source: ArtifactSource = Field(default_factory=ArtifactSource)
     previous: ReportPreviousRun | None = None
+
+
+def _detect_report_head(root: Path) -> tuple[str | None, str | None]:
+    """Report-time HEAD detection: ``(sha, None)`` or ``(None, reason)``.
+
+    Resolves the CONTAINING repository's HEAD, so a report run from a
+    subdirectory still verifies its artifacts against the real local commit.
+    This is deliberately looser than the repo-map scanner's exact-root
+    ``_detect_git_commit`` (which must stay strict so an ancestor repository
+    never leaks files into a scan): here the sha is only used to verify
+    artifact provenance, never to enumerate files. ``GIT_*`` is scrubbed so an
+    inherited ``GIT_DIR`` cannot make a plain directory resolve some other
+    repository's HEAD. The reason is preserved so the report warning can say
+    why HEAD was unavailable (#401).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            check=True,
+            env=_git_env(),
+        )
+    except FileNotFoundError:
+        return None, "git executable not found"
+    except OSError as exc:
+        # Any other spawn failure (permission denied, exec format error) is
+        # equally "HEAD unavailable": name it rather than crash the report.
+        return None, f"git could not be executed ({exc.__class__.__name__}: {exc})"
+    except subprocess.CalledProcessError as exc:
+        # "utf-8" -> "UTF-8" is an equivalent mutant: codec names are
+        # case-insensitive, and bytes.decode cannot be spied like Path.read_text.
+        stderr = exc.stderr.decode("utf-8", "replace") if exc.stderr else ""  # pragma: no mutate
+        return None, _first_line_text(stderr) or f"git rev-parse HEAD exited {exc.returncode}"
+    return result.stdout.decode("utf-8").strip(), None  # pragma: no mutate
 
 
 def _first_line(exc: Exception) -> str:
@@ -171,7 +211,7 @@ def load_report_inputs(
     file is not even read.
     """
     root_path = Path(root).resolve()
-    current_commit = _detect_git_commit(root_path)
+    current_commit, head_unavailable_reason = _detect_report_head(root_path)
 
     repo_map, repo_map_source = _load_json_artifact(root_path, REPO_MAP_RELPATH, load_repo_map)
     # mutmut_12 (False→None) is equivalent: both are falsy and this flag is only
@@ -241,6 +281,7 @@ def load_report_inputs(
     return ReportInputs(
         root=str(root_path),
         current_commit=current_commit,
+        head_unavailable_reason=head_unavailable_reason,
         repo_map=repo_map,
         repo_map_source=repo_map_source,
         diff_impact=diff_impact,
@@ -513,6 +554,14 @@ def _evidence_streams(inputs: ReportInputs) -> list[ReportEvidence]:
     bundle = inputs.bundle
     stale_fields = set(bundle.stale_evidence_fields()) if bundle is not None else set()
     untrusted_fields = set(bundle.untrustworthy_evidence_fields()) if bundle is not None else set()
+    # #401: a fresh pass whose bundle could not be verified against the local
+    # tree is refused by the readiness verdict, so the evidence table must not
+    # vouch for it either (same bundle-level rule the scorecard uses).
+    unverified_fields = (
+        set(bundle.unverified_evidence_fields(inputs.current_commit))
+        if bundle is not None
+        else set()
+    )
 
     streams: list[ReportEvidence] = []
     for name, field in (("tests", "test_evidence"), ("ci", "ci_status")):
@@ -527,7 +576,7 @@ def _evidence_streams(inputs: ReportInputs) -> list[ReportEvidence]:
                 # A fact captured against a different commit than the bundle
                 # head is effectively stale even when labelled fresh.
                 freshness="stale" if field in stale_fields else fact.freshness,
-                trustworthy=field not in untrusted_fields,
+                trustworthy=field not in untrusted_fields and field not in unverified_fields,
                 source=fact.source,
                 captured_at=fact.captured_at,
                 detail=fact.detail,
@@ -678,6 +727,16 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
         if inputs.bundle is not None
         else None
     )
+    # #401: a bundle naming a head_sha that could NOT be checked (local HEAD
+    # unknown) is unverifiable, not stale. The warning says why HEAD was
+    # unavailable; the readiness reason comes from the scorecard engine.
+    unverified = (
+        local_verification_warning(
+            inputs.bundle, inputs.current_commit, reason=inputs.head_unavailable_reason
+        )
+        if inputs.bundle is not None
+        else None
+    )
     map_stale = _repo_map_is_stale(inputs)
 
     cov_measure = _coverage_measure(inputs.coverage)
@@ -747,7 +806,7 @@ def build_report(inputs: ReportInputs, *, now: datetime, generator_version: str)
         # non-stale warnings (probable mapping gap, live-scan provenance).
         # kind="stale" entries are excluded — they already drive the
         # diff-impact artifact's stale STATE and must not render twice.
-        warnings=([conflict] if conflict is not None else [])
+        warnings=[w for w in (conflict, unverified) if w is not None]
         + (
             [w.message for w in diff_impact.warnings if w.kind != "stale"]
             if diff_impact is not None

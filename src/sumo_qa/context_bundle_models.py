@@ -299,6 +299,26 @@ class ContextBundle(BaseModel):
                 untrusted.append(name)
         return untrusted
 
+    def unverified_evidence_fields(self, local_head_sha: str | None) -> list[str]:
+        """Go-stale fields that would back a safety claim on their own merits but
+        whose bundle could not be verified against the local tree (#401).
+
+        Non-empty only on the ``unverifiable`` row of
+        :func:`local_verification_status`: this bundle names a ``head_sha`` and
+        the host supplied no local head. A field already listed by
+        :meth:`untrustworthy_evidence_fields` is reported through that path and
+        not repeated here. A bundle with no ``head_sha`` has nothing to verify
+        and keeps the partial-bundle contract (empty).
+        """
+        if local_verification_status(self, local_head_sha) != "unverifiable":
+            return []
+        untrusted = set(self.untrustworthy_evidence_fields())
+        return [
+            name
+            for name, fact in (("test_evidence", self.test_evidence), ("ci_status", self.ci_status))
+            if fact is not None and name not in untrusted
+        ]
+
 
 def detect_local_conflict(bundle: ContextBundle, local_head_sha: str | None) -> str | None:
     """Report a bundle-vs-local-state conflict, or None when consistent.
@@ -324,4 +344,54 @@ def detect_local_conflict(bundle: ContextBundle, local_head_sha: str | None) -> 
         f"Context bundle describes commit {bundle.head_sha!r} but the local head is "
         f"{local_head_sha!r}. The bundle may be stale relative to the working tree — "
         "verify against the live diff before trusting the bundle's facts."
+    )
+
+
+#: Result of verifying a bundle's ``head_sha`` against the host's live local
+#: HEAD. ``unverifiable`` is deliberately NOT a conflict: the local HEAD could
+#: not be read at all, so the bundle is neither known-stale nor known-current.
+#: ``no_signal`` is the partial-bundle case (no ``head_sha`` to verify).
+LocalVerification = Literal["verified", "conflict", "unverifiable", "no_signal"]
+
+
+def local_verification_status(
+    bundle: ContextBundle, local_head_sha: str | None
+) -> LocalVerification:
+    """Classify how the bundle's ``head_sha`` relates to the live local HEAD.
+
+    Decision table (bundle names a head_sha? / local head readable? / same
+    commit?): no bundle sha ⇒ ``no_signal`` (a partial bundle has nothing to
+    verify, and ``head_sha`` stays optional); bundle sha but no local head ⇒
+    ``unverifiable``; both present and prefix-equivalent ⇒ ``verified``;
+    otherwise ``conflict``. :func:`detect_local_conflict` stays mismatch-
+    specific; readiness consumers use THIS to refuse a ready verdict on the
+    unverifiable row without describing the bundle as known-stale.
+    """
+    if not bundle.head_sha:
+        return "no_signal"
+    if not local_head_sha:
+        return "unverifiable"
+    if _sha_equivalent(bundle.head_sha, local_head_sha):
+        return "verified"
+    return "conflict"
+
+
+def local_verification_warning(
+    bundle: ContextBundle, local_head_sha: str | None, *, reason: str | None = None
+) -> str | None:
+    """Actionable message for the ``unverifiable`` row, else None.
+
+    Distinct from the conflict message: it says the local HEAD could not be
+    determined and the bundle was therefore NOT verified against the working
+    tree. It never calls the bundle stale. ``reason`` (optional) is why HEAD
+    was unavailable (not a git repository, git missing), so the reader knows
+    what to fix.
+    """
+    if local_verification_status(bundle, local_head_sha) != "unverifiable":
+        return None
+    why = f" ({reason})" if reason else ""
+    return (
+        f"Local HEAD could not be determined{why}, so the context bundle describing "
+        f"commit {bundle.head_sha!r} was not verified against the working tree. Its "
+        "evidence cannot support a ready verdict until the local head is known."
     )

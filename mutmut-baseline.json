@@ -65,7 +65,13 @@
     "report_builder 793. The pre-fix local darwin run (1745 mutants, 21",
     "survivors) matched the Linux CI run on Dependabot #597 mutant-for-mutant;",
     "the final run (1725 mutants, 0 survivors, 0 un-judged) sets the floors. Linux",
-    "CI remains authoritative."
+    "CI remains authoritative.",
+    "2026-09-04 (#401): report_builder 793 -> 833. Report-time HEAD detection",
+    "(_detect_report_head) added 47 mutants; a local scoped darwin run killed",
+    "all of them after an exact-argv spy test (GIT/head casing survives only on",
+    "a case-insensitive filesystem) and an exact-message assertion. The two",
+    "utf-8 -> UTF-8 codec-name mutants are equivalent and carry # pragma: no",
+    "mutate. Linux CI remains authoritative."
   ],
   "per_module": {
     "knowledge_loaders": {
@@ -90,7 +96,7 @@
     },
     "report_builder": {
       "file": "src/sumo_qa/report_builder.py",
-      "killed": 793
+      "killed": 833
     }
   }
 }
