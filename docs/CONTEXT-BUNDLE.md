@@ -92,9 +92,10 @@ supplies **no** `local_head_sha` (a non-git directory, git unavailable, or the
 host simply omitted it), the bundle is **unverifiable**: it is neither known
 stale nor verified. Readiness consumers (the scorecard and the QA report) treat
 an unverifiable bundle's fresh-passing test/CI facts as unable to support a
-`ready` verdict, render them as not trustworthy, and say so with a distinct reason ("not verified against the local
-tree (local HEAD could not be determined)"), never by describing the bundle as
-stale. A bundle with no `head_sha` has nothing to verify and keeps the
+`ready` verdict (the scorecard renders the dimension as `unverified`, the report's
+evidence table marks the fact not trustworthy), and say so with a distinct reason
+("not verified against the local tree (local HEAD could not be determined)"),
+never by describing the bundle as stale. A bundle with no `head_sha` has nothing to verify and keeps the
 partial-bundle contract; `head_sha` stays optional.
 
 ## How the skills use it
