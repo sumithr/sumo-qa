@@ -106,6 +106,7 @@ DimensionStatus = Literal[
     "gap",
     "blocker",
     "stale",
+    "unverified",
     "not_measured",
 ]
 
@@ -269,6 +270,14 @@ class QaScorecard(BaseModel):
                     return True
         return any(row.evidence_status == "passing" for row in self._ledger_rows())
 
+    def _unverified_evidence_fields(self, local_head_sha: str | None) -> list[str]:
+        """Bundle facts that would back a ready verdict on their own merits but
+        whose bundle could not be verified against the local tree (#401). The
+        rule lives on the bundle so the report's evidence projection and this
+        verdict can never disagree about which facts are unverified."""
+        bundle = self.context_bundle
+        return [] if bundle is None else bundle.unverified_evidence_fields(local_head_sha)
+
     # ---- derivation (the heart — see module docstring) --------------------
 
     def blocking_reasons(self, *, local_head_sha: str | None = None) -> list[str]:
@@ -354,6 +363,12 @@ class QaScorecard(BaseModel):
                 )
             if detect_local_conflict(bundle, local_head_sha) is not None:
                 reasons.append("context bundle is stale relative to the local tree")
+            for name in self._unverified_evidence_fields(local_head_sha):
+                label = _EVIDENCE_LABELS.get(name, name.replace("_", " "))
+                reasons.append(
+                    f"{label} is passing but was not verified against the local tree "
+                    "(local HEAD could not be determined), so it cannot support a ready verdict"
+                )
 
         if not self._has_fresh_pass():
             reasons.append("no fresh, passing test evidence to support a ready verdict")
@@ -405,6 +420,7 @@ class QaScorecard(BaseModel):
         if bundle is not None:
             untrustworthy = set(bundle.untrustworthy_evidence_fields())
             bundle_conflicted = detect_local_conflict(bundle, local_head_sha) is not None
+        unverified = set(self._unverified_evidence_fields(local_head_sha))
         return [
             self._risk_coverage_dimension(),
             self._evidence_dimension(
@@ -413,6 +429,7 @@ class QaScorecard(BaseModel):
                 bundle.test_evidence if bundle is not None else None,
                 untrustworthy=untrustworthy,
                 bundle_conflicted=bundle_conflicted,
+                unverified=unverified,
             ),
             self._evidence_dimension(
                 "CI status",
@@ -420,6 +437,7 @@ class QaScorecard(BaseModel):
                 bundle.ci_status if bundle is not None else None,
                 untrustworthy=untrustworthy,
                 bundle_conflicted=bundle_conflicted,
+                unverified=unverified,
             ),
             self._coverage_dimension(),
             self._mutation_dimension(),
@@ -460,6 +478,7 @@ class QaScorecard(BaseModel):
         *,
         untrustworthy: set[str],
         bundle_conflicted: bool,
+        unverified: set[str],
     ) -> ScorecardDimension:
         from sumo_qa.context_bundle_models import EvidenceFact
 
@@ -474,6 +493,12 @@ class QaScorecard(BaseModel):
             # is stale relative to the live tree — the same signal that drives the
             # recommendation to insufficient_evidence.
             status = "stale"
+        elif field in unverified:
+            # The bundle names a commit but the local HEAD is unknown (#401): the
+            # fact is not known-stale, merely unverified, and the table must not
+            # read ok for evidence the verdict refuses.
+            status = "unverified"
+            detail += "; not verified against the local tree (local HEAD unavailable)"
         else:
             status = "ok"
         return ScorecardDimension(name=name, status=status, detail=detail)

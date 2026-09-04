@@ -31,7 +31,7 @@ than redefining them.
 | `coverage` *(optional)* | a coverage run | `{line_percent, freshness, detail}`. Reported, never gated on a threshold. |
 | `mutation` *(optional)* | a mutation run | `{survivors, killed, freshness, detail}`. Reported, never gated. |
 | `scope` *(optional)* | the host | A short label (a PR title, a release name). |
-| `local_head_sha` *(optional)* | the host | The live local head, to flag a stale bundle. |
+| `local_head_sha` *(optional)* | the host | The live local head. Flags a stale bundle when it differs from the bundle's `head_sha`. When the bundle names a `head_sha` and this is omitted, the bundle's fresh-passing facts are **unverifiable** and cannot support a ready verdict (see below). A bundle with no `head_sha` has nothing to verify and keeps the partial-bundle contract. |
 
 Every input is optional, an empty payload derives `insufficient_evidence`. An
 **absent** coverage/mutation signal is reported as `not measured`, **never assumed
@@ -47,7 +47,7 @@ Derived first-match-wins from the supplied evidence:
 | Recommendation | Derived when |
 |---|---|
 | `blocked` | A hard stop exists: an uncovered high-impact risk (a ledger `is_uncovered_blocker` row), a failing covering test, or a present failing/mixed test or CI result. |
-| `insufficient_evidence` | No blocker, but readiness cannot be *asserted*: required test evidence is absent / stale / unknown-freshness, a ledger risk is only `planned` (not run) or `stale`, the bundle is stale relative to the local tree, or nothing was supplied at all. **"Tests are stale" lands here, never in a ready state.** |
+| `insufficient_evidence` | No blocker, but readiness cannot be *asserted*: required test evidence is absent / stale / unknown-freshness, a ledger risk is only `planned` (not run) or `stale`, the bundle is stale relative to the local tree, the bundle's fresh-passing test/CI facts could not be verified because the bundle names a `head_sha` and no local head was available (unverifiable is reported as its own reason, never as "stale"), or nothing was supplied at all. **"Tests are stale" lands here, never in a ready state.** |
 | `ready_with_accepted_residuals` | Evidence is sufficient and nothing blocks, but at least one risk is a consciously accepted residual (an explicit accept decision, not a passing test). |
 | `ready` | Evidence is fresh, passing, and complete; no blockers and no accepted residuals. |
 
@@ -65,6 +65,7 @@ show *where* the evidence is thin:
 | `gap` | A non-blocking shortfall (e.g. a planned-not-run risk). |
 | `blocker` | A shortfall that blocks readiness (uncovered blocker, failing result). |
 | `stale` | Evidence exists but is not trustworthy now (stale / unknown freshness). |
+| `unverified` | A fresh-passing bundle fact whose bundle names a `head_sha` that could not be checked because the local head is unknown. Not known-stale, but never `ok`; the verdict is `insufficient_evidence`. |
 | `not_measured` | The optional signal was not supplied, distinct from *passing*, and never assumed green. |
 
 ## Output shape
@@ -76,7 +77,9 @@ mutation=None, scope=None, local_head_sha=None, max_reasons=25)` returns
 - `recommendation`: the derived four-state verdict.
 - `is_ready`: true only for `ready` / `ready_with_accepted_residuals`.
 - `uncovered_blocker_count`, `open_residual_count`, `accepted_residual_count`.
-- `stale_evidence`: dimensions present but not fresh-passing.
+- `stale_evidence`: dimensions present but not fresh-passing. An `unverified`
+  dimension is not listed here (it is not known-stale); it is explained in
+  `insufficiency_reasons` and shown in the dimension table.
 - `not_measured`: dimensions whose optional signal was absent.
 - `markdown`: the rendered scorecard (headline + dimension table + reason lists),
   bounded by `max_reasons` with a `… +N more` notice so a large scorecard stays

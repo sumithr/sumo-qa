@@ -194,3 +194,22 @@ def test_args_round_trip_through_json(tool, tmp_path):
     """All tool args must be JSON-typed (host transport contract)."""
     rows = _ledger_rows()
     assert json.loads(json.dumps(rows)) == rows
+
+
+def test_unverifiable_bundle_reads_the_same_through_the_mcp_tool(tool, tmp_path):
+    """#401: the MCP report output carries the same insufficient_evidence state
+    and "not verified" reason as the CLI/HTML for a non-git root whose bundle
+    names a head_sha — one readiness engine, three identical projections."""
+    out = tool(
+        root=str(tmp_path),
+        context_bundle={
+            "schema_version": "1.0",
+            "head_sha": "a" * 40,
+            "test_evidence": {"result": "passing", "freshness": "fresh", "source": "local_git"},
+        },
+    )
+    assert isinstance(out, GenerateQAReportOutput)
+    assert out.readiness_state == "insufficient_evidence"
+    reasons = " | ".join(out.readiness_reasons)
+    assert "not verified" in reasons
+    assert "stale relative" not in reasons

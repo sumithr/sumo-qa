@@ -377,3 +377,56 @@ def test_mutation_has_measurement_only_with_a_count():
     assert MutationSignal(killed=5).has_measurement() is True
     assert MutationSignal(freshness="fresh").has_measurement() is False
     assert MutationSignal().has_measurement() is False
+
+
+# --- #401: an unverifiable bundle head can never support ready ---------------
+#
+# Decision-table rows over (bundle head_sha, local head). The bug: with a
+# head_sha-bearing bundle and NO local head, detect_local_conflict reports
+# nothing and _has_fresh_pass trusts the bundle's fresh pass → `ready`.
+
+
+def test_unverifiable_bundle_head_yields_insufficient_not_ready():
+    card = QaScorecard(context_bundle=_bundle(head_sha="1111111aaaa", test_evidence=_fact()))
+    assert card.recommendation(local_head_sha=None) == "insufficient_evidence"
+    assert card.is_ready() is False
+    reasons = card.insufficiency_reasons()
+    assert any("not verified" in r or "could not be determined" in r for r in reasons)
+    # Unverifiable is distinct from stale: never describe the bundle as known-stale.
+    assert not any("stale relative to the local tree" in r for r in reasons)
+
+
+def test_unverifiable_bundle_head_also_blocks_ready_with_accepted_residuals():
+    card = QaScorecard(
+        ledger=_ledger(_row(evidence_status="accepted_residual", residual="accepted")),
+        context_bundle=_bundle(head_sha="1111111aaaa", test_evidence=_fact()),
+    )
+    assert card.recommendation(local_head_sha=None) == "insufficient_evidence"
+
+
+def test_bundle_without_head_sha_keeps_partial_bundle_contract():
+    # No head_sha ⇒ nothing to verify against; the existing partial-bundle
+    # contract (fresh pass ⇒ ready) is unchanged. head_sha stays optional.
+    card = QaScorecard(context_bundle=_bundle(test_evidence=_fact()))
+    assert card.recommendation(local_head_sha=None) == "ready"
+
+
+def test_prefix_equivalent_local_head_remains_ready():
+    card = QaScorecard(context_bundle=_bundle(head_sha="1111111aaaa", test_evidence=_fact()))
+    assert card.recommendation(local_head_sha="1111111aaaabbbbcccc") == "ready"
+    assert card.recommendation(local_head_sha="1111111aaaa") == "ready"
+
+
+def test_unverifiable_bundle_marks_evidence_dimension_not_ok():
+    card = QaScorecard(
+        context_bundle=_bundle(head_sha="1111111aaaa", test_evidence=_fact(), ci_status=_fact())
+    )
+    dims = {dim.name: dim for dim in card.dimensions(local_head_sha=None)}
+    # Its own status: not ok (the verdict refuses it) and not stale (it is not
+    # known to be out of date), and the detail says why.
+    assert dims["Test evidence"].status == "unverified"
+    assert dims["CI status"].status == "unverified"
+    assert "not verified against the local tree" in dims["Test evidence"].detail
+    # And the verified control reads ok.
+    ok = {dim.name: dim.status for dim in card.dimensions(local_head_sha="1111111aaaa")}
+    assert ok["Test evidence"] == "ok"

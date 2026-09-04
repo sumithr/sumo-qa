@@ -40,6 +40,18 @@ appears in the artifact inventory with one of four distinct states:
   or was derived from a now-stale repo-map; context bundle describes a
   different commit than the local head)
 
+The report reads `HEAD` from the **containing** git repository, so a report run
+from a subdirectory still verifies its artifacts against the real local commit
+(the repo-map scanner keeps its stricter exact-root rule). When `HEAD` cannot be
+determined at all (not a git repository, git missing) a context bundle that
+names a `head_sha` is **unverifiable**: the page carries a warning saying why
+`HEAD` was unavailable and that the bundle was not verified against the working
+tree, its fresh-passing test/CI facts render as not trustworthy, and readiness
+is `insufficient_evidence` whenever such facts exist. Unverifiable is reported
+as its own state, never as "stale": the bundle is not known to be out of date.
+A bundle carrying no test/CI facts contributes nothing to readiness either way,
+so ledger-only evidence keeps its existing contract.
+
 The same honesty rule governs the change-impact tables: the **mapped tests**
 column shows a real yes/no verdict only for `source_file` rows and an em-dash
 for every other type (`has_mapped_tests` is tri-state, `null` on non-source
@@ -77,7 +89,7 @@ recommendation, adopted verbatim (first match wins):
 | State | When |
 |---|---|
 | `blocked` | an uncovered high-impact risk, a ledger row whose covering test is failing, or failing/mixed test/CI evidence |
-| `insufficient_evidence` | readiness cannot be asserted, no QA evidence supplied, a stale or planned-only risk row, evidence that is not fresh-passing, or a context bundle that conflicts with the local head |
+| `insufficient_evidence` | readiness cannot be asserted, no QA evidence supplied, a stale or planned-only risk row, evidence that is not fresh-passing, a context bundle that conflicts with the local head, or fresh-passing test/CI evidence in a context bundle whose `head_sha` could not be verified because the local head is unknown |
 | `ready_with_accepted_residuals` | no blockers and the evidence is sufficient, but one or more risks are recorded accepted residuals |
 | `ready` | no blockers and the evidence supports it |
 

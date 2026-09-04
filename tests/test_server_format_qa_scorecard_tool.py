@@ -131,3 +131,23 @@ def test_invalid_ledger_row_returns_error_envelope(tool):
     assert isinstance(out, dict)
     assert out["isError"] is True
     assert "vocab_error" in out["error"]["message"]
+
+
+def test_sha_bundle_without_local_head_is_unverifiable_not_ready(tool):
+    """#401: through the MCP tool, a bundle naming a head_sha with no
+    ``local_head_sha`` supplied is unverifiable: insufficient_evidence with its
+    own reason, an ``unverified`` dimension (never ok, never stale), and an
+    empty ``stale_evidence`` list because the bundle is not known-stale."""
+    bundle = {"head_sha": "a" * 40, **_fresh_tests()}
+    out = tool(context_bundle=bundle)
+    assert isinstance(out, FormatQaScorecardOutput)
+    assert out.recommendation == "insufficient_evidence"
+    assert out.is_ready is False
+    assert "not verified against the local tree" in out.markdown
+    assert "stale relative" not in out.markdown
+    statuses = {d["name"]: d["status"] for d in out.serialized["dimensions"]}
+    assert statuses["Test evidence"] == "unverified"
+    assert out.stale_evidence == []
+    # Control: the same bundle with the live head supplied is ready.
+    ok = tool(context_bundle=bundle, local_head_sha="a" * 40)
+    assert ok.recommendation == "ready"

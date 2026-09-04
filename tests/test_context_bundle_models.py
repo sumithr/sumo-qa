@@ -21,6 +21,8 @@ from sumo_qa.context_bundle_models import (
     ContextBundle,
     EvidenceFact,
     detect_local_conflict,
+    local_verification_status,
+    local_verification_warning,
 )
 
 
@@ -228,3 +230,71 @@ def test_whitespace_only_sha_treated_as_conflict():
     # is empty, so the two are not equivalent and a conflict is reported.
     bundle = _bundle(head_sha="   ")
     assert detect_local_conflict(bundle, "abc1234deadbeef") is not None
+
+
+# --- local verification status (#401): unverifiable is NOT a conflict ---------
+#
+# Decision table over (bundle names a head_sha?, local head readable?, shas
+# equivalent?). The load-bearing row is the third: when the local head is
+# unavailable the bundle is UNVERIFIABLE — neither known-stale (a conflict)
+# nor verified — and `detect_local_conflict` stays mismatch-specific.
+
+
+@pytest.mark.parametrize(
+    "bundle_sha,local_sha,expected",
+    [
+        ("abc1234deadbeef", "abc1234deadbeef", "verified"),
+        ("abc1234", "abc1234deadbeef0099", "verified"),  # prefix-equivalent
+        ("abc1234deadbeef", "def5678abcdef", "conflict"),
+        ("abc1234deadbeef", None, "unverifiable"),
+        (None, "abc1234deadbeef", "no_signal"),
+        (None, None, "no_signal"),
+    ],
+)
+def test_local_verification_status_decision_table(bundle_sha, local_sha, expected):
+    bundle = _bundle(head_sha=bundle_sha) if bundle_sha is not None else _bundle()
+    assert local_verification_status(bundle, local_sha) == expected
+
+
+def test_unverifiable_is_not_reported_as_a_conflict():
+    # The conflict helper stays mismatch-specific: an absent local head is a
+    # separate verification state, never a "stale" message.
+    bundle = _bundle(head_sha="abc1234deadbeef")
+    assert detect_local_conflict(bundle, None) is None
+    assert local_verification_status(bundle, None) == "unverifiable"
+
+
+def test_verification_warning_only_for_unverifiable():
+    bundle = _bundle(head_sha="abc1234deadbeef")
+    assert local_verification_warning(bundle, "abc1234deadbeef") is None
+    assert (
+        local_verification_warning(bundle, "def5678abcdef") is None
+    )  # conflict is its own message
+    assert local_verification_warning(_bundle(), None) is None  # partial bundle: nothing to verify
+    msg = local_verification_warning(bundle, None)
+    assert msg is not None
+    assert "abc1234deadbeef" in msg
+    assert "could not be determined" in msg
+    assert "not verified" in msg
+    assert "stale" not in msg.lower()
+
+
+def test_verification_warning_carries_the_unavailable_reason_when_given():
+    bundle = _bundle(head_sha="abc1234deadbeef")
+    msg = local_verification_warning(bundle, None, reason="not a git repository")
+    assert msg is not None
+    assert "not a git repository" in msg
+
+
+def test_unverified_evidence_fields_lists_only_facts_that_would_otherwise_count():
+    fresh = _fact("passing", "fresh")
+    bundle = _bundle(
+        head_sha="abc1234deadbeef", test_evidence=fresh, ci_status=_fact("passing", "stale")
+    )
+    # Unverifiable: the fresh pass is listed; the stale one is already untrustworthy.
+    assert bundle.unverified_evidence_fields(None) == ["test_evidence"]
+    # Verified or conflicting: nothing is "unverified" (conflict has its own path).
+    assert bundle.unverified_evidence_fields("abc1234deadbeef") == []
+    assert bundle.unverified_evidence_fields("def5678abcdef") == []
+    # No head_sha: nothing to verify.
+    assert _bundle(test_evidence=fresh).unverified_evidence_fields(None) == []
