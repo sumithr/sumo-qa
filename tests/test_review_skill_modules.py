@@ -604,7 +604,10 @@ def test_assembler_executes_root_plus_declared_modules_in_order():
         check=True,
     )
     payload = json.loads(proc.stdout)
+    # The assembler normalises CRLF to LF, so a Windows autocrlf checkout
+    # assembles the same bytes Python's read_text() sees here.
     out = payload["out"]
+    assert "\r" not in out, "assembler must emit LF-only text regardless of checkout line endings"
     assert out.startswith(_root_text().rstrip())
     for module_id in ids:
         assert _module_text(module_id).rstrip() in out

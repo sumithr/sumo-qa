@@ -32,6 +32,12 @@ const ROOT_PATH = path.join(SKILL_DIR, 'SKILL.md');
 const MODULES_DIR = path.join(SKILL_DIR, 'modules');
 const MODULE_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+// Normalise CRLF to LF so the assembled prompt is byte-identical across
+// checkouts (a Windows autocrlf checkout must grade the same skill text).
+function readText(file) {
+  return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+}
+
 function readModule(id) {
   if (typeof id !== 'string' || !MODULE_ID_RE.test(id)) {
     throw new Error(`assemble-review-skill: illegal module id ${JSON.stringify(id)}`);
@@ -45,11 +51,11 @@ function readModule(id) {
       `assemble-review-skill: unknown module id ${JSON.stringify(id)}; available: ${available.join(', ')}`,
     );
   }
-  return fs.readFileSync(file, 'utf8');
+  return readText(file);
 }
 
 function assemble(moduleIds) {
-  const root = fs.readFileSync(ROOT_PATH, 'utf8');
+  const root = readText(ROOT_PATH);
   if (!moduleIds.length) return root;
   const parts = moduleIds.map((id) => `--- MODULE ${id} ---\n${readModule(id).trimEnd()}\n--- END MODULE ${id} ---`);
   return `${root.trimEnd()}\n\n--- LOADED MODULES (fetched via sumo_qa_load_skill_context mode="module") ---\n\n${parts.join('\n\n')}\n`;
