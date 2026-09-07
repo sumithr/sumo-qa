@@ -10,9 +10,9 @@ epic #137 PR2). Complements:
 This module owns the budgets that exist *because* the partial loader exists:
 
 1. Every lazy skill module (``skills/<skill>/modules/*.md``) stays under a
-   global 1500 approx-token ceiling. No modules ship today; the test guards
-   the ceiling the moment the first module lands so a fat module cannot slip
-   in unmeasured.
+   global 1500 approx-token ceiling. The first shipped modules landed with
+   #451 (``sumo-qa-reviewing-before-merge``); the parametrized guard measures
+   each one so a fat module cannot slip in unmeasured.
 2. The all-skill manifest. TWO distinct artifacts, two distinct budgets
    (#306 inverted which one ships by default):
    * the SHIPPED DEFAULT — what ``sumo_qa_list_skill_manifests`` returns with
@@ -76,8 +76,12 @@ COMPACT_MANIFEST_TOKEN_BUDGET = 2820  # epic #137 / #306: shipped compact defaul
 # #409's sumo-qa-measuring-coverage plus #282's security-relevance index entries
 # raised it to ~13,806 on the merged tree, so the ceiling moves to 14,100.
 # #283's sumo-qa-security-testing adds a measured full section index, raising
-# the opt-in payload to ~14,615; ceiling moves to 14,900.
-FULL_INDEX_TOKEN_CEILING = 14900
+# the opt-in payload to ~14,615; ceiling moves to 14,900. #451 ships the first
+# lazy modules (19 under sumo-qa-reviewing-before-merge), each adding one
+# modules[] index entry (id, path, estimated_tokens) to the opt-in payload:
+# measured ~15,385, so the ceiling moves to 15,900 (~3% headroom). The shipped
+# compact default is unaffected (it carries no sections[]/modules[] arrays).
+FULL_INDEX_TOKEN_CEILING = 15900
 HEAVY_SKILL_FULL_FLOOR = 2500  # a skill is "heavy" once its full body exceeds this
 PARTIAL_LOAD_SAVING_FLOOR = 0.50  # manifest + routing-minimal sections >= 50% below full
 

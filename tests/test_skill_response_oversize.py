@@ -4,8 +4,11 @@
 A full-body skill response that exceeds the host's per-response token cap is
 refused by the host ("result … exceeds maximum allowed tokens") and saved to a
 file instead of loaded inline — so the canonical load fails opaquely. The
-largest skill, ``sumo-qa-reviewing-before-merge`` (~17.8k est. tokens), is the
-first to cross that wall.
+largest skill, ``sumo-qa-reviewing-before-merge`` (~18.1k est. tokens before
+#451 split it into a compact root + lazy modules), was the first to cross that
+wall; since #451 no bundled root is over the cap, so the over-cap branch is
+pinned on synthetic bodies below while the real library is asserted to stay
+byte-identical.
 
 Both full-body entry paths must instead detect the over-cap body and return a
 compact, actionable pointer to the progressive-loading slices
@@ -37,6 +40,7 @@ from sumo_qa.skill_prompts import (
     DEFAULT_SKILL_RESPONSE_TOKEN_CAP,
     _approx_tokens,
     _make_skill_callable,
+    _oversize_pointer_text,
     _response_token_cap,
 )
 
@@ -223,6 +227,9 @@ def test_loader_full_over_cap_without_known_hash_has_no_changed_flag(monkeypatch
 # AC guard (#393): at the REAL default cap, NO served full-body response
 # exceeds the cap — every bundled skill is byte-identical (under) OR a
 # graceful pointer (over). Covers BOTH entry paths over the real library.
+# Since #451 every bundled root is under the cap (the heaviest skill ships its
+# deep rules as lazy modules), so the pointer branch here guards a FUTURE
+# over-cap root; the synthetic-body tests above keep it exercised.
 # --------------------------------------------------------------------------
 
 
@@ -257,23 +264,31 @@ def test_no_served_full_body_exceeds_the_default_cap():
             under.append(name)
             assert tool_body == body  # byte-for-byte preserved
             assert loaded["content"] == body
-    assert over, (
-        "no bundled skill exceeds the default response cap; the over-cap guard "
-        "has no subject — revisit DEFAULT_SKILL_RESPONSE_TOKEN_CAP."
+    assert not over, (
+        f"bundled roots over the default response cap: {over}. Since #451 every "
+        "root is expected under the cap — split the deep rules into lazy modules "
+        "(see tests/test_review_skill_modules.py) rather than shipping an over-cap "
+        "body that degrades to a pointer."
     )
-    assert under, "expected most skills to stay under the cap (byte-identical)"
+    assert under, "expected every bundled skill to stay under the cap (byte-identical)"
 
 
-def test_reviewing_before_merge_is_the_over_cap_skill():
-    # The concrete subject this issue was filed about: the heaviest skill must
-    # degrade rather than return an over-cap body the host refuses.
+def test_reviewing_before_merge_root_is_under_cap_and_routes_to_modules():
+    # The concrete subject #393 was filed about. After #451 the heaviest skill
+    # is a compact root under the cap (served byte-for-byte through both entry
+    # paths) whose deep rules are lazy modules the manifest exposes — the
+    # progressive-loading route the #393 pointer named is now the shipped shape.
     name = "sumo-qa-reviewing-before-merge"
     path = skill_prompts._skills_dir() / name / "SKILL.md"
     assert path.is_file()
     body = path.read_text(encoding="utf-8")
-    assert _approx_tokens(body) > DEFAULT_SKILL_RESPONSE_TOKEN_CAP
-    tool_body = _make_skill_callable(path)()
-    assert body not in tool_body
+    assert _approx_tokens(body) <= DEFAULT_SKILL_RESPONSE_TOKEN_CAP
+    assert _make_skill_callable(path)() == body
     loaded = sm.load_skill_context(name, "full")
-    assert loaded.get("oversize") is True
-    assert "content" not in loaded
+    assert loaded.get("oversize") is not True
+    assert loaded["content"] == body
+    manifest = sm.load_skill_context(name, "manifest")
+    assert manifest["modules"], "the split root must expose its lazy modules"
+    # The pointer contract itself is unchanged and still names the module route.
+    for token in _ROUTE_TOKENS:
+        assert token in _oversize_pointer_text(name, 99999, DEFAULT_SKILL_RESPONSE_TOKEN_CAP)

@@ -43,9 +43,10 @@ def mcp():
 def module_mcp(monkeypatch, tmp_path):
     """A server whose skill index is a tmp skills dir with a REAL module file.
 
-    No bundled skill ships a ``modules/`` dir, so the module resource template
-    (``sumoqa://skills/{skill}/modules/{module}``) would otherwise never get
-    exercised at the resource layer. This mirrors the monkeypatch pattern from
+    A tmp fake keeps the resource-layer test independent of which bundled
+    skills happen to ship ``modules/`` (since #451 ``sumo-qa-reviewing-before-merge``
+    does; ``test_bundled_module_resource_matches_loader`` covers that real
+    module). This mirrors the monkeypatch pattern from
     ``tests/test_skill_manifest.py`` (``sm._skills_dir`` → a ``tmp_path`` skill
     holding ``modules/<x>.md``): records are read fresh on each loader call, so
     a server built under the patch reads the fake skill end-to-end.
@@ -180,6 +181,20 @@ def test_unknown_section_returns_error_envelope(mcp):
     payload = json.loads(body)
     assert "error" in payload
     assert "available_sections" in payload
+
+
+def test_bundled_module_resource_matches_loader(mcp):
+    """A REAL shipped module (#451: the first bundled ``modules/`` dir) is
+    readable through the resource template, byte-for-byte the loader's JSON."""
+    skill = "sumo-qa-reviewing-before-merge"
+    modules = sm.load_skill_context(skill, "manifest")["modules"]
+    assert modules, f"{skill} ships no modules"
+    module_id = modules[0]["id"]
+    body = _read(mcp, f"sumoqa://skills/{skill}/modules/{module_id}")
+    payload = json.loads(body)
+    assert payload == sm.load_skill_context(skill, "module", module=module_id)
+    assert "error" not in payload
+    assert payload["content"].startswith("# Reviewing before merge:")
 
 
 def test_module_resource_on_skill_without_modules_returns_error_envelope(mcp):

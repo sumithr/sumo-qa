@@ -1,0 +1,22 @@
+# Reviewing before merge: surface-specific verifier evidence
+
+Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_context` with `mode="module"`). **Load when:** the changed surface has a repo-specific verifier (a promptfoo eval, fixture/parser corpus, smoke probe, contract test, integration check, generated-artifact verification), or sibling PRs co-edit one surface. Always load for a `skills/*/SKILL.md` or `tests/evals/promptfoo/*.yaml` change. **Extends:** checklist step 9 (verification-evidence discipline, check i), Verdict-format item 8, and step 10(e). The root's Iron Law, verdict gate, and output discipline apply unchanged.
+
+## Verification-evidence discipline (step 9)
+
+**Verification-evidence discipline (pinned).** A green suite + green CI + a green per-file/codex review is NOT evidence that the *changed behaviour* was actually exercised. One discipline, four checks — each surfaces *missing relevant verification* as a SAFE-blocker, never demoted to a residual note, and never cleared by weakening the verifier (only by running it correctly and correcting the behaviour it catches):
+
+- **(i) Surface-specific verifier ran (right runtime/env/scope/tree).** When the changed surface has a relevant repo-specific verifier — a promptfoo eval, fixture/parser corpus, smoke probe, contract test, integration check, generated-artifact verification, or similar targeted command — SAFE requires that verifier to have RUN, and run correctly. **Eval-surface skill changes (a `skills/*/SKILL.md` or `tests/evals/promptfoo/*.yaml` edit) KEEP promptfoo as the REQUIRED verifier:** the relevant config must have run with **Node 24 + the configured OpenAI key** before SAFE. **Name that eval VERBATIM** — copy its exact config path from the supplied diff/context character-for-character (e.g. `tests/evals/promptfoo/skill-<area>-<feature>.yaml`), never abbreviating, truncating to a stem, or paraphrasing it; if the context names the eval you MUST reproduce that exact filename in the verdict. For any other surface, ASK which repo-specific verifier observes the changed behaviour and whether it ran with the right **runtime / env / key / fixture set / generated-artifact state / scope / tree** — wrong runtime, wrong key, stale fixtures, or wrong scope is the SAME as not-run. Missing or wrong-context verifier evidence → **UNVERIFIED (surface verifier)**, a SAFE-blocker. **Sibling/combined-tree rule:** when sibling PRs co-edit ONE behaviour surface (the same SKILL.md, parser, schema), per-branch-green is NOT combined-green — require the verifier to have run on the **COMBINED tree** before the set is SAFE (the #332 dogfood: external-contract seed 3/3 per-branch dropped to 1/3 combined). Graceful fallback: if the diff names no identifiable verifier surface, say so in one line (status **N/A (no identifiable verifier surface)** — non-blocking, NOT a SAFE-blocker) and rest the verdict on risk + feature-flow coverage.
+
+## Surface-verifier line (Verdict-format item 8)
+
+8. **Verification-evidence lines (step 9's verification-evidence discipline).** Emit the lines that apply to this diff, each a SAFE-blocker when its status is not DISCHARGED:
+
+- Surface verifier (always, on a runtime/skill/eval change): `Surface verifier: <verifier — the eval's FULL config path quoted verbatim from the diff/context, e.g. tests/evals/promptfoo/skill-<area>-<feature>.yaml (never a truncated stem) | NONE identifiable> | Ran: <YES (runtime/env/key/scope/tree cited — for eval-surface, Node 24 + key) | NO | WRONG CONTEXT (which)> | Combined-tree (if sibling PRs co-edit): <YES | NO | N/A> | Status: <DISCHARGED | N/A (no identifiable verifier surface — non-blocking) | UNVERIFIED (surface verifier) — SAFE-blocker>`
+
+## Red Flags
+
+| Thought | Reality |
+|---|---|
+| "Per-file review, codex, and CI are all green — SAFE" | None of those exercise the changed behaviour. If the surface has a relevant verifier (promptfoo eval, fixture/parser corpus, contract test, smoke probe) that did NOT run — or ran with the wrong runtime/env/key/scope/tree — that is UNVERIFIED (surface verifier), a SAFE-blocker. For an eval-surface skill change, promptfoo must have run with Node 24 + the configured key. |
+| "Each sibling PR's eval passed in isolation — SAFE to merge the set" | Per-branch-green ≠ combined-green when siblings co-edit one surface (the same SKILL.md/parser/schema). Require the verifier to have run on the COMBINED tree before SAFE — the larger merged surface can over-fire (3/3 per-branch → 1/3 combined). |
