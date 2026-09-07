@@ -4,8 +4,9 @@
 ``extract`` is tested against REAL tree-sitter output (skipped without the
 extra); ``resolve`` is pure path arithmetic over a supplied file set and runs
 on every interpreter. Each ``resolve`` case names the UA rule it exercises:
-relative dot-anchoring, PEP-328 namespace packages, sys.path walk-up
-(deepest-first), specifier submodule probing, and the wildcard/qualified skips.
+relative dot-anchoring, PEP 420 namespace packages, sys.path walk-up
+(deepest-first), specifier submodule probing, the wildcard/qualified skips, and
+regular-package-over-module precedence (#461).
 """
 
 from __future__ import annotations
@@ -103,8 +104,8 @@ def test_resolve_absolute_module_to_file():
     assert resolver.resolve("app/main.py", imp, files) == ["pkg/mod.py"]
 
 
-def test_resolve_pep328_namespace_package_without_init():
-    # PEP-328: a directory need not contain __init__.py to be a package. The
+def test_resolve_pep420_namespace_package_without_init():
+    # PEP 420: a directory need not contain __init__.py to be a package. The
     # module resolves to the barrel when present, and to a submodule even when
     # the parent has no __init__.py.
     imp = RawImport(module="ns", level=0, names=("sub",), function_local=False)
@@ -189,7 +190,7 @@ def test_resolve_from_import_real_package_submodule_still_resolves_both():
 
 
 def test_resolve_from_import_namespace_package_submodule_still_resolves():
-    # Overcorrection guard: a PEP-328 namespace package (dir without
+    # Overcorrection guard: a PEP 420 namespace package (dir without
     # __init__.py and no shadowing pkg.py) must still resolve the submodule.
     imp = RawImport(module="ns", level=0, names=("sub",), function_local=False)
     files = {"ns/sub.py"}  # no ns/__init__.py, no ns.py
@@ -249,10 +250,299 @@ def test_resolve_external_package_yields_nothing():
 
 
 def test_resolve_dedups_module_and_specifier_collisions():
-    # If module-probe and specifier-probe land on the SAME existing file, it
-    # appears once. `from pkg import __init__` probes pkg/__init__.py as the
-    # module barrel AND as the submodule pkg/__init__.py, so both probes collide
-    # on one real file; dedup must collapse them to a single entry.
+    # `from pkg import __init__` must yield exactly one edge, pkg/__init__.py:
+    # the barrel is the module-level hit, and the specifier `__init__` names an
+    # attribute every module object carries, so no submodule probe runs (and
+    # even if one did, it would land on the same file and be de-duplicated).
     imp = RawImport(module="pkg", level=0, names=("__init__",), function_local=False)
     files = {"pkg/__init__.py"}
     assert resolver.resolve("app/main.py", imp, files) == ["pkg/__init__.py"]
+
+
+# ---------- regular-package-over-module precedence (#461) ----------
+#
+# When both `p.py` and `p/__init__.py` exist at the same import path, the
+# Python runtime imports the regular package and never the module. Every
+# ambiguous case below puts BOTH leaf candidates in the file set so the test
+# discriminates: without the precedence rule the resolver also emits the
+# losing `p.py` edge. Decision table over (module exists, barrel exists,
+# descendant exists) crossed with the three import forms.
+
+_AMBIGUOUS_LEAF = {"pkg/__init__.py", "pkg/x.py", "pkg/x/__init__.py", "pkg/a.py"}
+
+
+def test_resolve_dotted_import_prefers_regular_package_over_same_named_module():
+    # `import pkg.x`: the runtime selects pkg/x/__init__.py; pkg/x.py is the
+    # losing candidate and must not become an edge.
+    imp = RawImport(module="pkg.x", level=0, names=(), function_local=False)
+    assert resolver.resolve("app/main.py", imp, _AMBIGUOUS_LEAF) == ["pkg/x/__init__.py"]
+
+
+def test_resolve_from_import_prefers_regular_package_and_keeps_containing_barrel():
+    # `from pkg import x`: the containing barrel pkg/__init__.py stays a valid
+    # dependency; the leaf keeps only the package barrel, never pkg/x.py.
+    imp = RawImport(module="pkg", level=0, names=("x",), function_local=False)
+    assert resolver.resolve("app/main.py", imp, _AMBIGUOUS_LEAF) == [
+        "pkg/__init__.py",
+        "pkg/x/__init__.py",
+    ]
+
+
+def test_resolve_relative_from_import_prefers_regular_package_like_absolute():
+    # `from . import x` inside pkg/a.py must land on exactly the same result as
+    # the absolute `from pkg import x`: one shared precedence implementation.
+    imp = RawImport(module="", level=1, names=("x",), function_local=False)
+    absolute = RawImport(module="pkg", level=0, names=("x",), function_local=False)
+    relative_result = resolver.resolve("pkg/a.py", imp, _AMBIGUOUS_LEAF)
+    assert relative_result == resolver.resolve("app/main.py", absolute, _AMBIGUOUS_LEAF)
+    assert relative_result == ["pkg/__init__.py", "pkg/x/__init__.py"]
+
+
+def test_resolve_only_module_present_keeps_the_module():
+    # Overcorrection guard: with no same-named package, `import pkg.x` still
+    # resolves to the module pkg/x.py.
+    imp = RawImport(module="pkg.x", level=0, names=(), function_local=False)
+    files = {"pkg/__init__.py", "pkg/x.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg/x.py"]
+
+
+def test_resolve_only_package_barrel_present_keeps_the_barrel():
+    # Overcorrection guard: with no same-named module, `import pkg.x` resolves
+    # to the package barrel pkg/x/__init__.py.
+    imp = RawImport(module="pkg.x", level=0, names=(), function_local=False)
+    files = {"pkg/__init__.py", "pkg/x/__init__.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg/x/__init__.py"]
+
+
+def test_resolve_module_beside_namespace_dir_still_wins_and_suppresses_descent():
+    # PR #460 shadowing preserved: pkg/x.py beside a same-named NAMESPACE dir
+    # (pkg/x/child.py, no pkg/x/__init__.py) is still the module, and the
+    # descent to pkg/x/child.py stays suppressed for both import forms.
+    files = {"pkg/__init__.py", "pkg/x.py", "pkg/x/child.py"}
+    from_form = RawImport(module="pkg.x", level=0, names=("child",), function_local=False)
+    dotted_form = RawImport(module="pkg.x.child", level=0, names=(), function_local=False)
+    assert resolver.resolve("app/main.py", from_form, files) == ["pkg/x.py"]
+    assert resolver.resolve("app/main.py", dotted_form, files) == ["pkg/x.py"]
+
+
+def test_resolve_regular_package_beside_module_keeps_child_resolvable():
+    # A regular package (pkg/x/__init__.py) beside a same-named module is the
+    # package, so its real child stays reachable: the shadowing guard must NOT
+    # fire on pkg/x.py. Both import forms reach pkg/x/child.py and neither
+    # emits the losing pkg/x.py.
+    files = {"pkg/__init__.py", "pkg/x.py", "pkg/x/__init__.py", "pkg/x/child.py"}
+    from_form = RawImport(module="pkg.x", level=0, names=("child",), function_local=False)
+    dotted_form = RawImport(module="pkg.x.child", level=0, names=(), function_local=False)
+    assert resolver.resolve("app/main.py", from_form, files) == [
+        "pkg/x/__init__.py",
+        "pkg/x/child.py",
+    ]
+    assert resolver.resolve("app/main.py", dotted_form, files) == ["pkg/x/child.py"]
+
+
+def test_resolve_precedence_keeps_candidate_order_and_dedup_deterministic():
+    # Mixed specifiers: `x` is ambiguous (package wins), `y` is a plain module,
+    # and `x` repeats. Output follows source order of the specifiers with the
+    # containing barrel first, and the repeated specifier collapses to one edge.
+    imp = RawImport(module="pkg", level=0, names=("x", "y", "x"), function_local=False)
+    files = _AMBIGUOUS_LEAF | {"pkg/y.py"}
+    assert resolver.resolve("app/main.py", imp, files) == [
+        "pkg/__init__.py",
+        "pkg/x/__init__.py",
+        "pkg/y.py",
+    ]
+
+
+def test_resolve_relative_intermediate_regular_package_beside_module_keeps_descent():
+    # Relative counterpart of the loosened intermediate guard: `from ..x.sub
+    # import y` in pkg/sub/m.py anchors at pkg/x/sub. pkg/x.py sits beside a
+    # REGULAR package pkg/x/__init__.py, so it does not shadow and descent to
+    # pkg/x/sub.py continues; the losing pkg/x.py never appears. Discriminating:
+    # the pre-fix guard collapsed this to ["pkg/x.py"].
+    imp = RawImport(module="x.sub", level=2, names=("y",), function_local=False)
+    files = {"pkg/sub/m.py", "pkg/x.py", "pkg/x/__init__.py", "pkg/x/sub.py"}
+    assert resolver.resolve("pkg/sub/m.py", imp, files) == ["pkg/x/sub.py"]
+
+
+# ---------- root walk stops at the root whose regular package owns the head ----------
+
+
+def test_resolve_absolute_stops_at_root_whose_regular_package_lacks_the_leaf():
+    # Codex finding on #461: app/pkg/__init__.py (beside a losing app/pkg.py)
+    # wins the head component under the nearest root, so CPython searches ONLY
+    # that package for `child` and raises ModuleNotFoundError; it never falls
+    # through to the unrelated root-level pkg/child.py. No edge at all.
+    imp = RawImport(module="pkg.child", level=0, names=(), function_local=False)
+    files = {"app/main.py", "app/pkg.py", "app/pkg/__init__.py", "pkg/child.py"}
+    assert resolver.resolve("app/main.py", imp, files) == []
+
+
+def test_resolve_absolute_regular_package_without_leaf_does_not_fall_through_to_shallower_root():
+    # Same rule without the ambiguous leaf: a plain regular package under the
+    # nearest root that lacks `child` owns the import; the shallower root's
+    # pkg/child.py is not on that package's search path.
+    imp = RawImport(module="pkg.child", level=0, names=(), function_local=False)
+    files = {"app/main.py", "app/pkg/__init__.py", "pkg/child.py"}
+    assert resolver.resolve("app/main.py", imp, files) == []
+
+
+def test_resolve_absolute_namespace_portion_still_merges_across_roots():
+    # Overcorrection guard (PEP 420): when NO root has a regular package or
+    # module for `pkg`, every `pkg/` dir is a namespace portion and CPython
+    # merges them, so pkg/child.py under the shallower root still resolves
+    # even though the nearest root has its own pkg/other.py portion.
+    imp = RawImport(module="pkg.child", level=0, names=(), function_local=False)
+    files = {"app/main.py", "app/pkg/other.py", "pkg/child.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg/child.py"]
+
+
+def test_resolve_from_import_regular_package_at_nearest_root_wins_over_shallower_package():
+    # `from pkg import child`: the nearest root's regular package is the hit
+    # (child may be a member of it); the shallower root's pkg/__init__.py and
+    # pkg/child.py must not be reached.
+    imp = RawImport(module="pkg", level=0, names=("child",), function_local=False)
+    files = {"app/main.py", "app/pkg/__init__.py", "pkg/__init__.py", "pkg/child.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["app/pkg/__init__.py"]
+
+
+def test_resolve_absolute_intermediate_regular_package_under_namespace_head_stops_walk():
+    # Codex follow-up on #461: `pkg` is a namespace portion under app/ but
+    # `pkg.sub` is a REGULAR package there (app/pkg/sub/__init__.py, beside a
+    # losing app/pkg/sub.py). CPython confines `child` to that package and
+    # raises; the shallower root's pkg/sub/child.py is unreachable. No edge.
+    imp = RawImport(module="pkg.sub.child", level=0, names=(), function_local=False)
+    files = {"app/main.py", "app/pkg/sub.py", "app/pkg/sub/__init__.py", "pkg/sub/child.py"}
+    assert resolver.resolve("app/main.py", imp, files) == []
+
+
+def test_resolve_absolute_nested_namespace_portions_still_merge_across_roots():
+    # Overcorrection guard: with NO regular package at any level under app/
+    # (app/pkg/sub/ holds only other.py), both `pkg` and `pkg.sub` are
+    # namespace packages whose portions merge across roots, so pkg/sub/child.py
+    # under the shallower root resolves (verified against CPython).
+    imp = RawImport(module="pkg.sub.child", level=0, names=(), function_local=False)
+    files = {"app/main.py", "app/pkg/sub/other.py", "pkg/sub/child.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg/sub/child.py"]
+
+
+# ---------- PEP 420: a regular package anywhere on the path beats namespace portions ----------
+
+
+def test_resolve_absolute_regular_package_at_shallower_root_beats_nearer_namespace_portion():
+    # sys.path order is [app, repo]. app/pkg/ has no __init__.py, so it is only
+    # a namespace PORTION; pkg/__init__.py at the shallower root is a regular
+    # package and wins outright (PEP 420 discards the portions), so `child` is
+    # looked up under pkg/ only. Both import forms agree (verified in CPython).
+    files = {"app/main.py", "app/pkg/child.py", "pkg/__init__.py", "pkg/child.py"}
+    dotted = RawImport(module="pkg.child", level=0, names=(), function_local=False)
+    from_form = RawImport(module="pkg", level=0, names=("child",), function_local=False)
+    assert resolver.resolve("app/main.py", dotted, files) == ["pkg/child.py"]
+    assert resolver.resolve("app/main.py", from_form, files) == [
+        "pkg/__init__.py",
+        "pkg/child.py",
+    ]
+
+
+def test_resolve_absolute_regular_intermediate_under_discarded_portion_does_not_claim():
+    # pkg/__init__.py at the repo root wins the head, so app/pkg/ is discarded
+    # entirely; its regular app/pkg/sub/__init__.py is never consulted. Under
+    # pkg/, `sub` is a namespace dir and pkg/sub/child.py resolves.
+    files = {"app/main.py", "app/pkg/sub/__init__.py", "pkg/__init__.py", "pkg/sub/child.py"}
+    dotted = RawImport(module="pkg.sub.child", level=0, names=(), function_local=False)
+    from_form = RawImport(module="pkg.sub", level=0, names=("child",), function_local=False)
+    assert resolver.resolve("app/main.py", dotted, files) == ["pkg/sub/child.py"]
+    assert resolver.resolve("app/main.py", from_form, files) == ["pkg/sub/child.py"]
+
+
+# ---------- relative imports inside a namespace package split across roots ----------
+
+
+def test_resolve_relative_import_merges_namespace_portions_from_shallower_roots():
+    # app/pkg/ has no __init__.py, and neither does pkg/ at the repo root: with
+    # sys.path [app, repo] both are portions of the namespace package `pkg`, so
+    # `from . import x` in app/pkg/m.py finds pkg/x.py (verified in CPython).
+    imp = RawImport(module="", level=1, names=("x",), function_local=False)
+    files = {"app/pkg/m.py", "pkg/x.py"}
+    assert resolver.resolve("app/pkg/m.py", imp, files) == ["pkg/x.py"]
+
+
+def test_resolve_relative_import_never_escapes_a_regular_package_chain():
+    # pkg/ is a regular package (pkg/__init__.py), so the importer is pkg.sub.m
+    # rooted at the repo root and `from . import x` is `pkg.sub.x`, confined to
+    # pkg/sub/. The unrelated top-level sub/ (and b/) must never be merged in
+    # as a "portion" of the anchored package.
+    imp = RawImport(module="", level=1, names=("x",), function_local=False)
+    files = {"pkg/__init__.py", "pkg/sub/m.py", "sub/x.py"}
+    assert resolver.resolve("pkg/sub/m.py", imp, files) == []
+    deeper = {"pkg/__init__.py", "pkg/a/__init__.py", "pkg/a/b/m.py", "b/x.py"}
+    assert resolver.resolve("pkg/a/b/m.py", imp, deeper) == []
+
+
+def test_resolve_relative_import_does_not_guess_a_root_above_a_namespace_parent():
+    # Deliberate under-edge. If app/ were the sys.path root, pkg.sub would be a
+    # namespace package spanning app/pkg/sub and pkg/sub and `from .. import x`
+    # in app/pkg/sub/deep/m.py would find pkg/sub/x.py. Nothing in the file set
+    # says app/ is the root rather than app/pkg/, so the deepest candidate is
+    # taken and no cross-root portion is fabricated.
+    imp = RawImport(module="", level=2, names=("x",), function_local=False)
+    files = {"app/pkg/sub/deep/m.py", "pkg/sub/x.py"}
+    assert resolver.resolve("app/pkg/sub/deep/m.py", imp, files) == []
+
+
+def test_resolve_relative_import_under_edges_when_a_shallower_root_owns_the_package():
+    # pkg/__init__.py at the repo root makes `pkg` a regular package there, so
+    # app/pkg/ is NOT part of it (CPython: `import pkg.m` raises). The importer's
+    # own directory is not the package its dots name, so no edge is guessed.
+    imp = RawImport(module="", level=1, names=("x",), function_local=False)
+    files = {"app/pkg/m.py", "pkg/__init__.py", "pkg/x.py"}
+    assert resolver.resolve("app/pkg/m.py", imp, files) == []
+
+
+def test_resolve_relative_import_regular_package_at_anchor_ignores_shallower_portions():
+    # The importer's own directory IS the regular package (app/pkg/__init__.py),
+    # which confines the lookup: pkg/x.py at the repo root is never reached.
+    imp = RawImport(module="", level=1, names=("x",), function_local=False)
+    files = {"app/pkg/m.py", "app/pkg/__init__.py", "pkg/x.py"}
+    assert resolver.resolve("app/pkg/m.py", imp, files) == ["app/pkg/__init__.py"]
+
+
+def test_resolve_from_import_specifier_that_is_a_module_attribute_is_not_a_submodule():
+    # `from pkg import __init__` binds the attribute every module object carries
+    # (types.ModuleType has `__init__`), so CPython never imports a submodule
+    # and pkg/__init__/__init__.py must not become an edge.
+    imp = RawImport(module="pkg", level=0, names=("__init__",), function_local=False)
+    files = {"app/main.py", "pkg/__init__.py", "pkg/__init__/__init__.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg/__init__.py"]
+
+
+def test_resolve_from_import_specifier_named_like_a_type_attribute_is_still_a_submodule():
+    # `mro`, `__mro__`, `__call__` live on `type`, not on a module INSTANCE, so
+    # `from pkg import mro` does try the submodule pkg/mro.py. Only names a
+    # module instance itself answers to (`__init__`, `__doc__`) are skipped.
+    imp = RawImport(module="pkg", level=0, names=("mro",), function_local=False)
+    files = {"app/main.py", "pkg/__init__.py", "pkg/mro.py"}
+    assert resolver.resolve("app/main.py", imp, files) == ["pkg/__init__.py", "pkg/mro.py"]
+
+
+def test_resolve_from_import_loader_added_attribute_is_not_a_submodule():
+    # `__path__`, `__file__`, `__cached__` and `__builtins__` are set on a real
+    # imported package by its loader, so `from pkg import __path__` binds the
+    # attribute and CPython never imports a submodule; a file literally named
+    # pkg/__path__.py must not become an edge.
+    files = {"app/main.py", "pkg/__init__.py", "pkg/__path__.py", "pkg/__file__.py"}
+    for name in ("__path__", "__file__"):
+        imp = RawImport(module="pkg", level=0, names=(name,), function_local=False)
+        assert resolver.resolve("app/main.py", imp, files) == ["pkg/__init__.py"], name
+
+
+def test_resolve_relative_import_regular_package_at_anchor_ignores_a_root_level_module():
+    # app/pkg/sub/ is a regular package and app/pkg/ is not, so the anchored
+    # package is `sub` rooted at app/pkg/. A pkg.py at the repo root would only
+    # shadow it if the repo root were on sys.path AND app/pkg/ were not, which
+    # nothing in the file set indicates; the importer's own package resolves.
+    imp = RawImport(module="", level=1, names=("x",), function_local=False)
+    files = {"app/pkg/sub/m.py", "app/pkg/sub/__init__.py", "app/pkg/sub/x.py", "pkg.py"}
+    assert resolver.resolve("app/pkg/sub/m.py", imp, files) == [
+        "app/pkg/sub/__init__.py",
+        "app/pkg/sub/x.py",
+    ]

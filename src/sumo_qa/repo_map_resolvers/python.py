@@ -6,24 +6,47 @@ off a tree-sitter parse of Python source; ``resolve`` ports Understand-
 Anything's path rules to map each raw import to the repo-relative file(s) it
 references.
 
-Resolution rules (ported from UA):
+Resolution rules (ported from UA, then aligned with the import system):
 
 - **Relative imports** are dot-anchored: ``level`` dots walk up from the
   importing file's package. ``from . import x`` (level 1) looks in the
-  importer's own package; ``from .. import x`` (level 2) one package up.
-- **PEP-328 implicit namespace packages**: a directory need not contain
-  ``__init__.py`` to be a package. Resolution probes both ``pkg/mod.py`` and
-  ``pkg/__init__.py`` and accepts whichever exists, without requiring the
-  ``__init__.py`` to gate the directory.
+  importer's own package; ``from .. import x`` (level 2) one package up. The
+  anchored package's root is the parent of the topmost regular package above
+  it (its own parent when there is none), and from there it follows the
+  same component walk as an absolute import: a regular package confines the
+  lookup, a namespace package's portions under shallower roots merge, and
+  nothing is emitted when a shallower root owns the package outright (the
+  importer's directory is not that package).
 - **Absolute imports** walk the importer's ancestors as candidate roots,
-  **deepest first**, so a monorepo / multi-root layout resolves against the
-  nearest source root before a shallower one.
-- **Specifier submodule probing**: ``from pkg import sub`` may name a submodule
-  rather than a member, so each specifier is also probed as ``pkg/sub.py`` /
-  ``pkg/sub/__init__.py``.
-- **Wildcard / qualified specifiers are skipped**: ``from x import *`` carries
-  no specifier to probe, and a dotted specifier (rare) isn't a plain submodule
-  name; both yield only the module-level resolution, never a fabricated path.
+  **deepest first** (the effective ``sys.path`` order), so a monorepo /
+  multi-root layout resolves against the nearest source root before a
+  shallower one.
+- **One component walk for both forms**: each dotted component is owned by
+  the first search prefix holding a regular package (``comp/__init__.py``)
+  or a module (``comp.py``). A regular package confines the rest of the
+  lookup to its own directory, so a missing leaf beneath it never falls
+  through to a shallower root. A plain module has no submodules, so it
+  shadows a same-named directory and stops the walk (``import pkg.sub`` with
+  ``pkg.py`` present resolves to ``pkg.py``, never ``pkg/sub.py``).
+- **Regular package over same-named module** (#461): when both ``p.py`` and
+  ``p/__init__.py`` exist at one import path, the runtime imports the regular
+  package, so only ``p/__init__.py`` is retained and ``p.py`` never becomes an
+  edge. A ``p.py`` beside a same-named *namespace* dir (no ``__init__.py``)
+  is still the module and still shadows descent into the dir.
+- **PEP 420 implicit namespace packages**: a directory need not contain
+  ``__init__.py`` to be a package. A component with no owning prefix keeps
+  every prefix as a namespace portion, merged in order, and a regular
+  package or module at any later prefix still wins over nearer portions.
+- **Specifier submodule probing**: ``from pkg import sub`` may name a
+  submodule rather than a member, so each specifier is looked up beneath the
+  resolved module as ``pkg/sub.py`` / ``pkg/sub/__init__.py`` (same
+  precedence), never beneath a plain module.
+- **Wildcard / qualified / attribute specifiers are skipped**: ``from x
+  import *`` carries no specifier to probe, a dotted specifier (rare) isn't a
+  plain submodule name, and a specifier naming an attribute every module
+  object carries (``__init__``, ``__doc__``) binds that attribute rather
+  than importing a submodule; all yield only the module-level resolution,
+  never a fabricated path.
 
 A node is tagged ``function_local`` (→ ``medium`` confidence downstream) when
 its import statement sits inside a ``function_definition`` body; module-level
@@ -31,6 +54,8 @@ and class-body imports are not (→ ``high``).
 """
 
 from __future__ import annotations
+
+import types
 
 from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, register
 from sumo_qa.repo_map_treesitter import TSNode, parse
@@ -51,6 +76,21 @@ _IMPORT_PREFIX = "import_prefix"  # the leading dots of a relative import
 _ALIASED_IMPORT = "aliased_import"  # `c as d`
 _WILDCARD_IMPORT = "wildcard_import"  # `*`
 _FUNCTION_DEF = "function_definition"
+
+# A module INSTANCE (not the ``ModuleType`` class, whose ``hasattr`` would also
+# answer for ``type``'s attributes such as ``mro``): the names it carries are
+# bound by ``from pkg import <name>`` without ever importing a submodule. The
+# loader adds a few more to a really imported module that a bare instance
+# lacks; those are listed explicitly.
+_MODULE_INSTANCE = types.ModuleType("_sumo_qa_module_probe")
+_LOADER_ADDED_ATTRIBUTES = frozenset({"__file__", "__cached__", "__path__", "__builtins__"})
+
+
+def _is_module_attribute(name: str) -> bool:
+    """True when ``from pkg import <name>`` binds an attribute every imported
+    module (or package) already has, so the import system never tries the
+    submodule ``pkg/<name>.py``."""
+    return name in _LOADER_ADDED_ATTRIBUTES or hasattr(_MODULE_INSTANCE, name)
 
 
 class PythonResolver:
@@ -186,156 +226,203 @@ class PythonResolver:
 
         Returns repo-relative paths that exist in ``file_set``; an empty list
         means the import points outside the repo (external package, stdlib) or
-        could not be resolved — never an error. Deterministic: results are
+        could not be resolved -- never an error. Deterministic: results are
         de-duplicated preserving first-seen order.
 
-        Relative imports anchor unambiguously to the importer's package, so
-        their candidates are simply filtered against ``file_set``. Absolute
-        imports walk candidate roots and stop at the first that has any match,
-        so the file set is consulted during the walk (see ``_resolve_absolute``).
+        Both import forms feed one component walk (``_walk``): a relative
+        import anchors the walk at the importer's package with a single
+        search prefix, an absolute import starts it from the importer's
+        ancestor roots in ``sys.path`` order (deepest first).
         """
         if imp.level > 0:
-            candidates = self._resolve_relative(importer, imp, file_set)
-            resolved: list[str] = []
-            for cand in candidates:
-                if cand in file_set and cand not in resolved:
-                    resolved.append(cand)
-            return resolved
-        return self._resolve_absolute(importer, imp, file_set)
+            anchor = self._relative_anchor(importer, imp, file_set)
+            if anchor is None:
+                return []
+            search, parts = anchor
+            owner = self._owner(search, parts[0], file_set)
+            if owner is not None and owner != search[0]:
+                # A shallower root owns the anchored package as a regular
+                # package or module, so the importer's own directory is not
+                # that package at all (the runtime cannot even import the
+                # importer under that name). Emit nothing rather than guess.
+                return []
+        else:
+            search = self._ancestor_roots(importer)
+            parts = imp.module.split(".")
+        return self._walk(search, parts, imp.names, file_set)
 
-    def _resolve_relative(self, importer: str, imp: RawImport, file_set: set[str]) -> list[str]:
-        """Dot-anchored relative resolution.
+    def _relative_anchor(
+        self, importer: str, imp: RawImport, file_set: set[str]
+    ) -> tuple[list[list[str]], list[str]] | None:
+        """Dot-anchored relative resolution: the search prefixes and the
+        dotted components to walk from them, or ``None`` when the dots
+        overshoot.
 
         ``level`` dots walk up from the importer's package directory. The
         importer's own directory is level 1 (``from .``), one up is level 2,
         and so on. The module tail (``from ..pkg.sub``) extends the anchored
-        base before probing.
+        package before the leaf.
 
-        ``file_set`` is threaded into ``_probe`` so the module-shadowing guard
-        applies to relative imports exactly as it does to absolute ones: the
-        anchored tail (``imp.module``) is the dotted module rooted at the
-        walked-up package, so a ``.py`` module shadowing a same-named package
-        dir collapses resolution to the module and suppresses fabricated
-        submodule edges (``from .sub import child`` with ``sub.py`` present
-        resolves to ``sub.py``, never ``sub/child.py``).
+        The anchored package's ROOT (the ``sys.path`` entry it is imported
+        from) is the parent of the topmost regular package in the chain of
+        ``__init__.py`` directories above it: ``pkg/sub/`` under
+        ``pkg/__init__.py`` is ``pkg.sub`` rooted at the repo root, so the
+        walked components start at ``pkg`` and the lookup can never escape
+        ``pkg/``. With no regular ancestor the anchored package's own parent
+        is taken as the root (the deepest-root convention absolute imports
+        use), and the walk starts at the package itself, so ``from . import
+        x`` keeps the containing barrel as a dependency.
+
+        The prefixes are that root and every ancestor of it, deepest first:
+        a regular anchored package confines the walk to itself, while a PEP
+        420 namespace package merges its portions under shallower roots
+        exactly as an absolute import does (``from . import x`` in
+        ``app/pkg/m.py`` with no ``__init__.py`` anywhere finds ``pkg/x.py``).
+        A namespace package whose real root is a shallower ancestor than its
+        parent (``app/pkg/sub/deep/`` imported as ``pkg.sub.deep`` from
+        ``app/``) is not guessed at: those portions stay unmerged, an
+        under-edge rather than a fabricated edge.
+
+        A relative import that consumes ALL package components (``up ==
+        len``) or more walks past the top-level package -- Python rejects this
+        ("attempted relative import beyond top-level package"). Anchoring at
+        the repo root would fabricate a false edge to a root-level file, so
+        resolve nothing.
         """
-        parts = importer.split("/")
-        # The importer's package is its directory; the file itself is parts[-1].
-        package = parts[:-1]
-        # `from .` (level 1) anchors at the importer's own package; each extra
-        # dot strips one more directory.
-        up = imp.level - 1
-        # A relative import that consumes ALL package components (up == len) or
-        # more walks past the top-level package - Python rejects this ("attempted
-        # relative import beyond top-level package"). Anchoring at the repo root
-        # would fabricate a false edge to a root-level file, so resolve nothing.
+        package = importer.split("/")[:-1]  # the importer's package is its directory
+        up = imp.level - 1  # `from .` (level 1) anchors at the importer's own package
         if up >= len(package):
-            return []
+            return None
         base = package[: len(package) - up] if up else list(package)
         tail = imp.module.split(".") if imp.module else []
-        anchored = "/".join(base + tail) if (base or tail) else ""
-        return self._probe(anchored, imp.names, tail, base, file_set)
-
-    def _resolve_absolute(self, importer: str, imp: RawImport, file_set: set[str]) -> list[str]:
-        """``sys.path`` walk-up: try each importer ancestor as a candidate root,
-        deepest first, and take the FIRST root that resolves.
-
-        Exactly one source root is on the effective ``sys.path`` for a given
-        absolute import, so the nearest (deepest) ancestor that produces any
-        match wins; shallower roots that happen to hold a same-named module are
-        not the imported one and must not fabricate a second edge. Returns the
-        probe paths that exist under that winning root."""
-        module_parts = imp.module.split(".")
-        for root in self._ancestor_roots(importer):
-            base = "/".join([*root, *module_parts]) if root else "/".join(module_parts)
-            hits: list[str] = []
-            for cand in self._probe(base, imp.names, module_parts, root, file_set):
-                if cand in file_set and cand not in hits:
-                    hits.append(cand)
-            if hits:
-                return hits
-        return []
-
-    def _shadowing_module(
-        self, module_parts: list[str], root: list[str], file_set: set[str]
-    ) -> str | None:
-        """The path of an INTERMEDIATE dotted-module component that resolves to a
-        ``.py`` module, shadowing a same-named package dir, or ``None``.
-
-        ``import pkg.sub`` requires ``pkg`` to be a package: a ``.py`` file
-        shadows a same-named dir, and a plain module has no submodules. So if
-        ``pkg.py`` exists, ``pkg`` is a module and ``pkg.sub`` cannot descend into
-        ``pkg/``: the import resolves to ``pkg.py`` and ``pkg/sub.py`` is a false
-        edge. Walks the module components (excluding the final one, which is the
-        leaf the caller probes normally) and returns the first whose ``.py``
-        sibling exists. Single-component modules never shadow (no intermediate)."""
-        for depth in range(1, len(module_parts)):
-            prefix = [*root, *module_parts[:depth]]
-            module_file = "/".join(prefix) + ".py"
-            if module_file in file_set:
-                return module_file
-        return None
+        # Climb while the parent directory is a regular package: the chain of
+        # __init__.py directories fixes the root at the topmost one's parent.
+        top = len(base) - 1
+        while top > 0 and any(
+            barrel in file_set for barrel in self._barrels_of("/".join(base[:top]))
+        ):
+            top -= 1
+        root = base[:top]
+        roots = [root[:i] for i in range(len(root), -1, -1)]
+        return roots, [*base[top:], *tail]
 
     @staticmethod
     def _ancestor_roots(importer: str) -> list[list[str]]:
         """Candidate source roots: the importer's directory and every ancestor
-        down to the repo root, **deepest first**."""
+        down to the repo root, **deepest first** (the effective ``sys.path``
+        order for an absolute import)."""
         parts = importer.split("/")[:-1]  # drop the filename
         roots: list[list[str]] = []
         for i in range(len(parts), -1, -1):
             roots.append(parts[:i])
         return roots
 
-    def _probe(
+    def _walk(
         self,
-        base: str,
+        search: list[list[str]],
+        parts: list[str],
         names: tuple[str, ...],
-        module_parts: list[str] | None = None,
-        root: list[str] | None = None,
-        file_set: set[str] | None = None,
+        file_set: set[str],
     ) -> list[str]:
-        """Module-path -> candidate file paths.
+        """Resolve dotted ``parts`` (then each specifier in ``names``) over the
+        ordered ``search`` prefixes, the way the import system walks
+        ``sys.path`` and then each package's ``__path__``.
 
-        Probes ``base.py`` and (PEP-328 implicit namespace package) the
-        package barrel ``base/__init__.py``; then probes each specifier as a
-        submodule ``base/<name>.py`` / ``base/<name>/__init__.py``. A
-        qualified (dotted) specifier is skipped — it isn't a plain submodule
-        name. Order is module first, then specifiers in source order, so
-        ``resolve``'s first-seen de-dup is deterministic.
+        Per component, the FIRST prefix holding a regular package
+        (``<comp>/__init__.py``) or a module (``<comp>.py``) owns it:
 
-        When ``module_parts``/``root``/``file_set`` are supplied (the absolute
-        path), an intermediate dotted-module component shadowed by a ``.py``
-        module collapses resolution to that shadowing file: ``import pkg.sub``
-        with ``pkg.py`` present resolves to ``pkg.py``, never ``pkg/sub.py`` (a
-        module has no submodules). For the ``from <module> import <name>`` form
-        the base module is a single component, so the intermediate-component
-        guard never fires; instead, when ``base`` itself resolves to a shadowing
-        ``.py`` module, the per-specifier submodule candidates are suppressed:
-        ``from pkg import sub`` with ``pkg.py`` present resolves to ``pkg.py``,
-        never the fabricated submodule ``pkg/sub.py``."""
-        if module_parts is not None and root is not None and file_set is not None:
-            shadow = self._shadowing_module(module_parts, root, file_set)
-            if shadow is not None:
-                return [shadow]
-        # The base module is a plain ``.py`` file: it shadows a same-named
-        # package dir and has no submodules, so a specifier cannot be a
-        # submodule of it. Probe the module only, never ``base/<name>.py``.
-        base_is_module = file_set is not None and bool(base) and f"{base}.py" in file_set
-        candidates: list[str] = []
-        if base:
-            candidates.append(f"{base}.py")
-            for barrel in self.config.barrels:
-                candidates.append(f"{base}/{barrel}")
-        if base_is_module:
-            return candidates
+        - a regular package confines the rest of the lookup to its own
+          directory, so a miss beneath it is final and a shallower prefix can
+          never supply the leaf (a regular package also beats a same-named
+          module in the same prefix, #461);
+        - a plain module (no barrel beside it) has no submodules: the walk
+          stops at that file, which shadows a same-named namespace dir and
+          suppresses descent (``import pkg.sub`` / ``from pkg import sub`` with
+          ``pkg.py`` present resolve to ``pkg.py``, never ``pkg/sub.py``);
+        - no owner means the component is a PEP 420 namespace package whose
+          portions merge across every prefix, in order, so the walk keeps all
+          of them (a regular package at ANY later prefix still wins, since the
+          owner search runs across all prefixes before merging).
+
+        The leaf takes the same rule and contributes its file(s); specifiers
+        are then looked up beneath the leaf (or its merged portions). A
+        qualified (dotted) specifier is skipped -- it isn't a plain submodule
+        name -- and so is a specifier naming an attribute every module object
+        carries (``from pkg import __init__`` binds the attribute; no
+        submodule import happens). Order is leaf first, then specifiers in
+        source order, so first-seen de-dup is deterministic.
+        """
+        for comp in parts[:-1]:
+            owner = self._owner(search, comp, file_set)
+            if owner is None:
+                search = [[*prefix, comp] for prefix in search]  # namespace portions
+                continue
+            path = "/".join([*owner, comp])
+            if self._is_plain_module(path, file_set):
+                return [f"{path}.py"]  # a module has no submodules: shadowed descent
+            search = [[*owner, comp]]  # a regular package confines the lookup
+        resolved: list[str] = []
+        leaf = parts[-1]
+        owner = self._owner(search, leaf, file_set)
+        if owner is None:
+            search = [[*prefix, leaf] for prefix in search]
+        else:
+            path = "/".join([*owner, leaf])
+            resolved.extend(self._leaf_files(path, file_set))
+            if self._is_plain_module(path, file_set):
+                return resolved  # specifiers are members of the module, never submodules
+            search = [[*owner, leaf]]
         for name in names:
-            if "." in name:
-                continue  # qualified specifier: not a plain submodule
-            sub = f"{base}/{name}" if base else name
-            candidates.append(f"{sub}.py")
-            for barrel in self.config.barrels:
-                candidates.append(f"{sub}/{barrel}")
-        return candidates
+            if "." in name or _is_module_attribute(name):
+                # A qualified specifier is not a plain submodule name, and a
+                # name every module object already carries (``__init__``,
+                # ``__doc__``, ...) binds that attribute: the import system
+                # only tries a submodule when the attribute lookup fails.
+                continue
+            owner = self._owner(search, name, file_set)
+            if owner is None:
+                continue
+            for cand in self._leaf_files("/".join([*owner, name]), file_set):
+                if cand not in resolved:
+                    resolved.append(cand)
+        return resolved
+
+    def _owner(self, search: list[list[str]], comp: str, file_set: set[str]) -> list[str] | None:
+        """The first search prefix under which ``comp`` is a regular package
+        or a module, or ``None`` (``comp`` is at most a namespace package)."""
+        for prefix in search:
+            path = "/".join([*prefix, comp])
+            if f"{path}.py" in file_set or any(
+                barrel in file_set for barrel in self._barrels_of(path)
+            ):
+                return prefix
+        return None
+
+    def _barrels_of(self, path: str) -> list[str]:
+        """The package-barrel candidate(s) for import path ``path``."""
+        return [f"{path}/{barrel}" for barrel in self.config.barrels]
+
+    def _is_plain_module(self, path: str, file_set: set[str]) -> bool:
+        """``path.py`` exists and NO regular-package barrel sits beside it.
+
+        Only a plain module shadows a same-named directory; when
+        ``path/__init__.py`` also exists the runtime imports the package and
+        the ``.py`` is the losing candidate (#461)."""
+        if f"{path}.py" not in file_set:
+            return False
+        return not any(barrel in file_set for barrel in self._barrels_of(path))
+
+    def _leaf_files(self, path: str, file_set: set[str]) -> list[str]:
+        """The existing file(s) for an owned import path, in precedence order.
+
+        Both ``path.py`` and ``path/__init__.py`` present -> only the regular
+        package barrel (runtime precedence, #461). Otherwise whichever of the
+        module or the barrel exists."""
+        barrels = [barrel for barrel in self._barrels_of(path) if barrel in file_set]
+        module = f"{path}.py"
+        if module in file_set and barrels:
+            return barrels
+        return [module, *barrels] if module in file_set else barrels
 
 
 register(PythonResolver())
