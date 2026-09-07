@@ -54,6 +54,10 @@ risks) carries its own status so the markdown table and the serialized snapshot
                       failing result).
 * ``stale``         — evidence exists but is not trustworthy now (stale / unknown
                       freshness).
+* ``unverified``    — a fresh-passing bundle fact whose bundle names a
+                      ``head_sha`` that could not be checked against the local
+                      tree (no local HEAD). Not known-stale, never ``ok``;
+                      the verdict is ``insufficient_evidence``. Schema 1.1.
 * ``not_measured``  — the optional signal was not supplied. Distinct from a
                       *passing* signal: an absent coverage/mutation artifact is
                       reported as ``not_measured`` and never assumed green, so it
@@ -73,7 +77,10 @@ from sumo_qa.context_bundle_models import (
 )
 from sumo_qa.ledger_models import RiskLedger, RiskLedgerRow
 
-SCORECARD_SCHEMA_VERSION: Final[Literal["1.0"]] = "1.0"
+#: 1.1 (issue #401) widened ``DimensionStatus`` with ``unverified``; a consumer
+#: validating the 1.0 status enum can tell from the stamp alone that the wider
+#: enum applies. The input shape is unchanged.
+SCORECARD_SCHEMA_VERSION: Final[Literal["1.1"]] = "1.1"
 
 #: Plain-language labels + freshness words for the human-facing recommendation
 #: reasons. The reasons surface verbatim in the scorecard output AND in the
@@ -100,12 +107,14 @@ ScorecardRecommendation = Literal[
 
 #: Per-dimension status. ``not_measured`` (absent optional signal) is held
 #: distinct from ``ok`` so an unsupplied coverage/mutation artifact is never read
-#: as passing.
+#: as passing. ``unverified`` arrived with schema 1.1 (see
+#: ``SCORECARD_SCHEMA_VERSION``).
 DimensionStatus = Literal[
     "ok",
     "gap",
     "blocker",
     "stale",
+    "unverified",
     "not_measured",
 ]
 
@@ -210,7 +219,7 @@ class QaScorecard(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["1.0"] = SCORECARD_SCHEMA_VERSION
+    schema_version: Literal["1.1"] = SCORECARD_SCHEMA_VERSION
     scope: str | None = Field(
         default=None,
         description="Optional short label for what is being assessed (a PR title, a release name).",
@@ -268,6 +277,14 @@ class QaScorecard(BaseModel):
                 if fact is not None and fact.is_trustworthy_for_safety():
                     return True
         return any(row.evidence_status == "passing" for row in self._ledger_rows())
+
+    def _unverified_evidence_fields(self, local_head_sha: str | None) -> list[str]:
+        """Bundle facts that would back a ready verdict on their own merits but
+        whose bundle could not be verified against the local tree (#401). The
+        rule lives on the bundle so the report's evidence projection and this
+        verdict can never disagree about which facts are unverified."""
+        bundle = self.context_bundle
+        return [] if bundle is None else bundle.unverified_evidence_fields(local_head_sha)
 
     # ---- derivation (the heart — see module docstring) --------------------
 
@@ -354,6 +371,12 @@ class QaScorecard(BaseModel):
                 )
             if detect_local_conflict(bundle, local_head_sha) is not None:
                 reasons.append("context bundle is stale relative to the local tree")
+            for name in self._unverified_evidence_fields(local_head_sha):
+                label = _EVIDENCE_LABELS.get(name, name.replace("_", " "))
+                reasons.append(
+                    f"{label} is passing but was not verified against the local tree "
+                    "(local HEAD could not be determined), so it cannot support a ready verdict"
+                )
 
         if not self._has_fresh_pass():
             reasons.append("no fresh, passing test evidence to support a ready verdict")
@@ -405,6 +428,7 @@ class QaScorecard(BaseModel):
         if bundle is not None:
             untrustworthy = set(bundle.untrustworthy_evidence_fields())
             bundle_conflicted = detect_local_conflict(bundle, local_head_sha) is not None
+        unverified = set(self._unverified_evidence_fields(local_head_sha))
         return [
             self._risk_coverage_dimension(),
             self._evidence_dimension(
@@ -413,6 +437,7 @@ class QaScorecard(BaseModel):
                 bundle.test_evidence if bundle is not None else None,
                 untrustworthy=untrustworthy,
                 bundle_conflicted=bundle_conflicted,
+                unverified=unverified,
             ),
             self._evidence_dimension(
                 "CI status",
@@ -420,6 +445,7 @@ class QaScorecard(BaseModel):
                 bundle.ci_status if bundle is not None else None,
                 untrustworthy=untrustworthy,
                 bundle_conflicted=bundle_conflicted,
+                unverified=unverified,
             ),
             self._coverage_dimension(),
             self._mutation_dimension(),
@@ -460,6 +486,7 @@ class QaScorecard(BaseModel):
         *,
         untrustworthy: set[str],
         bundle_conflicted: bool,
+        unverified: set[str],
     ) -> ScorecardDimension:
         from sumo_qa.context_bundle_models import EvidenceFact
 
@@ -474,6 +501,12 @@ class QaScorecard(BaseModel):
             # is stale relative to the live tree — the same signal that drives the
             # recommendation to insufficient_evidence.
             status = "stale"
+        elif field in unverified:
+            # The bundle names a commit but the local HEAD is unknown (#401): the
+            # fact is not known-stale, merely unverified, and the table must not
+            # read ok for evidence the verdict refuses.
+            status = "unverified"
+            detail += "; not verified against the local tree (local HEAD unavailable)"
         else:
             status = "ok"
         return ScorecardDimension(name=name, status=status, detail=detail)

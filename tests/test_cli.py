@@ -527,3 +527,35 @@ def test_messages_do_not_assume_a_specific_host(tmp_path, capsys):
     text = capsys.readouterr().out.lower().replace(str(tmp_path).lower(), "<root>")
     for host in ("claude", "codex", "vs code", "vscode", "jetbrains", "plugin"):
         assert host not in text
+
+
+def test_report_unverifiable_bundle_reads_the_same_in_cli_json_and_html(tmp_path, capsys):
+    """#401: a non-git root with a fresh-passing bundle that names a head_sha is
+    unverifiable. The CLI payload, the human line, and the written HTML all
+    carry the same insufficient_evidence state and the same "not verified"
+    reason — never ready, never "stale"."""
+    bundle = {
+        "schema_version": "1.0",
+        "head_sha": "a" * 40,
+        "test_evidence": {"result": "passing", "freshness": "fresh", "source": "local_git"},
+    }
+    target = tmp_path / ".sumo-qa" / "context-bundle.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps(bundle), encoding="utf-8")
+
+    assert cli.main(["report", str(tmp_path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["readiness_state"] == "insufficient_evidence"
+    reasons = " | ".join(payload["readiness_reasons"])
+    assert "not verified" in reasons
+    assert "stale relative" not in reasons
+    assert payload["warning_count"] == 1
+
+    html = (tmp_path / ".sumo-qa" / "qa-report.html").read_text(encoding="utf-8")
+    assert "not verified" in html
+    assert "could not be determined" in html
+
+    assert cli.main(["report", str(tmp_path)]) == 0
+    human = capsys.readouterr().out
+    assert "readiness: insufficient evidence" in human
+    assert "not verified against the local tree" in human

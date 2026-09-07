@@ -85,6 +85,19 @@ fuller sha on the other names the same commit and is **not** a conflict (a
 conflict is reported only when neither is a prefix of the other). When either
 sha is absent there is no signal to compare, so no conflict is reported.
 
+## Unverifiable is not stale
+
+A conflict needs both shas. When the bundle names a `head_sha` but the host
+supplies **no** `local_head_sha` (a non-git directory, git unavailable, or the
+host simply omitted it), the bundle is **unverifiable**: it is neither known
+stale nor verified. Readiness consumers (the scorecard and the QA report) treat
+an unverifiable bundle's fresh-passing test/CI facts as unable to support a
+`ready` verdict (the scorecard renders the dimension as `unverified`, the report's
+evidence table marks the fact not trustworthy), and say so with a distinct reason
+("not verified against the local tree (local HEAD could not be determined)"),
+never by describing the bundle as stale. A bundle with no `head_sha` has nothing to verify and keeps the
+partial-bundle contract; `head_sha` stays optional.
+
 ## How the skills use it
 
 `sumo-qa-reviewing-before-merge` and `sumo-qa-preparing-for-work` **prefer the

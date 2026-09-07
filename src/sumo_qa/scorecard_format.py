@@ -48,6 +48,7 @@ _STATUS_LABEL: dict[DimensionStatus, str] = {
     "gap": "gap",
     "blocker": "blocker",
     "stale": "stale",
+    "unverified": "unverified",
     "not_measured": "not measured",
 }
 

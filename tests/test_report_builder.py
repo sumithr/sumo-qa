@@ -21,6 +21,7 @@ import pytest
 from sumo_qa.context_bundle_models import ContextBundle
 from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION, RiskLedger, RiskLedgerRow
 from sumo_qa.report_builder import (
+    _detect_report_head,
     _load_run_summary,
     _readiness_from_scorecard,
     _repo_map_is_stale,
@@ -787,7 +788,11 @@ def test_ledger_rows_become_risks_with_blocker_count(tmp_path):
 
 
 def test_bundle_evidence_is_mapped_with_trust(tmp_path):
-    _write_artifact(tmp_path, "context-bundle.json", _bundle_payload())
+    # A verified bundle (head_sha == the live HEAD): trust follows freshness.
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    payload = _bundle_payload()
+    payload["head_sha"] = _git_init_commit(tmp_path)
+    _write_artifact(tmp_path, "context-bundle.json", payload)
     report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
     by_name = {e.name: e for e in report.evidence}
     assert by_name["tests"].status == "passing"
@@ -1626,3 +1631,319 @@ def test_inline_bundle_override_detail_marks_inline_source(tmp_path):
     entry = next(a for a in report.artifacts if a.kind == "context_bundle")
     assert entry.status == "inline"
     assert entry.detail == "supplied inline by the caller (not read from disk)"
+
+
+# ---------------------------------------------------------------------------
+# #401 — readiness honesty when the bundle HEAD cannot be verified locally
+# ---------------------------------------------------------------------------
+#
+# Report-time HEAD detection resolves the CONTAINING repository (a report run
+# from a subdirectory still sees HEAD) — unlike the repo-map scanner's exact-
+# root rule, which must stay strict. When HEAD is unavailable (non-git root,
+# git failure) a head_sha-bearing bundle is UNVERIFIABLE: its fresh-passing
+# test/CI facts cannot support ready, so any such fact yields
+# insufficient_evidence with an "unverifiable, not stale" reason. A bundle
+# carrying no test/CI facts contributes nothing either way (ledger-only
+# evidence keeps its contract; pinned below).
+
+
+def _fresh_bundle_payload(head_sha: str) -> dict:
+    payload = _bundle_payload()
+    payload["head_sha"] = head_sha
+    payload["ci_status"]["freshness"] = "fresh"
+    return payload
+
+
+def _subdir_of_git_repo(tmp_path: Path) -> tuple[Path, str]:
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    head = _git_init_commit(tmp_path)
+    sub = tmp_path / "pkg"
+    sub.mkdir()
+    return sub, head
+
+
+# --- _detect_report_head partitions: toplevel / subdir / non-git / git failure
+
+
+def test_detect_report_head_at_toplevel(tmp_path):
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    head = _git_init_commit(tmp_path)
+    assert _detect_report_head(tmp_path) == (head, None)
+
+
+def test_detect_report_head_resolves_containing_repo_from_subdir(tmp_path):
+    sub, head = _subdir_of_git_repo(tmp_path)
+    assert _detect_report_head(sub) == (head, None)
+
+
+def test_detect_report_head_non_git_root_reports_reason(tmp_path):
+    sha, reason = _detect_report_head(tmp_path)
+    assert sha is None
+    assert reason  # actionable: says why HEAD was unavailable
+    assert "git" in reason.lower()
+
+
+def test_detect_report_head_git_failure_reports_reason(tmp_path, monkeypatch):
+    import sumo_qa.report_builder as rb
+
+    def _boom(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(rb.subprocess, "run", _boom)
+    sha, reason = _detect_report_head(tmp_path)
+    assert sha is None
+    assert reason == "git executable not found"
+
+
+def test_detect_report_head_invokes_exactly_git_rev_parse_head(tmp_path, monkeypatch):
+    """Pins the argv verbatim. On a case-insensitive filesystem ``GIT`` still
+    resolves to git and ``git rev-parse head`` still finds HEAD, so only an
+    exact-argv spy discriminates those mutants (Linux CI would reject them)."""
+    import sumo_qa.report_builder as rb
+
+    seen: list[list[str]] = []
+    real_run = rb.subprocess.run
+
+    def _spy(cmd, *args, **kwargs):
+        seen.append(list(cmd))
+        return real_run(cmd, *args, **kwargs)
+
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    head = _git_init_commit(tmp_path)
+    monkeypatch.setattr(rb.subprocess, "run", _spy)
+    assert _detect_report_head(tmp_path) == (head, None)
+    assert seen == [["git", "-C", str(tmp_path), "rev-parse", "HEAD"]]
+
+
+@pytest.mark.parametrize(
+    "stderr,expected",
+    [
+        (b"fatal: not a git repository\nhint: more", "fatal: not a git repository"),
+        (b"fatal: \xff undecodable but still first line", "fatal:"),  # never crashes
+        (b"", "git rev-parse HEAD exited 128"),  # no stderr ⇒ exit-code fallback
+        (None, "git rev-parse HEAD exited 128"),
+    ],
+)
+def test_detect_report_head_git_error_reason_is_first_stderr_line(
+    tmp_path, monkeypatch, stderr, expected
+):
+    import subprocess as _sp
+
+    import sumo_qa.report_builder as rb
+
+    def _fail(*args, **kwargs):
+        raise _sp.CalledProcessError(128, ["git"], output=b"", stderr=stderr)
+
+    monkeypatch.setattr(rb.subprocess, "run", _fail)
+    sha, reason = _detect_report_head(tmp_path)
+    assert sha is None
+    assert reason is not None and reason.startswith(expected)
+    assert "\n" not in reason
+
+
+def test_detect_report_head_ignores_inherited_git_dir(tmp_path, monkeypatch):
+    # Inherited GIT_DIR/GIT_WORK_TREE (pre-commit's stash mechanism) must not
+    # make a non-git report root resolve some OTHER repository's HEAD.
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    (outer / "README.md").write_text("# outer\n", encoding="utf-8")
+    _git_init_commit(outer)
+    target = tmp_path / "plain"
+    target.mkdir()
+    monkeypatch.setenv("GIT_DIR", str(outer / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(outer))
+    sha, reason = _detect_report_head(target)
+    assert sha is None and reason
+
+
+# --- the six focused scenarios from the issue ------------------------------
+
+
+def test_stale_bundle_from_subdir_is_a_real_conflict_not_ready(tmp_path):
+    """Scenario 1: repo at B, report root is a child dir, bundle at A ⇒ the
+    containing repo's HEAD is resolved and the mismatch is a genuine conflict."""
+    sub, head = _subdir_of_git_repo(tmp_path)
+    _write_artifact(sub, "context-bundle.json", _fresh_bundle_payload(_SHA_A))
+    report = generate_report(sub, generator_version=_VERSION, now=_NOW)
+    assert report.project.head_commit == head
+    assert report.readiness.state == "insufficient_evidence"
+    assert "context bundle is stale relative to the local tree" in report.readiness.reasons
+    assert any(_SHA_A in w and head in w for w in report.warnings)
+
+
+def test_matching_bundle_from_subdir_remains_ready(tmp_path):
+    """Scenario 2: same setup, bundle at B ⇒ ready-eligible."""
+    sub, head = _subdir_of_git_repo(tmp_path)
+    _write_artifact(sub, "context-bundle.json", _fresh_bundle_payload(head))
+    report = generate_report(sub, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "ready"
+    assert report.warnings == []
+
+
+def test_non_git_root_with_sha_bundle_is_unverifiable_not_ready(tmp_path):
+    """Scenario 3: non-git root + fresh-passing bundle naming a head_sha ⇒
+    insufficient_evidence with a local-HEAD-unavailable reason. The reason
+    says UNVERIFIABLE, not stale — the bundle is not known to be out of date."""
+    _write_artifact(tmp_path, "context-bundle.json", _fresh_bundle_payload(_SHA_A))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.project.head_commit is None
+    assert report.readiness.state == "insufficient_evidence"
+    reasons = " | ".join(report.readiness.reasons)
+    assert "not verified" in reasons or "could not be determined" in reasons
+    assert "stale relative to the local tree" not in reasons
+    # The page-level warning names the bundle commit + why HEAD was unavailable
+    # (git's own reason is threaded through so the reader knows what to fix).
+    assert any(
+        _SHA_A in w
+        and "could not be determined" in w
+        and "not verified" in w
+        and "not a git repository" in w
+        for w in report.warnings
+    )
+    assert not any("stale" in w.lower() for w in report.warnings)
+
+
+def test_git_failure_with_sha_bundle_is_unverifiable_not_ready(tmp_path, monkeypatch):
+    """Scenario 4: a git lookup failure yields the same unverifiable result."""
+    import sumo_qa.report_builder as rb
+
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    _git_init_commit(tmp_path)
+    _write_artifact(tmp_path, "context-bundle.json", _fresh_bundle_payload(_SHA_A))
+
+    def _boom(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(rb.subprocess, "run", _boom)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.project.head_commit is None
+    assert report.readiness.state == "insufficient_evidence"
+    assert any("not verified" in w for w in report.warnings)
+
+
+def test_accepted_residual_plus_unverifiable_bundle_is_insufficient(tmp_path):
+    """Scenario 5: an accepted residual cannot promote an unverifiable bundle to
+    ready_with_accepted_residuals."""
+    _write_artifact(tmp_path, "context-bundle.json", _fresh_bundle_payload(_SHA_A))
+    _write_artifact(
+        tmp_path,
+        "risk-ledger.json",
+        {
+            "schema_version": LEDGER_SCHEMA_VERSION,
+            "rows": [
+                {
+                    "risk_id": "R1",
+                    "risk": "demo risk",
+                    "source_anchor": "src/demo.py:1",
+                    "test": "tests/test_demo.py::test_demo",
+                    "evidence_status": "accepted_residual",
+                    "residual": "accepted",
+                }
+            ],
+        },
+    )
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "insufficient_evidence"
+
+
+def test_abbreviated_bundle_sha_from_subdir_remains_ready(tmp_path):
+    """Scenario 6: prefix-equivalent abbreviated/full shas stay non-conflicting
+    through the report-time HEAD path too."""
+    sub, head = _subdir_of_git_repo(tmp_path)
+    _write_artifact(sub, "context-bundle.json", _fresh_bundle_payload(head[:12]))
+    report = generate_report(sub, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "ready"
+
+
+def test_bundle_without_head_sha_keeps_partial_contract_on_non_git_root(tmp_path):
+    """head_sha stays optional: a partial bundle with no sha has nothing to
+    verify, so the existing contract (fresh pass ⇒ ready) is unchanged."""
+    payload = _fresh_bundle_payload(_SHA_A)
+    del payload["head_sha"]
+    _write_artifact(tmp_path, "context-bundle.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "ready"
+    assert report.warnings == []
+
+
+def test_unverifiable_bundle_evidence_stream_is_not_trustworthy(tmp_path):
+    """The evidence table must not vouch for a fact the verdict refuses: an
+    unverifiable fresh pass renders trustworthy=False (the page reads
+    "trustworthy: no"), while its freshness stays as supplied (not stale)."""
+    _write_artifact(tmp_path, "context-bundle.json", _fresh_bundle_payload(_SHA_A))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    by_name = {e.name: e for e in report.evidence}
+    assert by_name["tests"].trustworthy is False
+    assert by_name["ci"].trustworthy is False
+    assert by_name["tests"].freshness == "fresh"
+    assert report.readiness.state == "insufficient_evidence"
+
+
+def test_other_spawn_failure_is_unverifiable_not_a_crash(tmp_path, monkeypatch):
+    """A git spawn failure other than not-found (permission denied, exec format)
+    is still "HEAD unavailable": the report degrades honestly instead of raising."""
+    import sumo_qa.report_builder as rb
+
+    def _denied(*args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(rb.subprocess, "run", _denied)
+    sha, reason = _detect_report_head(tmp_path)
+    assert sha is None
+    assert reason == "git could not be executed (PermissionError: denied)"
+    _write_artifact(tmp_path, "context-bundle.json", _fresh_bundle_payload(_SHA_A))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "insufficient_evidence"
+    assert any("PermissionError: denied" in w for w in report.warnings)
+
+
+def test_ledger_only_evidence_keeps_its_contract_beside_a_factless_sha_bundle(tmp_path):
+    """Decision-table row pinned on purpose: a bundle that names a head_sha but
+    carries NO test/CI facts contributes nothing to readiness, so ledger-only
+    passing evidence still derives ready (the same as with no bundle at all).
+    #401 scopes the unverifiable rule to bundle-supplied evidence."""
+    _write_artifact(
+        tmp_path,
+        "context-bundle.json",
+        {
+            "schema_version": "1.0",
+            "head_sha": _SHA_A,
+            "changed_files": [{"path": "src/demo.py", "change_kind": "modified"}],
+        },
+    )
+    _write_artifact(
+        tmp_path,
+        "risk-ledger.json",
+        {
+            "schema_version": LEDGER_SCHEMA_VERSION,
+            "rows": [
+                {
+                    "risk_id": "R1",
+                    "risk": "demo risk",
+                    "source_anchor": "src/demo.py:1",
+                    "test": "tests/test_demo.py::test_demo",
+                    "evidence_status": "passing",
+                    "residual": "accepted",
+                }
+            ],
+        },
+    )
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    assert report.readiness.state == "ready"
+    # ...but the page still warns that the bundle itself was not verified.
+    assert any("not verified" in w for w in report.warnings)
+
+
+def test_unverifiable_bundle_evidence_dimension_is_not_ok(tmp_path):
+    """The scorecard dimensions the report is built from must not read ok for
+    bundle evidence that was never verified against the local tree."""
+    from sumo_qa.scorecard_models import QaScorecard
+
+    inputs = load_report_inputs(
+        tmp_path, bundle_override=ContextBundle.model_validate(_fresh_bundle_payload(_SHA_A))
+    )
+    assert inputs.current_commit is None
+    card = QaScorecard(context_bundle=inputs.bundle)
+    by_name = {d.name: d.status for d in card.dimensions(local_head_sha=inputs.current_commit)}
+    assert by_name["Test evidence"] == "unverified"
+    assert by_name["CI status"] == "unverified"

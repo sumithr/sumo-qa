@@ -1425,7 +1425,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
           absent ⇒ reported as "not measured", never assumed passing, and never
           allowed to outweigh an uncovered high-impact risk.
         * ``scope`` — optional label (a PR title, a release name).
-        * ``local_head_sha`` — optional live local head, to flag a stale bundle.
+        * ``local_head_sha``: the host's live local head. Flags a stale bundle
+          when it differs from the bundle's ``head_sha``. When the bundle names
+          a ``head_sha`` and this is omitted, the bundle is UNVERIFIABLE and its
+          fresh-passing facts cannot support ``ready`` (a distinct reason, not
+          "stale"). A bundle with no ``head_sha`` keeps the partial contract.
 
         Returns the four-state recommendation (ready / ready_with_accepted_
         residuals / blocked / insufficient_evidence), ``is_ready`` (true only for
