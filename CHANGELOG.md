@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.1](https://github.com/sumithr/sumo-qa/compare/v0.61.0...v0.61.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **report:** refuse ready when the bundle HEAD cannot be verified locally ([#644](https://github.com/sumithr/sumo-qa/issues/644)) ([2c3bbc6](https://github.com/sumithr/sumo-qa/commit/2c3bbc630a8b6c3069a55844ed788130fe336502))
+
 ## [0.61.0](https://github.com/sumithr/sumo-qa/compare/v0.60.9...v0.61.0) (2026-09-04)
 
 
