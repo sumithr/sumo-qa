@@ -600,7 +600,7 @@ def test_assembler_executes_root_plus_declared_modules_in_order():
     proc = subprocess.run(
         ["node", "-e", script, str(PROMPTFOO_DIR / "fixtures" / "assemble-review-skill.js"), *ids],
         capture_output=True,
-        text=True,
+        encoding="utf-8",  # node emits UTF-8; never the Windows locale codepage
         check=True,
     )
     payload = json.loads(proc.stdout)
