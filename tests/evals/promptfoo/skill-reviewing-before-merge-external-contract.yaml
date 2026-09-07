@@ -24,7 +24,8 @@ providers:
       seed: 42
 defaultTest:
   vars:
-    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, discovery-probes, external-contract, coverage-ledger, discharged-check]
     classifications: file://../../../knowledge/classifications.md
     loaded_techniques: file://../../../knowledge/techniques.md
   assert:

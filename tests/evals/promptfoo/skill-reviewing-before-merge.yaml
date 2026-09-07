@@ -9,7 +9,8 @@ providers:
       seed: 42
 defaultTest:
   vars:
-    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, discovery-probes, coverage-ledger]
     expected_shape: >-
       Final-turn evidence-led merge review verdict. Cites the named risks from
       prior turns (by short name or label, e.g. "Auth Bypass") and ties each to

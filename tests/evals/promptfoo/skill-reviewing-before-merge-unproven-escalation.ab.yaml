@@ -16,7 +16,8 @@ providers:
   - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-reasoning-candidate.yaml') }}
 defaultTest:
   vars:
-    skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content_new: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation]
     skill_content_old: file://fixtures/reviewing-before-merge-PRE-187.SKILL.md
     loaded_techniques: file://../../../knowledge/techniques.md
   assert:

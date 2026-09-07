@@ -31,7 +31,8 @@ from pathlib import Path
 import pytest
 
 SKILLS_DIR = Path(__file__).parent.parent / "skills"
-SKILL_PATHS = sorted(SKILLS_DIR.glob("*/SKILL.md"))
+# Root bodies AND lazy modules (#451): a module is served skill text too.
+SKILL_PATHS = sorted(SKILLS_DIR.glob("*/SKILL.md")) + sorted(SKILLS_DIR.glob("*/modules/*.md"))
 
 # Tokens that would indicate a skill body started routing through the export
 # capability (and therefore grew the default skill payload). The tool name is the
@@ -45,14 +46,14 @@ _EXPORT_MARKERS = (
 )
 
 
-@pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: p.parent.name)
+@pytest.mark.parametrize("skill_path", SKILL_PATHS, ids=lambda p: str(p.relative_to(SKILLS_DIR)))
 def test_no_skill_body_references_the_export_capability(skill_path):
     """Every default skill body must be free of the export capability, proving
     the export tool did not grow any per-activation skill payload."""
     text = skill_path.read_text(encoding="utf-8").lower()
     hits = [marker for marker in _EXPORT_MARKERS if marker in text]
     assert not hits, (
-        f"{skill_path.parent.name}/SKILL.md references the export capability "
+        f"{skill_path.relative_to(SKILLS_DIR)} references the export capability "
         f"({hits}); the export tool is opt-in and must not be wired into a "
         f"default skill flow without a deliberate token-budget decision in "
         f"test_skill_md_token_budget.py."

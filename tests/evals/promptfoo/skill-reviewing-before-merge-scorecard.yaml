@@ -13,7 +13,8 @@ providers:
       seed: 42
 defaultTest:
   vars:
-    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, context-inputs, coverage-ledger, ledger-appendix, readiness-scorecard]
     expected_shape: >-
       Final-turn merge-review verdict that LEADS with the prose answer (named
       risks + fresh test evidence + a NOT SAFE TO MERGE call), then appends a QA

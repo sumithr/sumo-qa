@@ -22,7 +22,8 @@ providers:
   - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-reasoning-candidate.yaml') }}
 defaultTest:
   vars:
-    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation]
     classifications: file://../../../knowledge/classifications.md
     approaches: file://../../../knowledge/approaches.md
     principles: file://../../../knowledge/principles.md
@@ -188,6 +189,7 @@ prompts:
 tests:
   - description: generated-artifact-drift — version bump not propagated to the generated manifest (PR #194)
     vars:
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation, inventory-drift]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -240,6 +242,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: weak-assertion — test diff weakens a conformance assertion to a substring (PR #170)
     vars:
+      review_modules: [runtime-scope, test-only-diff]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -402,6 +405,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: contract-vs-signature — docstring "Never raises" envelope contract contradicted by required args (issue #294 / PR #285)
     vars:
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation, contract-and-fence-probes]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -458,6 +462,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: NEGATIVE CONTROL docs-only typo — B must stay lightweight, no invented runtime risk
     vars:
+      review_modules: [runtime-scope]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |

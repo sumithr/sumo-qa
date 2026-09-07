@@ -384,6 +384,19 @@ source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-feedback-memory.ab.yaml --no-cache --repeat 3
 ```
 
+## Reviewing-before-merge module assembly (issue #451)
+
+`sumo-qa-reviewing-before-merge` ships as a compact routing root (`SKILL.md`) plus lazy modules under `skills/sumo-qa-reviewing-before-merge/modules/*.md` that a host fetches with `sumo_qa_load_skill_context(mode="module")` only when the diff shape needs them. The eval matrix mirrors that: no `skill-reviewing-before-merge*.yaml` loads the whole body any more. Instead every config points its live skill var at the shared dynamic var `fixtures/assemble-review-skill.js` and declares the module set its scenario requires:
+
+```yaml
+defaultTest:
+  vars:
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, discovery-probes, coverage-ledger]
+```
+
+The JS var concatenates the root and the declared modules verbatim (each under a `--- MODULE <id> ---` banner after a `LOADED MODULES` heading), so the candidate sees exactly what a host would have loaded. A seed can override `review_modules` in its own `vars:` (the adversarial corpus does this for its docs-only negative control, test-only weak-assertion seed, generated-artifact-drift seed and contract-vs-signature seed). `review_modules` is mandatory (`[]` is an explicit root-only declaration); an unknown module id fails the eval loudly rather than grading a silently wrong skill slice. `.ab.yaml` controls keep their frozen `fixtures/*-PRE-*.SKILL.md` A0 bodies; only `skill_content_new` goes through the assembler. Never declare every module: `tests/test_review_skill_modules.py` fails a config that loads the whole set unconditionally, one that declares an unknown id, and a shipped module no config exercises.
+
 ## How to run
 
 ### One-time setup
@@ -653,7 +666,7 @@ Two patterns are used depending on the skill's shape:
 For skills where each scenario has a per-scenario ground-truth context
 (synthetic code / diff / sibling test), a single YAML file holds everything:
 
-1. `skill_content: file://...` in `defaultTest.vars`
+1. `skill_content: file://...` in `defaultTest.vars` (for `skill-reviewing-before-merge*` this is the `fixtures/assemble-review-skill.js` dynamic var plus a `review_modules` declaration, see above)
 2. ONE seed test inline (with `vars.ground_truth_context`)
 3. Skill-level rubric in `defaultTest.vars` (`expected_shape`, `anti_patterns`, `technique_tag`)
 4. Decision-table rubric prompt in `defaultTest.options.rubricPrompt`
@@ -747,6 +760,7 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
 | `aggregate.py` | Variance aggregator for multi-sample runs |
+| `fixtures/assemble-review-skill.js` | Shared dynamic var for every `skill-reviewing-before-merge*` config: assembles the compact root + the seed's declared `review_modules` from the canonical `skills/sumo-qa-reviewing-before-merge/` files (issue #451); no mirrored prose lives here |
 | `asserts/cites-catalogue-technique.js` | Shared `javascript` grounding assertion for the three `skill-implementing-with-tdd*` configs; passes when the candidate cites a technique whose name is a `###` heading in `knowledge/techniques.md`, derived from the catalogue (single source of truth) instead of a hardcoded six-technique allowlist (issue #350) |
 | `README.md` | This file |
 

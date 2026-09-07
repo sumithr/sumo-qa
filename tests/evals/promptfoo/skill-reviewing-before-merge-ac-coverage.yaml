@@ -108,7 +108,8 @@ prompts:
 tests:
   - description: AC UNMET — one supplied criterion has no covering change/evidence → NOT SAFE
     vars:
-      skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+      skill_content: file://fixtures/assemble-review-skill.js
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, acceptance-criteria, ac-evidence-views]
       user_prompt: >-
         Is this safe to merge? Here are the ticket's acceptance criteria — check
         the PR delivers them.
@@ -169,7 +170,8 @@ tests:
 
   - description: All ACs met against fresh tests → SAFE-eligible
     vars:
-      skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+      skill_content: file://fixtures/assemble-review-skill.js
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, acceptance-criteria, ac-evidence-views]
       user_prompt: >-
         Is this safe to merge? Acceptance criteria for the ticket are below —
         confirm the PR delivers each one.
@@ -230,7 +232,8 @@ tests:
 
   - description: AC plausibly implemented but no end-to-end evidence → UNVERIFIED (not UNMET) → NOT SAFE
     vars:
-      skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+      skill_content: file://fixtures/assemble-review-skill.js
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, acceptance-criteria, ac-evidence-views]
       user_prompt: >-
         Is this safe to merge? The ticket's acceptance criteria are below —
         confirm the PR delivers each one.
