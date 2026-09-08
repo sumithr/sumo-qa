@@ -23,7 +23,7 @@ Do NOT deliver a verdict before running tests in this turn. "CI was green earlie
 
 ## Evidence-backed gate reporting
 
-Every gate claim (suite verdict, risk coverage, safe-to-merge call) carries a status (`passed` / `failed` / `skipped` / `blocked` / `unverified`) and, unless `skipped` or `unverified`, cites the ONE observed evidence item backing it by source (`command`, `tool_call`, `file_read`, `user_fact`, `external_ci`, `manual_observation`). Citing means NAMING the source and quoting the observation, as a labeled line: `Evidence (command): $ pytest tests/auth -q → 42 passed, 2 skipped`. A `passed` / `failed` / `blocked` claim with no cited source is an overstatement; `unverified` is the honest state when nothing was observed this turn. `SAFE TO MERGE` is a `passed` safe-to-merge gate, unreachable while any gate is `failed` / `blocked` / `unverified`.
+Every gate claim (suite verdict, risk coverage, safe-to-merge call) carries a status (`passed` / `failed` / `skipped` / `blocked` / `unverified`) and, unless `skipped` or `unverified`, cites the ONE observed evidence item backing it by source (`command`, `tool_call`, `file_read`, `user_fact`, `external_ci`, `manual_observation`). Citing means NAMING the source and quoting the observation, as a labeled line: `Evidence (command): $ pytest tests/auth -q → 42 passed, 2 skipped`. Test names or counts alone, with no labeled source behind them, do NOT count as a cite. A `passed` / `failed` / `blocked` claim with no cited source is an overstatement; `unverified` is the honest state when nothing was observed this turn. `SAFE TO MERGE` is a `passed` safe-to-merge gate, unreachable while any gate is `failed` / `blocked` / `unverified`. Keep it compact: a status word + a short source cite per line, never a second dump.
 
 ## When to Use
 
@@ -88,12 +88,12 @@ The verdict line is the LAST line. For a runtime change (per `runtime-scope`), b
 2. A coverage-ledger line per risk as pinned in `coverage-ledger`, plus the 2a/2b/2c/2d extension rows a present risk class requires.
 3. `Touched files:` citing every diff path verbatim (e.g. `app/auth/session.py, tests/billing/test_checkout.py`).
 4. `Change shape:` one phrase anchored to the touched files (e.g. `auth predicate + billing checkout ordering, both runtime`).
-5. The verification command, quoted verbatim as a LABELED evidence-source line (the gate-evidence source cite): `Evidence (command): $ <verification command> → <counts>`. A command or counts appearing without the labeled source is not a cite.
+5. The verification command, quoted verbatim as a LABELED evidence-source line (the gate-evidence source cite): `Evidence (command): $ <verification command> → <counts>`.
 6. The test counts verbatim (`X passed, Y skipped, Z failed`).
 7. **AC lines** when criteria were supplied, one per criterion as pinned in `acceptance-criteria` (MET ones too); else exactly `No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`
 8. **Verification-evidence lines** that apply, as pinned in `surface-verifier`, `feature-flow`, `eval-validity`; each a SAFE-blocker until discharged.
 
-A runtime verdict emitted before all six (and item 7 when ACs are present, item 8 when the change touches a verifiable surface / feature flow / guard / eval-driven skill) are present is a discipline violation. A trivial diff follows `runtime-scope`'s exemption and a test-only diff the `Test probe:` discipline in `test-only-diff`; items 1, 3, 4, 5, 6 stay mandatory in every mode.
+A runtime verdict emitted before all six (plus item 7 when ACs are present, item 8 when the change touches a verifiable surface / feature flow / guard / eval-driven skill) is a discipline violation. A trivial diff follows `runtime-scope`'s exemption and a test-only diff the `Test probe:` discipline in `test-only-diff`; items 1, 3, 4, 5, 6 stay mandatory in every mode.
 
 ## Process Flow
 

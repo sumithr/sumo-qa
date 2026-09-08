@@ -46,7 +46,7 @@ flowchart LR
 
 ## 1. Skills (markdown): the orchestration layer
 
-Each skill is a single `skills/<name>/SKILL.md` with:
+Each skill is a `skills/<name>/SKILL.md` root, plus optional lazy `skills/<name>/modules/*.md` the root's routing table loads on demand (`sumo-qa-reviewing-before-merge` ships 19), with:
 
 - YAML frontmatter (`name` + `description`) used by hosts to auto-trigger
 - An Iron Law: non-negotiable rule for the skill
@@ -54,7 +54,7 @@ Each skill is a single `skills/<name>/SKILL.md` with:
 - A Checklist (numbered items the host LLM works through; each is tracked as an entry in the host's ordered work tracker)
 - A Process Flow section
 - A Red Flags table (rationalisations to reject)
-- Good/Bad examples
+- Good/Bad examples, where the skill carries them (a module-split root routes to worked contrasts in its modules instead)
 
 All senior-QA discipline lives here. There is no Python file that decides
 which approach a change needs, or what techniques apply to a risk, or which

@@ -171,11 +171,15 @@ SAFE. Runs on the Claude pair; the probe is reasoning-heavy (detect a
 self-referential assertion, derive a date), so on the retired OpenAI pair it was
 measured with the `gpt-5-mini` candidate and `gpt-5.5` judge. No `.ab.yaml`
 ships for this seed; to isolate the #255 probe behaviour by hand, run the eval
-once on this branch (tautology seed PASS), then check the SKILL.md back to its
-pre-probe state — `git checkout origin/main -- skills/sumo-qa-reviewing-before-merge/SKILL.md`
-— and re-run; the tautology seed flips to FAIL, confirming the verdict comes
-from the added probe rather than the corpus. Restore with
-`git checkout HEAD -- skills/sumo-qa-reviewing-before-merge/SKILL.md`.
+once on this branch (tautology seed PASS), then remove the probe: since #451 it
+lives in the lazy module `skills/sumo-qa-reviewing-before-merge/modules/test-only-diff.md`,
+not in `SKILL.md`, so either blank that module's "Test-only-diff probe (pinned)"
+paragraph or drop `test-only-diff` from the seed's `review_modules` declaration,
+and re-run; the tautology seed flips to FAIL, confirming the verdict comes
+from the probe rather than the corpus. Restore with
+`git checkout HEAD -- skills/sumo-qa-reviewing-before-merge/modules/test-only-diff.md`
+(or the whole `skills/sumo-qa-reviewing-before-merge/` directory) and the
+original `review_modules` list.
 
 ```bash
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-vacuous-test.yaml --no-cache
@@ -392,9 +396,13 @@ defaultTest:
   vars:
     skill_content: file://fixtures/assemble-review-skill.js
     review_modules: [runtime-scope, discovery-probes, coverage-ledger]
+  options:
+    disableVarExpansion: true
 ```
 
-The JS var concatenates the root and the declared modules verbatim (each under a `--- MODULE <id> ---` banner after a `LOADED MODULES` heading), so the candidate sees exactly what a host would have loaded. A seed can override `review_modules` in its own `vars:` (the adversarial corpus does this for its docs-only negative control, test-only weak-assertion seed, generated-artifact-drift seed and contract-vs-signature seed). `review_modules` is mandatory (`[]` is an explicit root-only declaration); an unknown module id fails the eval loudly rather than grading a silently wrong skill slice. `.ab.yaml` controls keep their frozen `fixtures/*-PRE-*.SKILL.md` A0 bodies; only `skill_content_new` goes through the assembler. Never declare every module: `tests/test_review_skill_modules.py` fails a config that loads the whole set unconditionally, one that declares an unknown id, and a shipped module no config exercises.
+`defaultTest.options.disableVarExpansion: true` is load-bearing, not boilerplate: `review_modules` is a list, and promptfoo expands an array-valued var into one test case per element unless expansion is disabled, so without the option the assembler would receive a bare string (and throw) or grade a one-module slice per row. `tests/test_review_skill_modules.py` fails any `skill-reviewing-before-merge*.yaml` that declares `review_modules` without it.
+
+The JS var concatenates the root and the declared modules verbatim (each under a `--- MODULE <id> ---` banner after a `LOADED MODULES` heading), so the candidate sees exactly what a host would have loaded. A seed can override `review_modules` in its own `vars:` (the adversarial corpus does this for its docs-only negative control, its two test-only seeds (weak-assertion and protocol-timeout-cleanup, which add `test-only-diff`), the generated-artifact-drift seed and the contract-vs-signature seed). `review_modules` is mandatory (`[]` is an explicit root-only declaration); an unknown module id fails the eval loudly rather than grading a silently wrong skill slice. `.ab.yaml` controls keep their frozen `fixtures/*-PRE-*.SKILL.md` A0 bodies; the live leg goes through the assembler, whichever var carries it (`skill_content` in `skill-reviewing-before-merge.ab.yaml` and `-adversarial.ab.yaml`, `skill_content_new` in the pre/post controls). Never declare every module: `tests/test_review_skill_modules.py` fails a config that loads the whole set unconditionally, one that declares an unknown id, and a shipped module no config exercises.
 
 ## How to run
 
@@ -878,7 +886,7 @@ renders.
 
 ## A/B value-measurement (experimental)
 
-This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the full SKILL.md. The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` controls exist for a subset of skills and corpora (`ls tests/evals/promptfoo/*.ab.yaml`); the pattern is not rolled across the whole estate.
+This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the skill (for `reviewing-before-merge`, the root `SKILL.md` plus the modules the config declares, assembled by `fixtures/assemble-review-skill.js`; for other skills, the whole `SKILL.md`). The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` controls exist for a subset of skills and corpora (`ls tests/evals/promptfoo/*.ab.yaml`); the pattern is not rolled across the whole estate.
 
 A control only measures lift if A0 cannot pass on material the prompt already hands it; otherwise document the seed as non-discriminating in the config header, or add a seed that targets a taught behaviour A0 is not given. In `skill-strengthening-tests.ab.yaml`, the three original seeds do not discriminate on the Claude pair; the production-defect seed does.
 

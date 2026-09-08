@@ -10,7 +10,7 @@ Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_co
 
 ## Surface-verifier line (Verdict-format item 8)
 
-8. **Verification-evidence lines (step 9's verification-evidence discipline).** Emit the lines that apply to this diff, each a SAFE-blocker when its status is not DISCHARGED:
+**Verification-evidence lines (step 9's verification-evidence discipline).** Emit the lines that apply to this diff, each a SAFE-blocker when its status is not DISCHARGED:
 
 - Surface verifier (always, on a runtime/skill/eval change): `Surface verifier: <verifier — the eval's FULL config path quoted verbatim from the diff/context, e.g. tests/evals/promptfoo/skill-<area>-<feature>.yaml (never a truncated stem) | NONE identifiable> | Ran: <YES (runtime/env/key/scope/tree cited — for eval-surface, Node 24 + key) | NO | WRONG CONTEXT (which)> | Combined-tree (if sibling PRs co-edit): <YES | NO | N/A> | Status: <DISCHARGED | N/A (no identifiable verifier surface — non-blocking) | UNVERIFIED (surface verifier) — SAFE-blocker>`
 

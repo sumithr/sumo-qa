@@ -4,7 +4,7 @@ Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_co
 
 ## Code-shape probes (step 4)
 
-The probes below map a code-shape signal to the defect class to suspect:
+These probes map a code-shape signal to the defect class to suspect:
 
 - **Reordered statements in a write/persist path** → an intermediate state is now observable or persisted; on partial failure it can leave invalid/partial state (rollback / data-loss).
 - **A removed, loosened, or inverted guard/conditional** → the path it blocked is now reachable; name what that exposes.
@@ -22,9 +22,9 @@ The security-relevant surface, external-output, declared-invariant, and fence-pa
 
 **Discovery → verdict (pinned).** A defect this sweep surfaces that the fresh tests do not cover is a NAMED RISK, mapped through the coverage ledger (step 9) as UNCOVERED. It is a SAFE-blocker → NOT SAFE TO MERGE. Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict, and do NOT call it covered because a green test runs nearby — a green run that uses a happy fixture, ingests into an empty target, runs from the repo root, or hits only one platform/matrix leg does NOT cover the overwrite / deleted-entry / subdirectory / other-OS path. Treating it as coverage is the bypass that ships these defects; this demotion is the exact failure this pass exists to prevent.
 
-The sweep produces 3–7 named risks, each citing a specific file + line + the domain meaning — NOT generic ("edge cases", "untested paths"). **Skip the sweep only for the trivial-change exemption below** (genuinely non-executable diffs — docs, and tool-only / static config with no runtime consumer); running it there manufactures phantom runtime risk, the negative-control failure mode. The sweep keys on **executable behaviour, not path prefix** (see the runtime-change definition in *Verdict-format discipline*): an executable hook/script/automation under `.claude/hooks/`, `scripts/`, or any non-`src/` location gets the same mandatory sweep as a library module.
+The sweep produces 3–7 named risks, each citing a specific file + line + the domain meaning — NOT generic ("edge cases", "untested paths"). **Skip the sweep only for the trivial-change exemption in `runtime-scope`** (genuinely non-executable diffs — docs, and tool-only / static config with no runtime consumer); running it there manufactures phantom runtime risk, the negative-control failure mode. The sweep keys on **executable behaviour, not path prefix** (see the runtime-change definition in `runtime-scope`): an executable hook/script/automation under `.claude/hooks/`, `scripts/`, or any non-`src/` location gets the same mandatory sweep as a library module.
 
-## The two-pass split (step 10)
+## The two-pass split (steps 4 and 9)
 
 **The two-pass split (pinned).** In the `/work-issue` pipeline this review is pass 1; an adversarial codex pass runs after it. The catch this skill must NOT outsource: when it can name a precision/recall risk and the technique has a catalogued failure mode, it prescribes the discriminating input ITSELF (step 9 / 2b) — it does not defer that to codex. Pushing the catch into this phase is what makes the review scale when codex isn't available (CI-only runs, limited codex tokens). Codex remains a second independent check, never the only place an UNPROVEN risk gets a discriminating input.
 
