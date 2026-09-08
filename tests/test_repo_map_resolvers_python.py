@@ -474,6 +474,19 @@ def test_resolve_relative_import_does_not_merge_portions_from_shallower_roots():
     assert resolver.resolve("app/pkg/m.py", imp, with_own) == ["app/pkg/x.py"]
 
 
+def test_resolve_relative_import_resolves_own_portion_despite_a_shallower_regular_package():
+    # The true-edge direction of the single-anchored-root rule, and the case a
+    # multi-prefix relative search gets WRONG: pkg/__init__.py at the repo root
+    # makes `pkg` a regular package THERE, which under a multi-prefix search
+    # takes ownership of the component and suppresses the edge entirely. The
+    # anchored root is app/, and CPython with sys.path=["app"] imports
+    # app/pkg/x.py, so the edge must be emitted. Guards against a revert of the
+    # single-root anchoring, which the false-edge case above cannot catch.
+    imp = RawImport(module="", level=1, names=("x",), function_local=False)
+    files = {"app/pkg/m.py", "app/pkg/x.py", "pkg/__init__.py"}
+    assert resolver.resolve("app/pkg/m.py", imp, files) == ["app/pkg/x.py"]
+
+
 def test_resolve_relative_import_never_escapes_a_regular_package_chain():
     # pkg/ is a regular package (pkg/__init__.py), so the importer is pkg.sub.m
     # rooted at the repo root and `from . import x` is `pkg.sub.x`, confined to

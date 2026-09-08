@@ -205,7 +205,7 @@ What the slice-2 scanner produces:
   `from . import x` alike; for an absolute import PEP 420 namespace portions
   merge across roots in order and never beat a regular package at a shallower
   root; a relative import is rooted at the parent of the topmost regular
-  package above the importer and searches that root ALONE, because its dots
+  package above its anchored package and searches that root ALONE, because its dots
   name the importer's own package, so portions under shallower roots are a
   deliberate under-edge rather than a guessed one),
   **TypeScript/JavaScript** (relative-path resolution with extension probing

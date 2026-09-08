@@ -12,11 +12,11 @@ Resolution rules (ported from UA, then aligned with the import system):
   importing file's package. ``from . import x`` (level 1) looks in the
   importer's own package; ``from .. import x`` (level 2) one package up. The
   anchored package's root is the parent of the topmost regular package above
-  it (its own parent when there is none), and from there it follows the
-  same component walk as an absolute import: a regular package confines the
-  lookup, a namespace package's portions under shallower roots merge, and
-  nothing is emitted when a shallower root owns the package outright (the
-  importer's directory is not that package).
+  it (its own parent when there is none), and that root is the ONLY search
+  prefix: the dots name the importer's own package, which is rooted in a
+  single ``sys.path`` entry, so portions under shallower roots do not merge
+  in. From there it runs the same component walk as an absolute import, over
+  that one prefix rather than a whole ancestor chain.
 - **Absolute imports** walk the importer's ancestors as candidate roots,
   **deepest first** (the effective ``sys.path`` order), so a monorepo /
   multi-root layout resolves against the nearest source root before a
