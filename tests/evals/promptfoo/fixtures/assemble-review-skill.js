@@ -28,8 +28,6 @@ const path = require('path');
 const SKILL_DIR = path.resolve(
   __dirname, '..', '..', '..', '..', 'skills', 'sumo-qa-reviewing-before-merge',
 );
-const ROOT_PATH = path.join(SKILL_DIR, 'SKILL.md');
-const MODULES_DIR = path.join(SKILL_DIR, 'modules');
 const MODULE_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // Normalise CRLF to LF so the assembled prompt is byte-identical across
@@ -38,14 +36,17 @@ function readText(file) {
   return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 }
 
-function readModule(id) {
+// `skillDir` defaults to the shipped skill; tests pass a temp skill dir to
+// exercise the same assembly path over synthetic (e.g. CRLF) inputs.
+function readModule(id, skillDir = SKILL_DIR) {
   if (typeof id !== 'string' || !MODULE_ID_RE.test(id)) {
     throw new Error(`assemble-review-skill: illegal module id ${JSON.stringify(id)}`);
   }
-  const file = path.join(MODULES_DIR, `${id}.md`);
+  const modulesDir = path.join(skillDir, 'modules');
+  const file = path.join(modulesDir, `${id}.md`);
   if (!fs.existsSync(file)) {
-    const available = fs.existsSync(MODULES_DIR)
-      ? fs.readdirSync(MODULES_DIR).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3))
+    const available = fs.existsSync(modulesDir)
+      ? fs.readdirSync(modulesDir).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3))
       : [];
     throw new Error(
       `assemble-review-skill: unknown module id ${JSON.stringify(id)}; available: ${available.join(', ')}`,
@@ -54,10 +55,10 @@ function readModule(id) {
   return readText(file);
 }
 
-function assemble(moduleIds) {
-  const root = readText(ROOT_PATH);
+function assemble(moduleIds, skillDir = SKILL_DIR) {
+  const root = readText(path.join(skillDir, 'SKILL.md'));
   if (!moduleIds.length) return root;
-  const parts = moduleIds.map((id) => `--- MODULE ${id} ---\n${readModule(id).trimEnd()}\n--- END MODULE ${id} ---`);
+  const parts = moduleIds.map((id) => `--- MODULE ${id} ---\n${readModule(id, skillDir).trimEnd()}\n--- END MODULE ${id} ---`);
   return `${root.trimEnd()}\n\n--- LOADED MODULES (fetched via sumo_qa_load_skill_context mode="module") ---\n\n${parts.join('\n\n')}\n`;
 }
 

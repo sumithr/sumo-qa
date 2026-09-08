@@ -650,19 +650,25 @@ def test_assembler_executes_root_plus_declared_modules_in_order():
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not on PATH (the promptfoo runtime)")
 def test_assembler_normalises_injected_crlf_to_lf(tmp_path):
-    """Feed the assembler's file reader a CRLF file (what a Windows autocrlf
-    checkout produces) and require LF-only output; the real checkout files
-    carry no CR bytes, so only injected input proves the normalisation."""
-    crlf = tmp_path / "crlf.md"
-    crlf.write_bytes(b"# Title\r\n\r\nrule one\r\nrule two\r\n")
-    script = "const a = require(process.argv[1]); process.stdout.write(JSON.stringify(a.readText(process.argv[2])));"
+    """Assemble a synthetic skill whose root AND module are CRLF files (what a
+    Windows autocrlf checkout produces) through the SAME `assemble` path the
+    evals use, and require LF-only output equal to the LF form. The real
+    checkout files carry no CR bytes, so only injected input proves it."""
+    skill_dir = tmp_path / "sumo-qa-fake"
+    (skill_dir / "modules").mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_bytes(b"# Root\r\n\r\nalways-on rule\r\n")
+    (skill_dir / "modules" / "alpha.md").write_bytes(b"# Alpha\r\n\r\nmodule rule\r\n")
+    script = (
+        "const a = require(process.argv[1]);"
+        "process.stdout.write(JSON.stringify(a.assemble(['alpha'], process.argv[2])));"
+    )
     proc = subprocess.run(
         [
             "node",
             "-e",
             script,
             str(PROMPTFOO_DIR / "fixtures" / "assemble-review-skill.js"),
-            str(crlf),
+            str(skill_dir),
         ],
         capture_output=True,
         encoding="utf-8",
@@ -670,7 +676,8 @@ def test_assembler_normalises_injected_crlf_to_lf(tmp_path):
     )
     out = json.loads(proc.stdout)
     assert "\r" not in out
-    assert out == "# Title\n\nrule one\nrule two\n"
+    assert out.startswith("# Root\n\nalways-on rule\n")
+    assert "--- MODULE alpha ---\n# Alpha\n\nmodule rule\n--- END MODULE alpha ---" in out
 
 
 def test_assembler_reads_the_shipped_modules_not_a_mirror():
