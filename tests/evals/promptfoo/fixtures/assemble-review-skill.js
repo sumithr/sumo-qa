@@ -74,3 +74,4 @@ module.exports = function assembleReviewSkill(varName, prompt, otherVars) {
 
 module.exports.assemble = assemble;
 module.exports.readModule = readModule;
+module.exports.readText = readText;

@@ -466,6 +466,34 @@ def test_representative_paths_name_only_shipped_modules():
         assert len(ids) == len(set(ids)), f"{path_name} repeats a module"
 
 
+# The conditional module each representative path exists to exercise, and the
+# routing-table phrase that obligates it. Pinning both ties the measured path
+# to the table: dropping the module from the path OR rewording the row away
+# from its trigger fails here.
+PATH_CONDITIONAL_OBLIGATIONS: dict[str, dict[str, str]] = {
+    "ordinary-runtime-change": {"unproven-escalation": "any risk is UNPROVEN"},
+    "test-eval-only-change": {
+        "test-only-diff": "the diff touches only test files",
+        "surface-verifier": "ALWAYS for a skill or eval change",
+    },
+    "docs-config-change": {"inventory-drift": "generated artifact changed"},
+}
+
+
+def test_representative_paths_carry_their_conditional_modules():
+    """Each representative path loads the conditional module its change shape
+    triggers, and the routing row for that module still states the trigger."""
+    rows = {_ROUTING_ROW_RE.match(r).group(1): r for r in _routing_table_rows(_root_text())}
+    for path_name, obligations in PATH_CONDITIONAL_OBLIGATIONS.items():
+        for module_id, trigger in obligations.items():
+            assert module_id in REPRESENTATIVE_PATHS[path_name], (
+                f"{path_name} must load {module_id} (routing trigger: {trigger!r})"
+            )
+            assert trigger in rows[module_id], (
+                f"routing row for {module_id} no longer states its trigger {trigger!r}: {rows[module_id]!r}"
+            )
+
+
 def test_representative_paths_honour_the_routing_obligations():
     """The path lists are tied to what the root actually routes: every path
     loads `runtime-scope` (step 4 settles the diff shape with it), and the
@@ -589,7 +617,8 @@ def test_assembler_executes_root_plus_declared_modules_in_order():
     """Run the real assembler under node: the output is the root, then ONLY
     the declared modules, verbatim and in declared order; an unknown id
     throws instead of silently returning a wrong slice."""
-    ids = _shipped_module_ids()[:2]
+    ids = list(reversed(_shipped_module_ids()[:2]))  # deliberately NOT sorted
+    assert ids != sorted(ids)
     script = (
         "const a = require(process.argv[1]);"
         "process.stdout.write(JSON.stringify({"
@@ -617,6 +646,31 @@ def test_assembler_executes_root_plus_declared_modules_in_order():
         if other not in ids:
             assert f"--- MODULE {other} ---" not in out, f"undeclared module {other} was loaded"
     assert payload["err"] and "unknown module id" in payload["err"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not on PATH (the promptfoo runtime)")
+def test_assembler_normalises_injected_crlf_to_lf(tmp_path):
+    """Feed the assembler's file reader a CRLF file (what a Windows autocrlf
+    checkout produces) and require LF-only output; the real checkout files
+    carry no CR bytes, so only injected input proves the normalisation."""
+    crlf = tmp_path / "crlf.md"
+    crlf.write_bytes(b"# Title\r\n\r\nrule one\r\nrule two\r\n")
+    script = "const a = require(process.argv[1]); process.stdout.write(JSON.stringify(a.readText(process.argv[2])));"
+    proc = subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(PROMPTFOO_DIR / "fixtures" / "assemble-review-skill.js"),
+            str(crlf),
+        ],
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
+    )
+    out = json.loads(proc.stdout)
+    assert "\r" not in out
+    assert out == "# Title\n\nrule one\nrule two\n"
 
 
 def test_assembler_reads_the_shipped_modules_not_a_mirror():
