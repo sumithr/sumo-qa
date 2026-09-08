@@ -235,7 +235,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: FAMILY weak-assertion — reviewing a test diff that weakens a conformance assertion to a substring (PR #170)
     vars:
-      review_modules: [runtime-scope, test-only-diff]
+      review_modules: [runtime-scope, test-only-diff, discovery-probes]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -468,6 +468,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: FAMILY protocol-timeout-cleanup — teardown can raise on shutdown timeout after assertions passed (PR #121)
     vars:
+      review_modules: [runtime-scope, test-only-diff, discovery-probes, coverage-ledger, unproven-escalation]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |

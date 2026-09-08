@@ -23,7 +23,13 @@ safe:
 4. **Eval assembly** — every ``skill-reviewing-before-merge*.yaml`` promptfoo
    config assembles the root plus ONLY the modules it declares (through the
    shared ``fixtures/assemble-review-skill.js`` var), never the whole old
-   body and never every module unconditionally.
+   body and never every module unconditionally, and sets
+   ``defaultTest.options.disableVarExpansion: true`` so the ``review_modules``
+   list reaches the assembler intact.
+5. **Module self-containment** — every ``(pinned)`` rule keeps its body in
+   the paragraph under its header, and no module points at prose "below" /
+   "above" / at a root line number: cross-references name the module or root
+   step that holds the rule.
 
 Techniques: *build artifact contents verification* for the manifest/loader
 parity (assert against the served slice, not the source tree alone),
@@ -123,6 +129,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     ],
     "coverage-ledger": [
         "**Module-match rule (pinned):**",
+        "forbidden hallucinated bridges",
         "**Re-anchor first.**",
         "`Risk: <exact name> | Anchor: <diff file:line> | Required test path:",
         "**2c. External-contract extension (pinned).**",
@@ -145,6 +152,8 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     "acceptance-criteria": [
         "**Acceptance-criteria coverage (pinned).**",
         "`AC<n>: <criterion text> | Classification: <MET | UNMET | UNVERIFIED>",
+        # Pre-split step 10(d)'s closing sentence, dropped by the split.
+        "The verdict names each unmet/unverified criterion.",
     ],
     "ac-evidence-views": [
         "**Worked contrast — MET vs UNVERIFIED",
@@ -198,6 +207,9 @@ ROOT_ALWAYS_ON_RULES = (
     "NEVER CLAIM SAFE-TO-MERGE WITHOUT FRESH VERIFICATION EVIDENCE.",
     "<HARD-GATE>",
     "`Evidence (command): $ pytest tests/auth -q → 42 passed, 2 skipped`",
+    # The two gate-reporting clauses the split dropped (pre-split root line 26).
+    "Test names or counts alone, with no labeled source behind them, do NOT count as a cite.",
+    "Keep it compact: a status word + a short source cite per line, never a second dump.",
     "`SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`",
     "`No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`",
     "`no coverage/mutation artifact this turn — not measured`",
@@ -234,6 +246,49 @@ PINNED_RULE_MARKERS = (
     "**Trivial-change exemption (pinned):**",
     "**Verification-evidence discipline (pinned).**",
     "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
+)
+
+# Phrases that must sit in the SAME paragraph as their pinned header (not
+# merely somewhere in the file): the header is a label, the paragraph body is
+# the rule. Gutting a body while keeping its bold header fails here.
+PINNED_BODY_PHRASES: dict[str, tuple[str, ...]] = {
+    "**Module-match rule (pinned):**": ("forbidden hallucinated bridges",),
+    "**2b. UNPROVEN-escalation extension (pinned).**": (
+        "`UNPROVEN escalation: <risk name> | Discriminating input: <the input>",
+        "`UNPROVEN deferral: <risk name> | Accepted failure mode:",
+    ),
+    "**2c. External-contract extension (pinned).**": (
+        "`External-contract anchor: <file:line> | External source: <tool/CLI/API>",
+    ),
+    "**2d. Internal/self-produced declination (pinned).**": (
+        "`External-contract axis: NOT FIRED (internal/self-produced)",
+    ),
+    "**Test-only-diff (test_change) discipline (pinned):**": (
+        "`Test probe: <test name> | Discriminates broken→fixed?",
+    ),
+    "**Trivial-change exemption (pinned):**": (
+        "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
+    ),
+    "**External-contract rule (pinned).**": ("**Anti-over-discovery (pinned):**",),
+    "**Discharged-check discipline (anti-over-fire, pinned).**": (
+        "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**",
+    ),
+}
+# A pinned header with fewer body characters than this (up to the next pinned
+# header in the same paragraph, or the paragraph end) is a label with no rule.
+PINNED_BODY_MIN_CHARS = 80
+
+# Location references a module may NOT carry: after the split, "below" /
+# "above" / a root line number / a copied root list number point at prose that
+# is no longer in the same file. Every cross-reference names the module (or
+# root step) that holds the rule instead. Literal, so a recurrence is caught
+# byte-for-byte rather than by a fuzzy prose heuristic.
+DANGLING_MODULE_REFERENCE_PATTERNS = (
+    re.compile(r"\(below\)"),
+    re.compile(r"\b(?:rule|rows?|probes?|ledger|inspection|exemption) (?:below|above)\b"),
+    re.compile(r"coverage-ledger below"),
+    re.compile(r"SKILL\.md:\d+"),  # a root line anchor the split invalidated
+    re.compile(r"^\d+\. \*\*", re.MULTILINE),  # a root verdict-format list number
 )
 
 # A routing-table data row: `| \`module-id\` | <load when> |`. Every data row in
@@ -292,6 +347,26 @@ def _path_tokens(module_ids: list[str]) -> tuple[int, dict[str, int], int]:
     root = _approx_tokens(_root_text())
     per_module = {m: _approx_tokens(_module_text(m)) for m in module_ids}
     return root, per_module, root + sum(per_module.values())
+
+
+def _paragraph_containing(text: str, marker: str) -> str:
+    """The blank-line-delimited block that carries ``marker`` (headings are
+    their own blocks). Raises if the marker is absent."""
+    for block in re.split(r"\n\s*\n", text):
+        if marker in block:
+            return block
+    raise AssertionError(f"marker {marker!r} not found")
+
+
+def _pinned_body(paragraph: str, marker: str) -> str:
+    """The rule text that follows ``marker`` inside its paragraph, cut at the
+    next pinned header (two pinned rules can share one paragraph)."""
+    body = paragraph.split(marker, 1)[1]
+    cut = len(body)
+    for other in PINNED_RULE_MARKERS:
+        if other != marker and other in body:
+            cut = min(cut, body.index(other))
+    return body[:cut].strip()
 
 
 # --------------------------------------------------------------------------
@@ -409,6 +484,78 @@ def test_pinned_rule_block_appears_exactly_once_across_root_and_modules(marker):
     hits = {name: text.count(marker) for name, text in _all_skill_text().items() if marker in text}
     total = sum(hits.values())
     assert total == 1, f"pinned rule marker {marker!r} appears {total} times: {hits or 'nowhere'}"
+
+
+@pytest.mark.parametrize("marker", PINNED_RULE_MARKERS)
+def test_pinned_rule_keeps_its_body_in_the_same_paragraph(marker):
+    """A ``(pinned)`` header with its rule body gutted (label kept, prose
+    removed) must fail: the body after the marker, up to the next pinned
+    header or the paragraph end, carries the rule, and every phrase mapped to
+    that header lives in that same paragraph."""
+    for name, text in _all_skill_text().items():
+        if marker not in text:
+            continue
+        paragraph = _paragraph_containing(text, marker)
+        body = _pinned_body(paragraph, marker)
+        assert len(body) >= PINNED_BODY_MIN_CHARS, (
+            f"{name}: pinned rule {marker!r} has only {len(body)} chars of body: {body!r}"
+        )
+        for phrase in PINNED_BODY_PHRASES.get(marker, ()):
+            assert phrase in paragraph, (
+                f"{name}: {phrase!r} is not in the paragraph of its pinned header {marker!r}"
+            )
+
+
+def test_pinned_body_phrase_map_names_only_known_markers_and_mapped_phrases():
+    """Every PINNED_BODY_PHRASES key is a pinned marker and every phrase is
+    already pinned by LOAD_BEARING_RULES or PINNED_RULE_MARKERS, so the two
+    maps cannot drift apart silently."""
+    pinned_phrases = {p for phrases in LOAD_BEARING_RULES.values() for p in phrases}
+    pinned_phrases.update(PINNED_RULE_MARKERS)
+    for marker, phrases in PINNED_BODY_PHRASES.items():
+        assert marker in PINNED_RULE_MARKERS, marker
+        for phrase in phrases:
+            assert phrase in pinned_phrases, (
+                f"{phrase!r} is mapped to {marker!r} but pinned nowhere"
+            )
+
+
+def test_pinned_body_check_rejects_a_gutted_rule():
+    """Fault injection: gut the Module-match rule's body in a copy of its
+    module (header kept, so the exactly-once marker count stays green) and
+    require the body check to reject it."""
+    marker = "**Module-match rule (pinned):**"
+    text = _module_text("coverage-ledger")
+    paragraph = _paragraph_containing(text, marker)
+    healthy = _pinned_body(paragraph, marker)
+    assert len(healthy) >= PINNED_BODY_MIN_CHARS
+    assert "**External-contract exception (pinned):**" not in healthy, (
+        "the body must stop at the next pinned header, not swallow its neighbour"
+    )
+    gutted = text.replace(
+        paragraph,
+        f"{marker} see the ledger. **External-contract exception (pinned):** "
+        + paragraph.split("**External-contract exception (pinned):**", 1)[1],
+    )
+    assert gutted.count(marker) == 1
+    body = _pinned_body(_paragraph_containing(gutted, marker), marker)
+    assert len(body) < PINNED_BODY_MIN_CHARS, body
+    assert "forbidden hallucinated bridges" not in _paragraph_containing(gutted, marker)
+
+
+@pytest.mark.parametrize("module_id", _shipped_module_ids())
+def test_module_carries_no_dangling_location_reference(module_id):
+    """Module self-containment: a module never points at prose "below" /
+    "above" / at a root line number / with a copied root list number. Every
+    cross-module rule reference names the module (or root step) that holds
+    it (and says to load it when the rule is load-bearing for this check)."""
+    text = _module_text(module_id)
+    hits = [
+        f"{pat.pattern!r} at line {text[: m.start()].count(chr(10)) + 1}: {m.group(0)!r}"
+        for pat in DANGLING_MODULE_REFERENCE_PATTERNS
+        for m in pat.finditer(text)
+    ]
+    assert not hits, f"modules/{module_id}.md carries dangling location references: {hits}"
 
 
 def test_routing_table_rejects_malformed_rows():
@@ -599,6 +746,47 @@ def test_review_eval_assembles_root_plus_declared_modules_only(config_path):
         unknown = sorted(set(declared) - shipped)
         assert not unknown, f"{config_path.name} declares unknown modules {unknown}"
         assert set(declared) != shipped, f"{config_path.name} loads every module unconditionally"
+
+
+def _assert_var_expansion_disabled(config: dict, name: str) -> None:
+    """``review_modules`` is a LIST var. promptfoo expands an array-valued var
+    into one test case per element unless ``disableVarExpansion`` is set, so
+    the assembler would receive a bare string (and throw) or grade a
+    one-module slice per row. The option must be set per config, under
+    ``defaultTest.options``, whenever ``review_modules`` is declared."""
+    default_test = config.get("defaultTest") or {}
+    declares = "review_modules" in (default_test.get("vars") or {}) or any(
+        "review_modules" in (t.get("vars") or {}) for t in config.get("tests") or []
+    )
+    if not declares:
+        return
+    options = default_test.get("options") or {}
+    assert options.get("disableVarExpansion") is True, (
+        f"{name} declares review_modules (a list) but does not set "
+        "defaultTest.options.disableVarExpansion: true; promptfoo would expand the list "
+        "into per-module test cases and the assembler would grade the wrong slice"
+    )
+
+
+@pytest.mark.parametrize("config_path", REVIEW_EVAL_CONFIGS, ids=lambda p: p.name)
+def test_review_eval_declaring_modules_disables_var_expansion(config_path):
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    _assert_var_expansion_disabled(config, config_path.name)
+
+
+def test_var_expansion_check_rejects_a_config_that_drops_the_option():
+    """Fault injection on a parsed config: removing the option (or moving it
+    to the top level only) must be rejected; a config with no
+    review_modules declaration is out of scope."""
+    config = yaml.safe_load(REVIEW_EVAL_CONFIGS[0].read_text(encoding="utf-8"))
+    _assert_var_expansion_disabled(config, "healthy")
+    dropped = json.loads(json.dumps(config))
+    del dropped["defaultTest"]["options"]["disableVarExpansion"]
+    dropped["disableVarExpansion"] = True  # top-level only: not the per-test option
+    with pytest.raises(AssertionError, match="disableVarExpansion"):
+        _assert_var_expansion_disabled(dropped, "dropped")
+    root_only = {"defaultTest": {"vars": {"skill_content": ASSEMBLER_REF}}, "tests": []}
+    _assert_var_expansion_disabled(root_only, "no-declaration")
 
 
 def test_every_module_is_exercised_by_at_least_one_review_eval():

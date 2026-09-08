@@ -1,8 +1,10 @@
 # Skills
 
-The sumo-qa MCP ships a library of skills under [`skills/`](../skills/). Each is a single
-`SKILL.md` file the host LLM follows literally: YAML frontmatter, an Iron Law, a
-checklist, a Process Flow section, a Red Flags table, examples.
+The sumo-qa MCP ships a library of skills under [`skills/`](../skills/). Each is a
+`SKILL.md` root the host LLM follows literally (YAML frontmatter, an Iron Law, a
+checklist, a Process Flow section, a Red Flags table, and worked examples where the
+skill carries them), plus optional lazy `modules/*.md` the root's routing table loads
+on demand (`sumo-qa-reviewing-before-merge` ships 19).
 
 Each skill is also exposed as an MCP tool with the same name (e.g. `sumo_qa_deciding_approach`). The tool returns the SKILL.md body verbatim, so hosts that don't have a native skill loader (JetBrains AI Assistant, Junie, VS Code Copilot) get the same content.
 
@@ -43,7 +45,7 @@ flowchart LR
     class NoFit fallback
 ```
 
-Each skill is a single `SKILL.md` under [`skills/`](../skills/), carrying its own Iron Law and HARD-GATE. Browse that directory for the current set and per-skill detail, it is the source of truth, so this page deliberately does not re-list them.
+Each skill is a `SKILL.md` root under [`skills/`](../skills/), carrying its own Iron Law and HARD-GATE, plus optional lazy `modules/*.md` its routing table loads on demand (`sumo-qa-reviewing-before-merge` ships 19). Browse that directory for the current set and per-skill detail, it is the source of truth, so this page deliberately does not re-list them.
 
 ## Global discipline (declared in using-sumo-qa, inherited by all sub-skills)
 
@@ -79,5 +81,6 @@ Skills are plain markdown. Edit `skills/<name>/SKILL.md`; the change propagates 
 
 - Claude Code reads the symlinked file (and may cache the skill list at startup: restart Claude Code to refresh).
 - JetBrains AI Assistant / Junie / VS Code Copilot fetch the MCP tool body fresh on each invocation (no restart needed), BUT they cache the *tool list* at MCP-server start, so adding a NEW skill requires a host restart.
+- A skill with `modules/` (`sumo-qa-reviewing-before-merge`) keeps exactly one canonical copy of each rule, in the root or in one module, never both; the root's routing table must list every module (no orphan file, no dangling id); and a module names the module or root step that holds any rule it references rather than pointing "below" or "above". `tests/test_review_skill_modules.py` guards all of that, plus the root/module token budgets and the per-seed eval assembly.
 
 Conformance tests run in CI to catch structural drift.

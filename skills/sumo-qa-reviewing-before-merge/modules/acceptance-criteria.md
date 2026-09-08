@@ -14,9 +14,9 @@ This is **host-neutral and host-supplied**: NEVER fetch an issue, call `gh`, or 
 
 ## AC lines (Verdict-format item 7)
 
-7. **AC lines (whenever acceptance criteria were supplied — step 9).** One line per supplied criterion, regardless of verdict, in this exact shape — the MET ones are emitted too, never dropped on an all-MET SAFE path:
+**AC lines (whenever acceptance criteria were supplied — step 9).** One line per supplied criterion, regardless of verdict, in this exact shape — the MET ones are emitted too, never dropped on an all-MET SAFE path:
 `AC<n>: <criterion text> | Classification: <MET | UNMET | UNVERIFIED> | Anchor: <diff file:line + fully-qualified fresh test::name and verbatim assertion for MET; the criterion / the missing behaviour for UNMET/UNVERIFIED>`
-Every UNMET/UNVERIFIED line is a SAFE-blocker (step 10(d)). When no criteria were supplied, emit the root's pinned one-line fallback instead.
+Every UNMET/UNVERIFIED line is a SAFE-blocker (step 10(d)). The verdict names each unmet/unverified criterion. When no criteria were supplied, emit the root's pinned one-line fallback instead.
 
 ## Red Flags
 

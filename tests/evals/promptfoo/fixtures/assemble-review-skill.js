@@ -15,6 +15,13 @@
 // loudly rather than silently grading the wrong skill slice — a seed that
 // forgot its declaration would otherwise pass or fail for the wrong reason.
 //
+// `review_modules` is a LIST var, so every config that declares it MUST also
+// set `defaultTest.options.disableVarExpansion: true`. Without it promptfoo
+// expands an array-valued var into one test case per element, so this
+// function would receive a bare string (and throw) or grade a one-module
+// slice per row. tests/test_review_skill_modules.py fails a config that
+// declares `review_modules` without that option.
+//
 // Contract (kept in lockstep with tests/test_review_skill_modules.py):
 //   * root = skills/sumo-qa-reviewing-before-merge/SKILL.md, verbatim;
 //   * each module = skills/sumo-qa-reviewing-before-merge/modules/<id>.md,
