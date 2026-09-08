@@ -675,9 +675,11 @@ def test_assembler_normalises_injected_crlf_to_lf(tmp_path):
         check=True,
     )
     out = json.loads(proc.stdout)
-    assert "\r" not in out
-    assert out.startswith("# Root\n\nalways-on rule\n")
-    assert "--- MODULE alpha ---\n# Alpha\n\nmodule rule\n--- END MODULE alpha ---" in out
+    assert out == (
+        "# Root\n\nalways-on rule\n"
+        '\n--- LOADED MODULES (fetched via sumo_qa_load_skill_context mode="module") ---\n\n'
+        "--- MODULE alpha ---\n# Alpha\n\nmodule rule\n--- END MODULE alpha ---\n"
+    )
 
 
 def test_assembler_reads_the_shipped_modules_not_a_mirror():
