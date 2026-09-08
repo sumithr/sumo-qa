@@ -457,13 +457,21 @@ def test_resolve_absolute_regular_intermediate_under_discarded_portion_does_not_
 # ---------- relative imports inside a namespace package split across roots ----------
 
 
-def test_resolve_relative_import_merges_namespace_portions_from_shallower_roots():
-    # app/pkg/ has no __init__.py, and neither does pkg/ at the repo root: with
-    # sys.path [app, repo] both are portions of the namespace package `pkg`, so
-    # `from . import x` in app/pkg/m.py finds pkg/x.py (verified in CPython).
+def test_resolve_relative_import_does_not_merge_portions_from_shallower_roots():
+    # The dots of a relative import name the importer's OWN package, which is
+    # rooted in exactly one sys.path entry, so the anchored root is the only
+    # search prefix. app/pkg/ and pkg/ are portions of one namespace package
+    # only when BOTH app/ and the repo root are on sys.path; with the single
+    # root the file set actually evidences (app/), `from . import x` in
+    # app/pkg/m.py resolves to nothing rather than reaching pkg/x.py. CPython
+    # with sys.path=["app"] agrees: ImportError, cannot import name 'x'.
     imp = RawImport(module="", level=1, names=("x",), function_local=False)
     files = {"app/pkg/m.py", "pkg/x.py"}
-    assert resolver.resolve("app/pkg/m.py", imp, files) == ["pkg/x.py"]
+    assert resolver.resolve("app/pkg/m.py", imp, files) == []
+    # The importer's own portion is still reachable: the under-edge is only
+    # for portions that would have to come from a shallower root.
+    with_own = {"app/pkg/m.py", "app/pkg/x.py", "pkg/x.py"}
+    assert resolver.resolve("app/pkg/m.py", imp, with_own) == ["app/pkg/x.py"]
 
 
 def test_resolve_relative_import_never_escapes_a_regular_package_chain():
@@ -491,8 +499,9 @@ def test_resolve_relative_import_does_not_guess_a_root_above_a_namespace_parent(
 
 def test_resolve_relative_import_under_edges_when_a_shallower_root_owns_the_package():
     # pkg/__init__.py at the repo root makes `pkg` a regular package there, so
-    # app/pkg/ is NOT part of it (CPython: `import pkg.m` raises). The importer's
-    # own directory is not the package its dots name, so no edge is guessed.
+    # app/pkg/ is NOT part of it (CPython: `import pkg.m` raises). The single
+    # anchored root (app/) holds no `pkg` package of its own, and the repo-root
+    # one is not searched for a relative import, so no edge is guessed.
     imp = RawImport(module="", level=1, names=("x",), function_local=False)
     files = {"app/pkg/m.py", "pkg/__init__.py", "pkg/x.py"}
     assert resolver.resolve("app/pkg/m.py", imp, files) == []

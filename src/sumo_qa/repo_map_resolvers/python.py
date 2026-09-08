@@ -239,13 +239,6 @@ class PythonResolver:
             if anchor is None:
                 return []
             search, parts = anchor
-            owner = self._owner(search, parts[0], file_set)
-            if owner is not None and owner != search[0]:
-                # A shallower root owns the anchored package as a regular
-                # package or module, so the importer's own directory is not
-                # that package at all (the runtime cannot even import the
-                # importer under that name). Emit nothing rather than guess.
-                return []
         else:
             search = self._ancestor_roots(importer)
             parts = imp.module.split(".")
@@ -273,21 +266,31 @@ class PythonResolver:
         use), and the walk starts at the package itself, so ``from . import
         x`` keeps the containing barrel as a dependency.
 
-        The prefixes are that root and every ancestor of it, deepest first:
-        a regular anchored package confines the walk to itself, while a PEP
-        420 namespace package merges its portions under shallower roots
-        exactly as an absolute import does (``from . import x`` in
-        ``app/pkg/m.py`` with no ``__init__.py`` anywhere finds ``pkg/x.py``).
-        A namespace package whose real root is a shallower ancestor than its
-        parent (``app/pkg/sub/deep/`` imported as ``pkg.sub.deep`` from
-        ``app/``) is not guessed at: those portions stay unmerged, an
-        under-edge rather than a fabricated edge.
+        That root is the SINGLE search prefix -- unlike an absolute import,
+        a relative one does not also search the root's ancestors. A dotted
+        import names a package the runtime looks up across every
+        ``sys.path`` entry, but the dots of a relative import name the
+        importer's OWN package, which is rooted in exactly one of them.
+        Merging portions from shallower roots would emit edges the runtime
+        never loads: ``from . import x`` in ``app/pkg/m.py`` must not reach
+        a root-level ``pkg/x.py``, because ``app/pkg`` and ``pkg`` are the
+        same namespace package only when both ``app/`` and the repo root are
+        on ``sys.path``. Nothing in a file set says that, so those portions
+        stay unmerged -- an under-edge rather than a fabricated one, the
+        same convention used for a namespace package whose real root is a
+        shallower ancestor than its parent (``app/pkg/sub/deep/`` imported
+        as ``pkg.sub.deep`` from ``app/``).
 
-        A relative import that consumes ALL package components (``up ==
-        len``) or more walks past the top-level package -- Python rejects this
-        ("attempted relative import beyond top-level package"). Anchoring at
-        the repo root would fabricate a false edge to a root-level file, so
-        resolve nothing.
+        A relative import whose dots consume the importer's whole directory
+        path (``up >= len(package)``) is resolved as nothing: it has walked
+        off the top of the repo, and anchoring at the repo root would
+        fabricate a false edge to a root-level file. Note this counts
+        DIRECTORY components, not package ones, so it only catches the
+        overshoot when the package chain starts at the repo root. Dots that
+        climb past the topmost ``__init__.py`` into a directory that is
+        really a ``sys.path`` root still resolve, where the runtime raises
+        "attempted relative import beyond top-level package" -- a known
+        over-edge inherited from the previous resolver, not closed here.
         """
         package = importer.split("/")[:-1]  # the importer's package is its directory
         up = imp.level - 1  # `from .` (level 1) anchors at the importer's own package
@@ -303,8 +306,7 @@ class PythonResolver:
         ):
             top -= 1
         root = base[:top]
-        roots = [root[:i] for i in range(len(root), -1, -1)]
-        return roots, [*base[top:], *tail]
+        return [root], [*base[top:], *tail]
 
     @staticmethod
     def _ancestor_roots(importer: str) -> list[list[str]]:
