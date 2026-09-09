@@ -238,7 +238,8 @@ class PythonResolver:
             anchor = self._relative_anchor(importer, imp, file_set)
             if anchor is None:
                 return []
-            search, parts = anchor
+            root, parts = anchor
+            search = [root]  # exactly one prefix: see _relative_anchor
         else:
             search = self._ancestor_roots(importer)
             parts = imp.module.split(".")
@@ -246,10 +247,16 @@ class PythonResolver:
 
     def _relative_anchor(
         self, importer: str, imp: RawImport, file_set: set[str]
-    ) -> tuple[list[list[str]], list[str]] | None:
-        """Dot-anchored relative resolution: the search prefixes and the
-        dotted components to walk from them, or ``None`` when the dots
+    ) -> tuple[list[str], list[str]] | None:
+        """Dot-anchored relative resolution: the ONE search prefix and the
+        dotted components to walk from it, or ``None`` when the dots
         overshoot.
+
+        Returning a single prefix rather than a list of them is deliberate:
+        it makes the single-root rule below structural, so a later change
+        cannot quietly reintroduce cross-root merging (and with it the false
+        edge from ``app/pkg/m.py`` to a root-level ``pkg/x.py``) by appending
+        to a list. ``resolve`` wraps it for ``_walk``.
 
         ``level`` dots walk up from the importer's package directory. The
         importer's own directory is level 1 (``from .``), one up is level 2,
@@ -306,7 +313,7 @@ class PythonResolver:
         ):
             top -= 1
         root = base[:top]
-        return [root], [*base[top:], *tail]
+        return root, [*base[top:], *tail]
 
     @staticmethod
     def _ancestor_roots(importer: str) -> list[list[str]]:
@@ -424,7 +431,10 @@ class PythonResolver:
         module = f"{path}.py"
         if module in file_set and barrels:
             return barrels
-        return [module, *barrels] if module in file_set else barrels
+        # Past that guard `barrels` is empty whenever the module exists, so
+        # there is no module-plus-barrel result to build: that combination is
+        # precisely what #461 forbids.
+        return [module] if module in file_set else barrels
 
 
 register(PythonResolver())
