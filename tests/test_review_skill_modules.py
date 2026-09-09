@@ -248,11 +248,11 @@ PINNED_RULE_MARKERS = (
     "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
 )
 
-# Phrases that must sit in the SAME paragraph as their pinned header (not
-# merely somewhere in the file): the header is a label, the paragraph body is
-# the rule. Gutting a body while keeping its bold header fails here.
+# One distinctive body phrase per pinned header: it must sit in the BODY of
+# that header (after the marker, before the next pinned header in the same
+# paragraph), not merely somewhere in the file. The header is a label, the
+# body is the rule: gutting a body, or padding it with filler, fails here.
 PINNED_BODY_PHRASES: dict[str, tuple[str, ...]] = {
-    "**Module-match rule (pinned):**": ("forbidden hallucinated bridges",),
     "**2b. UNPROVEN-escalation extension (pinned).**": (
         "`UNPROVEN escalation: <risk name> | Discriminating input: <the input>",
         "`UNPROVEN deferral: <risk name> | Accepted failure mode:",
@@ -263,20 +263,67 @@ PINNED_BODY_PHRASES: dict[str, tuple[str, ...]] = {
     "**2d. Internal/self-produced declination (pinned).**": (
         "`External-contract axis: NOT FIRED (internal/self-produced)",
     ),
+    "**Acceptance-criteria coverage (pinned).**": (
+        "Surfacing every supplied criterion is MANDATORY, not verdict-conditional",
+    ),
+    "**Anti-over-discovery (pinned):**": (
+        "Do NOT then manufacture SPECULATIVE output-format-variant risks",
+    ),
+    "**Discharged-check discipline (anti-over-fire, pinned).**": (
+        "NOT on a manufactured extra blocker",
+    ),
+    "**Discovery → verdict (pinned).**": (
+        'Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict',
+    ),
+    "**Documented-inventory drift rule (pinned).**": (
+        "each path it surfaces is a separate UNCOVERED anchor that needs its own ledger row",
+    ),
+    "**External-contract exception (pinned):**": (
+        "Its evidence is REAL captured output, never a `tests/<module>/` test",
+    ),
+    "**External-contract rule (pinned).**": (
+        "a green matcher proves LOGIC, not that its INPUT matches reality",
+    ),
+    "**Module-match rule (pinned):**": ("forbidden hallucinated bridges",),
+    "**Producer test (apply first):**": (
+        "the axis fires ONLY when the value is produced by something the diff does NOT control",
+    ),
+    "**Re-anchor first.**": (
+        "Without an anchor you cannot apply the module-match rule and will hallucinate coverage",
+    ),
+    "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**": (
+        "is a RESIDUAL you LIST under `SAFE TO MERGE`; it MUST NOT flip the verdict",
+    ),
+    "**Technique-keyed failure-mode hints (pinned).**": (
+        "`unlocked` matches `locked`, `concurrency` matches `currency`",
+    ),
     "**Test-only-diff (test_change) discipline (pinned):**": (
         "`Test probe: <test name> | Discriminates broken→fixed?",
+    ),
+    "**Test-only-diff probe (pinned).**": (
+        "the expected value must be derived INDEPENDENTLY of the SUT",
+    ),
+    "**The two-pass split (pinned).**": (
+        "it prescribes the discriminating input ITSELF (step 9 / 2b)",
     ),
     "**Trivial-change exemption (pinned):**": (
         "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
     ),
-    "**External-contract rule (pinned).**": ("**Anti-over-discovery (pinned):**",),
-    "**Discharged-check discipline (anti-over-fire, pinned).**": (
-        "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**",
+    "**Verification-evidence discipline (pinned).**": ("One discipline, four checks",),
+    "**What counts as a runtime change (pinned — behaviour, not path prefix):**": (
+        "Keyed on what the file *does*, NOT on `app/`/`src/`/`lib/` location",
     ),
 }
 # A pinned header with fewer body characters than this (up to the next pinned
 # header in the same paragraph, or the paragraph end) is a label with no rule.
 PINNED_BODY_MIN_CHARS = 80
+# Any bold header on disk that says "(pinned" is a pinned marker; a new one
+# must be added to PINNED_RULE_MARKERS and PINNED_BODY_PHRASES to be guarded.
+_PINNED_HEADER_ON_DISK_RE = re.compile(r"\*\*[^*\n]*\(pinned[^*\n]*\*\*")
+# The root's numbered bold items (checklist steps, verdict-format items):
+# `1. **Read the diff ...**`. A module line that restarts one of THESE
+# numbers+titles is a copy of the root list, not a list of its own.
+_ROOT_NUMBERED_BOLD_ITEM_RE = re.compile(r"^\d+\. \*\*(.+?)\*\*", re.MULTILINE)
 
 # Location references a module may NOT carry: after the split, "below" /
 # "above" / a root line number / a copied root list number point at prose that
@@ -288,8 +335,10 @@ DANGLING_MODULE_REFERENCE_PATTERNS = (
     re.compile(r"\b(?:rule|rows?|probes?|ledger|inspection|exemption) (?:below|above)\b"),
     re.compile(r"coverage-ledger below"),
     re.compile(r"SKILL\.md:\d+"),  # a root line anchor the split invalidated
-    re.compile(r"^\d+\. \*\*", re.MULTILINE),  # a root verdict-format list number
 )
+# (A copied root list number, `7. **AC lines ...`, is matched dynamically
+# against the root's own numbered bold titles in _dangling_reference_hits, so
+# a module's OWN numbered bold list is not rejected.)
 
 # A routing-table data row: `| \`module-id\` | <load when> |`. Every data row in
 # the routing-table section MUST match this strict shape; a row whose first
@@ -367,6 +416,47 @@ def _pinned_body(paragraph: str, marker: str) -> str:
         if other != marker and other in body:
             cut = min(cut, body.index(other))
     return body[:cut].strip()
+
+
+def _assert_pinned_body_intact(text: str, marker: str, name: str) -> None:
+    """The single checker behind the per-marker test and its fault
+    injection: the body after ``marker`` (cut at the next pinned header or
+    the paragraph end) carries at least PINNED_BODY_MIN_CHARS of rule text,
+    and every phrase mapped to the marker lives in that body."""
+    paragraph = _paragraph_containing(text, marker)
+    body = _pinned_body(paragraph, marker)
+    assert len(body) >= PINNED_BODY_MIN_CHARS, (
+        f"{name}: pinned rule {marker!r} has only {len(body)} chars of body: {body!r}"
+    )
+    for phrase in PINNED_BODY_PHRASES.get(marker, ()):
+        assert phrase in body, (
+            f"{name}: {phrase!r} is not in the body of its pinned header {marker!r}"
+        )
+
+
+def _root_numbered_item_titles(root_text: str) -> list[str]:
+    return _ROOT_NUMBERED_BOLD_ITEM_RE.findall(root_text)
+
+
+def _dangling_reference_hits(text: str, root_text: str) -> list[str]:
+    """Every dangling location reference in ``text`` (module prose), as
+    ``pattern at line N: match`` strings."""
+    titles = _root_numbered_item_titles(root_text)
+    assert titles, "the root carries no numbered bold items"
+    copied_root_item = re.compile(
+        r"^\d+\. \*\*(?:" + "|".join(re.escape(t) for t in titles) + r")", re.MULTILINE
+    )
+    hits: list[str] = []
+    for pat in (*DANGLING_MODULE_REFERENCE_PATTERNS, copied_root_item):
+        for m in pat.finditer(text):
+            line = text[: m.start()].count("\n") + 1
+            hits.append(f"{pat.pattern!r} at line {line}: {m.group(0)!r}")
+    return hits
+
+
+def _assert_no_dangling_references(text: str, name: str, root_text: str) -> None:
+    hits = _dangling_reference_hits(text, root_text)
+    assert not hits, f"{name} carries dangling location references: {hits}"
 
 
 # --------------------------------------------------------------------------
@@ -489,58 +579,54 @@ def test_pinned_rule_block_appears_exactly_once_across_root_and_modules(marker):
 @pytest.mark.parametrize("marker", PINNED_RULE_MARKERS)
 def test_pinned_rule_keeps_its_body_in_the_same_paragraph(marker):
     """A ``(pinned)`` header with its rule body gutted (label kept, prose
-    removed) must fail: the body after the marker, up to the next pinned
-    header or the paragraph end, carries the rule, and every phrase mapped to
-    that header lives in that same paragraph."""
+    removed, or replaced by filler) must fail: the body after the marker, up
+    to the next pinned header or the paragraph end, carries the rule AND the
+    distinctive phrase mapped to that header."""
     for name, text in _all_skill_text().items():
-        if marker not in text:
-            continue
-        paragraph = _paragraph_containing(text, marker)
-        body = _pinned_body(paragraph, marker)
-        assert len(body) >= PINNED_BODY_MIN_CHARS, (
-            f"{name}: pinned rule {marker!r} has only {len(body)} chars of body: {body!r}"
-        )
-        for phrase in PINNED_BODY_PHRASES.get(marker, ()):
-            assert phrase in paragraph, (
-                f"{name}: {phrase!r} is not in the paragraph of its pinned header {marker!r}"
-            )
+        if marker in text:
+            _assert_pinned_body_intact(text, marker, name)
 
 
-def test_pinned_body_phrase_map_names_only_known_markers_and_mapped_phrases():
-    """Every PINNED_BODY_PHRASES key is a pinned marker and every phrase is
-    already pinned by LOAD_BEARING_RULES or PINNED_RULE_MARKERS, so the two
-    maps cannot drift apart silently."""
-    pinned_phrases = {p for phrases in LOAD_BEARING_RULES.values() for p in phrases}
-    pinned_phrases.update(PINNED_RULE_MARKERS)
+def test_pinned_body_phrase_map_covers_every_pinned_marker():
+    """Every pinned marker maps to at least one distinctive body phrase (so
+    80 chars of filler cannot satisfy the body check), and every "(pinned"
+    header on disk is a known marker, so a new pinned rule without a mapped
+    phrase goes red here."""
+    assert set(PINNED_BODY_PHRASES) == set(PINNED_RULE_MARKERS), (
+        f"unmapped pinned markers: {sorted(set(PINNED_RULE_MARKERS) - set(PINNED_BODY_PHRASES))}; "
+        f"stale keys: {sorted(set(PINNED_BODY_PHRASES) - set(PINNED_RULE_MARKERS))}"
+    )
     for marker, phrases in PINNED_BODY_PHRASES.items():
-        assert marker in PINNED_RULE_MARKERS, marker
-        for phrase in phrases:
-            assert phrase in pinned_phrases, (
-                f"{phrase!r} is mapped to {marker!r} but pinned nowhere"
-            )
+        assert phrases, f"{marker!r} maps to no phrase"
+    on_disk = {
+        m for text in _all_skill_text().values() for m in _PINNED_HEADER_ON_DISK_RE.findall(text)
+    }
+    assert on_disk <= set(PINNED_RULE_MARKERS), (
+        f"pinned headers on disk that PINNED_RULE_MARKERS does not guard: "
+        f"{sorted(on_disk - set(PINNED_RULE_MARKERS))}"
+    )
 
 
 def test_pinned_body_check_rejects_a_gutted_rule():
-    """Fault injection: gut the Module-match rule's body in a copy of its
-    module (header kept, so the exactly-once marker count stays green) and
-    require the body check to reject it."""
+    """Fault injection through the REAL checker: gut the Module-match body
+    (header kept, so the exactly-once marker count stays green), then replace
+    it with filler that keeps the mapped phrase elsewhere in the paragraph;
+    both must raise."""
     marker = "**Module-match rule (pinned):**"
+    neighbour = "**External-contract exception (pinned):**"
     text = _module_text("coverage-ledger")
+    _assert_pinned_body_intact(text, marker, "healthy")
     paragraph = _paragraph_containing(text, marker)
-    healthy = _pinned_body(paragraph, marker)
-    assert len(healthy) >= PINNED_BODY_MIN_CHARS
-    assert "**External-contract exception (pinned):**" not in healthy, (
-        "the body must stop at the next pinned header, not swallow its neighbour"
-    )
-    gutted = text.replace(
-        paragraph,
-        f"{marker} see the ledger. **External-contract exception (pinned):** "
-        + paragraph.split("**External-contract exception (pinned):**", 1)[1],
-    )
+    tail = paragraph.split(neighbour, 1)[1]
+    gutted = text.replace(paragraph, f"{marker} see the ledger. {neighbour}{tail}")
     assert gutted.count(marker) == 1
-    body = _pinned_body(_paragraph_containing(gutted, marker), marker)
-    assert len(body) < PINNED_BODY_MIN_CHARS, body
-    assert "forbidden hallucinated bridges" not in _paragraph_containing(gutted, marker)
+    with pytest.raises(AssertionError, match="has only 15 chars of body"):
+        _assert_pinned_body_intact(gutted, marker, "gutted")
+    filler = "lorem ipsum " * 12  # > PINNED_BODY_MIN_CHARS, carries no rule
+    phrase = PINNED_BODY_PHRASES[marker][0]
+    displaced = text.replace(paragraph, f"{marker} {filler}{neighbour} {phrase}{tail}")
+    with pytest.raises(AssertionError, match="is not in the body of its pinned header"):
+        _assert_pinned_body_intact(displaced, marker, "displaced")
 
 
 @pytest.mark.parametrize("module_id", _shipped_module_ids())
@@ -549,13 +635,25 @@ def test_module_carries_no_dangling_location_reference(module_id):
     "above" / at a root line number / with a copied root list number. Every
     cross-module rule reference names the module (or root step) that holds
     it (and says to load it when the rule is load-bearing for this check)."""
-    text = _module_text(module_id)
-    hits = [
-        f"{pat.pattern!r} at line {text[: m.start()].count(chr(10)) + 1}: {m.group(0)!r}"
-        for pat in DANGLING_MODULE_REFERENCE_PATTERNS
-        for m in pat.finditer(text)
-    ]
-    assert not hits, f"modules/{module_id}.md carries dangling location references: {hits}"
+    _assert_no_dangling_references(_module_text(module_id), f"modules/{module_id}.md", _root_text())
+
+
+def test_dangling_reference_check_distinguishes_root_list_numbers_from_module_lists():
+    """Fault injection through the REAL checker: a module's OWN numbered bold
+    list passes; a line that restarts one of the root's numbered items (its
+    number + bold title) fails; a bare "(below)" fails."""
+    root = _root_text()
+    titles = _root_numbered_item_titles(root)
+    assert "AC lines" in titles and "Read the diff via the host's git tools" in titles, titles
+    _assert_no_dangling_references(
+        "3. **Some legitimate bold heading** body text\n", "own-list", root
+    )
+    with pytest.raises(AssertionError, match="dangling location references"):
+        _assert_no_dangling_references(
+            "7. **AC lines** when criteria were supplied\n", "copied", root
+        )
+    with pytest.raises(AssertionError, match="dangling location references"):
+        _assert_no_dangling_references("see the 2a row (below).\n", "below", root)
 
 
 def test_routing_table_rejects_malformed_rows():
