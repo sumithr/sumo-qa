@@ -480,6 +480,23 @@ def evaluator_for(assertion: JavascriptAssertion | RubricAssertion):
     if "security_must_appear" in source:
         terms = _SECURITY_TERMS.search(source)
         reasons = _reasons(source)
+        if terms and terms.group("flags"):
+            # The evaluator lifts the regex BODY and compiles it itself, so a
+            # flag on the JS literal would be DROPPED. No live gate carries
+            # one, and none can be waved through: `u`/`v`/`y`/`d` have no `re`
+            # equivalent; JS `m` anchors at `\r`, U+2028 and U+2029 where
+            # `re.MULTILINE` does not; `g` makes `.test` stateful via
+            # `lastIndex`. Even `i`, which looks like a no-op after the
+            # `.toLowerCase()` both sides do, is only equivalent by an
+            # argument that rests on the whole Unicode case table rather than
+            # on anything a reader can check here - and this module already
+            # refuses to guess (see `\S` in a character class). Raise.
+            raise UnportedJavascriptAssertionError(
+                f"securityTerms regex carries flags /{terms.group('flags')} "
+                f"({assertion.config_path or assertion.origin}); the port lifts "
+                "the pattern body only, so the flags would be silently dropped. "
+                "Port the flag before adding it to the matrix"
+            )
         if terms and len(reasons) >= 3:
             return SecurityRelevanceEvaluator(terms.group("terms"), tuple(reasons))
 

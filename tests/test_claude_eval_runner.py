@@ -689,6 +689,87 @@ def test_security_relevance_omission_seed_never_hard_fails():
     assert evaluator.evaluate(SECURITY_PASS, {"security_must_appear": False}).passed
 
 
+# --- securityTerms regex flags are refused, never dropped -----------------
+#
+# Risk: the `securityTerms` matcher lifts only the BODY of the JS regex. The
+# three live regexes carry no flags, so nothing diverges today - but a flag
+# added to one of them in the YAML would be silently discarded and the Python
+# gate would quietly stop agreeing with promptfoo's. In a runner whose whole
+# value is fidelity, a silent wrong is the worst outcome, so an unhandled
+# flag raises the same way every other unported shape does.
+# Technique: equivalence partitioning over the flag alphabet, plus a guard
+# test pinning the three live (unflagged) asserts against this hardening.
+
+_SECURITY_TERMS_BODY = (
+    r"(security|securit|vulnerab|owasp|\bxss\b|\bcsrf\b|\bsqli\b|injection|"
+    r"authoris|authoriz|authentic|\btoken\b|\bsecret\b|sanitis|sanitiz|"
+    r"replay|tamper|privilege escalation|idor)"
+)
+
+
+def _security_source(flags: str = "") -> str:
+    """The live inline security assert, with `flags` on its regex literal."""
+    return (
+        "const out = String(output || '').toLowerCase();\n"
+        f"const securityTerms = /{_SECURITY_TERMS_BODY}/{flags};\n"
+        "const mentionsSecurity = securityTerms.test(out);\n"
+        "if (context.vars.security_must_appear === true) {\n"
+        "  return mentionsSecurity\n"
+        "    ? { pass: true, score: 1, reason: 'present' }\n"
+        "    : { pass: false, score: 0, reason: 'absent' };\n"
+        "}\n"
+        "return { pass: true, score: 1, reason: 'delegated' };\n"
+    )
+
+
+def test_an_unflagged_security_terms_regex_still_builds_its_evaluator():
+    """The control for the two tests below: the live, flagless shape works."""
+    evaluator = ca.evaluator_for(ca.JavascriptAssertion(source=_security_source()))
+
+    assert evaluator.kind == "security-relevance"
+    assert evaluator.terms == _SECURITY_TERMS_BODY
+
+
+@pytest.mark.parametrize("flag", sorted("dgimsuvy"))
+def test_a_flag_on_the_security_terms_regex_is_refused_not_dropped(flag):
+    """`evaluator_for` lifts the regex BODY only. Every JavaScript flag either
+    has no Python equivalent (`u`, `v`, `y`, `d`), changes matching in a way
+    `re` spells differently (`m` anchors at `\\r`/`\\u2028`/`\\u2029` in JS but
+    not in Python), or is load-bearing state (`g` moves `lastIndex`). Dropping
+    any of them would leave the Python gate quietly disagreeing with
+    promptfoo, so an unhandled flag raises instead of producing an evaluator.
+    """
+    assertion = ca.JavascriptAssertion(source=_security_source(flag))
+
+    with pytest.raises(ca.UnportedJavascriptAssertionError, match=r"securityTerms"):
+        ca.evaluator_for(assertion)
+
+
+def test_the_live_security_asserts_are_unflagged_and_survive_the_flag_guard():
+    """Guard: the hardening above must not touch the three live gates. Pins
+    the parsed terms, the three reasons and both verdicts for each config, so
+    a stricter flag check cannot regress them into raising."""
+    live = [
+        (name, a)
+        for name, a in _live_javascript_asserts()
+        if name.endswith("-security-relevance.yaml")
+    ]
+
+    assert len(live) == 3
+
+    for name, assertion in live:
+        assert re.search(r"securityTerms\s*=\s*/.+/\s*;", assertion.source), name
+
+        evaluator = ca.evaluator_for(assertion)
+
+        assert evaluator.kind == "security-relevance", name
+        assert evaluator.terms.startswith("(security|securit|vulnerab|owasp|"), name
+        assert len(evaluator.reasons) == 3, name
+        assert evaluator.evaluate(SECURITY_PASS, {"security_must_appear": True}).passed, name
+        assert not evaluator.evaluate(SECURITY_FAIL, {"security_must_appear": True}).passed, name
+        assert evaluator.evaluate(SECURITY_FAIL, {"security_must_appear": False}).passed, name
+
+
 def test_regex_evaluator_anchors_the_announce_line_to_the_start():
     assertion = next(
         a for name, a in _live_javascript_asserts() if name == "skill-closing-qa-gaps.yaml"

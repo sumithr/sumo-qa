@@ -89,7 +89,10 @@ catalogue widens what every eval accepts, with no eval edit.
 
 A `javascript` assert whose shape has no port raises
 `UnportedJavascriptAssertionError`, so a new inline assert cannot enter the
-matrix ungated.
+matrix ungated. That includes **flags on the `securityTerms` regex**: the port
+lifts the pattern body and compiles it itself, so a flag would be dropped
+rather than honoured. All three live security regexes are flagless; adding one
+raises until the flag itself is ported.
 
 **The runner never executes an assertion's `value:`.** It only ever parses
 it. A config edit (or a `file://` target pointed outside the repo) must not
