@@ -2,14 +2,27 @@
 """Loader for the existing promptfoo eval configs.
 
 Slice 1 of #660 deliberately reads the promptfoo YAML schema as-is rather
-than hand-converting the matrix: 63 configs converted by hand would be 63
+than hand-converting the matrix: 61 configs converted by hand would be 61
 chances to change a scenario while claiming to preserve it, and parity
 (slice 3) is only meaningful if both runners read the same source of truth.
 
 What the loader reproduces, because the configs depend on it:
 
+* the SELECTION `npm run eval:all` makes: `skill-*.yaml` minus `*.gen.yaml`
+  (generator seeds, whose own headers say they are not for running evals).
+  The gitignored `*.generated-tests.yaml` include payloads are excluded too:
+  they are bare YAML lists, not configs. 61 configs, the number promptfoo
+  runs.
 * `file://` vars, resolved relative to the CONFIG'S OWN directory (paths such
-  as `file://../../../skills/<skill>/SKILL.md` escape it by design).
+  as `file://../../../skills/<skill>/SKILL.md` escape it by design), with
+  promptfoo's own value handling: a `.yaml`/`.yml` target is injected as
+  `JSON.stringify(loadYaml(...))` (compact, document key order), every other
+  target as trimmed raw text, and every string var then loses ONE terminal
+  newline - `renderPrompt` in promptfoo 0.121.20.
+* `llm-rubric` assertion VALUES rendered against the resolved case vars, the
+  way `runAssertion` does before grading. The judge-time `rubricPrompt` is
+  deliberately left alone: its `{{rubric}}`/`{{output}}` are filled by the
+  grader in slice 2, not here.
 * `disableVarExpansion`, at the top level or under `defaultTest.options`.
 * `defaultTest.options.provider` / `.rubricPrompt` judge overrides, carried
   onto every parsed rubric.
@@ -25,20 +38,23 @@ What the loader reproduces, because the configs depend on it:
 
 from __future__ import annotations
 
+import datetime
 import fnmatch
+import json
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from claude.assertions import parse_assertion
+from claude.assertions import RubricAssertion, parse_assertion
 from claude.templating import expand_var_matrix, render
 
 __all__ = [
     "EvalCase",
     "EvalConfig",
+    "MalformedConfigError",
     "Prompt",
     "PROMPTFOO_DIR",
     "REPO_ROOT",
@@ -48,6 +64,7 @@ __all__ = [
     "load_all_configs",
     "load_config",
     "resolve_var_value",
+    "strip_terminal_newline",
 ]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -55,6 +72,30 @@ PROMPTFOO_DIR = REPO_ROOT / "tests" / "evals" / "promptfoo"
 
 _FILE_URL = "file://"
 _SKILL_PREFIX = "sumo-qa-"
+
+# `npm run eval:all` globs `skill-*.yaml` and skips `*.gen.yaml`; the
+# gitignored `*.generated-tests.yaml` files are `tests:` include payloads
+# (bare YAML lists), not configs.
+_CONFIG_GLOB = "skill-*.yaml"
+_NOT_A_CONFIG = (".gen.yaml", ".generated-tests.yaml")
+
+# promptfoo reads a `file://` var whose target ends `.yaml`/`.yml` through
+# js-yaml and injects `JSON.stringify(...)` of the result.
+_YAML_SUFFIXES = (".yaml", ".yml")
+
+# `String.prototype.trim` strips WhiteSpace + LineTerminator, which is NOT
+# Python's `str.strip()` set: JS adds U+FEFF and omits U+001C-U+001F and
+# U+0085. Spelling it out keeps the trim byte-identical to promptfoo's.
+_JS_WHITESPACE = (
+    "\t\n\v\f\r \u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005"
+    "\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
+
+
+class MalformedConfigError(ValueError):
+    """A YAML file whose top level is not a mapping, so it is not a config."""
 
 
 @dataclass(frozen=True)
@@ -110,19 +151,71 @@ class EvalConfig:
         return found
 
 
+def _js_date_to_json(moment: datetime.datetime) -> str:
+    """`Date#toJSON`: UTC, milliseconds, `Z` suffix."""
+    utc = moment if moment.tzinfo is None else moment.astimezone(datetime.timezone.utc)
+    return f"{utc.strftime('%Y-%m-%dT%H:%M:%S')}.{utc.microsecond // 1000:03d}Z"
+
+
+def _json_default(value: Any) -> str:
+    """Serialise what `JSON.stringify` can but `json.dumps` cannot.
+
+    js-yaml resolves a timestamp scalar to a `Date`, which `JSON.stringify`
+    writes as an ISO string; PyYAML resolves it to `datetime`, which
+    `json.dumps` refuses. Anything else is a genuine schema divergence and
+    must say so rather than serialise to something promptfoo never emits.
+    """
+    if isinstance(value, datetime.datetime):
+        return _js_date_to_json(value)
+    if isinstance(value, datetime.date):
+        return _js_date_to_json(datetime.datetime(value.year, value.month, value.day))
+    raise TypeError(
+        f"cannot serialise a YAML {type(value).__name__} the way JSON.stringify would; "
+        "the var would not match what promptfoo injects"
+    )
+
+
+def _json_stringify(value: Any) -> str:
+    """`JSON.stringify(value)`: compact, document key order, literal Unicode."""
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False, default=_json_default)
+
+
 def resolve_var_value(value: Any, base_dir: Path) -> Any:
     """Resolve one var value, reading `file://` targets from disk.
 
     The path is resolved against `base_dir` (the config's own directory), NOT
     the process cwd - that is the whole contract, since every skill body in
     the matrix is loaded through `file://../../../skills/...`.
+
+    A `.yaml`/`.yml` target is PARSED and re-emitted as compact JSON, because
+    that is what promptfoo does (`vars[varName] =
+    JSON.stringify(loadYaml(readFile(...)))`); every other target is raw text
+    with JavaScript's `.trim()` applied, again matching `renderPrompt`.
     """
     if not isinstance(value, str) or not value.startswith(_FILE_URL):
         return value
     target = (base_dir / value[len(_FILE_URL) :]).resolve()
     if not target.is_file():
         raise FileNotFoundError(f"{value} does not resolve to a file (looked in {target})")
-    return target.read_text(encoding="utf-8")
+    text = target.read_text(encoding="utf-8")
+    if target.name.endswith(_YAML_SUFFIXES):
+        return _json_stringify(yaml.safe_load(text))
+    return text.strip(_JS_WHITESPACE)
+
+
+def strip_terminal_newline(variables: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop ONE terminal newline from every string var, as promptfoo does.
+
+    `renderPrompt` runs `vars[key] = vars[key].replace(/\\n$/, '')` over every
+    string var immediately before rendering - a single-newline chop, not a
+    trim, so an inner blank line survives. It bites both file-backed vars
+    (a `SKILL.md` ending in a newline) and the literal block scalars the
+    seeds use for `ground_truth_context`.
+    """
+    return {
+        key: value[:-1] if isinstance(value, str) and value.endswith("\n") else value
+        for key, value in variables.items()
+    }
 
 
 def _resolve_vars(raw: Mapping[str, Any] | None, base_dir: Path) -> dict[str, Any]:
@@ -180,6 +273,11 @@ def load_config(path: Path) -> EvalConfig:
     path = Path(path)
     base_dir = path.parent
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, Mapping):
+        raise MalformedConfigError(
+            f"{path.name} is not a promptfoo config: its top level is a "
+            f"{type(data).__name__}, not a mapping (read from {path})"
+        )
     warnings: list[str] = []
 
     default_test = data.get("defaultTest") or {}
@@ -241,12 +339,19 @@ def discover_configs(
 ) -> list[Path]:
     """Select configs, optionally scoped by skill name and/or filename glob.
 
+    The base selection mirrors `npm run eval:all`: `skill-*.yaml` minus
+    `*.gen.yaml`. `*.generated-tests.yaml` is excluded on top - it matches the
+    glob but is a `tests:` include payload (a bare YAML list), so treating it
+    as a config both inflates the count and blows up `load_config`.
+
     `skill` accepts either the bare name (`reviewing-before-merge`) or the
     full skill directory name (`sumo-qa-reviewing-before-merge`), and picks up
     every variant config for that skill - the base config, its `.ab.yaml`
     control, and any `-<variant>.yaml` sibling.
     """
-    paths = sorted(Path(directory).glob("*.yaml"))
+    paths = sorted(
+        p for p in Path(directory).glob(_CONFIG_GLOB) if not p.name.endswith(_NOT_A_CONFIG)
+    )
     if pattern:
         paths = [p for p in paths if fnmatch.fnmatch(p.name, pattern)]
     if skill:
@@ -267,6 +372,26 @@ def load_all_configs(
     return [load_config(path) for path in discover_configs(directory, skill=skill, pattern=pattern)]
 
 
+def _render_rubrics(assertions: tuple[Any, ...], variables: Mapping[str, Any]) -> tuple[Any, ...]:
+    """Render every `llm-rubric` VALUE against this case's resolved vars.
+
+    promptfoo does the same in `runAssertion`
+    (`renderedValue = nunjucks.renderString(renderedValue, resolvedVars)`)
+    before handing the rubric to the judge, and 65 of the 66 live rubrics
+    carry `{{expected_shape}}` / `{% for ap in anti_patterns %}` syntax.
+
+    `rubric_prompt` is pointedly NOT rendered here: its `{{rubric}}` and
+    `{{output}}` are judge-time substitutions that `matchesLlmRubric` fills,
+    and slice 2 (#662) owns them.
+    """
+    return tuple(
+        replace(assertion, rubric=render(assertion.rubric, variables))
+        if isinstance(assertion, RubricAssertion)
+        else assertion
+        for assertion in assertions
+    )
+
+
 def build_cases(config: EvalConfig) -> list[EvalCase]:
     """Assemble every (prompt_label, rendered_prompt, assertions) tuple."""
     cases: list[EvalCase] = []
@@ -279,14 +404,20 @@ def build_cases(config: EvalConfig) -> list[EvalCase]:
             else [p for p in config.prompts if p.label in test.prompt_labels]
         )
         assertions = tuple(config.default_assertions) + tuple(test.assertions)
+        # Resolve each row once: the newline chop and the rubric rendering are
+        # per-CASE-vars, not per-prompt, exactly as promptfoo orders them.
+        resolved = [
+            (row, _render_rubrics(assertions, row))
+            for row in (strip_terminal_newline(r) for r in rows)
+        ]
         for prompt in prompts:
-            for row in rows:
+            for row, row_assertions in resolved:
                 cases.append(
                     EvalCase(
                         config_path=config.path,
                         prompt_label=prompt.label,
                         rendered_prompt=render(prompt.raw, row),
-                        assertions=assertions,
+                        assertions=row_assertions,
                         vars=row,
                         description=test.description,
                     )

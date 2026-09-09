@@ -15,9 +15,15 @@ It reads the **existing** promptfoo configs in
 each one produces a fully-resolved list of
 `(prompt_label, rendered_prompt, assertions)` tuples.
 
+The selection is promptfoo's own, so slice 3 can compare config for config:
+`npm run eval:all` globs `skill-*.yaml` and skips `*.gen.yaml` (two generator
+seeds whose headers say they are not for running evals), and the gitignored
+`*.generated-tests.yaml` files are `tests:` include payloads, not configs.
+That is **61 configs**, not the 65 `*.yaml` files on disk.
+
 | Module | Responsibility |
 |---|---|
-| `loader.py` | Reads the promptfoo YAML, resolves `file://` vars against the **config's own directory**, honours `disableVarExpansion`, carries the `defaultTest.options` judge overrides, flattens `tests:` includes, assembles cases. |
+| `loader.py` | Reads the promptfoo YAML, resolves `file://` vars against the **config's own directory**, honours `disableVarExpansion`, carries the `defaultTest.options` judge overrides, flattens `tests:` includes, renders each case's rubric values, assembles cases. |
 | `templating.py` | The nunjucks subset the matrix actually uses: `{{ var }}` and `{% for x in list %}`. Value-to-string rules mirror JavaScript (`a,b` for a list, lowercase booleans), not Python. |
 | `assertions.py` | The assertion model, plus Python ports of the deterministic `javascript` asserts. |
 | `tokens.py` | The dry run's offline input-token estimate. |
@@ -49,6 +55,15 @@ and the per-config judge overrides (`options.rubricPrompt`,
 `options.provider`), and is **never executed here**. Asking for an evaluator
 raises `RubricNotExecutableError`.
 
+The rubric **value** is rendered against the case's resolved vars when the
+case is built, because promptfoo renders an assertion's `value:` before
+grading it (`renderedValue = nunjucks.renderString(renderedValue,
+resolvedVars)`); 65 of the 66 live rubrics carry `{{expected_shape}}` or
+`{% for ap in anti_patterns %}` syntax, so an unrendered rubric would hand
+the judge placeholder text. The judge-time `rubricPrompt` is deliberately
+left alone: its `{{rubric}}` and `{{output}}` are filled by the grader in
+slice 2.
+
 **`javascript`** asserts are ported to Python. Each port derives its
 parameters *from the JS source* rather than restating them, so editing the
 regex in a config changes the Python gate too:
@@ -73,21 +88,50 @@ matrix ungated.
 it. A config edit (or a `file://` target pointed outside the repo) must not
 become code execution inside CI.
 
+## Matching promptfoo's var handling
+
+`renderPrompt` in promptfoo 0.121.20 does three things to a var that this
+loader reproduces, because the rendered prompt is what slice 3 diffs:
+
+- a `file://` target ending `.yaml`/`.yml` is **parsed and re-emitted as
+  compact JSON** (`JSON.stringify(loadYaml(...))`, document key order,
+  literal Unicode) - not injected as raw YAML text;
+- every other `file://` target is injected as raw text with JavaScript's
+  `.trim()` applied;
+- every string var then loses **one** terminal newline
+  (`replace(/\n$/, '')`) - a single chop, not a trim, so an inner blank
+  line survives.
+
+Ported regexes compile with `re.ASCII`, because Python's Unicode defaults are
+not JavaScript's: Python's `re.IGNORECASE` folds `ſ` onto `s` where JS `/i`
+refuses to, and Python's `\b`/`\w` are Unicode-aware where JS's are ASCII.
+The known residual is `\s`, which `re.ASCII` narrows below JS's Unicode
+whitespace set; see the comment in `assertions.py`.
+
 ## Guarantees this slice holds
 
 Enforced by [`tests/test_claude_eval_runner.py`](../../test_claude_eval_runner.py):
 
-- every config in the matrix loads, and the `.ab.yaml` subset is identified;
+- every config promptfoo would run loads, and neither a generator seed nor a
+  generated-tests payload is ever counted as one;
+- a YAML whose top level is not a mapping fails with an error naming the
+  file, never a bare `AttributeError`;
 - `file://` resolution is relative to the config directory, including paths
   that escape it, and never to the process cwd;
+- no rubric reaches a case with template syntax still in it;
 - `disableVarExpansion` keeps a list-valued var intact instead of exploding
   into one test per item;
 - every `javascript` assert in the matrix maps to a Python evaluator, with a
   passing and a failing output for each;
 - the `--dry-run` makes zero network calls: the test poisons `socket.socket`,
-  `socket.create_connection`, `socket.getaddrinfo` and both
-  `http.client` connection constructors for the duration of the run;
-- no module in the package imports an HTTP client or a model SDK.
+  `socket.create_connection`, `socket.getaddrinfo`, both `http.client`
+  connection constructors, and the process-spawning entry points
+  (`subprocess.Popen`, `os.system`, `os.posix_spawn(p)`, `os.execv(e)`,
+  `os.fork`) for the duration of the run, so an out-of-process escape is
+  refused too;
+- no module in the package imports an HTTP client, a model SDK, or a
+  process/socket module - checked by walking each module's parsed AST, so a
+  `from anthropic import Anthropic` cannot slip past a substring grep.
 
 ## Why it lives here
 

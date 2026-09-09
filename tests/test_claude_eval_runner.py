@@ -14,8 +14,13 @@ assertions, and counts dry-run input tokens.
 
 from __future__ import annotations
 
+import ast
 import http.client
+import json
+import os
+import re
 import socket
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -27,17 +32,42 @@ from claude import tokens as ctok
 
 # --------------------------------------------------------------------------
 # Grounded inventory, verified against origin/main @ e7809d1 on 2026-09-09.
-# Issue #661's body says 65 configs; the live tree has 63 (drift recorded on
-# the issue). These constants are a deliberate tripwire: if the matrix grows
-# or shrinks, this test fails and whoever changed it updates the number here
-# and on the epic, rather than the change passing silently.
+# Issue #661's body says 65 configs; the live tree holds 65 `*.yaml` files in
+# `tests/evals/promptfoo/`, of which promptfoo itself RUNS 61: `npm run
+# eval:all` globs `skill-*.yaml` and skips `*.gen.yaml` (two generator seeds
+# whose own headers say they are not for running evals), and the two
+# gitignored `*.generated-tests.yaml` files are test-include payloads, not
+# configs. `EXPECTED_CONFIG_COUNT` is promptfoo's number, because slice 3
+# compares this runner against promptfoo config-for-config.
+# These constants are a deliberate tripwire: if the matrix grows or shrinks,
+# this test fails and whoever changed it updates the number here and on the
+# epic, rather than the change passing silently.
 # --------------------------------------------------------------------------
-EXPECTED_CONFIG_COUNT = 63
+EXPECTED_CONFIG_COUNT = 61
 EXPECTED_AB_CONFIG_COUNT = 15
 EXPECTED_JAVASCRIPT_ASSERT_COUNT = 10
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROMPTFOO_DIR = REPO_ROOT / "tests" / "evals" / "promptfoo"
+
+# A `{{ var }}` interpolation, spelled out here rather than imported from the
+# renderer so this file never asks the code under test whether its own output
+# still holds placeholders.
+LEFTOVER_PLACEHOLDER = re.compile(r"\{\{\s*[A-Za-z_][A-Za-z0-9_]*\s*\}\}")
+
+
+def _promptfoo_selection(directory: Path) -> list[Path]:
+    """The configs `npm run eval:all` actually runs, derived from package.json.
+
+    `for f in tests/evals/promptfoo/skill-*.yaml; do case "$f" in *.gen.yaml)
+    continue;; esac; promptfoo eval -c "$f"; done`, plus the gitignored
+    `*.generated-tests.yaml` include payloads, which are bare YAML lists.
+    """
+    return sorted(
+        p
+        for p in directory.glob("skill-*.yaml")
+        if not p.name.endswith((".gen.yaml", ".generated-tests.yaml"))
+    )
 
 
 # ==========================================================================
@@ -54,17 +84,64 @@ PROMPTFOO_DIR = REPO_ROOT / "tests" / "evals" / "promptfoo"
 
 def test_loader_reads_every_config_in_the_live_matrix():
     paths = cl.discover_configs(PROMPTFOO_DIR)
-    on_disk = sorted(PROMPTFOO_DIR.glob("*.yaml"))
 
-    assert paths == on_disk
+    assert paths == _promptfoo_selection(PROMPTFOO_DIR)
     assert len(paths) == EXPECTED_CONFIG_COUNT, (
-        f"promptfoo matrix drifted: {len(paths)} configs on disk, "
+        f"promptfoo matrix drifted: {len(paths)} configs selected, "
         f"{EXPECTED_CONFIG_COUNT} recorded. Update the constant and the epic."
     )
 
     configs = cl.load_all_configs(PROMPTFOO_DIR)
     assert len(configs) == EXPECTED_CONFIG_COUNT
     assert all(c.description for c in configs)
+
+
+def test_discovery_excludes_the_generator_seeds_promptfoo_skips():
+    """`eval:all` skips `*.gen.yaml`; counting them reports a matrix promptfoo
+    never runs, which would corrupt slice 3's config-for-config parity."""
+    seeds = {p.name for p in PROMPTFOO_DIR.glob("*.gen.yaml")}
+    selected = {p.name for p in cl.discover_configs(PROMPTFOO_DIR)}
+
+    assert seeds, "expected the two generator seeds to still be on disk"
+    assert not (selected & seeds)
+
+
+def test_discovery_mirrors_promptfoos_selection_over_a_mixed_directory(tmp_path):
+    """A generator seed and a generated-tests payload sitting next to a real
+    config: neither may be treated as a config. The payload is a bare YAML
+    LIST, so treating it as one used to die with a raw AttributeError."""
+    (tmp_path / "skill-real.yaml").write_text(
+        "description: d\nproviders: [echo]\nprompts: ['{{q}}']\ntests:\n  - vars: {q: hi}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "skill-real.gen.yaml").write_text(
+        "description: generator seed, not for running evals\nprompts: ['x']\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "skill-real.generated-tests.yaml").write_text(
+        "- vars:\n    q: generated\n", encoding="utf-8"
+    )
+    (tmp_path / "promptfooconfig.yaml").write_text("description: not a skill config\n")
+
+    selected = cl.discover_configs(tmp_path)
+
+    assert [p.name for p in selected] == ["skill-real.yaml"]
+    assert [c.description for c in cl.load_all_configs(tmp_path)] == ["d"]
+
+
+def test_load_config_names_the_file_when_its_top_level_is_not_a_mapping(tmp_path):
+    """A stray YAML that reaches `load_config` must fail with an error that
+    names it, never a bare `AttributeError: 'list' object has no attribute
+    'get'` from deep inside the parser."""
+    stray = tmp_path / "skill-x.generated-tests.yaml"
+    stray.write_text("- vars:\n    q: hi\n- vars:\n    q: there\n", encoding="utf-8")
+
+    with pytest.raises(cl.MalformedConfigError) as excinfo:
+        cl.load_config(stray)
+
+    message = str(excinfo.value)
+    assert stray.name in message
+    assert "list" in message
 
 
 def test_ab_subset_is_the_fifteen_ab_yaml_configs():
@@ -172,6 +249,117 @@ def test_a_real_config_loads_its_skill_body_through_the_file_url_var():
 
     assert "sumo-qa-closing-qa-gaps" in body
     assert len(body) > 1000
+
+
+# --- .yaml/.yml file vars are injected as compact JSON (promptfoo 0.121.20:
+#     `vars[varName] = JSON.stringify(loadYaml(readFile(...)))`) ---
+
+
+def test_yaml_file_var_is_injected_as_compact_json_in_document_order(tmp_path):
+    (tmp_path / "rules.yaml").write_text(
+        "beta:\n  - 1\n  - two\nalpha:\n  nested: true\n  missing: null\n",
+        encoding="utf-8",
+    )
+
+    resolved = cl.resolve_var_value("file://rules.yaml", tmp_path)
+
+    assert resolved == '{"beta":[1,"two"],"alpha":{"nested":true,"missing":null}}'
+
+
+def test_yml_file_var_is_injected_as_json_too(tmp_path):
+    (tmp_path / "pack.yml").write_text("id: p1\nchecks:\n  - a\n  - b\n", encoding="utf-8")
+
+    assert cl.resolve_var_value("file://pack.yml", tmp_path) == '{"id":"p1","checks":["a","b"]}'
+
+
+def test_yaml_file_var_keeps_non_ascii_unescaped_like_json_stringify(tmp_path):
+    (tmp_path / "r.yaml").write_text('note: "café — ok"\n', encoding="utf-8")
+
+    assert cl.resolve_var_value("file://r.yaml", tmp_path) == '{"note":"café — ok"}'
+
+
+def test_yaml_timestamps_serialise_like_javascript_dates(tmp_path):
+    """js-yaml resolves a timestamp to a `Date`, which `JSON.stringify` writes
+    as a UTC ISO string; `json.dumps` would otherwise refuse a `datetime`."""
+    (tmp_path / "t.yaml").write_text(
+        "day: 2026-09-09\nmoment: 2026-09-09T03:04:05.6Z\n", encoding="utf-8"
+    )
+
+    assert cl.resolve_var_value("file://t.yaml", tmp_path) == (
+        '{"day":"2026-09-09T00:00:00.000Z","moment":"2026-09-09T03:04:05.600Z"}'
+    )
+
+
+def test_a_yaml_value_javascript_never_produces_is_refused(tmp_path):
+    """A `!!set` resolves to a Python `set`, which has no `JSON.stringify`
+    equivalent: fail loudly rather than inject something promptfoo never
+    would."""
+    (tmp_path / "s.yaml").write_text("k: !!set\n  ? a\n  ? b\n", encoding="utf-8")
+
+    with pytest.raises(TypeError, match="JSON.stringify"):
+        cl.resolve_var_value("file://s.yaml", tmp_path)
+
+
+def test_non_yaml_file_vars_keep_their_raw_text(tmp_path):
+    (tmp_path / "skill.md").write_text("# Title\n\n- bullet\n", encoding="utf-8")
+
+    assert cl.resolve_var_value("file://skill.md", tmp_path) == "# Title\n\n- bullet"
+
+
+def test_the_live_security_testing_config_injects_its_yaml_vars_as_json():
+    """`skill-security-testing.yaml:18-19` loads `change_rules.yaml` and
+    `qa_shift_left_v1.yml` and interpolates them at :107 and :111."""
+    config = cl.load_config(PROMPTFOO_DIR / "skill-security-testing.yaml")
+    rules = config.default_vars["rules"]
+    standards = config.default_vars["standards"]
+
+    assert rules.startswith('{"api_contract_change":{"must_consider":["backward compatibility"')
+    assert "\n" not in rules
+    assert json.loads(rules)["api_contract_change"]["suggested_test_types"] == [
+        "contract",
+        "integration",
+        "functional",
+    ]
+    assert standards.startswith('{"id":"qa-shift-left-core","version":"1.0.0"')
+    assert "\n" not in standards
+    assert json.loads(standards)["domain"] == "qa"
+
+
+# --- terminal-newline handling (promptfoo trims file-backed vars, then strips
+#     ONE terminal newline from every string var before rendering) ---
+
+
+def test_file_backed_var_is_trimmed_at_both_ends(tmp_path):
+    (tmp_path / "body.md").write_text("\n\n  BODY  \n\n", encoding="utf-8")
+
+    assert cl.resolve_var_value("file://body.md", tmp_path) == "BODY"
+
+
+def test_a_literal_string_var_loses_exactly_one_terminal_newline(tmp_path):
+    """`replace(/\\n$/, '')`, not a trim: an inner blank line survives."""
+    config = tmp_path / "skill-x.yaml"
+    config.write_text(
+        "description: d\n"
+        "providers: [echo]\n"
+        "prompts: ['[{{ blk }}]']\n"
+        "tests:\n"
+        '  - vars: {blk: "line\\n\\n", spaced: "  keep  "}\n',
+        encoding="utf-8",
+    )
+
+    case = cl.build_cases(cl.load_config(config))[0]
+
+    assert case.vars["blk"] == "line\n"
+    assert case.vars["spaced"] == "  keep  "
+    assert case.rendered_prompt == "[line\n]"
+
+
+def test_live_block_scalar_and_skill_body_vars_have_no_terminal_newline():
+    config = cl.load_config(PROMPTFOO_DIR / "skill-closing-qa-gaps.yaml")
+    case = next(c for c in cl.build_cases(config) if "ground_truth_context" in c.vars)
+
+    assert not case.vars["ground_truth_context"].endswith("\n")
+    assert not case.vars["skill_content"].endswith("\n")
 
 
 # ==========================================================================
@@ -429,6 +617,63 @@ def test_regex_evaluator_anchors_the_announce_line_to_the_start():
     assert evaluator.evaluate("> **Closing one QA gap at a time.**", {}).passed is True
 
 
+# --- JavaScript vs Python regex semantics ---------------------------------
+#
+# Risk: the ports lift JS patterns and compile them with Python `re`, but the
+# engines disagree. Python's Unicode `re.IGNORECASE` folds `ſ` onto `s` and
+# `K` onto `k` where JavaScript's `/i` deliberately does not (its Canonicalize
+# step refuses any mapping from a non-ASCII code unit onto an ASCII one), and
+# Python's `\b`/`\w` are Unicode-aware where JavaScript's are ASCII-only. Both
+# directions flip verdicts, so slice 3 would be diffing the port's engine
+# rather than the skill.
+# Technique: boundary value analysis on the character classes themselves.
+
+
+def test_regex_evaluator_case_folds_like_javascript_not_python():
+    evaluator = ca.RegexTestEvaluator("security", "i")
+
+    assert evaluator.evaluate("SECURITY matters here", {}).passed is True
+    assert evaluator.evaluate("ſecurity matters here", {}).passed is False
+
+
+def test_security_relevance_word_boundaries_are_ascii_like_javascript():
+    """JS `\\b` is ASCII-based, so `/\\bxss\\b/` matches inside `éxssé`."""
+    assertion = next(
+        a
+        for name, a in _live_javascript_asserts()
+        if name == "skill-preparing-for-work-security-relevance.yaml"
+    )
+    evaluator = ca.evaluator_for(assertion)
+
+    result = evaluator.evaluate("The éxssé payload is unescaped.", {"security_must_appear": True})
+
+    assert result.passed is True, result.reason
+
+
+def test_catalogue_technique_matching_case_folds_like_javascript(tmp_path):
+    catalogue = tmp_path / "techniques.md"
+    catalogue.write_text("### state transition testing\n", encoding="utf-8")
+    evaluator = ca.CitesCatalogueTechniqueEvaluator(catalogue_path=catalogue)
+
+    assert evaluator.evaluate("I used State Transition Testing.", {}).passed is True
+    assert evaluator.evaluate("I used state tranſition testing.", {}).passed is False
+
+
+def test_retrospective_restore_word_boundary_is_ascii_like_javascript():
+    evaluator = ca.RetrospectiveRestoreEvaluator(
+        ("no scoped restore", "destructive command", "no return", "ok")
+    )
+    text = (
+        "Restore with `git show abc1234:src/a.py > src/a.py`, then wipe with "
+        "`git cleané -fd`, then `git checkout -- src/a.py`."
+    )
+
+    result = evaluator.evaluate(text, {})
+
+    assert result.passed is False
+    assert result.reason == "destructive command"
+
+
 # --- cites-catalogue-technique: allowlist derived, never hardcoded (#350) ---
 
 
@@ -624,10 +869,83 @@ def test_per_test_asserts_append_to_the_default_asserts(tmp_path):
 
 
 def test_the_whole_live_matrix_assembles_without_leaving_placeholders():
+    """Both constructs: a renderer that expands `{% for %}` but leaves every
+    `{{ var }}` untouched must not pass this."""
     for config in cl.load_all_configs(PROMPTFOO_DIR):
         for case in cl.build_cases(config):
             assert "{%" not in case.rendered_prompt
+            assert "{{" not in case.rendered_prompt
+            assert LEFTOVER_PLACEHOLDER.search(case.rendered_prompt) is None
             assert case.rendered_prompt.strip()
+
+
+# ==========================================================================
+# Rubric values are rendered per case
+#
+# Risk: promptfoo renders an assertion's `value:` against the resolved test
+# vars before grading (`renderedValue = nunjucks.renderString(renderedValue,
+# resolvedVars)` in 0.121.20's `runAssertion`). 65 of the 66 live rubrics
+# carry template syntax, so attaching them raw would hand slice 2's judge
+# literal `{{expected_shape}}` text and silently destroy every rubric.
+# The judge-time `rubricPrompt` is the deliberate exception: its `{{rubric}}`
+# and `{{output}}` are filled by the grader, not by the case builder.
+# ==========================================================================
+
+
+def test_rubric_values_are_rendered_against_the_resolved_case_vars():
+    config = cl.load_config(PROMPTFOO_DIR / "skill-closing-qa-gaps.yaml")
+    case = next(c for c in cl.build_cases(config) if "anti_patterns" in c.vars)
+    rubric = next(a for a in case.assertions if isinstance(a, ca.RubricAssertion))
+
+    assert "{{" not in rubric.rubric
+    assert "{%" not in rubric.rubric
+    assert "**Expected QA shape:**" in rubric.rubric
+    assert "- Starts work on more than one gap in this loop (batching all three)." in rubric.rubric
+
+
+def test_per_test_rubric_substitutions_reach_the_ab_control_rubrics():
+    config = cl.load_config(PROMPTFOO_DIR / "skill-deciding-approach.ab.yaml")
+
+    for case in cl.build_cases(config):
+        for assertion in case.assertions:
+            if isinstance(assertion, ca.RubricAssertion):
+                assert LEFTOVER_PLACEHOLDER.search(assertion.rubric) is None
+                assert "{%" not in assertion.rubric
+                for anti_pattern in case.vars.get("anti_patterns", []):
+                    assert anti_pattern in assertion.rubric
+
+
+def test_no_rubric_in_the_live_matrix_reaches_a_case_unrendered():
+    checked = 0
+    for config in cl.load_all_configs(PROMPTFOO_DIR):
+        for case in cl.build_cases(config):
+            for assertion in case.assertions:
+                if isinstance(assertion, ca.RubricAssertion):
+                    checked += 1
+                    assert "{%" not in assertion.rubric, case.config_path
+                    assert LEFTOVER_PLACEHOLDER.search(assertion.rubric) is None, case.config_path
+
+    assert checked > 100
+
+
+def test_the_judge_rubric_prompt_is_left_unrendered_for_slice_two():
+    """`{{rubric}}` / `{{output}}` are judge-time substitutions: promptfoo
+    fills them in `matchesLlmRubric`, not when the case is built."""
+    config = cl.load_config(PROMPTFOO_DIR / "skill-closing-qa-gaps.yaml")
+    case = cl.build_cases(config)[0]
+    rubric = next(a for a in case.assertions if isinstance(a, ca.RubricAssertion))
+
+    assert "{{rubric}}" in rubric.rubric_prompt
+    assert "{{output}}" in rubric.rubric_prompt
+
+
+def test_the_parsed_config_keeps_the_unrendered_rubric_template():
+    """Rendering happens at case build, so `config.all_assertions()` still
+    shows what the YAML said - the source of truth slice 3 diffs against."""
+    config = cl.load_config(PROMPTFOO_DIR / "skill-closing-qa-gaps.yaml")
+    rubric = next(a for a in config.all_assertions() if isinstance(a, ca.RubricAssertion))
+
+    assert "{{expected_shape}}" in rubric.rubric
 
 
 # ==========================================================================
@@ -717,16 +1035,64 @@ def test_dry_run_prints_per_config_and_total_and_exits_zero(capsys):
     assert f"{EXPECTED_CONFIG_COUNT} configs" in out
 
 
-def test_dry_run_totals_match_the_assembled_cases(capsys):
-    ccli.main(["--dry-run", "--skill", "closing-qa-gaps", "--config-dir", str(PROMPTFOO_DIR)])
+def test_dry_run_totals_are_the_hand_counted_fixture_figures(tmp_path, capsys):
+    """Independently derived, never re-derived from the code under test.
+
+    Two prompts x two tests = four cases, with these rendered prompts and
+    `ceil(len / 4)` token counts, counted by hand:
+
+        "Question: aa"     -> 12 chars -> 3 tokens
+        "Q: aa"            ->  5 chars -> 2 tokens
+        "Question: bbbbbb" -> 16 chars -> 4 tokens
+        "Q: bbbbbb"        ->  9 chars -> 3 tokens
+                                         --------
+                                         12 tokens
+
+    Recomputing the figure with the loader, renderer and estimator the CLI
+    itself calls would make both sides agree on a wrong number.
+    """
+    (tmp_path / "skill-fixture.yaml").write_text(
+        "description: hand-countable fixture\n"
+        "providers: [echo]\n"
+        "prompts:\n"
+        '  - "Question: {{q}}"\n'
+        '  - "Q: {{q}}"\n'
+        "tests:\n"
+        '  - vars: {q: "aa"}\n'
+        '  - vars: {q: "bbbbbb"}\n',
+        encoding="utf-8",
+    )
+
+    code = ccli.main(["--dry-run", "--config-dir", str(tmp_path)])
     out = capsys.readouterr().out
 
-    config = cl.load_config(PROMPTFOO_DIR / "skill-closing-qa-gaps.yaml")
-    cases = cl.build_cases(config)
-    expected = sum(ctok.estimate_tokens(c.rendered_prompt) for c in cases)
+    assert code == 0
+    assert "skill-fixture.yaml" in out
+    assert "4 cases" in out
+    assert "12 tokens" in out
+    assert "1 configs  4 cases  12 tokens (estimated)" in out
 
-    assert f"{expected:,}" in out
-    assert f"{len(cases)} cases" in out
+
+def test_the_hand_counted_fixture_renders_the_prompts_it_claims(tmp_path):
+    """The arithmetic above is only sound if these are the rendered prompts."""
+    (tmp_path / "skill-fixture.yaml").write_text(
+        "description: hand-countable fixture\n"
+        "providers: [echo]\n"
+        "prompts:\n"
+        '  - "Question: {{q}}"\n'
+        '  - "Q: {{q}}"\n'
+        "tests:\n"
+        '  - vars: {q: "aa"}\n'
+        '  - vars: {q: "bbbbbb"}\n',
+        encoding="utf-8",
+    )
+
+    rendered = [
+        c.rendered_prompt for c in cl.build_cases(cl.load_config(tmp_path / "skill-fixture.yaml"))
+    ]
+
+    assert rendered == ["Question: aa", "Q: aa", "Question: bbbbbb", "Q: bbbbbb"]
+    assert [len(p) for p in rendered] == [12, 5, 16, 9]
 
 
 def test_dry_run_with_a_skill_filter_scopes_the_matrix(capsys):
@@ -755,15 +1121,29 @@ def test_running_without_dry_run_is_refused_in_this_slice(capsys):
     assert "--dry-run" in capsys.readouterr().err
 
 
-def test_dry_run_constructs_no_socket_and_no_http_client(monkeypatch, capsys):
+def test_dry_run_constructs_no_socket_no_http_client_and_no_child_process(monkeypatch, capsys):
+    """In-process socket poisoning alone would miss an `os.system("curl ...")`
+    or any other spawn, so the process-creation entry points are refused for
+    the duration of the guarded run too."""
+
     def explode(*args, **kwargs):  # pragma: no cover - only runs on failure
         raise AssertionError("the dry run must not touch the network")
+
+    def no_spawn(*args, **kwargs):  # pragma: no cover - only runs on failure
+        raise AssertionError("the dry run must not spawn a child process")
 
     monkeypatch.setattr(socket, "socket", explode)
     monkeypatch.setattr(socket, "create_connection", explode)
     monkeypatch.setattr(socket, "getaddrinfo", explode)
     monkeypatch.setattr(http.client.HTTPConnection, "__init__", explode)
     monkeypatch.setattr(http.client.HTTPSConnection, "__init__", explode)
+    monkeypatch.setattr(subprocess.Popen, "__init__", no_spawn)
+    monkeypatch.setattr(os, "system", no_spawn)
+    monkeypatch.setattr(os, "posix_spawn", no_spawn)
+    monkeypatch.setattr(os, "posix_spawnp", no_spawn)
+    monkeypatch.setattr(os, "execv", no_spawn)
+    monkeypatch.setattr(os, "execve", no_spawn)
+    monkeypatch.setattr(os, "fork", no_spawn)
 
     code = ccli.main(["--dry-run", "--config-dir", str(PROMPTFOO_DIR)])
 
@@ -771,9 +1151,45 @@ def test_dry_run_constructs_no_socket_and_no_http_client(monkeypatch, capsys):
     assert "TOTAL" in capsys.readouterr().out
 
 
+def _imported_root_modules(source: str) -> set[str]:
+    """Every module name a source file imports, from its parsed AST.
+
+    Grepping for `import anthropic` misses `from anthropic import Anthropic`,
+    `import anthropic as a`, and `from anthropic.types import X`.
+    """
+    roots: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            roots.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            roots.add(node.module)
+    return {name.split(".")[0] for name in roots} | roots
+
+
 def test_the_runner_imports_no_http_client_or_anthropic_sdk():
-    banned = ("anthropic", "openai", "requests", "httpx", "urllib.request", "urllib3")
+    banned = {
+        "anthropic",
+        "openai",
+        "requests",
+        "httpx",
+        "http",
+        "urllib",
+        "urllib3",
+        "socket",
+        "ssl",
+        "subprocess",
+        "asyncio",
+    }
     for module in (cl, ct, ca, ctok, ccli):
-        source = Path(module.__file__).read_text(encoding="utf-8")
-        for name in banned:
-            assert f"import {name}" not in source, f"{module.__name__} imports {name}"
+        imported = _imported_root_modules(Path(module.__file__).read_text(encoding="utf-8"))
+        offending = imported & banned
+        assert not offending, f"{module.__name__} imports {sorted(offending)}"
+
+
+def test_the_import_guard_catches_a_from_import(tmp_path):
+    """The guard's own teeth: a substring check for `import anthropic` would
+    let this line through."""
+    assert "anthropic" in _imported_root_modules("from anthropic import Anthropic\n")
+    assert "anthropic" in _imported_root_modules("import anthropic as sdk\n")
+    assert "anthropic" in _imported_root_modules("from anthropic.types import Message\n")
+    assert "urllib" in _imported_root_modules("import urllib.request\n")

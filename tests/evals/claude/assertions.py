@@ -147,9 +147,30 @@ def parse_assertion(
 _JS_FLAG_MAP = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL}
 _REASONS = re.compile(r"reason:\s*'((?:[^'\\]|\\.)*)'")
 
+# Every ported pattern compiles with re.ASCII. Python's Unicode defaults are
+# NOT JavaScript's for the three constructs these patterns use:
+#
+# * `re.IGNORECASE` folds `\u017f` (long s) onto `s` and `\u212a` (Kelvin sign)
+#   onto `k`; JavaScript's `/i` refuses any mapping of a non-ASCII code unit
+#   onto an ASCII one, so `/security/i` does NOT match `\u017fecurity`.
+# * `\b` and `\w` are Unicode-aware in Python and ASCII-only in JavaScript,
+#   so `/\bxss\b/` matches inside `\u00e9xss\u00e9` in JS but not in Python.
+#
+# Every pattern in the matrix and every heading in knowledge/techniques.md is
+# ASCII, so ASCII-only folding is exactly JavaScript's folding for them.
+#
+# KNOWN RESIDUAL: re.ASCII also narrows `\s`/`\S` to ASCII whitespace, where
+# JavaScript's `\s` additionally covers U+00A0, U+1680, U+2000-U+200A,
+# U+2028, U+2029, U+202F, U+205F, U+3000 and U+FEFF. The only live pattern
+# using `\s` is the announce-line prefix class `[\s>*_"']{0,8}`, so the
+# divergence needs a candidate to open its answer with an exotic Unicode
+# space; rewriting a lifted pattern to paper over it would break the "the
+# pattern lives in one place, the config" contract this port is built on.
+_JS_ASCII = re.ASCII
+
 
 def _js_flags(flags: str) -> int:
-    compiled = 0
+    compiled = _JS_ASCII
     for flag in flags:
         compiled |= _JS_FLAG_MAP.get(flag, 0)
     return compiled
@@ -207,7 +228,7 @@ class SecurityRelevanceEvaluator:
 
     def evaluate(self, output: str, context_vars: Mapping[str, Any]) -> AssertionResult:
         lowered = str(output or "").lower()
-        mentions = re.search(self.terms, lowered) is not None
+        mentions = re.search(self.terms, lowered, _JS_ASCII) is not None
         if context_vars.get("security_must_appear") is True:
             if mentions:
                 return AssertionResult(True, 1, self.reasons[0])
@@ -228,19 +249,19 @@ class RetrospectiveRestoreEvaluator:
     kind: str = field(default="retrospective-restore", init=False)
 
     _SCOPED_RESTORE = (
-        re.compile(r"git\s+show\s+\S+:\S+\s*>\s*\S+"),
-        re.compile(r"git\s+checkout\s+\S+\s+--\s+\S+"),
+        re.compile(r"git\s+show\s+\S+:\S+\s*>\s*\S+", _JS_ASCII),
+        re.compile(r"git\s+checkout\s+\S+\s+--\s+\S+", _JS_ASCII),
     )
-    _SCOPED_PATHSPEC = re.compile(r"git\s+checkout\s+[^\n]*?\s--\s+\S+")
+    _SCOPED_PATHSPEC = re.compile(r"git\s+checkout\s+[^\n]*?\s--\s+\S+", _JS_ASCII)
     _DESTRUCTIVE = (
-        re.compile(r"git\s+reset\s+--hard"),
-        re.compile(r"git\s+clean\b"),
+        re.compile(r"git\s+reset\s+--hard", _JS_ASCII),
+        re.compile(r"git\s+clean\b", _JS_ASCII),
     )
-    _BARE_CHECKOUT = re.compile(r"git\s+checkout\s+(?!--\s|HEAD\s+--)[^\n]*")
+    _BARE_CHECKOUT = re.compile(r"git\s+checkout\s+(?!--\s|HEAD\s+--)[^\n]*", _JS_ASCII)
     _RETURN_REVERSE = (
-        re.compile(r"git\s+checkout\s+--\s+\S+"),
-        re.compile(r"git\s+checkout\s+HEAD\s+--\s+\S+"),
-        re.compile(r"git\s+restore\b"),
+        re.compile(r"git\s+checkout\s+--\s+\S+", _JS_ASCII),
+        re.compile(r"git\s+checkout\s+HEAD\s+--\s+\S+", _JS_ASCII),
+        re.compile(r"git\s+restore\b", _JS_ASCII),
     )
 
     def evaluate(self, output: str, context_vars: Mapping[str, Any]) -> AssertionResult:
@@ -322,7 +343,7 @@ class CitesCatalogueTechniqueEvaluator:
                 )
             # Longest first so the reported match is the most specific one.
             alternation = "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
-            self._compiled = (re.compile(alternation, re.IGNORECASE), len(names))
+            self._compiled = (re.compile(alternation, re.IGNORECASE | _JS_ASCII), len(names))
         return self._compiled
 
     def evaluate(self, output: str, context_vars: Mapping[str, Any]) -> AssertionResult:
