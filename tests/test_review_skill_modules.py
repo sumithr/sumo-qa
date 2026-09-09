@@ -333,8 +333,9 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Module-match rule (pinned):**": PinnedClauses(
-        defining="a risk anchored under `app/auth/` requires a covering test under `tests/auth/`",
+        defining="a risk's covering test must live under the test directory mirroring the anchor's module (`tests/<module>/` for `app/<module>/`)",
         operative=(
+            "mark UNCOVERED when paths don't match",
             "If the fresh run loaded no test for a changed file's module, every risk anchored there is UNCOVERED, however green the rest is",
             "forbidden hallucinated bridges",
         ),
@@ -369,7 +370,9 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
     "**Test-only-diff probe (pinned).**": PinnedClauses(
         defining="When the diff is test files ONLY (no `app/`/`src/`/`lib/` runtime file — a `test_change`), the runtime coverage ledger (`coverage-ledger`) has no anchor",
         operative=(
+            "A new test whose assertion restates the production code or passes against a broken impl",
             "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
+            "a matcher that silently under-matches a shape (the singular-vs-plural false-negative class) is a hole even when every present assertion is sound",
         ),
     ),
     "**The two-pass split (pinned).**": PinnedClauses(
@@ -470,10 +473,12 @@ def _routing_table_ids(root_text: str) -> list[str]:
 
 
 def _all_skill_text() -> dict[str, str]:
-    """root + every module, keyed by a display name."""
-    out = {"SKILL.md": _root_text()}
+    """root + every module as PROSE (fenced code blanked, line count kept),
+    keyed by a display name. Every integrity check reads this, never the raw
+    bytes: a rule that survives only inside a code fence is not a rule."""
+    out = {"SKILL.md": _strip_code_fences(_root_text())}
     for module_id in _shipped_module_ids():
-        out[f"modules/{module_id}.md"] = _module_text(module_id)
+        out[f"modules/{module_id}.md"] = _strip_code_fences(_module_text(module_id))
     return out
 
 
@@ -507,7 +512,9 @@ def _assert_pinned_body_intact(text: str, marker: str, name: str) -> None:
     """The single checker behind the per-marker test and its fault
     injection: the body after ``marker`` (cut at the next pinned header or
     the paragraph end) carries at least PINNED_BODY_MIN_CHARS of rule text,
-    and every phrase mapped to the marker lives in that body."""
+    and every phrase mapped to the marker lives in that body. Reads prose
+    only (fenced code stripped)."""
+    text = _strip_code_fences(text)
     paragraph = _paragraph_containing(text, marker)
     body = _pinned_body(paragraph, marker)
     assert len(body) >= PINNED_BODY_MIN_CHARS, (
@@ -551,29 +558,74 @@ def _normalised_pinned_title(text: str) -> str:
 
 
 def _strip_code_fences(text: str) -> str:
-    """Blank out fenced code blocks (``` or ~~~) so a `# line` inside a fence
-    is never parsed as a heading; line count is preserved."""
+    """Blank out fenced code blocks so nothing inside a fence is parsed as
+    prose (a `# line` as a heading, a marker as a rule). CommonMark shapes:
+    an opener of 3+ backticks or tildes indented up to 3 spaces; the closer
+    uses the same char, is at least as long, and carries nothing else; an
+    unterminated fence runs to EOF. Line count is preserved."""
 
-    def blank(m: re.Match) -> str:
-        return "\n" * m.group(0).count("\n")
-
-    return re.sub(r"^(```|~~~)[^\n]*\n.*?^\1[^\n]*$", blank, text, flags=re.MULTILINE | re.DOTALL)
+    out: list[str] = []
+    fence: tuple[str, int] | None = None  # (fence char, opener length)
+    for line in text.split("\n"):
+        run = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence is None:
+            if run:
+                fence = (run.group(1)[0], len(run.group(1)))
+                out.append("")
+            else:
+                out.append(line)
+            continue
+        closes = (
+            run is not None
+            and run.group(1)[0] == fence[0]
+            and len(run.group(1)) >= fence[1]
+            and line[run.end() :].strip() == ""
+        )
+        if closes:
+            fence = None
+        out.append("")
+    return "\n".join(out)
 
 
 def _assert_pinned_headings_carry_bold_markers(text: str, name: str) -> None:
     """Each heading-form pinned rule must carry ITS OWN bold marker (a
-    PINNED_RULE_MARKERS entry whose normalised title equals or starts with the
-    heading's) inside its own section; an unrelated marker does not count."""
+    PINNED_RULE_MARKERS entry whose normalised title EQUALS the heading's)
+    inside its own section; an unrelated, wrong-rule, or merely
+    prefix-matching marker does not count."""
     for heading, section in _pinned_heading_sections(text):
         wanted = _normalised_pinned_title(heading)
         matching = [
             marker
             for marker in PINNED_RULE_MARKERS
-            if marker in section and _normalised_pinned_title(marker).startswith(wanted)
+            if marker in section and _normalised_pinned_title(marker) == wanted
         ]
         assert matching, (
             f"{name}: heading-form pinned rule {heading!r} has no matching bold pinned marker "
             f"(normalised title {wanted!r}) from PINNED_RULE_MARKERS in its own section"
+        )
+
+
+def _assert_marker_exactly_once(marker: str, texts: dict[str, str]) -> None:
+    """Block-level integrity: ``marker`` appears exactly once across ``texts``
+    (0 = the pinned block was lost, 2+ = a second prose copy crept in).
+    Reads prose only (fenced code stripped)."""
+    texts = {name: _strip_code_fences(text) for name, text in texts.items()}
+    hits = {name: text.count(marker) for name, text in texts.items() if marker in text}
+    total = sum(hits.values())
+    assert total == 1, f"pinned rule marker {marker!r} appears {total} times: {hits or 'nowhere'}"
+
+
+def _assert_load_bearing_rule_canonical(module_id: str, phrase: str, texts: dict[str, str]) -> None:
+    """``phrase`` is present in its canonical module and absent from the root
+    and every other module. Reads prose only (fenced code stripped)."""
+    texts = {name: _strip_code_fences(text) for name, text in texts.items()}
+    own = f"modules/{module_id}.md"
+    assert phrase in texts[own], f"load-bearing rule missing from {own}: {phrase!r}"
+    for name, text in texts.items():
+        if name == own:
+            continue
+        assert phrase not in text, (
+            f"rule duplicated in {name} (canonical source is {own}): {phrase!r}"
         )
 
 
@@ -583,7 +635,9 @@ def _root_numbered_item_titles(root_text: str) -> list[str]:
 
 def _dangling_reference_hits(text: str, root_text: str) -> list[str]:
     """Every dangling location reference in ``text`` (module prose), as
-    ``pattern at line N: match`` strings."""
+    ``pattern at line N: match`` strings. Reads prose only (fenced code
+    stripped; line numbers are preserved by the stripping)."""
+    text = _strip_code_fences(text)
     titles = _root_numbered_item_titles(root_text)
     assert titles, "the root carries no numbered bold items"
     copied_root_item = re.compile(
@@ -694,18 +748,7 @@ def test_load_bearing_rule_lives_only_in_its_canonical_module(module_id, phrase)
     """Loss of a named load-bearing rule → FAIL (absent from its module). A
     second prose copy in the root or another module → FAIL (the issue's
     one-canonical-source decision)."""
-    assert phrase in _module_text(module_id), (
-        f"load-bearing rule missing from modules/{module_id}.md: {phrase!r}"
-    )
-    assert phrase not in _root_text(), (
-        f"rule duplicated in the root SKILL.md (must live only in modules/{module_id}.md): {phrase!r}"
-    )
-    for other in _shipped_module_ids():
-        if other == module_id:
-            continue
-        assert phrase not in _module_text(other), (
-            f"rule duplicated in modules/{other}.md (canonical source is modules/{module_id}.md): {phrase!r}"
-        )
+    _assert_load_bearing_rule_canonical(module_id, phrase, _all_skill_text())
 
 
 @pytest.mark.parametrize("marker", PINNED_RULE_MARKERS)
@@ -714,9 +757,7 @@ def test_pinned_rule_block_appears_exactly_once_across_root_and_modules(marker):
     survives in exactly one place. Deleting a pinned block (0 hits) or
     restating it (2+ hits) fails here even if no LOAD_BEARING_RULES phrase
     was touched."""
-    hits = {name: text.count(marker) for name, text in _all_skill_text().items() if marker in text}
-    total = sum(hits.values())
-    assert total == 1, f"pinned rule marker {marker!r} appears {total} times: {hits or 'nowhere'}"
+    _assert_marker_exactly_once(marker, _all_skill_text())
 
 
 @pytest.mark.parametrize("marker", PINNED_RULE_MARKERS)
@@ -747,9 +788,7 @@ def test_pinned_body_phrase_map_covers_every_pinned_marker():
     ]
     assert not incomplete, f"pinned rules missing a defining or an operative clause: {incomplete}"
     on_disk = {
-        m
-        for text in _all_skill_text().values()
-        for m in _PINNED_HEADER_ON_DISK_RE.findall(_strip_code_fences(text))
+        m for text in _all_skill_text().values() for m in _PINNED_HEADER_ON_DISK_RE.findall(text)
     }
     assert on_disk <= set(PINNED_RULE_MARKERS), (
         f"pinned headers on disk that PINNED_RULE_MARKERS does not guard: "
@@ -827,6 +866,16 @@ def test_heading_form_pinned_rule_discovery_rejects_a_marker_less_section():
     )
     with pytest.raises(AssertionError, match="has no matching bold pinned marker"):
         _assert_pinned_headings_carry_bold_markers(mismatched, "mismatched")
+    # A heading whose title is a strict PREFIX of a marker title is not a match:
+    # `## External-contract (pinned)` names neither the rule nor the exception.
+    prefix = (
+        "## External-contract (pinned)\n\n**External-contract rule (pinned).** body\n\n## Next\n"
+    )
+    assert _normalised_pinned_title("**External-contract rule (pinned).**").startswith(
+        _normalised_pinned_title("## External-contract (pinned)")
+    )
+    with pytest.raises(AssertionError, match="has no matching bold pinned marker"):
+        _assert_pinned_headings_carry_bold_markers(prefix, "prefix")
     # The CORRESPONDING marker passes, also from a sub-heading inside the section.
     matching = f"## Trivial-change exemption (pinned)\n\n{trivial} here\n\n## Next\n"
     _assert_pinned_headings_carry_bold_markers(matching, "matching")
@@ -858,6 +907,61 @@ def test_heading_discovery_ignores_fenced_code_blocks():
         assert trivial in sections[0][1], "the fence ended the section early"
         _assert_pinned_headings_carry_bold_markers(scratch, f"fenced-{fence}")
     assert _strip_code_fences("a\n```\n# x\n```\nb\n").count("\n") == 5, "line count must hold"
+
+
+@pytest.mark.parametrize(
+    "fenced",
+    [
+        pytest.param("   ```\n# heading (pinned)\n   ```\n", id="opener-indented-3-spaces"),
+        pytest.param(
+            "````\n```\n# heading (pinned)\n```\n````\n", id="4-tick-opener-inner-3-ticks"
+        ),
+        pytest.param(
+            "~~~~\n~~~\n# heading (pinned)\n~~~\n~~~~\n", id="4-tilde-opener-inner-3-tildes"
+        ),
+        pytest.param(
+            "```\n# heading (pinned)\n~~~\n", id="closer-of-the-other-char-does-not-close"
+        ),
+        pytest.param("```\n# heading (pinned)\n", id="unterminated-blank-to-eof"),
+    ],
+)
+def test_fence_stripping_handles_commonmark_fence_shapes(fenced):
+    """CommonMark fences: an opener indented up to 3 spaces, an opener of 3+
+    chars whose closer must use the same char and be at least as long, and an
+    unterminated fence that runs to EOF. A `# heading (pinned)` inside each
+    must not be discovered; line count is preserved."""
+    text = "## Trivial-change exemption (pinned)\n\n" + fenced
+    stripped = _strip_code_fences(text)
+    assert stripped.count("\n") == text.count("\n"), "line count must hold"
+    assert "# heading (pinned)" not in stripped, stripped
+    assert [h for h, _ in _pinned_heading_sections(text)] == [
+        "## Trivial-change exemption (pinned)"
+    ]
+
+
+def test_integrity_checks_ignore_a_rule_hidden_in_a_code_fence():
+    """Fault injection through the REAL checkers: the Module-match paragraph
+    moved verbatim into a ``` fence is NOT prose, so the body check, the
+    exact-count check and the load-bearing phrase check must all raise; and
+    a dangling reference inside a fence is not a finding."""
+    marker = "**Module-match rule (pinned):**"
+    text = _module_text("coverage-ledger")
+    paragraph = _paragraph_containing(text, marker)
+    fenced = text.replace(paragraph, "```\n" + paragraph + "\n```")
+    assert marker in fenced and "forbidden hallucinated bridges" in fenced  # verbatim, only fenced
+    with pytest.raises(AssertionError, match="not found"):
+        _assert_pinned_body_intact(fenced, marker, "fenced")
+    with pytest.raises(AssertionError, match="appears 0 times"):
+        _assert_marker_exactly_once(marker, {"modules/coverage-ledger.md": fenced})
+    with pytest.raises(AssertionError, match="missing from"):
+        _assert_load_bearing_rule_canonical(
+            "coverage-ledger",
+            "forbidden hallucinated bridges",
+            {"modules/coverage-ledger.md": fenced},
+        )
+    _assert_no_dangling_references(
+        "```\nsee the 2a row (below).\n```\n", "fenced-ref", _root_text()
+    )
 
 
 @pytest.mark.parametrize("marker", PINNED_RULE_MARKERS)
@@ -934,12 +1038,14 @@ def test_routing_table_rejects_malformed_rows():
 
 @pytest.mark.parametrize("phrase", ROOT_ALWAYS_ON_RULES)
 def test_always_on_rule_stays_in_the_root(phrase):
-    assert phrase in _root_text(), f"always-on rule missing from the root SKILL.md: {phrase!r}"
+    assert phrase in _all_skill_text()["SKILL.md"], (
+        f"always-on rule missing from the root SKILL.md: {phrase!r}"
+    )
 
 
 def test_root_points_every_routed_module_at_the_loader():
     """The root must tell a host HOW to fetch a module, not just name it."""
-    root = _root_text()
+    root = _all_skill_text()["SKILL.md"]
     assert "sumo_qa_load_skill_context" in root
     assert 'mode="module"' in root or "mode='module'" in root
 
