@@ -689,16 +689,25 @@ def test_security_relevance_omission_seed_never_hard_fails():
     assert evaluator.evaluate(SECURITY_PASS, {"security_must_appear": False}).passed
 
 
-# --- securityTerms regex flags are refused, never dropped -----------------
+# --- securityTerms regex flags are translated or refused, never dropped ----
 #
 # Risk: the `securityTerms` matcher lifts only the BODY of the JS regex. The
 # three live regexes carry no flags, so nothing diverges today - but a flag
 # added to one of them in the YAML would be silently discarded and the Python
 # gate would quietly stop agreeing with promptfoo's. In a runner whose whole
-# value is fidelity, a silent wrong is the worst outcome, so an unhandled
-# flag raises the same way every other unported shape does.
-# Technique: equivalence partitioning over the flag alphabet, plus a guard
-# test pinning the three live (unflagged) asserts against this hardening.
+# value is fidelity, a silent wrong is the worst outcome, so a flag is either
+# translated into genuinely equivalent Python or raises.
+# Technique: equivalence partitioning over the flag alphabet - BOTH halves,
+# since a guard that only ever refuses would pass a test suite that only ever
+# checks refusals - plus a guard test pinning the three live (unflagged)
+# asserts against this hardening.
+
+# The guard's flag policy, in one place, because BOTH lifted-regex paths
+# (`regex-test` and `securityTerms`) are parametrized over it below. `i` and
+# `s` are translated because the Node differential harness proves them
+# equivalent; every other JavaScript flag is refused.
+TRANSLATED_JS_FLAGS = "is"
+UNPORTABLE_JS_FLAGS = "dgmuvy"
 
 _SECURITY_TERMS_BODY = (
     r"(security|securit|vulnerab|owasp|\bxss\b|\bcsrf\b|\bsqli\b|injection|"
@@ -730,19 +739,31 @@ def test_an_unflagged_security_terms_regex_still_builds_its_evaluator():
     assert evaluator.terms == _SECURITY_TERMS_BODY
 
 
-@pytest.mark.parametrize("flag", sorted("dgimsuvy"))
+@pytest.mark.parametrize("flag", sorted(UNPORTABLE_JS_FLAGS))
 def test_a_flag_on_the_security_terms_regex_is_refused_not_dropped(flag):
-    """`evaluator_for` lifts the regex BODY only. Every JavaScript flag either
-    has no Python equivalent (`u`, `v`, `y`, `d`), changes matching in a way
-    `re` spells differently (`m` anchors at `\\r`/`\\u2028`/`\\u2029` in JS but
-    not in Python), or is load-bearing state (`g` moves `lastIndex`). Dropping
-    any of them would leave the Python gate quietly disagreeing with
-    promptfoo, so an unhandled flag raises instead of producing an evaluator.
-    """
+    """`evaluator_for` lifts the regex BODY only, so a flag it does not
+    translate would be DROPPED and the Python gate would quietly stop agreeing
+    with promptfoo. Every flag here either has no `re` equivalent (`u`, `v`,
+    `y`, `d`), changes matching in a way `re` spells differently (`m` anchors
+    at `\\r`/`\\u2028`/`\\u2029` in JS but not in Python), or is load-bearing
+    state (`g` moves `lastIndex`), so each raises instead."""
     assertion = ca.JavascriptAssertion(source=_security_source(flag))
 
-    with pytest.raises(ca.UnportedJavascriptAssertionError, match=r"securityTerms"):
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no proven Python"):
         ca.evaluator_for(assertion)
+
+
+@pytest.mark.parametrize("flag", sorted(TRANSLATED_JS_FLAGS))
+def test_a_translatable_flag_on_the_security_terms_regex_is_carried_not_dropped(flag):
+    """The other half of the same rule: a flag the guard CAN translate must
+    reach the compiled matcher rather than being silently discarded. `i` and
+    `s` are proved equivalent against Node by the differential harness."""
+    evaluator = ca.evaluator_for(ca.JavascriptAssertion(source=_security_source(flag)))
+
+    assert evaluator.kind == "security-relevance"
+    assert evaluator.flags == flag, "the flag was dropped on the way to the evaluator"
+    assert evaluator.evaluate(SECURITY_PASS, {"security_must_appear": True}).passed
+    assert not evaluator.evaluate(SECURITY_FAIL, {"security_must_appear": True}).passed
 
 
 def test_the_live_security_asserts_are_unflagged_and_survive_the_flag_guard():
@@ -855,7 +876,7 @@ NBSP = " "
 
 
 def test_js_whitespace_substitution_expands_a_bare_backslash_s():
-    rewritten = ca.js_whitespace_classes(r"a\sb")
+    rewritten = ca.js_pattern_to_python(r"a\sb")
 
     assert re.fullmatch(rewritten, "a b")
     assert re.fullmatch(rewritten, f"a{NBSP}b")
@@ -863,7 +884,7 @@ def test_js_whitespace_substitution_expands_a_bare_backslash_s():
 
 
 def test_js_whitespace_substitution_negates_backslash_capital_s():
-    rewritten = ca.js_whitespace_classes(r"a\Sb")
+    rewritten = ca.js_pattern_to_python(r"a\Sb")
 
     assert re.fullmatch(rewritten, "axb")
     assert not re.fullmatch(rewritten, "a b")
@@ -874,7 +895,7 @@ def test_js_whitespace_substitution_splices_into_an_existing_character_class():
     """The announce-line prefix is `[\\s>*_"']`. Expanding `\\s` to a nested
     `[...]` there would make `[` and `]` literal members and change what the
     class accepts, so the BODY is spliced in instead."""
-    rewritten = ca.js_whitespace_classes(r"""^[\s>*_"']{0,8}hello""")
+    rewritten = ca.js_pattern_to_python(r"""^[\s>*_"']{0,8}hello""")
 
     assert re.match(rewritten, "> **hello")
     assert re.match(rewritten, f"{NBSP}hello")
@@ -885,7 +906,7 @@ def test_js_whitespace_substitution_splices_into_an_existing_character_class():
 def test_js_whitespace_substitution_leaves_an_escaped_backslash_alone():
     r"""`\\s` is a literal backslash followed by `s`, not a whitespace class.
     A naive `str.replace` would corrupt it into a backslash plus a class."""
-    rewritten = ca.js_whitespace_classes(r"a\\sb")
+    rewritten = ca.js_pattern_to_python(r"a\\sb")
 
     assert re.fullmatch(rewritten, "a\\sb")
     assert not re.fullmatch(rewritten, "a b")
@@ -895,28 +916,23 @@ def test_js_whitespace_substitution_leaves_other_escapes_and_classes_alone():
     r"""Only `\s`/`\S` move. `\b`, `\n` and a class that mentions neither must
     come back byte for byte, or the substitution is silently editing the
     lifted pattern."""
-    assert ca.js_whitespace_classes(r"git\+clean\b") == r"git\+clean\b"
-    assert ca.js_whitespace_classes(r"[^\n]*?") == r"[^\n]*?"
-    assert ca.js_whitespace_classes(r"(?!--|HEAD)x") == r"(?!--|HEAD)x"
-    assert ca.js_whitespace_classes(r"git\s+clean\b").endswith(r"clean\b")
+    assert ca.js_pattern_to_python(r"git\+clean\b") == r"git\+clean\b"
+    assert ca.js_pattern_to_python(r"[^\n]*?") == r"[^\n]*?"
+    assert ca.js_pattern_to_python(r"(?!--|HEAD)x") == r"(?!--|HEAD)x"
+    assert ca.js_pattern_to_python(r"git\s+clean\b").endswith(r"clean\b")
 
 
 def test_js_whitespace_substitution_closes_a_class_the_way_javascript_does():
     r"""In JavaScript `[]` is the EMPTY class, so a `]` straight after `[`
     CLOSES it and the `\s` that follows is OUTSIDE the class. Treating that
-    `]` as a POSIX literal member would splice the whitespace body inside
-    instead, silently changing what the pattern accepts.
+    `]` as a POSIX literal member - which is what Python's own parser does -
+    would splice the whitespace body inside instead, silently changing what
+    the pattern accepts."""
+    rewritten = ca.js_pattern_to_python(r"a[^]\sb")
 
-    Only the placement of the substitution is asserted here, not a match:
-    Python cannot express JavaScript's empty class at all (`[^]`, JS's
-    match-anything, parses as a different set in Python), and no pattern in
-    the matrix uses one. This test pins where the boundary is judged to be.
-    """
-    rewritten = ca.js_whitespace_classes(r"a[^]\sb")
-
-    assert rewritten.startswith(r"a[^]")
+    assert rewritten.startswith("a(?s:.)")
     assert rewritten.endswith("]b")
-    assert "\\x09" in rewritten.removeprefix(r"a[^]")
+    assert "\\x09" in rewritten.removeprefix("a(?s:.)")
 
 
 def test_js_whitespace_substitution_refuses_backslash_capital_s_in_a_class():
@@ -924,7 +940,209 @@ def test_js_whitespace_substitution_refuses_backslash_capital_s_in_a_class():
     be translated. No live pattern uses it; failing loudly beats compiling
     something whose verdict quietly differs from JavaScript's."""
     with pytest.raises(ca.UnportableJavascriptPatternError, match=r"\\S inside"):
-        ca.js_whitespace_classes(r"[\S>]")
+        ca.js_pattern_to_python(r"[\S>]")
+
+
+# --- translate-or-refuse: no lifted pattern compiles into a near-miss ------
+#
+# Risk: the portability guard used to be incomplete in a way that is WORSE
+# than a gap. A valid JavaScript pattern could compile in Python and match a
+# DIFFERENT set - no error, no warning, just a verdict that quietly disagrees
+# with promptfoo. None of these occurs in the live matrix, which is precisely
+# why they had to be found by differential testing rather than by a failing
+# eval. Every trigger below was verified against Node.
+#
+# The rule the whole guard now holds to: every lifted JavaScript pattern is
+# either translated into genuinely equivalent Python, or refused loudly.
+#
+# Technique: differential/back-to-back testing against Node (the harness that
+# produced these triggers is deliberately NOT in this suite, which must stay
+# offline and Node-free), distilled here into unit tests on each trigger.
+
+LINE_SEPARATOR = "\u2028"
+PARAGRAPH_SEPARATOR = "\u2029"
+
+
+def test_regex_test_evaluator_refuses_a_flag_it_cannot_translate():
+    """Finding 1: `RegexTestEvaluator` had the identical hole `securityTerms`
+    had - it lifted `/<pattern>/<flags>` and then dropped the flags. Node says
+    `/x/y.test("ax")` is false (sticky: the match must start at `lastIndex`);
+    the evaluator used to say true."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no proven Python"):
+        ca.RegexTestEvaluator("x", "y")
+
+
+@pytest.mark.parametrize("flag", sorted(UNPORTABLE_JS_FLAGS))
+def test_both_lifted_regex_paths_refuse_the_same_flags(flag):
+    """The two paths used to check flags separately, and one of them forgot.
+    They now share `_js_flags`, so this pins them to the SAME answer for the
+    same flag - the drift itself is what is being tested."""
+    with pytest.raises(ca.UnportableJavascriptPatternError):
+        ca.RegexTestEvaluator("x", flag)
+    with pytest.raises(ca.UnportableJavascriptPatternError):
+        ca.evaluator_for(ca.JavascriptAssertion(source=_security_source(flag)))
+
+
+def test_the_multiline_flag_is_refused_rather_than_mismapped():
+    r"""Finding 2: `m` used to map to `re.MULTILINE`, which is a REAL
+    divergence, not an approximation. JavaScript's `/m` anchors `^`/`$` at
+    `\r`, U+2028 and U+2029; Python's anchors only at `\n`, so
+    `/^b/m.test("a\rb")` is true in Node and was false here. A silent mismap
+    is worse than a refusal, and no live pattern uses `m`."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no proven Python"):
+        ca.RegexTestEvaluator("^b", "m")
+
+
+def test_a_repeated_flag_is_refused():
+    """`new RegExp("x", "ii")` is a SyntaxError in JavaScript, so the assert
+    would throw rather than return a verdict. Accepting it as plain `i` would
+    invent a verdict promptfoo never produces."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"repeats a flag"):
+        ca.RegexTestEvaluator("x", "ii")
+
+
+@pytest.mark.parametrize("terminator", ["\n", "\r", LINE_SEPARATOR, PARAGRAPH_SEPARATOR], ids=repr)
+def test_a_lifted_dot_excludes_every_javascript_line_terminator(terminator):
+    r"""Finding 3: `.` diverges with NO flags at all. JavaScript's `.` excludes
+    `\n`, `\r`, U+2028 and U+2029; Python's excludes only `\n`, so
+    `/a.b/.test("a\rb")` is false in Node and was true here. `.` outside a
+    character class is substituted for an explicit negated class, exactly as
+    `\s` is."""
+    evaluator = ca.RegexTestEvaluator("a.b")
+
+    assert evaluator.evaluate(f"a{terminator}b", {}).passed is False
+    assert evaluator.evaluate("a b", {}).passed is True
+    assert evaluator.evaluate(f"a{NBSP}b", {}).passed is True
+
+
+def test_the_dotall_flag_is_translated_so_a_lifted_dot_matches_a_terminator():
+    """`s` is translatable: JavaScript's dotAll and a dot-all Python group
+    both mean *any code point*. It is honoured by the pattern walker rather
+    than by a Python flag, because it selects which translation `.` gets."""
+    assert ca.RegexTestEvaluator("a.b", "s").evaluate("a\rb", {}).passed is True
+    assert ca.RegexTestEvaluator("a.b", "s").evaluate(f"a{LINE_SEPARATOR}b", {}).passed is True
+
+
+def test_a_dot_inside_a_character_class_stays_a_literal():
+    """The substitution must not fire inside a class, where `.` is already an
+    ordinary member in both languages."""
+    evaluator = ca.RegexTestEvaluator(r"a[.x]b")
+
+    assert evaluator.evaluate("a.b", {}).passed is True
+    assert evaluator.evaluate("axb", {}).passed is True
+    assert evaluator.evaluate("ayb", {}).passed is False
+
+
+def test_an_escaped_dot_stays_a_literal():
+    assert ca.js_pattern_to_python(r"a\.b") == r"a\.b"
+
+
+def test_the_javascript_empty_class_matches_nothing():
+    r"""Finding 4: the earlier note said Python cannot express `[]`. It can -
+    a failing lookahead. Node says `/[]\s/.test(" ")` is false (nothing can
+    match an empty class); Python read the `]` as a literal member and said
+    true."""
+    assert ca.RegexTestEvaluator(r"[]\s").evaluate(" ", {}).passed is False
+    assert ca.RegexTestEvaluator(r"a[]*b").evaluate("ab", {}).passed is True
+
+
+def test_the_javascript_match_anything_class_matches_exactly_one_character():
+    r"""The other half of finding 4: `[^]` is JavaScript's match-anything
+    class, which Python spells as a dot-all group. Node says
+    `/[^]\s/.test("x")` is false - `[^]` consumes the `x`, leaving no
+    whitespace - where Python said true."""
+    assert ca.RegexTestEvaluator(r"[^]\s").evaluate("x", {}).passed is False
+    assert ca.RegexTestEvaluator(r"[^]\s").evaluate("x ", {}).passed is True
+    assert ca.RegexTestEvaluator("[^]").evaluate("\n", {}).passed is True
+
+
+def test_a_class_that_merely_starts_with_an_escaped_bracket_is_not_an_empty_class():
+    r"""`[\]]` is a one-member class, not `[]` followed by `]`. Getting the
+    boundary wrong here would silently rewrite a real class."""
+    evaluator = ca.RegexTestEvaluator(r"a[\]]b")
+
+    assert evaluator.evaluate("a]b", {}).passed is True
+    assert evaluator.evaluate("axb", {}).passed is False
+
+
+def test_a_lifted_dollar_anchors_at_end_of_input_not_before_a_trailing_newline():
+    r"""Found by extending the differential harness, not by codex: `$` is a
+    divergence too, with no flags involved. JavaScript's `$` (without `/m`)
+    matches only at end of input; Python's `$` ALSO matches just before a
+    final `\n`, so `/a$/.test("a\n")` is false in Node and was true here."""
+    evaluator = ca.RegexTestEvaluator("a$")
+
+    assert evaluator.evaluate("a", {}).passed is True
+    assert evaluator.evaluate("a\n", {}).passed is False
+    assert ca.RegexTestEvaluator("[$]").evaluate("$", {}).passed is True
+
+
+def test_the_ignorecase_flag_is_translated_for_an_ascii_pattern():
+    """`i` is kept, not refused: under `re.ASCII` Python folds only ASCII,
+    which is exactly JavaScript's `/i` for an ASCII pattern - JS refuses any
+    mapping of a non-ASCII code unit onto an ASCII one. The three live
+    announce gates all carry `/i`, and the harness confirms them."""
+    evaluator = ca.RegexTestEvaluator("security", "i")
+
+    assert evaluator.evaluate("SECURITY", {}).passed is True
+    assert evaluator.evaluate("ſecurity", {}).passed is False
+
+
+@pytest.mark.parametrize("pattern", ["é", r"\u00e9", r"\xe9"], ids=repr)
+def test_the_ignorecase_flag_is_refused_for_a_non_ascii_pattern(pattern):
+    r"""Where that argument stops holding, the flag is refused rather than
+    stretched: Node says `/é/i.test("É")` is true, and `re.ASCII` cannot fold
+    it. Same standard, applied consistently.
+
+    A code point reaches the pattern as a literal OR as a `\uXXXX`/`\xXX`
+    escape, and `/i` folds it either way - but `"\\u00e9".isascii()` is True,
+    so a bare ASCII test would wave the escaped forms straight through."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"non-ASCII pattern"):
+        ca.RegexTestEvaluator(pattern, "i")
+
+
+@pytest.mark.parametrize("pattern", ["é", r"\u00e9", r"\xe9"], ids=repr)
+def test_a_non_ascii_pattern_without_ignorecase_is_fine(pattern):
+    """The refusal is scoped to the folding, not to non-ASCII patterns as
+    such: with no `/i` there is nothing to fold and the two agree."""
+    assert ca.RegexTestEvaluator(pattern).evaluate("é", {}).passed is True
+    assert ca.RegexTestEvaluator(pattern).evaluate("É", {}).passed is False
+
+
+def test_a_pattern_python_cannot_parse_becomes_the_guards_own_error():
+    r"""Secondary: valid JavaScript that Python's grammar rejects - `\Q` is an
+    identity escape in non-unicode JS, and JS allows class ranges `re` does
+    not. These already failed loudly; they now fail with the guard's own error
+    and name the pattern, instead of leaking a raw `re` error."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no Python equivalent"):
+        ca.RegexTestEvaluator(r"\Q\s\E")
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no Python equivalent"):
+        ca.RegexTestEvaluator(r"[\w-a]")
+
+
+def test_the_refusal_names_the_config_it_came_from():
+    """A refusal is only useful if it says which config to go and fix."""
+    assertion = ca.JavascriptAssertion(
+        source="/x/y.test(output);", config_path=Path("skill-made-up.yaml")
+    )
+
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"skill-made-up\.yaml"):
+        ca.evaluator_for(assertion)
+
+
+def test_every_live_lifted_pattern_survives_the_completed_guard():
+    """Regression guard for the whole change: the guard is now much stricter,
+    and the 15 pattern instances the runner actually compiles must all still
+    build and still agree with the whitespace work. The differential harness
+    checks these same patterns against Node; this pins them offline."""
+    built = [ca.evaluator_for(a) for _, a in _live_javascript_asserts()]
+
+    assert len(built) == EXPECTED_JAVASCRIPT_ASSERT_COUNT
+    for evaluator in built:
+        if evaluator.kind == "regex-test":
+            assert evaluator.flags == "i"
+        elif evaluator.kind == "security-relevance":
+            assert evaluator.flags == ""
 
 
 def test_retrospective_restore_treats_a_non_breaking_space_as_javascript_does():

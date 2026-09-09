@@ -89,10 +89,9 @@ catalogue widens what every eval accepts, with no eval edit.
 
 A `javascript` assert whose shape has no port raises
 `UnportedJavascriptAssertionError`, so a new inline assert cannot enter the
-matrix ungated. That includes **flags on the `securityTerms` regex**: the port
-lifts the pattern body and compiles it itself, so a flag would be dropped
-rather than honoured. All three live security regexes are flagless; adding one
-raises until the flag itself is ported.
+matrix ungated. A lifted regex the port cannot translate faithfully raises
+`UnportableJavascriptPatternError` - see [the portability
+guard](#the-portability-guard) below.
 
 **The runner never executes an assertion's `value:`.** It only ever parses
 it. A config edit (or a `file://` target pointed outside the repo) must not
@@ -112,19 +111,62 @@ loader reproduces, because the rendered prompt is what slice 3 diffs:
   (`replace(/\n$/, '')`) - a single chop, not a trim, so an inner blank
   line survives.
 
+## The portability guard
+
+A JavaScript regex lifted into Python is not a Python regex. Some constructs
+Python simply rejects, which is harmless - it fails loudly. The dangerous ones
+**compile in Python and match a different set**: no error, no warning, just a
+verdict that quietly disagrees with promptfoo. In a runner whose entire value
+is fidelity, that is the worst outcome available.
+
+So the guard holds to one rule: **every lifted pattern is either translated
+into genuinely equivalent Python, or refused loudly. Nothing compiles into a
+near-miss.** Both lifted-regex paths (`regex-test` and `securityTerms`) run
+through the same helper, so they cannot drift into disagreeing about it.
+
 Ported regexes compile with `re.ASCII`, because Python's Unicode defaults are
 not JavaScript's: Python's `re.IGNORECASE` folds `ſ` onto `s` where JS `/i`
 refuses to, and Python's `\b`/`\w` are Unicode-aware where JS's are ASCII.
 
-`\s`/`\S` need the opposite treatment - `re.ASCII` narrows them *below* JS's
-whitespace set, and the live retrospective gate is built out of
-`git\s+show\s+\S+:\S+\s*>\s*\S+` and friends, so an answer separated by a
-non-breaking space would pass in JavaScript and fail here. Every lifted
-pattern therefore has its `\s`/`\S` **substituted for an explicit
-JavaScript-whitespace character class** before it is compiled, which gives JS
-semantics on all three axes at once. `\S` inside a character class has no
-Python translation (it would need set subtraction) and raises
-`UnportableJavascriptPatternError`; no live pattern uses it.
+Five constructs are **substituted** before compiling, because Python spells
+the same JavaScript meaning differently:
+
+| construct | JavaScript | Python, untranslated | translation |
+|---|---|---|---|
+| `\s`, `\S` | 25 code points | `re.ASCII` narrows it to 6 | explicit class |
+| `.` | excludes `\n \r` U+2028 U+2029 | excludes only `\n` | explicit negated class |
+| `$` | end of input | *also* before a trailing `\n` | `\Z` |
+| `[]` | matches nothing | `]` read as a literal member | `(?:(?!))` |
+| `[^]` | matches anything | `]` read as a literal member | `(?s:.)` |
+
+`\s` is the one a live pattern actually uses: the retrospective gate is built
+out of `git\s+show\s+\S+:\S+\s*>\s*\S+` and friends, so an answer separated by
+a non-breaking space would pass in JavaScript and fail here. The other four
+are latent - no live pattern trips them, which is exactly why they had to be
+found by differential testing against Node rather than by a failing eval.
+
+Flags are **translated or refused**, never dropped:
+
+| flag | verdict | why |
+|---|---|---|
+| `i` | translated | `re.ASCII \| re.IGNORECASE` folds only ASCII, which *is* JS `/i` for an ASCII pattern. Refused once the pattern can match a non-ASCII code point, where that stops holding - counting `\uXXXX`/`\xXX` escapes, which `str.isascii()` alone would wave through. |
+| `s` | translated | JS dotAll and a dot-all Python group both mean *any code point*. Honoured by the pattern walker, which it tells which translation `.` gets. |
+| `m` | refused | JS anchors `^`/`$` at `\r`, U+2028 and U+2029; `re.MULTILINE` only at `\n`. A silent mismap is worse than a refusal. |
+| `g` | refused | load-bearing state: `.test` advances `lastIndex`. |
+| `y` | refused | sticky; `/x/y.test("ax")` is `false` in Node. |
+| `u`, `v` | refused | change escape and class grammar wholesale, and re-define case folding. |
+| `d` | refused | only adds match indices, which `.test` never reads - honouring it would assert a no-op nobody has proved. |
+
+`\S` inside a character class has no Python translation at all (it would need
+set subtraction) and raises; no live pattern uses it. Patterns Python's
+grammar rejects outright - JS-only class ranges, `\Q`-style identity
+escapes - are re-raised as the guard's own error naming the pattern.
+
+The rule is checked by a **Node differential harness**: every pattern is
+scored against `new RegExp(...).test(...)` in real Node over a large input
+corpus built from the JS whitespace and line-terminator sets. It is
+deliberately **not** part of this suite, which must stay offline and
+Node-free.
 
 ## Guarantees this slice holds
 
