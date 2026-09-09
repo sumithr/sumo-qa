@@ -248,29 +248,34 @@ PINNED_RULE_MARKERS = (
     "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
 )
 
-# One distinctive body phrase per pinned header: it must sit in the BODY of
-# that header (after the marker, before the next pinned header in the same
-# paragraph), not merely somewhere in the file. The header is a label, the
-# body is the rule: gutting a body, or padding it with filler, fails here.
+# The OPERATIVE sentence of each pinned rule (what blocks / what fails the
+# verdict), never a heading fragment, a count, or a connective: deleting the
+# rule's operative sentence while keeping the header and any amount of
+# surrounding prose must fail. Each phrase must sit in the BODY of its header
+# (after the marker, before the next pinned header in the same paragraph).
+# Where the rule also pins an output line shape, that shape is listed too.
 PINNED_BODY_PHRASES: dict[str, tuple[str, ...]] = {
     "**2b. UNPROVEN-escalation extension (pinned).**": (
+        "UNTIL one is present the row is a SAFE-blocker",
         "`UNPROVEN escalation: <risk name> | Discriminating input: <the input>",
         "`UNPROVEN deferral: <risk name> | Accepted failure mode:",
     ),
     "**2c. External-contract extension (pinned).**": (
+        "A hand-authored fixture with no real-run traceability → UNPROVEN, SAFE-blocker",
         "`External-contract anchor: <file:line> | External source: <tool/CLI/API>",
     ),
     "**2d. Internal/self-produced declination (pinned).**": (
+        "emit this line so the true-negative is on the record",
         "`External-contract axis: NOT FIRED (internal/self-produced)",
     ),
     "**Acceptance-criteria coverage (pinned).**": (
-        "Surfacing every supplied criterion is MANDATORY, not verdict-conditional",
+        "is a discipline violation: the contract is that EACH supplied criterion is checked and cited, regardless of verdict",
     ),
     "**Anti-over-discovery (pinned):**": (
-        "Do NOT then manufacture SPECULATIVE output-format-variant risks",
+        "Inventing speculative variant risks to re-block a COVERED external contract is the SAME over-trigger this guard prevents",
     ),
     "**Discharged-check discipline (anti-over-fire, pinned).**": (
-        "NOT on a manufactured extra blocker",
+        "the verdict rests on the diff's ACTUAL named risks + coverage, NOT on a manufactured extra blocker",
     ),
     "**Discovery → verdict (pinned).**": (
         'Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict',
@@ -279,29 +284,31 @@ PINNED_BODY_PHRASES: dict[str, tuple[str, ...]] = {
         "each path it surfaces is a separate UNCOVERED anchor that needs its own ledger row",
     ),
     "**External-contract exception (pinned):**": (
-        "Its evidence is REAL captured output, never a `tests/<module>/` test",
+        "Do NOT mark an external-contract risk UNCOVERED because its tests sit at `tests/test_x.py` instead of `tests/<module>/`",
     ),
     "**External-contract rule (pinned).**": (
-        "a green matcher proves LOGIC, not that its INPUT matches reality",
+        "A hand-authored or guessed fixture with no real-run traceability is UNPROVEN — never SAFE on the green suite alone",
     ),
-    "**Module-match rule (pinned):**": ("forbidden hallucinated bridges",),
+    "**Module-match rule (pinned):**": (
+        "If the fresh run loaded no test for a changed file's module, every risk anchored there is UNCOVERED, however green the rest is",
+        "forbidden hallucinated bridges",
+    ),
     "**Producer test (apply first):**": (
         "the axis fires ONLY when the value is produced by something the diff does NOT control",
     ),
-    "**Re-anchor first.**": (
-        "Without an anchor you cannot apply the module-match rule and will hallucinate coverage",
-    ),
+    "**Re-anchor first.**": ("locate each one's anchor file in the diff before mapping",),
     "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**": (
         "is a RESIDUAL you LIST under `SAFE TO MERGE`; it MUST NOT flip the verdict",
     ),
     "**Technique-keyed failure-mode hints (pinned).**": (
-        "`unlocked` matches `locked`, `concurrency` matches `currency`",
+        "ground it in that technique's catalogued failure modes (`sumo_qa_load_techniques`) — NOT per-AI judgment",
     ),
     "**Test-only-diff (test_change) discipline (pinned):**": (
+        "Any `NO` line is a SAFE-blocker",
         "`Test probe: <test name> | Discriminates broken→fixed?",
     ),
     "**Test-only-diff probe (pinned).**": (
-        "the expected value must be derived INDEPENDENTLY of the SUT",
+        "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
     ),
     "**The two-pass split (pinned).**": (
         "it prescribes the discriminating input ITSELF (step 9 / 2b)",
@@ -309,7 +316,9 @@ PINNED_BODY_PHRASES: dict[str, tuple[str, ...]] = {
     "**Trivial-change exemption (pinned):**": (
         "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
     ),
-    "**Verification-evidence discipline (pinned).**": ("One discipline, four checks",),
+    "**Verification-evidence discipline (pinned).**": (
+        "each surfaces *missing relevant verification* as a SAFE-blocker, never demoted to a residual note, and never cleared by weakening the verifier",
+    ),
     "**What counts as a runtime change (pinned — behaviour, not path prefix):**": (
         "Keyed on what the file *does*, NOT on `app/`/`src/`/`lib/` location",
     ),
@@ -320,6 +329,9 @@ PINNED_BODY_MIN_CHARS = 80
 # Any bold header on disk that says "(pinned" is a pinned marker; a new one
 # must be added to PINNED_RULE_MARKERS and PINNED_BODY_PHRASES to be guarded.
 _PINNED_HEADER_ON_DISK_RE = re.compile(r"\*\*[^*\n]*\(pinned[^*\n]*\*\*")
+# A heading-form pinned rule (`## Trivial-change exemption (pinned)`) must
+# carry a bold pinned marker inside its own section, else it is unguarded.
+_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6}) (.*)$", re.MULTILINE)
 # The root's numbered bold items (checklist steps, verdict-format items):
 # `1. **Read the diff ...**`. A module line that restarts one of THESE
 # numbers+titles is a copy of the root list, not a list of its own.
@@ -431,6 +443,32 @@ def _assert_pinned_body_intact(text: str, marker: str, name: str) -> None:
     for phrase in PINNED_BODY_PHRASES.get(marker, ()):
         assert phrase in body, (
             f"{name}: {phrase!r} is not in the body of its pinned header {marker!r}"
+        )
+
+
+def _pinned_heading_sections(text: str) -> list[tuple[str, str]]:
+    """Every markdown heading containing "(pinned", paired with its section:
+    the text up to the next heading of the same or higher level."""
+    headings = list(_MARKDOWN_HEADING_RE.finditer(text))
+    out: list[tuple[str, str]] = []
+    for i, m in enumerate(headings):
+        if "(pinned" not in m.group(2):
+            continue
+        level = len(m.group(1))
+        end = len(text)
+        for later in headings[i + 1 :]:
+            if len(later.group(1)) <= level:
+                end = later.start()
+                break
+        out.append((m.group(0), text[m.end() : end]))
+    return out
+
+
+def _assert_pinned_headings_carry_bold_markers(text: str, name: str) -> None:
+    for heading, section in _pinned_heading_sections(text):
+        assert any(marker in section for marker in PINNED_RULE_MARKERS), (
+            f"{name}: heading-form pinned rule {heading!r} has no bold pinned marker "
+            "from PINNED_RULE_MARKERS in its own section"
         )
 
 
@@ -591,7 +629,8 @@ def test_pinned_body_phrase_map_covers_every_pinned_marker():
     """Every pinned marker maps to at least one distinctive body phrase (so
     80 chars of filler cannot satisfy the body check), and every "(pinned"
     header on disk is a known marker, so a new pinned rule without a mapped
-    phrase goes red here."""
+    phrase goes red here. Heading-form pinned rules are discovered separately
+    (test_heading_form_pinned_rules_carry_a_bold_marker_in_their_section)."""
     assert set(PINNED_BODY_PHRASES) == set(PINNED_RULE_MARKERS), (
         f"unmapped pinned markers: {sorted(set(PINNED_RULE_MARKERS) - set(PINNED_BODY_PHRASES))}; "
         f"stale keys: {sorted(set(PINNED_BODY_PHRASES) - set(PINNED_RULE_MARKERS))}"
@@ -627,6 +666,52 @@ def test_pinned_body_check_rejects_a_gutted_rule():
     displaced = text.replace(paragraph, f"{marker} {filler}{neighbour} {phrase}{tail}")
     with pytest.raises(AssertionError, match="is not in the body of its pinned header"):
         _assert_pinned_body_intact(displaced, marker, "displaced")
+
+
+def test_pinned_body_check_rejects_a_gutted_operative_sentence():
+    """Fault injection through the REAL checker (the P1 shape): keep the
+    verification-evidence header, its opening rationale sentence and the
+    structural fragment "One discipline, four checks" (well over 80 chars),
+    but delete the sentence that makes missing verification a SAFE-blocker.
+    The mapped phrase must make the checker raise."""
+    marker = "**Verification-evidence discipline (pinned).**"
+    text = _module_text("surface-verifier")
+    _assert_pinned_body_intact(text, marker, "healthy")
+    paragraph = _paragraph_containing(text, marker)
+    gutted_body = (
+        " A green suite + green CI + a green per-file/codex review is NOT evidence that the "
+        "*changed behaviour* was actually exercised. One discipline, four checks:"
+    )
+    assert len(gutted_body.strip()) >= PINNED_BODY_MIN_CHARS
+    gutted = text.replace(paragraph, marker + gutted_body)
+    with pytest.raises(AssertionError, match="is not in the body of its pinned header"):
+        _assert_pinned_body_intact(gutted, marker, "gutted-operative")
+
+
+@pytest.mark.parametrize("name", sorted(_all_skill_text()))
+def test_heading_form_pinned_rules_carry_a_bold_marker_in_their_section(name):
+    _assert_pinned_headings_carry_bold_markers(_all_skill_text()[name], name)
+
+
+def test_heading_form_pinned_rule_discovery_rejects_a_marker_less_section():
+    """Fault injection through the REAL checker: a `## ... (pinned)` heading
+    whose section carries no bold pinned marker must be rejected; a marker in
+    the NEXT section does not count; the real runtime-scope module (two
+    heading-form pinned rules, each with its bold marker) passes."""
+    scratch = (
+        "# Module\n\n## Foo rule (pinned)\n\nprose with no bold marker at all\n\n"
+        "## Bar\n\n**Trivial-change exemption (pinned):** the marker lives in the wrong section\n"
+    )
+    assert len(_pinned_heading_sections(scratch)) == 1
+    with pytest.raises(AssertionError, match="has no bold pinned marker"):
+        _assert_pinned_headings_carry_bold_markers(scratch, "scratch")
+    nested = (
+        "## Foo (pinned)\n\n### Detail\n\n**Trivial-change exemption (pinned):** here\n\n## Next\n"
+    )
+    _assert_pinned_headings_carry_bold_markers(nested, "nested")  # a sub-heading stays inside
+    real = _module_text("runtime-scope")
+    assert len(_pinned_heading_sections(real)) == 2
+    _assert_pinned_headings_carry_bold_markers(real, "runtime-scope")
 
 
 @pytest.mark.parametrize("module_id", _shipped_module_ids())
