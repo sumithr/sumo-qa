@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.2](https://github.com/sumithr/sumo-qa/compare/v0.61.1...v0.61.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* **repo-map:** prefer a regular package over a same-named Python module ([#652](https://github.com/sumithr/sumo-qa/issues/652)) ([7f65825](https://github.com/sumithr/sumo-qa/commit/7f65825cddb633761140e0ad309153b27ac02dc6))
+
 ## [0.61.1](https://github.com/sumithr/sumo-qa/compare/v0.61.0...v0.61.1) (2026-09-07)
 
 
