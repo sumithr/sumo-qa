@@ -37,8 +37,10 @@ from claude import tokens as ctok
 # eval:all` globs `skill-*.yaml` and skips `*.gen.yaml` (two generator seeds
 # whose own headers say they are not for running evals), and the two
 # gitignored `*.generated-tests.yaml` files are test-include payloads, not
-# configs. `EXPECTED_CONFIG_COUNT` is promptfoo's number, because slice 3
-# compares this runner against promptfoo config-for-config.
+# configs. The runner excludes those two on top of `eval:all`'s own rule, so
+# its selection is deliberately STRICTER than the shell script's: that glob
+# would hand `promptfoo eval -c` a bare YAML list and fail. 61 is the number
+# of real configs, which is what slice 3 compares config-for-config.
 # These constants are a deliberate tripwire: if the matrix grows or shrinks,
 # this test fails and whoever changed it updates the number here and on the
 # epic, rather than the change passing silently.
@@ -56,12 +58,18 @@ PROMPTFOO_DIR = REPO_ROOT / "tests" / "evals" / "promptfoo"
 LEFTOVER_PLACEHOLDER = re.compile(r"\{\{\s*[A-Za-z_][A-Za-z0-9_]*\s*\}\}")
 
 
-def _promptfoo_selection(directory: Path) -> list[Path]:
-    """The configs `npm run eval:all` actually runs, derived from package.json.
+def _expected_selection(directory: Path) -> list[Path]:
+    """The runner's selection rule, restated independently of the runner.
 
-    `for f in tests/evals/promptfoo/skill-*.yaml; do case "$f" in *.gen.yaml)
-    continue;; esac; promptfoo eval -c "$f"; done`, plus the gitignored
-    `*.generated-tests.yaml` include payloads, which are bare YAML lists.
+    `skill-*.yaml`, minus `*.gen.yaml` (generator seeds) and minus
+    `*.generated-tests.yaml` (gitignored `tests:` include payloads - bare YAML
+    lists, not configs). Spelled out here rather than imported so the test
+    does not ask the code under test what its own rule is.
+
+    This is stricter than `npm run eval:all`, which excludes only
+    `*.gen.yaml`. Nothing here reads `package.json`: that file is deleted in a
+    later slice of the epic, and coupling discovery to it would make this test
+    fail for a reason that has nothing to do with discovery.
     """
     return sorted(
         p
@@ -85,7 +93,7 @@ def _promptfoo_selection(directory: Path) -> list[Path]:
 def test_loader_reads_every_config_in_the_live_matrix():
     paths = cl.discover_configs(PROMPTFOO_DIR)
 
-    assert paths == _promptfoo_selection(PROMPTFOO_DIR)
+    assert paths == _expected_selection(PROMPTFOO_DIR)
     assert len(paths) == EXPECTED_CONFIG_COUNT, (
         f"promptfoo matrix drifted: {len(paths)} configs selected, "
         f"{EXPECTED_CONFIG_COUNT} recorded. Update the constant and the epic."
@@ -97,8 +105,8 @@ def test_loader_reads_every_config_in_the_live_matrix():
 
 
 def test_discovery_excludes_the_generator_seeds_promptfoo_skips():
-    """`eval:all` skips `*.gen.yaml`; counting them reports a matrix promptfoo
-    never runs, which would corrupt slice 3's config-for-config parity."""
+    """`eval:all` skips `*.gen.yaml` too; counting them reports a matrix
+    promptfoo never runs, corrupting slice 3's config-for-config parity."""
     seeds = {p.name for p in PROMPTFOO_DIR.glob("*.gen.yaml")}
     selected = {p.name for p in cl.discover_configs(PROMPTFOO_DIR)}
 
@@ -106,10 +114,16 @@ def test_discovery_excludes_the_generator_seeds_promptfoo_skips():
     assert not (selected & seeds)
 
 
-def test_discovery_mirrors_promptfoos_selection_over_a_mixed_directory(tmp_path):
+def test_discovery_keeps_only_real_configs_in_a_mixed_directory(tmp_path):
     """A generator seed and a generated-tests payload sitting next to a real
     config: neither may be treated as a config. The payload is a bare YAML
-    LIST, so treating it as one used to die with a raw AttributeError."""
+    LIST, so treating it as one used to die with a raw AttributeError.
+
+    `*.generated-tests.yaml` is where this selection is deliberately STRICTER
+    than `npm run eval:all`, whose glob matches it and whose `*.gen.yaml`
+    case does not exclude it. Matching that would mean handing promptfoo a
+    file that is not a config, which is a latent bug in the shell script, not
+    a behaviour worth reproducing."""
     (tmp_path / "skill-real.yaml").write_text(
         "description: d\nproviders: [echo]\nprompts: ['{{q}}']\ntests:\n  - vars: {q: hi}\n",
         encoding="utf-8",
@@ -142,6 +156,45 @@ def test_load_config_names_the_file_when_its_top_level_is_not_a_mapping(tmp_path
     message = str(excinfo.value)
     assert stray.name in message
     assert "list" in message
+
+
+@pytest.mark.parametrize(
+    ("body", "described"),
+    [
+        pytest.param("- vars:\n    q: hi\n", "list", id="non-empty-list"),
+        pytest.param("[]\n", "list", id="empty-list"),
+        pytest.param("{}\n", None, id="empty-mapping-is-a-config"),
+        pytest.param("false\n", "bool", id="false"),
+        pytest.param("0\n", "int", id="zero"),
+        pytest.param('""\n', "str", id="empty-string"),
+        pytest.param("null\n", "empty document", id="explicit-null"),
+        pytest.param("", "empty document", id="empty-file"),
+        pytest.param("# only a comment\n", "empty document", id="comments-only"),
+    ],
+)
+def test_a_falsy_top_level_is_refused_instead_of_loading_as_an_empty_config(
+    tmp_path, body, described
+):
+    """Equivalence partitioning over YAML's falsy top levels.
+
+    `yaml.safe_load(...) or {}` would run BEFORE the mapping check and turn
+    every one of these into a silently-empty config: a truncated or clobbered
+    file would then sit in the matrix contributing zero cases while still
+    being counted as one. Only a real mapping - `{}` included - is a config.
+    """
+    stray = tmp_path / "skill-x.yaml"
+    stray.write_text(body, encoding="utf-8")
+
+    if described is None:
+        assert cl.load_config(stray).tests == []
+        return
+
+    with pytest.raises(cl.MalformedConfigError) as excinfo:
+        cl.load_config(stray)
+
+    message = str(excinfo.value)
+    assert stray.name in message
+    assert described in message
 
 
 def test_ab_subset_is_the_fifteen_ab_yaml_configs():
@@ -298,6 +351,36 @@ def test_a_yaml_value_javascript_never_produces_is_refused(tmp_path):
 
     with pytest.raises(TypeError, match="JSON.stringify"):
         cl.resolve_var_value("file://s.yaml", tmp_path)
+
+
+def test_non_finite_yaml_numbers_serialise_as_null_like_json_stringify(tmp_path):
+    """`JSON.stringify` has no JSON literal for `NaN`/`Infinity` and writes
+    `null` for all three; `json.dumps` defaults to the non-standard `NaN`,
+    `Infinity` and `-Infinity` tokens, which promptfoo would never inject.
+
+    A `default=` hook cannot fix this - a float is already serialisable, so
+    the hook never fires - so the parsed structure is walked instead. The
+    nesting here proves the walk reaches into mappings and lists, not just
+    top-level scalars.
+    """
+    (tmp_path / "n.yaml").write_text(
+        "nan: .nan\ninf: .inf\nninf: -.inf\nnested:\n  deep: .nan\nlisted: [.inf, 1.5]\n",
+        encoding="utf-8",
+    )
+
+    assert cl.resolve_var_value("file://n.yaml", tmp_path) == (
+        '{"nan":null,"inf":null,"ninf":null,"nested":{"deep":null},"listed":[null,1.5]}'
+    )
+
+
+def test_finite_numbers_and_booleans_are_untouched_by_the_non_finite_walk(tmp_path):
+    """`isinstance(True, float)` is False, and a finite float must keep its
+    value: the walk must not flatten ordinary numbers to `null`."""
+    (tmp_path / "f.yaml").write_text("a: 0\nb: 1.25\nc: true\nd: false\n", encoding="utf-8")
+
+    assert cl.resolve_var_value("file://f.yaml", tmp_path) == (
+        '{"a":0,"b":1.25,"c":true,"d":false}'
+    )
 
 
 def test_non_yaml_file_vars_keep_their_raw_text(tmp_path):
@@ -672,6 +755,139 @@ def test_retrospective_restore_word_boundary_is_ascii_like_javascript():
 
     assert result.passed is False
     assert result.reason == "destructive command"
+
+
+# --- JS `\s`/`\S` are substituted, not narrowed by re.ASCII ---------------
+#
+# Risk: `re.ASCII` gives JS semantics for `\b`, `\w` and case folding but
+# NARROWS `\s`/`\S` below JS's set, and the live retrospective gate is built
+# out of `git\s+show\s+\S+:\S+\s*>\s*\S+` and friends. An answer separated by
+# a non-breaking space passes in JavaScript and fails in Python, which is a
+# verdict divergence on a live evaluator, not a theoretical one. Every lifted
+# pattern therefore has its `\s`/`\S` rewritten to explicit JS-whitespace
+# classes before compiling, so re.ASCII stops mattering for whitespace.
+# Technique: boundary value analysis on the whitespace set, plus unit tests on
+# the substitution itself, because a substitution bug (an escaped `\\s`, or a
+# `\s` inside a character class) would corrupt patterns silently.
+
+NBSP = " "
+
+
+def test_js_whitespace_substitution_expands_a_bare_backslash_s():
+    rewritten = ca.js_whitespace_classes(r"a\sb")
+
+    assert re.fullmatch(rewritten, "a b")
+    assert re.fullmatch(rewritten, f"a{NBSP}b")
+    assert not re.fullmatch(rewritten, "axb")
+
+
+def test_js_whitespace_substitution_negates_backslash_capital_s():
+    rewritten = ca.js_whitespace_classes(r"a\Sb")
+
+    assert re.fullmatch(rewritten, "axb")
+    assert not re.fullmatch(rewritten, "a b")
+    assert not re.fullmatch(rewritten, f"a{NBSP}b")
+
+
+def test_js_whitespace_substitution_splices_into_an_existing_character_class():
+    """The announce-line prefix is `[\\s>*_"']`. Expanding `\\s` to a nested
+    `[...]` there would make `[` and `]` literal members and change what the
+    class accepts, so the BODY is spliced in instead."""
+    rewritten = ca.js_whitespace_classes(r"""^[\s>*_"']{0,8}hello""")
+
+    assert re.match(rewritten, "> **hello")
+    assert re.match(rewritten, f"{NBSP}hello")
+    assert not re.match(rewritten, "[hello")
+    assert not re.match(rewritten, "xhello")
+
+
+def test_js_whitespace_substitution_leaves_an_escaped_backslash_alone():
+    r"""`\\s` is a literal backslash followed by `s`, not a whitespace class.
+    A naive `str.replace` would corrupt it into a backslash plus a class."""
+    rewritten = ca.js_whitespace_classes(r"a\\sb")
+
+    assert re.fullmatch(rewritten, "a\\sb")
+    assert not re.fullmatch(rewritten, "a b")
+
+
+def test_js_whitespace_substitution_leaves_other_escapes_and_classes_alone():
+    r"""Only `\s`/`\S` move. `\b`, `\n` and a class that mentions neither must
+    come back byte for byte, or the substitution is silently editing the
+    lifted pattern."""
+    assert ca.js_whitespace_classes(r"git\+clean\b") == r"git\+clean\b"
+    assert ca.js_whitespace_classes(r"[^\n]*?") == r"[^\n]*?"
+    assert ca.js_whitespace_classes(r"(?!--|HEAD)x") == r"(?!--|HEAD)x"
+    assert ca.js_whitespace_classes(r"git\s+clean\b").endswith(r"clean\b")
+
+
+def test_js_whitespace_substitution_closes_a_class_the_way_javascript_does():
+    r"""In JavaScript `[]` is the EMPTY class, so a `]` straight after `[`
+    CLOSES it and the `\s` that follows is OUTSIDE the class. Treating that
+    `]` as a POSIX literal member would splice the whitespace body inside
+    instead, silently changing what the pattern accepts.
+
+    Only the placement of the substitution is asserted here, not a match:
+    Python cannot express JavaScript's empty class at all (`[^]`, JS's
+    match-anything, parses as a different set in Python), and no pattern in
+    the matrix uses one. This test pins where the boundary is judged to be.
+    """
+    rewritten = ca.js_whitespace_classes(r"a[^]\sb")
+
+    assert rewritten.startswith(r"a[^]")
+    assert rewritten.endswith("]b")
+    assert "\\x09" in rewritten.removeprefix(r"a[^]")
+
+
+def test_js_whitespace_substitution_refuses_backslash_capital_s_in_a_class():
+    """Python has no set subtraction in a character class, so `[\\S>]` cannot
+    be translated. No live pattern uses it; failing loudly beats compiling
+    something whose verdict quietly differs from JavaScript's."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"\\S inside"):
+        ca.js_whitespace_classes(r"[\S>]")
+
+
+def test_retrospective_restore_treats_a_non_breaking_space_as_javascript_does():
+    """Codex's counterexample: JS `\\s` matches U+00A0, so this output has a
+    scoped restore and a return-reverse in JavaScript. Under bare `re.ASCII`
+    Python saw no scoped restore and returned the opposite verdict."""
+    evaluator = ca.RetrospectiveRestoreEvaluator(
+        ("no scoped restore", "destructive command", "no return", "ok")
+    )
+    text = (
+        f"git{NBSP}show{NBSP}abc:src/a.py{NBSP}>{NBSP}src/a.py then "
+        f"git{NBSP}checkout{NBSP}--{NBSP}src/a.py"
+    )
+
+    result = evaluator.evaluate(text, {})
+
+    assert result.passed is True, result.reason
+    assert result.reason == "ok"
+
+
+def test_regex_evaluator_announce_prefix_accepts_a_non_breaking_space():
+    """The live announce gates use `^[\\s>*_"']{0,8}<phrase>/i`; JS `\\s`
+    covers U+00A0, so an answer opening with one still announces."""
+    assertion = next(
+        a for name, a in _live_javascript_asserts() if name == "skill-closing-qa-gaps.yaml"
+    )
+    evaluator = ca.evaluator_for(assertion)
+
+    assert evaluator.evaluate(f"{NBSP}Closing one QA gap at a time.", {}).passed is True
+
+
+def test_ascii_semantics_still_hold_after_the_whitespace_substitution():
+    """The substitution must not cost the other two axes: `re.ASCII` still has
+    to give JS case folding and JS `\\b`/`\\w` on the same patterns."""
+    evaluator = ca.RetrospectiveRestoreEvaluator(
+        ("no scoped restore", "destructive command", "no return", "ok")
+    )
+    text = (
+        f"Restore with `git{NBSP}show abc1234:src/a.py > src/a.py`, then wipe with "
+        "`git cleané -fd`, then `git checkout -- src/a.py`."
+    )
+
+    assert evaluator.evaluate(text, {}).reason == "destructive command"
+    assert ca.RegexTestEvaluator("security", "i").evaluate("ſecurity", {}).passed is False
 
 
 # --- cites-catalogue-technique: allowlist derived, never hardcoded (#350) ---

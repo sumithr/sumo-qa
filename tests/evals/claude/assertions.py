@@ -38,15 +38,18 @@ __all__ = [
     "AssertionResult",
     "CitesCatalogueTechniqueEvaluator",
     "JavascriptAssertion",
+    "JS_WHITESPACE",
     "RetrospectiveRestoreEvaluator",
     "RegexTestEvaluator",
     "RubricAssertion",
     "RubricNotExecutableError",
     "SecurityRelevanceEvaluator",
+    "UnportableJavascriptPatternError",
     "UnportedJavascriptAssertionError",
     "UnsupportedAssertionTypeError",
     "catalogue_technique_names",
     "evaluator_for",
+    "js_whitespace_classes",
     "parse_assertion",
 ]
 
@@ -64,6 +67,10 @@ class UnportedJavascriptAssertionError(ValueError):
 
 class RubricNotExecutableError(RuntimeError):
     """`llm-rubric` grading is slice 2 (#662); slice 1 only parses rubrics."""
+
+
+class UnportableJavascriptPatternError(ValueError):
+    """A JS regex whose Python translation would silently change its meaning."""
 
 
 @dataclass(frozen=True)
@@ -148,7 +155,7 @@ _JS_FLAG_MAP = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL}
 _REASONS = re.compile(r"reason:\s*'((?:[^'\\]|\\.)*)'")
 
 # Every ported pattern compiles with re.ASCII. Python's Unicode defaults are
-# NOT JavaScript's for the three constructs these patterns use:
+# NOT JavaScript's for the constructs these patterns use:
 #
 # * `re.IGNORECASE` folds `\u017f` (long s) onto `s` and `\u212a` (Kelvin sign)
 #   onto `k`; JavaScript's `/i` refuses any mapping of a non-ASCII code unit
@@ -159,14 +166,92 @@ _REASONS = re.compile(r"reason:\s*'((?:[^'\\]|\\.)*)'")
 # Every pattern in the matrix and every heading in knowledge/techniques.md is
 # ASCII, so ASCII-only folding is exactly JavaScript's folding for them.
 #
-# KNOWN RESIDUAL: re.ASCII also narrows `\s`/`\S` to ASCII whitespace, where
-# JavaScript's `\s` additionally covers U+00A0, U+1680, U+2000-U+200A,
-# U+2028, U+2029, U+202F, U+205F, U+3000 and U+FEFF. The only live pattern
-# using `\s` is the announce-line prefix class `[\s>*_"']{0,8}`, so the
-# divergence needs a candidate to open its answer with an exotic Unicode
-# space; rewriting a lifted pattern to paper over it would break the "the
-# pattern lives in one place, the config" contract this port is built on.
+# `\s`/`\S` go the OTHER way: re.ASCII narrows them below JavaScript's set,
+# and the live retrospective gate is full of them
+# (`git\s+show\s+\S+:\S+\s*>\s*\S+` and friends), so an answer containing a
+# non-breaking space would pass in JavaScript and fail here. Rather than
+# choose between the three axes, every lifted pattern has its `\s`/`\S`
+# SUBSTITUTED for an explicit JavaScript-whitespace class before it is
+# compiled: re.ASCII then stops mattering for whitespace, and still gives
+# JavaScript's semantics for `\b`, `\w` and case folding.
 _JS_ASCII = re.ASCII
+
+# JavaScript's `\s`: WhiteSpace + LineTerminator (ECMA-262 11.2/11.3). Note
+# that this is exactly the set `String.prototype.trim` strips, which is why
+# `loader.py` imports it for its trim too.
+JS_WHITESPACE = (
+    "\t\n\v\f\r \u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005"
+    "\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
+
+# Spelled as numeric escapes so the body is unambiguous inside a character
+# class no matter what surrounds it (no literal `-`, `]` or `^` to fuse with
+# a neighbouring member of the class it is spliced into).
+_JS_WS_BODY = "".join(
+    f"\\x{ord(c):02x}" if ord(c) < 0x100 else f"\\u{ord(c):04x}" for c in JS_WHITESPACE
+)
+
+
+def js_whitespace_classes(pattern: str) -> str:
+    """Rewrite `\\s`/`\\S` in a lifted JS regex as explicit character classes.
+
+    Walks the source rather than running a regex over it, so it can tell an
+    escape from a literal: `\\\\s` is a backslash followed by `s` and must be
+    left alone, and `\\s` INSIDE a character class (the announce-line prefix
+    `[\\s>*_"']`) expands to the class BODY, not to a nested `[...]`.
+
+    `\\S` inside a character class has no Python translation - it would need
+    set subtraction - so it raises rather than compiling to something whose
+    verdict silently differs from JavaScript's. No live pattern uses it.
+
+    Class boundaries follow JavaScript, not POSIX: `[]` is the EMPTY class and
+    `[^]` matches anything, so a `]` straight after `[` closes rather than
+    being a literal member.
+    """
+    out: list[str] = []
+    index = 0
+    length = len(pattern)
+    in_class = False
+    while index < length:
+        char = pattern[index]
+        if char == "\\" and index + 1 < length:
+            following = pattern[index + 1]
+            if following == "s":
+                out.append(_JS_WS_BODY if in_class else f"[{_JS_WS_BODY}]")
+            elif following == "S":
+                if in_class:
+                    raise UnportableJavascriptPatternError(
+                        r"\S inside a character class has no Python equivalent "
+                        f"(in {pattern!r}); rewrite the pattern in the config"
+                    )
+                out.append(f"[^{_JS_WS_BODY}]")
+            else:
+                out.append(char + following)
+            index += 2
+            continue
+        if char == "[" and not in_class:
+            in_class = True
+            out.append(char)
+            index += 1
+            # A leading `^` negates; it does not close. A leading `]` DOES
+            # close in JavaScript (`[]` is the empty class, `[^]` matches
+            # anything) - unlike POSIX, where it would be a literal member.
+            if index < length and pattern[index] == "^":
+                out.append("^")
+                index += 1
+            continue
+        if char == "]" and in_class:
+            in_class = False
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _js_compile(pattern: str, flags: int = 0) -> re.Pattern[str]:
+    """Compile a pattern LIFTED FROM JAVASCRIPT with JavaScript's semantics."""
+    return re.compile(js_whitespace_classes(pattern), _JS_ASCII | flags)
 
 
 def _js_flags(flags: str) -> int:
@@ -206,7 +291,7 @@ class RegexTestEvaluator:
 
     def evaluate(self, output: str, context_vars: Mapping[str, Any]) -> AssertionResult:
         del context_vars
-        matcher = re.compile(self.pattern, _js_flags(self.flags))
+        matcher = _js_compile(self.pattern, _js_flags(self.flags))
         if matcher.search(output or ""):
             return AssertionResult(True, 1, f"matches /{self.pattern}/{self.flags}")
         return AssertionResult(False, 0, f"does not match /{self.pattern}/{self.flags}")
@@ -228,7 +313,7 @@ class SecurityRelevanceEvaluator:
 
     def evaluate(self, output: str, context_vars: Mapping[str, Any]) -> AssertionResult:
         lowered = str(output or "").lower()
-        mentions = re.search(self.terms, lowered, _JS_ASCII) is not None
+        mentions = _js_compile(self.terms).search(lowered) is not None
         if context_vars.get("security_must_appear") is True:
             if mentions:
                 return AssertionResult(True, 1, self.reasons[0])
@@ -249,19 +334,19 @@ class RetrospectiveRestoreEvaluator:
     kind: str = field(default="retrospective-restore", init=False)
 
     _SCOPED_RESTORE = (
-        re.compile(r"git\s+show\s+\S+:\S+\s*>\s*\S+", _JS_ASCII),
-        re.compile(r"git\s+checkout\s+\S+\s+--\s+\S+", _JS_ASCII),
+        _js_compile(r"git\s+show\s+\S+:\S+\s*>\s*\S+"),
+        _js_compile(r"git\s+checkout\s+\S+\s+--\s+\S+"),
     )
-    _SCOPED_PATHSPEC = re.compile(r"git\s+checkout\s+[^\n]*?\s--\s+\S+", _JS_ASCII)
+    _SCOPED_PATHSPEC = _js_compile(r"git\s+checkout\s+[^\n]*?\s--\s+\S+")
     _DESTRUCTIVE = (
-        re.compile(r"git\s+reset\s+--hard", _JS_ASCII),
-        re.compile(r"git\s+clean\b", _JS_ASCII),
+        _js_compile(r"git\s+reset\s+--hard"),
+        _js_compile(r"git\s+clean\b"),
     )
-    _BARE_CHECKOUT = re.compile(r"git\s+checkout\s+(?!--\s|HEAD\s+--)[^\n]*", _JS_ASCII)
+    _BARE_CHECKOUT = _js_compile(r"git\s+checkout\s+(?!--\s|HEAD\s+--)[^\n]*")
     _RETURN_REVERSE = (
-        re.compile(r"git\s+checkout\s+--\s+\S+", _JS_ASCII),
-        re.compile(r"git\s+checkout\s+HEAD\s+--\s+\S+", _JS_ASCII),
-        re.compile(r"git\s+restore\b", _JS_ASCII),
+        _js_compile(r"git\s+checkout\s+--\s+\S+"),
+        _js_compile(r"git\s+checkout\s+HEAD\s+--\s+\S+"),
+        _js_compile(r"git\s+restore\b"),
     )
 
     def evaluate(self, output: str, context_vars: Mapping[str, Any]) -> AssertionResult:

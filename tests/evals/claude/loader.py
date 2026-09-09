@@ -8,11 +8,14 @@ chances to change a scenario while claiming to preserve it, and parity
 
 What the loader reproduces, because the configs depend on it:
 
-* the SELECTION `npm run eval:all` makes: `skill-*.yaml` minus `*.gen.yaml`
-  (generator seeds, whose own headers say they are not for running evals).
-  The gitignored `*.generated-tests.yaml` include payloads are excluded too:
-  they are bare YAML lists, not configs. 61 configs, the number promptfoo
-  runs.
+* the SELECTION: `skill-*.yaml` minus `*.gen.yaml` (generator seeds, whose
+  own headers say they are not for running evals) minus
+  `*.generated-tests.yaml` (gitignored `tests:` include payloads - bare YAML
+  lists, not configs). 61 configs. This is DELIBERATELY STRICTER than
+  `npm run eval:all`, which globs `skill-*.yaml` and skips only `*.gen.yaml`:
+  its own glob would hand `promptfoo eval -c` a generated-tests include file,
+  which is not a config, and promptfoo would fail on it. The shell script has
+  a latent bug; being bug-compatible with it is not parity.
 * `file://` vars, resolved relative to the CONFIG'S OWN directory (paths such
   as `file://../../../skills/<skill>/SKILL.md` escape it by design), with
   promptfoo's own value handling: a `.yaml`/`.yml` target is injected as
@@ -41,6 +44,7 @@ from __future__ import annotations
 import datetime
 import fnmatch
 import json
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -48,7 +52,7 @@ from typing import Any
 
 import yaml
 
-from claude.assertions import RubricAssertion, parse_assertion
+from claude.assertions import JS_WHITESPACE, RubricAssertion, parse_assertion
 from claude.templating import expand_var_matrix, render
 
 __all__ = [
@@ -73,9 +77,10 @@ PROMPTFOO_DIR = REPO_ROOT / "tests" / "evals" / "promptfoo"
 _FILE_URL = "file://"
 _SKILL_PREFIX = "sumo-qa-"
 
-# `npm run eval:all` globs `skill-*.yaml` and skips `*.gen.yaml`; the
-# gitignored `*.generated-tests.yaml` files are `tests:` include payloads
-# (bare YAML lists), not configs.
+# `skill-*.yaml` minus `*.gen.yaml` (generator seeds) minus
+# `*.generated-tests.yaml` (gitignored `tests:` include payloads - bare YAML
+# lists, not configs). Stricter than `npm run eval:all`, which excludes only
+# `*.gen.yaml` and would therefore feed promptfoo a non-config.
 _CONFIG_GLOB = "skill-*.yaml"
 _NOT_A_CONFIG = (".gen.yaml", ".generated-tests.yaml")
 
@@ -85,13 +90,9 @@ _YAML_SUFFIXES = (".yaml", ".yml")
 
 # `String.prototype.trim` strips WhiteSpace + LineTerminator, which is NOT
 # Python's `str.strip()` set: JS adds U+FEFF and omits U+001C-U+001F and
-# U+0085. Spelling it out keeps the trim byte-identical to promptfoo's.
-_JS_WHITESPACE = (
-    "\t\n\v\f\r \u00a0\u1680"
-    "\u2000\u2001\u2002\u2003\u2004\u2005"
-    "\u2006\u2007\u2008\u2009\u200a"
-    "\u2028\u2029\u202f\u205f\u3000\ufeff"
-)
+# U+0085. It is the same set JavaScript's `\s` matches, so it is defined once,
+# in `assertions.py`, where the regex ports splice it into character classes.
+_JS_WHITESPACE = JS_WHITESPACE
 
 
 class MalformedConfigError(ValueError):
@@ -175,9 +176,35 @@ def _json_default(value: Any) -> str:
     )
 
 
+def _null_non_finite(value: Any) -> Any:
+    """Replace every non-finite float with `None`, the way `JSON.stringify` does.
+
+    js-yaml resolves `.nan`, `.inf` and `-.inf` to `NaN`/`Infinity`, and
+    `JSON.stringify` writes all three as `null` (JSON has no literal for
+    them). Python's `json.dumps` instead emits the non-standard `NaN`,
+    `Infinity` and `-Infinity` tokens, which promptfoo would never inject.
+
+    This has to be a WALK, not a `default=` hook: a float is already
+    JSON-serialisable, so `default=` never fires for one.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, Mapping):
+        return {key: _null_non_finite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_null_non_finite(item) for item in value]
+    return value
+
+
 def _json_stringify(value: Any) -> str:
     """`JSON.stringify(value)`: compact, document key order, literal Unicode."""
-    return json.dumps(value, separators=(",", ":"), ensure_ascii=False, default=_json_default)
+    return json.dumps(
+        _null_non_finite(value),
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+        default=_json_default,
+    )
 
 
 def resolve_var_value(value: Any, base_dir: Path) -> Any:
@@ -272,11 +299,22 @@ def load_config(path: Path) -> EvalConfig:
     """Load and fully resolve one promptfoo config."""
     path = Path(path)
     base_dir = path.parent
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    # No `or {}` here: it would run BEFORE the mapping check and turn every
+    # falsy top level - `[]`, `false`, `0`, `""`, `null`, an empty file - into
+    # a silently-empty config. An empty or falsy document is NOT a promptfoo
+    # config: it carries no `prompts:` and no `providers:`, so promptfoo could
+    # not run it either, and accepting it would let a truncated or clobbered
+    # file sit in the matrix contributing zero cases while still being counted
+    # as one - exactly the short read slice 3's parity claim must not have.
+    # This is deliberately NOT the rule `_expand_test_includes` uses: there,
+    # `or []` on an empty include is right, because an include legitimately
+    # contributes zero tests and the CONFIG around it is still valid.
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, Mapping):
+        described = "empty document" if data is None else type(data).__name__
         raise MalformedConfigError(
             f"{path.name} is not a promptfoo config: its top level is a "
-            f"{type(data).__name__}, not a mapping (read from {path})"
+            f"{described}, not a mapping (read from {path})"
         )
     warnings: list[str] = []
 
@@ -339,10 +377,15 @@ def discover_configs(
 ) -> list[Path]:
     """Select configs, optionally scoped by skill name and/or filename glob.
 
-    The base selection mirrors `npm run eval:all`: `skill-*.yaml` minus
-    `*.gen.yaml`. `*.generated-tests.yaml` is excluded on top - it matches the
-    glob but is a `tests:` include payload (a bare YAML list), so treating it
-    as a config both inflates the count and blows up `load_config`.
+    The base selection is `skill-*.yaml` minus `*.gen.yaml` (generator
+    seeds) minus `*.generated-tests.yaml` (a `tests:` include payload - a bare
+    YAML list - which would both inflate the count and blow up `load_config`).
+
+    That last exclusion makes this selection deliberately STRICTER than
+    `npm run eval:all`, whose glob skips only `*.gen.yaml` and so would pass
+    `promptfoo eval -c` a generated-tests include file and fail on it. The
+    runner is not bug-compatible with that; excluding non-configs is the
+    correct behaviour, and the two selections agree on every real config.
 
     `skill` accepts either the bare name (`reviewing-before-merge`) or the
     full skill directory name (`sumo-qa-reviewing-before-merge`), and picks up

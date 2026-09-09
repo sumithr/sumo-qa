@@ -15,11 +15,18 @@ It reads the **existing** promptfoo configs in
 each one produces a fully-resolved list of
 `(prompt_label, rendered_prompt, assertions)` tuples.
 
-The selection is promptfoo's own, so slice 3 can compare config for config:
-`npm run eval:all` globs `skill-*.yaml` and skips `*.gen.yaml` (two generator
-seeds whose headers say they are not for running evals), and the gitignored
-`*.generated-tests.yaml` files are `tests:` include payloads, not configs.
-That is **61 configs**, not the 65 `*.yaml` files on disk.
+The selection is `skill-*.yaml` minus `*.gen.yaml` (two generator seeds whose
+headers say they are not for running evals) minus `*.generated-tests.yaml`
+(gitignored `tests:` include payloads - bare YAML lists, not configs). That is
+**61 configs**, not the 65 `*.yaml` files on disk.
+
+That rule is deliberately **stricter** than `npm run eval:all`. The shell
+script globs `skill-*.yaml` and skips only `*.gen.yaml`, so its own glob
+matches `skill-*.generated-tests.yaml` and would hand `promptfoo eval -c` a
+file that is not a config, which promptfoo errors on. Excluding non-configs is
+the correct behaviour; being bug-compatible with the shell script would not be
+parity. On every real config the two selections agree, which is what slice 3
+compares.
 
 | Module | Responsibility |
 |---|---|
@@ -105,17 +112,32 @@ loader reproduces, because the rendered prompt is what slice 3 diffs:
 Ported regexes compile with `re.ASCII`, because Python's Unicode defaults are
 not JavaScript's: Python's `re.IGNORECASE` folds `ſ` onto `s` where JS `/i`
 refuses to, and Python's `\b`/`\w` are Unicode-aware where JS's are ASCII.
-The known residual is `\s`, which `re.ASCII` narrows below JS's Unicode
-whitespace set; see the comment in `assertions.py`.
+
+`\s`/`\S` need the opposite treatment - `re.ASCII` narrows them *below* JS's
+whitespace set, and the live retrospective gate is built out of
+`git\s+show\s+\S+:\S+\s*>\s*\S+` and friends, so an answer separated by a
+non-breaking space would pass in JavaScript and fail here. Every lifted
+pattern therefore has its `\s`/`\S` **substituted for an explicit
+JavaScript-whitespace character class** before it is compiled, which gives JS
+semantics on all three axes at once. `\S` inside a character class has no
+Python translation (it would need set subtraction) and raises
+`UnportableJavascriptPatternError`; no live pattern uses it.
 
 ## Guarantees this slice holds
 
 Enforced by [`tests/test_claude_eval_runner.py`](../../test_claude_eval_runner.py):
 
-- every config promptfoo would run loads, and neither a generator seed nor a
-  generated-tests payload is ever counted as one;
+- every real config loads, and neither a generator seed nor a generated-tests
+  payload is ever counted as one;
 - a YAML whose top level is not a mapping fails with an error naming the
-  file, never a bare `AttributeError`;
+  file, never a bare `AttributeError` - including every *falsy* top level
+  (`[]`, `false`, `0`, `""`, `null`, an empty file), which must not be
+  coerced to an empty config and counted as one. An empty `tests:` include is
+  the opposite case and legitimately contributes zero tests;
+
+- a `.yaml` file var's `.nan`/`.inf`/`-.inf` serialise as `null`, the way
+  `JSON.stringify` writes them, not as the non-standard `NaN`/`Infinity`
+  tokens `json.dumps` defaults to;
 - `file://` resolution is relative to the config directory, including paths
   that escape it, and never to the process cwd;
 - no rubric reaches a case with template syntax still in it;
