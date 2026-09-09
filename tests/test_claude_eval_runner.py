@@ -984,7 +984,11 @@ SUPPORTED_CONSTRUCTS = [
     ("greedy plus", "ab+c", "abbc", "ac"),
     ("optional", "ab?c", "ac", "abbc"),
     ("lazy quantifier", r"a[^\n]*?c", "abc", "ab"),
+    ("lazy star", "ab*?c", "ac", "abx"),
+    ("lazy plus", "ab+?c", "abbc", "ac"),
+    ("lazy optional", "ab??c", "ac", "abbc"),
     ("bounded quantifier", "ab{2,3}c", "abbc", "abc"),
+    ("lazy bounded quantifier", "ab{2,3}?c", "abbc", "abc"),
     (r"\s", r"git\sshow", "git show", "gitshow"),
     (r"\S", r"git\s\S+", "git abc", "git  "),
     (r"\b", r"\bxss\b", "an xss bug", "xssbug"),
@@ -1021,6 +1025,11 @@ UNSUPPORTED_CONSTRUCTS = [
     ("non-ascii class member", "[\u00e9x]", "inside a character class"),
     ("unterminated class", "a[xy", "unterminated character class"),
     ("stray brace", "a{b}", "not a bounded quantifier"),
+    ("possessive plus", "a++", "stacked on another quantifier"),
+    ("possessive star", "a*+", "stacked on another quantifier"),
+    ("possessive optional", "a?+", "stacked on another quantifier"),
+    ("possessive bounded quantifier", "a{1,2}+", "stacked on another quantifier"),
+    ("doubly-lazy quantifier", "a*??", "stacked on another quantifier"),
     ("bare closing bracket", "a]b", r"uses `\]`"),
     ("bare closing brace", "a}b", r"uses `\}`"),
     ("trailing backslash", "ab\\", "the escape"),
@@ -1215,7 +1224,7 @@ def test_a_pattern_python_cannot_parse_becomes_the_guards_own_error():
     with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no Python equivalent"):
         ca.RegexTestEvaluator("(ab")
     with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no Python equivalent"):
-        ca.RegexTestEvaluator("a**")
+        ca.RegexTestEvaluator("*a")
 
 
 def test_the_refusal_names_the_config_it_came_from():

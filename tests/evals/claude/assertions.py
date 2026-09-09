@@ -12,18 +12,22 @@ The promptfoo matrix uses exactly two assertion types:
 
 Nothing in this module runs the JavaScript. The `value:` of an assertion is
 attacker-shaped input in the general case (a config edit, or a `file://`
-target outside the repo), so it is only ever PARSED. Each evaluator derives
-its parameters from the JS source, so editing the regex in the YAML changes
-the Python gate too, instead of the port silently drifting from the original.
+target outside the repo), so it is only ever PARSED.
 
 The four ported evaluator kinds:
 
-| kind | JS shape | configs |
-|---|---|---|
-| `regex-test` | `/<pattern>/<flags>.test(output)` announce-line gate | 3 |
-| `security-relevance` | `securityTerms` + `context.vars.security_must_appear` | 3 |
-| `cites-catalogue-technique` | `file://asserts/cites-catalogue-technique.js` | 3 |
-| `retrospective-restore` | scoped-restore / return-reverse git mechanic | 1 |
+| kind | JS shape | configs | parameters |
+|---|---|---|---|
+| `regex-test` | `/<pattern>/<flags>.test(output)` announce-line gate | 3 | lifted |
+| `security-relevance` | `securityTerms` + `context.vars.security_must_appear` | 3 | lifted |
+| `cites-catalogue-technique` | `file://asserts/cites-catalogue-technique.js` | 3 | from catalogue |
+| `retrospective-restore` | scoped-restore / return-reverse git mechanic | 1 | HAND-TRANSCRIBED |
+
+Three of the four DERIVE their parameters: the two lifted-regex kinds read the
+regex literal straight out of the config text, so editing the regex in the
+YAML changes the Python gate too; `cites-catalogue-technique` reads the
+catalogue at runtime. `retrospective-restore` does NOT - see the note on
+`RetrospectiveRestoreEvaluator`.
 
 ## What the regex port does and does not claim
 
@@ -270,9 +274,13 @@ def _refusal(
 # Quantifiers are admitted as ONE construct (the ECMA-262 `Quantifier`
 # production: `*`, `+`, `?`, `{m}`, `{m,}`, `{m,n}`, each optionally lazy)
 # because the two grammars define the whole production identically - it is
-# parameterised by a repeat bound, not by a meaning. Escapes and flags are
-# admitted INDIVIDUALLY, because each one carries its own semantics and its
-# own chance of disagreeing.
+# parameterised by a repeat bound, not by a meaning. ONE is load-bearing: the
+# production allows exactly one quantifier per atom, so a SECOND stacked on
+# the first is refused (`a++` is a SyntaxError in Node and a possessive
+# quantifier in Python), while a lazy `?` after a quantifier stays admitted.
+#
+# Escapes and flags are admitted INDIVIDUALLY, because each one carries its
+# own semantics and its own chance of disagreeing.
 #
 # Everything absent from that table is refused, including several constructs
 # that do compile in Python: `.`, `$`, `[]`, `[^]`, `\d`, `\w`, `\uXXXX`,
@@ -297,6 +305,15 @@ _ESCAPE_REASON = (
     r"legacy octal escape in JavaScript and a backreference-or-octal in "
     r"Python), or exist only in Python (\N{...}, \U........), or reintroduce "
     r"a non-ASCII code point (\uXXXX, \xXX)"
+)
+
+_STACKED_QUANTIFIER_REASON = (
+    "ECMA-262's `Quantifier` production admits exactly ONE quantifier per "
+    "atom, optionally suffixed by a lazy `?`, so Node rejects `a++`, `a*+`, "
+    "`a?+` and `a{1,2}+` outright as `SyntaxError: Nothing to repeat`. "
+    "Python reads the very same text as a POSSESSIVE quantifier and compiles "
+    "it happily - a silent change of meaning, which is the one outcome this "
+    "guard exists to prevent. Only a lazy `?` may follow a quantifier"
 )
 
 _CLASS_ESCAPE_REASON = (
@@ -434,6 +451,11 @@ def js_pattern_to_python(pattern: str, *, where: object = None) -> str:
     out: list[str] = []
     index = 0
     length = len(pattern)
+    # What the token just emitted was: None, a greedy quantifier (`*`, `+`,
+    # `?`, `{m,n}`) or one already made lazy by a trailing `?`. A quantifier
+    # may only ever follow a non-quantifier - except the lazy `?`, which may
+    # only ever follow a greedy one.
+    quantified: str | None = None
     while index < length:
         char = pattern[index]
         if char == "\\":
@@ -447,9 +469,11 @@ def js_pattern_to_python(pattern: str, *, where: object = None) -> str:
             else:
                 raise _refusal(pattern, f"the escape \\{following}", _ESCAPE_REASON, where)
             index += 2
+            quantified = None
             continue
         if char == "[":
             index = _translate_class(pattern, index, out, where)
+            quantified = None
             continue
         if char == "(":
             if pattern.startswith("(?", index) and not pattern.startswith("(?!", index):
@@ -463,6 +487,7 @@ def js_pattern_to_python(pattern: str, *, where: object = None) -> str:
             width = 3 if pattern.startswith("(?!", index) else 1
             out.append(pattern[index : index + width])
             index += width
+            quantified = None
             continue
         if char == "{":
             found = _BOUNDED_QUANTIFIER.match(pattern, index)
@@ -474,13 +499,37 @@ def js_pattern_to_python(pattern: str, *, where: object = None) -> str:
                     "Python does not always agree",
                     where,
                 )
+            if quantified is not None:
+                raise _refusal(
+                    pattern,
+                    f"the quantifier `{found.group(0)}` stacked on another quantifier",
+                    _STACKED_QUANTIFIER_REASON,
+                    where,
+                )
             out.append(found.group(0))
             index = found.end()
+            quantified = "greedy"
             continue
         if char in "^|)*+?":
             # `^` needs no translation: without `re.MULTILINE` Python's `^` is
             # already exactly JavaScript's, and `/m` is refused rather than
             # mapped. `*`, `+` and `?` are the greedy/lazy quantifier suffixes.
+            if char == "?" and quantified == "greedy":
+                # The one legitimate way a quantifier follows a quantifier:
+                # `*?`, `+?`, `??`, `{m,n}?` are lazy in both engines, and
+                # `[^\n]*?` is live in the matrix.
+                quantified = "lazy"
+            elif char in "*+?":
+                if quantified is not None:
+                    raise _refusal(
+                        pattern,
+                        f"the quantifier `{char}` stacked on another quantifier",
+                        _STACKED_QUANTIFIER_REASON,
+                        where,
+                    )
+                quantified = "greedy"
+            else:
+                quantified = None
             out.append(char)
             index += 1
             continue
@@ -490,6 +539,7 @@ def js_pattern_to_python(pattern: str, *, where: object = None) -> str:
             raise _refusal(pattern, f"the character {char!r}", _NON_LITERAL_REASON, where)
         out.append(char)
         index += 1
+        quantified = None
     return "".join(out)
 
 
@@ -652,6 +702,24 @@ class RetrospectiveRestoreEvaluator:
     The regexes mirror the inline JS one for one: a scoped reversible restore
     must be present, no destructive command may appear, and the response must
     return to the current tree before the final verification.
+
+    THE ONE PORT THAT DOES NOT DERIVE ITS PARAMETERS. The nine patterns below
+    are TRANSCRIBED BY HAND from the inline JavaScript in
+    `skill-implementing-with-tdd-retrospective.yaml`; dispatch selects them on
+    the mere PRESENCE of `hasScopedRestore` in the source and never parses
+    them out of it, unlike the two lifted-regex kinds. They are equal to
+    Node's today (pinned by the offline differential), and the cost of that is
+    worth stating rather than glossing: AN EDIT TO THE INLINE JAVASCRIPT WILL
+    NOT MOVE THIS GATE, and the two copies can drift apart silently - someone
+    tightening the destructive-command list in the YAML would move promptfoo's
+    verdict and not this runner's, with nothing failing to say so. (The `/g`
+    on the JS `.replace` literal is likewise not read here; `re.sub` replaces
+    every occurrence, which is what `/g` means for `replace`.)
+
+    The cheap guard that would close the drift - deliberately NOT built here,
+    because re-engineering this port is out of scope - is a test that lifts
+    every `/.../` literal out of that config's JS with the same
+    `_JS_REGEX_BODY` reader and asserts the set equals these constants.
     """
 
     reasons: tuple[str, ...]

@@ -71,21 +71,41 @@ the judge placeholder text. The judge-time `rubricPrompt` is deliberately
 left alone: its `{{rubric}}` and `{{output}}` are filled by the grader in
 slice 2.
 
-**`javascript`** asserts are ported to Python. Each port derives its
-parameters *from the JS source* rather than restating them, so editing the
-regex in a config changes the Python gate too:
+**`javascript`** asserts are ported to Python.
 
-| Kind | JS shape |
-|---|---|
-| `regex-test` | `/<pattern>/<flags>.test(output)` announce-line gates |
-| `security-relevance` | `securityTerms` + `context.vars.security_must_appear` |
-| `cites-catalogue-technique` | the shared `asserts/cites-catalogue-technique.js` |
-| `retrospective-restore` | the scoped-restore / return-reverse git mechanic |
+| Kind | JS shape | parameters |
+|---|---|---|
+| `regex-test` | `/<pattern>/<flags>.test(output)` announce-line gates | lifted from the JS |
+| `security-relevance` | `securityTerms` + `context.vars.security_must_appear` | lifted from the JS |
+| `cites-catalogue-technique` | the shared `asserts/cites-catalogue-technique.js` | read from the catalogue |
+| `retrospective-restore` | the scoped-restore / return-reverse git mechanic | **transcribed by hand** |
 
-`cites-catalogue-technique` derives its accepted set from the level-3
+Three of the four derive their parameters rather than restating them. The
+`regex-test` and `security-relevance` ports lift the regex **literal out of
+the config text**, so editing the regex in a config changes the Python gate
+too. `cites-catalogue-technique` derives its accepted set from the level-3
 headings of [`knowledge/techniques.md`](../../../knowledge/techniques.md) at
 runtime, never a hardcoded allowlist (#350): adding a technique to the
 catalogue widens what every eval accepts, with no eval edit.
+
+**`retrospective-restore` does not.** Its nine regexes are **transcribed by
+hand** from the inline JavaScript in
+[`skill-implementing-with-tdd-retrospective.yaml`](../promptfoo/skill-implementing-with-tdd-retrospective.yaml)
+into class constants on `RetrospectiveRestoreEvaluator`, and dispatch selects
+them on the mere *presence* of the string `hasScopedRestore` in the source -
+it never parses the patterns out. The nine are verified equal to Node's today
+(0 mismatches across the differential), but the cost is real and worth stating
+plainly: **an edit to the inline JavaScript will not move the Python gate, and
+the two can drift apart silently.** Someone tightening the destructive-command
+list in the YAML would change promptfoo's verdict and not this runner's, with
+nothing failing to say so.
+
+A cheap guard would close that, and is deliberately **not** built here: lift
+every `/.../` literal out of that config's JS with the same
+`_JS_REGEX_BODY` reader the other two ports already use, and assert the set
+equals the transcribed constants. That is a test, not a re-engineering of the
+port - it needs no new translation path and would fail the moment the two
+copies diverge.
 
 A `javascript` assert whose shape has no port raises
 `UnportedJavascriptAssertionError`, so a new inline assert cannot enter the
@@ -145,8 +165,19 @@ refusal telling its author to extend the port, which is the correct outcome:
 extending the port is the only way to know the two engines agree.
 
 **The refusal is the guarantee.** Within the allowlist each construct is
-translated into Python that matches the same set; outside it, nothing
-compiles at all.
+translated into Python that matches the same set; a construct outside it is
+refused by the walker and never reaches `re.compile` at all.
+
+That guarantee is about **constructs, not whole patterns**. The walker admits
+each construct individually, so two admitted constructs can still be
+*assembled* into something the two engines read differently - and one of them
+was. Stacking a second quantifier on a first (`a++`, `a*+`, `a?+`,
+`a{1,2}+`) is a `SyntaxError: Nothing to repeat` in Node and a **possessive
+quantifier** in Python, which compiled here perfectly happily until it was
+refused explicitly. Combinations Python's own parser rejects - whether or not
+Node would - already fail loudly and are re-raised as the guard's own error.
+So the allowlist closes the construct axis; the combination axis is closed
+case by case, and this is the case that was found.
 
 ### The allowlist
 
@@ -172,7 +203,10 @@ live pattern; every construct absent from all 15 is refused.
 Quantifiers are admitted as **one** construct (the ECMA-262 `Quantifier`
 production: `*`, `+`, `?`, `{m}`, `{m,}`, `{m,n}`, each optionally lazy)
 because both grammars define the whole production identically - it is
-parameterised by a repeat bound, not by a meaning. Escapes and flags are
+parameterised by a repeat bound, not by a meaning. **One** is the operative
+word: the production allows exactly one quantifier per atom, so a second
+stacked on the first is refused (see the note under *the refusal is the
+guarantee*), while a lazy `?` following a quantifier stays admitted. Escapes and flags are
 admitted **individually**, because each carries its own semantics and its own
 chance of disagreeing.
 
@@ -198,7 +232,8 @@ admits no non-ASCII character at all.
 Everything off the table above, including several constructs that compile in
 Python perfectly happily: `.`, `$`, `[]`, `[^]`, `\d`, `\w`, `\uXXXX`, `\xXX`,
 legacy octal escapes, `\N{...}`, `\U........`, `(?:`, lookahead, lookbehind,
-backreferences, class ranges, and any non-ASCII character. Some of those would
+backreferences, class ranges, a quantifier stacked on a quantifier, and any
+non-ASCII character. Some of those would
 match a different set than Node; the rest are simply unproven. The guard does
 not distinguish, which is the point - it cannot be wrong about a construct it
 never accepts.
