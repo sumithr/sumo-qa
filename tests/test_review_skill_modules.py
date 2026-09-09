@@ -45,6 +45,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import yaml
@@ -248,79 +249,151 @@ PINNED_RULE_MARKERS = (
     "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
 )
 
-# The OPERATIVE sentence of each pinned rule (what blocks / what fails the
-# verdict), never a heading fragment, a count, or a connective: deleting the
-# rule's operative sentence while keeping the header and any amount of
-# surrounding prose must fail. Each phrase must sit in the BODY of its header
-# (after the marker, before the next pinned header in the same paragraph).
-# Where the rule also pins an output line shape, that shape is listed too.
-PINNED_BODY_PHRASES: dict[str, tuple[str, ...]] = {
-    "**2b. UNPROVEN-escalation extension (pinned).**": (
-        "UNTIL one is present the row is a SAFE-blocker",
-        "`UNPROVEN escalation: <risk name> | Discriminating input: <the input>",
-        "`UNPROVEN deferral: <risk name> | Accepted failure mode:",
+
+# For each pinned rule: its DEFINING / eligibility clause (what the rule
+# applies to) and its OPERATIVE clause(s) (what it forces or blocks), never a
+# heading fragment, a count, or a connective. Deleting either clause while
+# keeping the header, the other clause and any amount of surrounding prose
+# must fail. Each phrase must sit in the BODY of its header (after the
+# marker, before the next pinned header in the same paragraph). Where the
+# rule also pins an output line shape, that shape is listed as operative.
+class PinnedClauses(NamedTuple):
+    """The two clauses every pinned rule pins: what it applies to / defines
+    (``defining``) and what it forces or blocks (``operative``). Deleting
+    either while keeping the other must fail the body check."""
+
+    defining: str
+    operative: tuple[str, ...]
+
+
+PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
+    "**2b. UNPROVEN-escalation extension (pinned).**": PinnedClauses(
+        defining='A `Coverage: UNPROVEN` row is not dischargeable by simply noting the risk as a "residual concern"',
+        operative=(
+            "UNTIL one is present the row is a SAFE-blocker",
+            "`UNPROVEN escalation: <risk name> | Discriminating input: <the input>",
+            "`UNPROVEN deferral: <risk name> | Accepted failure mode:",
+        ),
     ),
-    "**2c. External-contract extension (pinned).**": (
-        "A hand-authored fixture with no real-run traceability → UNPROVEN, SAFE-blocker",
-        "`External-contract anchor: <file:line> | External source: <tool/CLI/API>",
+    "**2c. External-contract extension (pinned).**": PinnedClauses(
+        defining="For an external-contract risk, emit this row INSTEAD of the path-keyed row",
+        operative=(
+            "A hand-authored fixture with no real-run traceability → UNPROVEN, SAFE-blocker",
+            "`External-contract anchor: <file:line> | External source: <tool/CLI/API>",
+        ),
     ),
-    "**2d. Internal/self-produced declination (pinned).**": (
-        "emit this line so the true-negative is on the record",
-        "`External-contract axis: NOT FIRED (internal/self-produced)",
+    "**2d. Internal/self-produced declination (pinned).**": PinnedClauses(
+        defining="When the external-output probe resolves INTERNAL (producer test)",
+        operative=(
+            "emit this line so the true-negative is on the record",
+            "`External-contract axis: NOT FIRED (internal/self-produced)",
+        ),
     ),
-    "**Acceptance-criteria coverage (pinned).**": (
-        "is a discipline violation: the contract is that EACH supplied criterion is checked and cited, regardless of verdict",
+    "**Acceptance-criteria coverage (pinned).**": PinnedClauses(
+        defining="When the host supplies acceptance criteria (the user pastes them, or the host hands them in a context bundle), check EACH criterion against the diff + this turn's fresh test evidence and classify it",
+        operative=(
+            "is a discipline violation: the contract is that EACH supplied criterion is checked and cited, regardless of verdict",
+        ),
     ),
-    "**Anti-over-discovery (pinned):**": (
-        "Inventing speculative variant risks to re-block a COVERED external contract is the SAME over-trigger this guard prevents",
+    "**Anti-over-discovery (pinned):**": PinnedClauses(
+        defining="once a real-run-traceable fixture DISCHARGES the external-contract axis (COVERED), the external output format is PROVEN for the cases the diff handles",
+        operative=(
+            "Inventing speculative variant risks to re-block a COVERED external contract is the SAME over-trigger this guard prevents",
+        ),
     ),
-    "**Discharged-check discipline (anti-over-fire, pinned).**": (
-        "the verdict rests on the diff's ACTUAL named risks + coverage, NOT on a manufactured extra blocker",
+    "**Discharged-check discipline (anti-over-fire, pinned).**": PinnedClauses(
+        defining="When a check is DISCHARGED — the verifier ran correctly, the flow was exercised end-to-end, the guard's both-direction seed passes, or the A/B control is load-bearing",
+        operative=(
+            "the verdict rests on the diff's ACTUAL named risks + coverage, NOT on a manufactured extra blocker",
+        ),
     ),
-    "**Discovery → verdict (pinned).**": (
-        'Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict',
+    "**Discovery → verdict (pinned).**": PinnedClauses(
+        defining="A defect this sweep surfaces that the fresh tests do not cover is a NAMED RISK, mapped through the coverage ledger (step 9) as UNCOVERED",
+        operative=(
+            "It is a SAFE-blocker → NOT SAFE TO MERGE",
+            'Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict',
+        ),
     ),
-    "**Documented-inventory drift rule (pinned).**": (
-        "each path it surfaces is a separate UNCOVERED anchor that needs its own ledger row",
+    "**Documented-inventory drift rule (pinned).**": PinnedClauses(
+        defining="When the diff changes a documented count, inventory, public-surface name, or schema field",
+        operative=(
+            "each path it surfaces is a separate UNCOVERED anchor that needs its own ledger row",
+        ),
     ),
-    "**External-contract exception (pinned):**": (
-        "Do NOT mark an external-contract risk UNCOVERED because its tests sit at `tests/test_x.py` instead of `tests/<module>/`",
+    "**External-contract exception (pinned):**": PinnedClauses(
+        defining="the module-match path rule does NOT apply to an external-contract risk (step 4's external-output probe)",
+        operative=(
+            "Do NOT mark an external-contract risk UNCOVERED because its tests sit at `tests/test_x.py` instead of `tests/<module>/`",
+        ),
     ),
-    "**External-contract rule (pinned).**": (
-        "A hand-authored or guessed fixture with no real-run traceability is UNPROVEN — never SAFE on the green suite alone",
+    "**External-contract rule (pinned).**": PinnedClauses(
+        defining="For an external-contract risk (step 4's external-output probe), a green matcher proves LOGIC, not that its INPUT matches reality",
+        operative=(
+            "A hand-authored or guessed fixture with no real-run traceability is UNPROVEN — never SAFE on the green suite alone",
+        ),
     ),
-    "**Module-match rule (pinned):**": (
-        "If the fresh run loaded no test for a changed file's module, every risk anchored there is UNCOVERED, however green the rest is",
-        "forbidden hallucinated bridges",
+    "**Module-match rule (pinned):**": PinnedClauses(
+        defining="a risk anchored under `app/auth/` requires a covering test under `tests/auth/`",
+        operative=(
+            "If the fresh run loaded no test for a changed file's module, every risk anchored there is UNCOVERED, however green the rest is",
+            "forbidden hallucinated bridges",
+        ),
     ),
-    "**Producer test (apply first):**": (
-        "the axis fires ONLY when the value is produced by something the diff does NOT control",
+    "**Producer test (apply first):**": PinnedClauses(
+        defining="the axis fires ONLY when the value is produced by something the diff does NOT control",
+        operative=(
+            'it is INTERNAL: raise no external-contract risk and demand no "real run" capture',
+        ),
     ),
-    "**Re-anchor first.**": ("locate each one's anchor file in the diff before mapping",),
-    "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**": (
-        "is a RESIDUAL you LIST under `SAFE TO MERGE`; it MUST NOT flip the verdict",
+    "**Re-anchor first.**": PinnedClauses(
+        defining="If risks arrive as bare names",
+        operative=("locate each one's anchor file in the diff before mapping",),
     ),
-    "**Technique-keyed failure-mode hints (pinned).**": (
-        "ground it in that technique's catalogued failure modes (`sumo_qa_load_techniques`) — NOT per-AI judgment",
+    "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**": PinnedClauses(
+        defining="when the feature flow is VERIFIED end-to-end this turn AND the risk gate is closed",
+        operative=("is a RESIDUAL you LIST under `SAFE TO MERGE`; it MUST NOT flip the verdict",),
     ),
-    "**Test-only-diff (test_change) discipline (pinned):**": (
-        "Any `NO` line is a SAFE-blocker",
-        "`Test probe: <test name> | Discriminates broken→fixed?",
+    "**Technique-keyed failure-mode hints (pinned).**": PinnedClauses(
+        defining="When a risk's failure mode maps to a named black-box technique",
+        operative=(
+            "ground it in that technique's catalogued failure modes (`sumo_qa_load_techniques`) — NOT per-AI judgment",
+        ),
     ),
-    "**Test-only-diff probe (pinned).**": (
-        "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
+    "**Test-only-diff (test_change) discipline (pinned):**": PinnedClauses(
+        defining="if the diff touches ONLY test files (no `app`/`src`/`lib` runtime file), the runtime coverage-ledger (item 2) does NOT apply",
+        operative=(
+            "Any `NO` line is a SAFE-blocker",
+            "`Test probe: <test name> | Discriminates broken→fixed?",
+        ),
     ),
-    "**The two-pass split (pinned).**": (
-        "it prescribes the discriminating input ITSELF (step 9 / 2b)",
+    "**Test-only-diff probe (pinned).**": PinnedClauses(
+        defining="When the diff is test files ONLY (no `app/`/`src/`/`lib/` runtime file — a `test_change`), the runtime coverage ledger (`coverage-ledger`) has no anchor",
+        operative=(
+            "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
+        ),
     ),
-    "**Trivial-change exemption (pinned):**": (
-        "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
+    "**The two-pass split (pinned).**": PinnedClauses(
+        defining="In the `/work-issue` pipeline this review is pass 1; an adversarial codex pass runs after it",
+        operative=("it prescribes the discriminating input ITSELF (step 9 / 2b)",),
     ),
-    "**Verification-evidence discipline (pinned).**": (
-        "each surfaces *missing relevant verification* as a SAFE-blocker, never demoted to a residual note, and never cleared by weakening the verifier",
+    "**Trivial-change exemption (pinned):**": PinnedClauses(
+        defining="A diff qualifies only when it touches solely docs (`docs/`, markdown), static/inert config (YAML/TOML/JSON read as data, not executed — formatter/linter ignore lists, editor config), or other files with **no executable behavioural surface**",
+        operative=(
+            "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
+        ),
     ),
-    "**What counts as a runtime change (pinned — behaviour, not path prefix):**": (
-        "Keyed on what the file *does*, NOT on `app/`/`src/`/`lib/` location",
+    "**Verification-evidence discipline (pinned).**": PinnedClauses(
+        defining="A green suite + green CI + a green per-file/codex review is NOT evidence that the *changed behaviour* was actually exercised",
+        operative=(
+            "each surfaces *missing relevant verification* as a SAFE-blocker, never demoted to a residual note, and never cleared by weakening the verifier",
+        ),
+    ),
+    "**What counts as a runtime change (pinned — behaviour, not path prefix):**": PinnedClauses(
+        defining="any diff touching **executable code with a behavioural surface**",
+        operative=(
+            "Keyed on what the file *does*, NOT on `app/`/`src/`/`lib/` location",
+            "So an executable hook with command-parsing logic gets the full sweep + coverage ledger like any library module",
+        ),
     ),
 }
 # A pinned header with fewer body characters than this (up to the next pinned
@@ -379,7 +452,7 @@ def _module_text(module_id: str) -> str:
 def _routing_table_rows(root_text: str) -> list[str]:
     """Every table data row inside the routing-table section (header and
     separator rows excluded), verbatim."""
-    match = _ROUTING_SECTION_RE.search(root_text)
+    match = _ROUTING_SECTION_RE.search(_strip_code_fences(root_text))
     assert match, "the root SKILL.md has no '## Module routing table' section"
     rows = [ln for ln in match.group(1).splitlines() if ln.startswith("|")]
     return [r for r in rows if not r.startswith("| Module") and not r.startswith("|---")]
@@ -440,7 +513,10 @@ def _assert_pinned_body_intact(text: str, marker: str, name: str) -> None:
     assert len(body) >= PINNED_BODY_MIN_CHARS, (
         f"{name}: pinned rule {marker!r} has only {len(body)} chars of body: {body!r}"
     )
-    for phrase in PINNED_BODY_PHRASES.get(marker, ()):
+    clauses = PINNED_BODY_PHRASES.get(marker, PinnedClauses("", ()))
+    for phrase in (clauses.defining, *clauses.operative):
+        if not phrase:
+            continue
         assert phrase in body, (
             f"{name}: {phrase!r} is not in the body of its pinned header {marker!r}"
         )
@@ -449,6 +525,7 @@ def _assert_pinned_body_intact(text: str, marker: str, name: str) -> None:
 def _pinned_heading_sections(text: str) -> list[tuple[str, str]]:
     """Every markdown heading containing "(pinned", paired with its section:
     the text up to the next heading of the same or higher level."""
+    text = _strip_code_fences(text)
     headings = list(_MARKDOWN_HEADING_RE.finditer(text))
     out: list[tuple[str, str]] = []
     for i, m in enumerate(headings):
@@ -464,16 +541,44 @@ def _pinned_heading_sections(text: str) -> list[tuple[str, str]]:
     return out
 
 
+def _normalised_pinned_title(text: str) -> str:
+    """`## What counts as a runtime change (pinned)` and
+    `**What counts as a runtime change (pinned — behaviour, not path prefix):**`
+    both normalise to ``what counts as a runtime change``."""
+    title = text.strip().lstrip("#").strip().strip("*")
+    title = title.split("(pinned", 1)[0]
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", title.lower()).split())
+
+
+def _strip_code_fences(text: str) -> str:
+    """Blank out fenced code blocks (``` or ~~~) so a `# line` inside a fence
+    is never parsed as a heading; line count is preserved."""
+
+    def blank(m: re.Match) -> str:
+        return "\n" * m.group(0).count("\n")
+
+    return re.sub(r"^(```|~~~)[^\n]*\n.*?^\1[^\n]*$", blank, text, flags=re.MULTILINE | re.DOTALL)
+
+
 def _assert_pinned_headings_carry_bold_markers(text: str, name: str) -> None:
+    """Each heading-form pinned rule must carry ITS OWN bold marker (a
+    PINNED_RULE_MARKERS entry whose normalised title equals or starts with the
+    heading's) inside its own section; an unrelated marker does not count."""
     for heading, section in _pinned_heading_sections(text):
-        assert any(marker in section for marker in PINNED_RULE_MARKERS), (
-            f"{name}: heading-form pinned rule {heading!r} has no bold pinned marker "
-            "from PINNED_RULE_MARKERS in its own section"
+        wanted = _normalised_pinned_title(heading)
+        matching = [
+            marker
+            for marker in PINNED_RULE_MARKERS
+            if marker in section and _normalised_pinned_title(marker).startswith(wanted)
+        ]
+        assert matching, (
+            f"{name}: heading-form pinned rule {heading!r} has no matching bold pinned marker "
+            f"(normalised title {wanted!r}) from PINNED_RULE_MARKERS in its own section"
         )
 
 
 def _root_numbered_item_titles(root_text: str) -> list[str]:
-    return _ROOT_NUMBERED_BOLD_ITEM_RE.findall(root_text)
+    return _ROOT_NUMBERED_BOLD_ITEM_RE.findall(_strip_code_fences(root_text))
 
 
 def _dangling_reference_hits(text: str, root_text: str) -> list[str]:
@@ -635,10 +740,16 @@ def test_pinned_body_phrase_map_covers_every_pinned_marker():
         f"unmapped pinned markers: {sorted(set(PINNED_RULE_MARKERS) - set(PINNED_BODY_PHRASES))}; "
         f"stale keys: {sorted(set(PINNED_BODY_PHRASES) - set(PINNED_RULE_MARKERS))}"
     )
-    for marker, phrases in PINNED_BODY_PHRASES.items():
-        assert phrases, f"{marker!r} maps to no phrase"
+    incomplete = [
+        marker
+        for marker, clauses in PINNED_BODY_PHRASES.items()
+        if not (clauses.defining and clauses.operative)
+    ]
+    assert not incomplete, f"pinned rules missing a defining or an operative clause: {incomplete}"
     on_disk = {
-        m for text in _all_skill_text().values() for m in _PINNED_HEADER_ON_DISK_RE.findall(text)
+        m
+        for text in _all_skill_text().values()
+        for m in _PINNED_HEADER_ON_DISK_RE.findall(_strip_code_fences(text))
     }
     assert on_disk <= set(PINNED_RULE_MARKERS), (
         f"pinned headers on disk that PINNED_RULE_MARKERS does not guard: "
@@ -662,7 +773,7 @@ def test_pinned_body_check_rejects_a_gutted_rule():
     with pytest.raises(AssertionError, match="has only 15 chars of body"):
         _assert_pinned_body_intact(gutted, marker, "gutted")
     filler = "lorem ipsum " * 12  # > PINNED_BODY_MIN_CHARS, carries no rule
-    phrase = PINNED_BODY_PHRASES[marker][0]
+    phrase = PINNED_BODY_PHRASES[marker].operative[0]
     displaced = text.replace(paragraph, f"{marker} {filler}{neighbour} {phrase}{tail}")
     with pytest.raises(AssertionError, match="is not in the body of its pinned header"):
         _assert_pinned_body_intact(displaced, marker, "displaced")
@@ -698,20 +809,85 @@ def test_heading_form_pinned_rule_discovery_rejects_a_marker_less_section():
     whose section carries no bold pinned marker must be rejected; a marker in
     the NEXT section does not count; the real runtime-scope module (two
     heading-form pinned rules, each with its bold marker) passes."""
+    trivial = "**Trivial-change exemption (pinned):**"
+    runtime = "**What counts as a runtime change (pinned — behaviour, not path prefix):**"
     scratch = (
         "# Module\n\n## Foo rule (pinned)\n\nprose with no bold marker at all\n\n"
-        "## Bar\n\n**Trivial-change exemption (pinned):** the marker lives in the wrong section\n"
+        f"## Bar\n\n{trivial} the marker lives in the wrong section\n"
     )
     assert len(_pinned_heading_sections(scratch)) == 1
-    with pytest.raises(AssertionError, match="has no bold pinned marker"):
+    with pytest.raises(AssertionError, match="has no matching bold pinned marker"):
         _assert_pinned_headings_carry_bold_markers(scratch, "scratch")
-    nested = (
-        "## Foo (pinned)\n\n### Detail\n\n**Trivial-change exemption (pinned):** here\n\n## Next\n"
+    # An UNRELATED known marker in the section does not satisfy the heading.
+    unrelated = f"## Foo rule (pinned)\n\n{trivial} a known but unrelated marker\n\n## Next\n"
+    with pytest.raises(AssertionError, match="has no matching bold pinned marker"):
+        _assert_pinned_headings_carry_bold_markers(unrelated, "unrelated")
+    mismatched = (
+        f"## Trivial-change exemption (pinned)\n\n{runtime} wrong rule's marker\n\n## Next\n"
     )
-    _assert_pinned_headings_carry_bold_markers(nested, "nested")  # a sub-heading stays inside
+    with pytest.raises(AssertionError, match="has no matching bold pinned marker"):
+        _assert_pinned_headings_carry_bold_markers(mismatched, "mismatched")
+    # The CORRESPONDING marker passes, also from a sub-heading inside the section.
+    matching = f"## Trivial-change exemption (pinned)\n\n{trivial} here\n\n## Next\n"
+    _assert_pinned_headings_carry_bold_markers(matching, "matching")
+    nested = (
+        f"## What counts as a runtime change (pinned)\n\n### Detail\n\n{runtime} here\n\n## Next\n"
+    )
+    _assert_pinned_headings_carry_bold_markers(nested, "nested")
     real = _module_text("runtime-scope")
     assert len(_pinned_heading_sections(real)) == 2
+    assert [_normalised_pinned_title(h) for h, _ in _pinned_heading_sections(real)] == [
+        "what counts as a runtime change",
+        "trivial change exemption",
+    ]
     _assert_pinned_headings_carry_bold_markers(real, "runtime-scope")
+
+
+def test_heading_discovery_ignores_fenced_code_blocks():
+    """A `# ... (pinned)` line inside a ``` or ~~~ fence is neither a pinned
+    heading nor a section boundary: the enclosing section runs on past the
+    fence to its real bold marker."""
+    trivial = "**Trivial-change exemption (pinned):**"
+    for fence in ("```", "~~~"):
+        scratch = (
+            f"## Trivial-change exemption (pinned)\n\n{fence}text\n# not a heading (pinned)\n"
+            f"{fence}\n\n{trivial} the real marker, after the fence\n\n## Next\n"
+        )
+        sections = _pinned_heading_sections(scratch)
+        assert [h for h, _ in sections] == ["## Trivial-change exemption (pinned)"], sections
+        assert trivial in sections[0][1], "the fence ended the section early"
+        _assert_pinned_headings_carry_bold_markers(scratch, f"fenced-{fence}")
+    assert _strip_code_fences("a\n```\n# x\n```\nb\n").count("\n") == 5, "line count must hold"
+
+
+@pytest.mark.parametrize("marker", PINNED_RULE_MARKERS)
+def test_pinned_body_check_rejects_either_clause_deleted(marker):
+    """Both deletion directions through the REAL checker, for every pinned
+    rule: delete the defining clause keeping the operative one, then the
+    reverse; each must raise while the healthy text passes."""
+    clauses = PINNED_BODY_PHRASES[marker]
+    name, text = next((n, t) for n, t in _all_skill_text().items() if marker in t)
+    _assert_pinned_body_intact(text, marker, name)
+    for label, phrase in (
+        ("defining", clauses.defining),
+        *[("operative", p) for p in clauses.operative],
+    ):
+        assert phrase, f"{marker!r} has no {label} clause to delete"
+        assert text.count(phrase) == 1, f"{label} clause {phrase!r} is not unique in {name}"
+        with pytest.raises(AssertionError, match="is not in the body of its pinned header"):
+            _assert_pinned_body_intact(text.replace(phrase, "", 1), marker, f"{name}-minus-{label}")
+
+
+def test_heading_form_pinned_rule_titles_are_unique_across_root_and_modules():
+    """A heading-form pinned rule's normalised title appears once across the
+    root and every module: two `## X (pinned)` headings would be two copies."""
+    seen: dict[str, list[str]] = {}
+    for name, text in _all_skill_text().items():
+        for heading, _ in _pinned_heading_sections(text):
+            seen.setdefault(_normalised_pinned_title(heading), []).append(name)
+    assert seen, "no heading-form pinned rule found"
+    dupes = {k: v for k, v in seen.items() if len(v) > 1}
+    assert not dupes, f"heading-form pinned titles appearing more than once: {dupes}"
 
 
 @pytest.mark.parametrize("module_id", _shipped_module_ids())
