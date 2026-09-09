@@ -193,9 +193,21 @@ What the slice-2 scanner produces:
     deliberately **under-edge**: no edge is emitted rather than a guessed one.
 
   Every registered resolver is extension activated: **Python** (the reference
-  resolver: relative-import dot-anchoring, PEP-328 implicit namespace
-  packages, an absolute-import source-root walk-up, specifier submodule
-  probing; wildcard `from x import *` and qualified specifiers skipped),
+  resolver: relative-import dot-anchoring, an absolute-import source-root
+  walk-up in `sys.path` order, specifier submodule probing; wildcard
+  `from x import *` and qualified specifiers skipped; each dotted component
+  is owned by the first root holding a regular package or module for it, a
+  regular package confines the rest of the lookup to its own directory even
+  when the leaf is missing there, a plain module shadows a same-named
+  directory and stops the walk, and when both `p.py` and `p/__init__.py`
+  exist at one import path the regular package wins and `p.py` never becomes
+  an edge, matching the runtime for `import pkg.x`, `from pkg import x`, and
+  `from . import x` alike; for an absolute import PEP 420 namespace portions
+  merge across roots in order and never beat a regular package at a shallower
+  root; a relative import is rooted at the parent of the topmost regular
+  package above its anchored package and searches that root ALONE, because
+  its dots name the importer's own package, so portions under shallower roots
+  are a deliberate under-edge rather than a guessed one),
   **TypeScript/JavaScript** (relative-path resolution with extension probing
   and `index.*` barrels; bare specifiers dropped as external), **Go**,
   **Ruby**, **Java** (fully-qualified, wildcard, and static imports against
