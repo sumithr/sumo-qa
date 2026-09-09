@@ -290,14 +290,16 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Acceptance-criteria coverage (pinned).**": PinnedClauses(
-        defining="When the host supplies acceptance criteria (the user pastes them, or the host hands them in a context bundle), check EACH criterion against the diff + this turn's fresh test evidence and classify it",
+        defining="whenever ACs are present you MUST emit one AC line per criterion with its classification AND its cited anchor",
         operative=(
+            "check EACH criterion against the diff + this turn's fresh test evidence and classify it",
             "is a discipline violation: the contract is that EACH supplied criterion is checked and cited, regardless of verdict",
         ),
     ),
     "**Anti-over-discovery (pinned):**": PinnedClauses(
         defining="once a real-run-traceable fixture DISCHARGES the external-contract axis (COVERED), the external output format is PROVEN for the cases the diff handles",
         operative=(
+            "Do NOT then manufacture SPECULATIVE output-format-variant risks",
             "Inventing speculative variant risks to re-block a COVERED external contract is the SAME over-trigger this guard prevents",
         ),
     ),
@@ -373,6 +375,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
             "A new test whose assertion restates the production code or passes against a broken impl",
             "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
             "a matcher that silently under-matches a shape (the singular-vs-plural false-negative class) is a hole even when every present assertion is sound",
+            "These findings ARE the named risks here.",
         ),
     ),
     "**The two-pass split (pinned).**": PinnedClauses(
@@ -395,7 +398,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         defining="any diff touching **executable code with a behavioural surface**",
         operative=(
             "Keyed on what the file *does*, NOT on `app/`/`src/`/`lib/` location",
-            "So an executable hook with command-parsing logic gets the full sweep + coverage ledger like any library module",
+            "It includes executable code OUTSIDE those dirs",
         ),
     ),
 }
@@ -560,7 +563,8 @@ def _normalised_pinned_title(text: str) -> str:
 def _strip_code_fences(text: str) -> str:
     """Blank out fenced code blocks so nothing inside a fence is parsed as
     prose (a `# line` as a heading, a marker as a rule). CommonMark shapes:
-    an opener of 3+ backticks or tildes indented up to 3 spaces; the closer
+    an opener of 3+ backticks or tildes indented up to 3 spaces (a backtick
+    opener's info string may not contain a backtick); the closer
     uses the same char, is at least as long, and carries nothing else; an
     unterminated fence runs to EOF. Line count is preserved."""
 
@@ -569,7 +573,10 @@ def _strip_code_fences(text: str) -> str:
     for line in text.split("\n"):
         run = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
         if fence is None:
-            if run:
+            # A backtick opener's info string may not contain a backtick
+            # (CommonMark); a tilde opener may carry any info string.
+            opens = run is not None and not (run.group(1)[0] == "`" and "`" in line[run.end() :])
+            if opens:
                 fence = (run.group(1)[0], len(run.group(1)))
                 out.append("")
             else:
@@ -937,6 +944,19 @@ def test_fence_stripping_handles_commonmark_fence_shapes(fenced):
     assert [h for h, _ in _pinned_heading_sections(text)] == [
         "## Trivial-change exemption (pinned)"
     ]
+
+
+def test_backtick_info_string_does_not_open_a_backtick_fence():
+    """CommonMark: a backtick fence's info string may not contain a backtick,
+    so "```foo`bar" is prose, not an opener, and the heading after it IS
+    discovered; a tilde fence may carry any info string."""
+    heading = "## Trivial-change exemption (pinned)"
+    prose = f"{heading}\n\n```foo`bar\n# heading (pinned)\n"
+    assert "# heading (pinned)" in _strip_code_fences(prose)
+    assert [h for h, _ in _pinned_heading_sections(prose)] == [heading, "# heading (pinned)"]
+    fenced = f"{heading}\n\n~~~foo`bar\n# heading (pinned)\n"
+    assert "# heading (pinned)" not in _strip_code_fences(fenced)
+    assert [h for h, _ in _pinned_heading_sections(fenced)] == [heading]
 
 
 def test_integrity_checks_ignore_a_rule_hidden_in_a_code_fence():
