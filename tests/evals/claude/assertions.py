@@ -24,6 +24,30 @@ The four ported evaluator kinds:
 | `security-relevance` | `securityTerms` + `context.vars.security_must_appear` | 3 |
 | `cites-catalogue-technique` | `file://asserts/cites-catalogue-technique.js` | 3 |
 | `retrospective-restore` | scoped-restore / return-reverse git mechanic | 1 |
+
+## What the regex port does and does not claim
+
+This module ports THE SPECIFIC PATTERNS THE SUMO-QA EVAL MATRIX USES. It is
+not a general JavaScript-to-Python regex translator, and it does not claim
+that an arbitrary lifted pattern will match the same set in both engines.
+
+It cannot make that claim: honouring it would mean implementing a large part
+of the ECMAScript regex grammar, which the runner has never needed. So the
+port is CLOSED BY DEFAULT. The allowlist below is derived from the constructs
+the 15 live regex instances actually use; every construct outside it is
+refused with a loud, actionable error rather than approximated. A future
+assert that needs one gets a refusal telling its author to extend the port -
+which is the correct outcome, because extending the port is the only way to
+know the two engines agree.
+
+The refusal is the guarantee. Within the allowlist, each construct is
+translated into Python that matches the same set - pinned offline by the
+suite from both sides (every admitted construct on an output it must accept
+and one it must reject; every refused construct on its error), and checked
+against real Node by a differential harness that is deliberately NOT
+committed, because this package must stay offline and Node-free. That harness
+is a development tool whose result is not reproducible from this repo; what
+survives it is the unit tests its findings became.
 """
 
 from __future__ import annotations
@@ -38,7 +62,6 @@ __all__ = [
     "AssertionResult",
     "CitesCatalogueTechniqueEvaluator",
     "JavascriptAssertion",
-    "JS_LINE_TERMINATORS",
     "JS_WHITESPACE",
     "RetrospectiveRestoreEvaluator",
     "RegexTestEvaluator",
@@ -163,10 +186,9 @@ _REASONS = re.compile(r"reason:\s*'((?:[^'\\]|\\.)*)'")
 # * `\b` and `\w` are Unicode-aware in Python and ASCII-only in JavaScript,
 #   so `/\bxss\b/` matches inside `\u00e9xss\u00e9` in JS but not in Python.
 #
-# Every pattern in the matrix and every heading in knowledge/techniques.md is
-# ASCII, so ASCII-only folding is exactly JavaScript's folding for them - and
-# `_js_flags` REFUSES `/i` on a non-ASCII pattern rather than let that
-# argument be stretched past where it holds.
+# ASCII-only folding is therefore exactly JavaScript's folding - but only for
+# an ASCII pattern, which is one of the reasons the walker below admits no
+# non-ASCII character at all.
 #
 # `\s`/`\S` go the OTHER way: re.ASCII narrows them below JavaScript's set,
 # and the live retrospective gate is full of them
@@ -176,14 +198,6 @@ _REASONS = re.compile(r"reason:\s*'((?:[^'\\]|\\.)*)'")
 # SUBSTITUTED for an explicit JavaScript-whitespace class before it is
 # compiled: re.ASCII then stops mattering for whitespace, and still gives
 # JavaScript's semantics for `\b`, `\w` and case folding.
-#
-# `\s` was not the only construct Python spells differently, only the one a
-# live pattern used. `.`, `$`, `[]` and `[^]` all compile in Python and match
-# a DIFFERENT set - no error, just a quiet disagreement with promptfoo - so
-# `js_pattern_to_python` substitutes them too, and `_js_flags` refuses every
-# flag whose translation has not been proved. The whole guard holds to one
-# rule: a lifted pattern is either translated into genuinely equivalent
-# Python, or refused loudly. Nothing compiles into a near-miss.
 _JS_ASCII = re.ASCII
 
 # JavaScript's `\s`: WhiteSpace + LineTerminator (ECMA-262 11.2/11.3). Note
@@ -195,11 +209,6 @@ JS_WHITESPACE = (
     "\u2006\u2007\u2008\u2009\u200a"
     "\u2028\u2029\u202f\u205f\u3000\ufeff"
 )
-
-# JavaScript's LineTerminator set (ECMA-262 11.3). `.` matches any code point
-# EXCEPT these; Python's `.` excludes only `\n`, so a lifted `.` is a silent
-# divergence on `\r`, U+2028 and U+2029 unless it is substituted too.
-JS_LINE_TERMINATORS = "\n\r\u2028\u2029"
 
 
 def _class_body(members: str) -> str:
@@ -213,103 +222,281 @@ def _class_body(members: str) -> str:
 
 
 _JS_WS_BODY = _class_body(JS_WHITESPACE)
-_JS_LT_BODY = _class_body(JS_LINE_TERMINATORS)
-
-# JavaScript's `[]` matches nothing and its `[^]` matches anything. Python
-# spells neither the same way (it reads the `]` as a literal member), but it
-# CAN express both: a failing lookahead, and a dot with `s` scoped to it.
-_JS_EMPTY_CLASS = "(?:(?!))"
-_JS_ANY_CLASS = "(?s:.)"
 
 
-def js_pattern_to_python(pattern: str, *, dot_all: bool = False) -> str:
-    """Rewrite a lifted JS regex into Python that matches the SAME set.
+def _site(where: object) -> str:
+    """` (<config path>)` for an error message, or nothing if unknown."""
+    return "" if where is None else f" ({where})"
 
-    Walks the source rather than running a regex over it, so it can tell an
-    escape from a literal (`\\\\s` is a backslash followed by `s` and must be
-    left alone) and a class member from an operator.
 
-    Five constructs are substituted, each because Python spells the same
-    JavaScript meaning differently:
+def _refusal(
+    pattern: str, construct: str, why: str, where: object
+) -> UnportableJavascriptPatternError:
+    """The one refusal every unsupported construct comes back through."""
+    return UnportableJavascriptPatternError(
+        f"lifted JS regex /{pattern}/ uses {construct}{_site(where)}, which "
+        f"this port does not support: {why}. This module ports only the regex "
+        "constructs the live sumo-qa eval matrix uses - extend the port (and "
+        "its Node differential) before putting this construct in a config"
+    )
+
+
+# --------------------------------------------------------------------------
+# The allowlist
+# --------------------------------------------------------------------------
+#
+# The guard is CLOSED BY DEFAULT. It admits exactly the constructs the live
+# matrix uses and refuses everything else, because the alternative - trusting
+# any construct nobody has thought to check - is a claim about the whole
+# ECMAScript regex grammar that this runner has never needed and cannot
+# honour. Every entry below is DERIVED from the 15 regex instances the 10 live
+# `javascript` asserts compile (3 announce-line literals, 3 `securityTerms`
+# bodies, 9 retrospective-gate literals), not chosen:
+#
+# | construct | a live instance |
+# |---|---|
+# | printable-ASCII literal | `git`, `HEAD`, `--`, `:`, `>`, `idor` |
+# | `^` (start anchor) | `^[\s>*_"']{0,8}closing one qa gap at a time` |
+# | `|` (alternation) | `(security|securit|vulnerab|...)` |
+# | `(`...`)` (capturing group) | the `securityTerms` body |
+# | `(?!`...`)` (negative lookahead) | `git\s+checkout\s+(?!--\s|HEAD\s+--)...` |
+# | quantifier, greedy or lazy | `\s+`, `[^\n]*?`, `{0,8}` |
+# | `\s`, `\S` | `git\s+show\s+\S+:\S+\s*>\s*\S+` |
+# | `\b` | `\bxss\b`, `git\s+clean\b` |
+# | `\n` (inside a class) | `[^\n]` |
+# | `[`...`]`, `[^`...`]` of literals / `\s` / `\n` | `[\s>*_"']`, `[^\n]` |
+# | flag `i`, or no flags | the announce literals; everything else |
+#
+# Quantifiers are admitted as ONE construct (the ECMA-262 `Quantifier`
+# production: `*`, `+`, `?`, `{m}`, `{m,}`, `{m,n}`, each optionally lazy)
+# because the two grammars define the whole production identically - it is
+# parameterised by a repeat bound, not by a meaning. Escapes and flags are
+# admitted INDIVIDUALLY, because each one carries its own semantics and its
+# own chance of disagreeing.
+#
+# Everything absent from that table is refused, including several constructs
+# that do compile in Python: `.`, `$`, `[]`, `[^]`, `\d`, `\w`, `\uXXXX`,
+# `\xXX`, legacy octal escapes, `(?:`, lookbehind, backreferences, class
+# ranges, and any non-ASCII character. Some of those would match a different
+# set than Node; the rest are simply unproven. The guard does not distinguish,
+# which is the point: it cannot be wrong about a construct it never accepts.
+
+# The metacharacters the walker handles by name. Whatever is left over when
+# the walk reaches its final branch (`$`, `.`, a bare `]` or `}`) is refused.
+_JS_METACHARACTERS = frozenset("\\^$.|?*+()[]{}")
+
+# `{m}` / `{m,}` / `{m,n}`. Spelled out rather than trusted to `re`, so a `{`
+# that is not a bounded quantifier (a literal brace in JavaScript, but not
+# always in Python) is refused instead of guessed at.
+_BOUNDED_QUANTIFIER = re.compile(r"\{\d+(?:,\d*)?\}")
+
+_ESCAPE_REASON = (
+    r"only \s, \S, \b and \n are ported. The rest either disagree "
+    r"(\d and \w are Unicode-aware in Python and ASCII-only in JavaScript), "
+    r"mean different things (\1 is a backreference in both but \351 is a "
+    r"legacy octal escape in JavaScript and a backreference-or-octal in "
+    r"Python), or exist only in Python (\N{...}, \U........), or reintroduce "
+    r"a non-ASCII code point (\uXXXX, \xXX)"
+)
+
+_CLASS_ESCAPE_REASON = (
+    r"only \s and \n are ported inside a character class; every other escape "
+    "is either unproven there or means something different from what it "
+    "means outside one"
+)
+
+_NON_LITERAL_REASON = (
+    "only printable ASCII literals are supported. JavaScript matches a "
+    "pattern against UTF-16 code units and Python against code points, so an "
+    "astral character is two units in Node and one here (`/^.$/` is false in "
+    "Node and true in Python for an emoji); and Python's `/i` would fold a "
+    "non-ASCII letter with Unicode rules JavaScript's `/i` does not use"
+)
+
+_METACHARACTER_REASONS = {
+    ".": (
+        "JavaScript's `.` excludes `\\n`, `\\r`, U+2028 and U+2029 where "
+        "Python's excludes only `\\n`, and the two engines disagree about "
+        "what one `.` consumes in an astral character"
+    ),
+    "$": (
+        "JavaScript's `$` matches only at end of input; Python's also matches "
+        'just before a trailing newline, so `/a$/.test("a\\n")` is false in '
+        "Node and true here"
+    ),
+    "]": "a `]` outside a character class is an unproven literal",
+    "}": "a `}` outside a bounded quantifier is an unproven literal",
+}
+
+_CLASS_OPERATOR_REASONS = {
+    "-": (
+        "a class RANGE. JavaScript and Python do not accept the same ranges, "
+        "and no live pattern uses one"
+    ),
+    "[": "a nested `[` inside a character class",
+    "^": "a `^` that is not the class's leading negation",
+}
+
+
+def _translate_class(pattern: str, start: int, out: list[str], where: object) -> int:
+    """Translate the `[...]` starting at `start`; return the index after it.
+
+    In JavaScript `[]` is the EMPTY class and `[^]` the match-anything class:
+    a `]` straight after the `[` CLOSES the class rather than joining it as a
+    literal member, which is what Python's own parser would do. Both are
+    refused here, so the boundary is still read JavaScript's way and neither
+    can be silently reinterpreted as a one-member class.
+    """
+    cursor = start + 1
+    body = ["["]
+    if pattern[cursor : cursor + 1] == "^":
+        body.append("^")
+        cursor += 1
+    members = 0
+    while cursor < len(pattern):
+        char = pattern[cursor]
+        if char == "]":
+            if members == 0:
+                raise _refusal(
+                    pattern,
+                    "an empty character class",
+                    "JavaScript's `[]` matches nothing and its `[^]` matches "
+                    "anything; Python reads the `]` as a literal member and "
+                    "builds a different set entirely",
+                    where,
+                )
+            body.append("]")
+            out.append("".join(body))
+            return cursor + 1
+        if char == "\\":
+            following = pattern[cursor + 1 : cursor + 2]
+            if following == "s":
+                # The BODY, not a nested `[...]`: the announce-line prefix is
+                # `[\s>*_"']`, and splicing a nested class in would make `[`
+                # and `]` literal members and change what it accepts.
+                body.append(_JS_WS_BODY)
+            elif following == "n":
+                body.append("\\n")
+            elif following == "S":
+                raise _refusal(
+                    pattern,
+                    r"\S inside a character class",
+                    "Python has no set subtraction inside a class, so there "
+                    "is nothing to translate it to",
+                    where,
+                )
+            else:
+                raise _refusal(
+                    pattern,
+                    f"the escape \\{following} inside a character class",
+                    _CLASS_ESCAPE_REASON,
+                    where,
+                )
+            cursor += 2
+            members += 1
+            continue
+        if char in _CLASS_OPERATOR_REASONS:
+            raise _refusal(
+                pattern, f"`{char}` inside a character class", _CLASS_OPERATOR_REASONS[char], where
+            )
+        if not (char.isascii() and char.isprintable()):
+            raise _refusal(
+                pattern,
+                f"the character {char!r} inside a character class",
+                _NON_LITERAL_REASON,
+                where,
+            )
+        body.append(char)
+        members += 1
+        cursor += 1
+    raise _refusal(pattern, "an unterminated character class", "the `[` is never closed", where)
+
+
+def js_pattern_to_python(pattern: str, *, where: object = None) -> str:
+    """Translate a lifted JS regex into equivalent Python, or REFUSE it.
+
+    Closed by default. The walk recognises exactly the constructs in the
+    allowlist table above and raises `UnportableJavascriptPatternError` on
+    anything else, so a construct nobody has checked against Node can never
+    reach `re.compile`. Two of the admitted constructs need rewriting rather
+    than copying:
 
     * `\\s`/`\\S` - `re.ASCII` narrows them below JavaScript's whitespace set,
-      so they expand to an explicit class. Inside a character class (the
-      announce-line prefix `[\\s>*_"']`) `\\s` expands to the class BODY, not
-      to a nested `[...]`.
-    * `.` - JavaScript's excludes `\\n`, `\\r`, U+2028 and U+2029; Python's
-      excludes only `\\n`. Under `dot_all` (JS `/s`) both match everything, so
-      it becomes an explicitly dot-all group instead.
-    * `[]` and `[^]` - JavaScript's empty and match-anything classes. Python
-      reads the `]` as a literal member and silently builds a DIFFERENT set,
-      so both are replaced outright.
-    * `$` - JavaScript's matches only at end of input; Python's also matches
-      before a trailing `\\n`, so it becomes `\\Z`. (`^` needs no such
-      treatment: without `re.MULTILINE` Python's `^` is already exactly
-      JavaScript's, and JS `/m` is refused rather than mapped.)
+      so they expand to an explicit class (to the class BODY when they are
+      already inside one).
+    * `{m,n}` - copied verbatim, but only once it has been confirmed to BE a
+      bounded quantifier rather than a stray brace.
 
-    `\\S` inside a character class has no Python translation - it would need
-    set subtraction - so it raises rather than compiling to something whose
-    verdict silently differs from JavaScript's. No live pattern uses it.
+    It walks the source rather than running a regex over it, so it can tell an
+    escape from a literal and a class member from an operator - a distinction
+    a `str.replace` cannot make.
     """
     out: list[str] = []
     index = 0
     length = len(pattern)
-    in_class = False
     while index < length:
         char = pattern[index]
-        if char == "\\" and index + 1 < length:
-            following = pattern[index + 1]
+        if char == "\\":
+            following = pattern[index + 1 : index + 2]
             if following == "s":
-                out.append(_JS_WS_BODY if in_class else f"[{_JS_WS_BODY}]")
+                out.append(f"[{_JS_WS_BODY}]")
             elif following == "S":
-                if in_class:
-                    raise UnportableJavascriptPatternError(
-                        r"\S inside a character class has no Python equivalent "
-                        f"(in {pattern!r}); rewrite the pattern in the config"
-                    )
                 out.append(f"[^{_JS_WS_BODY}]")
+            elif following in ("b", "n"):
+                out.append("\\" + following)
             else:
-                out.append(char + following)
+                raise _refusal(pattern, f"the escape \\{following}", _ESCAPE_REASON, where)
             index += 2
             continue
-        if not in_class:
-            # `[]` and `[^]` close immediately in JavaScript - unlike POSIX,
-            # where that `]` would be a literal member - so they are whole
-            # constructs here, not the start of a class.
-            if pattern.startswith("[]", index):
-                out.append(_JS_EMPTY_CLASS)
-                index += 2
-                continue
-            if pattern.startswith("[^]", index):
-                out.append(_JS_ANY_CLASS)
-                index += 3
-                continue
-            if char == ".":
-                out.append(_JS_ANY_CLASS if dot_all else f"[^{_JS_LT_BODY}]")
-                index += 1
-                continue
-            if char == "$":
-                out.append("\\Z")
-                index += 1
-                continue
-            if char == "[":
-                in_class = True
-                out.append(char)
-                index += 1
-                # A leading `^` negates; it does not close.
-                if index < length and pattern[index] == "^":
-                    out.append("^")
-                    index += 1
-                continue
-        elif char == "]":
-            in_class = False
+        if char == "[":
+            index = _translate_class(pattern, index, out, where)
+            continue
+        if char == "(":
+            if pattern.startswith("(?", index) and not pattern.startswith("(?!", index):
+                raise _refusal(
+                    pattern,
+                    f"the group prefix `{pattern[index : index + 3]}`",
+                    "only a plain `(` and a negative lookahead `(?!` are "
+                    "ported; lookbehind, named groups and `(?:` are not",
+                    where,
+                )
+            width = 3 if pattern.startswith("(?!", index) else 1
+            out.append(pattern[index : index + width])
+            index += width
+            continue
+        if char == "{":
+            found = _BOUNDED_QUANTIFIER.match(pattern, index)
+            if found is None:
+                raise _refusal(
+                    pattern,
+                    "a `{` that is not a bounded quantifier",
+                    "JavaScript reads a stray `{` as a literal brace and "
+                    "Python does not always agree",
+                    where,
+                )
+            out.append(found.group(0))
+            index = found.end()
+            continue
+        if char in "^|)*+?":
+            # `^` needs no translation: without `re.MULTILINE` Python's `^` is
+            # already exactly JavaScript's, and `/m` is refused rather than
+            # mapped. `*`, `+` and `?` are the greedy/lazy quantifier suffixes.
+            out.append(char)
+            index += 1
+            continue
+        if char in _JS_METACHARACTERS:
+            raise _refusal(pattern, f"`{char}`", _METACHARACTER_REASONS[char], where)
+        if not (char.isascii() and char.isprintable()):
+            raise _refusal(pattern, f"the character {char!r}", _NON_LITERAL_REASON, where)
         out.append(char)
         index += 1
     return "".join(out)
 
 
-# JavaScript regex flags this module can translate into genuinely equivalent
-# Python. Everything else is REFUSED rather than dropped or approximated:
+# The one JavaScript regex flag this module translates. The live matrix uses
+# `i` (the three announce-line literals) and nothing else, so the flag
+# allowlist is derived exactly as the construct allowlist is. Every other
+# flag - `s` included - is REFUSED rather than dropped or approximated:
 #
 # * `m` - a real divergence, not a gap. JS anchors `^`/`$` at `\r`, U+2028 and
 #   U+2029; `re.MULTILINE` anchors only at `\n`, so `/^b/m.test("a\rb")` is
@@ -321,36 +508,16 @@ def js_pattern_to_python(pattern: str, *, dot_all: bool = False) -> str:
 #   `\p{...}`, set notation) and re-define case folding.
 # * `d` - only adds match indices, but `.test` never reads them, so honouring
 #   it would mean asserting a no-op nobody has proved.
+# * `s` - dotAll, and `.` itself is not on the construct allowlist, so `/s`
+#   can only ever qualify a construct that is already refused.
 #
-# `s` is not in the map because it is handled by the pattern walker (it picks
-# which translation `.` gets), not by a Python flag.
+# `i` is safe precisely BECAUSE the walker admits no non-ASCII character:
+# `re.ASCII | re.IGNORECASE` folds only ASCII, which is exactly JavaScript's
+# `/i` for an ASCII pattern (JS refuses any mapping of a non-ASCII code unit
+# onto an ASCII one, so `/security/i` does not match `ſecurity`). `/é/i`
+# matches `É` in Node and would match nothing here - and never reaches this
+# function, because `é` is refused as a literal.
 _JS_FLAG_MAP = {"i": re.IGNORECASE}
-_JS_WALKER_FLAGS = "s"
-
-# A code point can reach a pattern as a literal OR as a `\uXXXX`/`\xXX`
-# escape, and `/i` folds it either way. `"\\u00e9".isascii()` is True, so the
-# escapes have to be decoded before the ASCII argument below can be trusted:
-# Node says `/é/i.test("É")` is true, and `re.ASCII` cannot fold it.
-_JS_CODEPOINT_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
-
-
-def _folds_only_ascii(pattern: str) -> bool:
-    """Can `/i` on this pattern fold anything outside ASCII?
-
-    Conservative: an escaped backslash followed by `uXXXX` is read as an
-    escape it is not, which costs a needless refusal and never a wrong match.
-    """
-    if not pattern.isascii():
-        return False
-    return all(
-        int(found.group(1) or found.group(2), 16) < 0x80
-        for found in _JS_CODEPOINT_ESCAPE.finditer(pattern)
-    )
-
-
-def _site(where: object) -> str:
-    """` (<config path>)` for an error message, or nothing if unknown."""
-    return "" if where is None else f" ({where})"
 
 
 def _js_flags(pattern: str, flags: str, where: object = None) -> int:
@@ -367,7 +534,7 @@ def _js_flags(pattern: str, flags: str, where: object = None) -> int:
             "JavaScript rejects that at parse time, so the assert would throw "
             "rather than produce a verdict"
         )
-    unportable = sorted(set(flags) - set(_JS_FLAG_MAP) - set(_JS_WALKER_FLAGS))
+    unportable = sorted(set(flags) - set(_JS_FLAG_MAP))
     if unportable:
         raise UnportableJavascriptPatternError(
             f"lifted JS regex /{pattern}/{flags} carries flag(s) "
@@ -377,37 +544,26 @@ def _js_flags(pattern: str, flags: str, where: object = None) -> int:
         )
     compiled = _JS_ASCII
     for flag in flags:
-        if flag == "i" and not _folds_only_ascii(pattern):
-            # `re.ASCII | re.IGNORECASE` folds only ASCII, which is exactly
-            # JavaScript's `/i` for an ASCII pattern (JS refuses any mapping
-            # of a non-ASCII code unit onto an ASCII one, so `/security/i`
-            # does NOT match `ſecurity`). Once a non-ASCII code point is in
-            # the pattern the two part company - `/é/i` matches `É` in Node
-            # and nothing here - so that combination is refused instead.
-            raise UnportableJavascriptPatternError(
-                f"lifted JS regex /{pattern}/{flags} applies /i to a "
-                f"non-ASCII pattern{site}; Python folds case for it only with "
-                "Unicode rules, which are not JavaScript's. Spell the case "
-                "variants out in the pattern instead"
-            )
-        compiled |= _JS_FLAG_MAP.get(flag, 0)
+        compiled |= _JS_FLAG_MAP[flag]
     return compiled
 
 
 def _js_compile(pattern: str, flags: str = "", where: object = None) -> re.Pattern[str]:
     """Compile a pattern LIFTED FROM JAVASCRIPT with JavaScript's semantics.
 
-    Either the result matches exactly what `new RegExp(pattern, flags)` does,
-    or this raises. Nothing compiles into a near-miss.
+    Every construct in the pattern is on the allowlist and this result matches
+    what `new RegExp(pattern, flags)` does, or this raises. The port makes no
+    claim about a construct it has not admitted - it refuses it instead.
     """
     python_flags = _js_flags(pattern, flags, where)
-    translated = js_pattern_to_python(pattern, dot_all="s" in flags)
+    translated = js_pattern_to_python(pattern, where=where)
     try:
         return re.compile(translated, python_flags)
     except re.error as exc:
-        # Valid JavaScript that Python's grammar rejects: class ranges JS
-        # allows and `re` does not, `\Q`-style identity escapes, and so on.
-        # It already fails loudly; this only gives it the guard's own name.
+        # Allowlisted constructs, assembled into something Python's parser
+        # still rejects: an unbalanced group, a quantifier with nothing to
+        # quantify. It already fails loudly; this only gives it the guard's
+        # own name and names the config.
         raise UnportableJavascriptPatternError(
             f"lifted JS regex /{pattern}/{flags} has no Python equivalent{_site(where)}: {exc}"
         ) from exc
@@ -580,6 +736,21 @@ class CitesCatalogueTechniqueEvaluator:
     every eval accepts, with no eval edit. The catalogue is read on first use
     (matching the JS module-level cache) so a test can point the evaluator at
     a fixture catalogue.
+
+    This is the ONE compiled pattern that does not go through the portability
+    guard, and deliberately so: it is not a lifted JavaScript pattern at all
+    but Python assembled from `re.escape`, whose identity escapes (`\\-`,
+    `\\&`) the guard's allowlist refuses on purpose. Routing it through would
+    mean widening the allowlist to admit exactly the constructs that were just
+    closed.
+
+    What it borrows from the guard is the one property that matters:
+    `IGNORECASE | ASCII` folds case the way JavaScript's `/i` does only while
+    every heading is ASCII. That is true of all 21 headings today, but the
+    catalogue is an editable markdown file, and a cased non-ASCII heading
+    would diverge - Python with these flags fails to match `CAFÉ` against
+    `café` where Node's `/i` matches. So the invariant is asserted at build
+    time and fails loudly instead of being assumed.
     """
 
     catalogue_path: Path = TECHNIQUES_MD
@@ -593,6 +764,16 @@ class CitesCatalogueTechniqueEvaluator:
                 raise ValueError(
                     f"no technique headings parsed from {self.catalogue_path} "
                     "(catalogue path or format drift)"
+                )
+            non_ascii = sorted(name for name in names if not name.isascii())
+            if non_ascii:
+                raise UnportableJavascriptPatternError(
+                    f"non-ASCII technique heading(s) {non_ascii} in "
+                    f"{self.catalogue_path}; this alternation compiles with "
+                    "IGNORECASE|ASCII to match JavaScript's /i, which folds "
+                    "ASCII only, so a cased non-ASCII heading would match in "
+                    "Node and not here. Keep catalogue headings ASCII, or "
+                    "port the case folding before adding one"
                 )
             # Longest first so the reported match is the most specific one.
             alternation = "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
@@ -617,11 +798,34 @@ class CitesCatalogueTechniqueEvaluator:
 # Dispatch
 # --------------------------------------------------------------------------
 
+# JavaScript's regex-literal flag alphabet (ECMA-262 22.2.6). A character
+# outside it is a SyntaxError in the literal, not an unported flag, so the
+# dispatch below refuses the whole assert rather than handing `_js_flags`
+# something JavaScript would never have parsed.
+_JS_FLAG_ALPHABET = "dgimsuvy"
+
+# A JavaScript `RegularExpressionBody`: no unescaped `/`, no line terminator.
+# The greedy `.*` this used to carry ran through to the LAST slash, so
+# `/x/i/.test(output)` - a SyntaxError in JavaScript - was silently
+# reinterpreted here as the perfectly valid pattern `x/i` with no flags. A
+# malformed literal must refuse, not be reinterpreted, so the body is spelled
+# out and the flags are pinned to the real alphabet.
+_JS_REGEX_BODY = r"(?:[^/\\\r\n\u2028\u2029]|\\[^\r\n\u2028\u2029])+"
+
 _REGEX_TEST = re.compile(
-    r"^\s*/(?P<pattern>.*)/(?P<flags>[a-z]*)\.test\(\s*output\s*\)\s*;?\s*$",
-    re.DOTALL,
+    rf"^\s*/(?P<pattern>{_JS_REGEX_BODY})/(?P<flags>[{_JS_FLAG_ALPHABET}]*)"
+    r"\.test\(\s*output\s*\)\s*;?\s*$"
 )
-_SECURITY_TERMS = re.compile(r"securityTerms\s*=\s*/(?P<terms>.+)/(?P<flags>[a-z]*)\s*;")
+# Deliberately loose: what a `regex-test` assert LOOKS like. Anything that
+# matches this but not `_REGEX_TEST` is malformed JavaScript, and says so.
+_REGEX_TEST_SHAPE = re.compile(r"^\s*/.*\.test\(\s*output\s*\)\s*;?\s*$")
+
+# Same fix on the other lifted-regex path, so the two cannot drift: the old
+# greedy `.+` would have run a `securityTerms` literal through to its last
+# slash in exactly the same way.
+_SECURITY_TERMS = re.compile(
+    rf"securityTerms\s*=\s*/(?P<terms>{_JS_REGEX_BODY})/(?P<flags>[{_JS_FLAG_ALPHABET}]*)\s*;"
+)
 
 
 def evaluator_for(assertion: JavascriptAssertion | RubricAssertion):
@@ -646,6 +850,18 @@ def evaluator_for(assertion: JavascriptAssertion | RubricAssertion):
     match = _REGEX_TEST.match(source)
     if match:
         return RegexTestEvaluator(match.group("pattern"), match.group("flags"), where)
+
+    if _REGEX_TEST_SHAPE.match(source):
+        # It is shaped like a `regex-test` assert but is not a well-formed
+        # JavaScript regex literal - `/x/i/.test(output)` is a SyntaxError in
+        # JavaScript. Refusing beats reinterpreting: promptfoo would never
+        # have produced a verdict for it at all.
+        raise UnportableJavascriptPatternError(
+            f"assert {source.strip()!r} is not a well-formed JavaScript regex "
+            f"literal{_site(where)}; JavaScript would reject it at parse time. "
+            "The body may not contain an unescaped `/` or a line terminator, "
+            f"and the flags must come from {_JS_FLAG_ALPHABET!r}"
+        )
 
     if "security_must_appear" in source:
         terms = _SECURITY_TERMS.search(source)

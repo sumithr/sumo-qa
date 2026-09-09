@@ -703,11 +703,13 @@ def test_security_relevance_omission_seed_never_hard_fails():
 # asserts against this hardening.
 
 # The guard's flag policy, in one place, because BOTH lifted-regex paths
-# (`regex-test` and `securityTerms`) are parametrized over it below. `i` and
-# `s` are translated because the Node differential harness proves them
-# equivalent; every other JavaScript flag is refused.
-TRANSLATED_JS_FLAGS = "is"
-UNPORTABLE_JS_FLAGS = "dgmuvy"
+# (`regex-test` and `securityTerms`) are parametrized over it below. The flag
+# allowlist is derived exactly as the construct allowlist is: the live matrix
+# uses `i` (three announce literals) and nothing else, so `i` is translated
+# and every other JavaScript flag - `s` included - is refused. `s` only ever
+# qualifies `.`, which is itself off the allowlist.
+TRANSLATED_JS_FLAGS = "i"
+UNPORTABLE_JS_FLAGS = "dgmsuvy"
 
 _SECURITY_TERMS_BODY = (
     r"(security|securit|vulnerab|owasp|\bxss\b|\bcsrf\b|\bsqli\b|injection|"
@@ -903,20 +905,20 @@ def test_js_whitespace_substitution_splices_into_an_existing_character_class():
     assert not re.match(rewritten, "xhello")
 
 
-def test_js_whitespace_substitution_leaves_an_escaped_backslash_alone():
+def test_js_whitespace_substitution_does_not_fire_on_an_escaped_backslash():
     r"""`\\s` is a literal backslash followed by `s`, not a whitespace class.
-    A naive `str.replace` would corrupt it into a backslash plus a class."""
-    rewritten = ca.js_pattern_to_python(r"a\\sb")
-
-    assert re.fullmatch(rewritten, "a\\sb")
-    assert not re.fullmatch(rewritten, "a b")
+    A naive `str.replace` would corrupt it into a backslash plus a class. The
+    walk still reads it as one escape (`\\`) and one literal (`s`), so the
+    substitution cannot fire - and because `\\` is not itself on the
+    allowlist, the pattern refuses rather than compiling either reading."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"the escape \\\\"):
+        ca.js_pattern_to_python(r"a\\sb")
 
 
 def test_js_whitespace_substitution_leaves_other_escapes_and_classes_alone():
     r"""Only `\s`/`\S` move. `\b`, `\n` and a class that mentions neither must
     come back byte for byte, or the substitution is silently editing the
     lifted pattern."""
-    assert ca.js_pattern_to_python(r"git\+clean\b") == r"git\+clean\b"
     assert ca.js_pattern_to_python(r"[^\n]*?") == r"[^\n]*?"
     assert ca.js_pattern_to_python(r"(?!--|HEAD)x") == r"(?!--|HEAD)x"
     assert ca.js_pattern_to_python(r"git\s+clean\b").endswith(r"clean\b")
@@ -927,12 +929,11 @@ def test_js_whitespace_substitution_closes_a_class_the_way_javascript_does():
     CLOSES it and the `\s` that follows is OUTSIDE the class. Treating that
     `]` as a POSIX literal member - which is what Python's own parser does -
     would splice the whitespace body inside instead, silently changing what
-    the pattern accepts."""
-    rewritten = ca.js_pattern_to_python(r"a[^]\sb")
-
-    assert rewritten.startswith("a(?s:.)")
-    assert rewritten.endswith("]b")
-    assert "\\x09" in rewritten.removeprefix("a(?s:.)")
+    the pattern accepts. The boundary is still read JavaScript's way; the
+    class it delimits is now REFUSED rather than translated, so neither
+    reading can reach `re.compile`."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"empty character class"):
+        ca.js_pattern_to_python(r"a[^]\sb")
 
 
 def test_js_whitespace_substitution_refuses_backslash_capital_s_in_a_class():
@@ -943,24 +944,151 @@ def test_js_whitespace_substitution_refuses_backslash_capital_s_in_a_class():
         ca.js_pattern_to_python(r"[\S>]")
 
 
-# --- translate-or-refuse: no lifted pattern compiles into a near-miss ------
+# --- closed by default: the allowlist is the guarantee --------------------
 #
-# Risk: the portability guard used to be incomplete in a way that is WORSE
-# than a gap. A valid JavaScript pattern could compile in Python and match a
-# DIFFERENT set - no error, no warning, just a verdict that quietly disagrees
-# with promptfoo. None of these occurs in the live matrix, which is precisely
-# why they had to be found by differential testing rather than by a failing
-# eval. Every trigger below was verified against Node.
+# Risk: the guard used to be OPEN by default - it translated the constructs it
+# recognised and trusted everything else, on a stated promise that a lifted
+# pattern always matched the same set in Python as in Node. That promise is a
+# claim about the whole ECMAScript regex grammar, and four review rounds each
+# found a new corner where it failed (a legacy octal escape, the Python-only
+# `\N{...}` and `\U........` forms, astral characters where JavaScript
+# consumes UTF-16 code units and Python code points, malformed literal
+# syntax). Each was patched one at a time; the next round found another.
 #
-# The rule the whole guard now holds to: every lifted JavaScript pattern is
-# either translated into genuinely equivalent Python, or refused loudly.
+# The defect was the promise, not the corners. The guard now admits exactly
+# the constructs the live matrix uses and REFUSES everything else, which
+# closes all of them structurally: an unrecognised escape, a non-ASCII
+# character and a bare `.` are all simply off the allowlist. The refusal is
+# the guarantee.
 #
-# Technique: differential/back-to-back testing against Node (the harness that
-# produced these triggers is deliberately NOT in this suite, which must stay
-# offline and Node-free), distilled here into unit tests on each trigger.
+# Technique: equivalence partitioning over the ECMAScript construct space
+# (on the allowlist / off it), plus differential testing against Node for the
+# on-list half. The Node harness is deliberately NOT in this suite, which must
+# stay offline and Node-free; its 15 live patterns are pinned offline by
+# `test_every_live_lifted_pattern_survives_the_completed_guard`.
 
 LINE_SEPARATOR = "\u2028"
 PARAGRAPH_SEPARATOR = "\u2029"
+
+# The allowlist, as a construct-by-construct table. Every entry is present in
+# at least one of the 15 live regex instances, which is where it came from -
+# see the derivation in `assertions.py`. If this list ever grows, the Node
+# differential has to grow with it.
+SUPPORTED_CONSTRUCTS = [
+    ("printable-ASCII literal", "git", "git", "cat"),
+    ("start anchor", "^git", "git show", "a git"),
+    ("alternation", "xss|csrf", "csrf", "idor"),
+    ("capturing group", "(xss|csrf)", "xss", "idor"),
+    ("negative lookahead", r"git checkout (?!--)\S+", "git checkout main", "git checkout --"),
+    ("greedy star", "ab*c", "ac", "abx"),
+    ("greedy plus", "ab+c", "abbc", "ac"),
+    ("optional", "ab?c", "ac", "abbc"),
+    ("lazy quantifier", r"a[^\n]*?c", "abc", "ab"),
+    ("bounded quantifier", "ab{2,3}c", "abbc", "abc"),
+    (r"\s", r"git\sshow", "git show", "gitshow"),
+    (r"\S", r"git\s\S+", "git abc", "git  "),
+    (r"\b", r"\bxss\b", "an xss bug", "xssbug"),
+    (r"\n inside a class", r"a[^\n]c", "abc", "a\nc"),
+    ("character class", r"""^[\s>*_"']{0,8}go""", "> **go", "xgo"),
+]
+
+# Everything else. Each entry names a construct that is NOT in any live
+# pattern, so the guard must refuse it rather than approximate it. The four
+# findings the previous round turned up are the first four rows.
+UNSUPPORTED_CONSTRUCTS = [
+    ("legacy octal escape", r"caf\351", r"the escape \\3"),
+    ("python-only named escape", r"caf\N{LATIN SMALL LETTER E WITH ACUTE}", r"the escape \\N"),
+    ("python-only wide escape", r"caf\U000000E9", r"the escape \\U"),
+    ("bare dot", "^.$", r"uses `\.`"),
+    ("astral literal", "^\U0001f600$", "the character"),
+    ("non-ascii literal", "caf\u00e9", "the character"),
+    ("end anchor", "a$", r"uses `\$`"),
+    ("javascript empty class", r"a[]b", "empty character class"),
+    ("javascript match-anything class", r"a[^]b", "empty character class"),
+    ("unicode code point escape", r"caf\u00e9", r"the escape \\u"),
+    ("hex escape", r"caf\xe9", r"the escape \\x"),
+    ("digit class", r"\d+", r"the escape \\d"),
+    ("word class", r"\w+", r"the escape \\w"),
+    ("identity escape", r"a\.b", r"the escape \\\."),
+    ("backreference", r"(a)\1", r"the escape \\1"),
+    ("non-capturing group", "(?:ab)", r"the group prefix `\(\?:`"),
+    ("lookahead", "a(?=b)", r"the group prefix `\(\?=`"),
+    ("lookbehind", "(?<=a)b", r"the group prefix `\(\?<`"),
+    ("class range", "[a-z]+", "`-` inside a character class"),
+    ("escaped bracket in a class", r"a[\]]b", r"the escape \\\] inside a character class"),
+    ("nested class bracket", r"a[x[y]b", r"`\[` inside a character class"),
+    ("non-leading class caret", r"a[x^y]b", r"`\^` inside a character class"),
+    ("non-ascii class member", "[\u00e9x]", "inside a character class"),
+    ("unterminated class", "a[xy", "unterminated character class"),
+    ("stray brace", "a{b}", "not a bounded quantifier"),
+    ("bare closing bracket", "a]b", r"uses `\]`"),
+    ("bare closing brace", "a}b", r"uses `\}`"),
+    ("trailing backslash", "ab\\", "the escape"),
+    ("raw control character", "a\tb", "the character"),
+]
+
+
+@pytest.mark.parametrize(
+    "construct,pattern,matching,non_matching",
+    SUPPORTED_CONSTRUCTS,
+    ids=[row[0] for row in SUPPORTED_CONSTRUCTS],
+)
+def test_every_allowlisted_construct_still_translates(construct, pattern, matching, non_matching):
+    """The half of the allowlist that must keep WORKING.
+
+    A guard that only ever refuses would sail through a suite that only ever
+    checks refusals, and would also break the live matrix. Each construct is
+    exercised on an output it must accept and one it must reject, so a
+    translation that compiles but matches the wrong set is caught too."""
+    evaluator = ca.RegexTestEvaluator(pattern)
+
+    assert evaluator.evaluate(matching, {}).passed is True, construct
+    assert evaluator.evaluate(non_matching, {}).passed is False, construct
+
+
+@pytest.mark.parametrize(
+    "construct,pattern,expected",
+    UNSUPPORTED_CONSTRUCTS,
+    ids=[row[0] for row in UNSUPPORTED_CONSTRUCTS],
+)
+def test_every_construct_off_the_allowlist_is_refused(construct, pattern, expected):
+    """The other half: the guard is CLOSED, so anything not derived from a
+    live pattern raises rather than compiling into an unchecked verdict.
+
+    This is the test that makes the four latest findings structural rather
+    than patched: `\\351`, `\\N{...}`, `\\U........` and an astral-sensitive
+    `.` are refused for the same reason as everything else on this list, not
+    by four bespoke checks."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=expected):
+        ca.RegexTestEvaluator(pattern)
+
+
+def test_an_unsupported_construct_in_a_config_names_the_construct_and_the_fix():
+    """A refusal is only useful if the author can act on it: it has to say
+    which construct, which config, and what to do about it."""
+    assertion = ca.JavascriptAssertion(
+        source=r"/^.$/.test(output)", config_path=Path("skill-made-up.yaml")
+    )
+
+    with pytest.raises(ca.UnportableJavascriptPatternError) as raised:
+        ca.evaluator_for(assertion)
+
+    message = str(raised.value)
+    assert "`.`" in message
+    assert "skill-made-up.yaml" in message
+    assert "extend the port" in message
+    assert "Node differential" in message
+
+
+def test_the_astral_divergence_is_closed_by_the_allowlist_not_by_a_special_case():
+    r"""Codex's fourth finding: JavaScript matches a pattern against UTF-16
+    code units and Python against code points, so `/^.$/` is FALSE in Node for
+    an emoji (two units, one dot) and was TRUE here. `.` is off the allowlist
+    and so is a raw astral character, so both spellings of the divergence
+    refuse - and so does the `[^]` that would also have exposed it."""
+    for pattern in ["^.$", "^[^]$", "^\U0001f600$"]:
+        with pytest.raises(ca.UnportableJavascriptPatternError):
+            ca.RegexTestEvaluator(pattern)
 
 
 def test_regex_test_evaluator_refuses_a_flag_it_cannot_translate():
@@ -1002,30 +1130,34 @@ def test_a_repeated_flag_is_refused():
 
 
 @pytest.mark.parametrize("terminator", ["\n", "\r", LINE_SEPARATOR, PARAGRAPH_SEPARATOR], ids=repr)
-def test_a_lifted_dot_excludes_every_javascript_line_terminator(terminator):
-    r"""Finding 3: `.` diverges with NO flags at all. JavaScript's `.` excludes
-    `\n`, `\r`, U+2028 and U+2029; Python's excludes only `\n`, so
-    `/a.b/.test("a\rb")` is false in Node and was true here. `.` outside a
-    character class is substituted for an explicit negated class, exactly as
-    `\s` is."""
-    evaluator = ca.RegexTestEvaluator("a.b")
+def test_a_lifted_dot_is_refused_rather_than_approximated(terminator):
+    r"""`.` was the hardest construct to keep honest, and it is now simply off
+    the allowlist. JavaScript's `.` excludes `\n`, `\r`, U+2028 and U+2029
+    where Python's excludes only `\n`; and on top of that the two engines
+    disagree about what a single `.` consumes in an astral character. The
+    previous port substituted an explicit negated class, which fixed the first
+    divergence and not the second. No live pattern uses `.`, so the port owes
+    it nothing - and the terminators below are what an approximation would
+    have had to get right."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"uses `\.`"):
+        ca.RegexTestEvaluator("a.b")
 
-    assert evaluator.evaluate(f"a{terminator}b", {}).passed is False
-    assert evaluator.evaluate("a b", {}).passed is True
-    assert evaluator.evaluate(f"a{NBSP}b", {}).passed is True
+    assert f"a{terminator}b" != "a b"
 
 
-def test_the_dotall_flag_is_translated_so_a_lifted_dot_matches_a_terminator():
-    """`s` is translatable: JavaScript's dotAll and a dot-all Python group
-    both mean *any code point*. It is honoured by the pattern walker rather
-    than by a Python flag, because it selects which translation `.` gets."""
-    assert ca.RegexTestEvaluator("a.b", "s").evaluate("a\rb", {}).passed is True
-    assert ca.RegexTestEvaluator("a.b", "s").evaluate(f"a{LINE_SEPARATOR}b", {}).passed is True
+def test_the_dotall_flag_is_refused_because_the_construct_it_qualifies_is():
+    """`s` only ever changes what `.` matches, and `.` is off the allowlist,
+    so honouring `/s` could only ever qualify a construct that is already
+    refused. It is refused with every other unported flag rather than kept as
+    the one flag with nothing left to do."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no proven Python"):
+        ca.RegexTestEvaluator("ab", "s")
 
 
 def test_a_dot_inside_a_character_class_stays_a_literal():
-    """The substitution must not fire inside a class, where `.` is already an
-    ordinary member in both languages."""
+    """The refusal is scoped to the construct, not to the character: inside a
+    class `.` is an ordinary member in both languages, and the live announce
+    prefix depends on exactly that treatment for `*` and `>`."""
     evaluator = ca.RegexTestEvaluator(r"a[.x]b")
 
     assert evaluator.evaluate("a.b", {}).passed is True
@@ -1033,47 +1165,16 @@ def test_a_dot_inside_a_character_class_stays_a_literal():
     assert evaluator.evaluate("ayb", {}).passed is False
 
 
-def test_an_escaped_dot_stays_a_literal():
-    assert ca.js_pattern_to_python(r"a\.b") == r"a\.b"
+def test_a_lifted_dollar_is_refused_rather_than_rewritten_to_end_of_input():
+    r"""`$` diverges with no flags involved: JavaScript's (without `/m`)
+    matches only at end of input; Python's ALSO matches just before a final
+    `\n`, so `/a$/.test("a\n")` is false in Node and true here. The previous
+    port rewrote it to `\Z`. That was correct, and it is still gone: no live
+    pattern anchors at the end, so the construct is not on the allowlist and
+    the rewrite is one fewer thing to be right about."""
+    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"uses `\$`"):
+        ca.RegexTestEvaluator("a$")
 
-
-def test_the_javascript_empty_class_matches_nothing():
-    r"""Finding 4: the earlier note said Python cannot express `[]`. It can -
-    a failing lookahead. Node says `/[]\s/.test(" ")` is false (nothing can
-    match an empty class); Python read the `]` as a literal member and said
-    true."""
-    assert ca.RegexTestEvaluator(r"[]\s").evaluate(" ", {}).passed is False
-    assert ca.RegexTestEvaluator(r"a[]*b").evaluate("ab", {}).passed is True
-
-
-def test_the_javascript_match_anything_class_matches_exactly_one_character():
-    r"""The other half of finding 4: `[^]` is JavaScript's match-anything
-    class, which Python spells as a dot-all group. Node says
-    `/[^]\s/.test("x")` is false - `[^]` consumes the `x`, leaving no
-    whitespace - where Python said true."""
-    assert ca.RegexTestEvaluator(r"[^]\s").evaluate("x", {}).passed is False
-    assert ca.RegexTestEvaluator(r"[^]\s").evaluate("x ", {}).passed is True
-    assert ca.RegexTestEvaluator("[^]").evaluate("\n", {}).passed is True
-
-
-def test_a_class_that_merely_starts_with_an_escaped_bracket_is_not_an_empty_class():
-    r"""`[\]]` is a one-member class, not `[]` followed by `]`. Getting the
-    boundary wrong here would silently rewrite a real class."""
-    evaluator = ca.RegexTestEvaluator(r"a[\]]b")
-
-    assert evaluator.evaluate("a]b", {}).passed is True
-    assert evaluator.evaluate("axb", {}).passed is False
-
-
-def test_a_lifted_dollar_anchors_at_end_of_input_not_before_a_trailing_newline():
-    r"""Found by extending the differential harness, not by codex: `$` is a
-    divergence too, with no flags involved. JavaScript's `$` (without `/m`)
-    matches only at end of input; Python's `$` ALSO matches just before a
-    final `\n`, so `/a$/.test("a\n")` is false in Node and was true here."""
-    evaluator = ca.RegexTestEvaluator("a$")
-
-    assert evaluator.evaluate("a", {}).passed is True
-    assert evaluator.evaluate("a\n", {}).passed is False
     assert ca.RegexTestEvaluator("[$]").evaluate("$", {}).passed is True
 
 
@@ -1088,36 +1189,33 @@ def test_the_ignorecase_flag_is_translated_for_an_ascii_pattern():
     assert evaluator.evaluate("ſecurity", {}).passed is False
 
 
-@pytest.mark.parametrize("pattern", ["é", r"\u00e9", r"\xe9"], ids=repr)
-def test_the_ignorecase_flag_is_refused_for_a_non_ascii_pattern(pattern):
-    r"""Where that argument stops holding, the flag is refused rather than
-    stretched: Node says `/é/i.test("É")` is true, and `re.ASCII` cannot fold
-    it. Same standard, applied consistently.
+@pytest.mark.parametrize("pattern", ["é", r"é", r"\xe9"], ids=repr)
+@pytest.mark.parametrize("flags", ["i", ""], ids=["with /i", "without /i"])
+def test_a_non_ascii_code_point_is_refused_however_it_is_spelled(pattern, flags):
+    r"""The `/i` half of this used to be a bespoke check - `_folds_only_ascii`
+    decoded `\uXXXX`/`\xXX` escapes, because `"\\u00e9".isascii()` is True and
+    a bare ASCII test would have waved the escaped forms straight through.
+    Node says `/é/i.test("É")` is true and `re.ASCII` cannot fold it.
 
-    A code point reaches the pattern as a literal OR as a `\uXXXX`/`\xXX`
-    escape, and `/i` folds it either way - but `"\\u00e9".isascii()` is True,
-    so a bare ASCII test would wave the escaped forms straight through."""
-    with pytest.raises(ca.UnportableJavascriptPatternError, match=r"non-ASCII pattern"):
-        ca.RegexTestEvaluator(pattern, "i")
-
-
-@pytest.mark.parametrize("pattern", ["é", r"\u00e9", r"\xe9"], ids=repr)
-def test_a_non_ascii_pattern_without_ignorecase_is_fine(pattern):
-    """The refusal is scoped to the folding, not to non-ASCII patterns as
-    such: with no `/i` there is nothing to fold and the two agree."""
-    assert ca.RegexTestEvaluator(pattern).evaluate("é", {}).passed is True
-    assert ca.RegexTestEvaluator(pattern).evaluate("É", {}).passed is False
+    The allowlist subsumes that check and widens it: a non-ASCII code point is
+    refused with OR without `/i`, spelled as a literal or as either escape.
+    Without `/i` the two engines do agree on a lone `é` - but they stop
+    agreeing the moment it is astral or quantified, and no live pattern has
+    one, so the guard no longer has to know the difference."""
+    with pytest.raises(ca.UnportableJavascriptPatternError):
+        ca.RegexTestEvaluator(pattern, flags)
 
 
 def test_a_pattern_python_cannot_parse_becomes_the_guards_own_error():
-    r"""Secondary: valid JavaScript that Python's grammar rejects - `\Q` is an
-    identity escape in non-unicode JS, and JS allows class ranges `re` does
-    not. These already failed loudly; they now fail with the guard's own error
-    and name the pattern, instead of leaking a raw `re` error."""
+    r"""Secondary: allowlisted constructs can still be ASSEMBLED into
+    something Python's parser rejects - an unbalanced group, a quantifier with
+    nothing to quantify. That already failed loudly; it now fails with the
+    guard's own error naming the pattern and the config, instead of leaking a
+    raw `re.error`."""
     with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no Python equivalent"):
-        ca.RegexTestEvaluator(r"\Q\s\E")
+        ca.RegexTestEvaluator("(ab")
     with pytest.raises(ca.UnportableJavascriptPatternError, match=r"no Python equivalent"):
-        ca.RegexTestEvaluator(r"[\w-a]")
+        ca.RegexTestEvaluator("a**")
 
 
 def test_the_refusal_names_the_config_it_came_from():
@@ -1128,6 +1226,83 @@ def test_the_refusal_names_the_config_it_came_from():
 
     with pytest.raises(ca.UnportableJavascriptPatternError, match=r"skill-made-up\.yaml"):
         ca.evaluator_for(assertion)
+
+
+# --- the dispatch regex reads a JS literal, it does not reinterpret one ----
+#
+# Risk: a PARSING bug rather than a translation one, and the more dangerous
+# kind, because it changed which pattern got compiled before the guard ever
+# saw it. `_REGEX_TEST` captured the body with a greedy `.*` that ran through
+# to the LAST slash, so `/x/i/.test(output)` - a SyntaxError in JavaScript,
+# which promptfoo would never have produced a verdict for - was silently read
+# here as the valid pattern `x/i` with no flags. A malformed literal must
+# refuse, not be reinterpreted into a different gate.
+# Technique: boundary value analysis on the literal's delimiters, both
+# directions - the well-formed literals must still parse to the RIGHT body and
+# flags, or a stricter regex would "pass" by refusing everything.
+
+
+@pytest.mark.parametrize(
+    "source,pattern,flags",
+    [
+        ("/x/i.test(output)", "x", "i"),
+        ("/x/.test(output);", "x", ""),
+        ("  /a b/i.test( output ) ;  ", "a b", "i"),
+        (r"/^[\s>*_]{0,8}go/i.test(output)", r"^[\s>*_]{0,8}go", "i"),
+    ],
+    ids=["flagged", "unflagged", "whitespace", "announce-shaped"],
+)
+def test_a_well_formed_regex_literal_still_parses_to_its_body_and_flags(source, pattern, flags):
+    evaluator = ca.evaluator_for(ca.JavascriptAssertion(source=source))
+
+    assert evaluator.kind == "regex-test"
+    assert evaluator.pattern == pattern
+    assert evaluator.flags == flags
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "/x/i/.test(output)",
+        "/x//.test(output)",
+        "/x/q.test(output)",
+        "//.test(output)",
+    ],
+    ids=["trailing-slash", "double-slash", "not-a-flag", "empty-body"],
+)
+def test_a_malformed_regex_literal_refuses_instead_of_being_reinterpreted(source):
+    """`/x/i/.test(output)` is the trigger: JavaScript rejects it at parse
+    time, so there is no verdict to agree with. The old greedy capture turned
+    it into the pattern `x/i` and graded outputs against that."""
+    with pytest.raises(ca.UnportableJavascriptPatternError) as raised:
+        ca.evaluator_for(ca.JavascriptAssertion(source=source, config_path=Path("skill-x.yaml")))
+
+    message = str(raised.value)
+    assert "not a well-formed JavaScript regex literal" in message
+    assert "skill-x.yaml" in message
+
+
+def test_a_regex_literal_with_an_unescaped_slash_in_its_body_is_refused():
+    r"""The general form of the same bug. A `/` inside the body must be
+    escaped in JavaScript, and `\/` is an identity escape the port does not
+    carry - so either way the assert refuses rather than compiling a body the
+    author did not write."""
+    with pytest.raises(ca.UnportableJavascriptPatternError):
+        ca.evaluator_for(ca.JavascriptAssertion(source="/a/b/.test(output)"))
+    with pytest.raises(ca.UnportableJavascriptPatternError):
+        ca.evaluator_for(ca.JavascriptAssertion(source=r"/a\/b/.test(output)"))
+
+
+def test_the_security_terms_literal_is_read_with_the_same_strictness():
+    """The two lifted-regex paths must not drift: `_SECURITY_TERMS` carried
+    the identical greedy `.+`, so the same malformed literal would have been
+    reinterpreted there too."""
+    malformed = _security_source().replace(
+        f"/{_SECURITY_TERMS_BODY}/;", f"/{_SECURITY_TERMS_BODY}/i/;"
+    )
+
+    with pytest.raises(ca.UnportedJavascriptAssertionError):
+        ca.evaluator_for(ca.JavascriptAssertion(source=malformed))
 
 
 def test_every_live_lifted_pattern_survives_the_completed_guard():
@@ -1241,6 +1416,41 @@ def test_catalogue_technique_evaluator_refuses_an_empty_catalogue(tmp_path):
 
     with pytest.raises(ValueError, match="no technique headings"):
         ca.CitesCatalogueTechniqueEvaluator(catalogue_path=catalogue).evaluate("x", {})
+
+
+def test_catalogue_technique_evaluator_refuses_a_non_ascii_heading(tmp_path):
+    """The one compiled pattern that does not go through the portability
+    guard, because it is Python assembled from `re.escape` rather than a
+    lifted JS pattern - routing it through would mean re-admitting exactly the
+    identity escapes the allowlist just closed.
+
+    What it does borrow is the guard's standard. `IGNORECASE | ASCII` folds
+    case the way JavaScript's `/i` does only while every heading is ASCII, and
+    `knowledge/techniques.md` is an editable file anyone can add a heading to.
+    A cased non-ASCII heading diverges - Python with these flags will not
+    match `CAFÉ` against `café`, where Node's `/i` does - so the invariant is
+    asserted rather than assumed."""
+    catalogue = tmp_path / "techniques.md"
+    catalogue.write_text("### café testing\n\n### plain technique\n", encoding="utf-8")
+    evaluator = ca.CitesCatalogueTechniqueEvaluator(catalogue_path=catalogue)
+
+    with pytest.raises(ca.UnportableJavascriptPatternError) as raised:
+        evaluator.evaluate("I used CAFÉ TESTING here.", {})
+
+    message = str(raised.value)
+    assert "café testing" in message
+    assert str(catalogue) in message
+    assert "plain technique" not in message
+
+
+def test_every_live_catalogue_heading_is_ascii():
+    """The guard above is only latent while this holds - so pin it. All 21
+    live headings are ASCII today; the day one is not, the eval fails loudly
+    rather than quietly grading differently from promptfoo."""
+    names = ca.catalogue_technique_names(ca.TECHNIQUES_MD.read_text(encoding="utf-8"))
+
+    assert names
+    assert [name for name in names if not name.isascii()] == []
 
 
 def test_live_catalogue_evaluator_uses_the_repo_techniques_catalogue():
