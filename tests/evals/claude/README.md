@@ -331,11 +331,15 @@ Enforced by [`tests/test_claude_eval_runner.py`](../../test_claude_eval_runner.p
   passing and a failing output for each;
 - the `--dry-run` makes zero network calls: the test poisons `socket.socket`,
   `socket.create_connection`, `socket.getaddrinfo`, both `http.client`
-  connection constructors, and every process-spawning entry point the running
-  platform exposes (`subprocess.Popen`, plus each of `os.system`,
-  `os.execv(e)`, `os.spawnv(e)`, `os.posix_spawn(p)`, `os.fork` and
-  `os.startfile` that exists there - the last four are platform-specific) for
-  the duration of the run, so an out-of-process escape is refused too;
+  connection constructors, and the process-creation entry points: for the
+  duration of the run it poisons `subprocess.Popen`, `multiprocessing`'s
+  `Process.start` (which reaches neither of the others), and each of
+  `os.system`, `os.execv(e)`, `os.spawnv(e)`, `os.posix_spawn(p)`, `os.fork`,
+  `os.forkpty` and `os.startfile` that the running platform exposes - the last
+  five are platform-specific. That covers the primitives every other `os.exec*`
+  and `os.spawn*` wrapper delegates to, so an out-of-process escape - which
+  would also escape the socket poisoning - is refused. It is a guard on the
+  entry points named here, not a proof that no child can ever be created;
 - no module in the package imports an HTTP client, a model SDK, or a
   process/socket module - checked by walking each module's parsed AST, so a
   `from anthropic import Anthropic` cannot slip past a substring grep.

@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import http.client
 import json
+import multiprocessing
 import os
 import re
 import socket
@@ -1871,6 +1872,7 @@ _OS_SPAWN_ENTRY_POINTS = (
     "posix_spawnp",
     "startfile",
     "fork",
+    "forkpty",
 )
 
 
@@ -1903,6 +1905,7 @@ _POSIX_SPAWN = (
     "posix_spawn",
     "posix_spawnp",
     "fork",
+    "forkpty",
 )
 
 
@@ -1947,6 +1950,12 @@ def test_dry_run_constructs_no_socket_no_http_client_and_no_child_process(monkey
     monkeypatch.setattr(http.client.HTTPConnection, "__init__", explode)
     monkeypatch.setattr(http.client.HTTPSConnection, "__init__", explode)
     monkeypatch.setattr(subprocess.Popen, "__init__", no_spawn)
+    # `multiprocessing` reaches neither `subprocess.Popen` nor any `os` name
+    # below: it goes through `_posixsubprocess.fork_exec` on POSIX and
+    # `_winapi.CreateProcess` on Windows. A child started that way would also
+    # miss the socket poisoning above, so it is an out-of-process network
+    # escape this test would otherwise pass straight through.
+    monkeypatch.setattr(multiprocessing.Process, "start", no_spawn)
 
     patched = _available_spawn_entry_points(os)
     for name in patched:
@@ -1988,6 +1997,7 @@ def test_the_runner_imports_no_http_client_or_anthropic_sdk():
         "socket",
         "ssl",
         "subprocess",
+        "multiprocessing",
         "asyncio",
     }
     for module in (cl, ct, ca, ctok, ccli):
