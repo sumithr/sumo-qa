@@ -2000,14 +2000,15 @@ def test_dry_run_constructs_no_socket_no_http_client_and_no_child_process(monkey
     monkeypatch.setattr(http.client.HTTPSConnection, "__init__", explode)
     monkeypatch.setattr(subprocess.Popen, "__init__", no_spawn)
     # `multiprocessing` does not reach `subprocess.Popen`, and under the
-    # `spawn` and `forkserver` contexts it does not reach any `os` name below
-    # either: it goes to `_winapi.CreateProcess` on Windows and to
-    # `_posixsubprocess.fork_exec` via the forkserver. (Under the default
-    # `fork` context on non-macOS POSIX it does call `os.fork`, which the
-    # list below already poisons - but that is the one case, not the rule.)
-    # A child started outside those guards would also miss the socket
-    # poisoning above, so it is an out-of-process network escape this test
-    # would otherwise pass straight through.
+    # `spawn` and `forkserver` contexts it does not reach any patched `os`
+    # name below IN THIS PROCESS: `spawn` goes to `_winapi.CreateProcess` on
+    # Windows and to `_posixsubprocess.fork_exec` on POSIX, and `forkserver`
+    # calls `os.fork` inside the forkserver process, which never saw the
+    # patch. (The default `fork` context on non-macOS POSIX does call this
+    # process's `os.fork`, which the list below already poisons, but that is
+    # the one case, not the rule.) A child started outside these guards would
+    # also miss the socket poisoning above, so it is an out-of-process
+    # network escape this test would otherwise pass straight through.
     monkeypatch.setattr(multiprocessing.Process, "start", no_spawn)
 
     patched = _available_spawn_entry_points(os)
