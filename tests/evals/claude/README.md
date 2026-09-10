@@ -96,12 +96,20 @@ a couple of minutes and an hour.
 |---|---|---|
 | 0 | Every case passed, or the dry run completed. | Report written (live). |
 | 1 | The run finished; some cases failed. | Report written. |
-| 2 | Bad invocation: nothing matched, `--repeat` below 1, CLI missing. | Nothing. |
+| 2 | Bad invocation: nothing matched, `--repeat` below 1, CLI missing, or a selected config is malformed. | Nothing. |
 | 3 | **Aborted** on quota, usage limit, or any non-retryable failure. | **Nothing.** |
 
 Exit 3 is the #651 regression. The old baseline script turned that situation
 into a zero-passed snapshot on disk, which read as a catastrophic skill
 regression and became the number the next run compared against.
+
+A malformed config exits 2, not 3, because every selected config is loaded and
+its cases built before the first model call. The distinction is the point: 2
+means the run never started and cost nothing, 3 means it started, spent, and
+was abandoned. The config-error handling is scoped to that pre-flight and
+nowhere else, so a file error raised LATER - the technique catalogue is read
+lazily, on first evaluation of a `cites-catalogue-technique` assert - still
+propagates rather than being reported as having cost nothing.
 
 ## Keeping the candidate clean
 
