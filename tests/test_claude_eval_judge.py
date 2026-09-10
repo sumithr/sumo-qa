@@ -598,28 +598,40 @@ def test_a_missing_cli_names_itself():
         provider.complete("p")
 
 
-def test_the_availability_probe_accepts_a_cli_that_is_on_path(monkeypatch):
+def test_the_availability_probe_looks_up_the_providers_own_executable(monkeypatch):
     """`ensure_available` is the pre-flight the live path runs exactly once.
 
     Both halves of it are pinned here because until this commit neither was:
     the probe was reached only as a side effect of three CLI-level tests, so
     whether it passed depended on the machine rather than on the code.
+
+    The executable is deliberately NOT the default. Probing a hard-coded name
+    would pass every test that used the default one while silently ignoring
+    `--claude-bin`, so what is asserted is the name that was ASKED FOR.
     """
-    provider, _ = make_provider([])
-    monkeypatch.setattr(shutil, "which", lambda name: f"/opt/bin/{name}")
+    provider, _ = make_provider([], executable="some-other-claude")
+    asked: list[str] = []
+
+    def _record(name, *args, **kwargs):
+        asked.append(name)
+        return f"/opt/bin/{name}"
+
+    monkeypatch.setattr(shutil, "which", _record)
 
     provider.ensure_available()
 
+    assert asked == ["some-other-claude"]
+
 
 def test_the_availability_probe_refuses_a_cli_that_is_not_on_path(monkeypatch):
-    provider, _ = make_provider([])
+    provider, _ = make_provider([], executable="some-other-claude")
     monkeypatch.setattr(shutil, "which", lambda name: None)
 
     with pytest.raises(cp.ClaudeCliMissingError) as excinfo:
         provider.ensure_available()
 
     message = str(excinfo.value)
-    assert provider.executable in message
+    assert "some-other-claude" in message, "the message must name the binary it looked for"
     assert "--dry-run" in message, "the message must name the mode that costs nothing"
 
 
@@ -1717,6 +1729,8 @@ defaultTest:
       value: the answer mentions {{topic}}
     - type: javascript
       value: '/risk/i.test(output)'
+    - type: javascript
+      value: '/absent/i.test(output)'
 tests:
   - description: seed one
     vars:
@@ -1780,10 +1794,15 @@ def test_the_deterministic_assertion_is_recorded_even_when_the_judge_refuses(tmp
     case = report.configs[0].cases[0]
     assert case.passed is False
     assert "declined" in (case.error or "")
-    assert [record.kind for record in case.assertions] == ["javascript"], (
-        "the deterministic assert must be evaluated and recorded before the judge is reached"
+    assert [record.kind for record in case.assertions] == ["javascript", "javascript"], (
+        "both deterministic asserts must be evaluated and recorded before the judge is reached"
     )
-    assert case.assertions[0].passed is True
+    # The two are deliberately distinguishable BY OUTCOME - `/risk/` matches
+    # the answer and `/absent/` does not - so dropping one or emitting the
+    # pair reversed fails here rather than passing on a matching count.
+    assert [record.passed for record in case.assertions] == [True, False], (
+        "records must stay in the config's declared order, whatever order they ran in"
+    )
     assert len(judge_calls.calls) == 1, "the judge is still asked; ordering is not short-circuiting"
 
 
@@ -1805,24 +1824,82 @@ def test_a_refused_call_still_reports_the_tokens_it_burned(config_dir: Path):
 
     by_model = report.to_dict()["configs"][0]["cost"]["by_model"]
     assert by_model, "the refused call's usage must reach the report"
-    assert by_model["claude-haiku-4-5"]["input_tokens"] == 390
-    assert by_model["claude-haiku-4-5"]["output_tokens"] == 58
+    entry = by_model["claude-haiku-4-5"]
+    # Every field, not just the token counts: dropping `costUSD` or the cache
+    # columns would leave the report understating spend just as silently.
+    assert entry["input_tokens"] == 390
+    assert entry["output_tokens"] == 58
+    assert entry["usd"] == pytest.approx(0.019062)
 
 
-def test_the_report_names_the_models_that_actually_ran(config_dir: Path):
+def test_a_judge_refusal_also_reports_the_tokens_it_burned(config_dir: Path):
+    """The same contract on the other tier.
+
+    The candidate and the judge go through one `Provider`, but only the
+    candidate's refusal was exercised. A fix applied to one call site and not
+    the other would pass that test and still lose most of a run's cost, since
+    the judge is roughly 85% of it.
+    """
+    runner, _, _ = _runner(
+        [ok("risk is the thing")],
+        [FakeProcess(json.dumps(envelope(stop_reason="refusal", result="")))],
+    )
+
+    report = runner.run([config_dir / "skill-tiny.yaml"])
+
+    by_model = report.to_dict()["configs"][0]["cost"]["by_model"]
+    assert by_model["claude-haiku-4-5"]["input_tokens"] == 780, (
+        "both the candidate's answered call and the judge's refused one must be counted"
+    )
+
+
+def test_a_retried_call_reports_what_the_failed_attempts_spent(config_dir: Path):
+    """A retry is not free, and the CLI reports usage for a failed envelope.
+
+    Reading usage only off the winning attempt made a call that failed twice
+    and then succeeded look exactly as cheap as one that succeeded first time.
+    That is the same contract this module already breaks over elsewhere: the
+    report claims to carry measured spend, so a number it silently rounds down
+    is worse than no number.
+    """
+    transient = FakeProcess("", "", 1)
+    transient.stdout = json.dumps(
+        envelope(is_error=True, subtype="error", result="connection reset by peer")
+    )
+    candidate, _ = make_provider([transient, ok("risk is the thing")])
+    judge, _ = make_provider([ok(PASS_VERDICT)])
+
+    report = crun.Runner(candidate, judge).run([config_dir / "skill-tiny.yaml"])
+
+    by_model = report.to_dict()["configs"][0]["cost"]["by_model"]
+    assert by_model["claude-haiku-4-5"]["input_tokens"] == 1170, (
+        "the failed attempt, the retry that succeeded, and the judge call: three calls' tokens"
+    )
+
+
+@pytest.mark.parametrize(
+    ("candidate_model", "judge_model"),
+    # TWO pairs, because one pair cannot tell "reads the provider" apart from
+    # "returns these two strings".
+    [("override-candidate", "override-judge"), ("cheap-model", "expensive-model")],
+)
+def test_the_report_names_the_models_that_actually_ran(
+    config_dir: Path, candidate_model: str, judge_model: str
+):
     """`--candidate-model` / `--judge-model` exist so one pair can be compared
     against another. A report that stamped the module defaults while
     `cost.by_model` named the overrides would attribute the experiment to
     models that never ran, which is worse than not recording it at all."""
-    candidate, _ = make_provider([ok("risk is the thing")], model="override-candidate")
-    judge, _ = make_provider([ok(PASS_VERDICT)], model="override-judge")
+    candidate, _ = make_provider([ok("risk is the thing")], model=candidate_model)
+    judge, _ = make_provider([ok(PASS_VERDICT)], model=judge_model)
 
     report = crun.Runner(candidate, judge).run([config_dir / "skill-tiny.yaml"])
 
     payload = report.to_dict()
-    assert payload["candidate_model"] == "override-candidate"
-    assert payload["judge_model"] == "override-judge"
+    assert payload["candidate_model"] == candidate_model
+    assert payload["judge_model"] == judge_model
     assert cm.CANDIDATE_MODEL not in (payload["candidate_model"], payload["judge_model"])
+    assert cm.JUDGE_MODEL not in (payload["candidate_model"], payload["judge_model"])
 
 
 def test_a_broken_config_late_in_the_selection_costs_nothing(tmp_path: Path):
@@ -1830,17 +1907,20 @@ def test_a_broken_config_late_in_the_selection_costs_nothing(tmp_path: Path):
     selection raised only after every config ahead of it had already spent
     subscription allowance on a run that could never finish.
 
-    The broken config is deliberately SECOND. A first-position failure would
-    prove only that a run producing nothing spends nothing - which lazy
-    loading also cleared.
+    The broken config is deliberately LAST, and third rather than second. A
+    first-position failure would prove only that a run producing nothing spends
+    nothing, which lazy loading also cleared; a second-position one would let
+    "pre-flight a prefix of the selection" - the obvious half-fix - pass.
     """
     good = _config_file(tmp_path, MINIMAL_CONFIG)
+    second = tmp_path / "configs" / "skill-second.yaml"
+    second.write_text(MINIMAL_CONFIG, encoding="utf-8")
     bad = tmp_path / "configs" / "skill-broken.yaml"
     bad.write_text(BROKEN_CONFIG, encoding="utf-8")
     runner, candidate_calls, _ = _runner([ok("risk is the thing")], [ok(PASS_VERDICT)])
 
     with pytest.raises(ca.UnsupportedAssertionTypeError):
-        runner.run([good, bad])
+        runner.run([good, second, bad])
 
     assert candidate_calls.calls == [], (
         "a local configuration error must fail before any model call is made"
@@ -1861,7 +1941,51 @@ def test_a_broken_config_exits_as_usage_rather_than_a_traceback(
     judge, _ = make_provider([ok(PASS_VERDICT)])
     monkeypatch.setattr(ccli, "build_providers", lambda args: (candidate, judge))
 
-    code = ccli.main(["--live", "--config-dir", str(directory), "--config", "skill-broken.yaml"])
+    report_path = tmp_path / "report.json"
+
+    code = ccli.main(
+        [
+            "--live",
+            "--config-dir",
+            str(directory),
+            "--config",
+            "skill-broken.yaml",
+            "--report",
+            str(report_path),
+        ]
+    )
+
+    assert code == ccli.EXIT_USAGE
+    assert "config error" in capsys.readouterr().err
+    assert candidate_calls.calls == []
+    # `--report` is supplied on purpose: an implementation that exited 2 and
+    # still wrote a report would otherwise pass this.
+    assert not report_path.exists()
+
+
+def test_an_unresolved_file_reference_also_exits_as_usage(tmp_path: Path, monkeypatch, capsys):
+    """A second member of `_CONFIG_ERRORS`, reached by a different route.
+
+    `UnsupportedAssertionTypeError` comes from the assertion parser and this
+    `FileNotFoundError` from `file://` var resolution, so covering only one
+    would let the tuple be narrowed to a single type with no test noticing.
+
+    It is also the reason the tuple must contain a bare `FileNotFoundError` at
+    all, which is what made scoping the catch to `preflight` necessary.
+    """
+    directory = tmp_path / "configs"
+    directory.mkdir()
+    (directory / "skill-missing-file.yaml").write_text(
+        MINIMAL_CONFIG.replace("topic: risk", "topic: file://no-such-file.md"),
+        encoding="utf-8",
+    )
+    candidate, candidate_calls = make_provider([ok("risk is the thing")])
+    judge, _ = make_provider([ok(PASS_VERDICT)])
+    monkeypatch.setattr(ccli, "build_providers", lambda args: (candidate, judge))
+
+    code = ccli.main(
+        ["--live", "--config-dir", str(directory), "--config", "skill-missing-file.yaml"]
+    )
 
     assert code == ccli.EXIT_USAGE
     assert "config error" in capsys.readouterr().err

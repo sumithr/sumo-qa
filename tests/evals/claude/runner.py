@@ -102,6 +102,11 @@ def preflight(config_paths: Sequence[Path]) -> list[tuple[str, list]]:
     ]
 
 
+def _in_declared_order(records: list[tuple[int, AssertionRecord]]) -> list[AssertionRecord]:
+    """Records back in the config's own order, whatever order they ran in."""
+    return [record for _, record in sorted(records, key=lambda pair: pair[0])]
+
+
 def _deterministic_first(assertions):
     """The docstring's step 2 before step 3, made real.
 
@@ -115,9 +120,18 @@ def _deterministic_first(assertions):
 
     Order WITHIN each group is untouched: the config still decides which rubric
     is graded first, and which regex is checked first.
+
+    Each assertion is paired with its DECLARED index so the caller can put the
+    records back in config order. Execution order and report order are
+    deliberately different things: reordering execution is the fix, but
+    reordering the report would make it non-self-contained - a reader could no
+    longer map a record to the config line that produced it without knowing
+    this function exists, and slice 4's promptfoo parity comparison would
+    inherit a second divergence the README does not declare.
     """
-    rubrics = [entry for entry in assertions if isinstance(entry, RubricAssertion)]
-    deterministic = [entry for entry in assertions if not isinstance(entry, RubricAssertion)]
+    pairs = list(enumerate(assertions))
+    rubrics = [pair for pair in pairs if isinstance(pair[1], RubricAssertion)]
+    deterministic = [pair for pair in pairs if not isinstance(pair[1], RubricAssertion)]
     return [*deterministic, *rubrics]
 
 
@@ -181,14 +195,14 @@ class Runner:
 
     def _run_case(self, report: RunReport, case, *, repeat: int) -> CaseRecord:
         config_name = case.config_path.name
-        records: list[AssertionRecord] = []
+        records: list[tuple[int, AssertionRecord]] = []
         try:
             answer = self.candidate.complete(case.rendered_prompt)
             self._record(report, config_name, answer.usage)
 
-            for assertion in _deterministic_first(case.assertions):
+            for index, assertion in _deterministic_first(case.assertions):
                 graded = self._grade(assertion, answer.text, case.vars)
-                records.append(graded.record)
+                records.append((index, graded.record))
                 if graded.completion is not None:
                     self._record(report, config_name, graded.completion.usage)
         except RefusedError as exc:
@@ -210,7 +224,7 @@ class Runner:
                 description=case.description,
                 repeat=repeat,
                 passed=False,
-                assertions=records,
+                assertions=_in_declared_order(records),
                 error=str(exc),
             )
 
@@ -218,8 +232,8 @@ class Runner:
             prompt_label=case.prompt_label,
             description=case.description,
             repeat=repeat,
-            passed=all(record.passed for record in records),
-            assertions=records,
+            passed=all(record.passed for _, record in records),
+            assertions=_in_declared_order(records),
         )
 
     def _grade(self, assertion, output: str, variables) -> _Graded:

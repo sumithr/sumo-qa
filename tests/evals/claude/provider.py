@@ -322,6 +322,12 @@ class Provider:
         is to stop.
         """
         last: BaseException | str | None = None
+        # Usage from attempts that FAILED. A retried call spends on every
+        # attempt, not only the one that succeeded, and the CLI reports
+        # `modelUsage` for a failed envelope exactly as it does for a good
+        # one. Reading it only off the winning attempt made a retry look as
+        # cheap as a first-time success.
+        spent: list[ModelUsage] = []
         for attempt_index in range(self.max_attempts):
             try:
                 attempt = self._run_once(prompt, system_prompt)
@@ -339,7 +345,7 @@ class Provider:
 
             failure = self._failure_text(attempt)
             if failure is None:
-                return self._completion(attempt)
+                return self._completion(attempt, spent=tuple(spent))
 
             status = attempt.envelope.get("api_error_status")
             verdict = classify_failure(
@@ -348,6 +354,7 @@ class Provider:
             if verdict == FATAL:
                 raise self._fatal(failure)
             last = failure
+            spent.extend(_usage_from_envelope(attempt.envelope))
             self._maybe_wait(attempt_index)
 
         # A FatalRunError, not a bare RuntimeError: the run IS over, and
@@ -424,18 +431,24 @@ class Provider:
         # transient and retried. Shortening happens at display time only.
         return "; ".join(parts) if parts else None
 
-    def _completion(self, attempt: _Attempt) -> Completion:
+    def _completion(self, attempt: _Attempt, *, spent: tuple[ModelUsage, ...] = ()) -> Completion:
+        """`spent` is usage from earlier attempts that failed and were retried.
+
+        It is carried through both exits, the answer and the refusal, because
+        a call that failed twice and then declined still cost three calls'
+        worth of tokens.
+        """
         envelope = attempt.envelope
         if envelope.get("stop_reason") == "refusal":
             raise RefusedError(
                 f"{self.model} declined the request; there is no answer to grade. "
                 "Treat the case as ungraded, not as a fail.",
-                usage=_usage_from_envelope(envelope),
+                usage=spent + _usage_from_envelope(envelope),
             )
         result = envelope.get("result")
         return Completion(
             text=result if isinstance(result, str) else "",
-            usage=_usage_from_envelope(envelope),
+            usage=spent + _usage_from_envelope(envelope),
             structured_output=envelope.get("structured_output"),
             session_id=str(envelope.get("session_id") or ""),
         )
