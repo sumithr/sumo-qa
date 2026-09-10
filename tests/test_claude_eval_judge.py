@@ -932,6 +932,56 @@ def test_a_closer_that_does_not_match_its_opener_refuses_the_whole_reply(text):
     assert cj.parse_judge_response(text).passed is False, text
 
 
+NOISE_AFTER_A_COMPLETE_VERDICT = [
+    pytest.param('{"pass": true, "score": 1.0, "reason": "ok"} [}', id="mismatched-closers-after"),
+    pytest.param(
+        '{"pass": true, "score": 1.0, "reason": "ok"} {"a": ', id="truncated-object-after"
+    ),
+    pytest.param('{"pass": true, "score": 1.0, "reason": "ok"} ]]] }', id="stray-closers-after"),
+]
+
+
+@pytest.mark.parametrize("text", NOISE_AFTER_A_COMPLETE_VERDICT)
+def test_noise_after_a_complete_verdict_does_not_withdraw_it(text):
+    """A deliberate boundary on the broken-nesting refusal, stated as a test.
+
+    A review pass read the refusal as covering the ENTIRE reply and flagged
+    these as smuggling a green verdict past it. They do not. What the guard
+    exists to stop is a FRAGMENT being graded, and a fragment can only be
+    reached with an empty bracket stack - which means everything before it
+    either closed cleanly or is not there. Broken nesting AFTER a complete,
+    well-formed, top-level verdict cannot expose a fragment, because the
+    verdict itself is not one.
+
+    So the scan stops at the first complete top-level object. Refusing a
+    whole answer the judge already delivered, over characters that came after
+    it, would fail a reply that was never in doubt.
+    """
+    verdict = cj.parse_judge_response(text)
+
+    assert verdict.passed is True
+    assert verdict.reason == "ok"
+
+
+NOISE_BEFORE_STILL_REFUSES = [
+    pytest.param('{"w": {"pass": true, "score": 1.0, "reason": "ok"} [}', id="fragment-then-noise"),
+    pytest.param(
+        '[{"pass": true, "score": 1.0, "reason": "ok"} [}', id="array-fragment-then-noise"
+    ),
+    pytest.param('{"w": ] {"pass": true, "score": 1.0, "reason": "ok"}', id="mismatch-before"),
+]
+
+
+@pytest.mark.parametrize("text", NOISE_BEFORE_STILL_REFUSES)
+def test_trailing_noise_cannot_expose_a_fragment(text):
+    """The other half of the boundary, and the half that carries the risk.
+
+    Whatever follows, an object that is not itself top-level and complete is
+    never graded.
+    """
+    assert cj.parse_judge_response(text).passed is False, text
+
+
 NON_FINITE_PASS_VALUES = [
     pytest.param(float("nan"), id="nan"),
     pytest.param(float("inf"), id="infinity"),

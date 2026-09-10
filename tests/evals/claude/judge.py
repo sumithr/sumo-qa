@@ -197,6 +197,12 @@ def extract_first_json_object(text: str) -> Any:
     returns to empty, which is to say only once it actually closed. A reply
     that ends mid-structure never gets there and yields nothing.
 
+    The invariant that follows, and the one worth holding on to: a fragment is
+    never graded, whatever surrounds it. Reaching an object at all requires an
+    empty stack, so everything before it either closed cleanly or is not
+    there. Noise AFTER a complete verdict cannot change that, which is why the
+    scan stops at the first complete top-level object rather than reading on.
+
     ## The trade this makes, deliberately
 
     An unmatched `{` in the judge's PROSE - "I thought { about it" before a
@@ -245,14 +251,21 @@ def extract_first_json_object(text: str) -> Any:
                 continue
             if stack[-1] != _CLOSERS[char]:
                 # A closer that does not match its opener - `{"wrapper": ]` -
-                # means the reply's structure is broken, not merely
-                # unfinished. Popping anyway would empty the stack and hand
-                # top-level status to whatever follows, so a malformed wrapper
-                # would surrender its insides: `{"wrapper": ] {"pass": true,
-                # ...}` graded the verdict that was never top-level at all.
-                # Once the nesting is inconsistent nothing later in the reply
-                # can be trusted to be top-level, so the whole reply is
-                # refused.
+                # means the structure is broken, not merely unfinished.
+                # Popping anyway would empty the stack and hand top-level
+                # status to whatever follows, so a malformed wrapper would
+                # surrender its insides: `{"wrapper": ] {"pass": true, ...}`
+                # graded a verdict that was never top-level at all.
+                #
+                # Reached only BEFORE a verdict has been found, since the scan
+                # returns at the first complete top-level object. That is the
+                # correct scope, not a gap: what this guards against is a
+                # FRAGMENT being graded, and a fragment can only be reached
+                # with an empty stack, which means everything before it either
+                # closed cleanly or does not exist. Broken nesting AFTER a
+                # complete verdict is trailing noise - the judge already
+                # delivered a whole answer, and refusing it over what came
+                # afterwards would fail a reply that was never in doubt.
                 return None
             stack.pop()
             if not stack and start >= 0:
