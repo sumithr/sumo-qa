@@ -590,6 +590,45 @@ JUDGE_REPLY_CLASSES = [
         1.0,
         id="brace-inside-a-string",
     ),
+    # The four below are the DISCRIMINATING inputs for the extractor, which is
+    # a stateful brace-and-quote scanner. Each one is chosen because a scanner
+    # missing one specific piece of state gets it wrong, so a green result here
+    # is evidence rather than a code read:
+    #
+    #   nested object          -> a depth-less scanner closes at the first `}`
+    #                             inside `meta` and hands back a truncated
+    #                             fragment that will not parse.
+    #   close brace in a string-> a string-unaware scanner closes at the `}`
+    #                             sitting in the reason text.
+    #   escaped quote          -> an escape-unaware scanner thinks the string
+    #                             ended at `\"` and mis-tracks everything after.
+    #   invalid then valid     -> a scanner that stops at the first BALANCED
+    #                             candidate gives up on `{bad: 1}` instead of
+    #                             going on to the real verdict.
+    pytest.param(
+        '{"pass": true, "score": 1.0, "reason": "ok", "meta": {"axis": {"a": 1}}}',
+        True,
+        1.0,
+        id="nested-object",
+    ),
+    pytest.param(
+        '{"pass": true, "score": 1.0, "reason": "a } in the text"}',
+        True,
+        1.0,
+        id="close-brace-inside-a-string",
+    ),
+    pytest.param(
+        '{"pass": false, "score": 0.0, "reason": "judge said \\"no\\" here"}',
+        False,
+        0.0,
+        id="escaped-quote-inside-a-string",
+    ),
+    pytest.param(
+        '{bad: 1}\n{"pass": true, "score": 0.5, "reason": "second object"}',
+        True,
+        0.5,
+        id="invalid-object-before-the-real-one",
+    ),
 ]
 
 
@@ -912,6 +951,49 @@ def test_a_fatal_error_mid_run_propagates_rather_than_degrading(config_dir: Path
 
     with pytest.raises(ce.FatalRunError):
         runner.run([config_dir / "skill-tiny.yaml"])
+
+
+UNPORTED_CONFIG = """
+description: a config carrying a javascript assert the runner cannot port
+providers:
+  - id: candidate
+prompts:
+  - label: A0 - control
+    raw: 'say something'
+defaultTest:
+  options:
+    disableVarExpansion: true
+  assert:
+    - type: javascript
+      value: 'someUnportedHelper(output) && output.length > 3'
+tests:
+  - description: seed one
+    vars:
+      topic: risk
+"""
+
+
+def test_an_unported_javascript_assert_is_tagged_as_a_harness_gap(tmp_path: Path):
+    """A gap in the RUNNER must not look like a regression in a SKILL.
+
+    Slice 1 refuses to approximate a javascript assert it has no Python port
+    for. Recording that refusal as an ordinary failed `javascript` assertion
+    would put a tooling failure in the report wearing the costume of a skill
+    failure - which is the #651 confusion that this whole epic exists to
+    undo. It gets its own kind so the diagnoser can tell them apart.
+    """
+    directory = tmp_path / "configs"
+    directory.mkdir()
+    (directory / "skill-unported.yaml").write_text(UNPORTED_CONFIG, encoding="utf-8")
+    runner, _, _ = _runner([ok("an answer")], [])
+
+    report = runner.run([directory / "skill-unported.yaml"])
+
+    assertion = report.configs[0].cases[0].assertions[0]
+    assert assertion.kind == crun.UNPORTED_ASSERTION_KIND
+    assert assertion.kind != "javascript"
+    assert assertion.passed is False
+    assert "no Python port" in assertion.reason
 
 
 def test_a_refusal_fails_one_case_without_abandoning_the_matrix(config_dir: Path):

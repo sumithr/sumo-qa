@@ -135,6 +135,14 @@ into the judge context that way), and promptfoo's built-in
 promptfoo 0.121.20. A stringly boolean is coerced, a missing `score` is
 derived from `pass`, and an assertion `threshold` demotes a pass below it.
 
+Assertion outcomes in the report carry one of three `kind` values, and the
+third is load-bearing: `llm-rubric` (the judge graded it), `javascript` (a
+Python port evaluated it offline), and `javascript-unported` (the runner has
+no port, so it could not grade the assert at all). The last one fails, but it
+is a gap in the **harness**, not a regression in a **skill** - and an epic
+that exists because a tooling failure was misread as a collapse in skill
+quality should not ship a second way to make that mistake.
+
 One thing is **deliberately different**. promptfoo does:
 
 ```js

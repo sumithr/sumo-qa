@@ -53,7 +53,18 @@ from claude.judge import parse_judge_response, render_judge_prompt
 from claude.provider import Completion, Provider, RefusedError
 from claude.report import AssertionRecord, CaseRecord, RunReport
 
-__all__ = ["CANDIDATE_SYSTEM_PROMPT", "JUDGE_SYSTEM_PROMPT", "Runner"]
+__all__ = [
+    "CANDIDATE_SYSTEM_PROMPT",
+    "JUDGE_SYSTEM_PROMPT",
+    "UNPORTED_ASSERTION_KIND",
+    "Runner",
+]
+
+# A distinct `kind` in the report for "the runner cannot grade this", as
+# opposed to "the skill failed this". Anything reading the report - the
+# eval-failure-diagnoser especially - must be able to tell a gap in the
+# harness from a regression in a skill.
+UNPORTED_ASSERTION_KIND = "javascript-unported"
 
 # The candidate's system prompt is deliberately near-empty. Every eval config
 # already carries its own full instruction in `prompts[].raw` - the skill body,
@@ -180,10 +191,18 @@ class Runner:
             evaluator = evaluator_for(assertion)
         except (UnportedJavascriptAssertionError, UnportableJavascriptPatternError) as exc:
             # Slice 1 refuses rather than approximating an unported JS assert.
-            # Surfacing that as a failed assertion keeps the refusal loud
-            # without taking the whole matrix down over one config.
+            # Recording it as a failed assertion keeps the refusal loud without
+            # taking the whole matrix down over one config - but it is tagged
+            # `javascript-unported`, NOT `javascript`. The distinction matters:
+            # this is the RUNNER lacking a port, not the skill behaving badly,
+            # and an epic that exists because a tooling failure was misread as
+            # a catastrophic quality collapse (#651) must not let a second
+            # tooling failure wear the same costume in the report.
             return AssertionRecord(
-                kind="javascript", passed=False, score=0.0, reason=f"unported assertion: {exc}"
+                kind=UNPORTED_ASSERTION_KIND,
+                passed=False,
+                score=0.0,
+                reason=f"the runner has no Python port for this javascript assert: {exc}",
             )
         result: AssertionResult = evaluator.evaluate(output, variables)
         return AssertionRecord(

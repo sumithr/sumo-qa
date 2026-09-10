@@ -24,6 +24,8 @@ per model id, and the totals fold every model that ran.
                     "repeat": 1, "passed": false,
                     "assertions": [{"kind": "llm-rubric", "passed": false,
                                     "score": 0.0, "reason": "..."}]}],
+         # kind is "llm-rubric", "javascript", or "javascript-unported"
+         # (a harness gap, not a skill regression - see AssertionRecord)
          "cost": {"input_tokens": 0, "output_tokens": 0, "usd": 0.0,
                   "by_model": {"<canonical model id>": {...}}}}
       ],
@@ -88,7 +90,19 @@ COST_BASIS = "list"
 
 @dataclass(frozen=True)
 class AssertionRecord:
-    """One assertion's outcome. `kind` is `llm-rubric` or `javascript`."""
+    """One assertion's outcome.
+
+    `kind` is one of three, and the third is the one that matters:
+
+    * `llm-rubric` - the judge graded it.
+    * `javascript` - a deterministic Python port evaluated it offline.
+    * `javascript-unported` - the runner has NO port for this assert, so it
+      could not be graded at all. It fails, but it is a gap in the HARNESS,
+      not a regression in a skill. Anything reading this file must keep those
+      apart: an epic that exists because a tooling failure was misread as a
+      collapse in skill quality (#651) should not ship a second way to make
+      the same mistake.
+    """
 
     kind: str
     passed: bool
