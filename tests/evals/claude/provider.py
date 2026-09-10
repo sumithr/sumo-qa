@@ -113,7 +113,17 @@ class ClaudeCliMissingError(RuntimeError):
 
 
 class RefusedError(RuntimeError):
-    """The model declined the request; there is no answer to grade."""
+    """The model declined the request; there is no answer to grade.
+
+    Carries the usage the refused call still consumed. A refusal is not a free
+    call: the CLI reports `modelUsage` for it exactly as it does for an answer,
+    and a report that dropped those tokens would understate what the run spent
+    while still claiming to measure it.
+    """
+
+    def __init__(self, message: str, usage: tuple[ModelUsage, ...] = ()) -> None:
+        super().__init__(message)
+        self.usage = usage
 
 
 @dataclass(frozen=True)
@@ -419,7 +429,8 @@ class Provider:
         if envelope.get("stop_reason") == "refusal":
             raise RefusedError(
                 f"{self.model} declined the request; there is no answer to grade. "
-                "Treat the case as ungraded, not as a fail."
+                "Treat the case as ungraded, not as a fail.",
+                usage=_usage_from_envelope(envelope),
             )
         result = envelope.get("result")
         return Completion(

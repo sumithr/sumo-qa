@@ -47,6 +47,7 @@ import time
 from pathlib import Path
 
 import pytest
+from claude import assertions as ca
 from claude import cli as ccli
 from claude import errors as ce
 from claude import judge as cj
@@ -201,9 +202,9 @@ def _no_real_path_probe(monkeypatch):
     installed and return `EXIT_USAGE` on one without - green locally, red on
     all fifteen CI runners.
 
-    The probe's own behaviour is not lost to this: the tests below re-patch
-    `which` inside their own bodies, which lands after this fixture and
-    therefore wins.
+    The probe's own behaviour is not lost to this: the three tests below
+    re-patch `which` inside their own bodies, which lands after this fixture
+    and therefore wins.
     """
     monkeypatch.setattr(shutil, "which", _pretend_the_cli_is_installed)
 
@@ -1693,6 +1694,221 @@ def test_a_live_run_stops_with_a_usage_exit_when_the_cli_is_missing(
     assert code == ccli.EXIT_USAGE
     assert "not on PATH" in capsys.readouterr().err
     assert not report_path.exists()
+
+
+# ==========================================================================
+# Review round eight - the four P2 findings from the PR #677 bot reviewer
+# ==========================================================================
+
+RUBRIC_BEFORE_JS_CONFIG = """
+description: a config whose llm-rubric is declared BEFORE its javascript assert
+providers:
+  - id: candidate
+prompts:
+  - label: A0 - control
+    raw: |
+      Say something about {{topic}}.
+defaultTest:
+  options:
+    disableVarExpansion: true
+    rubricPrompt: 'RUBRIC {{rubric}} OUTPUT {{output}}'
+  assert:
+    - type: llm-rubric
+      value: the answer mentions {{topic}}
+    - type: javascript
+      value: '/risk/i.test(output)'
+tests:
+  - description: seed one
+    vars:
+      topic: risk
+"""
+
+
+# Malformed in a way the LOADER catches, not the YAML parser: `contains` is a
+# perfectly valid promptfoo assertion type that this runner has no model for.
+# A YAML syntax error would prove a weaker thing - that a file which cannot be
+# read is not read.
+BROKEN_CONFIG = """
+description: a config using an assertion type the runner cannot grade
+providers:
+  - id: candidate
+prompts:
+  - label: A0 - control
+    raw: |
+      Say something about {{topic}}.
+defaultTest:
+  options:
+    disableVarExpansion: true
+  assert:
+    - type: contains
+      value: risk
+tests:
+  - description: seed one
+    vars:
+      topic: risk
+"""
+
+
+def _config_file(tmp_path: Path, text: str) -> Path:
+    directory = tmp_path / "configs"
+    directory.mkdir(exist_ok=True)
+    path = directory / "skill-tiny.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_the_deterministic_assertion_is_recorded_even_when_the_judge_refuses(tmp_path: Path):
+    """The module docstring's step 2 before step 3, held to.
+
+    Three live configs declare an `llm-rubric` ahead of a `javascript` assert.
+    Iterating in config order sent the judge first, so a judge that DECLINED
+    to grade left the case via the refusal handler with the free offline gate
+    never evaluated - and the report a part-way death leaves behind lost
+    exactly the cheap signal the stated ordering exists to preserve.
+
+    Asserting only "the case failed" would not catch this: it failed before
+    the fix too. What has to be true is that the javascript record SURVIVES.
+    """
+    path = _config_file(tmp_path, RUBRIC_BEFORE_JS_CONFIG)
+    runner, _, judge_calls = _runner(
+        [ok("risk is the thing")],
+        [FakeProcess(json.dumps(envelope(stop_reason="refusal", result="")))],
+    )
+
+    report = runner.run([path])
+
+    case = report.configs[0].cases[0]
+    assert case.passed is False
+    assert "declined" in (case.error or "")
+    assert [record.kind for record in case.assertions] == ["javascript"], (
+        "the deterministic assert must be evaluated and recorded before the judge is reached"
+    )
+    assert case.assertions[0].passed is True
+    assert len(judge_calls.calls) == 1, "the judge is still asked; ordering is not short-circuiting"
+
+
+def test_a_refused_call_still_reports_the_tokens_it_burned(config_dir: Path):
+    """A refusal is not a free call.
+
+    The CLI reports `modelUsage` for a declined turn exactly as it does for an
+    answered one. Raising before that envelope was read discarded it, so a
+    matrix in which many prompts were declined - the case where the number
+    matters MOST - reported a cost of zero for them while still claiming the
+    report carries measured spend.
+    """
+    runner, _, _ = _runner(
+        [FakeProcess(json.dumps(envelope(stop_reason="refusal", result="")))],
+        [ok(PASS_VERDICT)],
+    )
+
+    report = runner.run([config_dir / "skill-tiny.yaml"])
+
+    by_model = report.to_dict()["configs"][0]["cost"]["by_model"]
+    assert by_model, "the refused call's usage must reach the report"
+    assert by_model["claude-haiku-4-5"]["input_tokens"] == 390
+    assert by_model["claude-haiku-4-5"]["output_tokens"] == 58
+
+
+def test_the_report_names_the_models_that_actually_ran(config_dir: Path):
+    """`--candidate-model` / `--judge-model` exist so one pair can be compared
+    against another. A report that stamped the module defaults while
+    `cost.by_model` named the overrides would attribute the experiment to
+    models that never ran, which is worse than not recording it at all."""
+    candidate, _ = make_provider([ok("risk is the thing")], model="override-candidate")
+    judge, _ = make_provider([ok(PASS_VERDICT)], model="override-judge")
+
+    report = crun.Runner(candidate, judge).run([config_dir / "skill-tiny.yaml"])
+
+    payload = report.to_dict()
+    assert payload["candidate_model"] == "override-candidate"
+    assert payload["judge_model"] == "override-judge"
+    assert cm.CANDIDATE_MODEL not in (payload["candidate_model"], payload["judge_model"])
+
+
+def test_a_broken_config_late_in_the_selection_costs_nothing(tmp_path: Path):
+    """Loading lazily inside the run loop meant a malformed config LATE in the
+    selection raised only after every config ahead of it had already spent
+    subscription allowance on a run that could never finish.
+
+    The broken config is deliberately SECOND. A first-position failure would
+    prove only that a run producing nothing spends nothing - which lazy
+    loading also cleared.
+    """
+    good = _config_file(tmp_path, MINIMAL_CONFIG)
+    bad = tmp_path / "configs" / "skill-broken.yaml"
+    bad.write_text(BROKEN_CONFIG, encoding="utf-8")
+    runner, candidate_calls, _ = _runner([ok("risk is the thing")], [ok(PASS_VERDICT)])
+
+    with pytest.raises(ca.UnsupportedAssertionTypeError):
+        runner.run([good, bad])
+
+    assert candidate_calls.calls == [], (
+        "a local configuration error must fail before any model call is made"
+    )
+
+
+def test_a_broken_config_exits_as_usage_rather_than_a_traceback(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """The same failure at the level a user meets it. It previously escaped
+    past the CLI's one handler and surfaced as a traceback; nothing was spent
+    and nothing was written, which is a usage exit, not the abort code that
+    means a matrix died part-way through."""
+    directory = tmp_path / "configs"
+    directory.mkdir()
+    (directory / "skill-broken.yaml").write_text(BROKEN_CONFIG, encoding="utf-8")
+    candidate, candidate_calls = make_provider([ok("risk is the thing")])
+    judge, _ = make_provider([ok(PASS_VERDICT)])
+    monkeypatch.setattr(ccli, "build_providers", lambda args: (candidate, judge))
+
+    code = ccli.main(["--live", "--config-dir", str(directory), "--config", "skill-broken.yaml"])
+
+    assert code == ccli.EXIT_USAGE
+    assert "config error" in capsys.readouterr().err
+    assert candidate_calls.calls == []
+
+
+def test_a_mid_run_file_error_is_not_reported_as_costing_nothing(
+    tmp_path: Path, config_dir: Path, monkeypatch, capsys
+):
+    """The trap in the fix above, pinned so it cannot be reintroduced.
+
+    `_CONFIG_ERRORS` contains a bare `FileNotFoundError`, because an
+    unresolved `file://` var raises one at load time. But loading is not the
+    only place a file is read: `CitesCatalogueTechniqueEvaluator` reads
+    `knowledge/techniques.md` lazily, on FIRST EVALUATION, which is mid-run
+    and therefore after model calls have been paid for.
+
+    Catching that tuple around the whole run - the shape this fix started as -
+    would have printed "No model call was made and nothing was written" over a
+    run that had already made one. Absorbing a failure and misreporting its
+    cost is the #651 incident's exact shape, so the catch is scoped to
+    `preflight` and a mid-run file error still propagates.
+    """
+    candidate, candidate_calls = make_provider([ok("risk is the thing")])
+    judge, _ = make_provider([ok(PASS_VERDICT)])
+    monkeypatch.setattr(ccli, "build_providers", lambda args: (candidate, judge))
+
+    def _explode_after_the_call(*args, **kwargs):
+        raise FileNotFoundError("knowledge/techniques.md")
+
+    monkeypatch.setattr(crun.Runner, "_grade", _explode_after_the_call)
+
+    with pytest.raises(FileNotFoundError):
+        ccli.main(
+            [
+                "--live",
+                "--config-dir",
+                str(config_dir),
+                "--config",
+                "skill-tiny.yaml",
+                "--report",
+                str(tmp_path / "report.json"),
+            ]
+        )
+
+    assert candidate_calls.calls, "the failure must land AFTER a paid call, or it proves nothing"
+    assert "No model call was made" not in capsys.readouterr().err
 
 
 def test_config_scoping_selects_only_the_named_configs():

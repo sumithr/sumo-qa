@@ -50,7 +50,7 @@ from claude.assertions import (
     evaluator_for,
 )
 from claude.judge import parse_judge_response, render_judge_prompt
-from claude.provider import Completion, Provider, RefusedError
+from claude.provider import Completion, ModelUsage, Provider, RefusedError
 from claude.report import AssertionRecord, CaseRecord, RunReport
 
 __all__ = [
@@ -83,6 +83,44 @@ JUDGE_SYSTEM_PROMPT = (
 )
 
 
+def preflight(config_paths: Sequence[Path]) -> list[tuple[str, list]]:
+    """Load every selected config and build its cases. No model call.
+
+    Its own step, and callable on its own, so the CLI can run it BEFORE it
+    builds a provider and scope its config-error handling to a call that
+    demonstrably spends nothing. Catching those error types around the whole
+    run instead would be worse than the traceback it replaced: a mid-run
+    `FileNotFoundError` - `CitesCatalogueTechniqueEvaluator` reads
+    `knowledge/techniques.md` lazily, on first evaluation - would then be
+    reported as "no model call was made" on a run that had already made
+    plenty. Absorbing a failure and misreporting what it cost is the exact
+    class of bug this package exists to prevent (#651).
+    """
+    return [
+        (Path(path).name, loader.build_cases(loader.load_config(Path(path))))
+        for path in config_paths
+    ]
+
+
+def _deterministic_first(assertions):
+    """The docstring's step 2 before step 3, made real.
+
+    Iterating in config order was not the same thing. Several live configs
+    (`skill-implementing-with-tdd.yaml`, its `.ab.yaml` control, and
+    `skill-implementing-with-tdd-retrospective.yaml`) put an `llm-rubric`
+    ahead of a `javascript` assertion, so a judge that declined to grade
+    abandoned the case before its free offline gate had run - and the report a
+    part-way death leaves behind lost exactly the cheap signal the stated
+    ordering exists to preserve.
+
+    Order WITHIN each group is untouched: the config still decides which rubric
+    is graded first, and which regex is checked first.
+    """
+    rubrics = [entry for entry in assertions if isinstance(entry, RubricAssertion)]
+    deterministic = [entry for entry in assertions if not isinstance(entry, RubricAssertion)]
+    return [*deterministic, *rubrics]
+
+
 @dataclass(frozen=True)
 class _Graded:
     record: AssertionRecord
@@ -102,18 +140,41 @@ class Runner:
         *,
         repeat: int = 1,
         report: RunReport | None = None,
+        loaded: list[tuple[str, list]] | None = None,
     ) -> RunReport:
         """Grade every case in every config, `repeat` times each."""
         if repeat < 1:
             raise ValueError(f"--repeat must be at least 1, got {repeat}")
 
-        report = report if report is not None else RunReport()
+        # Stamped from the providers that will actually run, NOT from the
+        # module constants. `--candidate-model` / `--judge-model` exist so a
+        # pair can be compared against another; a report that named the
+        # defaults while `cost.by_model` named the overrides would attribute
+        # the experiment to models that never ran.
+        report = (
+            report
+            if report is not None
+            else RunReport(
+                candidate_model=self.candidate.model,
+                judge_model=self.judge.model,
+            )
+        )
         report.repeat = repeat
 
-        for path in config_paths:
-            config = loader.load_config(Path(path))
-            record = report.config_for(Path(path).name)
-            for case in loader.build_cases(config):
+        # Every config is loaded and every case built BEFORE the first model
+        # call. Loading lazily inside the loop meant a malformed config late in
+        # the selection - an unresolved `file://` var, an unsupported assertion
+        # type - raised only after the configs ahead of it had already spent
+        # subscription allowance on a run that could never finish. A local
+        # configuration error must cost nothing.
+        #
+        # `loaded` is accepted so a caller that already preflighted (the CLI
+        # does, to scope its error handling) does not pay for the load twice.
+        loaded = preflight(config_paths) if loaded is None else loaded
+
+        for config_name, cases in loaded:
+            record = report.config_for(config_name)
+            for case in cases:
                 for index in range(1, repeat + 1):
                     record.cases.append(self._run_case(report, case, repeat=index))
         return report
@@ -123,13 +184,13 @@ class Runner:
         records: list[AssertionRecord] = []
         try:
             answer = self.candidate.complete(case.rendered_prompt)
-            self._record(report, config_name, answer)
+            self._record(report, config_name, answer.usage)
 
-            for assertion in case.assertions:
+            for assertion in _deterministic_first(case.assertions):
                 graded = self._grade(assertion, answer.text, case.vars)
                 records.append(graded.record)
                 if graded.completion is not None:
-                    self._record(report, config_name, graded.completion)
+                    self._record(report, config_name, graded.completion.usage)
         except RefusedError as exc:
             # Not fatal: one declined prompt is not a reason to discard the
             # rest of the matrix, but it is not a pass either.
@@ -139,6 +200,11 @@ class Runner:
             # declined to grade escaped as an uncaught exception - past the
             # report, past the CLI's one handler - and the run died with a
             # traceback instead of the documented exit code.
+            # A refusal still burned tokens, and the CLI reports them. Losing
+            # them here would leave the run's own cost report understating a
+            # matrix in which many prompts were declined - the case where the
+            # number matters most.
+            self._record(report, config_name, exc.usage)
             return CaseRecord(
                 prompt_label=case.prompt_label,
                 description=case.description,
@@ -220,8 +286,8 @@ class Runner:
         )
 
     @staticmethod
-    def _record(report: RunReport, config_name: str, completion: Completion) -> None:
-        for usage in completion.usage:
+    def _record(report: RunReport, config_name: str, usages: tuple[ModelUsage, ...]) -> None:
+        for usage in usages:
             report.record_usage(
                 config_name,
                 model=usage.model,

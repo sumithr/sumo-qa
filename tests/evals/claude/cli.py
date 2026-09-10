@@ -57,12 +57,22 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from claude import loader, tokens
+from claude.assertions import (
+    UnportableJavascriptPatternError,
+    UnportedJavascriptAssertionError,
+    UnsupportedAssertionTypeError,
+)
 from claude.errors import FatalRunError
 from claude.judge import VERDICT_SCHEMA
 from claude.models import CANDIDATE_MODEL, JUDGE_MODEL
 from claude.provider import ClaudeCliMissingError, Provider
 from claude.report import RunReport, write_report
-from claude.runner import CANDIDATE_SYSTEM_PROMPT, JUDGE_SYSTEM_PROMPT, Runner
+from claude.runner import (
+    CANDIDATE_SYSTEM_PROMPT,
+    JUDGE_SYSTEM_PROMPT,
+    Runner,
+    preflight,
+)
 
 __all__ = [
     "EXIT_ABORTED",
@@ -80,6 +90,23 @@ EXIT_USAGE = 2
 EXIT_ABORTED = 3
 
 _NAME_WIDTH = 56
+
+# A broken config is a LOCAL mistake, not a failed run, so it exits as usage
+# rather than as the abort code that means a matrix died part-way through.
+# They were previously uncaught and surfaced as a traceback.
+#
+# Caught ONLY around `preflight`, which runs before a provider is even built.
+# Wrapping the whole run instead would let a mid-run `FileNotFoundError` -
+# `CitesCatalogueTechniqueEvaluator` reads `knowledge/techniques.md` lazily,
+# on first evaluation - be reported as "no model call was made" on a run that
+# had already made plenty.
+_CONFIG_ERRORS = (
+    loader.MalformedConfigError,
+    UnsupportedAssertionTypeError,
+    UnportedJavascriptAssertionError,
+    UnportableJavascriptPatternError,
+    FileNotFoundError,
+)
 
 # There is no output-token ceiling to set. The Claude Code CLI exposes no
 # `--max-tokens`, so the model's own default applies. That is the right
@@ -242,6 +269,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.live:
         return _dry_run(paths, args.config_dir)
 
+    # Before the providers exist, let alone before a call is made, so the
+    # message below cannot be wrong about what it cost.
+    try:
+        loaded = preflight(paths)
+    except _CONFIG_ERRORS as exc:
+        print(f"config error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            "No model call was made and nothing was written. Fix the config "
+            "and re-run; --dry-run reaches the same loader for free.",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
     try:
         candidate, judge = build_providers(args)
         candidate.ensure_available()
@@ -255,7 +295,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     try:
-        report = Runner(candidate, judge).run(paths, repeat=args.repeat)
+        report = Runner(candidate, judge).run(paths, repeat=args.repeat, loaded=loaded)
     except FatalRunError as exc:
         # The one place this is caught. Nothing is written: not a report, not
         # a baseline, not a partial. See the module docstring and #651.
