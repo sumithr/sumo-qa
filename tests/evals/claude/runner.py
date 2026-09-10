@@ -120,26 +120,33 @@ class Runner:
 
     def _run_case(self, report: RunReport, case, *, repeat: int) -> CaseRecord:
         config_name = case.config_path.name
+        records: list[AssertionRecord] = []
         try:
             answer = self.candidate.complete(case.rendered_prompt)
+            self._record(report, config_name, answer)
+
+            for assertion in case.assertions:
+                graded = self._grade(assertion, answer.text, case.vars)
+                records.append(graded.record)
+                if graded.completion is not None:
+                    self._record(report, config_name, graded.completion)
         except RefusedError as exc:
             # Not fatal: one declined prompt is not a reason to discard the
             # rest of the matrix, but it is not a pass either.
+            #
+            # The try covers the JUDGE calls as well as the candidate's. An
+            # earlier version wrapped only the candidate, so a judge that
+            # declined to grade escaped as an uncaught exception - past the
+            # report, past the CLI's one handler - and the run died with a
+            # traceback instead of the documented exit code.
             return CaseRecord(
                 prompt_label=case.prompt_label,
                 description=case.description,
                 repeat=repeat,
                 passed=False,
+                assertions=records,
                 error=str(exc),
             )
-        self._record(report, config_name, answer)
-
-        records: list[AssertionRecord] = []
-        for assertion in case.assertions:
-            graded = self._grade(assertion, answer.text, case.vars)
-            records.append(graded.record)
-            if graded.completion is not None:
-                self._record(report, config_name, graded.completion)
 
         return CaseRecord(
             prompt_label=case.prompt_label,

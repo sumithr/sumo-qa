@@ -23,8 +23,10 @@ fails the build if a module imports a model SDK or opens a socket, and
 `provider.py` is the only module permitted to create a child process at all.
 
 **Spending is opt-in.** An invocation with no mode flag performs the dry run
-and calls nothing; `--live` is what grades. The full matrix is 218 cases at
-two model calls each, so the mode you get by accident had better be the free
+and calls nothing; `--live` is what grades. The full matrix is over 200 cases
+at two model calls each (218 in a fresh clone; 229 in a checkout where the
+test generator has run and the two gitignored `*.generated-tests.yaml`
+includes are present), so the mode you get by accident had better be the free
 one. That default has already earned itself: an existing test called `main()`
 with no flag, and under an earlier draft where live was the default it
 launched the whole matrix against the real account.

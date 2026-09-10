@@ -54,6 +54,7 @@ reply unconditionally.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -164,45 +165,47 @@ def render_judge_prompt(
     return [{"role": "user", "content": render(template, context)}]
 
 
+def _reject_non_finite(literal: str) -> Any:
+    """`json.loads` accepts `NaN`, `Infinity` and `-Infinity`; JSON does not.
+
+    Left alone they are actively dangerous here. A score of `NaN` compares
+    False against every threshold, so `score < threshold` is False and a
+    malformed reply PASSES - the precise "default to pass" behaviour this
+    module exists to refuse. It would also put a bare `NaN` token into the
+    JSON report, which is not valid JSON for whatever reads it next.
+    """
+    raise ValueError(f"{literal} is not valid JSON")
+
+
 def extract_first_json_object(text: str) -> Any:
-    """Return the first balanced top-level JSON object in `text`, or None.
+    """Return the first parseable JSON object in `text`, or None.
 
     Judges wrap their JSON in prose or a markdown fence often enough that
     requiring a bare object would fail honest replies; promptfoo scans for an
-    embedded object for the same reason. The scan is brace-balanced and
-    string-aware so a `{` inside a quoted reason does not end the object
-    early.
+    embedded object for the same reason.
+
+    The scan tries to decode from EVERY `{` in turn, rather than walking a
+    single brace-depth counter across the whole reply. That matters for a
+    real reply shape: an unbalanced `{` in the prose before the verdict - "I
+    thought { about it" - permanently raises a depth counter, so the genuine
+    object that follows never returns the count to zero and is never parsed.
+    Failing closed on a recoverable reply is still a failure. Decoding from
+    each candidate start has no such state, and `raw_decode` brings correct
+    handling of nesting, quoted braces and escapes with it rather than
+    reimplementing them here.
     """
-    depth = 0
-    start = -1
-    in_string = False
-    escaped = False
+    decoder = json.JSONDecoder(parse_constant=_reject_non_finite)
     for index, char in enumerate(text):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
+        if char != "{":
             continue
-        if char == '"':
-            in_string = True
-        elif char == "{":
-            if depth == 0:
-                start = index
-            depth += 1
-        elif char == "}":
-            if depth:
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[start : index + 1])
-                    except ValueError:
-                        # A balanced but invalid object (a trailing comma, a
-                        # single-quoted key). Keep scanning: a later object in
-                        # the same reply may still be the verdict.
-                        start = -1
+        try:
+            value, _ = decoder.raw_decode(text, index)
+        except ValueError:
+            # Not the start of a valid object (prose brace, trailing comma,
+            # a single-quoted key, a non-finite literal). Try the next one.
+            continue
+        if isinstance(value, dict):
+            return value
     return None
 
 
@@ -217,15 +220,24 @@ def _coerce_pass(value: Any) -> bool | None:
 
 
 def _coerce_score(value: Any, *, fallback: bool) -> float:
+    """Read the judge's score, falling back to the boolean verdict.
+
+    Non-finite values are refused rather than carried. `float("nan")` compares
+    False against every threshold, so a NaN score would slip a would-be-failing
+    verdict past the threshold check, and `float("inf")` would clear any
+    threshold at all. Both fall back to the boolean, which is the only other
+    thing the reply actually asserted.
+    """
     if isinstance(value, bool):
         return float(value)
     if isinstance(value, (int, float)):
-        return float(value)
+        return float(value) if math.isfinite(value) else float(fallback)
     if isinstance(value, str):
         try:
-            return float(value.strip())
+            parsed = float(value.strip())
         except ValueError:
-            pass
+            return float(fallback)
+        return parsed if math.isfinite(parsed) else float(fallback)
     return float(fallback)
 
 

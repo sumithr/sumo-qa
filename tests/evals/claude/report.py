@@ -273,7 +273,12 @@ def write_report(path: Path, report: RunReport) -> dict[str, Any]:
     )
     try:
         with handle:
-            json.dump(payload, handle, indent=2, sort_keys=False)
+            # allow_nan=False: Python would otherwise write the bare tokens
+            # `NaN` / `Infinity`, which no other JSON reader accepts. The
+            # judge already refuses a non-finite score, so this is the second
+            # gate on the same class - and a report nothing can parse is worse
+            # than a loud failure while writing it.
+            json.dump(payload, handle, indent=2, sort_keys=False, allow_nan=False)
             handle.write("\n")
         os.replace(handle.name, path)
     except BaseException:

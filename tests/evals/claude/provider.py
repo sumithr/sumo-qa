@@ -95,10 +95,17 @@ BASE_FLAGS = (
     "--disable-slash-commands",
 )
 
+# The only envelope shape the CLI emits for a completed, successful call.
+# Anything else is a failure - see `_failure_text`.
+_SUCCESS_TYPE = "result"
+_SUCCESS_SUBTYPE = "success"
+
 _DEFAULT_MAX_ATTEMPTS = 3
 _DEFAULT_TIMEOUT_SECONDS = 600
 _BASE_BACKOFF_SECONDS = 1.0
 _MAX_BACKOFF_SECONDS = 30.0
+# How much of a failure string reaches the human-readable abort message.
+_MESSAGE_EXCERPT = 600
 
 
 class ClaudeCliMissingError(RuntimeError):
@@ -333,9 +340,14 @@ class Provider:
             last = failure
             self._maybe_wait(attempt_index)
 
-        raise RuntimeError(
-            f"{self.model} failed {self.max_attempts} times with a retryable error; "
-            f"last failure: {last}"
+        # A FatalRunError, not a bare RuntimeError: the run IS over, and
+        # `claude/cli.py` catches exactly this to exit 3 with nothing written.
+        # A different exception type would escape as a traceback and lose the
+        # documented abort contract.
+        raise FatalRunError(
+            f"aborting the run: {self.model} failed {self.max_attempts} times with a "
+            f"retryable error and the attempt budget is spent. Last failure: {last}. "
+            "No report or baseline is written."
         )
 
     def _maybe_wait(self, attempt_index: int) -> None:
@@ -343,40 +355,64 @@ class Provider:
             self._wait(self._backoff(attempt_index))
 
     def _fatal(self, detail: str) -> FatalRunError:
+        # Shortened HERE, at display time, and nowhere earlier: the classifier
+        # must read the whole failure text or a quota phrase past the boundary
+        # would be missed (and a 5xx carrying one would then be retried).
+        shown = detail if len(detail) <= _MESSAGE_EXCERPT else detail[:_MESSAGE_EXCERPT] + "..."
         return FatalRunError(
-            f"aborting the run: {self.model} call failed with {detail!r}. This failure "
+            f"aborting the run: {self.model} call failed with {shown!r}. This failure "
             "class is never retried, and no report or baseline is written - a "
             "partially-graded matrix is worse than no matrix (#651)."
         )
 
     def _failure_text(self, attempt: _Attempt) -> str | None:
-        """Everything the runner saw about a failure, or None if it succeeded.
+        """Everything the runner saw about a failure, or None if it SUCCEEDED.
 
-        A call has failed if the process exited non-zero, if stdout was not the
-        expected JSON envelope, or if the envelope flags an error. All three
-        are folded into one string so the classifier sees the whole picture
-        rather than only the piece that happened to be structured.
+        Success is established POSITIVELY, and that is the whole point. An
+        earlier version asked "did anything look wrong?" and treated silence
+        as success, which meant an envelope shape it had never seen - say
+        `{"type": "error", "result": "Claude usage limit reached"}` - sailed
+        through with exit code 0, and the usage-limit message itself became
+        the candidate's answer and got graded. That is the #651 incident
+        rebuilt inside the module written to prevent it.
+
+        So a call has succeeded ONLY when the envelope says so in the shape
+        the CLI actually emits: `type: "result"`, `subtype: "success"`, no
+        error flag, no API error status, exit code 0. Every other shape,
+        including every shape not seen before, is a failure - the same
+        fail-closed posture `claude/errors.py` takes, applied one layer
+        earlier.
         """
         parts: list[str] = []
         if attempt.returncode != 0:
             parts.append(f"exit code {attempt.returncode}")
         if not attempt.envelope:
-            parts.append(f"unparseable output: {attempt.stdout[:400]!r}")
+            parts.append(f"unparseable output: {attempt.stdout!r}")
         else:
+            envelope_type = attempt.envelope.get("type")
+            subtype = attempt.envelope.get("subtype")
+            if envelope_type != _SUCCESS_TYPE or subtype != _SUCCESS_SUBTYPE:
+                parts.append(
+                    f"envelope is not a success result: type={envelope_type!r} "
+                    f"subtype={subtype!r}"
+                )
             if attempt.envelope.get("is_error"):
-                parts.append(f"is_error with subtype {attempt.envelope.get('subtype')!r}")
+                parts.append(f"is_error with subtype {subtype!r}")
             status = attempt.envelope.get("api_error_status")
             if status:
                 parts.append(f"api_error_status {status}")
             result = attempt.envelope.get("result")
             if parts and isinstance(result, str) and result:
-                parts.append(f"result {result[:400]!r}")
+                parts.append(f"result {result!r}")
         # Appended only when something else already marked this a failure:
         # Claude Code writes ordinary warnings to stderr, so stderr alone is
         # not evidence of one. When there IS a failure it must be included,
         # because quota wording can reach stderr and nowhere else.
         if parts and attempt.stderr.strip():
-            parts.append(f"stderr {attempt.stderr.strip()[:400]!r}")
+            parts.append(f"stderr {attempt.stderr.strip()!r}")
+        # NOT truncated. The classifier reads this string, and a quota phrase
+        # that happened to sit past a truncation boundary would be classified
+        # transient and retried. Shortening happens at display time only.
         return "; ".join(parts) if parts else None
 
     def _completion(self, attempt: _Attempt) -> Completion:

@@ -82,7 +82,8 @@ uv run python tests/evals/run_claude_eval.py --skill reviewing-before-merge
 ```
 
 `--live` is what actually grades. Scope it: the judge tier is ~85% of the
-cost, and the full matrix is 218 cases at two model calls each.
+cost, and the full matrix is over 200 cases at two model calls each (218 in a
+fresh clone; more in a checkout where the test generator has run).
 
 ```bash
 uv run python tests/evals/run_claude_eval.py --live --config skill-using-sumo-qa.yaml

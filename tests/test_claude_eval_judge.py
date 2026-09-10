@@ -162,6 +162,27 @@ def ok(text: str = "PONG", **overrides):
     return FakeProcess(json.dumps(envelope(result=text, **overrides)))
 
 
+def _forbidden_subprocess_run(*args, **kwargs):
+    raise AssertionError(
+        "a test in this module shelled out to the real claude CLI, which would "
+        "spend real subscription allowance. Every Provider here must be built "
+        "with an injected fake runner."
+    )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_subprocess(monkeypatch):
+    """Poison `subprocess.run` for EVERY test in this module.
+
+    Autouse on purpose. A guard that only holds inside the one test that
+    installs it guards nothing: the runner in this package exists to spend a
+    Claude subscription, and a test that reaches the real CLI spends it for
+    real. The cost of that mistake is why this is a fixture and not an
+    assertion.
+    """
+    monkeypatch.setattr(subprocess, "run", _forbidden_subprocess_run)
+
+
 # ==========================================================================
 # Model configuration - AC1: ids live in exactly one module
 # ==========================================================================
@@ -442,11 +463,82 @@ def test_stderr_alone_is_not_treated_as_a_failure():
     assert provider.complete("p").text == "fine"
 
 
+def test_an_unrecognised_envelope_shape_aborts_instead_of_being_graded():
+    """The #651 incident, rebuilt and caught. This is the regression.
+
+    The CLI exits 0 and prints an envelope the runner has never seen:
+
+        {"type": "error", "result": "Claude usage limit reached"}
+
+    No `is_error` flag, no `api_error_status`, nothing that a "did anything
+    look wrong?" check would notice. An earlier version of `_failure_text`
+    called that a SUCCESS and handed the usage-limit message to the judge as
+    the candidate's answer - a quota failure graded as a skill response, which
+    is exactly how a run ends up writing a report in which nothing passed.
+
+    Success is now established positively, so an unknown shape aborts.
+    """
+    envelope_shape = json.dumps({"type": "error", "result": "Claude usage limit reached"})
+    provider, runner = make_provider([FakeProcess(envelope_shape, returncode=0)])
+
+    with pytest.raises(ce.FatalRunError) as excinfo:
+        provider.complete("p")
+
+    assert len(runner.calls) == 1, "an unrecognised envelope must not be retried"
+    assert "usage limit reached" in str(excinfo.value)
+
+
+def test_a_success_envelope_missing_its_subtype_is_not_trusted():
+    """Positive validation means BOTH fields, not just `type`."""
+    provider, _ = make_provider([FakeProcess(json.dumps(envelope(subtype="error_max_turns")))])
+
+    with pytest.raises(ce.FatalRunError):
+        provider.complete("p")
+
+
+def test_a_quota_phrase_beyond_the_message_excerpt_is_still_fatal():
+    """The classifier must read the WHOLE failure text, not an excerpt.
+
+    Truncating before classification would send a 5xx whose quota explanation
+    sits past the boundary down the transient path, where it is retried and
+    can be absorbed by a later attempt.
+    """
+    padding = "x" * 2000
+    body = json.dumps(
+        envelope(
+            type="error",
+            is_error=True,
+            subtype="error_during_execution",
+            api_error_status=500,
+            result=f"{padding} credit balance is too low",
+        )
+    )
+    provider, runner = make_provider([FakeProcess(body, returncode=1)])
+
+    with pytest.raises(ce.FatalRunError):
+        provider.complete("p")
+
+    assert len(runner.calls) == 1, "a quota failure is never retried, wherever the phrase sits"
+
+
+def test_exhausting_the_retry_budget_aborts_the_run_rather_than_escaping():
+    """The budget running out ends the run, so it must be a FatalRunError.
+
+    A bare RuntimeError would sail past the CLI's one handler and surface as a
+    traceback, losing the documented exit code.
+    """
+    reset = FakeProcess("", "connection reset by peer", 1)
+    provider, _ = make_provider([reset, reset, reset], max_attempts=3)
+
+    with pytest.raises(ce.FatalRunError, match="failed 3 times"):
+        provider.complete("p")
+
+
 def test_transient_failures_stop_after_the_attempt_budget():
     reset = FakeProcess("", "connection reset by peer", 1)
     provider, runner = make_provider([reset, reset, reset], max_attempts=3)
 
-    with pytest.raises(RuntimeError, match="failed 3 times"):
+    with pytest.raises(ce.FatalRunError, match="failed 3 times"):
         provider.complete("p")
 
     assert len(runner.calls) == 3
@@ -686,6 +778,59 @@ def test_the_verdict_schema_forbids_extra_keys_and_bounds_the_score():
     assert cj.VERDICT_SCHEMA["properties"]["score"]["maximum"] == 1.0
 
 
+NON_FINITE_SCORES = [
+    pytest.param('{"pass": true, "score": NaN, "reason": "x"}', id="nan"),
+    pytest.param('{"pass": true, "score": Infinity, "reason": "x"}', id="infinity"),
+    pytest.param('{"pass": true, "score": -Infinity, "reason": "x"}', id="negative-infinity"),
+]
+
+
+@pytest.mark.parametrize("text", NON_FINITE_SCORES)
+def test_a_non_finite_score_cannot_clear_a_threshold(text):
+    """`json.loads` accepts `NaN` and the infinities; JSON does not.
+
+    They are not a formatting nicety here. `NaN < threshold` is False, so a
+    NaN score sails through the threshold check and the verdict PASSES - the
+    same default-to-pass behaviour this runner refuses everywhere else - and
+    `Infinity` clears any threshold at all. A bare `NaN` in the reply also
+    reaches the JSON report, where no other reader can parse it.
+    """
+    verdict = cj.parse_judge_response(text, threshold=0.9)
+
+    assert verdict.passed is False
+    assert verdict.score == 0.0
+
+
+def test_a_report_carrying_a_non_finite_number_refuses_to_be_written(tmp_path: Path):
+    """The second gate on the same class, at the file boundary.
+
+    Python would happily write the bare token `NaN`, producing a report that
+    nothing else can read. Failing loudly while writing beats shipping one.
+    """
+    report = _report_with_one_case()
+    report.config_for("skill-example.yaml").by_model["m"] = crep.ModelCost(usd=float("nan"))
+
+    with pytest.raises(ValueError):
+        crep.write_report(tmp_path / "report.json", report)
+
+    assert list(tmp_path.iterdir()) == [], "a refused write leaves no partial file"
+
+
+def test_an_unbalanced_brace_in_prose_does_not_hide_the_verdict():
+    """A stray `{` before the real object must not swallow it.
+
+    A single brace-depth walk never returns to zero after an unmatched `{`, so
+    the genuine verdict that follows is read as nested and never parsed. That
+    fails closed, but it fails a recoverable reply - the judge did answer.
+    """
+    verdict = cj.parse_judge_response(
+        'I thought { about it carefully. {"pass": true, "score": 1.0, "reason": "ok"}'
+    )
+
+    assert verdict.passed is True
+    assert verdict.reason == "ok"
+
+
 def test_a_threshold_below_the_score_fails_a_would_be_pass():
     verdict = cj.parse_judge_response(
         '{"pass": true, "score": 0.4, "reason": "meh"}', threshold=0.7
@@ -852,11 +997,35 @@ tests:
 """
 
 
+# Three seeds, so an abort can be made to land mid-matrix with completed
+# cases behind it - which is the only shape that proves the report is withheld
+# rather than merely never produced.
+THREE_CASE_CONFIG = (
+    MINIMAL_CONFIG
+    + """  - description: seed two
+    vars:
+      topic: risk
+  - description: seed three
+    vars:
+      topic: risk
+"""
+)
+
+
 @pytest.fixture
 def config_dir(tmp_path: Path) -> Path:
     directory = tmp_path / "configs"
     directory.mkdir()
     (directory / "skill-tiny.yaml").write_text(MINIMAL_CONFIG, encoding="utf-8")
+    return directory
+
+
+@pytest.fixture
+def three_case_config_dir(tmp_path: Path) -> Path:
+    """A separate fixture, because the abort test needs cases BEHIND the abort."""
+    directory = tmp_path / "configs"
+    directory.mkdir()
+    (directory / "skill-tiny.yaml").write_text(THREE_CASE_CONFIG, encoding="utf-8")
     return directory
 
 
@@ -996,6 +1165,25 @@ def test_an_unported_javascript_assert_is_tagged_as_a_harness_gap(tmp_path: Path
     assert "no Python port" in assertion.reason
 
 
+def test_a_judge_refusal_fails_one_case_rather_than_escaping(config_dir: Path):
+    """A refusal from the JUDGE, not the candidate.
+
+    An earlier version wrapped only the candidate call, so a judge that
+    declined to grade raised straight out of the run - past the report, past
+    the CLI's single handler - and the process died with a traceback instead
+    of the documented exit code. It is the same fact about one prompt either
+    way: the case fails, the matrix continues.
+    """
+    refusal = FakeProcess(json.dumps(envelope(stop_reason="refusal", result="")))
+    runner, _, _ = _runner([ok("an answer")], [refusal])
+
+    report = runner.run([config_dir / "skill-tiny.yaml"])
+
+    case = report.configs[0].cases[0]
+    assert case.passed is False
+    assert "declined" in case.error
+
+
 def test_a_refusal_fails_one_case_without_abandoning_the_matrix(config_dir: Path):
     refusal = FakeProcess(json.dumps(envelope(stop_reason="refusal", result="")))
     runner, _, _ = _runner([refusal], [])
@@ -1012,29 +1200,35 @@ def test_a_refusal_fails_one_case_without_abandoning_the_matrix(config_dir: Path
 # ==========================================================================
 
 
-def test_an_aborted_run_writes_no_report(tmp_path: Path, config_dir: Path, monkeypatch, capsys):
+def test_an_aborted_run_writes_no_report(
+    tmp_path: Path, three_case_config_dir: Path, monkeypatch, capsys
+):
     """AC4, and the state transition that must not exist.
 
-    A simulated usage-limit failure mid-run must exit non-zero and leave NO
-    report and NO baseline on disk. The old `run_baseline.py` wrote a
-    zero-passed snapshot in exactly this situation, which read as a
-    catastrophic skill regression and became the next run's comparison point.
+    A usage-limit failure MID-run must exit non-zero and leave NO report and
+    NO baseline on disk. The old `run_baseline.py` wrote a zero-passed
+    snapshot in exactly this situation, which read as a catastrophic skill
+    regression and became the next run's comparison point.
+
+    The abort deliberately lands on the THIRD case, not the first, and the two
+    before it succeed. Failing on the first call would prove only that a run
+    which produced nothing writes nothing - a bar an implementation that wrote
+    the report incrementally after each completed case would also clear. What
+    has to be true is stronger: a matrix that got PART of the way through
+    still leaves an empty disk.
     """
     report_path = tmp_path / "report.json"
-    monkeypatch.setattr(
-        ccli,
-        "build_providers",
-        lambda args: (
-            make_provider([FakeProcess("", "Claude usage limit reached", 1)])[0],
-            make_provider([])[0],
-        ),
+    candidate, candidate_calls = make_provider(
+        [ok("first"), ok("second"), FakeProcess("", "Claude usage limit reached", 1)]
     )
+    judge, _ = make_provider([ok(PASS_VERDICT), ok(PASS_VERDICT)])
+    monkeypatch.setattr(ccli, "build_providers", lambda args: (candidate, judge))
 
     code = ccli.main(
         [
             "--live",
             "--config-dir",
-            str(config_dir),
+            str(three_case_config_dir),
             "--config",
             "skill-tiny.yaml",
             "--report",
@@ -1043,8 +1237,9 @@ def test_an_aborted_run_writes_no_report(tmp_path: Path, config_dir: Path, monke
     )
 
     assert code == ccli.EXIT_ABORTED
+    assert len(candidate_calls.calls) == 3, "the abort must land after two cases completed"
     assert not report_path.exists()
-    assert list(tmp_path.iterdir()) == [config_dir]
+    assert list(tmp_path.iterdir()) == [three_case_config_dir]
     assert "RUN ABORTED" in capsys.readouterr().err
 
 
@@ -1149,17 +1344,18 @@ def test_the_dry_run_still_works_and_names_no_model(config_dir: Path, capsys):
 # ==========================================================================
 
 
-def test_no_test_starts_a_subprocess(monkeypatch, config_dir: Path):
-    """`subprocess.run` is the only door to a model, and the suite never uses it.
+def test_the_subprocess_guard_covers_every_test_in_this_module(config_dir: Path):
+    """The autouse fixture above is the real guard; this documents it.
 
-    Every provider in this file is constructed with an injected fake runner;
-    this fails the build if one ever is not.
+    An earlier version patched `subprocess.run` inside ONE test, which its
+    name claimed guarded the suite. It did not: any other test could have
+    shelled out to the real CLI and spent real subscription allowance without
+    failing anything. The fixture is autouse, so the patch is in force for
+    every test in this file - including this one, which drives a full run
+    through injected fakes and would trip the guard if any of them reached
+    `subprocess.run`.
     """
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *a, **k: pytest.fail("a test shelled out to the real claude CLI"),
-    )
+    assert subprocess.run is _forbidden_subprocess_run
     runner, _, _ = _runner([ok("risk")], [ok(PASS_VERDICT)])
 
     assert runner.run([config_dir / "skill-tiny.yaml"]).passed is True

@@ -1916,7 +1916,7 @@ def test_an_invocation_with_no_mode_flag_does_not_call_a_model(capsys):
 
     In slice 1 a bare invocation was refused outright. In slice 2 it performs
     the DRY RUN - the free mode - because grading now costs real subscription
-    allowance across 218 cases. This test is why: it calls `main()` with no
+    allowance across the whole matrix. This test is why: it calls `main()` with no
     mode flag, so under a draft where the live run was the default it launched
     the entire matrix against the real account. Spending is opt-in via
     `--live`; anything else must stay free.
@@ -2077,11 +2077,12 @@ _BANNED_EVERYWHERE = {
     "ssl",
 }
 
-# Banned in every module EXCEPT the transport. `provider.py` is the one place
-# a child process may be created, because driving the CLI is its whole job;
-# confining that to a single named module is what keeps the offline half
-# (loader, templating, assertions, tokens - everything `--dry-run` touches)
-# provably incapable of leaving the process.
+# Banned in every module EXCEPT the transport, which is exempt from exactly
+# ONE of them. `provider.py` needs `subprocess` because driving the CLI is its
+# whole job; it has no business with `http`, `urllib`, `asyncio` or
+# `multiprocessing`, so those stay banned there too. Exempting the whole set
+# would have let the transport open a direct HTTP connection while the module
+# next door still asserted the runner never speaks HTTP.
 _BANNED_OUTSIDE_THE_TRANSPORT = {
     "http",
     "urllib",
@@ -2090,6 +2091,8 @@ _BANNED_OUTSIDE_THE_TRANSPORT = {
     "asyncio",
 }
 _TRANSPORT_MODULE = "provider.py"
+# The only banned import the transport may have, and the only one.
+_TRANSPORT_EXEMPTIONS = {"subprocess"}
 
 
 def test_the_runner_imports_no_http_client_or_model_sdk():
@@ -2114,9 +2117,9 @@ def test_the_runner_imports_no_http_client_or_model_sdk():
     }
     for source in sources:
         imported = _imported_root_modules(source.read_text(encoding="utf-8"))
-        banned = set(_BANNED_EVERYWHERE)
-        if source.name != _TRANSPORT_MODULE:
-            banned |= _BANNED_OUTSIDE_THE_TRANSPORT
+        banned = set(_BANNED_EVERYWHERE) | _BANNED_OUTSIDE_THE_TRANSPORT
+        if source.name == _TRANSPORT_MODULE:
+            banned -= _TRANSPORT_EXEMPTIONS
         offending = imported & banned
         assert not offending, f"{source.name} imports {sorted(offending)}"
 

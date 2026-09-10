@@ -12,8 +12,9 @@
 `--dry-run` assembles every prompt, estimates input tokens, prints the
 summary and exits, having called nothing. Only `--live` grades.
 
-That default is not politeness. The full matrix is 218 cases, each of which
-costs a candidate call and a judge call, and the runner spends the account's
+That default is not politeness. The full matrix is over 200 cases - 218 in a
+fresh clone, 229 where the test generator has run - each of which costs a
+candidate call and a judge call, and the runner spends the account's
 Claude subscription allowance - so a mistyped or forgotten flag has a real
 price. Making the free mode the one you get by accident is the only ordering
 where the accident is cheap. It has already paid for itself once: an existing
