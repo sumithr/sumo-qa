@@ -1855,6 +1855,81 @@ def test_running_without_dry_run_is_refused_in_this_slice(capsys):
     assert "--dry-run" in capsys.readouterr().err
 
 
+# Every process-creation entry point `os` can expose, across platforms.
+# The set is NOT the same everywhere: `posix_spawn`, `posix_spawnp` and
+# `fork` are POSIX-only, `startfile` is Windows-only. Patching the whole
+# list unconditionally raised `AttributeError` on the Windows runners before
+# the dry run even started, and simply dropping the platform-specific names
+# would have left Windows with a thinner guard than POSIX.
+_OS_SPAWN_ENTRY_POINTS = (
+    "system",
+    "execv",
+    "execve",
+    "spawnv",
+    "spawnve",
+    "posix_spawn",
+    "posix_spawnp",
+    "startfile",
+    "fork",
+)
+
+
+def _available_spawn_entry_points(module: object) -> list[str]:
+    """Which of those entry points `module` actually exposes.
+
+    Takes the module as an argument rather than reading `os` directly so the
+    Windows selection can be asserted from a POSIX host - flipping `os.name`
+    to fake a platform is not an option, since it desyncs `pathlib` from the
+    real filesystem and breaks config discovery.
+    """
+    return [name for name in _OS_SPAWN_ENTRY_POINTS if hasattr(module, name)]
+
+
+class _PlatformOs:
+    """Stands in for a platform's `os`, exposing only its own entry points."""
+
+    def __init__(self, names: tuple[str, ...]) -> None:
+        for name in names:
+            setattr(self, name, lambda *args, **kwargs: None)
+
+
+_WINDOWS_SPAWN = ("system", "execv", "execve", "spawnv", "spawnve", "startfile")
+_POSIX_SPAWN = (
+    "system",
+    "execv",
+    "execve",
+    "spawnv",
+    "spawnve",
+    "posix_spawn",
+    "posix_spawnp",
+    "fork",
+)
+
+
+def test_the_spawn_guard_selects_each_platform_s_own_entry_points():
+    """The guard below must not be thinner on one platform than the other,
+    and a misspelled name would be skipped by `hasattr` in silence."""
+
+    windows = _available_spawn_entry_points(_PlatformOs(_WINDOWS_SPAWN))
+    posix = _available_spawn_entry_points(_PlatformOs(_POSIX_SPAWN))
+
+    assert windows == list(_WINDOWS_SPAWN)
+    assert posix == list(_POSIX_SPAWN)
+
+    # Every listed name is real on at least one platform, so none is a typo.
+    assert set(_OS_SPAWN_ENTRY_POINTS) == set(windows) | set(posix)
+
+    # Each platform keeps its own primitives, not just the shared ones.
+    assert "startfile" in windows and "startfile" not in posix
+    assert {"posix_spawn", "fork"} <= set(posix)
+    assert {"posix_spawn", "fork"}.isdisjoint(windows)
+
+    # And the list matches the `os` this run is actually on.
+    assert _available_spawn_entry_points(os) == list(
+        _POSIX_SPAWN if os.name != "nt" else _WINDOWS_SPAWN
+    )
+
+
 def test_dry_run_constructs_no_socket_no_http_client_and_no_child_process(monkeypatch, capsys):
     """In-process socket poisoning alone would miss an `os.system("curl ...")`
     or any other spawn, so the process-creation entry points are refused for
@@ -1872,12 +1947,13 @@ def test_dry_run_constructs_no_socket_no_http_client_and_no_child_process(monkey
     monkeypatch.setattr(http.client.HTTPConnection, "__init__", explode)
     monkeypatch.setattr(http.client.HTTPSConnection, "__init__", explode)
     monkeypatch.setattr(subprocess.Popen, "__init__", no_spawn)
-    monkeypatch.setattr(os, "system", no_spawn)
-    monkeypatch.setattr(os, "posix_spawn", no_spawn)
-    monkeypatch.setattr(os, "posix_spawnp", no_spawn)
-    monkeypatch.setattr(os, "execv", no_spawn)
-    monkeypatch.setattr(os, "execve", no_spawn)
-    monkeypatch.setattr(os, "fork", no_spawn)
+
+    patched = _available_spawn_entry_points(os)
+    for name in patched:
+        monkeypatch.setattr(os, name, no_spawn)
+
+    # Without this the guard could cover nothing at all and still pass green.
+    assert {"system", "execv", "execve", "spawnv", "spawnve"} <= set(patched)
 
     code = ccli.main(["--dry-run", "--config-dir", str(PROMPTFOO_DIR)])
 

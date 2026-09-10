@@ -331,10 +331,11 @@ Enforced by [`tests/test_claude_eval_runner.py`](../../test_claude_eval_runner.p
   passing and a failing output for each;
 - the `--dry-run` makes zero network calls: the test poisons `socket.socket`,
   `socket.create_connection`, `socket.getaddrinfo`, both `http.client`
-  connection constructors, and the process-spawning entry points
-  (`subprocess.Popen`, `os.system`, `os.posix_spawn(p)`, `os.execv(e)`,
-  `os.fork`) for the duration of the run, so an out-of-process escape is
-  refused too;
+  connection constructors, and every process-spawning entry point the running
+  platform exposes (`subprocess.Popen`, plus each of `os.system`,
+  `os.execv(e)`, `os.spawnv(e)`, `os.posix_spawn(p)`, `os.fork` and
+  `os.startfile` that exists there - the last four are platform-specific) for
+  the duration of the run, so an out-of-process escape is refused too;
 - no module in the package imports an HTTP client, a model SDK, or a
   process/socket module - checked by walking each module's parsed AST, so a
   `from anthropic import Anthropic` cannot slip past a substring grep.
