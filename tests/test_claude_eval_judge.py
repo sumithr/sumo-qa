@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -182,6 +183,29 @@ def _no_real_subprocess(monkeypatch):
     assertion.
     """
     monkeypatch.setattr(subprocess, "run", _forbidden_subprocess_run)
+
+
+def _pretend_the_cli_is_installed(name, *args, **kwargs):
+    return f"/nonexistent/bin/{name}"
+
+
+@pytest.fixture(autouse=True)
+def _no_real_path_probe(monkeypatch):
+    """Stop the DEVELOPER'S PATH from deciding any outcome in this module.
+
+    Sibling to `_no_real_subprocess`, and for the same reason. Faking the
+    transport is only half of cutting a test loose from the real CLI: before a
+    live run `Provider.ensure_available` asks `shutil.which` whether the real
+    `claude` binary is installed. Left alone, that made the three tests which
+    drive `cli.main(["--live", ...])` pass on a machine with Claude Code
+    installed and return `EXIT_USAGE` on one without - green locally, red on
+    all fifteen CI runners.
+
+    The probe's own behaviour is not lost to this: the tests below re-patch
+    `which` inside their own bodies, which lands after this fixture and
+    therefore wins.
+    """
+    monkeypatch.setattr(shutil, "which", _pretend_the_cli_is_installed)
 
 
 # ==========================================================================
@@ -571,6 +595,31 @@ def test_a_missing_cli_names_itself():
 
     with pytest.raises(cp.ClaudeCliMissingError):
         provider.complete("p")
+
+
+def test_the_availability_probe_accepts_a_cli_that_is_on_path(monkeypatch):
+    """`ensure_available` is the pre-flight the live path runs exactly once.
+
+    Both halves of it are pinned here because until this commit neither was:
+    the probe was reached only as a side effect of three CLI-level tests, so
+    whether it passed depended on the machine rather than on the code.
+    """
+    provider, _ = make_provider([])
+    monkeypatch.setattr(shutil, "which", lambda name: f"/opt/bin/{name}")
+
+    provider.ensure_available()
+
+
+def test_the_availability_probe_refuses_a_cli_that_is_not_on_path(monkeypatch):
+    provider, _ = make_provider([])
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+    with pytest.raises(cp.ClaudeCliMissingError) as excinfo:
+        provider.ensure_available()
+
+    message = str(excinfo.value)
+    assert provider.executable in message
+    assert "--dry-run" in message, "the message must name the mode that costs nothing"
 
 
 # ==========================================================================
@@ -1614,6 +1663,36 @@ def test_a_completed_run_with_failures_still_writes_the_report(
 
     assert code == ccli.EXIT_FAILED
     assert json.loads(report_path.read_text("utf-8"))["totals"]["failed"] == 1
+
+
+def test_a_live_run_stops_with_a_usage_exit_when_the_cli_is_missing(
+    tmp_path: Path, config_dir: Path, monkeypatch, capsys
+):
+    """The pre-flight refusal, at the level a user actually meets it.
+
+    This is the path all fifteen CI runners were silently taking - a machine
+    without Claude Code installed - while the three tests around it asserted
+    codes they only got locally. It is now the documented outcome rather than
+    an accident of `PATH`, and nothing reaches disk on the way out.
+    """
+    report_path = tmp_path / "report.json"
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+    code = ccli.main(
+        [
+            "--live",
+            "--config-dir",
+            str(config_dir),
+            "--config",
+            "skill-tiny.yaml",
+            "--report",
+            str(report_path),
+        ]
+    )
+
+    assert code == ccli.EXIT_USAGE
+    assert "not on PATH" in capsys.readouterr().err
+    assert not report_path.exists()
 
 
 def test_config_scoping_selects_only_the_named_configs():
