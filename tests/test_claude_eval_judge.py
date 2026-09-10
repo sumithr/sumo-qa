@@ -869,18 +869,19 @@ def test_a_truncated_reply_is_not_rescued_by_its_own_nested_object():
     looks like a complete verdict, so a scan that decodes from every `{`
     finds it and returns a PASS from a reply that never finished.
 
-    This is the trap on the other side of the stray-prose-brace fix below:
-    one demands looking past a brace that encloses nothing, the other forbids
-    reaching inside a brace that encloses something unfinished. A `{` in a
-    value slot belongs to something larger and is never read on its own.
+    A `{` is a candidate only when nothing is open around it, and its span is
+    decoded only once the brackets close. A reply that ends mid-structure
+    never gets there, whether it was cut off inside an object or inside an
+    array.
     """
-    assert (
-        cj.extract_first_json_object('{"wrapper": {"pass": true, "score": 1.0, "reason": "ok"}')
-        is None
-    )
-
-    verdict = cj.parse_judge_response('{"wrapper": {"pass": true, "score": 1.0, "reason": "ok"}')
-    assert verdict.passed is False
+    for truncated in (
+        # cut off inside an object...
+        '{"wrapper": {"pass": true, "score": 1.0, "reason": "ok"}',
+        # ...and inside an array, which the first attempt at this missed
+        '[{"pass": true, "score": 1.0, "reason": "ok"}',
+    ):
+        assert cj.extract_first_json_object(truncated) is None, truncated
+        assert cj.parse_judge_response(truncated).passed is False, truncated
 
 
 def test_a_nested_object_inside_a_COMPLETE_reply_is_still_read():
@@ -897,11 +898,11 @@ def test_a_nested_object_inside_a_COMPLETE_reply_is_still_read():
 
 
 def test_a_brace_heavy_reply_cannot_stall_the_run():
-    """Decoding from every candidate is quadratic; the attempt count is capped.
+    """The scan is one linear pass, whatever the reply looks like.
 
-    The CLI puts no ceiling on a reply's length, so without a bound a
-    malformed reply thousands of braces long costs seconds of wall clock per
-    case - multiplied by every case in the matrix.
+    The CLI puts no ceiling on a reply's length. An earlier version decoded
+    from every `{` in turn, which is quadratic: 40,000 braces cost about two
+    and a half seconds, per case, across the whole matrix.
     """
     started = time.perf_counter()
 
@@ -910,19 +911,57 @@ def test_a_brace_heavy_reply_cannot_stall_the_run():
     assert time.perf_counter() - started < 1.0
 
 
-def test_an_unbalanced_brace_in_prose_does_not_hide_the_verdict():
-    """A stray `{` before the real object must not swallow it.
+REALISTIC_JUDGE_REPLIES = [
+    pytest.param('{"pass": true, "score": 1.0, "reason": "ok"}', id="bare"),
+    pytest.param(
+        'Here is my verdict: {"pass": true, "score": 1.0, "reason": "ok"}', id="after-a-colon"
+    ),
+    pytest.param('Grading, {"pass": true, "score": 1.0, "reason": "ok"}', id="after-a-comma"),
+    pytest.param('My verdict. {"pass": true, "score": 1.0, "reason": "ok"}', id="after-prose"),
+    pytest.param(
+        'Verdict:\n```json\n{"pass": true, "score": 1.0, "reason": "ok"}\n```',
+        id="labelled-fence",
+    ),
+]
 
-    A single brace-depth walk never returns to zero after an unmatched `{`, so
-    the genuine verdict that follows is read as nested and never parsed. That
-    fails closed, but it fails a recoverable reply - the judge did answer.
+
+@pytest.mark.parametrize("text", REALISTIC_JUDGE_REPLIES)
+def test_the_shapes_a_judge_actually_replies_in_are_all_read(text):
+    """The anti-over-fire side of the truncation guard.
+
+    Refusing fragments must not cost ordinary replies. An earlier attempt
+    skipped any `{` preceded by a `:` or a `,`, which refused
+    `Here is my verdict: {...}` - among the most natural things a judge can
+    write, and a wrong FAIL on a skill that had actually passed.
+    """
+    verdict = cj.parse_judge_response(text)
+
+    assert verdict.passed is True
+    assert verdict.reason == "ok"
+
+
+def test_an_unmatched_brace_in_prose_fails_closed_and_that_is_the_trade():
+    """The one case this deliberately gives up, and why.
+
+    A stray `{` in the judge's prose leaves the bracket stack non-empty, so
+    the genuine verdict after it is never seen as top-level and the reply is
+    refused. The judge did answer, so this is a recoverable reply being
+    failed.
+
+    It is kept that way on purpose. Two attempts to rescue it each admitted
+    something worse: decoding from every brace graded fragments of truncated
+    replies, and skipping braces after `:`/`,` refused the common
+    `Here is my verdict: {...}`. Both swapped a safe, visible failure for a
+    silent wrong PASS. A refusal carries the raw reply into its reason and a
+    human resolves it in seconds; a fragment graded as a pass is the failure
+    nobody sees.
     """
     verdict = cj.parse_judge_response(
         'I thought { about it carefully. {"pass": true, "score": 1.0, "reason": "ok"}'
     )
 
-    assert verdict.passed is True
-    assert verdict.reason == "ok"
+    assert verdict.passed is False
+    assert "I thought {" in verdict.reason
 
 
 def test_a_threshold_below_the_score_fails_a_would_be_pass():

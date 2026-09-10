@@ -122,9 +122,6 @@ VERDICT_SCHEMA: dict[str, Any] = {
 
 _TRUTHY = {"true", "yes", "pass", "y", "1"}
 
-# How many candidate object starts the extractor will try before giving up.
-_MAX_DECODE_ATTEMPTS = 64
-
 
 @dataclass(frozen=True)
 class JudgeVerdict:
@@ -180,68 +177,81 @@ def _reject_non_finite(literal: str) -> Any:
     raise ValueError(f"{literal} is not valid JSON")
 
 
-def _starts_a_value_inside_a_container(text: str, index: int) -> bool:
-    """True when the `{` at `index` sits in a VALUE slot of an enclosing JSON.
-
-    Decided by the nearest preceding non-space character: a `:` means this
-    object is the value of a key, a `,` means it is the next element of an
-    array or object. Either way it belongs to something larger, and reading
-    it on its own would be reading a fragment.
-
-    Prose is the contrast. In "I thought { about it. {\"pass\": ...}" the real
-    verdict is preceded by a full stop and a space, so nothing encloses it.
-    """
-    cursor = index - 1
-    while cursor >= 0 and text[cursor] in " \t\r\n":
-        cursor -= 1
-    return cursor >= 0 and text[cursor] in ":,"
-
-
 def extract_first_json_object(text: str) -> Any:
-    """Return the first parseable TOP-LEVEL JSON object in `text`, or None.
+    """Return the first TOP-LEVEL JSON object in `text`, or None.
 
-    Judges wrap their JSON in prose or a markdown fence often enough that
-    requiring a bare object would fail honest replies; promptfoo scans for an
-    embedded object for the same reason.
+    Judges wrap their verdict in prose or a markdown fence often enough that
+    requiring a bare object would fail honest replies, so the object is found
+    rather than demanded. What it must never do is find one INSIDE a reply
+    that was cut off: `{"wrapper": {"pass": true, "score": 1.0, "reason":
+    "ok"}` never closes, yet the inner object reads as a complete verdict, and
+    grading it turns a truncated reply into a PASS.
 
-    Two things this has to get right at once, and they pull apart:
+    So the scan walks the text once, string-aware and escape-aware, keeping a
+    stack of open `{` and `[`. A `{` is a candidate only when that stack is
+    EMPTY - nothing encloses it - and its span is decoded only once the stack
+    returns to empty, which is to say only once it actually closed. A reply
+    that ends mid-structure never gets there and yields nothing.
 
-    * **A stray `{` in the prose must not hide the verdict.** "I thought {
-      about it" before a perfectly good object is a recoverable reply. A
-      single brace-depth counter never returns to zero after that unmatched
-      brace, so the real object is read as nested and never parsed - failing
-      closed, but failing a reply the judge did give.
-    * **A TRUNCATED reply must not be rescued by its own insides.** A cut-off
-      `{"wrapper": {"pass": true, "score": 1.0, "reason": "ok"}` has a
-      complete-looking verdict inside an object that never closed. Decoding
-      from every `{` finds it and returns a PASS from a reply that was cut
-      off mid-flight - a fragment graded as a verdict.
+    ## The trade this makes, deliberately
 
-    So the scan decodes from each `{` in turn, but SKIPS any brace sitting in
-    a value slot of something larger (see `_starts_a_value_inside_a_container`).
-    A nested object is then only ever reached through an enclosing object that
-    parsed as a whole, which is the definition of not being a fragment.
+    An unmatched `{` in the judge's PROSE - "I thought { about it" before a
+    perfectly good verdict - leaves the stack non-empty for the rest of the
+    reply, so the real object that follows is never treated as top-level and
+    the reply is refused.
+
+    That is a recoverable reply being failed, and an earlier version of this
+    function tried to rescue it by decoding from every `{` instead. It worked,
+    and it also let the truncated-wrapper fragment above through, because
+    nothing then distinguished "a brace enclosing nothing" from "a brace
+    enclosing something unfinished". A second attempt skipped braces sitting
+    after a `:` or `,`, which refused an ordinary `Here is my verdict: {...}`
+    - a far more common reply than one containing a stray brace.
+
+    Both attempts traded a safe failure for an unsafe pass. This one keeps the
+    safe failure: a stray prose brace makes the assertion FAIL loudly with the
+    raw reply in its reason, which a human reads and understands in seconds.
+    A truncated fragment silently graded as a PASS is the failure nobody sees.
     """
     decoder = json.JSONDecoder(parse_constant=_reject_non_finite)
-    attempts = 0
+    stack: list[str] = []
+    start = -1
+    in_string = False
+    escaped = False
+
     for index, char in enumerate(text):
-        if char != "{" or _starts_a_value_inside_a_container(text, index):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
             continue
-        # Bounded on purpose. Decoding from every candidate is quadratic, and
-        # the CLI puts no ceiling on a reply's length, so a malformed reply
-        # thousands of braces long could stall a run for seconds per case. A
-        # verdict is not the sixty-fifth object in the reply.
-        attempts += 1
-        if attempts > _MAX_DECODE_ATTEMPTS:
-            return None
-        try:
-            value, _ = decoder.raw_decode(text, index)
-        except ValueError:
-            # Not the start of a valid object (a prose brace, a trailing
-            # comma, a single-quoted key, a non-finite literal). Try the next.
-            continue
-        if isinstance(value, dict):
-            return value
+        if char == '"':
+            in_string = True
+        elif char in "{[":
+            if not stack and char == "{":
+                start = index
+            stack.append(char)
+        elif char in "}]":
+            if not stack:
+                # A closer with nothing open: prose, not structure. Ignore it
+                # rather than letting it drive the stack negative.
+                continue
+            stack.pop()
+            if not stack and start >= 0:
+                try:
+                    value = decoder.decode(text[start : index + 1])
+                except ValueError:
+                    # Balanced but not valid JSON (a trailing comma, a
+                    # single-quoted key, a non-finite literal). A later
+                    # top-level object may still be the verdict.
+                    start = -1
+                    continue
+                if isinstance(value, dict):
+                    return value
+                start = -1
     return None
 
 
