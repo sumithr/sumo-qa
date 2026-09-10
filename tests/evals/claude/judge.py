@@ -122,6 +122,9 @@ VERDICT_SCHEMA: dict[str, Any] = {
 
 _TRUTHY = {"true", "yes", "pass", "y", "1"}
 
+# How many candidate object starts the extractor will try before giving up.
+_MAX_DECODE_ATTEMPTS = 64
+
 
 @dataclass(frozen=True)
 class JudgeVerdict:
@@ -177,32 +180,65 @@ def _reject_non_finite(literal: str) -> Any:
     raise ValueError(f"{literal} is not valid JSON")
 
 
+def _starts_a_value_inside_a_container(text: str, index: int) -> bool:
+    """True when the `{` at `index` sits in a VALUE slot of an enclosing JSON.
+
+    Decided by the nearest preceding non-space character: a `:` means this
+    object is the value of a key, a `,` means it is the next element of an
+    array or object. Either way it belongs to something larger, and reading
+    it on its own would be reading a fragment.
+
+    Prose is the contrast. In "I thought { about it. {\"pass\": ...}" the real
+    verdict is preceded by a full stop and a space, so nothing encloses it.
+    """
+    cursor = index - 1
+    while cursor >= 0 and text[cursor] in " \t\r\n":
+        cursor -= 1
+    return cursor >= 0 and text[cursor] in ":,"
+
+
 def extract_first_json_object(text: str) -> Any:
-    """Return the first parseable JSON object in `text`, or None.
+    """Return the first parseable TOP-LEVEL JSON object in `text`, or None.
 
     Judges wrap their JSON in prose or a markdown fence often enough that
     requiring a bare object would fail honest replies; promptfoo scans for an
     embedded object for the same reason.
 
-    The scan tries to decode from EVERY `{` in turn, rather than walking a
-    single brace-depth counter across the whole reply. That matters for a
-    real reply shape: an unbalanced `{` in the prose before the verdict - "I
-    thought { about it" - permanently raises a depth counter, so the genuine
-    object that follows never returns the count to zero and is never parsed.
-    Failing closed on a recoverable reply is still a failure. Decoding from
-    each candidate start has no such state, and `raw_decode` brings correct
-    handling of nesting, quoted braces and escapes with it rather than
-    reimplementing them here.
+    Two things this has to get right at once, and they pull apart:
+
+    * **A stray `{` in the prose must not hide the verdict.** "I thought {
+      about it" before a perfectly good object is a recoverable reply. A
+      single brace-depth counter never returns to zero after that unmatched
+      brace, so the real object is read as nested and never parsed - failing
+      closed, but failing a reply the judge did give.
+    * **A TRUNCATED reply must not be rescued by its own insides.** A cut-off
+      `{"wrapper": {"pass": true, "score": 1.0, "reason": "ok"}` has a
+      complete-looking verdict inside an object that never closed. Decoding
+      from every `{` finds it and returns a PASS from a reply that was cut
+      off mid-flight - a fragment graded as a verdict.
+
+    So the scan decodes from each `{` in turn, but SKIPS any brace sitting in
+    a value slot of something larger (see `_starts_a_value_inside_a_container`).
+    A nested object is then only ever reached through an enclosing object that
+    parsed as a whole, which is the definition of not being a fragment.
     """
     decoder = json.JSONDecoder(parse_constant=_reject_non_finite)
+    attempts = 0
     for index, char in enumerate(text):
-        if char != "{":
+        if char != "{" or _starts_a_value_inside_a_container(text, index):
             continue
+        # Bounded on purpose. Decoding from every candidate is quadratic, and
+        # the CLI puts no ceiling on a reply's length, so a malformed reply
+        # thousands of braces long could stall a run for seconds per case. A
+        # verdict is not the sixty-fifth object in the reply.
+        attempts += 1
+        if attempts > _MAX_DECODE_ATTEMPTS:
+            return None
         try:
             value, _ = decoder.raw_decode(text, index)
         except ValueError:
-            # Not the start of a valid object (prose brace, trailing comma,
-            # a single-quoted key, a non-finite literal). Try the next one.
+            # Not the start of a valid object (a prose brace, a trailing
+            # comma, a single-quoted key, a non-finite literal). Try the next.
             continue
         if isinstance(value, dict):
             return value

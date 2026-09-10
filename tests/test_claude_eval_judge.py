@@ -42,6 +42,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -858,6 +859,55 @@ def test_a_report_carrying_a_non_finite_number_refuses_to_be_written(tmp_path: P
         crep.write_report(tmp_path / "report.json", report)
 
     assert list(tmp_path.iterdir()) == [], "a refused write leaves no partial file"
+
+
+def test_a_truncated_reply_is_not_rescued_by_its_own_nested_object():
+    """A cut-off reply must not be graded from a fragment inside it.
+
+    `{"wrapper": {"pass": true, "score": 1.0, "reason": "ok"}` never closes -
+    the judge's answer was cut off mid-flight. The inner object nonetheless
+    looks like a complete verdict, so a scan that decodes from every `{`
+    finds it and returns a PASS from a reply that never finished.
+
+    This is the trap on the other side of the stray-prose-brace fix below:
+    one demands looking past a brace that encloses nothing, the other forbids
+    reaching inside a brace that encloses something unfinished. A `{` in a
+    value slot belongs to something larger and is never read on its own.
+    """
+    assert (
+        cj.extract_first_json_object('{"wrapper": {"pass": true, "score": 1.0, "reason": "ok"}')
+        is None
+    )
+
+    verdict = cj.parse_judge_response('{"wrapper": {"pass": true, "score": 1.0, "reason": "ok"}')
+    assert verdict.passed is False
+
+
+def test_a_nested_object_inside_a_COMPLETE_reply_is_still_read():
+    """The carve-out above must not cost the ordinary nested case.
+
+    When the outer object does close, it parses as a whole and its nested
+    values come with it.
+    """
+    verdict = cj.parse_judge_response(
+        '{"pass": true, "score": 1.0, "reason": "ok", "meta": {"axis": {"a": 1}}}'
+    )
+
+    assert verdict.passed is True
+
+
+def test_a_brace_heavy_reply_cannot_stall_the_run():
+    """Decoding from every candidate is quadratic; the attempt count is capped.
+
+    The CLI puts no ceiling on a reply's length, so without a bound a
+    malformed reply thousands of braces long costs seconds of wall clock per
+    case - multiplied by every case in the matrix.
+    """
+    started = time.perf_counter()
+
+    assert cj.extract_first_json_object("{" * 40_000) is None
+
+    assert time.perf_counter() - started < 1.0
 
 
 def test_an_unbalanced_brace_in_prose_does_not_hide_the_verdict():
