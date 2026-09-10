@@ -266,12 +266,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"--repeat must be at least 1, got {args.repeat}", file=sys.stderr)
         return EXIT_USAGE
 
-    if not args.live:
-        return _dry_run(paths, args.config_dir)
-
-    # Before the providers exist, let alone before a call is made, so the
-    # message below cannot be wrong about what it cost.
+    # Both arms load configs and NEITHER has made a call yet, so one handler
+    # covers them and the message below cannot be wrong about what it cost.
+    # The dry run is included deliberately: the same broken config answering
+    # with a clean message on `--live` and a traceback on `--dry-run` would
+    # send people to the more expensive mode to find out what is wrong with
+    # their config.
     try:
+        if not args.live:
+            return _dry_run(paths, args.config_dir)
         loaded = preflight(paths)
     except _CONFIG_ERRORS as exc:
         print(f"config error: {type(exc).__name__}: {exc}", file=sys.stderr)

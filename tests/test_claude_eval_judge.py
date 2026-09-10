@@ -1992,6 +1992,24 @@ def test_an_unresolved_file_reference_also_exits_as_usage(tmp_path: Path, monkey
     assert candidate_calls.calls == []
 
 
+def test_a_broken_config_in_a_dry_run_reports_the_same_way(tmp_path: Path, capsys):
+    """The free mode must diagnose a config at least as well as the paid one.
+
+    Found by running the real entrypoint rather than the tests: the same
+    broken config answered `--live` with a clean message and `--dry-run` with
+    a traceback. That is backwards - it sends someone to the mode that costs
+    money to find out what is wrong with their config.
+    """
+    directory = tmp_path / "configs"
+    directory.mkdir()
+    (directory / "skill-broken.yaml").write_text(BROKEN_CONFIG, encoding="utf-8")
+
+    code = ccli.main(["--config-dir", str(directory), "--config", "skill-broken.yaml"])
+
+    assert code == ccli.EXIT_USAGE
+    assert "config error" in capsys.readouterr().err
+
+
 def test_a_mid_run_file_error_is_not_reported_as_costing_nothing(
     tmp_path: Path, config_dir: Path, monkeypatch, capsys
 ):
