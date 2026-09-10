@@ -66,6 +66,20 @@ npm run eval           # runs the TDD skill eval (needs OPENAI_API_KEY)
 
 See [`tests/evals/promptfoo/README.md`](../tests/evals/promptfoo/README.md) for full eval usage + cost notes.
 
+#### Sizing the matrix offline (no Node, no API key)
+
+A Python runner reads the same promptfoo configs and reports what the matrix
+would cost before anything is spent:
+
+```bash
+uv run python tests/evals/run_claude_eval.py --dry-run
+uv run python tests/evals/run_claude_eval.py --dry-run --skill reviewing-before-merge
+```
+
+It makes no network call. See
+[`tests/evals/claude/README.md`](../tests/evals/claude/README.md) for what it
+covers and what is still promptfoo's job.
+
 To put `sumo-qa` on your PATH for ad-hoc use (optional):
 
 ```bash

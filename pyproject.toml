@@ -223,7 +223,12 @@ packages = ["src/sumo_qa"]
 # resolvable from the repo root for the test suite and the pre-push hook
 # (which runs in pre-commit's isolated venv where conftest.py's sys.path
 # tweak doesn't fire before collection).
-pythonpath = ["src", "."]
+# `tests/evals` exposes the offline Claude eval runner as the package
+# `claude` (tests/evals/claude/). It lives under tests/evals/ rather than
+# src/ deliberately: the eval harness is not part of the shipped wheel, and
+# the private-split plan keeps the whole of tests/evals/ movable in one
+# piece. It is NOT in `--cov` for the same reason the rest of tests/ is not.
+pythonpath = ["src", ".", "tests/evals"]
 testpaths = ["tests"]
 addopts = "-q --cov=src/sumo_qa --cov-fail-under=100"
 
