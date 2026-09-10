@@ -1535,14 +1535,23 @@ def test_an_unsupported_assertion_type_is_rejected(tmp_path):
 
 
 def test_the_runner_never_executes_assertion_source():
-    sources = [
-        p.read_text(encoding="utf-8")
-        for p in (REPO_ROOT / "tests" / "evals" / "claude").glob("*.py")
-    ]
-    joined = "\n".join(sources)
+    """An assertion's `value:` is attacker-shaped input, so it is only parsed.
 
-    for forbidden in ("eval(", "exec(", "subprocess", "node "):
-        assert forbidden not in joined, f"runner must not use {forbidden!r}"
+    `eval(`, `exec(` and a `node ` invocation are refused in every module.
+
+    Process creation is NOT checked here any more, because slice 2's transport
+    legitimately shells out to the Claude Code CLI. It is checked properly
+    instead, on the parsed AST rather than on the file's text, by
+    `test_only_the_transport_module_may_create_a_child_process` - which pins
+    the exemption to one named file, so it cannot quietly become a way to run
+    a config's JavaScript. A text search could not make that distinction: the
+    word `subprocess` appears in prose in modules that never import it.
+    """
+    package = REPO_ROOT / "tests" / "evals" / "claude"
+    for source in sorted(package.glob("*.py")):
+        text = source.read_text(encoding="utf-8")
+        for needle in ("eval(", "exec(", "node "):
+            assert needle not in text, f"{source.name} must not use {needle!r}"
 
 
 # ==========================================================================
@@ -1892,17 +1901,30 @@ def test_dry_run_with_a_skill_filter_scopes_the_matrix(capsys):
 
 
 def test_dry_run_over_an_empty_selection_exits_non_zero(capsys):
+    """Exit 2, not 1. Slice 2 gave exit 1 a meaning - "the run finished and
+    some cases failed" - so a selection that matched nothing has to be
+    distinguishable from it, or a mistyped --skill would read as a real
+    regression."""
     code = ccli.main(["--dry-run", "--skill", "nope", "--config-dir", str(PROMPTFOO_DIR)])
 
-    assert code == 1
+    assert code == ccli.EXIT_USAGE
     assert "no configs" in capsys.readouterr().err.lower()
 
 
-def test_running_without_dry_run_is_refused_in_this_slice(capsys):
-    code = ccli.main(["--config-dir", str(PROMPTFOO_DIR)])
+def test_an_invocation_with_no_mode_flag_does_not_call_a_model(capsys):
+    """The safe default, and the reason it exists.
 
-    assert code == 2
-    assert "--dry-run" in capsys.readouterr().err
+    In slice 1 a bare invocation was refused outright. In slice 2 it performs
+    the DRY RUN - the free mode - because grading now costs real subscription
+    allowance across 218 cases. This test is why: it calls `main()` with no
+    mode flag, so under a draft where the live run was the default it launched
+    the entire matrix against the real account. Spending is opt-in via
+    `--live`; anything else must stay free.
+    """
+    code = ccli.main(["--config-dir", str(PROMPTFOO_DIR), "--skill", "using-sumo-qa"])
+
+    assert code == ccli.EXIT_OK
+    assert "DRY RUN" in capsys.readouterr().out
 
 
 # Every process-creation entry point `os` can expose, across platforms.
@@ -2039,21 +2061,38 @@ def _imported_root_modules(source: str) -> set[str]:
     return {name.split(".")[0] for name in roots} | roots
 
 
-def test_the_runner_imports_no_http_client_or_anthropic_sdk():
-    banned = {
-        "anthropic",
-        "openai",
-        "requests",
-        "httpx",
-        "http",
-        "urllib",
-        "urllib3",
-        "socket",
-        "ssl",
-        "subprocess",
-        "multiprocessing",
-        "asyncio",
-    }
+# Banned in EVERY module of the package, slice 2 included. The runner never
+# speaks HTTP and never opens a socket itself: it shells out to the Claude
+# Code CLI, which owns the transport. A model SDK or an HTTP client appearing
+# here would mean someone had rebuilt the metered API path epic #660 exists to
+# retire, and `openai` would mean promptfoo's provider had crept back in.
+_BANNED_EVERYWHERE = {
+    "anthropic",
+    "openai",
+    "requests",
+    "httpx",
+    "httpx2",
+    "urllib3",
+    "socket",
+    "ssl",
+}
+
+# Banned in every module EXCEPT the transport. `provider.py` is the one place
+# a child process may be created, because driving the CLI is its whole job;
+# confining that to a single named module is what keeps the offline half
+# (loader, templating, assertions, tokens - everything `--dry-run` touches)
+# provably incapable of leaving the process.
+_BANNED_OUTSIDE_THE_TRANSPORT = {
+    "http",
+    "urllib",
+    "subprocess",
+    "multiprocessing",
+    "asyncio",
+}
+_TRANSPORT_MODULE = "provider.py"
+
+
+def test_the_runner_imports_no_http_client_or_model_sdk():
     # Walk the package DIRECTORY rather than a hand-listed tuple. The tuple
     # skipped `__init__.py`, whose imports run before any submodule's, so a
     # banned import there was unguarded; and a module added later would have
@@ -2063,14 +2102,39 @@ def test_the_runner_imports_no_http_client_or_anthropic_sdk():
         "__init__.py",
         "assertions.py",
         "cli.py",
+        "errors.py",
+        "judge.py",
         "loader.py",
+        "models.py",
+        "provider.py",
+        "report.py",
+        "runner.py",
         "templating.py",
         "tokens.py",
     }
     for source in sources:
         imported = _imported_root_modules(source.read_text(encoding="utf-8"))
+        banned = set(_BANNED_EVERYWHERE)
+        if source.name != _TRANSPORT_MODULE:
+            banned |= _BANNED_OUTSIDE_THE_TRANSPORT
         offending = imported & banned
         assert not offending, f"{source.name} imports {sorted(offending)}"
+
+
+def test_only_the_transport_module_may_create_a_child_process():
+    """The exemption is a named file, not a general licence.
+
+    Stated as its own assertion so widening it is a deliberate edit here
+    rather than a side effect of adding an import somewhere.
+    """
+    package = Path(cl.__file__).parent
+    spawners = {
+        source.name
+        for source in sorted(package.glob("*.py"))
+        if _imported_root_modules(source.read_text(encoding="utf-8"))
+        & {"subprocess", "multiprocessing"}
+    }
+    assert spawners == {_TRANSPORT_MODULE}
 
 
 def test_the_import_guard_catches_a_from_import(tmp_path):

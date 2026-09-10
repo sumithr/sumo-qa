@@ -1,17 +1,25 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
-"""Offline core of the Claude skill-eval runner (slice 1 of epic #660).
+"""The Claude skill-eval runner, replacing the OpenAI + promptfoo gate (#660).
 
-This package replaces promptfoo's OFFLINE half: it loads the existing
-promptfoo YAML configs, resolves their `file://` vars, renders their
-templates, evaluates the deterministic `javascript` assertions in Python and
-parses (never grades) the `llm-rubric` ones, then reports an estimated token
-cost for the whole matrix.
+This module deliberately re-exports only the OFFLINE core (slice 1, #661): the
+config loader, the nunjucks-subset renderer, the assertion model with its
+Python ports of the deterministic `javascript` asserts, and the dry run's
+token estimate. Importing `claude` therefore still pulls in nothing that can
+leave the process.
 
-It makes NO network call and imports NO model SDK. The Claude candidate and
-judge tier is slice 2 (#662); promptfoo keeps running untouched until slice 4
-retires it, gated on a parity run.
+The grading tier (slice 2, #662) lives in `claude.provider`, `claude.judge`,
+`claude.runner`, `claude.errors`, `claude.models` and `claude.report`, and is
+imported from those modules directly rather than re-exported here - so the
+transport, which is the one place a child process is created, stays off the
+import path of anything that only needs the offline half.
 
-Entry point: `uv run python tests/evals/run_claude_eval.py --dry-run`.
+It grades through the local Claude Code CLI on the account's Claude
+subscription; there is no model SDK anywhere in the package and nothing here
+speaks HTTP. promptfoo keeps running untouched until slice 4 retires it,
+gated on a parity run.
+
+Entry point: `uv run python tests/evals/run_claude_eval.py` (free), plus
+`--live` to grade.
 """
 
 from claude.assertions import (

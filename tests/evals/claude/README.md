@@ -1,12 +1,33 @@
-# Claude eval runner: offline core
+# Claude eval runner
 
-Slice 1 of the epic that retires the OpenAI + promptfoo skill-eval gate
-(issue #661, epic #660). This package is the **offline half** of the
-replacement runner: everything that can be written, tested and proven with
-zero API calls.
+The replacement for the OpenAI + promptfoo skill-eval gate (epic #660).
+Slice 1 (#661) built the offline half - everything provable with zero model
+calls. Slice 2 (#662) added the half that grades: a candidate that answers
+each assembled prompt and a judge that scores it against the config's rubric.
 
 promptfoo is untouched and still authoritative. It is retired in slice 4,
 gated on a parity run in slice 3.
+
+## It runs on your Claude subscription, not on a metered API key
+
+Issue #662 originally specified the Anthropic SDK and `ANTHROPIC_API_KEY`.
+That was reversed on 2026-09-10, before any of it shipped, for the reason the
+epic exists: the old gate stopped being runnable when metered credit ran out,
+and buying tokens for its replacement would rebuild the same trap.
+
+So the runner drives the local **Claude Code CLI** in headless mode
+(`claude -p --output-format json`), which authenticates against the account's
+existing Claude subscription. There is no API key, no `anthropic` dependency,
+and nothing in the package speaks HTTP - `tests/test_claude_eval_runner.py`
+fails the build if a module imports a model SDK or opens a socket, and
+`provider.py` is the only module permitted to create a child process at all.
+
+**Spending is opt-in.** An invocation with no mode flag performs the dry run
+and calls nothing; `--live` is what grades. The full matrix is 218 cases at
+two model calls each, so the mode you get by accident had better be the free
+one. That default has already earned itself: an existing test called `main()`
+with no flag, and under an earlier draft where live was the default it
+launched the whole matrix against the real account.
 
 ## What it does
 
@@ -36,24 +57,126 @@ compares.
 | `templating.py` | The nunjucks subset the matrix actually uses: `{{ var }}` and `{% for x in list %}`. Value-to-string rules mirror JavaScript (`a,b` for a list, lowercase booleans), not Python. |
 | `assertions.py` | The assertion model, plus Python ports of the deterministic `javascript` asserts. |
 | `tokens.py` | The dry run's offline input-token estimate. |
-| `cli.py` | `--dry-run`, `--skill`, `--config-glob`. |
+| `models.py` | The **only** place a model id appears. Candidate and judge, nothing else. |
+| `provider.py` | The single call path to a model: the CLI argv, the retry policy, usage capture. The one module allowed to start a process. |
+| `errors.py` | Which failures abort the run and which are retried. Fail-closed. |
+| `judge.py` | `llm-rubric` grading: build the judge prompt, read the verdict. |
+| `report.py` | The JSON report's shape, and the rule that it is written once or not at all. |
+| `runner.py` | Drives cases through candidate then judge, `--repeat` times each. |
+| `cli.py` | `--live`, `--dry-run`, `--skill`, `--config`, `--repeat`, `--report`. |
 
 ## Running it
 
 ```bash
-uv run python ../run_claude_eval.py --dry-run
-uv run python ../run_claude_eval.py --dry-run --skill implementing-with-tdd
-uv run python ../run_claude_eval.py --dry-run --config-glob '*.ab.yaml'
+# Free. Assembles every prompt, estimates tokens, calls nothing.
+uv run python ../run_claude_eval.py
+uv run python ../run_claude_eval.py --skill implementing-with-tdd
+
+# Grades. Spends subscription allowance.
+uv run python ../run_claude_eval.py --live --config skill-using-sumo-qa.yaml
+uv run python ../run_claude_eval.py --live --skill reviewing-before-merge --repeat 3 \
+  --report /tmp/eval-report.json
 ```
 
-`--dry-run` is the only mode in this slice. It assembles every prompt for
-every selected config, estimates input tokens, prints a per-config and total
-summary, and exits zero. The Claude candidate/judge tier is slice 2 (#662).
+The dry run's token figure is an **estimate**: `ceil(len(text) / 4)`, the
+usual character-based approximation, because an offline runner has no
+tokenizer. A live run reports the CLI's **measured** usage instead, so the two
+are never confused.
 
-The token figure is an **estimate**: `ceil(len(text) / 4)`, the usual
-character-based approximation, because an offline runner has no tokenizer.
-Slice 2 reports the API's measured usage for live runs; the dry run keeps the
-estimate so the two are never confused.
+Scope every run you can. `--skill` picks up every variant config for one
+skill; `--config` takes a filename or a glob. The judge tier dominates the
+cost, so grading three configs instead of sixty-one is the difference between
+a couple of minutes and an hour.
+
+### Exit codes
+
+| Code | Meaning | On disk |
+|---|---|---|
+| 0 | Every case passed, or the dry run completed. | Report written (live). |
+| 1 | The run finished; some cases failed. | Report written. |
+| 2 | Bad invocation: nothing matched, `--repeat` below 1, CLI missing. | Nothing. |
+| 3 | **Aborted** on quota, usage limit, or any non-retryable failure. | **Nothing.** |
+
+Exit 3 is the #651 regression. The old baseline script turned that situation
+into a zero-passed snapshot on disk, which read as a catastrophic skill
+regression and became the number the next run compared against.
+
+## Keeping the candidate clean
+
+Claude Code normally wraps a prompt in a large system prompt, a full tool
+catalogue, the user's settings and CLAUDE.md files, and any MCP servers
+configured on the machine. All of that is contamination for an isolation
+eval - and one of those MCP servers is sumo-qa itself, which would have the
+candidate grading the skills with the skills.
+
+Every call therefore passes the same five flags. Measured on one machine,
+2026-09-10, Claude Code 2.1.267:
+
+| Flags | Scaffolding tokens |
+|---|---|
+| `--system-prompt` only | ~19,500 |
+| `+ --setting-sources ""` | ~1,900 |
+| `+ --tools ""` (the full set) | **~390** |
+
+`--tools ""` accounts for ~16,800 of the saving and `--setting-sources ""` for
+~1,500. `--strict-mcp-config` (with no `--mcp-config`) and
+`--disable-slash-commands` keep MCP servers and host skills out.
+`--system-prompt` REPLACES the default rather than appending to it. ~390
+residual tokens against prompts of 3,000-22,000 is close enough to clean that
+slice 3's parity comparison can carry it as a documented constant.
+
+## Grading, and one deliberate divergence from promptfoo
+
+The judge reproduces promptfoo's `llm-rubric`: the config's own
+`options.rubricPrompt` is rendered against the case vars plus `output` and
+`rubric` (all 61 live configs declare one; several embed the loaded catalogues
+into the judge context that way), and promptfoo's built-in
+`DEFAULT_GRADING_PROMPT` is the fallback, reproduced verbatim from
+promptfoo 0.121.20. A stringly boolean is coerced, a missing `score` is
+derived from `pass`, and an assertion `threshold` demotes a pass below it.
+
+One thing is **deliberately different**. promptfoo does:
+
+```js
+let pass = parsed.pass ?? true;   // src/matchers/rubric.ts
+```
+
+A judge reply with no `pass` key therefore PASSES. That is how a judge that
+has drifted, truncated, or answered in prose becomes a green gate, so this
+runner fails it instead and carries the raw reply into the reason. The judge
+is also called with `--json-schema`, which constrains the reply to the verdict
+shape; the tolerant parser stays as the second line of defence. Slice 3's
+parity run should expect this difference and no other.
+
+## Cost, and what the dollar figure means
+
+The CLI reports real token usage and a `costUSD` per model at published list
+rates, and those are the numbers the report carries - there is no rate card in
+this package, because a second copy of one goes stale silently and makes every
+report wrong without failing anything.
+
+The run is covered by the subscription, so the dollars are **notional**: the
+list-price equivalent of the tokens consumed. `cost_basis: "list"` in the
+report says so. It is the right number for comparing the candidate tier
+against the judge tier, and the wrong number to read as an invoice.
+
+Usage is recorded per model id rather than per tier, because a call made with
+one model can report two: Claude Code runs a small model for its own
+background work, and that usage lands in the same envelope.
+
+### Measured, one config, 2026-09-10
+
+`--live --config skill-using-sumo-qa.yaml`, one case, one candidate call and
+one judge call:
+
+| Model | Input | Output | Notional USD |
+|---|---|---|---|
+| judge | 4,791 | 883 | $0.1285 |
+| candidate | 13,479 | 539 | $0.0228 |
+| **total** | **18,270** | **1,422** | **$0.1513** |
+
+The judge is 85% of the cost on one case, which is what `--skill` and
+`--config` scoping exist for.
 
 ## Assertions
 

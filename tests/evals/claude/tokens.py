@@ -7,9 +7,10 @@ characters per token for English prose), rounded up, which is enough for the
 dry run's job: showing the shape and relative cost of the matrix before any
 spend. It is an ESTIMATE and is labelled as one wherever it is printed.
 
-Slice 2 (#662) reports real input/output token counts from the API response;
-when it lands, the dry run keeps this estimate and the live run reports the
-measured figure, so the two are never confused.
+A live run (`--live`) reports the MEASURED token counts the Claude Code CLI
+returns for each call instead. The dry run keeps this estimate and the live
+run reports the measured figure, so the two are never confused - the report's
+numbers are always measured, this one is always labelled an estimate.
 """
 
 from __future__ import annotations
