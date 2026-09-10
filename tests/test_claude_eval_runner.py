@@ -1716,6 +1716,55 @@ def test_an_unknown_skill_filter_selects_nothing():
     assert cl.discover_configs(PROMPTFOO_DIR, skill="no-such-skill") == []
 
 
+@pytest.mark.parametrize(
+    "truncated",
+    [
+        "reviewing",
+        "reviewing-before",
+        "implementing",
+        "implementing-with",
+    ],
+)
+def test_a_truncated_skill_name_selects_nothing_rather_than_a_wrong_matrix(truncated):
+    """`no-such-skill` shares no prefix with anything, so it cannot catch the
+    real failure: a name that is a PREFIX of a real skill matched on the
+    hyphen boundary and silently scoped the run to that skill's whole family.
+    A mistyped or shell-truncated `--skill` then produced a confident,
+    non-empty, WRONG matrix - a wrong spend in #662 and a wrong parity
+    comparison in #663 - instead of failing."""
+
+    assert cl.discover_configs(PROMPTFOO_DIR, skill=truncated) == []
+
+
+def test_the_real_skill_those_truncations_point_at_is_still_selectable():
+    """The negative representative from the adjacent class: rejecting
+    prefixes must not also reject the real name, nor drop its variants."""
+
+    names = {p.name for p in cl.discover_configs(PROMPTFOO_DIR, skill="reviewing-before-merge")}
+
+    assert len(names) == 28
+    assert "skill-reviewing-before-merge.yaml" in names
+    assert "skill-reviewing-before-merge.ab.yaml" in names
+    assert "skill-reviewing-before-merge-verifier-evidence.yaml" in names
+
+
+def test_a_variant_config_name_is_itself_selectable():
+    """A variant has a config of its own, so it stays a legal `--skill`
+    value - the rule is "names a config", not "names a skills/ directory"."""
+
+    names = {
+        p.name
+        for p in cl.discover_configs(
+            PROMPTFOO_DIR, skill="reviewing-before-merge-verifier-evidence"
+        )
+    }
+
+    assert names == {
+        "skill-reviewing-before-merge-verifier-evidence.yaml",
+        "skill-reviewing-before-merge-verifier-evidence.ab.yaml",
+    }
+
+
 def test_glob_filter_scopes_the_matrix_to_matching_filenames():
     paths = cl.discover_configs(PROMPTFOO_DIR, pattern="*.ab.yaml")
 

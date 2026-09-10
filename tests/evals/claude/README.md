@@ -18,7 +18,9 @@ each one produces a fully-resolved list of
 The selection is `skill-*.yaml` minus `*.gen.yaml` (two generator seeds whose
 headers say they are not for running evals) minus `*.generated-tests.yaml`
 (gitignored `tests:` include payloads - bare YAML lists, not configs). That is
-**61 configs**, not the 65 `*.yaml` files on disk.
+**61 configs**. A fresh clone holds 63 tracked `*.yaml` here - the 61 plus the
+two generator seeds - and a maintainer checkout where the generator has run
+holds 65, the extra two being the gitignored include payloads.
 
 That rule is deliberately **stricter** than `npm run eval:all`. The shell
 script globs `skill-*.yaml` and skips only `*.gen.yaml`, so its own glob
@@ -336,7 +338,7 @@ Enforced by [`tests/test_claude_eval_runner.py`](../../test_claude_eval_runner.p
   `Process.start` (which reaches neither of the others), and each of
   `os.system`, `os.execv(e)`, `os.spawnv(e)`, `os.posix_spawn(p)`, `os.fork`,
   `os.forkpty` and `os.startfile` that the running platform exposes - the last
-  five are platform-specific. That covers the primitives every other `os.exec*`
+  four of those are platform-specific, while `os.spawnv(e)` exists on both. That covers the primitives every other `os.exec*`
   and `os.spawn*` wrapper delegates to, so an out-of-process escape - which
   would also escape the socket poisoning - is refused. It is a guard on the
   entry points named here, not a proof that no child can ever be created;

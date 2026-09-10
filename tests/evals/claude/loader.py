@@ -369,6 +369,13 @@ def load_config(path: Path) -> EvalConfig:
     )
 
 
+def _all_config_paths(directory: Path) -> list[Path]:
+    """Every real config in `directory`, before any `skill`/`pattern` filter."""
+    return sorted(
+        p for p in Path(directory).glob(_CONFIG_GLOB) if not p.name.endswith(_NOT_A_CONFIG)
+    )
+
+
 def discover_configs(
     directory: Path = PROMPTFOO_DIR,
     *,
@@ -391,15 +398,26 @@ def discover_configs(
     full skill directory name (`sumo-qa-reviewing-before-merge`), and picks up
     every variant config for that skill - the base config, its `.ab.yaml`
     control, and any `-<variant>.yaml` sibling.
+
+    It must NAME a config, though, not merely prefix one. Matching on the
+    hyphen boundary alone let `reviewing` select the whole
+    `reviewing-before-merge` family, so a mistyped or shell-truncated
+    `--skill` produced a confident, non-empty, WRONG matrix rather than
+    failing. A value that names no config selects nothing, which is the
+    caller's unknown-skill path.
     """
-    paths = sorted(
-        p for p in Path(directory).glob(_CONFIG_GLOB) if not p.name.endswith(_NOT_A_CONFIG)
-    )
+    paths = _all_config_paths(directory)
     if pattern:
         paths = [p for p in paths if fnmatch.fnmatch(p.name, pattern)]
     if skill:
         bare = skill[len(_SKILL_PREFIX) :] if skill.startswith(_SKILL_PREFIX) else skill
         prefix = f"skill-{bare}"
+        # The stem is the filename up to its first dot, so a config and its
+        # `.ab.yaml` control contribute the same stem. Validate against the
+        # unfiltered selection: a `pattern` narrowing the matrix must not
+        # make an otherwise-real skill name look unknown.
+        if prefix not in {p.name.split(".", 1)[0] for p in _all_config_paths(directory)}:
+            return []
         paths = [
             p for p in paths if p.name.startswith(f"{prefix}.") or p.name.startswith(f"{prefix}-")
         ]
