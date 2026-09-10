@@ -1999,11 +1999,15 @@ def test_dry_run_constructs_no_socket_no_http_client_and_no_child_process(monkey
     monkeypatch.setattr(http.client.HTTPConnection, "__init__", explode)
     monkeypatch.setattr(http.client.HTTPSConnection, "__init__", explode)
     monkeypatch.setattr(subprocess.Popen, "__init__", no_spawn)
-    # `multiprocessing` reaches neither `subprocess.Popen` nor any `os` name
-    # below: it goes through `_posixsubprocess.fork_exec` on POSIX and
-    # `_winapi.CreateProcess` on Windows. A child started that way would also
-    # miss the socket poisoning above, so it is an out-of-process network
-    # escape this test would otherwise pass straight through.
+    # `multiprocessing` does not reach `subprocess.Popen`, and under the
+    # `spawn` and `forkserver` contexts it does not reach any `os` name below
+    # either: it goes to `_winapi.CreateProcess` on Windows and to
+    # `_posixsubprocess.fork_exec` via the forkserver. (Under the default
+    # `fork` context on non-macOS POSIX it does call `os.fork`, which the
+    # list below already poisons - but that is the one case, not the rule.)
+    # A child started outside those guards would also miss the socket
+    # poisoning above, so it is an out-of-process network escape this test
+    # would otherwise pass straight through.
     monkeypatch.setattr(multiprocessing.Process, "start", no_spawn)
 
     patched = _available_spawn_entry_points(os)
@@ -2049,10 +2053,23 @@ def test_the_runner_imports_no_http_client_or_anthropic_sdk():
         "multiprocessing",
         "asyncio",
     }
-    for module in (cl, ct, ca, ctok, ccli):
-        imported = _imported_root_modules(Path(module.__file__).read_text(encoding="utf-8"))
+    # Walk the package DIRECTORY rather than a hand-listed tuple. The tuple
+    # skipped `__init__.py`, whose imports run before any submodule's, so a
+    # banned import there was unguarded; and a module added later would have
+    # been guarded only if someone remembered to extend the list.
+    sources = sorted(Path(cl.__file__).parent.glob("*.py"))
+    assert {p.name for p in sources} >= {
+        "__init__.py",
+        "assertions.py",
+        "cli.py",
+        "loader.py",
+        "templating.py",
+        "tokens.py",
+    }
+    for source in sources:
+        imported = _imported_root_modules(source.read_text(encoding="utf-8"))
         offending = imported & banned
-        assert not offending, f"{module.__name__} imports {sorted(offending)}"
+        assert not offending, f"{source.name} imports {sorted(offending)}"
 
 
 def test_the_import_guard_catches_a_from_import(tmp_path):

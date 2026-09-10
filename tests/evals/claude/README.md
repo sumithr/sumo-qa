@@ -335,7 +335,8 @@ Enforced by [`tests/test_claude_eval_runner.py`](../../test_claude_eval_runner.p
   `socket.create_connection`, `socket.getaddrinfo`, both `http.client`
   connection constructors, and the process-creation entry points: for the
   duration of the run it poisons `subprocess.Popen`, `multiprocessing`'s
-  `Process.start` (which reaches neither of the others), and each of
+  `Process.start` (which under the `spawn` and `forkserver` contexts, and on
+  Windows, reaches neither of the others), and each of
   `os.system`, `os.execv(e)`, `os.spawnv(e)`, `os.posix_spawn(p)`, `os.fork`,
   `os.forkpty` and `os.startfile` that the running platform exposes - the last
   four of those are platform-specific, while `os.spawnv(e)` exists on both. That covers the primitives every other `os.exec*`
