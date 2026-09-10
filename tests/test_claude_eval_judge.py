@@ -884,6 +884,87 @@ def test_a_truncated_reply_is_not_rescued_by_its_own_nested_object():
         assert cj.parse_judge_response(truncated).passed is False, truncated
 
 
+# Replies that are cut off or malformed in a way that leaves a complete-LOOKING
+# verdict inside them. Every one must yield nothing: grading a fragment turns a
+# broken judge into a green gate, which is the only failure in this module that
+# actually matters. Written out in full rather than composed, so what each
+# fixture is missing is visible on the line itself.
+FRAGMENT_SHAPES = [
+    pytest.param(
+        '{"wrapper": {"pass": true, "score": 1.0, "reason": "ok"}',
+        id="truncated-object-wrapper",
+    ),
+    pytest.param('[{"pass": true, "score": 1.0, "reason": "ok"}', id="truncated-array"),
+    pytest.param('{{"pass": true, "score": 1.0, "reason": "ok"}', id="truncated-double-brace"),
+    pytest.param('[[[{"pass": true, "score": 1.0, "reason": "ok"}', id="truncated-deep-arrays"),
+    pytest.param('{"pass": true, "reason": "unterminated', id="unterminated-string"),
+    pytest.param('{"pass": true, "score": 1.0, "reason": "x\\', id="trailing-backslash"),
+]
+
+
+@pytest.mark.parametrize("text", FRAGMENT_SHAPES)
+def test_no_fragment_of_a_broken_reply_is_ever_graded(text):
+    assert cj.extract_first_json_object(text) is None, text
+    assert cj.parse_judge_response(text).passed is False, text
+
+
+# The other side: replies that are unusual but COMPLETE, and must still be
+# read. Each moves the bracket stack in a way a naive scan gets wrong.
+AWKWARD_BUT_COMPLETE = [
+    pytest.param(
+        '} ] {"pass": true, "score": 1.0, "reason": "ok"}',
+        id="stray-closers-before-the-verdict",
+    ),
+    pytest.param(
+        '{"pass": true, "score": 1.0, "reason": "ok"} then {"more": ',
+        id="valid-then-a-truncated-second",
+    ),
+    pytest.param(
+        '[{"x": 1}] {"pass": true, "score": 1.0, "reason": "ok"}',
+        id="complete-array-then-the-verdict",
+    ),
+]
+
+
+@pytest.mark.parametrize("text", AWKWARD_BUT_COMPLETE)
+def test_an_awkward_but_complete_reply_is_still_read(text):
+    verdict = cj.parse_judge_response(text)
+
+    assert verdict.passed is True
+    assert verdict.reason == "ok"
+
+
+BRACKETS_INSIDE_STRINGS = [
+    pytest.param(
+        '{"pass": true, "score": 1.0, "reason": "has [ { ] } inside"}',
+        "has [ { ] } inside",
+        id="brackets-in-a-string",
+    ),
+    pytest.param(
+        r'{"pass": true, "score": 1.0, "reason": "path C:\\"}', "path C:\\", id="doubled-backslash"
+    ),
+    pytest.param(
+        r'{"pass": true, "score": 1.0, "reason": "{ not a brace"}',
+        "{ not a brace",
+        id="unicode-escaped-brace",
+    ),
+]
+
+
+@pytest.mark.parametrize("text,expected_reason", BRACKETS_INSIDE_STRINGS)
+def test_a_bracket_inside_a_string_never_moves_the_stack(text, expected_reason):
+    """String and escape tracking is what makes the stack trustworthy.
+
+    A `{`, `}`, `[` or `]` inside a quoted reason is text, not structure.
+    Counting one would either hide a real verdict or, worse, make a truncated
+    reply look balanced.
+    """
+    verdict = cj.parse_judge_response(text)
+
+    assert verdict.passed is True
+    assert verdict.reason == expected_reason
+
+
 def test_a_nested_object_inside_a_COMPLETE_reply_is_still_read():
     """The carve-out above must not cost the ordinary nested case.
 
