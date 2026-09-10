@@ -122,6 +122,10 @@ VERDICT_SCHEMA: dict[str, Any] = {
 
 _TRUTHY = {"true", "yes", "pass", "y", "1"}
 
+# Closer -> the opener it must match. A mismatch means broken nesting.
+_CLOSERS = {"}": "{", "]": "["}
+_OPENERS = frozenset(_CLOSERS.values())
+
 
 @dataclass(frozen=True)
 class JudgeVerdict:
@@ -230,15 +234,26 @@ def extract_first_json_object(text: str) -> Any:
             continue
         if char == '"':
             in_string = True
-        elif char in "{[":
+        elif char in _OPENERS:
             if not stack and char == "{":
                 start = index
             stack.append(char)
-        elif char in "}]":
+        elif char in _CLOSERS:
             if not stack:
                 # A closer with nothing open: prose, not structure. Ignore it
                 # rather than letting it drive the stack negative.
                 continue
+            if stack[-1] != _CLOSERS[char]:
+                # A closer that does not match its opener - `{"wrapper": ]` -
+                # means the reply's structure is broken, not merely
+                # unfinished. Popping anyway would empty the stack and hand
+                # top-level status to whatever follows, so a malformed wrapper
+                # would surrender its insides: `{"wrapper": ] {"pass": true,
+                # ...}` graded the verdict that was never top-level at all.
+                # Once the nesting is inconsistent nothing later in the reply
+                # can be trusted to be top-level, so the whole reply is
+                # refused.
+                return None
             stack.pop()
             if not stack and start >= 0:
                 try:
@@ -256,12 +271,20 @@ def extract_first_json_object(text: str) -> Any:
 
 
 def _coerce_pass(value: Any) -> bool | None:
+    """Read the judge's verdict, or None when there is nothing usable to read.
+
+    The non-finite guard is not theoretical. `bool(float("nan"))` is True, so
+    a `pass` of `NaN` arriving through `structured_output` - which the CLI
+    hands over already parsed by an ordinary `json.loads` that accepts it -
+    would read as a PASS. That is the same door the score guard closes, and
+    the verdict field deserves it at least as much as the score does.
+    """
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
         return value.strip().lower() in _TRUTHY
     if isinstance(value, (int, float)):
-        return bool(value)
+        return bool(value) if math.isfinite(value) else None
     return None
 
 

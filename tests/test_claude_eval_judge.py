@@ -902,6 +902,61 @@ FRAGMENT_SHAPES = [
 ]
 
 
+MISMATCHED_DELIMITERS = [
+    pytest.param(
+        '{"wrapper": ] {"pass": true, "score": 1.0, "reason": "ok"}',
+        id="brace-closed-by-a-bracket",
+    ),
+    pytest.param('[} {"pass": true, "score": 1.0, "reason": "ok"}', id="bracket-closed-by-a-brace"),
+    pytest.param(
+        '{"a": [1} {"pass": true, "score": 1.0, "reason": "ok"}',
+        id="inner-bracket-closed-by-a-brace",
+    ),
+]
+
+
+@pytest.mark.parametrize("text", MISMATCHED_DELIMITERS)
+def test_a_closer_that_does_not_match_its_opener_refuses_the_whole_reply(text):
+    """Broken nesting is not the same as unfinished nesting, and is worse.
+
+    A stack that pops on ANY closer lets `]` close a `{`. The stack empties,
+    the malformed wrapper fails to decode, and the verdict sitting inside it
+    is then handed top-level status and graded - a green gate out of a reply
+    whose structure never made sense.
+
+    Once the nesting is inconsistent, nothing later in the reply can be
+    trusted to be top-level, so the whole reply is refused rather than
+    resynchronised.
+    """
+    assert cj.extract_first_json_object(text) is None, text
+    assert cj.parse_judge_response(text).passed is False, text
+
+
+NON_FINITE_PASS_VALUES = [
+    pytest.param(float("nan"), id="nan"),
+    pytest.param(float("inf"), id="infinity"),
+    pytest.param(float("-inf"), id="negative-infinity"),
+]
+
+
+@pytest.mark.parametrize("value", NON_FINITE_PASS_VALUES)
+def test_a_non_finite_pass_value_is_not_a_verdict(value):
+    """`bool(float("nan"))` is True, so a NaN `pass` reads as a PASS.
+
+    It arrives through the same `structured_output` door the score guard
+    closes - handed over by the CLI, already parsed by an ordinary
+    `json.loads` that accepts non-finite literals. The verdict field deserves
+    the guard at least as much as the score does: this one decides the
+    outcome directly.
+    """
+    verdict = cj.parse_judge_response(
+        "ignored prose", structured_output={"pass": value, "score": 1.0, "reason": "ok"}
+    )
+
+    assert verdict.passed is False
+    assert verdict.score == 0.0
+
+
 @pytest.mark.parametrize("text", FRAGMENT_SHAPES)
 def test_no_fragment_of_a_broken_reply_is_ever_graded(text):
     assert cj.extract_first_json_object(text) is None, text
