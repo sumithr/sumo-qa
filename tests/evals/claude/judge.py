@@ -219,25 +219,38 @@ def _coerce_pass(value: Any) -> bool | None:
     return None
 
 
+class _NonFiniteScore(ValueError):
+    """The reply carried a score that is not a finite number."""
+
+
 def _coerce_score(value: Any, *, fallback: bool) -> float:
     """Read the judge's score, falling back to the boolean verdict.
 
-    Non-finite values are refused rather than carried. `float("nan")` compares
-    False against every threshold, so a NaN score would slip a would-be-failing
-    verdict past the threshold check, and `float("inf")` would clear any
-    threshold at all. Both fall back to the boolean, which is the only other
-    thing the reply actually asserted.
+    An ABSENT or unreadable score falls back to the boolean, which is the only
+    other thing the reply asserted. A score that is PRESENT but not finite
+    does not: it raises, and the caller turns it into an ungradeable verdict.
+
+    The distinction is load-bearing, and getting it wrong is how the first
+    attempt at this fix reintroduced the bug it was closing. Falling back to
+    the boolean for a `NaN` score means `pass: true` becomes score 1.0, which
+    then clears any threshold - so a reply the runner is supposed to refuse
+    passes a 0.9 gate instead. Refusing outright is the only reading
+    consistent with how this module treats every other malformed reply.
     """
     if isinstance(value, bool):
         return float(value)
     if isinstance(value, (int, float)):
-        return float(value) if math.isfinite(value) else float(fallback)
+        if not math.isfinite(value):
+            raise _NonFiniteScore(repr(value))
+        return float(value)
     if isinstance(value, str):
         try:
             parsed = float(value.strip())
         except ValueError:
             return float(fallback)
-        return parsed if math.isfinite(parsed) else float(fallback)
+        if not math.isfinite(parsed):
+            raise _NonFiniteScore(value)
+        return parsed
     return float(fallback)
 
 
@@ -272,7 +285,20 @@ def parse_judge_response(
             "defaulted this to PASS; this runner fails it instead (#662).",
         )
 
-    score = _coerce_score(payload.get("score"), fallback=passed)
+    try:
+        score = _coerce_score(payload.get("score"), fallback=passed)
+    except _NonFiniteScore as exc:
+        # Reachable from BOTH doors. The text path is already blocked by
+        # `parse_constant`, but `structured_output` is handed over by the CLI,
+        # parsed by an ordinary `json.loads` that accepts `NaN` and the
+        # infinities - so without this the same malformed value would fail
+        # loudly through one door and pass through the other.
+        return _ungradeable(
+            text,
+            f"the judge's score is not a finite number ({exc}), so it cannot be "
+            "compared against a threshold. Failing rather than defaulting to "
+            "pass (#662).",
+        )
     reason = str(payload.get("reason") or "").strip()
 
     if threshold is not None and passed and score < threshold:

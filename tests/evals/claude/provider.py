@@ -393,8 +393,7 @@ class Provider:
             subtype = attempt.envelope.get("subtype")
             if envelope_type != _SUCCESS_TYPE or subtype != _SUCCESS_SUBTYPE:
                 parts.append(
-                    f"envelope is not a success result: type={envelope_type!r} "
-                    f"subtype={subtype!r}"
+                    f"envelope is not a success result: type={envelope_type!r} subtype={subtype!r}"
                 )
             if attempt.envelope.get("is_error"):
                 parts.append(f"is_error with subtype {subtype!r}")

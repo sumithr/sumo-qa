@@ -801,6 +801,50 @@ def test_a_non_finite_score_cannot_clear_a_threshold(text):
     assert verdict.score == 0.0
 
 
+NON_FINITE_STRUCTURED = [
+    pytest.param(float("nan"), id="nan"),
+    pytest.param(float("inf"), id="infinity"),
+    pytest.param(float("-inf"), id="negative-infinity"),
+]
+
+
+@pytest.mark.parametrize("score", NON_FINITE_STRUCTURED)
+def test_a_non_finite_score_is_refused_through_the_schema_door_too(score):
+    """The same malformed value must not fail one way and pass the other.
+
+    Two doors reach the verdict. The TEXT path is blocked by `parse_constant`,
+    which refuses `NaN` and the infinities outright. `structured_output` comes
+    from the CLI's own envelope, parsed by an ordinary `json.loads` that
+    accepts all three - so it bypasses that guard entirely.
+
+    The first attempt at this fix fell back to the boolean for a non-finite
+    score, which turned `pass: true` into score 1.0 and cleared a 0.9
+    threshold: the reply the runner exists to refuse, passing. An ABSENT score
+    still falls back; a PRESENT but unusable one is refused.
+    """
+    verdict = cj.parse_judge_response(
+        "ignored prose",
+        threshold=0.9,
+        structured_output={"pass": True, "score": score, "reason": "r"},
+    )
+
+    assert verdict.passed is False
+    assert verdict.score == 0.0
+    assert "not a finite number" in verdict.reason
+
+
+def test_an_absent_score_still_falls_back_to_the_boolean_verdict():
+    """The carve-out the rule above must not swallow.
+
+    promptfoo derives a missing `score` from `pass`, and so does this runner.
+    Only a score that is present and unusable is refused.
+    """
+    verdict = cj.parse_judge_response('{"pass": true, "reason": "no score given"}')
+
+    assert verdict.passed is True
+    assert verdict.score == 1.0
+
+
 def test_a_report_carrying_a_non_finite_number_refuses_to_be_written(tmp_path: Path):
     """The second gate on the same class, at the file boundary.
 
