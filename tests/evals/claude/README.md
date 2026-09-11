@@ -135,15 +135,16 @@ Every call therefore passes the same five flags. Measured on one machine,
 residual tokens against prompts of 3,000-22,000 is close enough to clean that
 slice 3's parity comparison can carry it as a documented constant.
 
-## Grading, and one deliberate divergence from promptfoo
+## Grading, and where it diverges from promptfoo
 
 The judge reproduces promptfoo's `llm-rubric`: the config's own
 `options.rubricPrompt` is rendered against the case vars plus `output` and
 `rubric` (all 61 live configs declare one; several embed the loaded catalogues
 into the judge context that way), and promptfoo's built-in
 `DEFAULT_GRADING_PROMPT` is the fallback, reproduced verbatim from
-promptfoo 0.121.20. A stringly boolean is coerced, a missing `score` is
-derived from `pass`, and an assertion `threshold` demotes a pass below it.
+promptfoo 0.121.20. A stringly boolean is coerced by promptfoo's own anchored
+rule, a missing `score` is derived from `pass`, and an assertion `threshold`
+demotes a pass below it.
 
 Assertion outcomes in the report carry one of three `kind` values, and the
 third is load-bearing: `llm-rubric` (the judge graded it), `javascript` (a
@@ -163,8 +164,26 @@ A judge reply with no `pass` key therefore PASSES. That is how a judge that
 has drifted, truncated, or answered in prose becomes a green gate, so this
 runner fails it instead and carries the raw reply into the reason. The judge
 is also called with `--json-schema`, which constrains the reply to the verdict
-shape; the tolerant parser stays as the second line of defence. Slice 3's
-parity run should expect this difference and no other.
+shape; the tolerant parser stays as the second line of defence.
+
+### The full divergence list
+
+Slice 3's parity run should expect these and no others. An earlier version of
+this section claimed there was only the first, which would have had slice 3
+classify the rest as noise.
+
+| # | Divergence | Direction |
+|---|---|---|
+| 1 | A reply with no `pass` key fails here; promptfoo passes it. | Stricter |
+| 2 | A non-finite `score` or `pass` is refused outright; promptfoo grades it. | Stricter |
+| 3 | A verdict preceded by an opener consumed as string content is refused. promptfoo scans from every `{`, appends missing braces and parses with `yaml.load`, so it recovers some of these. | Stricter |
+| 4 | `output` and `rubric` win over a case var of the same name. promptfoo spreads `...vars` last, so there a case var shadows the candidate's answer. | Differs; latent, no live config declares either name |
+
+Three earlier differences were **removed** rather than documented, because
+each made this runner LOOSER than the gate it replaces: `"1"` and padded
+strings such as `" yes "` counted as a pass, a numeric `pass` counted as a
+pass, and a present-but-junk `score` (`null`, `""`, `[]`) fell back to the
+boolean instead of scoring 0. All three now match promptfoo exactly.
 
 ## Cost, and what the dollar figure means
 

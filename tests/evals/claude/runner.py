@@ -36,7 +36,7 @@ rather than a reason to abandon the matrix.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -83,7 +83,11 @@ JUDGE_SYSTEM_PROMPT = (
 )
 
 
-def preflight(config_paths: Sequence[Path]) -> list[tuple[str, list]]:
+def preflight(
+    config_paths: Sequence[Path],
+    *,
+    on_warning: Callable[[str, str], None] | None = None,
+) -> list[tuple[str, list]]:
     """Load every selected config and build its cases. No model call.
 
     Its own step, and callable on its own, so the CLI can run it BEFORE it
@@ -96,10 +100,26 @@ def preflight(config_paths: Sequence[Path]) -> list[tuple[str, list]]:
     plenty. Absorbing a failure and misreporting what it cost is the exact
     class of bug this package exists to prevent (#651).
     """
-    return [
-        (Path(path).name, loader.build_cases(loader.load_config(Path(path))))
-        for path in config_paths
-    ]
+    loaded = []
+    for path in config_paths:
+        config = loader.load_config(Path(path))
+        # Surfaced on the LIVE path, not only in the dry run. A missing
+        # `file://` test include degrades to a warning and zero tests by
+        # design, so a run that silently graded a shrunken matrix produced a
+        # report shaped exactly like a full one. Comparing those two is the
+        # #651 mis-read with a different cause.
+        if on_warning is not None:
+            for warning in config.warnings:
+                on_warning(Path(path).name, warning)
+        loaded.append((Path(path).name, loader.build_cases(config)))
+    return loaded
+
+
+_NO_ASSERTIONS = (
+    "config gap: this case declares no assertions, so nothing graded the "
+    "answer. Recorded as not passed - a case no assertion examined is not "
+    "evidence the skill did anything right."
+)
 
 
 def _in_declared_order(records: list[tuple[int, AssertionRecord]]) -> list[AssertionRecord]:
@@ -232,7 +252,13 @@ class Runner:
             prompt_label=case.prompt_label,
             description=case.description,
             repeat=repeat,
-            passed=all(record.passed for _, record in records),
+            # `all([])` is True, so a case carrying NO assertions used to be
+            # reported as a pass having paid for a candidate call that nothing
+            # graded. An ungraded case priced as a pass is the #651 shape, and
+            # this file already refuses to let a harness gap wear a skill
+            # result's costume elsewhere (`javascript-unported`).
+            passed=bool(records) and all(record.passed for _, record in records),
+            error=None if records else _NO_ASSERTIONS,
             assertions=_in_declared_order(records),
         )
 

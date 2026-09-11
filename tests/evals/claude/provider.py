@@ -399,6 +399,12 @@ class Provider:
         including every shape not seen before, is a failure - the same
         fail-closed posture `claude/errors.py` takes, applied one layer
         earlier.
+
+        And the shape is not sufficient either: a success envelope must carry
+        an actual answer. One that does not is a failure, because the
+        alternative is grading the skill on a blank string it never produced.
+        The single exception is a refusal, which is answerless by definition
+        and is one case's problem rather than the run's.
         """
         parts: list[str] = []
         if attempt.returncode != 0:
@@ -420,6 +426,23 @@ class Provider:
             result = attempt.envelope.get("result")
             if parts and isinstance(result, str) and result:
                 parts.append(f"result {result!r}")
+            # The SHAPE saying success is not the same as an answer being
+            # there, and only the shape was ever checked. A success envelope
+            # whose `result` is absent, non-string, or blank was coerced to
+            # "" and handed to the judge, which then failed the case - so the
+            # skill was scored on something it never said and the zero landed
+            # in the baseline as a quality regression. That is #651 one layer
+            # below where this function catches it, and the suite already
+            # states the intent for unparseable stdout without covering this.
+            #
+            # A refusal is the one legitimate answerless success; it carries
+            # `stop_reason: "refusal"` and `_completion` owns it, so it must
+            # not be dragged into an abort here.
+            elif attempt.envelope.get("stop_reason") != "refusal":
+                if not isinstance(result, str) or not result.strip():
+                    parts.append(
+                        f"envelope claims success but carries no answer to grade: result={result!r}"
+                    )
         # Appended only when something else already marked this a failure:
         # Claude Code writes ordinary warnings to stderr, so stderr alone is
         # not evidence of one. When there IS a failure it must be included,

@@ -56,6 +56,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import yaml
+
 from claude import loader, tokens
 from claude.assertions import (
     UnportableJavascriptPatternError,
@@ -101,6 +103,15 @@ _NAME_WIDTH = 56
 # on first evaluation - be reported as "no model call was made" on a run that
 # had already made plenty.
 _CONFIG_ERRORS = (
+    # A YAML syntax error is the MOST common real malformation and was in
+    # neither this tuple nor `MalformedConfigError`, which fires only on a
+    # non-mapping top level. A truncated config therefore escaped as a
+    # traceback and exited 1 - documented as "the run finished; some cases
+    # failed, report written", every clause of which was false.
+    yaml.YAMLError,
+    # A prompt or test mapping missing a required key, from the loader's own
+    # indexing. Same class, same wrong exit code.
+    KeyError,
     loader.MalformedConfigError,
     UnsupportedAssertionTypeError,
     UnportedJavascriptAssertionError,
@@ -171,6 +182,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,
     )
     return parser
+
+
+def _warn(config_name: str, warning: str) -> None:
+    """A loader warning, on the path that spends money as well as the free one."""
+    print(f"    warning: {config_name}: {warning}", file=sys.stderr)
 
 
 def build_providers(args: argparse.Namespace) -> tuple[Provider, Provider]:
@@ -275,7 +291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if not args.live:
             return _dry_run(paths, args.config_dir)
-        loaded = preflight(paths)
+        loaded = preflight(paths, on_warning=_warn)
     except _CONFIG_ERRORS as exc:
         print(f"config error: {type(exc).__name__}: {exc}", file=sys.stderr)
         print(
@@ -313,7 +329,23 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     _print_summary(report)
     if args.report:
-        write_report(Path(args.report), report)
+        # The matrix is already paid for at this point, so a write failure -
+        # an unwritable path, a full disk, or `report.py`'s own refusal to
+        # serialise a non-finite number - must not escape as a traceback.
+        # Under `raise SystemExit(main())` that surfaced as shell exit 1,
+        # which is documented as "the run finished, report written", directly
+        # contradicting the green summary printed one line above.
+        try:
+            write_report(Path(args.report), report)
+        except OSError as exc:
+            print("", file=sys.stderr)
+            print(f"the run completed but the report could not be written: {exc}", file=sys.stderr)
+            print(
+                "The grading above is real and is NOT on disk. Re-run with a "
+                "writable --report path; the matrix will be paid for again.",
+                file=sys.stderr,
+            )
+            return EXIT_ABORTED
         print(f"  report: {args.report}")
 
     return EXIT_OK if report.passed else EXIT_FAILED

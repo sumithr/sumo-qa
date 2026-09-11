@@ -98,7 +98,7 @@ which is the #651 regression. Measured cost, one config, 2026-09-10:
 was covered by the subscription).
 
 See [`tests/evals/claude/README.md`](../tests/evals/claude/README.md) for the
-model pair, the isolation flags, and the one deliberate divergence from
+model pair, the isolation flags, and the full list of divergences from
 promptfoo's grading. promptfoo remains authoritative until the parity run.
 
 To put `sumo-qa` on your PATH for ad-hoc use (optional):

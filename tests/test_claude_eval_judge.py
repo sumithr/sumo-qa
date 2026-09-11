@@ -582,6 +582,56 @@ def test_unparseable_cli_output_aborts_rather_than_being_read_as_an_answer():
         provider.complete("p")
 
 
+@pytest.mark.parametrize(
+    ("label", "overrides"),
+    [
+        ("absent", {"__pop_result__": True}),
+        ("empty string", {"result": ""}),
+        ("whitespace only", {"result": "   "}),
+        ("not a string", {"result": {"answer": "the real answer"}}),
+    ],
+)
+def test_a_success_envelope_with_no_answer_is_not_graded_as_a_blank_one(label, overrides):
+    """The shape saying success is not the same as an answer being there.
+
+    `_failure_text` established success POSITIVELY on the envelope's shape but
+    never on its payload, so a `result` that was absent, blank, or not a
+    string was coerced to `""` and handed to the judge. The judge then failed
+    the case, and a zero landed in the baseline as a SKILL quality regression
+    caused entirely by the harness - #651 one layer below where that function
+    catches it. The module's own `test_unparseable_cli_output_...` states this
+    intent verbatim and guarded only unparseable stdout.
+
+    Equivalence partitioning over the answerless classes: the missing
+    empty/null/wrong-type partition is exactly the one that was absent.
+    """
+    payload = envelope(**{k: v for k, v in overrides.items() if k != "__pop_result__"})
+    if overrides.get("__pop_result__"):
+        payload.pop("result")
+    provider, _ = make_provider([FakeProcess(json.dumps(payload))])
+
+    with pytest.raises(ce.FatalRunError) as excinfo:
+        provider.complete("p")
+
+    assert "no answer to grade" in str(excinfo.value), label
+
+
+def test_a_refusal_is_still_a_refusal_and_not_an_answerless_abort():
+    """The one legitimate answerless success.
+
+    A refusal carries `result: ""` on an otherwise-successful envelope, which
+    is precisely the shape the check above now aborts on. Dragging it into an
+    abort would kill the whole matrix over one declined prompt - the opposite
+    of the stated design, where a refusal fails one case.
+    """
+    provider, _ = make_provider(
+        [FakeProcess(json.dumps(envelope(stop_reason="refusal", result="")))]
+    )
+
+    with pytest.raises(cp.RefusedError):
+        provider.complete("p")
+
+
 def test_a_refusal_stop_reason_is_not_read_as_an_answer():
     provider, _ = make_provider(
         [FakeProcess(json.dumps(envelope(stop_reason="refusal", result="")))]
@@ -961,6 +1011,38 @@ FRAGMENT_SHAPES = [
     pytest.param('[[[{"pass": true, "score": 1.0, "reason": "ok"}', id="truncated-deep-arrays"),
     pytest.param('{"pass": true, "reason": "unterminated', id="unterminated-string"),
     pytest.param('{"pass": true, "score": 1.0, "reason": "x\\', id="trailing-backslash"),
+    # The quote-desync family. `in_string` is a parity toggle with no
+    # resynchronisation, so ONE unmatched quote inverts "string" and
+    # "structure" for the rest of the reply: the wrapper's `{` is consumed as
+    # string content while the nested verdict's `{` is exposed as top-level.
+    # The stack is then genuinely empty at the fragment, it decodes, and it
+    # was returned - every one of these graded as a PASS with an outer object
+    # that never closed.
+    #
+    # Quote parity does NOT identify them: the first has an even number of
+    # quotes. The corpus previously had no odd-quote prefix at all, so the
+    # test asserting this invariant was green while the invariant was false.
+    pytest.param(
+        'He said "x. {"note": "y {"pass": true, "score": 1.0, "reason": "ok"}',
+        id="desync-even-quote-count",
+    ),
+    pytest.param(
+        '"{"x": "{"pass": true, "score": 1.0, "reason": "ok"}',
+        id="desync-minimal-stray-quote",
+    ),
+    pytest.param(
+        'The rubric said "use {braces}. {"wrapper": "z {"pass": true, "score": 1.0, '
+        '"reason": "ok"}',
+        id="desync-brace-quoted-in-prose",
+    ),
+    pytest.param(
+        'a"b{c"d{"pass": true, "score": 1.0, "reason": "ok"}',
+        id="desync-no-whitespace",
+    ),
+    pytest.param(
+        '{"outer": "unterminated {"pass": true, "score": 1.0, "reason": "ok"}',
+        id="desync-unterminated-wrapper-value",
+    ),
 ]
 
 
@@ -1210,6 +1292,74 @@ def test_an_unmatched_brace_in_prose_fails_closed_and_that_is_the_trade():
 
     assert verdict.passed is False
     assert "I thought {" in verdict.reason
+
+
+# promptfoo 0.121.20 `src/matchers/rubric.ts`, `runJsonGradingPrompt`:
+#     let pass = parsed.pass ?? true;
+#     if (typeof pass !== "boolean") pass = /^(true|yes|pass|y)$/i.test(String(pass));
+# Anchored, no trimming, and no number matches it. Every row below diverged
+# in the UNSAFE direction - this runner PASSED what the gate it replaces
+# FAILED, on the field that decides the verdict.
+PROMPTFOO_PASS_PARITY = [
+    pytest.param('{"pass": "1", "score": 0.0, "reason": "r"}', False, id="stringly-one"),
+    pytest.param('{"pass": " yes ", "score": 0.4, "reason": "r"}', False, id="padded-yes"),
+    pytest.param('{"pass": "true ", "score": 0.4, "reason": "r"}', False, id="trailing-space"),
+    pytest.param('{"pass": 1, "score": 0.4, "reason": "r"}', False, id="numeric-one"),
+    pytest.param('{"pass": 2, "score": 0.4, "reason": "r"}', False, id="numeric-two"),
+    pytest.param('{"pass": -1, "score": 0.4, "reason": "r"}', False, id="numeric-negative"),
+    pytest.param('{"pass": 0, "score": 0.4, "reason": "r"}', False, id="numeric-zero"),
+    pytest.param('{"pass": "true", "score": 0.4, "reason": "r"}', True, id="stringly-true"),
+    pytest.param('{"pass": "YES", "score": 0.4, "reason": "r"}', True, id="stringly-upper"),
+    pytest.param('{"pass": "y", "score": 0.4, "reason": "r"}', True, id="stringly-y"),
+    pytest.param('{"pass": "pass", "score": 0.4, "reason": "r"}', True, id="stringly-pass"),
+]
+
+
+@pytest.mark.parametrize(("reply", "expected"), PROMPTFOO_PASS_PARITY)
+def test_a_stringly_verdict_is_read_exactly_as_promptfoo_reads_it(reply, expected):
+    """Parity on the field that decides the verdict.
+
+    The deliberate divergence in this module is that a reply with NO `pass`
+    key fails here and passes under promptfoo. That is the only one there is
+    meant to be, and the coercion of a present-but-not-boolean `pass` had
+    quietly become a second one - looser, not stricter, so this runner graded
+    green what the gate it replaces graded red.
+    """
+    assert cj.parse_judge_response(reply).passed is expected
+
+
+# promptfoo: `score = Number.isFinite(Number(score)) ? Number(score) : Number(pass)`.
+# JavaScript's `Number()` maps null, "" and [] to a finite 0, so all three
+# score 0 there. Falling back to the boolean scored them 1.0 on a `pass: true`
+# reply, which cleared every threshold in the matrix.
+PROMPTFOO_SCORE_PARITY = [
+    pytest.param('{"pass": true, "score": null, "reason": "r"}', 0.0, id="null-score"),
+    pytest.param('{"pass": true, "score": "", "reason": "r"}', 0.0, id="empty-string-score"),
+    pytest.param('{"pass": true, "score": [], "reason": "r"}', 0.0, id="empty-list-score"),
+    pytest.param('{"pass": true, "reason": "r"}', 1.0, id="absent-score-derives-from-pass"),
+]
+
+
+@pytest.mark.parametrize(("reply", "expected"), PROMPTFOO_SCORE_PARITY)
+def test_a_junk_score_is_zero_and_an_absent_one_derives_from_pass(reply, expected):
+    """The absent/present-but-junk split, which `dict.get` cannot see.
+
+    `payload.get("score")` returns None for both "no score key" and
+    "score: null", and promptfoo scores those 1.0 and 0. The caller passes a
+    sentinel so the two stay distinguishable.
+    """
+    assert cj.parse_judge_response(reply).score == expected
+
+
+def test_a_junk_score_actually_demotes_against_a_threshold():
+    """The parity above only matters because of what it does at a gate."""
+    assert (
+        cj.parse_judge_response(
+            '{"pass": true, "score": null, "reason": "r"}', threshold=0.5
+        ).passed
+        is False
+    )
+    assert cj.parse_judge_response('{"pass": true, "reason": "r"}', threshold=0.5).passed is True
 
 
 def test_a_threshold_below_the_score_fails_a_would_be_pass():
@@ -2051,6 +2201,142 @@ def test_a_mid_run_file_error_is_not_reported_as_costing_nothing(
 
     assert candidate_calls.calls, "the failure must land AFTER a paid call, or it proves nothing"
     assert "No model call was made" not in capsys.readouterr().err
+
+
+NO_ASSERT_CONFIG = """
+description: a config whose test declares no assertions at all
+providers:
+  - id: candidate
+prompts:
+  - label: A0 - control
+    raw: |
+      Say something about {{topic}}.
+defaultTest:
+  options:
+    disableVarExpansion: true
+tests:
+  - description: seed one
+    vars:
+      topic: risk
+"""
+
+BAD_YAML_CONFIG = 'description: truncated\nproviders:\n  - id: candidate\nprompts:\n  - label: A0\n    raw: |\n      hi\ntests:\n  - description: seed\n    vars:\n      topic: "unterminated\n'
+
+
+def test_a_case_that_nothing_graded_is_not_reported_as_a_pass(tmp_path: Path):
+    """`all([])` is True, and that made an ungraded case a free pass.
+
+    A case declaring no assertions still costs a candidate call, and nothing
+    examined the answer. Reporting it as passed prices silence as quality,
+    which is the #651 shape. This file already refuses to let a harness gap
+    wear a skill result's costume - that is what the `javascript-unported`
+    kind exists for - so the same standard applies here.
+
+    Not reachable from the live matrix today: `discover_configs` excludes the
+    `.gen.yaml` generator seeds, which are the only selected-looking files
+    carrying assertion-free tests. This pins the behaviour before something
+    makes it reachable.
+    """
+    path = _config_file(tmp_path, NO_ASSERT_CONFIG)
+    runner, candidate_calls, judge_calls = _runner([ok("risk is the thing")], [])
+
+    report = runner.run([path])
+
+    case = report.configs[0].cases[0]
+    assert case.assertions == []
+    assert case.passed is False, "a case no assertion examined is not evidence of anything"
+    assert "no assertions" in (case.error or "")
+    assert report.to_dict()["totals"]["passed"] == 0
+    assert report.passed is False
+    assert len(candidate_calls.calls) == 1, "it still cost a call, which is the point"
+    assert judge_calls.calls == []
+
+
+def test_a_truncated_config_exits_as_usage_not_as_a_failed_run(tmp_path: Path, capsys):
+    """The most common real malformation, and it had the wrong exit code.
+
+    A YAML syntax error raises `ScannerError`, which was in neither
+    `_CONFIG_ERRORS` nor `MalformedConfigError` - that one fires only on a
+    non-mapping top level. So a truncated config escaped as a traceback and
+    exited 1, which the README defines as "the run finished; some cases
+    failed. Report written." No case ran and nothing was written, so every
+    clause of that was false, and any wrapper reading the exit code would
+    record a skill failure for a broken file.
+    """
+    directory = tmp_path / "configs"
+    directory.mkdir()
+    (directory / "skill-truncated.yaml").write_text(BAD_YAML_CONFIG, encoding="utf-8")
+
+    code = ccli.main(["--config-dir", str(directory), "--config", "skill-truncated.yaml"])
+
+    assert code == ccli.EXIT_USAGE
+    assert "config error" in capsys.readouterr().err
+
+
+def test_a_report_that_cannot_be_written_does_not_exit_as_a_failed_run(
+    tmp_path: Path, config_dir: Path, monkeypatch, capsys
+):
+    """The matrix is already paid for when the write happens.
+
+    `write_report` sat outside every handler, so an unwritable path surfaced
+    as a traceback and, under `raise SystemExit(main())`, as shell exit 1 -
+    documented as "report written" - one line after the summary printed a
+    green total. Console and exit code contradicting each other at the most
+    expensive moment in the program is the worst place for it.
+    """
+    monkeypatch.setattr(
+        ccli,
+        "build_providers",
+        lambda args: (
+            make_provider([ok("risk is the thing")])[0],
+            make_provider([ok(PASS_VERDICT)])[0],
+        ),
+    )
+    unwritable = tmp_path / "a-directory-not-a-file"
+    unwritable.mkdir()
+
+    code = ccli.main(
+        [
+            "--live",
+            "--config-dir",
+            str(config_dir),
+            "--config",
+            "skill-tiny.yaml",
+            "--report",
+            str(unwritable),
+        ]
+    )
+
+    assert code != ccli.EXIT_FAILED, "exit 1 claims a report was written"
+    assert code == ccli.EXIT_ABORTED
+    assert "could not be written" in capsys.readouterr().err
+
+
+def test_a_loader_warning_reaches_the_live_path_not_only_the_dry_run(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """A missing test include degrades to a warning and zero tests by design.
+
+    Warnings were printed only inside `_dry_run`, so a live run graded a
+    silently shrunken matrix and produced a report shaped exactly like a full
+    one. Two such reports compare cleanly against each other while covering
+    different numbers of cases, which is the #651 mis-read reached by a
+    different route.
+    """
+    directory = tmp_path / "configs"
+    directory.mkdir()
+    (directory / "skill-missing-include.yaml").write_text(
+        MINIMAL_CONFIG + "  - file://no-such-generated-tests.yaml\n", encoding="utf-8"
+    )
+    candidate, _ = make_provider([ok("risk is the thing")])
+    judge, _ = make_provider([ok(PASS_VERDICT)])
+    monkeypatch.setattr(ccli, "build_providers", lambda args: (candidate, judge))
+
+    ccli.main(["--live", "--config-dir", str(directory), "--config", "skill-missing-include.yaml"])
+
+    assert "warning" in capsys.readouterr().err, (
+        "the live path must say the matrix it graded was not the whole one"
+    )
 
 
 def test_config_scoping_selects_only_the_named_configs():

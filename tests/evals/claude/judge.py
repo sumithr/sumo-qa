@@ -22,9 +22,17 @@ promptfoo's `renderLlmRubricPrompt` does - it tries `JSON.parse` first and
 falls back to rendering the raw string.
 
 `output` and `rubric` are judge-time values and always WIN over a case var of
-the same name. promptfoo builds the same context, but the precedence is worth
-stating: a config var called `output` that could shadow the candidate's real
-answer would silently grade the fixture instead of the response.
+the same name: a config var called `output` would otherwise shadow the
+candidate's real answer and silently grade the fixture instead of the
+response.
+
+**This is a deliberate divergence, not parity.** promptfoo's
+`matchesLlmRubric` builds `{ output, rubric, ...vars }`, and the spread comes
+LAST, so a case var named `output` shadows the candidate's answer there. This
+module inverts that precedence on purpose. Latent today - no live config
+declares a var called `output` or `rubric`, so slice 3's parity run will not
+surface it - but it is a real difference and belongs on the list rather than
+being described as the same context.
 
 ## Reading the verdict
 
@@ -120,7 +128,14 @@ VERDICT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-_TRUTHY = {"true", "yes", "pass", "y", "1"}
+# promptfoo's `runJsonGradingPrompt` coerces a stringly verdict with
+# `/^(true|yes|pass|y)$/i.test(String(pass))`. Anchored, no trimming, and
+# `"1"` is NOT in it. This set had `"1"` and the lookup trimmed, so
+# `{"pass": "1"}` and `{"pass": " yes "}` PASSED here and FAILED under the
+# gate this runner replaces. A runner whose reason for existing is being
+# stricter than promptfoo must not be looser than it on the field that
+# decides the verdict.
+_TRUTHY = {"true", "yes", "pass", "y"}
 
 # Closer -> the opener it must match. A mismatch means broken nesting.
 _CLOSERS = {"}": "{", "]": "["}
@@ -228,6 +243,12 @@ def extract_first_json_object(text: str) -> Any:
     start = -1
     in_string = False
     escaped = False
+    # Set when an opener is seen INSIDE what the scanner believes is a string,
+    # which is the only way the desync below can happen. Snapshotted when a
+    # candidate verdict starts, because what matters is whether a brace was
+    # hidden BEFORE it, not anywhere in the reply.
+    hidden_opener = False
+    hidden_at_start = False
 
     for index, char in enumerate(text):
         if in_string:
@@ -237,12 +258,15 @@ def extract_first_json_object(text: str) -> Any:
                 escaped = True
             elif char == '"':
                 in_string = False
+            elif char in _OPENERS:
+                hidden_opener = True
             continue
         if char == '"':
             in_string = True
         elif char in _OPENERS:
             if not stack and char == "{":
                 start = index
+                hidden_at_start = hidden_opener
             stack.append(char)
         elif char in _CLOSERS:
             if not stack:
@@ -278,6 +302,30 @@ def extract_first_json_object(text: str) -> Any:
                     start = -1
                     continue
                 if isinstance(value, dict):
+                    # `in_string` is a parity toggle with no resynchronisation,
+                    # so one unmatched quote inverts "string" and "structure"
+                    # for the rest of the reply. That can hide a wrapper's `{`
+                    # inside what the scanner reads as a string while exposing
+                    # a nested verdict's `{` as top-level:
+                    #
+                    #   He said "x. {"note": "y {"pass": true, "score": 1.0,
+                    #   "reason": "ok"}
+                    #
+                    # Two openers, one closer, nothing top-level ever closed,
+                    # and it graded as a PASS - the fragment this scanner
+                    # exists to refuse. Quote parity does not catch it: that
+                    # reply has an EVEN number of quotes. What catches it is
+                    # that an opener was consumed as string content before the
+                    # verdict began, which is the signature of the desync and
+                    # which no cleanly-tokenised reply produces.
+                    #
+                    # Same trade as the mismatched-closer branch: a reply
+                    # whose structure cannot be read is refused loudly rather
+                    # than mined for something shaped like a verdict. The cost
+                    # is a reply that merely quotes a brace in its prose ahead
+                    # of the verdict; the alternative is a silent green.
+                    if hidden_at_start:
+                        return None
                     return value
                 start = -1
     return None
@@ -295,14 +343,25 @@ def _coerce_pass(value: Any) -> bool | None:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.strip().lower() in _TRUTHY
+        # No `.strip()`: promptfoo's regex is anchored against the raw
+        # string, so `" yes "` is a FAIL there and must be one here.
+        return value.lower() in _TRUTHY
     if isinstance(value, (int, float)):
-        return bool(value) if math.isfinite(value) else None
+        if not math.isfinite(value):
+            return None
+        # promptfoo stringifies before matching, and no number matches the
+        # anchored word regex - `String(1)` is `"1"`, which is not in the set.
+        # So a numeric verdict is a FAIL there. `bool(value)` made `pass: 1`
+        # and `pass: 2` PASS here, which is looser than the gate again.
+        return False
     return None
 
 
 class _NonFiniteScore(ValueError):
     """The reply carried a score that is not a finite number."""
+
+
+_ABSENT = object()
 
 
 def _coerce_score(value: Any, *, fallback: bool) -> float:
@@ -318,6 +377,14 @@ def _coerce_score(value: Any, *, fallback: bool) -> float:
     then clears any threshold - so a reply the runner is supposed to refuse
     passes a 0.9 gate instead. Refusing outright is the only reading
     consistent with how this module treats every other malformed reply.
+
+    "Unreadable" is narrower than it looks, because promptfoo's fallback is
+    `Number.isFinite(Number(score)) ? Number(score) : Number(pass)` and
+    JavaScript's `Number()` maps `null`, `""` and `[]` to a finite 0. Those
+    three therefore score 0 under the gate this runner replaces, while
+    falling back to the boolean scored them 1.0 on a `pass: true` reply and
+    cleared every threshold in the matrix. Only a value `Number()` would make
+    NaN falls back.
     """
     if isinstance(value, bool):
         return float(value)
@@ -326,6 +393,9 @@ def _coerce_score(value: Any, *, fallback: bool) -> float:
             raise _NonFiniteScore(repr(value))
         return float(value)
     if isinstance(value, str):
+        # `Number("")` and `Number("   ")` are 0 in JavaScript, not NaN.
+        if not value.strip():
+            return 0.0
         try:
             parsed = float(value.strip())
         except ValueError:
@@ -333,6 +403,13 @@ def _coerce_score(value: Any, *, fallback: bool) -> float:
         if not math.isfinite(parsed):
             raise _NonFiniteScore(value)
         return parsed
+    # `Number(null)` and `Number([])` are both a finite 0. An ABSENT key is
+    # the separate case the docstring describes and still derives from the
+    # boolean, which is why the caller passes a sentinel rather than None -
+    # `payload.get("score")` cannot tell "no score" from "score: null", and
+    # promptfoo scores those 1.0 and 0 respectively.
+    if value is not _ABSENT and (value is None or value == []):
+        return 0.0
     return float(fallback)
 
 
@@ -368,7 +445,7 @@ def parse_judge_response(
         )
 
     try:
-        score = _coerce_score(payload.get("score"), fallback=passed)
+        score = _coerce_score(payload.get("score", _ABSENT), fallback=passed)
     except _NonFiniteScore as exc:
         # Reachable from BOTH doors. The text path is already blocked by
         # `parse_constant`, but `structured_output` is handed over by the CLI,
