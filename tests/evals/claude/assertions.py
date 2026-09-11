@@ -94,7 +94,13 @@ class UnportedJavascriptAssertionError(ValueError):
 
 
 class RubricNotExecutableError(RuntimeError):
-    """`llm-rubric` grading is slice 2 (#662); slice 1 only parses rubrics."""
+    """`llm-rubric` is graded by the judge tier, never by an evaluator here.
+
+    This module only ever PARSES a rubric. Grading one means a model call,
+    which lives in `claude/judge.py` and `claude/runner.py`; asking for an
+    evaluator is a category error and says so rather than returning something
+    that would quietly always pass.
+    """
 
 
 class UnportableJavascriptPatternError(ValueError):

@@ -66,19 +66,40 @@ npm run eval           # runs the TDD skill eval (needs OPENAI_API_KEY)
 
 See [`tests/evals/promptfoo/README.md`](../tests/evals/promptfoo/README.md) for full eval usage + cost notes.
 
-#### Sizing the matrix offline (no Node, no API key)
+#### The Claude runner (no Node, no API key, no billed credit)
 
-A Python runner reads the same promptfoo configs and reports what the matrix
-would cost before anything is spent:
+A Python runner reads the same promptfoo configs and grades them through the
+local Claude Code CLI, so it spends your **Claude subscription** rather than
+metered API credit. That is the point of the replacement: the promptfoo gate
+stopped being runnable when OpenAI credit ran out mid-PR.
+
+**Spending is opt-in.** With no mode flag the runner assembles every prompt,
+estimates tokens and calls nothing:
 
 ```bash
-uv run python tests/evals/run_claude_eval.py --dry-run
-uv run python tests/evals/run_claude_eval.py --dry-run --skill reviewing-before-merge
+uv run python tests/evals/run_claude_eval.py
+uv run python tests/evals/run_claude_eval.py --skill reviewing-before-merge
 ```
 
-It makes no network call. See
-[`tests/evals/claude/README.md`](../tests/evals/claude/README.md) for what it
-covers and what is still promptfoo's job.
+`--live` is what actually grades. Scope it: the judge tier is ~85% of the
+cost, and the full matrix is over 200 cases at two model calls each (218 in a
+fresh clone; more in a checkout where the test generator has run).
+
+```bash
+uv run python tests/evals/run_claude_eval.py --live --config skill-using-sumo-qa.yaml
+uv run python tests/evals/run_claude_eval.py --live --skill reviewing-before-merge \
+  --repeat 3 --report /tmp/eval-report.json
+```
+
+Exit codes: `0` passed, `1` finished with failures, `2` bad invocation, `3`
+**aborted** on a quota or usage limit - and an abort writes no report at all,
+which is the #651 regression. Measured cost, one config, 2026-09-10:
+18,270 input / 1,422 output tokens, $0.1513 at list price (notional; the run
+was covered by the subscription).
+
+See [`tests/evals/claude/README.md`](../tests/evals/claude/README.md) for the
+model pair, the isolation flags, and the full list of divergences from
+promptfoo's grading. promptfoo remains authoritative until the parity run.
 
 To put `sumo-qa` on your PATH for ad-hoc use (optional):
 

@@ -1,0 +1,339 @@
+# Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+"""The live run: candidate answers, judge grades, deterministic asserts decide.
+
+Slice 1 assembled every prompt offline; this drives them. For each case, once
+per `--repeat`:
+
+1. the CANDIDATE answers the assembled prompt;
+2. every `javascript` assertion is evaluated in Python, offline, against that
+   answer (slice 1's ported evaluators - no model involved);
+3. every `llm-rubric` assertion is graded by the JUDGE, using the config's own
+   `rubricPrompt` when it has one;
+4. the case passes only if every assertion on it passed.
+
+Ordering is not incidental. The deterministic assertions run FIRST and their
+result is recorded whether or not the judge is reached, so a matrix that dies
+part-way still has its cheap signal in memory - and a case whose regex gate
+already failed is still sent to the judge, because the rubric's reason is what
+makes a failure diagnosable. Cost, not correctness, would be the argument for
+short-circuiting, and one skipped judge call is not worth a blind failure.
+
+## Repeats
+
+`--repeat N` runs each case N times and records each pass separately, tagged
+with its 1-based repeat index. Slice 3 needs that to prove the `.ab.yaml`
+controls hold (A0 fails, A1 passes) across three runs rather than once; a
+single sample cannot distinguish a real control from a lucky one.
+
+## Errors
+
+A `FatalRunError` from either provider propagates straight out of `run` -
+past the report, past the summary - so `claude/cli.py` exits non-zero having
+written nothing. A model REFUSAL is different: it is recorded on the case as
+an error and the case fails, because a refusal is a fact about that one prompt
+rather than a reason to abandon the matrix.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+
+from claude import loader
+from claude.assertions import (
+    AssertionResult,
+    JavascriptAssertion,
+    RubricAssertion,
+    UnportableJavascriptPatternError,
+    UnportedJavascriptAssertionError,
+    evaluator_for,
+)
+from claude.judge import parse_judge_response, render_judge_prompt
+from claude.provider import Completion, ModelUsage, Provider, RefusedError
+from claude.report import AssertionRecord, CaseRecord, RunReport
+
+__all__ = [
+    "CANDIDATE_SYSTEM_PROMPT",
+    "JUDGE_SYSTEM_PROMPT",
+    "UNPORTED_ASSERTION_KIND",
+    "Runner",
+]
+
+# A distinct `kind` in the report for "the runner cannot grade this", as
+# opposed to "the skill failed this". Anything reading the report - the
+# eval-failure-diagnoser especially - must be able to tell a gap in the
+# harness from a regression in a skill.
+UNPORTED_ASSERTION_KIND = "javascript-unported"
+
+# The candidate's system prompt is deliberately near-empty. Every eval config
+# already carries its own full instruction in `prompts[].raw` - the skill body,
+# the loaded catalogues, the developer's message - and promptfoo sent that as
+# the entire prompt with no system message at all. Adding guidance here would
+# be grading the skills plus an uncontrolled preamble.
+CANDIDATE_SYSTEM_PROMPT = "Answer the user's message. Follow any instructions it contains exactly."
+
+# The judge's system prompt is equally thin, for the same reason: all 61 live
+# configs supply their own `rubricPrompt`, which states the grading contract in
+# full. This only pins the output shape, which `--json-schema` also enforces.
+JUDGE_SYSTEM_PROMPT = (
+    "You are grading a candidate response against a rubric. "
+    'Reply with a single JSON object: {"pass": <true|false>, "score": <0.0-1.0>, '
+    '"reason": "<why>"}. No prose outside the JSON.'
+)
+
+
+def preflight(
+    config_paths: Sequence[Path],
+    *,
+    on_warning: Callable[[str, str], None] | None = None,
+) -> list[tuple[str, list]]:
+    """Load every selected config and build its cases. No model call.
+
+    Its own step, and callable on its own, so the CLI can run it BEFORE it
+    builds a provider and scope its config-error handling to a call that
+    demonstrably spends nothing. Catching those error types around the whole
+    run instead would be worse than the traceback it replaced: a mid-run
+    `FileNotFoundError` - `CitesCatalogueTechniqueEvaluator` reads
+    `knowledge/techniques.md` lazily, on first evaluation - would then be
+    reported as "no model call was made" on a run that had already made
+    plenty. Absorbing a failure and misreporting what it cost is the exact
+    class of bug this package exists to prevent (#651).
+    """
+    loaded = []
+    for path in config_paths:
+        config = loader.load_config(Path(path))
+        # Surfaced on the LIVE path, not only in the dry run. A missing
+        # `file://` test include degrades to a warning and zero tests by
+        # design, so a run that silently graded a shrunken matrix produced a
+        # report shaped exactly like a full one. Comparing those two is the
+        # #651 mis-read with a different cause.
+        if on_warning is not None:
+            for warning in config.warnings:
+                on_warning(Path(path).name, warning)
+        loaded.append((Path(path).name, loader.build_cases(config)))
+    return loaded
+
+
+_NO_ASSERTIONS = (
+    "config gap: this case declares no assertions, so nothing graded the "
+    "answer. Recorded as not passed - a case no assertion examined is not "
+    "evidence the skill did anything right."
+)
+
+
+def _in_declared_order(records: list[tuple[int, AssertionRecord]]) -> list[AssertionRecord]:
+    """Records back in the config's own order, whatever order they ran in."""
+    return [record for _, record in sorted(records, key=lambda pair: pair[0])]
+
+
+def _deterministic_first(assertions):
+    """The docstring's step 2 before step 3, made real.
+
+    Iterating in config order was not the same thing. Several live configs
+    (`skill-implementing-with-tdd.yaml`, its `.ab.yaml` control, and
+    `skill-implementing-with-tdd-retrospective.yaml`) put an `llm-rubric`
+    ahead of a `javascript` assertion, so a judge that declined to grade
+    abandoned the case before its free offline gate had run - and the report a
+    part-way death leaves behind lost exactly the cheap signal the stated
+    ordering exists to preserve.
+
+    Order WITHIN each group is untouched: the config still decides which rubric
+    is graded first, and which regex is checked first.
+
+    Each assertion is paired with its DECLARED index so the caller can put the
+    records back in config order. Execution order and report order are
+    deliberately different things: reordering execution is the fix, but
+    reordering the report would make it non-self-contained - a reader could no
+    longer map a record to the config line that produced it without knowing
+    this function exists, and slice 4's promptfoo parity comparison would
+    inherit a second divergence the README does not declare.
+    """
+    pairs = list(enumerate(assertions))
+    rubrics = [pair for pair in pairs if isinstance(pair[1], RubricAssertion)]
+    deterministic = [pair for pair in pairs if not isinstance(pair[1], RubricAssertion)]
+    return [*deterministic, *rubrics]
+
+
+@dataclass(frozen=True)
+class _Graded:
+    record: AssertionRecord
+    completion: Completion | None = None
+
+
+class Runner:
+    """Drives configs through the candidate and judge tiers."""
+
+    def __init__(self, candidate: Provider, judge: Provider) -> None:
+        self.candidate = candidate
+        self.judge = judge
+
+    def run(
+        self,
+        config_paths: Sequence[Path],
+        *,
+        repeat: int = 1,
+        report: RunReport | None = None,
+        loaded: list[tuple[str, list]] | None = None,
+    ) -> RunReport:
+        """Grade every case in every config, `repeat` times each."""
+        if repeat < 1:
+            raise ValueError(f"--repeat must be at least 1, got {repeat}")
+
+        # Stamped from the providers that will actually run, NOT from the
+        # module constants. `--candidate-model` / `--judge-model` exist so a
+        # pair can be compared against another; a report that named the
+        # defaults while `cost.by_model` named the overrides would attribute
+        # the experiment to models that never ran.
+        report = (
+            report
+            if report is not None
+            else RunReport(
+                candidate_model=self.candidate.model,
+                judge_model=self.judge.model,
+            )
+        )
+        report.repeat = repeat
+
+        # Every config is loaded and every case built BEFORE the first model
+        # call. Loading lazily inside the loop meant a malformed config late in
+        # the selection - an unresolved `file://` var, an unsupported assertion
+        # type - raised only after the configs ahead of it had already spent
+        # subscription allowance on a run that could never finish. A local
+        # configuration error must cost nothing.
+        #
+        # `loaded` is accepted so a caller that already preflighted (the CLI
+        # does, to scope its error handling) does not pay for the load twice.
+        loaded = preflight(config_paths) if loaded is None else loaded
+
+        for config_name, cases in loaded:
+            record = report.config_for(config_name)
+            for case in cases:
+                for index in range(1, repeat + 1):
+                    record.cases.append(self._run_case(report, case, repeat=index))
+        return report
+
+    def _run_case(self, report: RunReport, case, *, repeat: int) -> CaseRecord:
+        config_name = case.config_path.name
+        records: list[tuple[int, AssertionRecord]] = []
+        try:
+            answer = self.candidate.complete(case.rendered_prompt)
+            self._record(report, config_name, answer.usage)
+
+            for index, assertion in _deterministic_first(case.assertions):
+                graded = self._grade(assertion, answer.text, case.vars)
+                records.append((index, graded.record))
+                if graded.completion is not None:
+                    self._record(report, config_name, graded.completion.usage)
+        except RefusedError as exc:
+            # Not fatal: one declined prompt is not a reason to discard the
+            # rest of the matrix, but it is not a pass either.
+            #
+            # The try covers the JUDGE calls as well as the candidate's. An
+            # earlier version wrapped only the candidate, so a judge that
+            # declined to grade escaped as an uncaught exception - past the
+            # report, past the CLI's one handler - and the run died with a
+            # traceback instead of the documented exit code.
+            # A refusal still burned tokens, and the CLI reports them. Losing
+            # them here would leave the run's own cost report understating a
+            # matrix in which many prompts were declined - the case where the
+            # number matters most.
+            self._record(report, config_name, exc.usage)
+            return CaseRecord(
+                prompt_label=case.prompt_label,
+                description=case.description,
+                repeat=repeat,
+                passed=False,
+                assertions=_in_declared_order(records),
+                error=str(exc),
+            )
+
+        return CaseRecord(
+            prompt_label=case.prompt_label,
+            description=case.description,
+            repeat=repeat,
+            # `all([])` is True, so a case carrying NO assertions used to be
+            # reported as a pass having paid for a candidate call that nothing
+            # graded. An ungraded case priced as a pass is the #651 shape, and
+            # this file already refuses to let a harness gap wear a skill
+            # result's costume elsewhere (`javascript-unported`).
+            passed=bool(records) and all(record.passed for _, record in records),
+            error=None if records else _NO_ASSERTIONS,
+            assertions=_in_declared_order(records),
+        )
+
+    def _grade(self, assertion, output: str, variables) -> _Graded:
+        if isinstance(assertion, RubricAssertion):
+            return self._grade_rubric(assertion, output, variables)
+        return _Graded(record=self._grade_javascript(assertion, output, variables))
+
+    def _grade_rubric(self, assertion: RubricAssertion, output: str, variables) -> _Graded:
+        messages = render_judge_prompt(
+            assertion.rubric_prompt,
+            rubric=assertion.rubric,
+            output=output,
+            variables=variables,
+        )
+        # A rubric prompt may be a system+user pair (promptfoo's default) or a
+        # single user turn (every live config). The CLI takes one system prompt
+        # and one message, so the system half is sent AS the system prompt -
+        # not flattened into the user turn, and not dropped.
+        system_turns = [entry["content"] for entry in messages if entry["role"] == "system"]
+        user_turns = [entry["content"] for entry in messages if entry["role"] != "system"]
+        reply = self.judge.complete(
+            "\n\n".join(user_turns),
+            system_prompt="\n\n".join(system_turns) if system_turns else None,
+        )
+        verdict = parse_judge_response(
+            reply.text,
+            threshold=assertion.threshold,
+            structured_output=reply.structured_output,
+        )
+        return _Graded(
+            record=AssertionRecord(
+                kind="llm-rubric",
+                passed=verdict.passed,
+                score=verdict.score,
+                reason=verdict.reason,
+            ),
+            completion=reply,
+        )
+
+    def _grade_javascript(self, assertion: JavascriptAssertion, output: str, variables):
+        try:
+            evaluator = evaluator_for(assertion)
+        except (UnportedJavascriptAssertionError, UnportableJavascriptPatternError) as exc:
+            # Slice 1 refuses rather than approximating an unported JS assert.
+            # Recording it as a failed assertion keeps the refusal loud without
+            # taking the whole matrix down over one config - but it is tagged
+            # `javascript-unported`, NOT `javascript`. The distinction matters:
+            # this is the RUNNER lacking a port, not the skill behaving badly,
+            # and an epic that exists because a tooling failure was misread as
+            # a catastrophic quality collapse (#651) must not let a second
+            # tooling failure wear the same costume in the report.
+            return AssertionRecord(
+                kind=UNPORTED_ASSERTION_KIND,
+                passed=False,
+                score=0.0,
+                reason=f"the runner has no Python port for this javascript assert: {exc}",
+            )
+        result: AssertionResult = evaluator.evaluate(output, variables)
+        return AssertionRecord(
+            kind="javascript",
+            passed=result.passed,
+            score=float(result.score),
+            reason=result.reason,
+        )
+
+    @staticmethod
+    def _record(report: RunReport, config_name: str, usages: tuple[ModelUsage, ...]) -> None:
+        for usage in usages:
+            report.record_usage(
+                config_name,
+                model=usage.model,
+                input_tokens=usage.input_tokens
+                + usage.cache_read_input_tokens
+                + usage.cache_creation_input_tokens,
+                output_tokens=usage.output_tokens,
+                usd=usage.cost_usd,
+            )
