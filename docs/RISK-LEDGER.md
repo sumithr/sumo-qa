@@ -150,7 +150,10 @@ The AC-coverage question above asks whether the change is the *right* change. A
 third question is whether the change was actually *verified*: a green per-file /
 codex review and green CI do NOT prove the changed behaviour was exercised.
 `sumo-qa-reviewing-before-merge` carries one consolidated **verification-evidence
-discipline** with four checks, each surfacing *missing relevant verification* as
+discipline** with four checks, spread since #451 across four lazy modules (the
+`surface-verifier` module carries check (i), `feature-flow` check (ii),
+`eval-validity` checks (iii) and (iv), and `discharged-check` the anti-over-fire
+side of all four), each surfacing *missing relevant verification* as
 a SAFE-blocker exactly like an uncovered risk, never demoted to a residual note,
 and never cleared by weakening the verifier (only by running it correctly):
 

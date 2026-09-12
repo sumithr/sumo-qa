@@ -6,7 +6,8 @@ providers:
   - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-cheap-candidate.yaml') }}
 defaultTest:
   vars:
-    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, discovery-probes, coverage-ledger]
     classifications: file://../../../knowledge/classifications.md
     approaches: file://../../../knowledge/approaches.md
     principles: file://../../../knowledge/principles.md
@@ -308,6 +309,7 @@ tests:
         - Asking another confirmation question instead of delivering the final verdict.
   - description: SEED - docs typo fix stays lightweight
     vars:
+      review_modules: [runtime-scope]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |

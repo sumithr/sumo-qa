@@ -28,7 +28,8 @@ providers:
       seed: 42
 defaultTest:
   vars:
-    skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content_new: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, surface-verifier, discharged-check]
     skill_content_old: file://fixtures/reviewing-before-merge-PRE-332.SKILL.md
   assert:
     - type: llm-rubric

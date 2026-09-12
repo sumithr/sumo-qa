@@ -15,7 +15,8 @@ providers:
       seed: 42
 defaultTest:
   vars:
-    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, discovery-probes, feedback-memory, coverage-ledger]
     expected_shape: >-
       Final-turn evidence-led merge review verdict. When saved review feedback is
       supplied AND its trigger matches the diff, the candidate consults it as an

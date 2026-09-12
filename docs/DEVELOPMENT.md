@@ -155,6 +155,7 @@ The full suite covers:
 
 - `test_knowledge_loaders.py`: 7 catalogue loaders return canonical entries
 - `test_skill_conformance.py`: every `skills/*/SKILL.md` has the required structure
+- `test_review_skill_modules.py`: the `sumo-qa-reviewing-before-merge` root + lazy `modules/*.md` split (#451): every routing-table id exists and every module is routed, each load-bearing rule has one canonical copy, each pinned rule keeps its body, no module points "below"/"above"/at a root line number, the root and module token budgets hold, and every `skill-reviewing-before-merge*.yaml` assembles root + declared modules only with `defaultTest.options.disableVarExpansion: true`
 - `test_skill_md_description_vs_body.py`: every `skills/*/SKILL.md` frontmatter `description` that names a catalogue (classifications, approaches, principles, techniques, standards, rules) must back it with a `sumo_qa_load_<catalogue>` call in the body, catches description-vs-body drift (the #188 `sumo-qa-deciding-approach` over-claim of `rules` + `standards`). Matches the prefixed call form, not bare `load_<catalogue>` prose mentions of other skills' loads
 - `test_skill_prompts.py`: every skill registers as an MCP tool (function name is historical; tools, not prompts)
 - `test_phase3_e2e_skill_path.py`: end-to-end smoke through the new surface
@@ -360,8 +361,12 @@ review approval.
 
 ## Editing skills
 
-Plain markdown. Edit `skills/<name>/SKILL.md`. Conformance tests catch structural
-drift (Iron Law section, Checklist ≥4 items, graphviz dot block, Red Flags table).
+Plain markdown. Edit `skills/<name>/SKILL.md`, or one of its lazy `skills/<name>/modules/*.md`
+when the skill ships modules (`sumo-qa-reviewing-before-merge` does). Conformance tests catch structural
+drift (Iron Law section, Checklist ≥4 items, graphviz dot block, Red Flags table); for a
+module-split skill, `tests/test_review_skill_modules.py` also enforces one canonical copy per
+rule, a routing table that lists every module, named (never "below"/"above") cross-references,
+and the root/module token budgets.
 
 ## Editing knowledge catalogues
 

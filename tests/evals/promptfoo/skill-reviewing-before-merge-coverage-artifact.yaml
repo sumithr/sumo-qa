@@ -16,7 +16,8 @@ providers:
       seed: 42
 defaultTest:
   vars:
-    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, context-inputs, discovery-probes, coverage-ledger]
     expected_shape: >-
       Merge-review verdict that READS the supplied coverage/mutation artifact and
       uses it as SUPPORTING evidence scoped to the CHANGED code. It surfaces the

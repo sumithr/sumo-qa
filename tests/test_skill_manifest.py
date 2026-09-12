@@ -414,8 +414,18 @@ def test_load_section_rejects_path_traversal():
     assert "traversal" in out["error"].lower()
 
 
+def _a_skill_without_modules() -> str:
+    """A bundled skill that ships no ``modules/`` dir. Since #451 at least one
+    skill (sumo-qa-reviewing-before-merge) DOES ship modules, so the
+    no-modules envelope needs an explicit subject rather than 'any skill'."""
+    for name, record in sorted(sm._skill_records().items()):
+        if not record["modules"]:
+            return name
+    raise AssertionError("every bundled skill ships modules; pick a tmp fake instead")
+
+
 def test_load_module_with_no_modules_returns_no_modules_envelope():
-    name = _a_skill_name()  # bundled skills have no modules/ dir yet
+    name = _a_skill_without_modules()
     out = sm.load_skill_context(name, "module", module="anything")
     assert "error" in out
     assert "no modules" in out["error"].lower()

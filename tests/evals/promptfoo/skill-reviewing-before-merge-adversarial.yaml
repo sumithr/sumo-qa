@@ -16,7 +16,8 @@ providers:
       seed: 42
 defaultTest:
   vars:
-    skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation]
     loaded_classifications: file://../../../knowledge/classifications.md
     loaded_rules: file://../../../standards/rules/change_rules.yaml
   assert:
@@ -135,6 +136,7 @@ prompts:
 tests:
   - description: FAMILY generated-artifact-drift — version bump not propagated to the committed generated manifest (PR #194/#210)
     vars:
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation, inventory-drift]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -233,6 +235,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: FAMILY weak-assertion — reviewing a test diff that weakens a conformance assertion to a substring (PR #170)
     vars:
+      review_modules: [runtime-scope, test-only-diff, discovery-probes]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -465,6 +468,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: FAMILY protocol-timeout-cleanup — teardown can raise on shutdown timeout after assertions passed (PR #121)
     vars:
+      review_modules: [runtime-scope, test-only-diff, discovery-probes, coverage-ledger, unproven-escalation]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -555,6 +559,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: FAMILY contract-vs-signature — docstring "Never raises" envelope contract contradicted by required args (issue #294 / PR #285 shape)
     vars:
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation, contract-and-fence-probes]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -672,6 +677,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: NEGATIVE CONTROL docs-only typo — must stay lightweight, no invented runtime risk
     vars:
+      review_modules: [runtime-scope]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -706,6 +712,7 @@ tests:
         - Asking another confirmation question instead of delivering the verdict.
   - description: NEGATIVE CONTROL config-only benign — formatter ignore-list addition, no runtime consumer
     vars:
+      review_modules: [runtime-scope]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
