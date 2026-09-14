@@ -26,6 +26,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -1058,6 +1059,65 @@ class TestRunBaselineInterruptCleansPartial:
         assert not partial.parent.exists(), "the empty .partial/ scratch directory was left behind"
         after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir()}
         assert after == ctx["before"], (sorted(after), sorted(ctx["before"]))
+
+
+class TestRunBaselinePromptfooOutputPath:
+    """The `--output` path handed to promptfoo must end in exactly `.json`:
+    promptfoo picks the report format from the file extension and refuses any
+    other, writing nothing (a `<snapshot>.json.partial` path made every real
+    baseline run exit 4). It must also sit in the `.partial/` scratch directory
+    beside the snapshot, never on the snapshot path itself.
+
+    `TestRunBaselineWithRealPromptfoo` proves the contract end to end but skips
+    wherever promptfoo is not installed, which includes CI. This test runs on
+    every platform with no Node tooling: the script is imported and run
+    in-process, `subprocess.run` is replaced by a recorder that captures the
+    promptfoo argv and writes nothing, and the `claude` CLI preflight is
+    satisfied by patching `shutil.which`. No model and no promptfoo run.
+    """
+
+    def test_output_path_is_a_json_file_in_the_partial_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = tmp_path / "repo"
+        promptfoo_dir = repo / "tests" / "evals" / "promptfoo"
+        promptfoo_dir.mkdir(parents=True)
+        (repo / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+        (promptfoo_dir / "skill-real.yaml").write_text("")
+        baselines = repo / "docs" / "qa" / "runs" / "eval-baselines"
+
+        mod = _import_run_baseline()
+        calls: list[list[str]] = []
+
+        def record(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess:
+            calls.append(list(cmd))
+            return subprocess.CompletedProcess(cmd, 1)
+
+        monkeypatch.setattr(mod.subprocess, "run", record)
+        monkeypatch.setattr(
+            mod.shutil,
+            "which",
+            lambda name, *a, **k: "/stand-in/claude" if name == "claude" else None,
+        )
+        monkeypatch.setattr(
+            sys, "argv", ["run_baseline.py", "--skill", "real", "--repo-root", str(repo)]
+        )
+        exit_code = mod.main()
+
+        assert len(calls) == 1, calls
+        cmd = calls[0]
+        assert cmd[:3] == ["npx", "promptfoo", "eval"], cmd
+        output = Path(cmd[cmd.index("--output") + 1])
+        assert output.suffix == ".json" and output.suffixes[-1] == ".json", (
+            f"promptfoo rejects an --output path whose final suffix is not .json: {output}"
+        )
+        assert output.parent.name == ".partial", output
+        assert output.parent.parent == baselines, output
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-skill-real__baseline\.json", output.name), output
+        assert not output.exists() and not output.parent.exists(), (
+            "the scratch report or its empty .partial/ directory was left behind"
+        )
+        assert exit_code == 4  # the recorder wrote no report: a harness error
 
 
 def _import_run_baseline() -> ModuleType:
