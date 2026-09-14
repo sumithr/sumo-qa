@@ -808,6 +808,105 @@ class TestRunBaselineRejectsProviderErrors:
         )
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="stand-in npx/claude are sh scripts")
+class TestRunBaselineRejectsIncompleteReports:
+    """A report promptfoo left as valid JSON with no verdict in it (`{}`, a
+    `results` with no `stats`, or an empty `results.results`) ran no test case:
+    a harness or config error, not a skill verdict and not a provider error.
+    `count_run_errors` reads that shape as zero errors, so without a structural
+    check it was promoted over the baseline `--force` targets and printed
+    `0 passed, 0 failed`. run-eval.sh classifies the same shape as exit 4
+    (`[eval] ERROR:`); run_baseline.py must match: exit 4, no promotion, the
+    report moved aside to `<snapshot>.rejected`, every earlier baseline
+    byte-for-byte untouched.
+
+    Same stand-in `npx` / `claude` harness as the provider-error tests; no model
+    is called.
+    """
+
+    RUN_BASELINE = TestRunBaselineRejectsProviderErrors.RUN_BASELINE
+    _SETUP = TestRunBaselineRejectsProviderErrors._setup
+    _RUN = TestRunBaselineRejectsProviderErrors._run
+
+    def _assert_harness_error(self, tmp_path: Path, report: object) -> None:
+        ctx = self._SETUP(tmp_path, report, promptfoo_exit=0)  # type: ignore[arg-type]
+        result = self._RUN(ctx)
+        assert result.returncode == 4, (result.returncode, result.stdout, result.stderr)
+        output = result.stdout + result.stderr
+        assert "harness or config error" in output, output
+        assert "not a skill verdict" in output and "not a provider error" in output, output
+        assert "provider or judge errors" not in output, output
+        assert "Snapshot captured" not in output, output
+        assert "passed" not in output and "Delta" not in output, output
+        assert "eval-failure-diagnoser" not in output, output
+        rejected = ctx["today"].with_name(ctx["today"].name + ".rejected")
+        partial = ctx["today"].with_name(ctx["today"].name + ".partial")
+        after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir() if p != rejected}
+        assert after == ctx["before"], (
+            "an incomplete report changed the kept baselines: "
+            f"{sorted(after)} vs {sorted(ctx['before'])}"
+        )
+        assert rejected.is_file(), sorted(p.name for p in ctx["baselines"].iterdir())
+        assert json.loads(rejected.read_text()) == report
+        assert not partial.exists()
+        assert rejected.name in output, output
+
+    def test_empty_object_report_is_a_harness_error(self, tmp_path: Path) -> None:
+        self._assert_harness_error(tmp_path, {})
+
+    def test_results_without_stats_is_a_harness_error(self, tmp_path: Path) -> None:
+        self._assert_harness_error(tmp_path, {"results": {}})
+
+    def test_empty_results_list_is_a_harness_error(self, tmp_path: Path) -> None:
+        self._assert_harness_error(
+            tmp_path,
+            {
+                "results": {
+                    "stats": {"successes": 0, "failures": 0, "errors": 0},
+                    "results": [],
+                }
+            },
+        )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="stand-in claude is an sh script")
+class TestRunBaselineInterruptCleansPartial:
+    """Ctrl-C during the promptfoo run must not leave `<snapshot>.partial`
+    behind or touch an earlier baseline. The script is imported and run
+    in-process with `subprocess.run` replaced by a stand-in that writes a
+    partial report to the `--output` path and then raises `KeyboardInterrupt`,
+    as a Ctrl-C mid-run does. No model is called.
+    """
+
+    def test_interrupt_removes_partial_and_keeps_baseline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ctx = TestRunBaselineRejectsProviderErrors._setup(
+            self, tmp_path, _promptfoo_report(successes=1, failures=0), promptfoo_exit=0
+        )
+        monkeypatch.setenv("PATH", ctx["env"]["PATH"])
+        mod = _import_run_baseline()
+        partial = ctx["today"].with_name(ctx["today"].name + ".partial")
+
+        def interrupted_run(cmd: list[str], **_kwargs: object) -> None:
+            out = Path(cmd[cmd.index("--output") + 1])
+            out.write_text('{"results": {"stats": {"succ')
+            assert partial.is_file()
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(mod.subprocess, "run", interrupted_run)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["run_baseline.py", "--skill", "real", "--force", "--repo-root", str(ctx["repo"])],
+        )
+        with pytest.raises(KeyboardInterrupt):
+            mod.main()
+        assert not partial.exists(), sorted(p.name for p in ctx["baselines"].iterdir())
+        after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir()}
+        assert after == ctx["before"], (sorted(after), sorted(ctx["before"]))
+
+
 def _import_run_baseline() -> ModuleType:
     """Import run_baseline.py as a module to exercise its resolution helpers
     directly (the dash-containing path defeats a plain import)."""

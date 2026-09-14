@@ -18,6 +18,12 @@ moved onto the snapshot path. An errored report is moved aside to
 ``<snapshot>.json.rejected`` for diagnosis and the script exits 3, so a prior
 baseline, including one ``--force`` would overwrite, stays untouched.
 
+A report with no verdict in it (no ``results.stats``, or an empty
+``results.results``: no test case ran) is a harness or config error, the shape
+run-eval.sh exits 4 on. It is moved aside to the same ``.rejected`` path, never
+promoted, and the script exits 4. A Ctrl-C during the run removes the
+``.partial`` file before the interrupt propagates.
+
 The slug and label are separated by a literal ``__`` (double underscore).
 Both are validated kebab-case tokens (lowercase alphanumerics + single
 hyphens), so neither can contain ``__`` — that makes the slug/label boundary
@@ -134,6 +140,25 @@ def load_summary(path: Path) -> tuple[int, int]:
 
 
 EXIT_PROVIDER_ERRORS = 3
+EXIT_HARNESS_ERROR = 4
+
+
+def report_is_complete(data: object) -> bool:
+    """Did promptfoo record a verdict at all?
+
+    The same shape check as run-eval.sh: ``results.stats`` present and
+    ``results.results`` a non-empty list. Valid JSON without them (``{}``, a
+    ``results`` with no ``stats``, an empty ``results.results``) means no test
+    case ran: a harness or config error, which ``count_run_errors`` would
+    otherwise read as zero errors.
+    """
+    if not isinstance(data, dict):
+        return False
+    results = data.get("results")
+    if not isinstance(results, dict):
+        return False
+    rows = results.get("results")
+    return isinstance(results.get("stats"), dict) and isinstance(rows, list) and bool(rows)
 
 
 def count_run_errors(data: dict) -> int:
@@ -350,6 +375,70 @@ def print_delta(prior: Path, current: Path) -> None:
     print(f"  Delta: passed {_signed(delta_pass)}, failed {_signed(delta_fail)}")
 
 
+def capture_report(
+    cmd: list[str], repo_root: Path, partial_path: Path, rejected_path: Path, output_path: Path
+) -> tuple[int | None, int]:
+    """Run promptfoo into ``partial_path`` and promote only a complete, error-free report.
+
+    Returns ``(early_exit, promptfoo_returncode)``: ``early_exit`` is the script's
+    exit code when nothing was promoted, or None once the report is on
+    ``output_path``.
+    """
+    result = subprocess.run(cmd, cwd=repo_root)
+
+    if not partial_path.is_file():
+        print(
+            f"\npromptfoo exited with code {result.returncode} and wrote no report at "
+            f"{partial_path}. It failed before producing output; nothing was captured.",
+            file=sys.stderr,
+        )
+        return result.returncode or 1, result.returncode
+
+    try:
+        report = json.loads(partial_path.read_text(encoding="utf-8"))
+    except (ValueError, TypeError) as exc:
+        partial_path.unlink(missing_ok=True)
+        print(
+            f"\npromptfoo exited with code {result.returncode} and its report was not "
+            f"readable ({exc}); nothing was captured.",
+            file=sys.stderr,
+        )
+        return result.returncode or 1, result.returncode
+
+    if not report_is_complete(report):
+        partial_path.replace(rejected_path)
+        print(
+            f"\npromptfoo exited with code {result.returncode} and its report records no "
+            "test case (no results.stats, or an empty results.results): a harness or "
+            "config error, not a skill verdict and not a provider error. It was not kept "
+            f"as a baseline; the report is at {rejected_path.relative_to(repo_root)}. "
+            "Check the config and its YAML in the promptfoo output above, then re-run.",
+            file=sys.stderr,
+        )
+        return EXIT_HARNESS_ERROR, result.returncode
+
+    errors = count_run_errors(report)
+    if errors:
+        partial_path.replace(rejected_path)
+        print(
+            f"\nThe run had provider or judge errors (errors={errors}): not a skill "
+            "verdict, so it was not kept as a baseline and no delta is reported. "
+            f"The report is at {rejected_path.relative_to(repo_root)}; resolve the "
+            "error it records (a Claude usage limit or a CLI failure), then re-run.",
+            file=sys.stderr,
+        )
+        return EXIT_PROVIDER_ERRORS, result.returncode
+
+    partial_path.replace(output_path)
+    if result.returncode != 0:
+        print(
+            f"\npromptfoo exited with code {result.returncode}.",
+            file=sys.stderr,
+        )
+
+    return None, result.returncode
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -467,7 +556,8 @@ def main() -> int:
         return 2
 
     # promptfoo writes beside the snapshot path, never onto it: a run with provider
-    # or judge errors must not replace the baseline `--force` would overwrite. The
+    # or judge errors, or a report with no verdict in it, must not replace the
+    # baseline `--force` would overwrite. The
     # `.partial` / `.rejected` suffixes keep these files out of the `*-skill-*.json`
     # prior-baseline lookup.
     partial_path = output_path.with_name(output_path.name + ".partial")
@@ -485,44 +575,17 @@ def main() -> int:
         str(partial_path),
     ]
     print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=repo_root)
-
-    if not partial_path.is_file():
-        print(
-            f"\npromptfoo exited with code {result.returncode} and wrote no report at "
-            f"{partial_path}. It failed before producing output; nothing was captured.",
-            file=sys.stderr,
-        )
-        return result.returncode or 1
-
     try:
-        errors = count_run_errors(json.loads(partial_path.read_text(encoding="utf-8")))
-    except (ValueError, TypeError, AttributeError) as exc:
+        early_exit, returncode = capture_report(
+            cmd, repo_root, partial_path, rejected_path, output_path
+        )
+    except KeyboardInterrupt:
+        # Ctrl-C during the run or before promotion: promptfoo may have written part
+        # of a report. Nothing was promoted, so drop the partial and re-raise.
         partial_path.unlink(missing_ok=True)
-        print(
-            f"\npromptfoo exited with code {result.returncode} and its report was not "
-            f"readable ({exc}); nothing was captured.",
-            file=sys.stderr,
-        )
-        return result.returncode or 1
-
-    if errors:
-        partial_path.replace(rejected_path)
-        print(
-            f"\nThe run had provider or judge errors (errors={errors}): not a skill "
-            "verdict, so it was not kept as a baseline and no delta is reported. "
-            f"The report is at {rejected_path.relative_to(repo_root)}; resolve the "
-            "error it records (a Claude usage limit or a CLI failure), then re-run.",
-            file=sys.stderr,
-        )
-        return EXIT_PROVIDER_ERRORS
-
-    partial_path.replace(output_path)
-    if result.returncode != 0:
-        print(
-            f"\npromptfoo exited with code {result.returncode}.",
-            file=sys.stderr,
-        )
+        raise
+    if early_exit is not None:
+        return early_exit
 
     passed, failed = load_summary(output_path)
     print(f"\nSnapshot captured: {output_path.relative_to(repo_root)}")
@@ -548,7 +611,7 @@ def main() -> int:
             "to identify which SKILL.md sections to strengthen."
         )
 
-    return result.returncode
+    return returncode
 
 
 if __name__ == "__main__":

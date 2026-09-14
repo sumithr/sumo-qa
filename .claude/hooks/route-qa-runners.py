@@ -32,6 +32,10 @@ Detection is built against REAL runner output (see tests/test_route_qa_runners.p
     YAML; exit 4), or a preflight or setting check failed first. Neither a skill
     verdict nor a provider abort, so it gets its own reminder too.
 
+  * run-eval.sh exits on its first ERROR or ABORT, so one invocation prints at
+    most one marker. A Bash command chaining several eval runs can print both;
+    that gets one reminder covering both, and neither goes to the diagnoser.
+
   * Only `bash` (or the script as the command word, via its bash shebang) runs
     run-eval.sh. It is a bash script: `sh` is dash on Debian/Ubuntu and rejects
     `set -o pipefail`, and zsh has no BASH_SOURCE, so both fail before promptfoo
@@ -323,6 +327,18 @@ _EVAL_ERROR_REMINDER = (
     "otherwise fix the setting or missing CLI it names. Then re-run."
 )
 
+# run-eval.sh exits on its first ERROR or ABORT, so one invocation prints at most
+# one marker; a Bash command chaining several eval runs can print both.
+_EVAL_MIXED_REMINDER = (
+    "The eval output carries both an `[eval] ERROR:` line and an `[eval] ABORT:` "
+    "line: neither is a skill verdict, so do not diagnose it as a skill failure or "
+    "edit a SKILL.md. For each ERROR line, the eval did not run to a "
+    "verdict: check the config path and its YAML, or fix the setting or missing CLI "
+    "it names. For each ABORT line, the run had provider or judge errors: read the "
+    "error in the report JSON it names (a Claude usage limit or a CLI failure) and "
+    "resolve that. Then re-run each affected config."
+)
+
 
 def _emit(context: str) -> None:
     json.dump(
@@ -362,6 +378,9 @@ def main() -> int:
             return 0
 
         if _is_promptfoo_eval_run(command):
+            if _EVAL_ABORT_MARKER in output and _EVAL_ERROR_MARKER in output:
+                _emit(_EVAL_MIXED_REMINDER)
+                return 0
             if _EVAL_ABORT_MARKER in output:
                 _emit(_EVAL_ABORT_REMINDER)
                 return 0

@@ -387,6 +387,48 @@ class TestHarnessErrorIsNotAProviderAbort:
         assert _additional_context(result) == ""
 
 
+class TestMixedErrorAndAbortMarkers:
+    """One Bash result can carry BOTH markers. run-eval.sh itself exits on the
+    first `[eval] ERROR:` (exit 4) or `[eval] ABORT:` (exit 3), so a single
+    invocation prints at most one; but one Bash command can chain several eval
+    runs (`npm run eval -- a.yaml; npm run eval -- b.yaml`), and the hook reads
+    the combined stdout + stderr of the whole command. Emitting only the ABORT
+    reminder would hide the harness/config error; routing either to the
+    diagnoser would turn it into a SKILL.md edit. The reminder must cover both.
+
+    The output is the two real captured fixtures concatenated
+    (`run_eval_harness_error.stdout.txt` then `run_eval_abort.stdout.txt`, and
+    the reverse order); no byte of either is altered.
+    """
+
+    COMMAND = (
+        "bash tests/evals/promptfoo/run-eval.sh tests/evals/promptfoo/skill-implementing-with-tdd.yml"
+        "; npm run eval"
+    )
+
+    @pytest.mark.parametrize(
+        "order",
+        [
+            ("run_eval_harness_error.stdout.txt", "run_eval_abort.stdout.txt"),
+            ("run_eval_abort.stdout.txt", "run_eval_harness_error.stdout.txt"),
+        ],
+    )
+    def test_both_markers_get_a_reminder_covering_both(self, order: tuple[str, str]) -> None:
+        out = _fixture(order[0]) + _fixture(order[1])
+        assert "[eval] ERROR:" in out and "[eval] ABORT:" in out, "fixtures changed shape"
+        result = _run_hook(_post_tool_use(self.COMMAND, stdout=out, exit_code=3))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context, (
+            f"hook routed mixed ERROR/ABORT output to the SKILL.md diagnoser: {context!r}"
+        )
+        assert "provider or judge errors" in context, (
+            f"mixed reminder dropped the provider abort: {context!r}"
+        )
+        assert "did not run" in context and "config" in context, (
+            f"mixed reminder dropped the harness/config error: {context!r}"
+        )
+
+
 class TestExcludedEvalCommands:
     """`eval:generate` and `eval:view` must be ignored even if their output or
     exit code looks failure-shaped — they are not eval RUNS. Boundary value
