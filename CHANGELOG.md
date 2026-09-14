@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.0](https://github.com/sumithr/sumo-qa/compare/v0.63.0...v0.64.0) (2026-09-14)
+
+
+### Features
+
+* **evals:** make the Claude pair the eval default ([#692](https://github.com/sumithr/sumo-qa/issues/692)) ([739493e](https://github.com/sumithr/sumo-qa/commit/739493eedeca8e08b05a8f4ea958f5e2f0d5a333))
+
 ## [0.63.0](https://github.com/sumithr/sumo-qa/compare/v0.62.0...v0.63.0) (2026-09-14)
 
 
