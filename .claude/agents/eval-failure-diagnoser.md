@@ -14,7 +14,7 @@ You diagnose failures in the sumo-qa promptfoo skill-eval harness. Each skill ha
 - SKILL.md files live at `skills/<skill-name>/SKILL.md`.
 - The eval harness is documented in `tests/evals/promptfoo/README.md` — read it if you need eval-mechanics context.
 - `run-eval.sh` writes one report per config to `tests/evals/results/claude-reports/<config>.json` (gitignored); promptfoo also records each run, queryable via `npx promptfoo list` or `npx promptfoo view`.
-- A run that ends with `[eval] ABORT:` (exit 3) had provider or judge errors, such as a Claude usage limit. That is not a skill verdict: report the error and stop, with no SKILL.md diagnosis.
+- A run that ends with `[eval] ABORT:` (exit 3) had provider or judge errors, such as a Claude usage limit. That is not a skill verdict: report the error for the config the ABORT line names, with no SKILL.md diagnosis for it. An `npm run eval:all` run can finish earlier configs with a real `[FAIL]` before it aborts on a later one; those earlier configs are still skill verdicts, so diagnose them as usual.
 
 ## Workflow
 

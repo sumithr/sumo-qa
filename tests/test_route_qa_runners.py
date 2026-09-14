@@ -511,6 +511,106 @@ class TestMarkersMatchOnlyRunnerEmissions:
         )
 
 
+def _run_eval_section(base: str, body: str) -> str:
+    """One config's stdout as run-eval.sh prints it: its `── <base>   → report:`
+    header line (the exact `echo` format of the Claude branch) followed by
+    promptfoo's output for that config."""
+    report = f"<repo>/tests/evals/results/claude-reports/{base}.json"
+    return f"── {base}   → report: {report}\n{body}"
+
+
+class TestEarlierSkillFailSurvivesALaterAbort:
+    """run-eval.sh keeps going after a config with failing test cases (it only
+    records `rc=1`) and stops at the first `[eval] ABORT:` or `[eval] ERROR:`.
+    So `npm run eval:all` can print a genuine `[FAIL]` table for config A and
+    then abort on config B (a usage limit partway through the matrix, the #651
+    shape). A's FAIL is a real skill verdict: the marker reminder alone tells the
+    agent not to diagnose anything, which would drop it. The reminder must name
+    the configs that failed and still route them to the diagnoser, while the
+    marked config stays "not a skill verdict".
+
+    The aborted config's own table can carry `[FAIL]` rows (a judge error
+    becomes a failed assertion), so only configs OTHER than the one the marker
+    names count as skill failures.
+
+    Each config section is run-eval.sh's header line plus a real promptfoo
+    capture (`promptfoo_fail.stdout.txt`); the ABORT and ERROR sections are the
+    real `run_eval_abort` / `run_eval_harness_error` captures unchanged.
+    """
+
+    FAILED = "skill-strategising"
+
+    def _failed_section(self) -> str:
+        return _run_eval_section(self.FAILED, _fixture("promptfoo_fail.stdout.txt"))
+
+    @pytest.mark.parametrize(
+        "command", ["npm run eval:all", "bash tests/evals/promptfoo/run-eval.sh all"]
+    )
+    def test_fail_then_abort_routes_the_fail_and_explains_the_abort(self, command: str) -> None:
+        out = self._failed_section() + _fixture("run_eval_abort.stdout.txt")
+        context = _additional_context(_run_hook(_post_tool_use(command, stdout=out, exit_code=3)))
+        assert "eval-failure-diagnoser" in context, (
+            f"a real skill FAIL before the abort was not routed: {context!r}"
+        )
+        assert self.FAILED in context, context
+        assert "provider or judge errors" in context and "not a skill verdict" in context, context
+
+    def test_fail_then_harness_error_routes_the_fail_and_explains_the_error(self) -> None:
+        out = self._failed_section() + _fixture("run_eval_harness_error.stdout.txt")
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval:all", stdout=out, exit_code=4))
+        )
+        assert "eval-failure-diagnoser" in context and self.FAILED in context, context
+        assert "did not run" in context, context
+
+    def test_fail_on_stdout_with_abort_on_stderr_routes_the_fail(self) -> None:
+        abort = _fixture("run_eval_abort.stdout.txt")
+        marker_at = abort.index("[eval] ABORT:")
+        out = self._failed_section() + abort[:marker_at]
+        context = _additional_context(
+            _run_hook(
+                _post_tool_use(
+                    "npm run eval:all", stdout=out, stderr=abort[marker_at:], exit_code=3
+                )
+            )
+        )
+        assert "eval-failure-diagnoser" in context and self.FAILED in context, context
+
+    def test_same_config_failed_then_aborted_in_chained_runs_routes_the_fail(self) -> None:
+        base = "skill-implementing-with-tdd"
+        out = _run_eval_section(base, _fixture("promptfoo_fail.stdout.txt")) + _fixture(
+            "run_eval_abort.stdout.txt"
+        )
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval; npm run eval", stdout=out, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" in context and base in context, context
+
+    def test_fail_rows_inside_the_aborted_config_are_not_a_skill_fail(self) -> None:
+        base = "skill-implementing-with-tdd"
+        out = (
+            _run_eval_section(base, _fixture("promptfoo_fail.stdout.txt"))
+            + f"[eval] ABORT: {base} had provider or judge errors (errors=1); see x.json. Not a skill verdict.\n"
+        )
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" not in context, (
+            f"the aborted config's own judge-error FAIL rows were routed as a skill FAIL: {context!r}"
+        )
+        assert "not a skill verdict" in context, context
+
+    def test_passing_config_then_abort_keeps_the_abort_reminder_only(self) -> None:
+        out = _run_eval_section(self.FAILED, _fixture("promptfoo_pass.stdout.txt")) + _fixture(
+            "run_eval_abort.stdout.txt"
+        )
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval:all", stdout=out, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" not in context, context
+        assert "provider or judge errors" in context, context
+
+
 class TestExcludedEvalCommands:
     """`eval:generate` and `eval:view` must be ignored even if their output or
     exit code looks failure-shaped — they are not eval RUNS. Boundary value

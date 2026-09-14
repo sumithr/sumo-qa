@@ -313,6 +313,50 @@ def _eval_markers(output: str) -> list[str]:
     return _EVAL_MARKER_LINE.findall(output)
 
 
+# run-eval.sh prints `── <base>   → report: <path>` before each config it runs, and
+# names the config in its markers: `[eval] ABORT: <base> had ...` and
+# `[eval] ERROR: <config path> produced ...`.
+_EVAL_CONFIG_HEADER = re.compile(r"^── (\S+)   → report: ", re.MULTILINE)
+_EVAL_MARKED_CONFIG = re.compile(
+    r"^\[eval\] (?:ABORT: (\S+) had |ERROR: (\S+) produced )", re.MULTILINE
+)
+
+
+def _skill_failed_configs(output: str) -> list[str]:
+    """Configs run-eval.sh finished with a `[FAIL]` row before a marker stopped it.
+
+    run-eval.sh carries on past a config with failing cases and stops at its first
+    ABORT or ERROR, so an `eval:all` output can hold a real skill FAIL for one
+    config and a marker for a later one. Each config's section runs from its
+    header to the next. The config a marker names is the LAST section under that
+    name (a run stops on it), and its own `[FAIL]` rows can be judge errors, so
+    that section is skipped; an earlier section under the same name (a chained
+    re-run) still counts.
+    """
+    marked: dict[str, int] = {}
+    for abort_base, error_path in _EVAL_MARKED_CONFIG.findall(output):
+        name = abort_base or os.path.basename(error_path)
+        if name.endswith(".yaml"):
+            name = name[: -len(".yaml")]
+        marked[name] = marked.get(name, 0) + 1
+
+    headers = list(_EVAL_CONFIG_HEADER.finditer(output))
+    sections = []
+    for i, header in enumerate(headers):
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(output)
+        sections.append((header.group(1), output[header.end() : end]))
+
+    failed: list[str] = []
+    for name, body in reversed(sections):
+        if marked.get(name, 0) > 0:
+            marked[name] -= 1
+            continue
+        if "[FAIL]" in body and name not in failed:
+            failed.append(name)
+    failed.reverse()
+    return failed
+
+
 def _eval_run_count(command: str) -> int:
     """How many segments of the command are eval runs."""
     return sum(
@@ -360,6 +404,17 @@ _EVAL_MIXED_REMINDER = (
 )
 
 
+def _skill_fail_before_marker_reminder(failed: list[str]) -> str:
+    """The prefix for a marker reminder when earlier configs recorded a real FAIL."""
+    return (
+        f"Before the run stopped, these configs finished with a skill FAIL: {', '.join(failed)}. "
+        "Those are skill verdicts: route them through the `eval-failure-diagnoser` agent "
+        "and fix a FAIL by strengthening the SKILL.md, never by loosening the rubric. "
+        "The rest of this reminder is about the config the run stopped on, and applies "
+        "only to it."
+    )
+
+
 def _emit(context: str) -> None:
     json.dump(
         {
@@ -399,12 +454,18 @@ def main() -> int:
 
         if _is_promptfoo_eval_run(command):
             markers = _eval_markers(output)
-            if len(set(markers)) == 2 and _eval_run_count(command) >= 2:
-                _emit(_EVAL_MIXED_REMINDER)
-                return 0
             if markers:
-                # One run stops on its first marker, so the first one names it.
-                _emit(_EVAL_ABORT_REMINDER if markers[0] == "ABORT" else _EVAL_ERROR_REMINDER)
+                if len(set(markers)) == 2 and _eval_run_count(command) >= 2:
+                    reminder = _EVAL_MIXED_REMINDER
+                else:
+                    # One run stops on its first marker, so the first one names it.
+                    reminder = (
+                        _EVAL_ABORT_REMINDER if markers[0] == "ABORT" else _EVAL_ERROR_REMINDER
+                    )
+                failed = _skill_failed_configs(output)
+                if failed:
+                    reminder = _skill_fail_before_marker_reminder(failed) + " " + reminder
+                _emit(reminder)
                 return 0
             if _promptfoo_failed(output, exit_code):
                 _emit(_PROMPTFOO_REMINDER)
