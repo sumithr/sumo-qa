@@ -315,10 +315,14 @@ def _eval_markers(output: str) -> list[str]:
 
 # run-eval.sh prints `── <base>   → report: <path>` before each config it runs, and
 # names the config in its markers: `[eval] ABORT: <base> had ...` and
-# `[eval] ERROR: <config path> produced ...`.
-_EVAL_CONFIG_HEADER = re.compile(r"^── (\S+)   → report: ", re.MULTILINE)
+# `[eval] ERROR: <config path> produced ...`. A path or name can contain spaces (a
+# checkout under `My Projects/`), so each capture runs non-greedily up to the fixed
+# wording run-eval.sh prints after it, never up to the first space.
+_EVAL_CONFIG_HEADER = re.compile(r"^── (.+?)   → report: ", re.MULTILINE)
 _EVAL_MARKED_CONFIG = re.compile(
-    r"^\[eval\] (?:ABORT: (\S+) had |ERROR: (\S+) produced )", re.MULTILINE
+    r"^\[eval\] (?:ABORT: (.+?) had provider or judge errors"
+    r"|ERROR: (.+?) produced no readable report)",
+    re.MULTILINE,
 )
 
 

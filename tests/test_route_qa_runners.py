@@ -611,6 +611,90 @@ class TestEarlierSkillFailSurvivesALaterAbort:
         assert "provider or judge errors" in context, context
 
 
+class TestMarkedConfigWithSpacesInItsPath:
+    """run-eval.sh names the config a marker stopped on with its full path in
+    `[eval] ERROR: <config path> produced no readable report` and with its base
+    name in `[eval] ABORT: <base> had provider or judge errors`. A checkout under
+    a directory with a space (`/Users/me/My Projects/sumo-qa`), or a config file
+    whose name has one, must still identify that config, so its own `[FAIL]`
+    rows are not routed to the diagnoser as a skill FAIL, while an earlier
+    config's real FAIL still is.
+
+    The ERROR case is the real `run_eval_harness_error` capture with `<repo>`
+    replaced by the spaced path and a real promptfoo `[FAIL]` table inserted in
+    the marked config's own section; the ABORT case is run-eval.sh's exact
+    header and ABORT line formats around the same real table.
+    """
+
+    REPO = "/Users/me/My Projects/sumo-qa"
+
+    def _spaced_harness_error_with_fail_rows(self) -> str:
+        capture = _fixture("run_eval_harness_error.stdout.txt").replace("<repo>", self.REPO)
+        header_end = capture.index("\n", capture.index("── ")) + 1
+        return capture[:header_end] + _fixture("promptfoo_fail.stdout.txt") + capture[header_end:]
+
+    def _spaced_abort_with_fail_rows(self, base: str) -> str:
+        report = f"{self.REPO}/tests/evals/results/claude-reports/{base}.json"
+        return (
+            f"── {base}   → report: {report}\n"
+            + _fixture("promptfoo_fail.stdout.txt")
+            + f"[eval] ABORT: {base} had provider or judge errors (errors=1); see {report}. "
+            "Not a skill verdict.\n"
+        )
+
+    def test_error_on_a_spaced_repo_path_is_not_a_skill_fail(self) -> None:
+        out = self._spaced_harness_error_with_fail_rows()
+        assert f"[eval] ERROR: {self.REPO}/" in out, "fixture changed shape"
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=4))
+        )
+        assert "eval-failure-diagnoser" not in context, (
+            f"the errored config's own FAIL rows were routed as a skill FAIL: {context!r}"
+        )
+        assert "did not run" in context, context
+
+    def test_abort_on_a_spaced_config_name_is_not_a_skill_fail(self) -> None:
+        out = self._spaced_abort_with_fail_rows("skill my config")
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" not in context, (
+            f"the aborted config's own FAIL rows were routed as a skill FAIL: {context!r}"
+        )
+        assert "provider or judge errors" in context, context
+
+    @pytest.mark.parametrize("marker", ["ERROR", "ABORT"])
+    def test_earlier_fail_still_routes_beside_a_spaced_marked_config(self, marker: str) -> None:
+        earlier = _run_eval_section("skill-strategising", _fixture("promptfoo_fail.stdout.txt"))
+        marked = (
+            self._spaced_harness_error_with_fail_rows()
+            if marker == "ERROR"
+            else self._spaced_abort_with_fail_rows("skill my config")
+        )
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval:all", stdout=earlier + marked, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" in context, context
+        assert "these configs finished with a skill FAIL: skill-strategising." in context, (
+            f"only the earlier config may be named as a skill FAIL: {context!r}"
+        )
+
+    def test_earlier_fail_in_a_spaced_config_name_routes_before_an_abort(self) -> None:
+        earlier = _run_eval_section("skill my config", _fixture("promptfoo_fail.stdout.txt"))
+        context = _additional_context(
+            _run_hook(
+                _post_tool_use(
+                    "npm run eval:all",
+                    stdout=earlier + _fixture("run_eval_abort.stdout.txt"),
+                    exit_code=3,
+                )
+            )
+        )
+        assert "these configs finished with a skill FAIL: skill my config." in context, (
+            f"a spaced config name that failed before the abort was not routed: {context!r}"
+        )
+
+
 class TestExcludedEvalCommands:
     """`eval:generate` and `eval:view` must be ignored even if their output or
     exit code looks failure-shaped — they are not eval RUNS. Boundary value
