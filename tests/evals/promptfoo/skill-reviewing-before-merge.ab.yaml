@@ -41,6 +41,27 @@ defaultTest:
       --- END SUPPLIED CONTEXT ---
 
 
+      --- LOADED CLASSIFICATIONS (catalogue the candidate was given) ---
+
+      {{classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      --- LOADED APPROACHES (catalogue the candidate was given) ---
+
+      {{approaches}}
+
+      --- END LOADED APPROACHES ---
+
+
+      --- LOADED PRINCIPLES (catalogue the candidate was given) ---
+
+      {{principles}}
+
+      --- END LOADED PRINCIPLES ---
+
+
       --- CANDIDATE RESPONSE ---
 
       {{output}}

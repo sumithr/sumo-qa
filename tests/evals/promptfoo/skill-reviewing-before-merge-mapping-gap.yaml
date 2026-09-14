@@ -84,6 +84,20 @@ defaultTest:
       --- END SUPPLIED CONTEXT ---
 
 
+      --- LOADED CLASSIFICATIONS (catalogue the candidate was given) ---
+
+      {{loaded_classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      --- LOADED RULES (catalogue the candidate was given) ---
+
+      {{loaded_rules}}
+
+      --- END LOADED RULES ---
+
+
       --- CANDIDATE RESPONSE ---
 
       {{output}}

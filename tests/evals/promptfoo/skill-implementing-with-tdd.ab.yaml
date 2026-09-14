@@ -43,6 +43,13 @@ defaultTest:
       --- END SUPPLIED CONTEXT ---
 
 
+      --- LOADED PRINCIPLES (catalogue the candidate was given) ---
+
+      {{principles}}
+
+      --- END LOADED PRINCIPLES ---
+
+
       --- CANDIDATE RESPONSE ---
 
       {{output}}

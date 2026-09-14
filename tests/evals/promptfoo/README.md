@@ -690,7 +690,7 @@ For skills where each scenario has a per-scenario ground-truth context
 1. `skill_content: file://...` in `defaultTest.vars`
 2. ONE seed test inline (with `vars.ground_truth_context`)
 3. Skill-level rubric in `defaultTest.vars` (`expected_shape`, `anti_patterns`, `technique_tag`)
-4. Decision-table rubric prompt in `defaultTest.options.rubricPrompt`. It passes `{{ground_truth_context}}` to the judge in a `SUPPLIED CONTEXT` block, because the GROUNDING axis grades against that evidence and the judge cannot check it otherwise
+4. Decision-table rubric prompt in `defaultTest.options.rubricPrompt`. It passes `{{ground_truth_context}}` to the judge in a `SUPPLIED CONTEXT` block, because the GROUNDING axis grades against that evidence and the judge cannot check it otherwise. For the same reason it renders every catalogue the candidate prompt renders (`{{loaded_techniques}}`, `{{loaded_classifications}}`, `{{loaded_rules}}`, `{{principles}}`, ...) in a labelled `--- LOADED <NAME> (catalogue the candidate was given) ---` block (see [Judge catalogue context](#judge-catalogue-context))
 5. Candidate wrapper prompt in `prompts:`
 6. A shared `javascript` grounding assertion (`value: file://asserts/cites-catalogue-technique.js`) that passes when the candidate cites a technique name drawn from `knowledge/techniques.md`'s `###` headings; the accepted set is derived from the catalogue, never a hardcoded allowlist (issue #350)
 
@@ -750,6 +750,37 @@ codex-reviewed instruction text for that skill.
 
 You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 (pattern B), not hundreds of hand-authored test cases.
+
+### Judge catalogue context
+
+A `rubricPrompt` only receives the vars it renders. When a config gives the
+candidate a catalogue (a `file://` var under `knowledge/` or `standards/` that
+a `prompts:` template renders), its `rubricPrompt` renders that same var too,
+after the `SUPPLIED CONTEXT` block:
+
+```yaml
+      --- LOADED TECHNIQUES (catalogue the candidate was given) ---
+
+      {{loaded_techniques}}
+
+      --- END LOADED TECHNIQUES ---
+```
+
+Without it the judge grades a catalogue citation from memory. Measured in
+#683 with a fixed candidate answer (judge only, `claude-opus-5`): an answer
+citing `metamorphic testing`, a real technique that `techniques.md` does not
+carry, passed at 0.85 when the catalogues were left out of the rubric (the
+judge noted it could only check the citation was "plausibly present"), and
+failed at 0.25 as training-data drift with them in. The same answer citing
+`property-based testing` passed both ways. Re-grading saved candidate answers
+for `skill-reviewing-before-merge-unproven-escalation.yaml` and
+`skill-preparing-for-work-feedback-memory.yaml` with the block added changed
+no verdict.
+
+The block adds the rendered catalogue to every judge call: about 1.8k tokens
+for `techniques.md` and 4.4k for `classifications.md` plus `change_rules.yaml`.
+`tests/test_eval_judge_catalogue_context.py` fails any config whose
+`rubricPrompt` leaves out a catalogue its candidate prompt renders.
 
 ## What's in this directory
 
