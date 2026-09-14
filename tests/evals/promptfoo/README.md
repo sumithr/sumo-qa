@@ -444,8 +444,9 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   answer) is a promptfoo **error**, never graded output. `run-eval.sh` stops at the
   first config with an error and exits 3: an error is not a skill verdict (#651).
 - Usage is subscription usage. The `cost` in reports is the CLI's list-price figure,
-  notional, not an invoice. A single config ran ~15k candidate + ~16k judge tokens
-  (`skill-implementing-with-tdd-retrospective.yaml`).
+  notional, not an invoice. A full single pass over all 61 configs (2026-09-14,
+  `claude-haiku-4-5` candidate, `claude-opus-5` judge) used ~3.6M tokens, $12.30 at
+  list price, with 0 provider errors; the slowest configs take 10 to 20 minutes each.
 
 ### Local fallback (OpenWebUI proxy) — when you're out of OpenAI quota
 
