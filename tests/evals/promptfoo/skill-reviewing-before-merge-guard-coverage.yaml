@@ -15,12 +15,10 @@ description: >
   true-negative seed (one an over-triggering reviewer would FAIL) -> guard
   COVERED, SAFE-eligible (true-negative; the check must NOT over-fire when the
   over-trigger direction is genuinely tested).
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -35,13 +33,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate verified that
       a newly-added regression guard's eval exercises BOTH directions (a

@@ -3,10 +3,30 @@
 
 Runs `npx promptfoo eval` against the selected config — a base skill YAML
 (`--skill <name>`) or an exact suffixed / `.ab.yaml` config (`--config
-<selector>`) — writes the JSON output to
+<selector>`) on the Claude eval pair that every config pins
+(providers/claude-candidate.yaml + providers/claude-judge.yaml, through
+`claude -p`), writes the JSON output to
 docs/qa/runs/eval-baselines/<date>-skill-<slug>__<label>.json, and prints a
 pass/fail summary. If a prior baseline exists for the same config, also
 prints a brief delta.
+
+A run whose report carries provider or judge errors (``stats.errors > 0``, or a
+component result tagged ``metadata.graderError``, the definition run-eval.sh
+uses) is not a skill verdict and is never kept as a baseline: promptfoo writes
+to a scratch file with the snapshot's own ``.json`` name inside a ``.partial/``
+subdirectory (promptfoo refuses an output path without a known format
+extension), and only a clean report is moved onto the snapshot path. An errored report is moved aside to
+``<snapshot>.json.rejected`` for diagnosis and the script exits 3, so a prior
+baseline, including one ``--force`` would overwrite, stays untouched.
+
+A report with no verdict in it (no ``results.stats``, or an empty
+``results.results``: no test case ran) is a harness or config error, the shape
+run-eval.sh exits 4 on. It is moved aside to the same ``.rejected`` path, never
+promoted, and the script exits 4. A run that wrote no report, or a report
+that is not JSON, is the same harness or config error and also exits 4, not
+promptfoo's raw status. A Ctrl-C during the run removes the
+scratch file before the interrupt propagates, and the ``.partial/`` directory
+is removed once it is empty.
 
 The slug and label are separated by a literal ``__`` (double underscore).
 Both are validated kebab-case tokens (lowercase alphanumerics + single
@@ -26,8 +46,8 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -121,6 +141,48 @@ def load_summary(path: Path) -> tuple[int, int]:
     results = data.get("results", {})
     stats = results.get("stats", {})
     return (int(stats.get("successes", 0)), int(stats.get("failures", 0)))
+
+
+EXIT_PROVIDER_ERRORS = 3
+EXIT_HARNESS_ERROR = 4
+# Scratch directory for promptfoo's in-progress report, inside the baselines dir.
+PARTIAL_DIR_NAME = ".partial"
+
+
+def report_is_complete(data: object) -> bool:
+    """Did promptfoo record a verdict at all?
+
+    The same shape check as run-eval.sh: ``results.stats`` present and
+    ``results.results`` a non-empty list. Valid JSON without them (``{}``, a
+    ``results`` with no ``stats``, an empty ``results.results``) means no test
+    case ran: a harness or config error, which ``count_run_errors`` would
+    otherwise read as zero errors.
+    """
+    if not isinstance(data, dict):
+        return False
+    results = data.get("results")
+    if not isinstance(results, dict):
+        return False
+    rows = results.get("results")
+    return isinstance(results.get("stats"), dict) and isinstance(rows, list) and bool(rows)
+
+
+def count_run_errors(data: dict) -> int:
+    """Provider or judge errors in a promptfoo output JSON.
+
+    The same definition as run-eval.sh: ``results.stats.errors`` counts a
+    candidate-side error, and a judge that fails or returns no parseable verdict
+    becomes a component result tagged ``metadata.graderError``.
+    """
+    results = data.get("results") or {}
+    stats = results.get("stats") or {}
+    grader_errors = sum(
+        1
+        for row in results.get("results") or []
+        for component in ((row or {}).get("gradingResult") or {}).get("componentResults") or []
+        if ((component or {}).get("metadata") or {}).get("graderError")
+    )
+    return int(stats.get("errors") or 0) + grader_errors
 
 
 def config_to_slug(config_path: Path) -> str:
@@ -319,6 +381,77 @@ def print_delta(prior: Path, current: Path) -> None:
     print(f"  Delta: passed {_signed(delta_pass)}, failed {_signed(delta_fail)}")
 
 
+def capture_report(
+    cmd: list[str], repo_root: Path, partial_path: Path, rejected_path: Path, output_path: Path
+) -> tuple[int | None, int]:
+    """Run promptfoo into ``partial_path`` and promote only a complete, error-free report.
+
+    Returns ``(early_exit, promptfoo_returncode)``: ``early_exit`` is the script's
+    exit code when nothing was promoted, or None once the report is on
+    ``output_path``.
+    """
+    result = subprocess.run(cmd, cwd=repo_root)
+
+    # No report, or one that is not JSON: promptfoo stopped before grading anything.
+    # That is the harness or config error run-eval.sh exits 4 on, so return 4 rather
+    # than promptfoo's raw status (100 is also what an ordinary rubric failure
+    # returns); the raw status stays in the message for diagnosis.
+    if not partial_path.is_file():
+        print(
+            f"\npromptfoo exited with code {result.returncode} and wrote no report at "
+            f"{partial_path}: a harness or config error, not a skill verdict. It failed "
+            "before producing output; nothing was captured. Check the config and its "
+            "YAML in the promptfoo output above, then re-run.",
+            file=sys.stderr,
+        )
+        return EXIT_HARNESS_ERROR, result.returncode
+
+    try:
+        report = json.loads(partial_path.read_text(encoding="utf-8"))
+    except (ValueError, TypeError) as exc:
+        partial_path.unlink(missing_ok=True)
+        print(
+            f"\npromptfoo exited with code {result.returncode} and its report was not "
+            f"readable ({exc}): a harness or config error, not a skill verdict. Nothing "
+            "was captured. Check the promptfoo output above, then re-run.",
+            file=sys.stderr,
+        )
+        return EXIT_HARNESS_ERROR, result.returncode
+
+    if not report_is_complete(report):
+        partial_path.replace(rejected_path)
+        print(
+            f"\npromptfoo exited with code {result.returncode} and its report records no "
+            "test case (no results.stats, or an empty results.results): a harness or "
+            "config error, not a skill verdict and not a provider error. It was not kept "
+            f"as a baseline; the report is at {rejected_path.relative_to(repo_root)}. "
+            "Check the config and its YAML in the promptfoo output above, then re-run.",
+            file=sys.stderr,
+        )
+        return EXIT_HARNESS_ERROR, result.returncode
+
+    errors = count_run_errors(report)
+    if errors:
+        partial_path.replace(rejected_path)
+        print(
+            f"\nThe run had provider or judge errors (errors={errors}): not a skill "
+            "verdict, so it was not kept as a baseline and no delta is reported. "
+            f"The report is at {rejected_path.relative_to(repo_root)}; resolve the "
+            "error it records (a Claude usage limit or a CLI failure), then re-run.",
+            file=sys.stderr,
+        )
+        return EXIT_PROVIDER_ERRORS, result.returncode
+
+    partial_path.replace(output_path)
+    if result.returncode != 0:
+        print(
+            f"\npromptfoo exited with code {result.returncode}.",
+            file=sys.stderr,
+        )
+
+    return None, result.returncode
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -413,10 +546,11 @@ def main() -> int:
         )
         return 2
 
-    if not os.environ.get("OPENAI_API_KEY"):
+    if shutil.which("claude") is None:
         print(
-            "OPENAI_API_KEY is not set. Source ~/.config/promptfoo-keys.env (see tests/evals/promptfoo/README.md) "
-            "before running this script — the key must not be passed inline or pasted in chat.",
+            "claude CLI not on PATH. The skill configs pin the Claude eval pair, which runs "
+            "through `claude -p` on your Claude subscription (see tests/evals/promptfoo/README.md); "
+            "install or sign in to Claude Code, then re-run.",
             file=sys.stderr,
         )
         return 2
@@ -434,6 +568,20 @@ def main() -> int:
         )
         return 2
 
+    # promptfoo writes to a scratch path, never onto the snapshot path: a run with
+    # provider or judge errors, or a report with no verdict in it, must not replace
+    # the baseline `--force` would overwrite. promptfoo picks its output format from
+    # the file extension and rejects anything else, so the scratch file keeps the
+    # snapshot's `.json` name inside a `.partial/` subdirectory, which the
+    # non-recursive `*-skill-*.json` prior-baseline lookup never enters. A rejected
+    # report is moved beside the snapshot with a `.rejected` suffix, which that
+    # lookup does not match either.
+    partial_dir = output_path.parent / PARTIAL_DIR_NAME
+    partial_path = partial_dir / output_path.name
+    rejected_path = output_path.with_name(output_path.name + ".rejected")
+    partial_path.unlink(missing_ok=True)
+    partial_dir.mkdir(parents=True, exist_ok=True)
+
     cmd = [
         "npx",
         "promptfoo",
@@ -442,24 +590,26 @@ def main() -> int:
         str(yaml_path),
         "--no-cache",
         "--output",
-        str(output_path),
+        str(partial_path),
     ]
     print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=repo_root)
-    if result.returncode != 0:
-        print(
-            f"\npromptfoo exited with code {result.returncode}. "
-            "Inspect the snapshot at the path above for partial results.",
-            file=sys.stderr,
+    try:
+        early_exit, returncode = capture_report(
+            cmd, repo_root, partial_path, rejected_path, output_path
         )
-
-    if not output_path.is_file():
-        print(
-            f"\nExpected snapshot at {output_path} was not written. "
-            "promptfoo may have failed before producing output.",
-            file=sys.stderr,
-        )
-        return result.returncode or 1
+    except KeyboardInterrupt:
+        # Ctrl-C during the run or before promotion: promptfoo may have written part
+        # of a report. Nothing was promoted, so drop the partial and re-raise.
+        partial_path.unlink(missing_ok=True)
+        raise
+    finally:
+        # The scratch directory is left behind only while another run is using it.
+        try:
+            partial_dir.rmdir()
+        except OSError:
+            pass
+    if early_exit is not None:
+        return early_exit
 
     passed, failed = load_summary(output_path)
     print(f"\nSnapshot captured: {output_path.relative_to(repo_root)}")
@@ -485,7 +635,7 @@ def main() -> int:
             "to identify which SKILL.md sections to strengthen."
         )
 
-    return result.returncode
+    return returncode
 
 
 if __name__ == "__main__":

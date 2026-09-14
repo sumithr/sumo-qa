@@ -13,19 +13,19 @@ description: >
   (production untouched), and route to a fixing skill ONLY when a concrete
   product-behaviour gap is confirmed.
 
-# Candidate is gpt-5-mini (the reasoning tier), not the estate's gpt-4o-mini:
-# per the #245 candidate-by-type policy, diagnostic reasoning over supplied
+# A local reasoning-tier config; the default gate runs it on the Claude pair
+# (candidate claude-haiku-4-5, judge claude-opus-5). Per the #245
+# candidate-by-type policy, diagnostic reasoning over supplied
 # failure output + repo state (discriminating a product regression from a test
 # bug / fixture / order / environment cause, and naming the discriminating
 # isolation step) is a reasoning-heavy shape, matching the -doc-drift /
-# -mapping-gap reasoning configs rather than the cheap verdict-format tier. The
-# judge stays gpt-5.5.
+# -mapping-gap reasoning configs rather than the cheap verdict-format tier.
+# History: the retired OpenAI tier ran it on gpt-5-mini rather than the
+# estate's gpt-4o-mini, with the gpt-5.5 judge.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 
 defaultTest:
   vars:
@@ -49,13 +49,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate response
       demonstrates the QA shape AND avoids the named anti-patterns. Be strict.

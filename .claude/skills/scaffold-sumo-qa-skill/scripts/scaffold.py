@@ -122,12 +122,10 @@ EVAL_YAML_TEMPLATE = dedent("""\
       Skill-isolation eval for {full_name}. One seed scenario; expand via
       `promptfoo generate dataset` once the seed produces stable output.
 
+    # The Claude eval pair (the merge gate): candidate + judge provider files,
+    # so a bare `promptfoo eval -c` of this config runs on the same pair.
     providers:
-      - id: openai:chat:gpt-4o-mini
-        label: candidate-gpt-4o-mini
-        config:
-          temperature: 0.0
-          seed: 42
+      - file://providers/claude-candidate.yaml
 
     defaultTest:
       vars:
@@ -163,6 +161,7 @@ EVAL_YAML_TEMPLATE = dedent("""\
           threshold: 1
       options:
         disableVarExpansion: true
+        provider: file://providers/claude-judge.yaml
 
     tests:
       - description: <REPLACE — name a concrete situation the skill handles, e.g. 'User asks how to test prompt-injection resistance'.>

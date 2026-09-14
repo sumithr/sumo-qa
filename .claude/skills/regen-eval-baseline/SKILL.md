@@ -1,6 +1,6 @@
 ---
 name: regen-eval-baseline
-description: Captures a promptfoo skill-eval baseline JSON for one sumo-qa skill and snapshots it to docs/qa/runs/eval-baselines/, with an automatic delta against the prior snapshot. Use this whenever the user mentions baselining a skill, capturing a before/after eval, running a single-skill eval, or measuring the effect of a SKILL.md edit — common during token-optimisation rounds. The actual work runs through a bundled script that handles path conventions, API-key checks, and diffing in one go.
+description: Captures a promptfoo skill-eval baseline JSON for one sumo-qa skill and snapshots it to docs/qa/runs/eval-baselines/, with an automatic delta against the prior snapshot. Use this whenever the user mentions baselining a skill, capturing a before/after eval, running a single-skill eval, or measuring the effect of a SKILL.md edit, common during token-optimisation rounds. The actual work runs through a bundled script that handles path conventions, the Claude CLI check, and diffing in one go.
 disable-model-invocation: true
 ---
 
@@ -12,7 +12,7 @@ Captures a promptfoo run for one sumo-qa skill and stores its JSON output in `do
 
 Trigger this skill when the user wants a per-skill eval snapshot. Common phrasings: "baseline this skill", "snapshot the eval", "run the eval for skill X", "capture before/after for the rewrite I just made". The user invokes it explicitly with `/regen-eval-baseline`; it doesn't auto-trigger.
 
-This is single-skill on purpose. Full-sweep regeneration belongs on `npm run eval:all`, which also reads the same `tests/evals/promptfoo/skill-*.yaml` files but runs them sequentially without snapshotting.
+This is single-skill on purpose. Full-sweep regeneration belongs on `npm run eval:all`, which runs the same `tests/evals/promptfoo/skill-*.yaml` files on the Claude pair sequentially without snapshotting.
 
 ## Inputs
 
@@ -30,7 +30,7 @@ Use this wrapper (`--skill` / `--config`) whenever you want the **repeatable bef
 
 ## Prerequisites the script will check
 
-- `OPENAI_API_KEY` must be set in the environment. The harness reads it from `~/.config/promptfoo-keys.env` per `tests/evals/promptfoo/README.md`; tell the user to `source` that file if the script reports it missing. Never accept the key pasted in chat — both repo policy and the `feedback_never_handle_pasted_secrets` memory rule say so.
+- The `claude` CLI must be on PATH and signed in. Every config pins the Claude eval pair (`providers/claude-candidate.yaml` + `providers/claude-judge.yaml`), which runs through `claude -p` on the user's Claude subscription, so no API key is involved. If the script reports the CLI missing, tell the user to install or sign in to Claude Code.
 - The selected config must exist: `tests/evals/promptfoo/skill-<name>.yaml` for `--skill`, or the exact suffixed / `.ab.yaml` config for `--config`. If it doesn't, the script lists every available config so the user can pick again — it does not guess a near-named sibling.
 - A snapshot at the target path already existing will block the run unless `--force` is passed. Don't pass `--force` reflexively — snapshots are evidence of past runs and silently clobbering them loses history.
 
@@ -56,9 +56,11 @@ python3 .claude/skills/regen-eval-baseline/scripts/run_baseline.py \
 The script:
 
 1. Computes the snapshot path: `docs/qa/runs/eval-baselines/<today>-skill-<slug>__<label>.json` (the slug comes from the resolved config — see Inputs; `__` separates slug from label so a multi-hyphen label stays unambiguous).
-2. Runs `npx promptfoo eval` with `--no-cache` (so the snapshot reflects fresh judge calls, not stale cache hits) and writes the JSON output to that path.
-3. Prints pass/fail counts.
-4. If a prior snapshot for the same config exists, prints a delta — passed and failed counts vs the previous run.
+2. Runs `npx promptfoo eval` with `--no-cache` (so the snapshot reflects fresh judge calls, not stale cache hits), writing the JSON output to a scratch file of the same name in a `.partial/` subdirectory of the baselines folder (promptfoo only accepts an output path with a known format extension such as `.json`). If the run is interrupted (Ctrl-C), the scratch file is removed and nothing is captured.
+3. Checks the report records a verdict: `results.stats` present and `results.results` a non-empty list. A report without them (for example `{}`) means no test case ran: a harness or config error, not a skill verdict and not a provider error, the same shape `run-eval.sh` exits 4 on. The script moves it aside to `<snapshot>.rejected`, prints no pass/fail summary and no delta, leaves every earlier snapshot untouched, and exits 4. A run where promptfoo wrote no report, or a report that is not JSON, is the same harness or config error: nothing is captured and the script exits 4, not promptfoo's own exit code. Check the config and its YAML in the promptfoo output, then re-run.
+4. Checks the report for provider or judge errors (`stats.errors > 0`, or a judge result tagged `metadata.graderError`). A run with any is not a skill verdict: the script moves the report aside to `<snapshot>.rejected`, prints no pass/fail summary and no delta, leaves every earlier snapshot untouched, and exits 3. Resolve the error the report records (a Claude usage limit or a CLI failure) and re-run; do not hand a rejected report to the `eval-failure-diagnoser`.
+5. Otherwise moves the report onto the snapshot path and prints pass/fail counts.
+6. If a prior snapshot for the same config exists, prints a delta: passed and failed counts vs the previous run.
 
 ## Reading the output
 

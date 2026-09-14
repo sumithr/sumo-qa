@@ -2,11 +2,7 @@ description: >
   Skill-isolation eval for sumo-qa-implementing-with-tdd. ONE seed test defines
   the shape; promptfoo's `generate dataset` synthesises variations.
 providers:
-  - id: openai:chat:gpt-4o-mini
-    label: candidate-gpt-4o-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-implementing-with-tdd/SKILL.md
@@ -59,13 +55,7 @@ defaultTest:
       value: file://asserts/cites-catalogue-technique.js
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate response
 
@@ -431,7 +421,10 @@ tests:
         to the last valid day of shorter months. Kotlin file is
         `src/main/kotlin/com/acme/billing/BillingCycle.kt`.
   # NOTE: the retrospective-regression seed (restore→red→return-to-current-tree
-  # mechanic) lives in skill-implementing-with-tdd-retrospective.yaml — it is a
-  # reasoning/procedural seed pinned to the gpt-5-mini candidate tier (matching
-  # the sibling -repo-map / -doc-drift configs), not this verdict-format
-  # gpt-4o-mini file. Keeping it here forced it onto the wrong candidate tier.
+  # mechanic) lives in skill-implementing-with-tdd-retrospective.yaml: it is a
+  # reasoning/procedural seed, a local reasoning-tier config (matching the
+  # sibling -repo-map / -doc-drift configs); this file is a cheap-tier config.
+  # The default gate runs both on the Claude pair (candidate claude-haiku-4-5,
+  # judge claude-opus-5). History: the retired OpenAI tier ran that seed on its
+  # gpt-5-mini reasoning candidate and this file on gpt-4o-mini; keeping the
+  # seed here forced it onto the wrong candidate tier.

@@ -9,17 +9,22 @@ description: >
   adversarial discovery pass forces a signal->defect-class sweep before the
   risk list; A0/A1 lack that pass and declare green-tested diffs safe. Uses a
   representative 6-seed spread (easy->hard discovery families + a docs-only
-  negative control) from skill-reviewing-before-merge-adversarial.yaml. Candidate
-  is gpt-5-mini (a cheap reasoning model), NOT the estate's gpt-4o-mini: a
-  discovery eval needs a candidate that can reason over a raw diff, and
-  gpt-4o-mini proved too noisy to measure it (its full-corpus baseline-vs-postcut
-  inverted run-to-run). On gpt-5-mini this is a clean, same-run controlled
-  result — B (full skill) 6/6 vs A0 (no skill) / A1 (catalogues only) only
+  negative control) from skill-reviewing-before-merge-adversarial.yaml. The
+  default gate runs it on the Claude pair (candidate claude-haiku-4-5, judge
+  claude-opus-5); it is a local reasoning-tier config. History on the retired
+  OpenAI tier: the candidate was gpt-5-mini (a cheap reasoning model), NOT the
+  estate's gpt-4o-mini, because a discovery eval needs a candidate that can
+  reason over a raw diff, and gpt-4o-mini proved too noisy to measure it (its
+  full-corpus baseline-vs-postcut inverted run-to-run). On gpt-5-mini this was a
+  clean, same-run controlled result: B (full skill) 6/6 vs A0 (no skill) / A1
+  (catalogues only) only
   ~1-4/6: the discovery pass takes B to a perfect score on the hard families
   A0/A1 miss. A0/A1 flicker run-to-run; B is stable. Read the B-over-A0
   ordering as the signal.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-reasoning-candidate.yaml') }}
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/claude-candidate.yaml') }}
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -37,7 +42,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/claude-judge.yaml') }}
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate
       INDEPENDENTLY DISCOVERED the seeded defect from a raw diff (no risks were

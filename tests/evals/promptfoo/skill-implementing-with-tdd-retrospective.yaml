@@ -2,16 +2,16 @@ description: >-
   Skill-isolation eval for sumo-qa-implementing-with-tdd — the RETROSPECTIVE
   regression special case (the bug is already fixed). This seed exercises the
   restore→red→return-to-current-tree mechanic, a reasoning/procedural task, so
-  the candidate is pinned to gpt-5-mini (matching the sibling reasoning configs
-  -reviewing-before-merge-repo-map / -doc-drift) rather than the cheap
-  verdict-format gpt-4o-mini tier the base skill-implementing-with-tdd.yaml uses.
-  The judge stays gpt-5.5.
+  it is a local reasoning-tier config (matching the sibling reasoning configs
+  -reviewing-before-merge-repo-map / -doc-drift). The default gate runs it on
+  the Claude pair: candidate claude-haiku-4-5, judge claude-opus-5. History: the
+  retired OpenAI tier pinned it to gpt-5-mini rather than the cheap
+  verdict-format gpt-4o-mini tier the base skill-implementing-with-tdd.yaml
+  used, with the gpt-5.5 judge.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-implementing-with-tdd/SKILL.md
@@ -140,13 +140,7 @@ defaultTest:
         {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<why>"}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate response
 

@@ -27,6 +27,12 @@ capture of the real tool:
   - promptfoo_fail.stdout.txt    — real `promptfoo eval` (echo provider), 1
                                    failed, table cell `[FAIL]`, exit code 100
   - promptfoo_pass.stdout.txt    — real `promptfoo eval`, 1 passed, exit 0
+  - run_eval_abort.stdout.txt    - real `npm run eval` on the Claude backend
+                                   ending in `[eval] ABORT:` (exit 3); only
+                                   the repo path is replaced by `<repo>`
+  - run_eval_harness_error.stdout.txt - real `run-eval.sh` on a misspelled
+                                   config path, ending in `[eval] ERROR:`
+                                   (exit 4); only the repo path is replaced
 
 Technique: equivalence partitioning over (command-shape × output-marker) — the
 substring/token-confusion failure mode this technique warns about IS the bug
@@ -256,6 +262,437 @@ class TestPromptfooFailsRouteToDiagnoser:
             )
         )
         assert "eval-failure-diagnoser" in _additional_context(result)
+
+
+class TestRunEvalScriptRoutes:
+    """The eval gate runs through `tests/evals/promptfoo/run-eval.sh` (#682):
+    `npm run eval` / `eval:all` wrap it, and the eval-gate runbook and the local
+    tiers invoke it directly. A direct run that FAILs must route like the npm
+    form. Equivalence partitioning over the command shape: the script as the
+    executed program (bash/path) routes; the script as a mere argument to a
+    non-shell program (cat, shellcheck) does not, and neither does a shell that
+    cannot run it (`sh` is dash on Debian/Ubuntu and rejects `set -o pipefail`;
+    zsh has no BASH_SOURCE), which fails before promptfoo starts.
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "bash tests/evals/promptfoo/run-eval.sh",
+            "bash tests/evals/promptfoo/run-eval.sh all",
+            "SUMO_EVAL_BACKEND=claude bash tests/evals/promptfoo/run-eval.sh "
+            "tests/evals/promptfoo/skill-finding-test-data.yaml",
+            "SUMO_EVAL_BACKEND=local TIER=cheap bash tests/evals/promptfoo/run-eval.sh",
+            "./tests/evals/promptfoo/run-eval.sh all",
+            "npm run eval:local:cheap",
+            "npm run eval:local:quality",
+        ],
+    )
+    def test_run_eval_fail_routes(self, command: str) -> None:
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use(command, stdout=out, exit_code=1))
+        assert "eval-failure-diagnoser" in _additional_context(result), (
+            f"hook did not route a failing eval run: {command!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cat tests/evals/promptfoo/run-eval.sh",
+            "shellcheck tests/evals/promptfoo/run-eval.sh",
+            "bash tests/evals/promptfoo/validate-local-judge/run.sh",
+            "bash -n tests/evals/promptfoo/run-eval.sh",
+            "sh tests/evals/promptfoo/run-eval.sh",
+            "zsh tests/evals/promptfoo/run-eval.sh",
+        ],
+    )
+    def test_run_eval_as_an_argument_does_not_route(self, command: str) -> None:
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use(command, stdout=out, exit_code=1))
+        assert _additional_context(result) == "", (
+            f"hook routed a command that does not run the eval: {command!r}"
+        )
+
+
+class TestProviderAbortIsNotASkillVerdict:
+    """run-eval.sh's Claude backend stops with `[eval] ABORT:` (exit 3) when a
+    candidate or judge call errors: a usage limit or a CLI failure is not a
+    skill verdict (#651). Routing that to `eval-failure-diagnoser`, whose job is
+    strengthening a SKILL.md, would turn a provider outage into a skill edit.
+
+    `run_eval_abort.stdout.txt` is a real capture of `NO_COLOR=1 npm run eval`
+    on the Claude backend (stdout + stderr, exit 3) with a `claude` stand-in on
+    PATH that exits non-zero, so every call errors and no model is called. Only
+    the absolute repo path is replaced by `<repo>`; every other byte is the real
+    run-eval.sh / promptfoo output.
+    """
+
+    def test_abort_does_not_route_to_the_diagnoser(self) -> None:
+        out = _fixture("run_eval_abort.stdout.txt")
+        assert "[eval] ABORT:" in out, "fixture lost its ABORT line"
+        result = _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=3))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context, (
+            f"hook routed a provider abort to the SKILL.md diagnoser: {context!r}"
+        )
+        assert "not a skill verdict" in context, (
+            f"hook did not explain the provider abort: {context!r}"
+        )
+
+    def test_abort_marker_on_a_non_eval_command_is_silent(self) -> None:
+        out = _fixture("run_eval_abort.stdout.txt")
+        result = _run_hook(_post_tool_use(f"cat {FIXTURES}/x.txt", stdout=out, exit_code=0))
+        assert _additional_context(result) == ""
+
+
+class TestHarnessErrorIsNotAProviderAbort:
+    """run-eval.sh stops with `[eval] ERROR:` (exit 4) when promptfoo wrote no
+    readable report: a misspelled config path or malformed YAML, so no test case
+    ran. That is neither a skill verdict nor a provider abort, so it must not be
+    routed to `eval-failure-diagnoser` and must not get the provider-abort
+    reminder.
+
+    `run_eval_harness_error.stdout.txt` is a real capture of
+    `NO_COLOR=1 bash tests/evals/promptfoo/run-eval.sh
+    tests/evals/promptfoo/skill-implementing-with-tdd.yml` (a misspelled
+    extension; stdout + stderr, exit 4) with a `claude` stand-in on PATH and no
+    OPENAI_API_KEY. Only the absolute repo path is replaced by `<repo>`.
+    """
+
+    COMMAND = "bash tests/evals/promptfoo/run-eval.sh tests/evals/promptfoo/skill-implementing-with-tdd.yml"
+
+    def test_harness_error_gets_its_own_reminder(self) -> None:
+        out = _fixture("run_eval_harness_error.stdout.txt")
+        assert "[eval] ERROR:" in out and "[eval] ABORT:" not in out, "fixture changed shape"
+        result = _run_hook(_post_tool_use(self.COMMAND, stdout=out, exit_code=4))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context, (
+            f"hook routed a harness/config error to the SKILL.md diagnoser: {context!r}"
+        )
+        assert "provider or judge errors" not in context, (
+            f"hook gave a harness/config error the provider-abort reminder: {context!r}"
+        )
+        assert "did not run" in context and "config" in context, context
+
+    def test_harness_error_through_npm_gets_the_same_reminder(self) -> None:
+        out = _fixture("run_eval_harness_error.stdout.txt")
+        result = _run_hook(_post_tool_use("npm run eval:all", stdout=out, exit_code=4))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context
+        assert "did not run" in context
+
+    def test_error_marker_on_a_non_eval_command_is_silent(self) -> None:
+        out = _fixture("run_eval_harness_error.stdout.txt")
+        result = _run_hook(_post_tool_use(f"cat {FIXTURES}/x.txt", stdout=out, exit_code=0))
+        assert _additional_context(result) == ""
+
+
+class TestMixedErrorAndAbortMarkers:
+    """One Bash result can carry BOTH markers. run-eval.sh itself exits on the
+    first `[eval] ERROR:` (exit 4) or `[eval] ABORT:` (exit 3), so a single
+    invocation prints at most one; but one Bash command can chain several eval
+    runs (`npm run eval -- a.yaml; npm run eval -- b.yaml`), and the hook reads
+    the combined stdout + stderr of the whole command. Emitting only the ABORT
+    reminder would hide the harness/config error; routing either to the
+    diagnoser would turn it into a SKILL.md edit. The reminder must cover both.
+
+    The output is the two real captured fixtures concatenated
+    (`run_eval_harness_error.stdout.txt` then `run_eval_abort.stdout.txt`, and
+    the reverse order); no byte of either is altered.
+    """
+
+    COMMAND = (
+        "bash tests/evals/promptfoo/run-eval.sh tests/evals/promptfoo/skill-implementing-with-tdd.yml"
+        "; npm run eval"
+    )
+
+    @pytest.mark.parametrize(
+        "order",
+        [
+            ("run_eval_harness_error.stdout.txt", "run_eval_abort.stdout.txt"),
+            ("run_eval_abort.stdout.txt", "run_eval_harness_error.stdout.txt"),
+        ],
+    )
+    def test_both_markers_get_a_reminder_covering_both(self, order: tuple[str, str]) -> None:
+        out = _fixture(order[0]) + _fixture(order[1])
+        assert "[eval] ERROR:" in out and "[eval] ABORT:" in out, "fixtures changed shape"
+        result = _run_hook(_post_tool_use(self.COMMAND, stdout=out, exit_code=3))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context, (
+            f"hook routed mixed ERROR/ABORT output to the SKILL.md diagnoser: {context!r}"
+        )
+        assert "provider or judge errors" in context, (
+            f"mixed reminder dropped the provider abort: {context!r}"
+        )
+        assert "did not run" in context and "config" in context, (
+            f"mixed reminder dropped the harness/config error: {context!r}"
+        )
+
+
+class TestMarkersMatchOnlyRunnerEmissions:
+    """run-eval.sh writes each marker as its own stderr line
+    (`echo "[eval] ABORT: ..." >&2`), so a runner emission always STARTS a line.
+    Marker text anywhere else (echoed, quoted, grepped, embedded mid-line) is not
+    the runner speaking: a passing eval chained with such output must stay
+    silent rather than claim an ABORT or ERROR that never happened.
+
+    And the mixed reminder needs two eval runs: one run-eval.sh invocation exits
+    on its first marker, so a single eval segment whose output shows both
+    line-anchored markers has not produced a mixed result; the first marker in
+    the output is the one the runner stopped on.
+    """
+
+    PASSING_EVAL = "bash tests/evals/promptfoo/run-eval.sh valid.yaml"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            PASSING_EVAL
+            + "; printf '%s\\n' 'example: [eval] ERROR: bad path [eval] ABORT: usage limit'",
+            PASSING_EVAL
+            + "; npm run eval; printf '%s\\n' 'example: [eval] ERROR: bad path [eval] ABORT: usage limit'",
+        ],
+    )
+    def test_passing_eval_with_quoted_markers_mid_line_is_silent(self, command: str) -> None:
+        out = (
+            _fixture("promptfoo_pass.stdout.txt")
+            + "example: [eval] ERROR: bad path [eval] ABORT: usage limit\n"
+        )
+        result = _run_hook(_post_tool_use(command, stdout=out, exit_code=0))
+        assert _additional_context(result) == "", (
+            f"hook read quoted marker text as a runner emission: {command!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "example: [eval] ABORT: skill-x had provider or judge errors (errors=5)",
+            "example: [eval] ERROR: x.yml produced no readable report (promptfoo exit 1)",
+            'tests/evals/promptfoo/run-eval.sh:188:      echo "[eval] ABORT: $base had errors" >&2',
+            'tests/evals/promptfoo/run-eval.sh:184:      echo "[eval] ERROR: $f produced no report" >&2',
+        ],
+    )
+    def test_marker_embedded_in_a_longer_line_is_silent(self, line: str) -> None:
+        out = _fixture("promptfoo_pass.stdout.txt")
+        result = _run_hook(
+            _post_tool_use(self.PASSING_EVAL, stdout=out, stderr=line + "\n", exit_code=0)
+        )
+        assert _additional_context(result) == "", (
+            f"hook read an embedded marker as a runner emission: {line!r}"
+        )
+
+    @pytest.mark.parametrize(
+        ("order", "expected", "absent"),
+        [
+            (
+                ("run_eval_harness_error.stdout.txt", "run_eval_abort.stdout.txt"),
+                "did not run",
+                "provider or judge errors",
+            ),
+            (
+                ("run_eval_abort.stdout.txt", "run_eval_harness_error.stdout.txt"),
+                "provider or judge errors",
+                "did not run",
+            ),
+        ],
+    )
+    def test_single_eval_segment_with_both_markers_is_not_mixed(
+        self, order: tuple[str, str], expected: str, absent: str
+    ) -> None:
+        out = _fixture(order[0]) + _fixture(order[1])
+        result = _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=3))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context, context
+        assert expected in context, (
+            f"single-run output lost the reminder for its first marker: {context!r}"
+        )
+        assert absent not in context, (
+            f"one eval run got the mixed reminder though it stops at its first marker: {context!r}"
+        )
+
+
+def _run_eval_section(base: str, body: str) -> str:
+    """One config's stdout as run-eval.sh prints it: its `── <base>   → report:`
+    header line (the exact `echo` format of the Claude branch) followed by
+    promptfoo's output for that config."""
+    report = f"<repo>/tests/evals/results/claude-reports/{base}.json"
+    return f"── {base}   → report: {report}\n{body}"
+
+
+class TestEarlierSkillFailSurvivesALaterAbort:
+    """run-eval.sh keeps going after a config with failing test cases (it only
+    records `rc=1`) and stops at the first `[eval] ABORT:` or `[eval] ERROR:`.
+    So `npm run eval:all` can print a genuine `[FAIL]` table for config A and
+    then abort on config B (a usage limit partway through the matrix, the #651
+    shape). A's FAIL is a real skill verdict: the marker reminder alone tells the
+    agent not to diagnose anything, which would drop it. The reminder must name
+    the configs that failed and still route them to the diagnoser, while the
+    marked config stays "not a skill verdict".
+
+    The aborted config's own table can carry `[FAIL]` rows (a judge error
+    becomes a failed assertion), so only configs OTHER than the one the marker
+    names count as skill failures.
+
+    Each config section is run-eval.sh's header line plus a real promptfoo
+    capture (`promptfoo_fail.stdout.txt`); the ABORT and ERROR sections are the
+    real `run_eval_abort` / `run_eval_harness_error` captures unchanged.
+    """
+
+    FAILED = "skill-strategising"
+
+    def _failed_section(self) -> str:
+        return _run_eval_section(self.FAILED, _fixture("promptfoo_fail.stdout.txt"))
+
+    @pytest.mark.parametrize(
+        "command", ["npm run eval:all", "bash tests/evals/promptfoo/run-eval.sh all"]
+    )
+    def test_fail_then_abort_routes_the_fail_and_explains_the_abort(self, command: str) -> None:
+        out = self._failed_section() + _fixture("run_eval_abort.stdout.txt")
+        context = _additional_context(_run_hook(_post_tool_use(command, stdout=out, exit_code=3)))
+        assert "eval-failure-diagnoser" in context, (
+            f"a real skill FAIL before the abort was not routed: {context!r}"
+        )
+        assert self.FAILED in context, context
+        assert "provider or judge errors" in context and "not a skill verdict" in context, context
+
+    def test_fail_then_harness_error_routes_the_fail_and_explains_the_error(self) -> None:
+        out = self._failed_section() + _fixture("run_eval_harness_error.stdout.txt")
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval:all", stdout=out, exit_code=4))
+        )
+        assert "eval-failure-diagnoser" in context and self.FAILED in context, context
+        assert "did not run" in context, context
+
+    def test_fail_on_stdout_with_abort_on_stderr_routes_the_fail(self) -> None:
+        abort = _fixture("run_eval_abort.stdout.txt")
+        marker_at = abort.index("[eval] ABORT:")
+        out = self._failed_section() + abort[:marker_at]
+        context = _additional_context(
+            _run_hook(
+                _post_tool_use(
+                    "npm run eval:all", stdout=out, stderr=abort[marker_at:], exit_code=3
+                )
+            )
+        )
+        assert "eval-failure-diagnoser" in context and self.FAILED in context, context
+
+    def test_same_config_failed_then_aborted_in_chained_runs_routes_the_fail(self) -> None:
+        base = "skill-implementing-with-tdd"
+        out = _run_eval_section(base, _fixture("promptfoo_fail.stdout.txt")) + _fixture(
+            "run_eval_abort.stdout.txt"
+        )
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval; npm run eval", stdout=out, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" in context and base in context, context
+
+    def test_fail_rows_inside_the_aborted_config_are_not_a_skill_fail(self) -> None:
+        base = "skill-implementing-with-tdd"
+        out = (
+            _run_eval_section(base, _fixture("promptfoo_fail.stdout.txt"))
+            + f"[eval] ABORT: {base} had provider or judge errors (errors=1); see x.json. Not a skill verdict.\n"
+        )
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" not in context, (
+            f"the aborted config's own judge-error FAIL rows were routed as a skill FAIL: {context!r}"
+        )
+        assert "not a skill verdict" in context, context
+
+    def test_passing_config_then_abort_keeps_the_abort_reminder_only(self) -> None:
+        out = _run_eval_section(self.FAILED, _fixture("promptfoo_pass.stdout.txt")) + _fixture(
+            "run_eval_abort.stdout.txt"
+        )
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval:all", stdout=out, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" not in context, context
+        assert "provider or judge errors" in context, context
+
+
+class TestMarkedConfigWithSpacesInItsPath:
+    """run-eval.sh names the config a marker stopped on with its full path in
+    `[eval] ERROR: <config path> produced no readable report` and with its base
+    name in `[eval] ABORT: <base> had provider or judge errors`. A checkout under
+    a directory with a space (`/Users/me/My Projects/sumo-qa`), or a config file
+    whose name has one, must still identify that config, so its own `[FAIL]`
+    rows are not routed to the diagnoser as a skill FAIL, while an earlier
+    config's real FAIL still is.
+
+    The ERROR case is the real `run_eval_harness_error` capture with `<repo>`
+    replaced by the spaced path and a real promptfoo `[FAIL]` table inserted in
+    the marked config's own section; the ABORT case is run-eval.sh's exact
+    header and ABORT line formats around the same real table.
+    """
+
+    REPO = "/Users/me/My Projects/sumo-qa"
+
+    def _spaced_harness_error_with_fail_rows(self) -> str:
+        capture = _fixture("run_eval_harness_error.stdout.txt").replace("<repo>", self.REPO)
+        header_end = capture.index("\n", capture.index("── ")) + 1
+        return capture[:header_end] + _fixture("promptfoo_fail.stdout.txt") + capture[header_end:]
+
+    def _spaced_abort_with_fail_rows(self, base: str) -> str:
+        report = f"{self.REPO}/tests/evals/results/claude-reports/{base}.json"
+        return (
+            f"── {base}   → report: {report}\n"
+            + _fixture("promptfoo_fail.stdout.txt")
+            + f"[eval] ABORT: {base} had provider or judge errors (errors=1); see {report}. "
+            "Not a skill verdict.\n"
+        )
+
+    def test_error_on_a_spaced_repo_path_is_not_a_skill_fail(self) -> None:
+        out = self._spaced_harness_error_with_fail_rows()
+        assert f"[eval] ERROR: {self.REPO}/" in out, "fixture changed shape"
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=4))
+        )
+        assert "eval-failure-diagnoser" not in context, (
+            f"the errored config's own FAIL rows were routed as a skill FAIL: {context!r}"
+        )
+        assert "did not run" in context, context
+
+    def test_abort_on_a_spaced_config_name_is_not_a_skill_fail(self) -> None:
+        out = self._spaced_abort_with_fail_rows("skill my config")
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" not in context, (
+            f"the aborted config's own FAIL rows were routed as a skill FAIL: {context!r}"
+        )
+        assert "provider or judge errors" in context, context
+
+    @pytest.mark.parametrize("marker", ["ERROR", "ABORT"])
+    def test_earlier_fail_still_routes_beside_a_spaced_marked_config(self, marker: str) -> None:
+        earlier = _run_eval_section("skill-strategising", _fixture("promptfoo_fail.stdout.txt"))
+        marked = (
+            self._spaced_harness_error_with_fail_rows()
+            if marker == "ERROR"
+            else self._spaced_abort_with_fail_rows("skill my config")
+        )
+        context = _additional_context(
+            _run_hook(_post_tool_use("npm run eval:all", stdout=earlier + marked, exit_code=3))
+        )
+        assert "eval-failure-diagnoser" in context, context
+        assert "these configs finished with a skill FAIL: skill-strategising." in context, (
+            f"only the earlier config may be named as a skill FAIL: {context!r}"
+        )
+
+    def test_earlier_fail_in_a_spaced_config_name_routes_before_an_abort(self) -> None:
+        earlier = _run_eval_section("skill my config", _fixture("promptfoo_fail.stdout.txt"))
+        context = _additional_context(
+            _run_hook(
+                _post_tool_use(
+                    "npm run eval:all",
+                    stdout=earlier + _fixture("run_eval_abort.stdout.txt"),
+                    exit_code=3,
+                )
+            )
+        )
+        assert "these configs finished with a skill FAIL: skill my config." in context, (
+            f"a spaced config name that failed before the abort was not routed: {context!r}"
+        )
 
 
 class TestExcludedEvalCommands:
@@ -537,6 +974,8 @@ def test_hook_is_executable() -> None:
         "mutmut_clean.stdout.txt",
         "promptfoo_fail.stdout.txt",
         "promptfoo_pass.stdout.txt",
+        "run_eval_abort.stdout.txt",
+        "run_eval_harness_error.stdout.txt",
     ],
 )
 def test_fixtures_exist(fixture_name: str) -> None:

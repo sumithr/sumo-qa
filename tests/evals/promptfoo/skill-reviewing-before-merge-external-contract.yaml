@@ -16,12 +16,10 @@ description: >
   Surfaced by PR #261 / issue #127: a hook grepped `mutmut run` output for
   `survived`, but real mutmut 3.x prints an emoji summary — the word appears only
   in `mutmut results`. Tests were green against a fabricated fixture.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -38,13 +36,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate treated a
       change's dependency on EXTERNAL tool output as a named risk that needs

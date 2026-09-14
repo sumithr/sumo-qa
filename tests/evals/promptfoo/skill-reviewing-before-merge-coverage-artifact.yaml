@@ -8,12 +8,10 @@ description: >
   risk and is never a safe-to-merge criterion on its own. Only a fresh
   path-matching test with a verbatim assertion discharges a risk; the verdict
   stays NOT SAFE TO MERGE while the changed-code risk has no such test.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -46,13 +44,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate response
       demonstrates the QA shape AND avoids the named anti-patterns. Be strict.

@@ -8,12 +8,10 @@ description: >
   impl AND FAILS a correct impl — grounded in the named technique's catalogued
   failure mode, required in the test gate before SAFE, and deliver NOT SAFE.
   This is the catch that scales when the adversarial codex pass isn't available.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -29,13 +27,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate ESCALATED
       an UNPROVEN risk into a prescribed discriminating-input test instead of

@@ -1,7 +1,7 @@
 disableVarExpansion: true
 description: 'A/B/C value-measurement for sumo-qa-implementing-with-tdd'
 providers:
-  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-cheap-candidate.yaml') }}
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/claude-candidate.yaml') }}
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-implementing-with-tdd/SKILL.md
@@ -22,7 +22,7 @@ defaultTest:
       value: file://asserts/cites-catalogue-technique.js
   options:
     disableVarExpansion: true
-    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/claude-judge.yaml') }}
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate response
 

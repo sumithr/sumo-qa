@@ -26,6 +26,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -420,6 +421,37 @@ class TestScaffoldScriptSlugValidation:
         )
         return tmp_path
 
+    def test_scaffolded_eval_config_pins_the_claude_pair(self, tmp_path: Path) -> None:
+        """#682: a new skill's eval stub must pin the Claude candidate + judge
+        provider files like every existing config, so it neither reintroduces
+        an OpenAI candidate nor leaves the llm-rubric on promptfoo's default
+        grader."""
+        import yaml
+
+        repo = self._make_tmp_repo(tmp_path)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.SCAFFOLD),
+                "--name",
+                "widget-probe",
+                "--description",
+                "test",
+                "--approach-tag",
+                "widget-probe",
+                "--repo-root",
+                str(repo),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        configs = list((repo / "tests" / "evals" / "promptfoo").glob("skill-*.yaml"))
+        assert len(configs) == 1, configs
+        data = yaml.safe_load(configs[0].read_text(encoding="utf-8"))
+        assert data["providers"] == ["file://providers/claude-candidate.yaml"]
+        assert data["defaultTest"]["options"]["provider"] == "file://providers/claude-judge.yaml"
+
     def test_rejects_name_with_path_separator(self, tmp_path: Path) -> None:
         """A name containing `/` or `..` must be rejected before any file
         is written. Otherwise an attacker (or accidentally-malformed input)
@@ -490,11 +522,6 @@ class TestRunBaselineScriptSlugValidation:
         (tmp_path / "tests" / "evals" / "promptfoo").mkdir(parents=True)
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
 
-        import os as _os
-
-        env = _os.environ.copy()
-        env["OPENAI_API_KEY"] = "dummy-not-used-because-validation-rejects-first"
-
         result = subprocess.run(
             [
                 sys.executable,
@@ -508,7 +535,6 @@ class TestRunBaselineScriptSlugValidation:
             ],
             capture_output=True,
             text=True,
-            env=env,
         )
 
         assert result.returncode != 0, (
@@ -520,11 +546,6 @@ class TestRunBaselineScriptSlugValidation:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
         # Need the YAML to exist so we don't fail on the earlier check.
         (tmp_path / "tests" / "evals" / "promptfoo" / "skill-real.yaml").write_text("")
-
-        import os as _os
-
-        env = _os.environ.copy()
-        env["OPENAI_API_KEY"] = "dummy"
 
         result = subprocess.run(
             [
@@ -539,12 +560,49 @@ class TestRunBaselineScriptSlugValidation:
             ],
             capture_output=True,
             text=True,
-            env=env,
         )
 
         assert result.returncode != 0, (
             f"script accepted --label with `..` separator: stdout={result.stdout!r}"
         )
+
+    def test_requires_the_claude_cli_not_an_openai_key(self, tmp_path: Path) -> None:
+        """#682: the baseline runs on the Claude pair the configs pin, through
+        `claude -p`. With no `claude` on PATH the script must stop before
+        promptfoo and say so; an OpenAI key is no longer a precondition."""
+        promptfoo = tmp_path / "tests" / "evals" / "promptfoo"
+        promptfoo.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+        (promptfoo / "skill-real.yaml").write_text("")
+        empty_bin = tmp_path / "empty-bin"
+        empty_bin.mkdir()
+
+        import os as _os
+
+        env = {k: v for k, v in _os.environ.items() if not k.startswith("OPENAI_")}
+        env["PATH"] = str(empty_bin)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.RUN_BASELINE),
+                "--skill",
+                "real",
+                "--repo-root",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 2, (
+            f"expected the preflight to stop the run: rc={result.returncode} "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        assert "claude CLI" in result.stderr, result.stderr
+        assert "OPENAI_API_KEY" not in result.stderr, result.stderr
+        assert "Running: npx promptfoo" not in result.stdout
 
     def test_rejects_config_whose_stem_derives_double_underscore_slug(self, tmp_path: Path) -> None:
         """Codex review R3 (major, latent): the `__` slug/label boundary is
@@ -566,11 +624,6 @@ class TestRunBaselineScriptSlugValidation:
         # A config whose stem derives a slug containing the reserved `__`.
         (promptfoo / "skill-foo__bar.yaml").write_text("")
 
-        import os as _os
-
-        env = _os.environ.copy()
-        env["OPENAI_API_KEY"] = "dummy-not-used-because-validation-rejects-first"
-
         result = subprocess.run(
             [
                 sys.executable,
@@ -582,7 +635,6 @@ class TestRunBaselineScriptSlugValidation:
             ],
             capture_output=True,
             text=True,
-            env=env,
         )
 
         assert result.returncode != 0, (
@@ -603,6 +655,469 @@ class TestRunBaselineScriptSlugValidation:
             "script proceeded to run promptfoo despite an invalid derived slug: "
             f"stdout={result.stdout!r}"
         )
+
+
+def _promptfoo_report(
+    *, successes: int, failures: int, errors: int = 0, grader_error: bool = False
+) -> dict:
+    """A crafted promptfoo `--output` JSON in the shape run_baseline.py and
+    run-eval.sh read: `results.stats` plus `results.results[]`, where a judge
+    that failed is a component result tagged `metadata.graderError`."""
+    component: dict = {"pass": not grader_error, "score": 0 if grader_error else 1}
+    if grader_error:
+        component["metadata"] = {"graderError": True}
+    return {
+        "results": {
+            "stats": {"successes": successes, "failures": failures, "errors": errors},
+            "results": [
+                {
+                    "success": not (errors or grader_error),
+                    "gradingResult": {"pass": not grader_error, "componentResults": [component]},
+                }
+            ],
+        }
+    }
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="stand-in npx/claude are sh scripts")
+class TestRunBaselineRejectsProviderErrors:
+    """A baseline is a skill verdict. A run whose report carries provider or
+    judge errors (`stats.errors > 0`, or a component result tagged
+    `metadata.graderError`, the definition run-eval.sh uses) must not be kept or
+    reported as one: the #651 failure was a quota error recorded as a
+    zero-passed baseline. It exits 3, prints neither `Snapshot captured` nor a
+    delta, and leaves every previous baseline byte-for-byte untouched,
+    including one at the same path that `--force` would overwrite.
+
+    promptfoo is replaced by a stand-in `npx` that writes the crafted report to
+    the `--output` path and exits like promptfoo (100 when a case failed); a
+    stand-in `claude` satisfies the CLI preflight. No model is called.
+    """
+
+    RUN_BASELINE = TestRunBaselineScriptSlugValidation.RUN_BASELINE
+
+    def _setup(self, tmp_path: Path, report: dict, promptfoo_exit: int) -> dict:
+        import datetime as _dt
+        import os as _os
+
+        repo = tmp_path / "repo"
+        promptfoo = repo / "tests" / "evals" / "promptfoo"
+        promptfoo.mkdir(parents=True)
+        (repo / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+        (promptfoo / "skill-real.yaml").write_text("")
+        baselines = repo / "docs" / "qa" / "runs" / "eval-baselines"
+        baselines.mkdir(parents=True)
+        older = baselines / "2020-01-01-skill-real__baseline.json"
+        older.write_text(json.dumps(_promptfoo_report(successes=4, failures=1)))
+        today = baselines / f"{_dt.date.today().isoformat()}-skill-real__baseline.json"
+        today.write_text(json.dumps(_promptfoo_report(successes=5, failures=0)))
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        report_file = tmp_path / "report.json"
+        report_file.write_text(json.dumps(report))
+        (bin_dir / "npx").write_text(
+            "#!/bin/sh\n"
+            'while [ "$#" -gt 0 ]; do\n'
+            '  if [ "$1" = --output ]; then cp "$REPORT_FILE" "$2"; fi\n'
+            "  shift\n"
+            "done\n"
+            f"exit {promptfoo_exit}\n"
+        )
+        (bin_dir / "claude").write_text("#!/bin/sh\nexit 97\n")
+        for exe in bin_dir.iterdir():
+            exe.chmod(0o755)
+
+        env = {k: v for k, v in _os.environ.items() if not k.startswith("OPENAI_")}
+        env["PATH"] = f"{bin_dir}{_os.pathsep}{env.get('PATH', '')}"
+        env["REPORT_FILE"] = str(report_file)
+        before = {p.name: p.read_bytes() for p in (older, today)}
+        return {
+            "repo": repo,
+            "baselines": baselines,
+            "older": older,
+            "today": today,
+            "before": before,
+            "env": env,
+        }
+
+    def _run(self, ctx: dict) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(self.RUN_BASELINE),
+                "--skill",
+                "real",
+                "--force",
+                "--repo-root",
+                str(ctx["repo"]),
+            ],
+            capture_output=True,
+            text=True,
+            env=ctx["env"],
+            timeout=60,
+        )
+
+    def _assert_rejected(self, ctx: dict, result: subprocess.CompletedProcess) -> None:
+        assert result.returncode == 3, (result.returncode, result.stdout, result.stderr)
+        output = result.stdout + result.stderr
+        assert "provider or judge errors" in output and "not a skill verdict" in output, output
+        assert "Snapshot captured" not in output, output
+        assert "Delta" not in output, output
+        assert "eval-failure-diagnoser" not in output, output
+        rejected = ctx["today"].with_name(ctx["today"].name + ".rejected")
+        after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir() if p != rejected}
+        assert after == ctx["before"], (
+            "a run with provider/judge errors changed the kept baselines: "
+            f"{sorted(after)} vs {sorted(ctx['before'])}"
+        )
+        # The errored report is kept aside for diagnosis under a name no baseline
+        # lookup matches (the prior-baseline glob is `*-skill-*.json`).
+        assert rejected.is_file(), sorted(p.name for p in ctx["baselines"].iterdir())
+        assert str(rejected.name) in output, output
+        assert sorted(ctx["baselines"].glob("*-skill-*.json")) == sorted(
+            [ctx["older"], ctx["today"]]
+        )
+
+    def test_stats_errors_are_not_captured(self, tmp_path: Path) -> None:
+        ctx = self._setup(
+            tmp_path, _promptfoo_report(successes=0, failures=0, errors=5), promptfoo_exit=100
+        )
+        self._assert_rejected(ctx, self._run(ctx))
+
+    def test_grader_error_is_not_captured(self, tmp_path: Path) -> None:
+        ctx = self._setup(
+            tmp_path,
+            _promptfoo_report(successes=0, failures=1, grader_error=True),
+            promptfoo_exit=100,
+        )
+        self._assert_rejected(ctx, self._run(ctx))
+
+    def test_clean_run_is_still_captured(self, tmp_path: Path) -> None:
+        report = _promptfoo_report(successes=3, failures=2)
+        ctx = self._setup(tmp_path, report, promptfoo_exit=100)
+        result = self._run(ctx)
+        assert result.returncode == 100, (result.returncode, result.stdout, result.stderr)
+        assert "Snapshot captured" in result.stdout, result.stdout
+        assert "3 passed, 2 failed" in result.stdout, result.stdout
+        assert "Prior baseline: 2020-01-01-skill-real__baseline.json" in result.stdout
+        assert "Delta: passed -1, failed +1" in result.stdout, result.stdout
+        assert json.loads(ctx["today"].read_text()) == report
+        assert ctx["older"].is_file()
+        assert sorted(p.name for p in ctx["baselines"].iterdir()) == sorted(
+            [ctx["older"].name, ctx["today"].name]
+        )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="stand-in npx/claude are sh scripts")
+class TestRunBaselineRejectsIncompleteReports:
+    """A report promptfoo left as valid JSON with no verdict in it (`{}`, a
+    `results` with no `stats`, or an empty `results.results`) ran no test case:
+    a harness or config error, not a skill verdict and not a provider error.
+    `count_run_errors` reads that shape as zero errors, so without a structural
+    check it was promoted over the baseline `--force` targets and printed
+    `0 passed, 0 failed`. run-eval.sh classifies the same shape as exit 4
+    (`[eval] ERROR:`); run_baseline.py must match: exit 4, no promotion, the
+    report moved aside to `<snapshot>.rejected`, every earlier baseline
+    byte-for-byte untouched.
+
+    Same stand-in `npx` / `claude` harness as the provider-error tests; no model
+    is called.
+    """
+
+    RUN_BASELINE = TestRunBaselineRejectsProviderErrors.RUN_BASELINE
+    _SETUP = TestRunBaselineRejectsProviderErrors._setup
+    _RUN = TestRunBaselineRejectsProviderErrors._run
+
+    def _assert_harness_error(self, tmp_path: Path, report: object) -> None:
+        ctx = self._SETUP(tmp_path, report, promptfoo_exit=0)  # type: ignore[arg-type]
+        result = self._RUN(ctx)
+        assert result.returncode == 4, (result.returncode, result.stdout, result.stderr)
+        output = result.stdout + result.stderr
+        assert "harness or config error" in output, output
+        assert "not a skill verdict" in output and "not a provider error" in output, output
+        assert "provider or judge errors" not in output, output
+        assert "Snapshot captured" not in output, output
+        assert "passed" not in output and "Delta" not in output, output
+        assert "eval-failure-diagnoser" not in output, output
+        rejected = ctx["today"].with_name(ctx["today"].name + ".rejected")
+        partial = ctx["baselines"] / ".partial" / ctx["today"].name
+        after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir() if p != rejected}
+        assert after == ctx["before"], (
+            "an incomplete report changed the kept baselines: "
+            f"{sorted(after)} vs {sorted(ctx['before'])}"
+        )
+        assert rejected.is_file(), sorted(p.name for p in ctx["baselines"].iterdir())
+        assert json.loads(rejected.read_text()) == report
+        assert not partial.exists() and not partial.parent.exists()
+        assert rejected.name in output, output
+
+    def test_empty_object_report_is_a_harness_error(self, tmp_path: Path) -> None:
+        self._assert_harness_error(tmp_path, {})
+
+    def test_results_without_stats_is_a_harness_error(self, tmp_path: Path) -> None:
+        self._assert_harness_error(tmp_path, {"results": {}})
+
+    def test_empty_results_list_is_a_harness_error(self, tmp_path: Path) -> None:
+        self._assert_harness_error(
+            tmp_path,
+            {
+                "results": {
+                    "stats": {"successes": 0, "failures": 0, "errors": 0},
+                    "results": [],
+                }
+            },
+        )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="stand-in npx/claude are sh scripts")
+class TestRunBaselineMissingOrUnreadableReport:
+    """promptfoo can stop before writing any report (a malformed YAML, a missing
+    included file) or leave a report that is not JSON. Neither holds a verdict:
+    both are the harness or config error run-eval.sh exits 4 on (`[eval] ERROR:
+    ... produced no readable report`). run_baseline.py must exit 4 too, not
+    promptfoo's raw status (1, or 100, the same code an ordinary rubric failure
+    returns), so a caller can tell the two apart. The raw status stays in the
+    message for diagnosis. Nothing is captured and every earlier baseline is
+    byte-for-byte untouched.
+
+    Same stand-in `npx` / `claude` harness as the provider-error tests, with the
+    stand-in's report file removed (no report) or replaced by non-JSON text; no
+    model is called.
+    """
+
+    RUN_BASELINE = TestRunBaselineRejectsProviderErrors.RUN_BASELINE
+    _SETUP = TestRunBaselineRejectsProviderErrors._setup
+    _RUN = TestRunBaselineRejectsProviderErrors._run
+
+    def _assert_harness_error(self, ctx: dict, promptfoo_exit: int) -> None:
+        result = self._RUN(ctx)
+        assert result.returncode == 4, (result.returncode, result.stdout, result.stderr)
+        output = result.stdout + result.stderr
+        assert f"promptfoo exited with code {promptfoo_exit}" in output, output
+        assert "harness or config error" in output, output
+        assert "not a skill verdict" in output, output
+        assert "provider or judge errors" not in output, output
+        assert "Snapshot captured" not in output and "Delta" not in output, output
+        assert "eval-failure-diagnoser" not in output, output
+        after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir()}
+        assert after == ctx["before"], (sorted(after), sorted(ctx["before"]))
+
+    @pytest.mark.parametrize("promptfoo_exit", [1, 100])
+    def test_no_report_exits_harness_error(self, tmp_path: Path, promptfoo_exit: int) -> None:
+        ctx = self._SETUP(tmp_path, {}, promptfoo_exit=promptfoo_exit)  # type: ignore[arg-type]
+        (tmp_path / "report.json").unlink()
+        self._assert_harness_error(ctx, promptfoo_exit)
+
+    @pytest.mark.parametrize("promptfoo_exit", [0, 100])
+    def test_unreadable_report_exits_harness_error(
+        self, tmp_path: Path, promptfoo_exit: int
+    ) -> None:
+        ctx = self._SETUP(tmp_path, {}, promptfoo_exit=promptfoo_exit)  # type: ignore[arg-type]
+        (tmp_path / "report.json").write_text('{"results": {"stats": {"succ')
+        self._assert_harness_error(ctx, promptfoo_exit)
+
+
+_REAL_PROMPTFOO = REPO_ROOT / "node_modules" / ".bin" / "promptfoo"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32"
+    or not _REAL_PROMPTFOO.is_file()
+    or shutil.which("node") is None
+    or shutil.which("python3") is None,
+    # CI's test job installs no Node tooling; under mutmut the repo root is
+    # mutants/, which has no node_modules, so these skip there too.
+    reason="real promptfoo is not installed (npm ci), or stand-ins are sh scripts",
+)
+class TestRunBaselineWithRealPromptfoo:
+    """The capture tests above use a stand-in `npx` that copies a crafted report
+    to whatever `--output` path it is handed, so they cannot see promptfoo's own
+    contract for that path. Real promptfoo picks the output format from the file
+    extension and refuses any other (`Unsupported output file format`), writing
+    nothing: a `.json.partial` output path made every real baseline run exit 4.
+
+    Here `npx promptfoo` runs the repo's real promptfoo, on a one-case config
+    whose only calls reach a stand-in `claude` (no model is called). The
+    provider files are linked beside the config, as in the real layout.
+    """
+
+    RUN_BASELINE = TestRunBaselineRejectsProviderErrors.RUN_BASELINE
+
+    def _setup(self, tmp_path: Path, claude_script: str) -> dict:
+        import os as _os
+
+        repo = tmp_path / "repo"
+        promptfoo_dir = repo / "tests" / "evals" / "promptfoo"
+        promptfoo_dir.mkdir(parents=True)
+        (repo / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+        (promptfoo_dir / "providers").symlink_to(
+            REPO_ROOT / "tests" / "evals" / "promptfoo" / "providers"
+        )
+        (promptfoo_dir / "skill-real.yaml").write_text(
+            "description: one case\n"
+            "providers:\n  - file://providers/claude-candidate.yaml\n"
+            'prompts: ["Say hi"]\n'
+            "tests:\n  - assert:\n      - type: contains\n        value: hi\n"
+        )
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "npx").write_text(
+            f'#!/bin/sh\n[ "$1" = promptfoo ] && shift\nexec "{_REAL_PROMPTFOO}" "$@"\n'
+        )
+        (bin_dir / "claude").write_text(claude_script)
+        for exe in bin_dir.iterdir():
+            exe.chmod(0o755)
+        env = {k: v for k, v in _os.environ.items() if not k.startswith("OPENAI_")}
+        env["PATH"] = f"{bin_dir}{_os.pathsep}{env.get('PATH', '')}"
+        return {
+            "repo": repo,
+            "baselines": repo / "docs" / "qa" / "runs" / "eval-baselines",
+            "env": env,
+        }
+
+    def _run_with(
+        self, tmp_path: Path, claude_script: str
+    ) -> tuple[dict, subprocess.CompletedProcess]:
+        ctx = self._setup(tmp_path, claude_script)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.RUN_BASELINE),
+                "--skill",
+                "real",
+                "--repo-root",
+                str(ctx["repo"]),
+            ],
+            capture_output=True,
+            text=True,
+            env=ctx["env"],
+            timeout=180,
+        )
+        return ctx, result
+
+    def test_clean_run_is_captured(self, tmp_path: Path) -> None:
+        answer = json.dumps(
+            {"type": "result", "subtype": "success", "is_error": False, "result": "hi"}
+        )
+        ctx, result = self._run_with(tmp_path, f"#!/bin/sh\ncat >/dev/null\necho '{answer}'\n")
+        output = result.stdout + result.stderr
+        assert result.returncode == 0, (result.returncode, output)
+        assert "Unsupported output file format" not in output, output
+        assert "Snapshot captured" in result.stdout and "1 passed, 0 failed" in result.stdout, (
+            output
+        )
+        snapshots = sorted(p.name for p in ctx["baselines"].iterdir())
+        assert len(snapshots) == 1 and snapshots[0].endswith("-skill-real__baseline.json"), (
+            snapshots
+        )
+
+    def test_provider_error_run_is_rejected_with_3(self, tmp_path: Path) -> None:
+        ctx, result = self._run_with(tmp_path, "#!/bin/sh\ncat >/dev/null\nexit 97\n")
+        output = result.stdout + result.stderr
+        assert result.returncode == 3, (result.returncode, output)
+        assert "Unsupported output file format" not in output, output
+        assert "provider or judge errors" in output, output
+        names = sorted(p.name for p in ctx["baselines"].iterdir())
+        assert len(names) == 1 and names[0].endswith("-skill-real__baseline.json.rejected"), names
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="stand-in claude is an sh script")
+class TestRunBaselineInterruptCleansPartial:
+    """Ctrl-C during the promptfoo run must not leave `.partial/<snapshot>`
+    behind or touch an earlier baseline. The script is imported and run
+    in-process with `subprocess.run` replaced by a stand-in that writes a
+    partial report to the `--output` path and then raises `KeyboardInterrupt`,
+    as a Ctrl-C mid-run does. No model is called.
+    """
+
+    def test_interrupt_removes_partial_and_keeps_baseline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ctx = TestRunBaselineRejectsProviderErrors._setup(
+            self, tmp_path, _promptfoo_report(successes=1, failures=0), promptfoo_exit=0
+        )
+        monkeypatch.setenv("PATH", ctx["env"]["PATH"])
+        mod = _import_run_baseline()
+        partial = ctx["baselines"] / ".partial" / ctx["today"].name
+
+        def interrupted_run(cmd: list[str], **_kwargs: object) -> None:
+            out = Path(cmd[cmd.index("--output") + 1])
+            out.write_text('{"results": {"stats": {"succ')
+            assert partial.is_file()
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(mod.subprocess, "run", interrupted_run)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["run_baseline.py", "--skill", "real", "--force", "--repo-root", str(ctx["repo"])],
+        )
+        with pytest.raises(KeyboardInterrupt):
+            mod.main()
+        assert not partial.exists(), sorted(p.name for p in ctx["baselines"].iterdir())
+        assert not partial.parent.exists(), "the empty .partial/ scratch directory was left behind"
+        after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir()}
+        assert after == ctx["before"], (sorted(after), sorted(ctx["before"]))
+
+
+class TestRunBaselinePromptfooOutputPath:
+    """The `--output` path handed to promptfoo must end in exactly `.json`:
+    promptfoo picks the report format from the file extension and refuses any
+    other, writing nothing (a `<snapshot>.json.partial` path made every real
+    baseline run exit 4). It must also sit in the `.partial/` scratch directory
+    beside the snapshot, never on the snapshot path itself.
+
+    `TestRunBaselineWithRealPromptfoo` proves the contract end to end but skips
+    wherever promptfoo is not installed, which includes CI. This test runs on
+    every platform with no Node tooling: the script is imported and run
+    in-process, `subprocess.run` is replaced by a recorder that captures the
+    promptfoo argv and writes nothing, and the `claude` CLI preflight is
+    satisfied by patching `shutil.which`. No model and no promptfoo run.
+    """
+
+    def test_output_path_is_a_json_file_in_the_partial_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = tmp_path / "repo"
+        promptfoo_dir = repo / "tests" / "evals" / "promptfoo"
+        promptfoo_dir.mkdir(parents=True)
+        (repo / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+        (promptfoo_dir / "skill-real.yaml").write_text("")
+        baselines = repo / "docs" / "qa" / "runs" / "eval-baselines"
+
+        mod = _import_run_baseline()
+        calls: list[list[str]] = []
+
+        def record(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess:
+            calls.append(list(cmd))
+            return subprocess.CompletedProcess(cmd, 1)
+
+        monkeypatch.setattr(mod.subprocess, "run", record)
+        monkeypatch.setattr(
+            mod.shutil,
+            "which",
+            lambda name, *a, **k: "/stand-in/claude" if name == "claude" else None,
+        )
+        monkeypatch.setattr(
+            sys, "argv", ["run_baseline.py", "--skill", "real", "--repo-root", str(repo)]
+        )
+        exit_code = mod.main()
+
+        assert len(calls) == 1, calls
+        cmd = calls[0]
+        assert cmd[:3] == ["npx", "promptfoo", "eval"], cmd
+        output = Path(cmd[cmd.index("--output") + 1])
+        assert output.suffix == ".json" and output.suffixes[-1] == ".json", (
+            f"promptfoo rejects an --output path whose final suffix is not .json: {output}"
+        )
+        assert output.parent.name == ".partial", output
+        assert output.parent.parent == baselines, output
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-skill-real__baseline\.json", output.name), output
+        assert not output.exists() and not output.parent.exists(), (
+            "the scratch report or its empty .partial/ directory was left behind"
+        )
+        assert exit_code == 4  # the recorder wrote no report: a harness error
 
 
 def _import_run_baseline() -> ModuleType:

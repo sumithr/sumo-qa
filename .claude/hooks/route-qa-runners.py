@@ -17,7 +17,35 @@ Detection is built against REAL runner output (see tests/test_route_qa_runners.p
     exit code is useless here: `mutmut run` exits 0 even with survivors.
 
   * `promptfoo eval` exits non-zero (default 100) on a failing test case and
-    prints `[FAIL]` in the results table. Either signal counts as a FAIL.
+    prints `[FAIL]` in the results table. Either signal counts as a FAIL. The
+    eval gate runs promptfoo through `tests/evals/promptfoo/run-eval.sh`
+    (`npm run eval`, `npm run eval:all`, the `eval:local:*` tiers, or the script
+    directly), so those invocations count as eval runs too.
+
+  * `run-eval.sh` on the Claude backend prints `[eval] ABORT:` and exits 3 when
+    a candidate or judge call errored (a usage limit, a CLI failure). That is
+    not a skill verdict (#651), so it gets its own reminder and is NOT routed to
+    the SKILL.md diagnoser.
+
+  * `run-eval.sh` prints `[eval] ERROR:` when the eval never reached a verdict:
+    promptfoo wrote no readable report (a misspelled config path, malformed
+    YAML; exit 4), or a preflight or setting check failed first. Neither a skill
+    verdict nor a provider abort, so it gets its own reminder too.
+
+  * A marker counts only as runner output: a line that STARTS with
+    `[eval] ABORT: ` or `[eval] ERROR: ` (run-eval.sh echoes each on its own
+    stderr line). Marker text echoed, quoted or grepped mid-line is ignored.
+
+  * run-eval.sh exits on its first ERROR or ABORT, so one invocation prints at
+    most one marker. A Bash command chaining two or more eval runs can print
+    both; that gets one reminder covering both, and neither goes to the
+    diagnoser. With a single eval run, the first marker in the output decides
+    which reminder fires.
+
+  * Only `bash` (or the script as the command word, via its bash shebang) runs
+    run-eval.sh. It is a bash script: `sh` is dash on Debian/Ubuntu and rejects
+    `set -o pipefail`, and zsh has no BASH_SOURCE, so both fail before promptfoo
+    starts and are not eval runs.
 
 Both branches first gate on the COMMAND shape so reading a log
 (`cat mutmut.log`, `grep survived`) or a non-run subcommand
@@ -202,9 +230,33 @@ def _segment_is_promptfoo_eval(eff: list[str]) -> bool:
     if not eff:
         return False
     if os.path.basename(eff[0]) in ("npm", "pnpm", "yarn", "bun"):
-        return _pm_script(eff) in ("eval", "eval:all")
+        script = _pm_script(eff) or ""
+        return script in ("eval", "eval:all") or script.startswith("eval:local:")
+    if _runs_eval_script(eff):
+        return True
     pf = _promptfoo_argv(eff)
     return pf is not None and len(pf) >= 2 and pf[1] == "eval"
+
+
+_EVAL_SCRIPT = "run-eval.sh"
+_SHELLS = {"bash"}
+
+
+def _runs_eval_script(eff: list[str]) -> bool:
+    """Is this segment an execution of the repo's eval runner, run-eval.sh?
+
+    Either the script is the command word (`./tests/evals/promptfoo/run-eval.sh`)
+    or it is the token IMMEDIATELY after `bash` (`bash tests/.../run-eval.sh`).
+    A flag in that position is not recognised (`bash -n run-eval.sh` only
+    syntax-checks it), and the script as an argument to any other program
+    (`cat`, `shellcheck`) is not a run."""
+    if os.path.basename(eff[0]) == _EVAL_SCRIPT:
+        return True
+    return (
+        os.path.basename(eff[0]) in _SHELLS
+        and len(eff) >= 2
+        and os.path.basename(eff[1]) == _EVAL_SCRIPT
+    )
 
 
 def _is_promptfoo_eval_run(command: str) -> bool:
@@ -250,6 +302,72 @@ def _promptfoo_failed(output: str, exit_code: object) -> bool:
     return "[FAIL]" in output or _nonzero_exit(exit_code)
 
 
+# run-eval.sh writes each marker as its own stderr line, so a runner emission
+# STARTS a line. Anchoring there keeps echoed, quoted or grepped marker text
+# mid-line from reading as an ABORT or ERROR that never happened.
+_EVAL_MARKER_LINE = re.compile(r"^\[eval\] (ABORT|ERROR): ", re.MULTILINE)
+
+
+def _eval_markers(output: str) -> list[str]:
+    """The runner markers (`ABORT` / `ERROR`) in output order, line-anchored."""
+    return _EVAL_MARKER_LINE.findall(output)
+
+
+# run-eval.sh prints `── <base>   → report: <path>` before each config it runs, and
+# names the config in its markers: `[eval] ABORT: <base> had ...` and
+# `[eval] ERROR: <config path> produced ...`. A path or name can contain spaces (a
+# checkout under `My Projects/`), so each capture runs non-greedily up to the fixed
+# wording run-eval.sh prints after it, never up to the first space.
+_EVAL_CONFIG_HEADER = re.compile(r"^── (.+?)   → report: ", re.MULTILINE)
+_EVAL_MARKED_CONFIG = re.compile(
+    r"^\[eval\] (?:ABORT: (.+?) had provider or judge errors"
+    r"|ERROR: (.+?) produced no readable report)",
+    re.MULTILINE,
+)
+
+
+def _skill_failed_configs(output: str) -> list[str]:
+    """Configs run-eval.sh finished with a `[FAIL]` row before a marker stopped it.
+
+    run-eval.sh carries on past a config with failing cases and stops at its first
+    ABORT or ERROR, so an `eval:all` output can hold a real skill FAIL for one
+    config and a marker for a later one. Each config's section runs from its
+    header to the next. The config a marker names is the LAST section under that
+    name (a run stops on it), and its own `[FAIL]` rows can be judge errors, so
+    that section is skipped; an earlier section under the same name (a chained
+    re-run) still counts.
+    """
+    marked: dict[str, int] = {}
+    for abort_base, error_path in _EVAL_MARKED_CONFIG.findall(output):
+        name = abort_base or os.path.basename(error_path)
+        if name.endswith(".yaml"):
+            name = name[: -len(".yaml")]
+        marked[name] = marked.get(name, 0) + 1
+
+    headers = list(_EVAL_CONFIG_HEADER.finditer(output))
+    sections = []
+    for i, header in enumerate(headers):
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(output)
+        sections.append((header.group(1), output[header.end() : end]))
+
+    failed: list[str] = []
+    for name, body in reversed(sections):
+        if marked.get(name, 0) > 0:
+            marked[name] -= 1
+            continue
+        if "[FAIL]" in body and name not in failed:
+            failed.append(name)
+    failed.reverse()
+    return failed
+
+
+def _eval_run_count(command: str) -> int:
+    """How many segments of the command are eval runs."""
+    return sum(
+        _segment_is_promptfoo_eval(_effective_argv(seg)) for seg in _command_segments(command)
+    )
+
+
 _MUTMUT_REMINDER = (
     "`mutmut run` left surviving mutants (survived / timeout / suspicious). "
     "Route them through the `mutation-survivor-triage` agent before touching "
@@ -261,6 +379,44 @@ _PROMPTFOO_REMINDER = (
     "`eval-failure-diagnoser` agent. Repo policy: fix a FAIL by strengthening "
     "the SKILL.md so the candidate passes — never by loosening the rubric."
 )
+
+_EVAL_ABORT_REMINDER = (
+    "run-eval.sh aborted on provider or judge errors: this is not a skill "
+    "verdict, so do not diagnose it as a skill failure or edit a SKILL.md. "
+    "Read the error in the report JSON the ABORT line names (a Claude usage "
+    "limit or a CLI failure), resolve that, then re-run the same command once."
+)
+
+_EVAL_ERROR_REMINDER = (
+    "run-eval.sh stopped with an `[eval] ERROR:` line: the eval did not run to a "
+    "verdict, so this is neither a skill failure nor a provider abort; do not "
+    "diagnose a SKILL.md. Read the ERROR line: for `produced no readable report`, "
+    "check the config path and its YAML in the promptfoo output above it; "
+    "otherwise fix the setting or missing CLI it names. Then re-run."
+)
+
+# run-eval.sh exits on its first ERROR or ABORT, so one invocation prints at most
+# one marker; a Bash command chaining several eval runs can print both.
+_EVAL_MIXED_REMINDER = (
+    "The eval output carries both an `[eval] ERROR:` line and an `[eval] ABORT:` "
+    "line: neither is a skill verdict, so do not diagnose it as a skill failure or "
+    "edit a SKILL.md. For each ERROR line, the eval did not run to a "
+    "verdict: check the config path and its YAML, or fix the setting or missing CLI "
+    "it names. For each ABORT line, the run had provider or judge errors: read the "
+    "error in the report JSON it names (a Claude usage limit or a CLI failure) and "
+    "resolve that. Then re-run each affected config."
+)
+
+
+def _skill_fail_before_marker_reminder(failed: list[str]) -> str:
+    """The prefix for a marker reminder when earlier configs recorded a real FAIL."""
+    return (
+        f"Before the run stopped, these configs finished with a skill FAIL: {', '.join(failed)}. "
+        "Those are skill verdicts: route them through the `eval-failure-diagnoser` agent "
+        "and fix a FAIL by strengthening the SKILL.md, never by loosening the rubric. "
+        "The rest of this reminder is about the config the run stopped on, and applies "
+        "only to it."
+    )
 
 
 def _emit(context: str) -> None:
@@ -300,9 +456,24 @@ def main() -> int:
             _emit(_MUTMUT_REMINDER)
             return 0
 
-        if _is_promptfoo_eval_run(command) and _promptfoo_failed(output, exit_code):
-            _emit(_PROMPTFOO_REMINDER)
-            return 0
+        if _is_promptfoo_eval_run(command):
+            markers = _eval_markers(output)
+            if markers:
+                if len(set(markers)) == 2 and _eval_run_count(command) >= 2:
+                    reminder = _EVAL_MIXED_REMINDER
+                else:
+                    # One run stops on its first marker, so the first one names it.
+                    reminder = (
+                        _EVAL_ABORT_REMINDER if markers[0] == "ABORT" else _EVAL_ERROR_REMINDER
+                    )
+                failed = _skill_failed_configs(output)
+                if failed:
+                    reminder = _skill_fail_before_marker_reminder(failed) + " " + reminder
+                _emit(reminder)
+                return 0
+            if _promptfoo_failed(output, exit_code):
+                _emit(_PROMPTFOO_REMINDER)
+                return 0
     except Exception:
         # Advisory hook: never break the Bash flow on an internal error.
         return 0

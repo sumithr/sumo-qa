@@ -8,19 +8,19 @@ description: >
   `risk_surface` flags a changed source with no test at all. A reviewer that
   rubber-stamps SAFE on the map's leads fails; the Iron Law (fresh evidence)
   must still gate the verdict.
-# Candidate is gpt-5-mini (the reasoning tier), not the estate's gpt-4o-mini:
-# per the #245 candidate-by-type policy, reasoning/discovery evals use the
-# reasoning candidate. This scenario requires treating the diff-impact
-# related_tests / risk_surface as LEADS and gating on the fresh run — gpt-4o-mini
-# mis-tiers it (marks tests/billing/test_refund.py COVERED instead of UNPROVEN).
-# Sibling reasoning-heavy configs (-mapping-gap, -ledger, -adversarial) already
-# pin gpt-5-mini. The judge stays gpt-5.5.
+# A local reasoning-tier config; the default gate runs it on the Claude pair
+# (candidate claude-haiku-4-5, judge claude-opus-5). Per the #245
+# candidate-by-type policy, reasoning/discovery evals use the reasoning
+# candidate. This scenario requires treating the diff-impact
+# related_tests / risk_surface as LEADS and gating on the fresh run. History on
+# the retired OpenAI tier: gpt-4o-mini mis-tiered it (marked
+# tests/billing/test_refund.py COVERED instead of UNPROVEN), so it was pinned to
+# gpt-5-mini like the sibling reasoning-heavy configs (-mapping-gap, -ledger,
+# -adversarial), with the gpt-5.5 judge.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -62,13 +62,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate response
       uses the supplied repo-map / diff-impact evidence CORRECTLY — as leads to

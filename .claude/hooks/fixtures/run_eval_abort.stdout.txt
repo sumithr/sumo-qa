@@ -1,0 +1,178 @@
+
+> eval
+> bash tests/evals/promptfoo/run-eval.sh
+
+[eval] backend=CLAUDE (merge gate; subscription via claude -p)  repeat=1  -j 1
+── skill-implementing-with-tdd   → report: <repo>/tests/evals/results/claude-reports/skill-implementing-with-tdd.json
+(node:91692) ExperimentalWarning: DecompressInterceptor is experimental and subject to change
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+========================================================================================================================
+⚠️ The current version of promptfoo 0.121.20 is lower than the latest available version 0.123.0.
+
+Please run npx promptfoo@latest or npm install -g promptfoo@latest to update.
+========================================================================================================================
+
+Cache is disabled.
+Loaded provider from config file
+{
+  "providerConfigPath": "<repo>/tests/evals/promptfoo/providers/claude-judge.yaml",
+  "providerId": "python:providers/claude_cli.py"
+}
+Starting evaluation eval-Ltm-2026-09-14T15:48:04
+Running 5 test cases (up to 1 at a time)...
+Grouping model-graded assertions by provider to minimize local-model reload overhead.
+
+┌─────────────────┬─────────────────┬─────────────────┬─────────────────┬─────────────────┬─────────────────┬─────────────────┐
+│ skill_content   │ loaded_techniq… │ expected_shape  │ anti_patterns   │ user_prompt     │ ground_truth_c… │ [claude-cli-ca… │
+│                 │                 │                 │                 │                 │                 │ You are a       │
+│                 │                 │                 │                 │                 │                 │ senior QA agent │
+│                 │                 │                 │                 │                 │                 │ in an IDE chat  │
+│                 │                 │                 │                 │                 │                 │ session. You    │
+│                 │                 │                 │                 │                 │                 │ have loaded     │
+│                 │                 │                 │                 │                 │                 │ this            │
+│                 │                 │                 │                 │                 │                 │ sumo-qa skill   │
+│                 │                 │                 │                 │                 │                 │ and MUST follow │
+│                 │                 │                 │                 │                 │                 │ its discipline  │
+│                 │                 │                 │                 │                 │                 │ exactly as      │
+│                 │                 │                 │                 │                 │                 │ written:        │
+│                 │                 │                 │                 │                 │                 │ --- BEGIN SKILL │
+│                 │                 │                 │                 │                 │                 │ ---             │
+│                 │                 │                 │                 │                 │                 │ {{skill_conten… │
+│                 │                 │                 │                 │                 │                 │ --- END SKILL   │
+│                 │                 │                 │                 │                 │                 │ ---             │
+│                 │                 │                 │                 │                 │                 │ You have also   │
+│                 │                 │                 │                 │                 │                 │ loaded the      │
+│                 │                 │                 │                 │                 │                 │ test-...        │
+├─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┤
+│ file://../../.… │ file://../../.… │ Concrete TDD    │ [               │ Fix the         │ ##              │ [ERROR] claude  │
+│                 │                 │ red-phase       │   "Writes the   │ VIP-customer    │ pricing/discou… │ exited 1        │
+│                 │                 │ artefact. Names │ production fix  │ double-discount │ (production —   │ without a JSON  │
+│                 │                 │ (a) the target  │ in the same     │ bug             │ buggy)          │ envelope:       │
+│                 │                 │ test file path, │ turn (Iron Law: │ regression-fir… │ ```python       │ stdout=''       │
+│                 │                 │ (b) the         │ red phase is    │ The discount    │ def             │ stderr='fake    │
+│                 │                 │ function under  │ test-only).",   │ stacks twice    │ apply_discount… │ claude: no      │
+│                 │                 │ test, (c)       │   "Tautology    │ when a VIP gets │     total =     │ model call\n'   │
+│                 │                 │ concrete input, │ assertion that  │ a promo code    │ order.total     │                 │
+│                 │                 │ (d) the         │ re-states the   │ applied. Logic  │     if          │                 │
+│                 │                 │ assertion that  │ broken          │ is in           │ order.customer… │                 │
+│                 │                 │ distinguishes   │ production code │ `pricing/disco… │ == "VIP":       │                 │
+│                 │                 │ broken from     │ (e.g. asserting │                 │         total … │                 │
+│                 │                 │ fixed, (e) one  │ the buggy       │                 │ 0.9   # 10% VIP │                 │
+│                 │                 │ test-design     │ formula equals  │                 │ discount        │                 │
+│                 │                 │ technique from  │ itself).",      │                 │     if          │                 │
+│                 │                 │ the loaded      │   "Asks 4+      │                 │ order.promo_co… │                 │
+│                 │                 │ techniques      │ clarification   │                 │         total … │                 │
+│                 │                 │ catalogue       │ questions       │                 │                 │                 │
+│                 │                 │ appli...        │ instead o...    │                 │                 │                 │
+├─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┤
+│ file://../../.… │ file://../../.… │ Concrete TDD    │ [               │ Fix the         │ ##              │ [ERROR] claude  │
+│                 │                 │ red-phase       │   "Writes the   │ free-shipping   │ pyproject.toml  │ exited 1        │
+│                 │                 │ artefact. Names │ production fix  │ threshold bug   │ ```toml         │ without a JSON  │
+│                 │                 │ (a) the target  │ in the same     │ regression-fir… │ [tool.pytest.i… │ envelope:       │
+│                 │                 │ test file path, │ turn (Iron Law: │ We’re waiving   │ pythonpath =    │ stdout=''       │
+│                 │                 │ (b) the         │ red phase is    │ shipping based  │ ["."]           │ stderr='fake    │
+│                 │                 │ function under  │ test-only).",   │ on the          │ testpaths =     │ claude: no      │
+│                 │                 │ test, (c)       │   "Tautology    │ pre-discount    │ ["tests"]       │ model call\n'   │
+│                 │                 │ concrete input, │ assertion that  │ subtotal; with  │ ```             │                 │
+│                 │                 │ (d) the         │ re-states the   │ coupons it      │ ##              │                 │
+│                 │                 │ assertion that  │ broken          │ should be based │ ecommerce/ship… │                 │
+│                 │                 │ distinguishes   │ production code │ on the          │ (production —   │                 │
+│                 │                 │ broken from     │ (e.g. asserting │ post-discount   │ buggy)          │                 │
+│                 │                 │ fixed, (e) one  │ the buggy       │ merchandise     │ ```python       │                 │
+│                 │                 │ test-design     │ formula equals  │ total. Logic is │ FREE_SHIPPING_… │                 │
+│                 │                 │ technique from  │ itself).",      │ in              │ = 50.0          │                 │
+│                 │                 │ the loaded      │   "Asks 4+      │ `ecommerce/shi… │ STANDARD_SHIPP… │                 │
+│                 │                 │ techniques      │ clarification   │                 │ = 7.99          │                 │
+│                 │                 │ catalogue       │ questions       │                 │ def             │                 │
+│                 │                 │ appli...        │ instead o...    │                 │ shipping_cost(… │                 │
+│                 │                 │                 │                 │                 │     subtot...   │                 │
+├─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┤
+│ file://../../.… │ file://../../.… │ Concrete TDD    │ [               │ Please fix the  │ ## package.json │ [ERROR] claude  │
+│                 │                 │ red-phase       │   "Writes the   │ async memoizer  │ ```json         │ exited 1        │
+│                 │                 │ artefact. Names │ production fix  │ rejection-cach… │ {               │ without a JSON  │
+│                 │                 │ (a) the target  │ in the same     │ bug             │   "type":       │ envelope:       │
+│                 │                 │ test file path, │ turn (Iron Law: │ regression-fir… │ "module",       │ stdout=''       │
+│                 │                 │ (b) the         │ red phase is    │ If the wrapped  │   "scripts": {  │ stderr='fake    │
+│                 │                 │ function under  │ test-only).",   │ function        │     "test": "j… │ claude: no      │
+│                 │                 │ test, (c)       │   "Tautology    │ rejects, that   │   },            │ model call\n'   │
+│                 │                 │ concrete input, │ assertion that  │ failure must    │ "devDependenci… │                 │
+│                 │                 │ (d) the         │ re-states the   │ not poison the  │ {               │                 │
+│                 │                 │ assertion that  │ broken          │ cache; a later  │     "jest":     │                 │
+│                 │                 │ distinguishes   │ production code │ call for the    │ "^29.7.0"       │                 │
+│                 │                 │ broken from     │ (e.g. asserting │ same key should │   }             │                 │
+│                 │                 │ fixed, (e) one  │ the buggy       │ retry. File is  │ }               │                 │
+│                 │                 │ test-design     │ formula equals  │ `src/cache/mem… │ ```             │                 │
+│                 │                 │ technique from  │ itself).",      │                 │ ##              │                 │
+│                 │                 │ the loaded      │   "Asks 4+      │                 │ src/cache/memo… │                 │
+│                 │                 │ techniques      │ clarification   │                 │ (production —   │                 │
+│                 │                 │ catalogue       │ questions       │                 │ buggy)          │                 │
+│                 │                 │ appli...        │ instead o...    │                 │ ```js           │                 │
+│                 │                 │                 │                 │                 │ export function │                 │
+│                 │                 │                 │                 │                 │ memoizeAsync(f… │                 │
+│                 │                 │                 │                 │                 │ {               │                 │
+│                 │                 │                 │                 │                 │   const cache   │                 │
+│                 │                 │                 │                 │                 │ =...            │                 │
+├─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┤
+│ file://../../.… │ file://../../.… │ Concrete TDD    │ [               │ TDD support for │ ## go.mod       │ [ERROR] claude  │
+│                 │                 │ red-phase       │   "Writes the   │ rate-limit      │ ```go           │ exited 1        │
+│                 │                 │ artefact. Names │ production fix  │ responses in    │ module          │ without a JSON  │
+│                 │                 │ (a) the target  │ in the same     │ the Go payments │ github.com/acm… │ envelope:       │
+│                 │                 │ test file path, │ turn (Iron Law: │ client: when    │ go 1.22         │ stdout=''       │
+│                 │                 │ (b) the         │ red phase is    │ `GET            │ ```             │ stderr='fake    │
+│                 │                 │ function under  │ test-only).",   │ /invoices/{id}` │ ##              │ claude: no      │
+│                 │                 │ test, (c)       │   "Tautology    │ gets `429` with │ client/client.… │ model call\n'   │
+│                 │                 │ concrete input, │ assertion that  │ a `Retry-After` │ (production —   │                 │
+│                 │                 │ (d) the         │ re-states the   │ header in       │ missing         │                 │
+│                 │                 │ assertion that  │ broken          │ seconds, sleep  │ feature)        │                 │
+│                 │                 │ distinguishes   │ production code │ that long and   │ ```go           │                 │
+│                 │                 │ broken from     │ (e.g. asserting │ retry before    │ package client  │                 │
+│                 │                 │ fixed, (e) one  │ the buggy       │ failing.        │ import (        │                 │
+│                 │                 │ test-design     │ formula equals  │ Existing client │ 	"context"       │                 │
+│                 │                 │ technique from  │ itself).",      │ is in           │ 	"encoding/json" │                 │
+│                 │                 │ the loaded      │   "Asks 4+      │ `client/client… │ 	"fmt"           │                 │
+│                 │                 │ techniques      │ clarification   │                 │ 	"io"            │                 │
+│                 │                 │ catalogue       │ questions       │                 │ 	"net/http"      │                 │
+│                 │                 │ appli...        │ instead o...    │                 │ 	"time"          │                 │
+│                 │                 │                 │                 │                 │ )               │                 │
+│                 │                 │                 │                 │                 │ type Client     │                 │
+│                 │                 │                 │                 │                 │ struct {        │                 │
+│                 │                 │                 │                 │                 │ 	BaseURL         │                 │
+│                 │                 │                 │                 │                 │ string...       │                 │
+├─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┼─────────────────┤
+│ file://../../.… │ file://../../.… │ Concrete TDD    │ [               │ Fix the         │ ##              │ [ERROR] claude  │
+│                 │                 │ red-phase       │   "Writes the   │ end-of-month    │ build.gradle.k… │ exited 1        │
+│                 │                 │ artefact. Names │ production fix  │ billing anchor  │ ```kotlin       │ without a JSON  │
+│                 │                 │ (a) the target  │ in the same     │ crash           │ plugins {       │ envelope:       │
+│                 │                 │ test file path, │ turn (Iron Law: │ regression-fir… │     kotlin("jv… │ stdout=''       │
+│                 │                 │ (b) the         │ red phase is    │ Customers       │ version         │ stderr='fake    │
+│                 │                 │ function under  │ test-only).",   │ anchored on the │ "1.9.24"        │ claude: no      │
+│                 │                 │ test, (c)       │   "Tautology    │ 31st blow up in │ }               │ model call\n'   │
+│                 │                 │ concrete input, │ assertion that  │ February;       │ repositories {  │                 │
+│                 │                 │ (d) the         │ re-states the   │ `nextChargeDat… │     mavenCentr… │                 │
+│                 │                 │ assertion that  │ broken          │ should clamp to │ }               │                 │
+│                 │                 │ distinguishes   │ production code │ the last valid  │ dependencies {  │                 │
+│                 │                 │ broken from     │ (e.g. asserting │ day of shorter  │ testImplementa… │                 │
+│                 │                 │ fixed, (e) one  │ the buggy       │ months. Kotlin  │ testImplementa… │                 │
+│                 │                 │ test-design     │ formula equals  │ file is         │ }               │                 │
+│                 │                 │ technique from  │ itself).",      │ `src/main/kotl… │ tasks.test...   │                 │
+│                 │                 │ the loaded      │   "Asks 4+      │                 │                 │                 │
+│                 │                 │ techniques      │ clarification   │                 │                 │                 │
+│                 │                 │ catalogue       │ questions       │                 │                 │                 │
+│                 │                 │ appli...        │ instead o...    │                 │                 │                 │
+└─────────────────┴─────────────────┴─────────────────┴─────────────────┴─────────────────┴─────────────────┴─────────────────┘
+✓ Eval complete (ID: eval-Ltm-2026-09-14T15:48:04)
+
+» View results: promptfoo view
+» Share with your team: https://promptfoo.app
+» Feedback: https://promptfoo.dev/feedback
+
+
+Results:
+  0 passed (0%)
+  0 failed (0%)
+  ✗ 5 errors (100%)
+Duration: 1s (concurrency: 1)
+
+Writing output to <repo>/tests/evals/results/claude-reports/skill-implementing-with-tdd.json
+[eval] ABORT: skill-implementing-with-tdd had provider or judge errors (errors=5); see <repo>/tests/evals/results/claude-reports/skill-implementing-with-tdd.json. Not a skill verdict.

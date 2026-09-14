@@ -22,12 +22,10 @@ description: >
   PASS. The A0(FAIL) -> A1(PASS) lift isolates the #145 behaviour. A0 body is
   snapshotted at fixtures/reviewing-before-merge-PRE-145.SKILL.md (= origin/main
   before the #145 commit); refresh it if the baseline moves.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -65,13 +63,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate consulted the
       trigger-matched SAVED REVIEW FEEDBACK as a SEPARATE ADVISORY hint, mapped the
