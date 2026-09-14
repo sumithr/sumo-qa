@@ -58,6 +58,27 @@ defaultTest:
       --- END SUPPLIED CONTEXT ---
 
 
+      --- LOADED RULES (catalogue the candidate was given) ---
+
+      {{rules}}
+
+      --- END LOADED RULES ---
+
+
+      --- LOADED STANDARDS (catalogue the candidate was given) ---
+
+      {{standards}}
+
+      --- END LOADED STANDARDS ---
+
+
+      --- LOADED TECHNIQUES (catalogue the candidate was given) ---
+
+      {{techniques}}
+
+      --- END LOADED TECHNIQUES ---
+
+
       --- CANDIDATE RESPONSE ---
 
       {{output}}

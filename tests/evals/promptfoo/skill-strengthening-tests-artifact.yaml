@@ -87,6 +87,13 @@ defaultTest:
       --- END REPO CONTEXT ---
 
 
+      --- LOADED TECHNIQUES (catalogue the candidate was given) ---
+
+      {{loaded_techniques}}
+
+      --- END LOADED TECHNIQUES ---
+
+
       Evaluate THREE axes independently:
 
 

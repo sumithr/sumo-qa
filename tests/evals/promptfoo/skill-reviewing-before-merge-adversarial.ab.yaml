@@ -58,6 +58,27 @@ defaultTest:
       --- END SUPPLIED CONTEXT ---
 
 
+      --- REFERENCE CLASSIFICATIONS (the catalogue the A1 and B legs load; the A0 no-skill leg was not given it, so do not penalise a response for not quoting it) ---
+
+      {{classifications}}
+
+      --- END REFERENCE CLASSIFICATIONS ---
+
+
+      --- REFERENCE APPROACHES (the catalogue the A1 and B legs load; the A0 no-skill leg was not given it, so do not penalise a response for not quoting it) ---
+
+      {{approaches}}
+
+      --- END REFERENCE APPROACHES ---
+
+
+      --- REFERENCE PRINCIPLES (the catalogue the A1 and B legs load; the A0 no-skill leg was not given it, so do not penalise a response for not quoting it) ---
+
+      {{principles}}
+
+      --- END REFERENCE PRINCIPLES ---
+
+
       --- CANDIDATE RESPONSE ---
 
       {{output}}

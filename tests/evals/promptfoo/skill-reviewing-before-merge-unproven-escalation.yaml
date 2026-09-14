@@ -57,6 +57,13 @@ defaultTest:
       --- END SUPPLIED CONTEXT ---
 
 
+      --- LOADED TECHNIQUES (catalogue the candidate was given) ---
+
+      {{loaded_techniques}}
+
+      --- END LOADED TECHNIQUES ---
+
+
       --- CANDIDATE RESPONSE ---
 
       {{output}}
