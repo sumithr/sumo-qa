@@ -122,9 +122,78 @@ def test_every_rubric_prompt_renders_the_catalogues_the_candidate_saw(path):
 
 
 _CATALOGUE_BLOCK = re.compile(
-    r"--- (?:LOADED [A-Z ]+\((?P<given>catalogue the candidate was given)\)|REFERENCE [A-Z ]+\([^)]*\)) ---"
+    r"--- (?:LOADED [A-Z ]+\((?P<given>catalogue the candidate was given)\)"
+    r"|REFERENCE [A-Z ]+\((?P<reference>[^)]*)\)) ---"
     r"\s*\{\{\s*(?P<var>\w+)\s*\}\}"
 )
+# The two leg-scoped wordings in use. Each names the legs that load the catalogue and the legs
+# that were not given it; any other wording is unparsed and fails rather than going unchecked.
+_REFERENCE_LABELS = (
+    re.compile(
+        r"^the catalogue the (?P<loaders>.+?) legs? loads?; the (?P<others>.+?) legs? (?:was|were) not given it\b"
+    ),
+    re.compile(
+        r"^the catalogue only the (?P<loaders>.+?) leg loads; the (?P<others>.+?) legs? (?:was|were) not given it\b"
+    ),
+)
+_LEG_ID = re.compile(r"\b[A-Z][0-9]*\b")
+
+
+def _leg_id(prompt) -> str | None:
+    """The A0 / A1 / B id a prompt leg's label starts with."""
+    label = prompt.get("label") if isinstance(prompt, dict) else None
+    match = re.match(r"([A-Z][0-9]*)\b", label) if isinstance(label, str) else None
+    return match.group(1) if match else None
+
+
+def _claimed_legs(reference: str) -> tuple[set[str], set[str]] | None:
+    """(legs the label says load the catalogue, legs it says were not given it), or None."""
+    for form in _REFERENCE_LABELS:
+        match = form.match(reference)
+        if match:
+            loaders, others = (
+                set(_LEG_ID.findall(match["loaders"])),
+                set(_LEG_ID.findall(match["others"])),
+            )
+            # A leg-scoped label that names no leg on either side is not a parse.
+            return (loaders, others) if loaders and others else None
+    return None
+
+
+def _catalogue_label_errors(config: dict, name: str) -> list[str]:
+    errors = []
+    prompts = config.get("prompts") or []
+    legs = [json.dumps(prompt) for prompt in prompts]
+    for rubric in _rubric_prompts(config):
+        for block in _CATALOGUE_BLOCK.finditer(rubric):
+            var = block["var"]
+            rendering = [leg for leg in legs if _renders(leg, var)]
+            if block["given"]:
+                if len(rendering) != len(legs):
+                    errors.append(
+                        f"{name}: {var} is labelled as given to the candidate but "
+                        f"{len(legs) - len(rendering)} of {len(legs)} prompt legs do not render it"
+                    )
+                continue
+            claimed = _claimed_legs(block["reference"])
+            if claimed is None:
+                errors.append(f"{name}: unparsed REFERENCE label for {var}: ({block['reference']})")
+                continue
+            ids = [_leg_id(prompt) for prompt in prompts]
+            if None in ids:
+                errors.append(
+                    f"{name}: {var} has a leg-scoped label but a prompt leg has no leg id label"
+                )
+                continue
+            loaders = {leg_id for leg_id, leg in zip(ids, legs, strict=True) if _renders(leg, var)}
+            not_given = set(ids) - loaders
+            if claimed != (loaders, not_given):
+                errors.append(
+                    f"{name}: {var} label claims loaders {sorted(claimed[0])} and not given "
+                    f"{sorted(claimed[1])}, but the legs rendering it are {sorted(loaders)} "
+                    f"and the rest are {sorted(not_given)}"
+                )
+    return errors
 
 
 @pytest.mark.parametrize("path", CATALOGUE_CONFIGS, ids=lambda path: path.name)
@@ -133,20 +202,57 @@ def test_the_catalogue_block_label_matches_the_legs_that_render_it(path):
     # a catalogue that some leg never renders (an A/B no-skill leg) grades that leg against
     # context it never had.
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
-    legs = [json.dumps(prompt) for prompt in config.get("prompts") or []]
-    for rubric in _rubric_prompts(config):
-        for block in _CATALOGUE_BLOCK.finditer(rubric):
-            rendering = [leg for leg in legs if _renders(leg, block["var"])]
-            if block["given"]:
-                assert len(rendering) == len(legs), (
-                    f"{path.name}: {block['var']} is labelled as given to the candidate but "
-                    f"{len(legs) - len(rendering)} of {len(legs)} prompt legs do not render it"
-                )
-            else:
-                assert rendering and len(rendering) < len(legs), (
-                    f"{path.name}: {block['var']} has a leg-scoped label but "
-                    f"{len(rendering)} of {len(legs)} prompt legs render it"
-                )
+    assert not _catalogue_label_errors(config, path.name)
+
+
+def _ab_config(label: str, loaders: set[str]) -> dict:
+    legs = {"A0": "no skill, no catalogues", "A1": "catalogues only", "B": "full skill"}
+    return {
+        "prompts": [
+            {"label": f"{leg} - {desc}", "raw": "{{principles}}" if leg in loaders else "bare"}
+            for leg, desc in legs.items()
+        ],
+        "defaultTest": {
+            "options": {
+                "rubricPrompt": f"--- REFERENCE PRINCIPLES ({label}) ---\n{{{{principles}}}}"
+            }
+        },
+    }
+
+
+_A1_AND_B_LABEL = (
+    "the catalogue the A1 and B legs load; the A0 no-skill leg was not given it, "
+    "so do not penalise a response for not quoting it"
+)
+_ONLY_A1_LABEL = (
+    "the catalogue only the A1 catalogues-only leg loads; the A0 no-skill and B full-skill "
+    "legs were not given it, so do not penalise a response for not quoting it"
+)
+
+
+def test_a_reference_label_naming_a_leg_that_does_not_render_the_catalogue_fails():
+    errors = _catalogue_label_errors(_ab_config(_A1_AND_B_LABEL, {"A1"}), "synthetic.yaml")
+    assert errors and "synthetic.yaml" in errors[0]
+
+
+@pytest.mark.parametrize(
+    ("label", "loaders"),
+    [(_A1_AND_B_LABEL, {"A1", "B"}), (_ONLY_A1_LABEL, {"A1"})],
+    ids=["a1-and-b-load", "only-a1-loads"],
+)
+def test_a_reference_label_naming_exactly_the_rendering_legs_passes(label, loaders):
+    assert _catalogue_label_errors(_ab_config(label, loaders), "synthetic.yaml") == []
+
+
+def test_only_a1_label_fails_when_b_also_renders_the_catalogue():
+    assert _catalogue_label_errors(_ab_config(_ONLY_A1_LABEL, {"A1", "B"}), "synthetic.yaml")
+
+
+def test_a_reference_label_in_an_unknown_wording_fails_naming_the_config_and_label():
+    errors = _catalogue_label_errors(_ab_config("some legs load this", {"A1"}), "synthetic.yaml")
+    assert errors == [
+        "synthetic.yaml: unparsed REFERENCE label for principles: (some legs load this)"
+    ]
 
 
 def test_a_catalogue_defined_in_an_included_tests_file_counts_as_shown_to_the_candidate(tmp_path):
