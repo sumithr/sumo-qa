@@ -418,6 +418,35 @@ npm run eval:view         # open the local results UI
 npm run eval:all          # run all skill-*.yaml configs sequentially
 ```
 
+### Claude subscription (`SUMO_EVAL_BACKEND=claude`)
+
+Runs every config on your Claude subscription through the local Claude Code CLI
+instead of metered API credit: no API key, nothing billed per token. The candidate
+(`--providers`) and judge (`--grader`) are swapped for
+`providers/claude-candidate.yaml` (`claude-haiku-4-5`, the weakest current model) and
+`providers/claude-judge.yaml` (`claude-opus-5`, lighter on usage than Fable). Rubrics, templates,
+`javascript` asserts and reports are unchanged. Needs `claude` on `PATH`, logged in.
+
+```bash
+npm run eval:claude                                   # every skill-*.yaml, one pass
+SUMO_EVAL_BACKEND=claude bash tests/evals/promptfoo/run-eval.sh \
+  tests/evals/promptfoo/skill-using-sumo-qa.yaml     # one config
+SUMO_EVAL_REPEAT=3 npm run eval:claude                # variance run
+```
+
+Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
+
+- `providers/claude_cli.py` calls `claude -p --output-format json` with tools, MCP
+  servers, user settings and slash commands switched off, and a fixed system prompt.
+  Without the system prompt Claude Code's agent prompt applies and the candidate
+  narrates tool use it cannot perform, so rubrics fail it.
+- Any call that is not a successful answer (usage limit, quota, non-zero exit, empty
+  answer) is a promptfoo **error**, never graded output. `run-eval.sh` stops at the
+  first config with an error and exits 3: an error is not a skill verdict (#651).
+- Usage is subscription usage. The `cost` in reports is the CLI's list-price figure,
+  notional, not an invoice. A single config ran ~15k candidate + ~16k judge tokens
+  (`skill-implementing-with-tdd-retrospective.yaml`).
+
 ### Local fallback (OpenWebUI proxy) — when you're out of OpenAI quota
 
 `run-eval.sh` adds a `SUMO_EVAL_BACKEND=local` toggle so you can keep iterating on
@@ -524,6 +553,8 @@ candidate generation across the two boxes.
 | `local-4060-gemma-candidate.yaml` | candidate | `gemma4-e4b-bounded` (4060) |
 | `local-laptop-gemma-candidate.yaml` | candidate | `gemma4-12b-bounded` (laptop) |
 | `local-gemma-candidates.yaml` | candidate list | both bounded Gemma 4 tags (laptop + 4060) |
+| `claude-candidate.yaml` | candidate | `claude-haiku-4-5` via `claude -p` (subscription) |
+| `claude-judge.yaml` | judge | `claude-opus-5` via `claude -p` (subscription) |
 
 `SUMO_OWUI_BASE` is interpolated into the local provider files' `apiBaseUrl`, and
 `showThinking: false` keeps the judge grading clean `content` (no `<think>` channel). To run a

@@ -52,6 +52,7 @@
 # Usage:
 #   bash run-eval.sh                         # cloud, default single file
 #   bash run-eval.sh all                     # cloud, every skill-*.yaml
+#   SUMO_EVAL_BACKEND=claude bash run-eval.sh [file|all]   # Claude subscription via claude -p
 #   SUMO_EVAL_BACKEND=local TIER=cheap     bash run-eval.sh        # 4060+laptop
 #   SUMO_EVAL_BACKEND=local TIER=reasoning bash run-eval.sh        # laptop+4090 (gpt-5-mini files)
 #   SUMO_EVAL_BACKEND=local TIER=quality   bash run-eval.sh        # laptop+4090 (ALL skills)
@@ -108,7 +109,40 @@ if [ "$BACKEND" = "cloud" ]; then
   exit "$rc"
 fi
 
-[ "$BACKEND" = "local" ] || { echo "[eval] ERROR: SUMO_EVAL_BACKEND must be cloud|local" >&2; exit 1; }
+if [ "$BACKEND" = "claude" ]; then
+  # Claude subscription via the local Claude Code CLI (providers/claude_cli.py): no API key,
+  # no metered credit. One pass by default; set SUMO_EVAL_REPEAT for variance runs.
+  REPEAT="${SUMO_EVAL_REPEAT:-1}"
+  command -v claude >/dev/null || { echo "[eval] ERROR: claude CLI not on PATH" >&2; exit 1; }
+  echo "[eval] backend=CLAUDE (subscription via claude -p)  repeat=$REPEAT  -j $CONCURRENCY"
+  files=(); target="${1:-all}"
+  if [ "$target" = "all" ]; then
+    for f in "$EVAL_DIR"/skill-*.yaml; do case "$f" in *.gen.yaml|*.generated-tests.yaml) continue;; esac; files+=("$f"); done
+  else files=("$target"); fi
+  REPORT_DIR="$ROOT/tests/evals/results/claude-reports"; mkdir -p "$REPORT_DIR"
+  rc=0
+  for f in "${files[@]}"; do
+    f="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"   # absolute: promptfoo runs from $EVAL_DIR
+    base="$(basename "$f" .yaml)"; out_json="$REPORT_DIR/${base}.json"
+    echo "── $base   → report: $out_json"
+    rm -f "$out_json"   # a stale report must not pass the error check below for a crashed run
+    # provider paths (providers/claude_cli.py) resolve against the eval dir
+    ( cd "$EVAL_DIR" && "$PROMPTFOO" eval -c "$f" --no-cache \
+        --providers "file://$EVAL_DIR/providers/claude-candidate.yaml" \
+        --grader "file://$EVAL_DIR/providers/claude-judge.yaml" \
+        --repeat "$REPEAT" -j "$CONCURRENCY" --output "$out_json" ) || rc=1
+    # A provider error (usage limit, quota, CLI failure) stops the run: carrying on would
+    # spend more usage and produce results that read as skill failures (#651).
+    errors=$(node -e 'const r=require(process.argv[1]); console.log(r.results.stats.errors)' "$out_json" 2>/dev/null || echo unknown)
+    if [ "$errors" != 0 ]; then
+      echo "[eval] ABORT: $base errored (errors=$errors); see $out_json. Not a skill verdict." >&2
+      exit 3
+    fi
+  done
+  exit "$rc"
+fi
+
+[ "$BACKEND" = "local" ] || { echo "[eval] ERROR: SUMO_EVAL_BACKEND must be cloud|claude|local" >&2; exit 1; }
 
 TIER="${TIER:-cheap}"
 # shellcheck source=/dev/null

@@ -62,6 +62,7 @@ To run the whole gate manually from the repo root, invoke `scripts/check_markdow
 nvm use 24             # or any Node 20.20+ / 22.22+ install
 npm install            # installs promptfoo from package.json
 npm run eval           # runs the TDD skill eval (needs OPENAI_API_KEY)
+npm run eval:claude    # every config on your Claude subscription via `claude -p` (no API key)
 ```
 
 See [`tests/evals/promptfoo/README.md`](../tests/evals/promptfoo/README.md) for full eval usage + cost notes.
