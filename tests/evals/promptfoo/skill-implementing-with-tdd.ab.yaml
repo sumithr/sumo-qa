@@ -43,11 +43,11 @@ defaultTest:
       --- END SUPPLIED CONTEXT ---
 
 
-      --- LOADED PRINCIPLES (catalogue the candidate was given) ---
+      --- REFERENCE PRINCIPLES (the catalogue only the A1 catalogues-only leg loads; the A0 no-skill and B full-skill legs were not given it, so do not penalise a response for not quoting it) ---
 
       {{principles}}
 
-      --- END LOADED PRINCIPLES ---
+      --- END REFERENCE PRINCIPLES ---
 
 
       --- CANDIDATE RESPONSE ---

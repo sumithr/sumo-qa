@@ -690,7 +690,7 @@ For skills where each scenario has a per-scenario ground-truth context
 1. `skill_content: file://...` in `defaultTest.vars`
 2. ONE seed test inline (with `vars.ground_truth_context`)
 3. Skill-level rubric in `defaultTest.vars` (`expected_shape`, `anti_patterns`, `technique_tag`)
-4. Decision-table rubric prompt in `defaultTest.options.rubricPrompt`. It passes `{{ground_truth_context}}` to the judge in a `SUPPLIED CONTEXT` block, because the GROUNDING axis grades against that evidence and the judge cannot check it otherwise. For the same reason it renders every catalogue the candidate prompt renders (`{{loaded_techniques}}`, `{{loaded_classifications}}`, `{{loaded_rules}}`, `{{principles}}`, ...) in a labelled `--- LOADED <NAME> (catalogue the candidate was given) ---` block (see [Judge catalogue context](#judge-catalogue-context))
+4. Decision-table rubric prompt in `defaultTest.options.rubricPrompt`. It passes `{{ground_truth_context}}` to the judge in a `SUPPLIED CONTEXT` block, because the GROUNDING axis grades against that evidence and the judge cannot check it otherwise. For the same reason it renders every catalogue the candidate prompt renders (`{{loaded_techniques}}`, `{{loaded_classifications}}`, `{{loaded_rules}}`, `{{principles}}`, ...) in a labelled `--- LOADED <NAME> (catalogue the candidate was given) ---` block, or a leg-scoped `--- REFERENCE <NAME> (...) ---` block in an A/B config where some prompt leg does not render that catalogue (see [Judge catalogue context](#judge-catalogue-context))
 5. Candidate wrapper prompt in `prompts:`
 6. A shared `javascript` grounding assertion (`value: file://asserts/cites-catalogue-technique.js`) that passes when the candidate cites a technique name drawn from `knowledge/techniques.md`'s `###` headings; the accepted set is derived from the catalogue, never a hardcoded allowlist (issue #350)
 
@@ -756,7 +756,8 @@ You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
 A `rubricPrompt` only receives the vars it renders. When a config gives the
 candidate a catalogue (a `file://` var under `knowledge/` or `standards/` that
 a `prompts:` template renders), its `rubricPrompt` renders that same var too,
-after the `SUPPLIED CONTEXT` block:
+after the supplied/repo context block (`SUPPLIED CONTEXT`, or `REPO CONTEXT`
+in `skill-strengthening-tests-artifact.yaml`):
 
 ```yaml
       --- LOADED TECHNIQUES (catalogue the candidate was given) ---
@@ -779,8 +780,40 @@ no verdict.
 
 The block adds the rendered catalogue to every judge call: about 1.8k tokens
 for `techniques.md` and 4.4k for `classifications.md` plus `change_rules.yaml`.
+#### A/B configs: leg-scoped label
+
+An `.ab.yaml` config shares one `rubricPrompt` across every prompt leg, and the
+judge is not told which leg wrote the answer. When every leg renders the
+catalogue (the PRE/post body comparisons such as
+`skill-reviewing-before-merge-runtime-scope.ab.yaml`), the `LOADED` label above
+is true for every answer and stays. When some leg never renders it (the A0
+"no skill, no catalogues" leg), "the candidate was given" is false for that
+leg: the judge could hold A0 to a catalogue it never saw, grade it down harder
+than A1 and B, and inflate the measured lift. Those blocks name the legs that
+load the catalogue instead:
+
+```yaml
+      --- REFERENCE CLASSIFICATIONS (the catalogue the A1 and B legs load; the A0 no-skill leg was not given it, so do not penalise a response for not quoting it) ---
+
+      {{classifications}}
+
+      --- END REFERENCE CLASSIFICATIONS ---
+```
+
+The wording follows what each leg's prompt actually renders. In
+`skill-implementing-with-tdd.ab.yaml` the B full-skill leg renders
+`{{loaded_techniques}}` but not `{{principles}}`, so its `principles` block
+reads `(the catalogue only the A1 catalogues-only leg loads; the A0 no-skill and
+B full-skill legs were not given it, so do not penalise a response for not
+quoting it)`. The block only changes what the judge is told about the
+catalogue; the axes, pass criteria and verdict format are unchanged.
+
 `tests/test_eval_judge_catalogue_context.py` fails any config whose
-`rubricPrompt` leaves out a catalogue its candidate prompt renders.
+`rubricPrompt` leaves out a catalogue its candidate prompt renders (a catalogue
+var in `defaultTest.vars`, in an inline `tests[].vars`, or in a `file://` tests
+include), and any `LOADED ... (catalogue the candidate was given)` block whose
+var some prompt leg does not render, or `REFERENCE` block whose var every leg
+renders.
 
 ## What's in this directory
 
