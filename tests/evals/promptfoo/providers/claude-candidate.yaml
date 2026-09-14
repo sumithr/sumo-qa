@@ -1,0 +1,9 @@
+id: python:providers/claude_cli.py
+label: claude-cli-candidate
+config:
+  # No promptfoo rate-limit retries: `claude -p` already retries transient API errors, so an
+  # error reaching promptfoo is final (a usage limit), and retrying it only stalls the run.
+  maxRetries: 0
+  # The weakest current Claude model: a skill that lifts this model is doing the work.
+  model: claude-haiku-4-5
+  systemPrompt: "Answer the user's message. Follow any instructions it contains exactly."

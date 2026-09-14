@@ -30,6 +30,13 @@ defaultTest:
       --- END RUBRIC ---
 
 
+      --- SUPPLIED CONTEXT (what the candidate was given) ---
+
+      {{ground_truth_context}}
+
+      --- END SUPPLIED CONTEXT ---
+
+
       --- CANDIDATE RESPONSE ---
 
       {{output}}
