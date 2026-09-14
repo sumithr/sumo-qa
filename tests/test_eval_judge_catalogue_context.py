@@ -127,13 +127,19 @@ _CATALOGUE_BLOCK = re.compile(
     r"\s*\{\{\s*(?P<var>\w+)\s*\}\}"
 )
 # The two leg-scoped wordings in use. Each names the legs that load the catalogue and the legs
-# that were not given it; any other wording is unparsed and fails rather than going unchecked.
+# that were not given it, then the fixed caveat. The whole label must be one of these wordings:
+# any other text, trailing or inside a leg list, is unparsed and fails rather than going unchecked.
+_LEG = r"[A-Z][0-9]*(?: [a-z]+(?:-[a-z]+)*)?"  # a leg id with an optional one-word description
+_LEGS = rf"{_LEG}(?:(?:, | and ){_LEG})*"
+_REFERENCE_CAVEAT = r", so do not penalise a response for not quoting it"
 _REFERENCE_LABELS = (
     re.compile(
-        r"^the catalogue the (?P<loaders>.+?) legs? loads?; the (?P<others>.+?) legs? (?:was|were) not given it\b"
+        rf"the catalogue the (?P<loaders>{_LEGS}) legs? loads?; "
+        rf"the (?P<others>{_LEGS}) legs? (?:was|were) not given it{_REFERENCE_CAVEAT}"
     ),
     re.compile(
-        r"^the catalogue only the (?P<loaders>.+?) leg loads; the (?P<others>.+?) legs? (?:was|were) not given it\b"
+        rf"the catalogue only the (?P<loaders>{_LEG}) leg loads; "
+        rf"the (?P<others>{_LEGS}) legs? (?:was|were) not given it{_REFERENCE_CAVEAT}"
     ),
 )
 _LEG_ID = re.compile(r"\b[A-Z][0-9]*\b")
@@ -149,14 +155,10 @@ def _leg_id(prompt) -> str | None:
 def _claimed_legs(reference: str) -> tuple[set[str], set[str]] | None:
     """(legs the label says load the catalogue, legs it says were not given it), or None."""
     for form in _REFERENCE_LABELS:
-        match = form.match(reference)
+        match = form.fullmatch(reference)
         if match:
-            loaders, others = (
-                set(_LEG_ID.findall(match["loaders"])),
-                set(_LEG_ID.findall(match["others"])),
-            )
-            # A leg-scoped label that names no leg on either side is not a parse.
-            return (loaders, others) if loaders and others else None
+            # The leg-list grammar starts every list with a leg id, so neither set is empty.
+            return set(_LEG_ID.findall(match["loaders"])), set(_LEG_ID.findall(match["others"]))
     return None
 
 
@@ -183,6 +185,21 @@ def _catalogue_label_errors(config: dict, name: str) -> list[str]:
             if None in ids:
                 errors.append(
                     f"{name}: {var} has a leg-scoped label but a prompt leg has no leg id label"
+                )
+                continue
+            both = claimed[0] & claimed[1]
+            if both:
+                errors.append(
+                    f"{name}: {var} label names {sorted(both)} as both loading the catalogue "
+                    "and not given it"
+                )
+                continue
+            # Checked before any set comparison: as sets, a repeated id would let a leg that does
+            # not render the catalogue hide behind a same-id leg that does.
+            repeated = sorted({leg_id for leg_id in ids if ids.count(leg_id) > 1})
+            if repeated:
+                errors.append(
+                    f"{name}: {var} has a leg-scoped label but prompt leg ids repeat: {repeated}"
                 )
                 continue
             loaders = {leg_id for leg_id, leg in zip(ids, legs, strict=True) if _renders(leg, var)}
@@ -252,6 +269,50 @@ def test_a_reference_label_in_an_unknown_wording_fails_naming_the_config_and_lab
     errors = _catalogue_label_errors(_ab_config("some legs load this", {"A1"}), "synthetic.yaml")
     assert errors == [
         "synthetic.yaml: unparsed REFERENCE label for principles: (some legs load this)"
+    ]
+
+
+_CAVEAT = ", so do not penalise a response for not quoting it"
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "the catalogue the A1 and B legs load; the A0 leg was not given it; A1 was also not given it",
+        "the catalogue the A1 and B legs load; the A0 leg was not given it; A1 was also not given it"
+        + _CAVEAT,
+        "the catalogue the A1 and B legs load; the A0 leg was not given it; every leg was not given it"
+        + _CAVEAT,
+        _A1_AND_B_LABEL + "; the B leg was not given it either",
+    ],
+    ids=[
+        "trailing-prose",
+        "prose-before-caveat",
+        "prose-absorbed-into-leg-list",
+        "prose-after-caveat",
+    ],
+)
+def test_a_reference_label_with_contradictory_prose_fails_as_unparsed(label):
+    errors = _catalogue_label_errors(_ab_config(label, {"A1", "B"}), "synthetic.yaml")
+    assert errors == [f"synthetic.yaml: unparsed REFERENCE label for principles: ({label})"]
+
+
+def test_a_reference_label_naming_a_leg_as_both_loading_and_not_given_fails():
+    label = "the catalogue the A1 and B legs load; the A0 and A1 legs were not given it" + _CAVEAT
+    errors = _catalogue_label_errors(_ab_config(label, {"A1", "B"}), "synthetic.yaml")
+    assert errors == [
+        "synthetic.yaml: principles label names ['A1'] as both loading the catalogue and not given it"
+    ]
+
+
+def test_a_duplicate_leg_id_fails_before_the_label_is_compared():
+    # As sets, {A0, A1, A1, B} collapses to {A0, A1, B}: the A1 leg that never renders the
+    # catalogue would hide behind the A1 leg that does, and the label would pass.
+    config = _ab_config(_A1_AND_B_LABEL, {"A1", "B"})
+    config["prompts"].insert(2, {"label": "A1 - catalogues only, again", "raw": "bare"})
+    errors = _catalogue_label_errors(config, "synthetic.yaml")
+    assert errors == [
+        "synthetic.yaml: principles has a leg-scoped label but prompt leg ids repeat: ['A1']"
     ]
 
 
