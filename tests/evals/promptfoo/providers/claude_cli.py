@@ -16,6 +16,8 @@ failure turned into a zero-passed baseline that read as a skill regression.
 from __future__ import annotations
 
 import json
+import math
+import re
 import subprocess
 
 # Isolation: no tools, no MCP servers (without --strict-mcp-config the
@@ -38,9 +40,11 @@ BASE_FLAGS = [
 
 TIMEOUT_SECONDS = 600
 _EXCERPT = 400
-# How the CLI words a usage-limit stop. Checked even inside a success envelope,
-# so the message can never be graded as the candidate's answer.
-_USAGE_LIMIT_PREFIX = "Claude AI usage limit reached"
+# The CLI's usage-limit stop: "Claude AI usage limit reached|<reset epoch>". Matched
+# anywhere in the answer and in any case, even inside a success envelope, so it is never
+# graded as the candidate's answer. The "|<digits>" suffix keeps an answer that merely
+# quotes the phrase from matching.
+_USAGE_LIMIT = re.compile(r"usage limit reached\|\d+", re.IGNORECASE)
 
 
 def call_api(prompt, options=None, context=None):
@@ -83,7 +87,7 @@ def call_api(prompt, options=None, context=None):
         return {"error": f"claude call failed (exit {done.returncode}): {done.stdout[:_EXCERPT]}"}
     if not isinstance(result, str) or not result.strip():
         return {"error": f"claude reported success but returned no answer: {result!r}"}
-    if result.lstrip().startswith(_USAGE_LIMIT_PREFIX):
+    if _USAGE_LIMIT.search(result):
         return {"error": f"claude usage limit: {result[:_EXCERPT]}"}
 
     # Accounting is best effort: a malformed usage field must not throw away an answer.
@@ -109,6 +113,6 @@ def call_api(prompt, options=None, context=None):
 
 def _number(value, kind=int):
     """A usage figure, or 0 when the CLI sent something that is not a number."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return kind(0)
     return kind(value)

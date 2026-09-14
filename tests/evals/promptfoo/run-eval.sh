@@ -138,6 +138,7 @@ if [ "$BACKEND" = "claude" ]; then
     # those too.
     errors=$(node -e '
       const r = require(process.argv[1]).results;
+      if (!r.results.length) { console.log("no results"); process.exit(0); }
       const graderErrors = r.results
         .flatMap((x) => (x.gradingResult && x.gradingResult.componentResults) || [])
         .filter((c) => c.metadata && c.metadata.graderError).length;

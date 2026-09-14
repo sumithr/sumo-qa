@@ -99,6 +99,11 @@ def test_a_successful_call_returns_the_answer_with_all_prompt_tokens_counted(mon
             0,
             id="usage-limit-text-in-a-success-envelope",
         ),
+        pytest.param(
+            json.dumps({**SUCCESS, "result": "Error: Claude AI Usage Limit Reached|1789400000"}),
+            0,
+            id="usage-limit-text-with-a-prefix-and-other-case",
+        ),
         pytest.param("not json", 1, id="unparseable-output"),
         pytest.param("[]", 0, id="json-but-not-an-envelope"),
     ],
@@ -137,8 +142,9 @@ def test_a_config_without_a_model_is_an_error(monkeypatch):
         {**SUCCESS, "usage": "not a dict"},
         {**SUCCESS, "usage": {"input_tokens": "lots", "output_tokens": None}},
         {**SUCCESS, "total_cost_usd": "free"},
+        {**SUCCESS, "usage": {"input_tokens": float("nan"), "output_tokens": float("inf")}},
     ],
-    ids=["usage-not-a-dict", "non-numeric-tokens", "non-numeric-cost"],
+    ids=["usage-not-a-dict", "non-numeric-tokens", "non-numeric-cost", "non-finite-tokens"],
 )
 def test_malformed_accounting_keeps_the_answer(monkeypatch, envelope):
     _fake_cli(monkeypatch, json.dumps(envelope))
@@ -147,3 +153,10 @@ def test_malformed_accounting_keeps_the_answer(monkeypatch, envelope):
 
     assert response["output"] == "the answer"
     assert isinstance(response["cost"], float)
+
+
+def test_an_answer_that_quotes_the_usage_limit_phrase_is_still_graded(monkeypatch):
+    quoted = "Claude AI usage limit reached is the message the CLI prints when you hit the cap."
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": quoted}))
+
+    assert provider.call_api("the prompt", OPTIONS)["output"] == quoted
