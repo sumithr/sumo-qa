@@ -16,9 +16,9 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **Expected interaction shape:**
 1. Reads `services/billing/refund.py` and `services/billing/invoice.py` via the host's file tools (NOT asks the user what's in them).
-2. Names 3–7 risks, each anchored to a file path or domain term from the prompt (e.g. *"partial-refund amount precision when the invoice has multiple currency line items"*, *"consumer retry logic — does it differentiate the new 4xx from the existing 5xx"*).
+2. Names 3-4 risks (a 5th only for a grounded security risk or a distinct failure in a multi-file change), each anchored to a file path or domain term from the prompt (e.g. *"partial-refund amount precision when the invoice has multiple currency line items"*, *"consumer retry logic: does it differentiate the new 4xx from the existing 5xx"*).
 3. Picks one technique per risk from the loaded catalogue (boundary value / decision table / property-based / etc.).
-4. Proposes a smallest-useful test set (3–7 tests) tied to those risks. NOT "test happy path, test edge cases".
+4. Proposes a smallest-useful test set (one test per risk, at most 5) tied to those risks. NOT "test happy path, test edge cases".
 5. Sectioned conversational prose — risks, tests, techniques, open assumptions — NOT a JSON blob.
 
 **Anti-patterns that would fail this scenario:**

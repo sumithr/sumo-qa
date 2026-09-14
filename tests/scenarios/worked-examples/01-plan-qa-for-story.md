@@ -2,7 +2,7 @@
 
 > **Summary:** *"the AI prepped a real QA plan with named risks for a story — anchored to actual file paths, not generic edge-case-shaped advice."*
 >
-> Shows: explore-before-asking discipline, 3–7 risks anchored to file:line, one technique per risk from the loaded catalogue, smallest-useful test set tied to those risks, sectioned conversational pacing with a single confirmation gate.
+> Shows: explore-before-asking discipline, a small set of risks anchored to file:line (5 here, because the story spans two files and each risk is a distinct failure), one technique per risk from the loaded catalogue, smallest-useful test set tied to those risks, sectioned conversational pacing with a single confirmation gate.
 
 ---
 
@@ -62,7 +62,7 @@ Good — the drift history is exactly the kind of thing that elevates that risk.
 > **R5 — Multi-currency invoices (`services/billing/invoice.py:12`, `line_items[i].currency`).** Nothing in the current code enforces single-currency invoices. If `line_items` contains mixed currencies, *what does a partial refund of "£15.00" against an invoice with both GBP and EUR lines even mean?* This is a domain-model risk, not a code risk — the right answer might be "reject mixed-currency partials at the validator", but it has to be a *deliberate* answer.
 > **Technique:** *equivalence partitioning* — single-currency invoice vs mixed-currency invoice are different equivalence classes; partial-refund behaviour needs to be specified for both before code lands.
 
-5 risks, one per substantive failure mode. I deliberately didn't pad to 7 — the remaining surfaces (auth, rate limiting, observability) are already covered elsewhere in the service and aren't moved by this change.
+5 risks, one per substantive failure mode across the two files. I deliberately didn't pad further: the remaining surfaces (auth, rate limiting, observability) are already covered elsewhere in the service and aren't moved by this change.
 
 Match how you'd describe it, or is there a risk to add / re-anchor before I propose the test set?
 
@@ -108,7 +108,7 @@ That's the prep brief — 5 risks, 5 tests, 2 specialty fits offered, 3 assumpti
 - **Risks anchored to file:line, not vibes.** *"`services/billing/invoice.py:12` — `Decimal` vs `float` at the JSON boundary"* — not *"check for input validation"*. Every risk names the failure mode and the specific line where it lives.
 - **One confirmation gate, not an interrogation.** A single focused question in turn 2 (*"is partial-failure 5xx or 4xx?"*) before committing to risks. Not a four-question dump.
 - **Catalogue techniques, not folk wisdom.** Each risk gets a named technique — decision table, state transition, boundary value, equivalence partitioning — taken from the loaded techniques catalogue, not invented on the spot.
-- **5 risks, not 15.** The Iron Law is *no test idea without a named risk*; the discipline is the inverse — *no risk without a real failure mode*. Padding to 7 to "look thorough" is confabulation. 5 was the right count for this change.
+- **5 risks, not 15.** The Iron Law is *no test idea without a named risk*; the discipline is the inverse: *no risk without a real failure mode*. Padding to "look thorough" is confabulation. 5 was the right count for this two-file change; a single-component change stops at 3-4.
 - **Specialty tools offered by fit, not by brand.** Pact for the contract risk, Hypothesis for the property risk, *explicitly not* k6 or Playwright because those surfaces aren't moved. Empty list would have been fine; reaching for k6 to look complete would not have been.
 - **Internal labels translated to English.** No *"Classification: business_logic_change, Approach: risk-first-prep"* in the user-facing output. The taxonomy stays behind the curtain; the user gets named risks.
 - **Open assumptions are explicit.** Three assumptions named at the bottom — what the test set *currently* encodes that hasn't been confirmed by the product call. Senior QA surfaces these *before* code is written, not after a bug ships.

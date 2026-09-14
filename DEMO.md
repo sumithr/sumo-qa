@@ -97,7 +97,7 @@ Plan QA for this story before I start coding: <paste the ticket / one-liner>.
 Files likely touch <main_module.py> and <related_module.py>.
 ```
 
-sumo-qa reads the files, names 3-7 risks specific to this change, picks one design technique per risk from the loaded ISTQB-grounded catalogue, proposes the smallest useful test set tied to those risks, and asks you to confirm any open assumptions. No code yet; this is the prep.
+sumo-qa reads the files, names the 3-4 risks this change most plausibly breaks, picks one design technique per risk from the loaded ISTQB-grounded catalogue, proposes the smallest useful test set tied to those risks, and asks you to confirm any open assumptions. No code yet; this is the prep.
 
 Expect risks at the level of *"currency conversion at the GBP→USD boundary rounds incorrectly when the rate is supplied with >6 decimal places"*, not *"input validation breaks"*.
 

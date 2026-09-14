@@ -1,3 +1,14 @@
+# Claude pair (candidate claude-haiku-4-5, judge claude-opus-5), issue #684, single pass:
+# before the #684 skill edit A0 3/4, A1 3/4, B 4/4 (the #679 matrix run had A0 4/4,
+# A1 3/4, B 3/4); after it A0 3/4, A1 2/4, B 4/4. B > A0, but the control discriminates
+# WEAKLY on this pair: only SEED 3 (the refactor seed) separates the legs in every run.
+# Every leg gets the same rigid 3-slot response template, which alone carries the SHAPE
+# axis for SEEDs 1, 2 and 4, so A0 passes those without the skill. Treat a one-case swing
+# between legs as variance, not a skill regression.
+#
+# The judge block is labelled REFERENCE because the A0 leg never renders
+# loaded_classifications (#684; it was a bare "LOADED" block that told the judge every
+# leg had the catalogue).
 disableVarExpansion: true
 description: 'A/B/C value-measurement for sumo-qa-preparing-for-work'
 providers:
@@ -44,15 +55,11 @@ defaultTest:
       --- END CANDIDATE RESPONSE ---
 
 
-      The candidate has loaded the canonical classifications catalogue below
-      for your verification:
-
-
-      --- LOADED CLASSIFICATIONS ---
+      --- REFERENCE CLASSIFICATIONS (the catalogue the A1 and B legs load; the A0 no-skill leg was not given it, so do not penalise a response for not quoting it) ---
 
       {{loaded_classifications}}
 
-      --- END LOADED CLASSIFICATIONS ---
+      --- END REFERENCE CLASSIFICATIONS ---
 
 
       Evaluate THREE axes independently:
