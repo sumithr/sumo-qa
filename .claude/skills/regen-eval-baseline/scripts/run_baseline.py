@@ -13,8 +13,9 @@ prints a brief delta.
 A run whose report carries provider or judge errors (``stats.errors > 0``, or a
 component result tagged ``metadata.graderError``, the definition run-eval.sh
 uses) is not a skill verdict and is never kept as a baseline: promptfoo writes
-to a ``.partial`` file beside the snapshot path, and only a clean report is
-moved onto the snapshot path. An errored report is moved aside to
+to a scratch file with the snapshot's own ``.json`` name inside a ``.partial/``
+subdirectory (promptfoo refuses an output path without a known format
+extension), and only a clean report is moved onto the snapshot path. An errored report is moved aside to
 ``<snapshot>.json.rejected`` for diagnosis and the script exits 3, so a prior
 baseline, including one ``--force`` would overwrite, stays untouched.
 
@@ -24,7 +25,8 @@ run-eval.sh exits 4 on. It is moved aside to the same ``.rejected`` path, never
 promoted, and the script exits 4. A run that wrote no report, or a report
 that is not JSON, is the same harness or config error and also exits 4, not
 promptfoo's raw status. A Ctrl-C during the run removes the
-``.partial`` file before the interrupt propagates.
+scratch file before the interrupt propagates, and the ``.partial/`` directory
+is removed once it is empty.
 
 The slug and label are separated by a literal ``__`` (double underscore).
 Both are validated kebab-case tokens (lowercase alphanumerics + single
@@ -143,6 +145,8 @@ def load_summary(path: Path) -> tuple[int, int]:
 
 EXIT_PROVIDER_ERRORS = 3
 EXIT_HARNESS_ERROR = 4
+# Scratch directory for promptfoo's in-progress report, inside the baselines dir.
+PARTIAL_DIR_NAME = ".partial"
 
 
 def report_is_complete(data: object) -> bool:
@@ -564,14 +568,19 @@ def main() -> int:
         )
         return 2
 
-    # promptfoo writes beside the snapshot path, never onto it: a run with provider
-    # or judge errors, or a report with no verdict in it, must not replace the
-    # baseline `--force` would overwrite. The
-    # `.partial` / `.rejected` suffixes keep these files out of the `*-skill-*.json`
-    # prior-baseline lookup.
-    partial_path = output_path.with_name(output_path.name + ".partial")
+    # promptfoo writes to a scratch path, never onto the snapshot path: a run with
+    # provider or judge errors, or a report with no verdict in it, must not replace
+    # the baseline `--force` would overwrite. promptfoo picks its output format from
+    # the file extension and rejects anything else, so the scratch file keeps the
+    # snapshot's `.json` name inside a `.partial/` subdirectory, which the
+    # non-recursive `*-skill-*.json` prior-baseline lookup never enters. A rejected
+    # report is moved beside the snapshot with a `.rejected` suffix, which that
+    # lookup does not match either.
+    partial_dir = output_path.parent / PARTIAL_DIR_NAME
+    partial_path = partial_dir / output_path.name
     rejected_path = output_path.with_name(output_path.name + ".rejected")
     partial_path.unlink(missing_ok=True)
+    partial_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         "npx",
@@ -593,6 +602,12 @@ def main() -> int:
         # of a report. Nothing was promoted, so drop the partial and re-raise.
         partial_path.unlink(missing_ok=True)
         raise
+    finally:
+        # The scratch directory is left behind only while another run is using it.
+        try:
+            partial_dir.rmdir()
+        except OSError:
+            pass
     if early_exit is not None:
         return early_exit
 

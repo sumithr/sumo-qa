@@ -840,7 +840,7 @@ class TestRunBaselineRejectsIncompleteReports:
         assert "passed" not in output and "Delta" not in output, output
         assert "eval-failure-diagnoser" not in output, output
         rejected = ctx["today"].with_name(ctx["today"].name + ".rejected")
-        partial = ctx["today"].with_name(ctx["today"].name + ".partial")
+        partial = ctx["baselines"] / ".partial" / ctx["today"].name
         after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir() if p != rejected}
         assert after == ctx["before"], (
             "an incomplete report changed the kept baselines: "
@@ -848,7 +848,7 @@ class TestRunBaselineRejectsIncompleteReports:
         )
         assert rejected.is_file(), sorted(p.name for p in ctx["baselines"].iterdir())
         assert json.loads(rejected.read_text()) == report
-        assert not partial.exists()
+        assert not partial.exists() and not partial.parent.exists()
         assert rejected.name in output, output
 
     def test_empty_object_report_is_a_harness_error(self, tmp_path: Path) -> None:
@@ -917,9 +917,113 @@ class TestRunBaselineMissingOrUnreadableReport:
         self._assert_harness_error(ctx, promptfoo_exit)
 
 
+_REAL_PROMPTFOO = REPO_ROOT / "node_modules" / ".bin" / "promptfoo"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32"
+    or not _REAL_PROMPTFOO.is_file()
+    or shutil.which("node") is None
+    or shutil.which("python3") is None,
+    # CI's test job installs no Node tooling; under mutmut the repo root is
+    # mutants/, which has no node_modules, so these skip there too.
+    reason="real promptfoo is not installed (npm ci), or stand-ins are sh scripts",
+)
+class TestRunBaselineWithRealPromptfoo:
+    """The capture tests above use a stand-in `npx` that copies a crafted report
+    to whatever `--output` path it is handed, so they cannot see promptfoo's own
+    contract for that path. Real promptfoo picks the output format from the file
+    extension and refuses any other (`Unsupported output file format`), writing
+    nothing: a `.json.partial` output path made every real baseline run exit 4.
+
+    Here `npx promptfoo` runs the repo's real promptfoo, on a one-case config
+    whose only calls reach a stand-in `claude` (no model is called). The
+    provider files are linked beside the config, as in the real layout.
+    """
+
+    RUN_BASELINE = TestRunBaselineRejectsProviderErrors.RUN_BASELINE
+
+    def _setup(self, tmp_path: Path, claude_script: str) -> dict:
+        import os as _os
+
+        repo = tmp_path / "repo"
+        promptfoo_dir = repo / "tests" / "evals" / "promptfoo"
+        promptfoo_dir.mkdir(parents=True)
+        (repo / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+        (promptfoo_dir / "providers").symlink_to(
+            REPO_ROOT / "tests" / "evals" / "promptfoo" / "providers"
+        )
+        (promptfoo_dir / "skill-real.yaml").write_text(
+            "description: one case\n"
+            "providers:\n  - file://providers/claude-candidate.yaml\n"
+            'prompts: ["Say hi"]\n'
+            "tests:\n  - assert:\n      - type: contains\n        value: hi\n"
+        )
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "npx").write_text(
+            f'#!/bin/sh\n[ "$1" = promptfoo ] && shift\nexec "{_REAL_PROMPTFOO}" "$@"\n'
+        )
+        (bin_dir / "claude").write_text(claude_script)
+        for exe in bin_dir.iterdir():
+            exe.chmod(0o755)
+        env = {k: v for k, v in _os.environ.items() if not k.startswith("OPENAI_")}
+        env["PATH"] = f"{bin_dir}{_os.pathsep}{env.get('PATH', '')}"
+        return {
+            "repo": repo,
+            "baselines": repo / "docs" / "qa" / "runs" / "eval-baselines",
+            "env": env,
+        }
+
+    def _run_with(
+        self, tmp_path: Path, claude_script: str
+    ) -> tuple[dict, subprocess.CompletedProcess]:
+        ctx = self._setup(tmp_path, claude_script)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.RUN_BASELINE),
+                "--skill",
+                "real",
+                "--repo-root",
+                str(ctx["repo"]),
+            ],
+            capture_output=True,
+            text=True,
+            env=ctx["env"],
+            timeout=180,
+        )
+        return ctx, result
+
+    def test_clean_run_is_captured(self, tmp_path: Path) -> None:
+        answer = json.dumps(
+            {"type": "result", "subtype": "success", "is_error": False, "result": "hi"}
+        )
+        ctx, result = self._run_with(tmp_path, f"#!/bin/sh\ncat >/dev/null\necho '{answer}'\n")
+        output = result.stdout + result.stderr
+        assert result.returncode == 0, (result.returncode, output)
+        assert "Unsupported output file format" not in output, output
+        assert "Snapshot captured" in result.stdout and "1 passed, 0 failed" in result.stdout, (
+            output
+        )
+        snapshots = sorted(p.name for p in ctx["baselines"].iterdir())
+        assert len(snapshots) == 1 and snapshots[0].endswith("-skill-real__baseline.json"), (
+            snapshots
+        )
+
+    def test_provider_error_run_is_rejected_with_3(self, tmp_path: Path) -> None:
+        ctx, result = self._run_with(tmp_path, "#!/bin/sh\ncat >/dev/null\nexit 97\n")
+        output = result.stdout + result.stderr
+        assert result.returncode == 3, (result.returncode, output)
+        assert "Unsupported output file format" not in output, output
+        assert "provider or judge errors" in output, output
+        names = sorted(p.name for p in ctx["baselines"].iterdir())
+        assert len(names) == 1 and names[0].endswith("-skill-real__baseline.json.rejected"), names
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="stand-in claude is an sh script")
 class TestRunBaselineInterruptCleansPartial:
-    """Ctrl-C during the promptfoo run must not leave `<snapshot>.partial`
+    """Ctrl-C during the promptfoo run must not leave `.partial/<snapshot>`
     behind or touch an earlier baseline. The script is imported and run
     in-process with `subprocess.run` replaced by a stand-in that writes a
     partial report to the `--output` path and then raises `KeyboardInterrupt`,
@@ -934,7 +1038,7 @@ class TestRunBaselineInterruptCleansPartial:
         )
         monkeypatch.setenv("PATH", ctx["env"]["PATH"])
         mod = _import_run_baseline()
-        partial = ctx["today"].with_name(ctx["today"].name + ".partial")
+        partial = ctx["baselines"] / ".partial" / ctx["today"].name
 
         def interrupted_run(cmd: list[str], **_kwargs: object) -> None:
             out = Path(cmd[cmd.index("--output") + 1])
@@ -951,6 +1055,7 @@ class TestRunBaselineInterruptCleansPartial:
         with pytest.raises(KeyboardInterrupt):
             mod.main()
         assert not partial.exists(), sorted(p.name for p in ctx["baselines"].iterdir())
+        assert not partial.parent.exists(), "the empty .partial/ scratch directory was left behind"
         after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir()}
         assert after == ctx["before"], (sorted(after), sorted(ctx["before"]))
 
