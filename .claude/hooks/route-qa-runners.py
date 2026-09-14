@@ -27,6 +27,16 @@ Detection is built against REAL runner output (see tests/test_route_qa_runners.p
     not a skill verdict (#651), so it gets its own reminder and is NOT routed to
     the SKILL.md diagnoser.
 
+  * `run-eval.sh` prints `[eval] ERROR:` when the eval never reached a verdict:
+    promptfoo wrote no readable report (a misspelled config path, malformed
+    YAML; exit 4), or a preflight or setting check failed first. Neither a skill
+    verdict nor a provider abort, so it gets its own reminder too.
+
+  * Only `bash` (or the script as the command word, via its bash shebang) runs
+    run-eval.sh. It is a bash script: `sh` is dash on Debian/Ubuntu and rejects
+    `set -o pipefail`, and zsh has no BASH_SOURCE, so both fail before promptfoo
+    starts and are not eval runs.
+
 Both branches first gate on the COMMAND shape so reading a log
 (`cat mutmut.log`, `grep survived`) or a non-run subcommand
 (`promptfoo generate`, `npm run eval:view`) never triggers a route.
@@ -219,14 +229,14 @@ def _segment_is_promptfoo_eval(eff: list[str]) -> bool:
 
 
 _EVAL_SCRIPT = "run-eval.sh"
-_SHELLS = {"bash", "sh", "zsh"}
+_SHELLS = {"bash"}
 
 
 def _runs_eval_script(eff: list[str]) -> bool:
     """Is this segment an execution of the repo's eval runner, run-eval.sh?
 
     Either the script is the command word (`./tests/evals/promptfoo/run-eval.sh`)
-    or it is the token IMMEDIATELY after a shell (`bash tests/.../run-eval.sh`).
+    or it is the token IMMEDIATELY after `bash` (`bash tests/.../run-eval.sh`).
     A flag in that position is not recognised (`bash -n run-eval.sh` only
     syntax-checks it), and the script as an argument to any other program
     (`cat`, `shellcheck`) is not a run."""
@@ -283,6 +293,7 @@ def _promptfoo_failed(output: str, exit_code: object) -> bool:
 
 
 _EVAL_ABORT_MARKER = "[eval] ABORT:"
+_EVAL_ERROR_MARKER = "[eval] ERROR:"
 
 
 _MUTMUT_REMINDER = (
@@ -302,6 +313,14 @@ _EVAL_ABORT_REMINDER = (
     "verdict, so do not diagnose it as a skill failure or edit a SKILL.md. "
     "Read the error in the report JSON the ABORT line names (a Claude usage "
     "limit or a CLI failure), resolve that, then re-run the same command once."
+)
+
+_EVAL_ERROR_REMINDER = (
+    "run-eval.sh stopped with an `[eval] ERROR:` line: the eval did not run to a "
+    "verdict, so this is neither a skill failure nor a provider abort; do not "
+    "diagnose a SKILL.md. Read the ERROR line: for `produced no readable report`, "
+    "check the config path and its YAML in the promptfoo output above it; "
+    "otherwise fix the setting or missing CLI it names. Then re-run."
 )
 
 
@@ -345,6 +364,9 @@ def main() -> int:
         if _is_promptfoo_eval_run(command):
             if _EVAL_ABORT_MARKER in output:
                 _emit(_EVAL_ABORT_REMINDER)
+                return 0
+            if _EVAL_ERROR_MARKER in output:
+                _emit(_EVAL_ERROR_REMINDER)
                 return 0
             if _promptfoo_failed(output, exit_code):
                 _emit(_PROMPTFOO_REMINDER)

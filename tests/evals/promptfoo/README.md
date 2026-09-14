@@ -18,7 +18,7 @@ follow-up PRs):
 - **ANTI-PATTERNS** — for each named anti-pattern in the rubric, is it
   ABSENT (PASS) or PRESENT (FAIL)?
 
-The judge (`gpt-5.5`) applies a decision-table: only `SHAPE PASS + GROUNDING
+The judge (`claude-opus-5`, `providers/claude-judge.yaml`) applies a decision-table: only `SHAPE PASS + GROUNDING
 PASS + all anti-patterns ABSENT` → PASS. Verdict is JSON, reason quotes
 the candidate span the judge graded against.
 
@@ -73,11 +73,13 @@ class, anchor it to the changed file:line, and reach the correct unsafe/needs-wo
 verdict. Two docs-only / config-only **negative controls** verify the workflow
 does not invent runtime risk on trivial diffs.
 
-**Candidate is `gpt-5-mini`, not the estate's `gpt-4o-mini`.** A discovery eval
-needs a candidate that can reason over a raw diff; `gpt-4o-mini` proved too noisy
-to measure it (its full-corpus baseline-vs-postcut *inverted* between runs).
-`gpt-5-mini` is a cheap reasoning model that gives a stable signal. The two YAMLs
-pin `gpt-5-mini` for the candidate (the judge stays `gpt-5.5`).
+**History: the corpus was built on a reasoning candidate.** On the retired OpenAI
+pair, a discovery eval needed a candidate that could reason over a raw diff: the
+estate's `gpt-4o-mini` proved too noisy to measure it (its full-corpus
+baseline-vs-postcut *inverted* between runs), so the two YAMLs pinned `gpt-5-mini`
+with the `gpt-5.5` judge. Today both YAMLs run on the Claude pair like every config,
+and carry the `# local-tier: reasoning` marker that selects them for the local
+reasoning tier.
 
 ```bash
 # discovery corpus (B = full skill)
@@ -86,8 +88,9 @@ pin `gpt-5-mini` for the candidate (the judge stays `gpt-5.5`).
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-adversarial.ab.yaml --no-cache
 ```
 
-This is a **high-bar stress test, not a 100%-green gate.** Adding the skill's
-adversarial discovery pass lifts the full corpus from baseline 7/11 → postcut
+This is a **high-bar stress test, not a 100%-green gate.** Historical numbers,
+measured on the retired OpenAI pair (`gpt-5-mini` candidate, `gpt-5.5` judge): adding the skill's
+adversarial discovery pass lifted the full corpus from baseline 7/11 → postcut
 10/11 (occasionally 11/11), and the `.ab` to **B 6/6** vs A0/A1 (no-skill /
 catalogues-only) only ~1-4/6 (the discovery pass perfect-scores the hard
 families A0/A1 miss). Both negative controls pass. One *hard* seed flickers
@@ -111,7 +114,8 @@ chosen tool plus an external handoff whose only install commands are global
 (`brew install bats-core` / `npm install --global bats`); a passing response
 translates that to the repo-pinned equivalent and wires the CI mirror rather
 than running the global form. Standard Pattern A (inline per-scenario
-context), estate candidate `gpt-4o-mini`, judge `gpt-5.5`. Picked up by
+context), runs on the Claude pair (originally measured on the retired OpenAI pair as
+estate candidate `gpt-4o-mini`, judge `gpt-5.5`). Picked up by
 `npm run eval:all` automatically.
 
 ## UNPROVEN-escalation corpus (issue #187)
@@ -128,7 +132,8 @@ broken impl AND FAILS a correct impl (e.g. `unlocked` against a `locked`
 substring matcher; exactly `1000` rows against a `< 1000` limit) required in
 the test gate before SAFE — and (3) deliver NOT SAFE TO MERGE. Two seeds cover
 the equivalence-partitioning substring case and the boundary-value case;
-candidate is `gpt-5-mini`, judge `gpt-5.5`. This is the catch that scales when
+runs on the Claude pair (originally measured on the retired OpenAI pair, candidate
+`gpt-5-mini`, judge `gpt-5.5`). This is the catch that scales when
 the adversarial codex pass isn't available (CI-only runs, limited codex tokens).
 
 ```bash
@@ -162,8 +167,9 @@ a green suite. Two seeds: a tautological diff (a `expected` value read from the
 same call under test, plus a type-only check) that must yield NEEDS WORK / NOT
 SAFE naming the vacuous assertion; and a genuine-discriminator diff (a derived
 leap-year expected value with captured RED-on-pre-fix evidence) that must yield
-SAFE. Candidate is `gpt-5-mini` (the probe is reasoning-heavy — detect a
-self-referential assertion, derive a date), judge `gpt-5.5`. No `.ab.yaml`
+SAFE. Runs on the Claude pair; the probe is reasoning-heavy (detect a
+self-referential assertion, derive a date), so on the retired OpenAI pair it was
+measured with the `gpt-5-mini` candidate and `gpt-5.5` judge. No `.ab.yaml`
 ships for this seed; to isolate the #255 probe behaviour by hand, run the eval
 once on this branch (tautology seed PASS), then check the SKILL.md back to its
 pre-probe state — `git checkout origin/main -- skills/sumo-qa-reviewing-before-merge/SKILL.md`
@@ -198,8 +204,8 @@ ex.137 stays as block CONTENT and must still be skipped — NOT reparsed as
 indented code; `~~~` vs backtick; an unclosed fence at EOF; a trailing-content
 close) are general fence edge cases, not the discriminating input for this
 seed's char-stored/length-not-tracked bug. Then deliver NOT SAFE TO MERGE.
-Candidate `gpt-5-mini`,
-judge `gpt-5.5`. Picked up by `npm run eval:all` automatically.
+Runs on the Claude pair (originally measured on the retired OpenAI pair, candidate
+`gpt-5-mini`, judge `gpt-5.5`). Picked up by `npm run eval:all` automatically.
 
 ```bash
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-fence-parser.yaml --no-cache
@@ -265,7 +271,8 @@ four route through the same step-9 "Verification-evidence discipline" block, its
 Verdict-format item 8 lines, and the step-10(e) SAFE-blocker. Each carries a
 must-flag (NOT SAFE) seed AND a true-negative (SAFE-eligible) seed; the
 `.ab.yaml` controls prove the new text is load-bearing (A0 = pre-edit body FAILs,
-A1 = post-edit body PASSes). Candidate `gpt-5-mini`, judge `gpt-5.5`.
+A1 = post-edit body PASSes). Runs on the Claude pair (originally measured on the retired OpenAI pair,
+candidate `gpt-5-mini`, judge `gpt-5.5`).
 
 ```bash
 for c in verifier-evidence guard-coverage eval-validity feature-flow; do
@@ -346,8 +353,8 @@ by the fresh test, so it is a SAFE-blocker and the verdict is NOT SAFE TO MERGE.
 The candidate prompts are NEUTRAL — they carry only the output-format scaffold
 plus a generic "consult any supplied team context; the loaded skill governs how"
 — so the behaviour comes ONLY from the injected `skill_content`, not the prompt.
-Candidate `gpt-5-mini`, judge `gpt-5.5`. Picked up by `npm run eval:all`
-automatically.
+Runs on the Claude pair (originally measured on the retired OpenAI pair, candidate
+`gpt-5-mini`, judge `gpt-5.5`). Picked up by `npm run eval:all` automatically.
 
 ```bash
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-preparing-for-work-feedback-memory.yaml --no-cache
@@ -472,12 +479,13 @@ We grade `message.content` only (`showThinking: false`), so a candidate can REAS
 (body-faithful discrimination) while the judge sees a clean verdict. The **cheap-tier
 models are the 2026-06 judge/candidate bake-off winners** (tooling in `bakeoff/` +
 `validate-local-judge/`): candidate `gemma4-e4b-bounded` on the 4060, judge
-`gemma4-12b-bounded` on the laptop. Headline vs stored gpt-5.5 verdicts: the judge agrees
+`gemma4-12b-bounded` on the laptop. Headline vs stored verdicts from `gpt-5.5`, the judge of the
+retired OpenAI gate at the time: the judge agrees
 **92 %** (vs ~56 % for the old reasoning-off qwen3.5:9b) and is **binary-deterministic**
 on fixed input; the `gemma4-e4b` candidate is the only 4060 model that lifts all three
 `.ab` control types. The rep-to-rep wobble is **candidate-side** (the e4b regenerates near
-the pass threshold at temp 0), so pair with `--repeat 3`. Still a *relative* signal; cloud
-(gpt-5.5) is the merge gate. The 4090 `gpt-oss:20b` judge was tested and **rejected for
+the pass threshold at temp 0), so pair with `--repeat 3`. Still a *relative* signal; the
+Claude pair is the merge gate. The 4090 `gpt-oss:20b` judge was tested and **rejected for
 now** (too strict — 0/3 separation, beaten by the laptop judge); revisit with a tuned 20B.
 The old instant `sumo-cheap-judge-9b` remains available via `SUMO_CHEAP_JUDGE`.
 
@@ -567,8 +575,8 @@ SUMO_EVAL_JUDGE_FILE=providers/local-laptop-qwen-judge.yaml \
 
 ### Validating the local judge (`validate-local-judge/`)
 
-A local judge is only safe to trust as a *relative* signal if it tracks the cloud
-judge's direction, discriminates a skill lift, and is repeatable — and those are per
+A local judge is only safe to trust as a *relative* signal if it tracks the stored
+cloud judge's direction, discriminates a skill lift, and is repeatable; and those are per
 `(model, num_ctx, GPU, build)`. **Re-run this whenever the local judge model or
 hardware changes** (it's the executable form of "re-baseline on change"):
 
@@ -579,7 +587,8 @@ npm run eval:validate-judge -- --judge <model> --mode discrimination --pairs 12
 ```
 
 It reads the local `~/.promptfoo/promptfoo.db` read-only, faithfully reconstructs the
-exact `llm-rubric` prompt each cloud `gpt-5.5` row was graded with (promptfoo's own
+exact `llm-rubric` prompt each stored cloud row was graded with (by default the
+`openai:chat:gpt-5.5` rows the retired OpenAI gate recorded, `--cloud-judge`; promptfoo's own
 nunjucks, via `render.js` — apples-to-apples), re-grades through OpenWebUI, and reports:
 
 - **agreement** — verdict-for-verdict vs the stored cloud verdicts + confusion matrix.
@@ -615,9 +624,11 @@ The local binary is at `./node_modules/.bin/promptfoo` after `npm install`.
 # Sequential / legible logs:
 ./node_modules/.bin/promptfoo eval -c <config> -j 1
 
-# Generate dataset with custom instructions:
+# Generate dataset with custom instructions (synthesised by the Claude candidate; the
+# provider path resolves against the config's directory):
 ./node_modules/.bin/promptfoo generate dataset \
     -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml \
+    --provider file://providers/claude-candidate.yaml \
     --instructions "Synthesise realistic developer chat messages that should route to this skill. Vary language, framework, bug shape." \
     --numPersonas 2 \
     --numTestCasesPerPersona 2 \
@@ -651,27 +662,27 @@ python tests/evals/promptfoo/aggregate.py /tmp/promptfoo-variance/
 Reports verdict-flip rate per scenario. Exits 0 if every scenario's
 flip-rate ≤ 20% (the stability bar per the design plan).
 
-## Cost guardrails
+## Usage
 
-OpenAI pricing as of 2026-05:
+Every run goes through `claude -p` on the signed-in Claude account, so it spends
+subscription usage; see "The Claude pair" above for a measured full pass.
+
+### Historical: the retired OpenAI pair
+
+OpenAI pricing as of 2026-05, measured on the retired OpenAI pair:
 
 - Candidate (`gpt-4o-mini`): ~$0.001 per scenario
 - Judge (`gpt-5.5`): ~$0.005 per scenario
 - Full sweep of 18 skills: ~$0.11 per run with `seed: 42` determinism
-- The `reviewing-before-merge-adversarial` corpus pins a `gpt-5-mini` candidate
-  (reasoning tokens → a few cents per full run, still negligible) — see
-  "Adversarial discovery corpus" above for why.
+- The `reviewing-before-merge-adversarial` corpus pinned a `gpt-5-mini` candidate
+  (reasoning tokens, a few cents per full run); see "Adversarial discovery corpus"
+  above for why.
 
-Running a single skill: pennies. Running all 18 skills with `--repeat 5`:
-~$0.30 — still negligible, but worth tracking if you iterate frequently.
-
-If cost becomes a concern, swap the judge to `gpt-4o-mini` in
-`defaultTest.options.provider.id` (~5x cheaper, marginally less
-adversarial).
+Running a single skill: pennies. Running all 18 skills with `--repeat 5`: ~$0.30.
 
 ## Architecture
 
-All 18 skill YAMLs use `seed: 42` + `temperature: 0.0` for both candidate and judge providers, so runs are reproducible across machines. `disableVarExpansion: true` is set in defaultTest.options to prevent array vars (anti_patterns) from being expanded into per-element tests.
+Every skill YAML pins the Claude candidate and judge provider files (see "The Claude pair" above). The Claude provider sets no temperature or seed, so run-to-run variance is measured with `--repeat` and `aggregate.py` rather than assumed away. `disableVarExpansion: true` is set in defaultTest.options to prevent array vars (anti_patterns) from being expanded into per-element tests.
 
 Two patterns are used depending on the skill's shape:
 
@@ -687,7 +698,8 @@ For skills where each scenario has a per-scenario ground-truth context
 5. Candidate wrapper prompt in `prompts:`
 6. A shared `javascript` grounding assertion (`value: file://asserts/cites-catalogue-technique.js`) that passes when the candidate cites a technique name drawn from `knowledge/techniques.md`'s `###` headings; the accepted set is derived from the catalogue, never a hardcoded allowlist (issue #350)
 
-`promptfoo generate dataset --write` against this YAML synthesises additional
+`promptfoo generate dataset --provider file://providers/claude-candidate.yaml --write`
+against this YAML (what `npm run eval:generate` runs) synthesises additional
 `(user_prompt, ground_truth_context)` pairs on demand.
 
 See [`skill-implementing-with-tdd.yaml`](skill-implementing-with-tdd.yaml).
@@ -720,7 +732,7 @@ See [`skill-answering-testing-question.yaml`](skill-answering-testing-question.y
 # 1. Generate user_prompt variations into gen.yaml
 ./node_modules/.bin/promptfoo generate dataset \
     -c tests/evals/promptfoo/skill-<name>.gen.yaml \
-    --provider openai:chat:gpt-4o-mini \
+    --provider file://providers/claude-candidate.yaml \
     --instructions "<see the v8-codex-approved instruction block in the .gen.yaml file's header comment>" \
     --numPersonas 2 --numTestCasesPerPersona 2 \
     --write

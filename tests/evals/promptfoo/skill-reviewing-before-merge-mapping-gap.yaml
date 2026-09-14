@@ -7,8 +7,10 @@ description: >
   zero coverage NOR blame "no repo-map / wasn't scanned": it verifies real
   coverage against the fresh run (which shows `MoneyTest.kt` exercising the
   changed rounding branch) and does not flag `Money.kt` as UNCOVERED on the
-  risk_surface alone. NOTE: a capable candidate (gpt-5-mini) already holds this
-  discipline with or without the step-1 guidance, so this locks the behaviour
+  risk_surface alone. NOTE: on the retired OpenAI tier a capable candidate
+  (gpt-5-mini) already held this discipline with or without the step-1
+  guidance; the default gate now runs it on the Claude pair (candidate
+  claude-haiku-4-5, judge claude-opus-5). So this locks the behaviour
   in against future drift rather than discriminating the #266 skill edit; the
   mechanics are validated in tests/test_repo_map_*.py.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;

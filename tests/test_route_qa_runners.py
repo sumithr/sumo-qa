@@ -30,6 +30,9 @@ capture of the real tool:
   - run_eval_abort.stdout.txt    - real `npm run eval` on the Claude backend
                                    ending in `[eval] ABORT:` (exit 3); only
                                    the repo path is replaced by `<repo>`
+  - run_eval_harness_error.stdout.txt - real `run-eval.sh` on a misspelled
+                                   config path, ending in `[eval] ERROR:`
+                                   (exit 4); only the repo path is replaced
 
 Technique: equivalence partitioning over (command-shape × output-marker) — the
 substring/token-confusion failure mode this technique warns about IS the bug
@@ -266,8 +269,10 @@ class TestRunEvalScriptRoutes:
     `npm run eval` / `eval:all` wrap it, and the eval-gate runbook and the local
     tiers invoke it directly. A direct run that FAILs must route like the npm
     form. Equivalence partitioning over the command shape: the script as the
-    executed program (bash/sh/path) routes; the script as a mere argument to a
-    non-shell program (cat, shellcheck) does not.
+    executed program (bash/path) routes; the script as a mere argument to a
+    non-shell program (cat, shellcheck) does not, and neither does a shell that
+    cannot run it (`sh` is dash on Debian/Ubuntu and rejects `set -o pipefail`;
+    zsh has no BASH_SOURCE), which fails before promptfoo starts.
     """
 
     @pytest.mark.parametrize(
@@ -278,7 +283,6 @@ class TestRunEvalScriptRoutes:
             "SUMO_EVAL_BACKEND=claude bash tests/evals/promptfoo/run-eval.sh "
             "tests/evals/promptfoo/skill-finding-test-data.yaml",
             "SUMO_EVAL_BACKEND=local TIER=cheap bash tests/evals/promptfoo/run-eval.sh",
-            "sh tests/evals/promptfoo/run-eval.sh",
             "./tests/evals/promptfoo/run-eval.sh all",
             "npm run eval:local:cheap",
             "npm run eval:local:quality",
@@ -298,6 +302,8 @@ class TestRunEvalScriptRoutes:
             "shellcheck tests/evals/promptfoo/run-eval.sh",
             "bash tests/evals/promptfoo/validate-local-judge/run.sh",
             "bash -n tests/evals/promptfoo/run-eval.sh",
+            "sh tests/evals/promptfoo/run-eval.sh",
+            "zsh tests/evals/promptfoo/run-eval.sh",
         ],
     )
     def test_run_eval_as_an_argument_does_not_route(self, command: str) -> None:
@@ -335,6 +341,48 @@ class TestProviderAbortIsNotASkillVerdict:
 
     def test_abort_marker_on_a_non_eval_command_is_silent(self) -> None:
         out = _fixture("run_eval_abort.stdout.txt")
+        result = _run_hook(_post_tool_use(f"cat {FIXTURES}/x.txt", stdout=out, exit_code=0))
+        assert _additional_context(result) == ""
+
+
+class TestHarnessErrorIsNotAProviderAbort:
+    """run-eval.sh stops with `[eval] ERROR:` (exit 4) when promptfoo wrote no
+    readable report: a misspelled config path or malformed YAML, so no test case
+    ran. That is neither a skill verdict nor a provider abort, so it must not be
+    routed to `eval-failure-diagnoser` and must not get the provider-abort
+    reminder.
+
+    `run_eval_harness_error.stdout.txt` is a real capture of
+    `NO_COLOR=1 bash tests/evals/promptfoo/run-eval.sh
+    tests/evals/promptfoo/skill-implementing-with-tdd.yml` (a misspelled
+    extension; stdout + stderr, exit 4) with a `claude` stand-in on PATH and no
+    OPENAI_API_KEY. Only the absolute repo path is replaced by `<repo>`.
+    """
+
+    COMMAND = "bash tests/evals/promptfoo/run-eval.sh tests/evals/promptfoo/skill-implementing-with-tdd.yml"
+
+    def test_harness_error_gets_its_own_reminder(self) -> None:
+        out = _fixture("run_eval_harness_error.stdout.txt")
+        assert "[eval] ERROR:" in out and "[eval] ABORT:" not in out, "fixture changed shape"
+        result = _run_hook(_post_tool_use(self.COMMAND, stdout=out, exit_code=4))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context, (
+            f"hook routed a harness/config error to the SKILL.md diagnoser: {context!r}"
+        )
+        assert "provider or judge errors" not in context, (
+            f"hook gave a harness/config error the provider-abort reminder: {context!r}"
+        )
+        assert "did not run" in context and "config" in context, context
+
+    def test_harness_error_through_npm_gets_the_same_reminder(self) -> None:
+        out = _fixture("run_eval_harness_error.stdout.txt")
+        result = _run_hook(_post_tool_use("npm run eval:all", stdout=out, exit_code=4))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context
+        assert "did not run" in context
+
+    def test_error_marker_on_a_non_eval_command_is_silent(self) -> None:
+        out = _fixture("run_eval_harness_error.stdout.txt")
         result = _run_hook(_post_tool_use(f"cat {FIXTURES}/x.txt", stdout=out, exit_code=0))
         assert _additional_context(result) == ""
 
@@ -619,6 +667,7 @@ def test_hook_is_executable() -> None:
         "promptfoo_fail.stdout.txt",
         "promptfoo_pass.stdout.txt",
         "run_eval_abort.stdout.txt",
+        "run_eval_harness_error.stdout.txt",
     ],
 )
 def test_fixtures_exist(fixture_name: str) -> None:

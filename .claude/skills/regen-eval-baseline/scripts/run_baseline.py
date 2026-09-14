@@ -10,6 +10,14 @@ docs/qa/runs/eval-baselines/<date>-skill-<slug>__<label>.json, and prints a
 pass/fail summary. If a prior baseline exists for the same config, also
 prints a brief delta.
 
+A run whose report carries provider or judge errors (``stats.errors > 0``, or a
+component result tagged ``metadata.graderError``, the definition run-eval.sh
+uses) is not a skill verdict and is never kept as a baseline: promptfoo writes
+to a ``.partial`` file beside the snapshot path, and only a clean report is
+moved onto the snapshot path. An errored report is moved aside to
+``<snapshot>.json.rejected`` for diagnosis and the script exits 3, so a prior
+baseline, including one ``--force`` would overwrite, stays untouched.
+
 The slug and label are separated by a literal ``__`` (double underscore).
 Both are validated kebab-case tokens (lowercase alphanumerics + single
 hyphens), so neither can contain ``__`` — that makes the slug/label boundary
@@ -123,6 +131,27 @@ def load_summary(path: Path) -> tuple[int, int]:
     results = data.get("results", {})
     stats = results.get("stats", {})
     return (int(stats.get("successes", 0)), int(stats.get("failures", 0)))
+
+
+EXIT_PROVIDER_ERRORS = 3
+
+
+def count_run_errors(data: dict) -> int:
+    """Provider or judge errors in a promptfoo output JSON.
+
+    The same definition as run-eval.sh: ``results.stats.errors`` counts a
+    candidate-side error, and a judge that fails or returns no parseable verdict
+    becomes a component result tagged ``metadata.graderError``.
+    """
+    results = data.get("results") or {}
+    stats = results.get("stats") or {}
+    grader_errors = sum(
+        1
+        for row in results.get("results") or []
+        for component in ((row or {}).get("gradingResult") or {}).get("componentResults") or []
+        if ((component or {}).get("metadata") or {}).get("graderError")
+    )
+    return int(stats.get("errors") or 0) + grader_errors
 
 
 def config_to_slug(config_path: Path) -> str:
@@ -437,6 +466,14 @@ def main() -> int:
         )
         return 2
 
+    # promptfoo writes beside the snapshot path, never onto it: a run with provider
+    # or judge errors must not replace the baseline `--force` would overwrite. The
+    # `.partial` / `.rejected` suffixes keep these files out of the `*-skill-*.json`
+    # prior-baseline lookup.
+    partial_path = output_path.with_name(output_path.name + ".partial")
+    rejected_path = output_path.with_name(output_path.name + ".rejected")
+    partial_path.unlink(missing_ok=True)
+
     cmd = [
         "npx",
         "promptfoo",
@@ -445,24 +482,47 @@ def main() -> int:
         str(yaml_path),
         "--no-cache",
         "--output",
-        str(output_path),
+        str(partial_path),
     ]
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=repo_root)
-    if result.returncode != 0:
-        print(
-            f"\npromptfoo exited with code {result.returncode}. "
-            "Inspect the snapshot at the path above for partial results.",
-            file=sys.stderr,
-        )
 
-    if not output_path.is_file():
+    if not partial_path.is_file():
         print(
-            f"\nExpected snapshot at {output_path} was not written. "
-            "promptfoo may have failed before producing output.",
+            f"\npromptfoo exited with code {result.returncode} and wrote no report at "
+            f"{partial_path}. It failed before producing output; nothing was captured.",
             file=sys.stderr,
         )
         return result.returncode or 1
+
+    try:
+        errors = count_run_errors(json.loads(partial_path.read_text(encoding="utf-8")))
+    except (ValueError, TypeError, AttributeError) as exc:
+        partial_path.unlink(missing_ok=True)
+        print(
+            f"\npromptfoo exited with code {result.returncode} and its report was not "
+            f"readable ({exc}); nothing was captured.",
+            file=sys.stderr,
+        )
+        return result.returncode or 1
+
+    if errors:
+        partial_path.replace(rejected_path)
+        print(
+            f"\nThe run had provider or judge errors (errors={errors}): not a skill "
+            "verdict, so it was not kept as a baseline and no delta is reported. "
+            f"The report is at {rejected_path.relative_to(repo_root)}; resolve the "
+            "error it records (a Claude usage limit or a CLI failure), then re-run.",
+            file=sys.stderr,
+        )
+        return EXIT_PROVIDER_ERRORS
+
+    partial_path.replace(output_path)
+    if result.returncode != 0:
+        print(
+            f"\npromptfoo exited with code {result.returncode}.",
+            file=sys.stderr,
+        )
 
     passed, failed = load_summary(output_path)
     print(f"\nSnapshot captured: {output_path.relative_to(repo_root)}")

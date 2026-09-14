@@ -12,9 +12,12 @@ the Claude pair the gate everywhere a contributor starts an eval:
 * the removed `cloud` backend fails loudly, naming the valid backends;
 * the local OpenWebUI tiers still resolve their providers and file split.
 
-The run-eval.sh cases use its `SUMO_EVAL_DRY_RUN=1` mode, which prints each
-promptfoo command instead of running it, with a stand-in `claude` on PATH for
-the CLI preflight. No model is called.
+The run-eval.sh resolution cases use its `SUMO_EVAL_DRY_RUN=1` mode, which
+prints each promptfoo command instead of running it, with a stand-in `claude` on
+PATH for the CLI preflight. The report-classification cases run promptfoo for
+real against a missing or malformed config (it stops before any provider call)
+or a one-case config whose only call reaches the stand-in `claude`, which fails.
+No model is called.
 
 Technique: equivalence partitioning over the backend input (unset / claude /
 local / cloud / garbage) and over the target argument (none / one config /
@@ -45,6 +48,16 @@ REASONING_MARKER = re.compile(r"^# local-tier: reasoning\b", re.MULTILINE)
 _posix_only = pytest.mark.skipif(
     sys.platform == "win32" or shutil.which("bash") is None,
     reason="run-eval.sh is a bash script",
+)
+# The real-run cases execute promptfoo itself (it stops before any model call, or
+# calls only the stand-in `claude`). CI's test job installs no Node tooling.
+_needs_promptfoo = pytest.mark.skipif(
+    not (
+        os.access(REPO_ROOT / "node_modules" / ".bin" / "promptfoo", os.X_OK)
+        or shutil.which("promptfoo")
+    )
+    or shutil.which("node") is None,
+    reason="promptfoo is not installed (npm ci)",
 )
 
 
@@ -124,6 +137,16 @@ class TestNpmScripts:
     def test_eval_all_runs_the_matrix_through_run_eval_on_the_default_backend(self) -> None:
         script = self._scripts()["eval:all"]
         assert script.strip() == "bash tests/evals/promptfoo/run-eval.sh all", script
+
+    def test_eval_generate_synthesises_on_the_claude_candidate(self) -> None:
+        """Without `--provider`, `promptfoo generate dataset` uses promptfoo's
+        default synthesis provider, which is OpenAI whenever a key is present.
+        promptfoo resolves a `file://` provider path against the config's
+        directory, so the reference is `providers/...`, not a repo-root path."""
+        script = self._scripts()["eval:generate"]
+        assert script.startswith("promptfoo generate dataset "), script
+        assert "-c tests/evals/promptfoo/" in script, script
+        assert f"--provider file://{CANDIDATE_FILE}" in script, script
 
 
 # --------------------------------------------------------------------------- #
@@ -212,6 +235,84 @@ class TestRunEvalRejectsUnknownBackends:
         assert result.returncode != 0
         assert "claude|local" in result.stderr, result.stderr
         assert _dry_run_commands(result.stdout) == []
+
+
+@_posix_only
+class TestRunEvalDryRunParsing:
+    """SUMO_EVAL_DRY_RUN is a gate switch: a value that reads as "off" must not
+    silently turn the eval into a dry run that calls no model. Only `1` enables
+    dry run; unset or empty is a real run; anything else is rejected before any
+    promptfoo command. Equivalence partitioning over the value: `1` / empty /
+    "off"-looking / other.
+    """
+
+    @pytest.mark.parametrize("value", ["0", "false", "yes"])
+    def test_a_value_other_than_1_is_rejected(self, tmp_path: Path, value: str) -> None:
+        result = _run_eval(tmp_path, env_overrides={"SUMO_EVAL_DRY_RUN": value})
+        assert result.returncode not in (0, 3), (result.returncode, result.stdout, result.stderr)
+        assert "[eval] ERROR:" in result.stderr, result.stderr
+        assert "SUMO_EVAL_DRY_RUN" in result.stderr and "'1'" in result.stderr, result.stderr
+        assert _dry_run_commands(result.stdout) == [], result.stdout
+        assert "report:" not in result.stdout, "a config was started before the value was checked"
+
+
+def _report_path(config: Path) -> Path:
+    return REPO_ROOT / "tests" / "evals" / "results" / "claude-reports" / f"{config.stem}.json"
+
+
+@_posix_only
+@_needs_promptfoo
+class TestRunEvalHarnessErrorIsNotAProviderAbort:
+    """When promptfoo fails before writing a readable report (a misspelled config
+    path, malformed YAML), no model answered and nothing was graded. That is a
+    harness or config error: it must not print `[eval] ABORT:` or exit 3, which
+    mean a readable report carried provider or judge errors. Real run with dry run
+    off and the stand-in `claude` on PATH; promptfoo stops before any provider call.
+    """
+
+    def _real_run(self, tmp_path: Path, config: Path) -> subprocess.CompletedProcess:
+        report = _report_path(config)
+        report.unlink(missing_ok=True)
+        try:
+            return _run_eval(tmp_path, str(config), env_overrides={"SUMO_EVAL_DRY_RUN": ""})
+        finally:
+            report.unlink(missing_ok=True)
+
+    def _assert_harness_error(self, result: subprocess.CompletedProcess) -> None:
+        assert result.returncode == 4, (result.returncode, result.stdout, result.stderr)
+        assert "[eval] ABORT:" not in result.stdout + result.stderr, result.stderr
+        assert "[eval] ERROR:" in result.stderr, result.stderr
+        assert "produced no readable report (promptfoo exit 1)" in result.stderr, result.stderr
+        assert "not a provider error" in result.stderr, result.stderr
+
+    def test_nonexistent_config(self, tmp_path: Path) -> None:
+        config = tmp_path / "zz-pytest-absent-config.yaml"
+        self._assert_harness_error(self._real_run(tmp_path, config))
+
+    def test_nonexistent_config_directory(self, tmp_path: Path) -> None:
+        config = tmp_path / "no-such-dir" / "zz-pytest-absent-dir-config.yaml"
+        self._assert_harness_error(self._real_run(tmp_path, config))
+
+    def test_malformed_yaml_config(self, tmp_path: Path) -> None:
+        config = tmp_path / "zz-pytest-malformed-config.yaml"
+        config.write_text('description: bad\nprompts: [\n  - "x\ntests: : :\n', encoding="utf-8")
+        self._assert_harness_error(self._real_run(tmp_path, config))
+
+    def test_a_readable_report_with_provider_errors_still_aborts_with_3(
+        self, tmp_path: Path
+    ) -> None:
+        """The other side of the boundary: a report that exists and carries
+        `stats.errors > 0` is the provider abort. The stand-in `claude` exits
+        non-zero, so the one candidate call errors. The provider id is relative
+        to the config's directory, so `providers/` is linked beside the config.
+        """
+        (tmp_path / "providers").symlink_to(EVAL_DIR / "providers")
+        config = tmp_path / "zz-pytest-provider-error-config.yaml"
+        config.write_text('description: one case\nprompts: ["Say hi"]\ntests:\n  - vars: {}\n')
+        result = self._real_run(tmp_path, config)
+        assert result.returncode == 3, (result.returncode, result.stdout, result.stderr)
+        assert "[eval] ABORT:" in result.stderr and "errors=1" in result.stderr, result.stderr
+        assert "produced no readable report" not in result.stderr, result.stderr
 
 
 @_posix_only

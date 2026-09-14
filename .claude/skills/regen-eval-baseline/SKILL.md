@@ -56,9 +56,10 @@ python3 .claude/skills/regen-eval-baseline/scripts/run_baseline.py \
 The script:
 
 1. Computes the snapshot path: `docs/qa/runs/eval-baselines/<today>-skill-<slug>__<label>.json` (the slug comes from the resolved config — see Inputs; `__` separates slug from label so a multi-hyphen label stays unambiguous).
-2. Runs `npx promptfoo eval` with `--no-cache` (so the snapshot reflects fresh judge calls, not stale cache hits) and writes the JSON output to that path.
-3. Prints pass/fail counts.
-4. If a prior snapshot for the same config exists, prints a delta — passed and failed counts vs the previous run.
+2. Runs `npx promptfoo eval` with `--no-cache` (so the snapshot reflects fresh judge calls, not stale cache hits), writing the JSON output to `<snapshot>.partial` beside that path.
+3. Checks the report for provider or judge errors (`stats.errors > 0`, or a judge result tagged `metadata.graderError`). A run with any is not a skill verdict: the script moves the report aside to `<snapshot>.rejected`, prints no pass/fail summary and no delta, leaves every earlier snapshot untouched, and exits 3. Resolve the error the report records (a Claude usage limit or a CLI failure) and re-run; do not hand a rejected report to the `eval-failure-diagnoser`.
+4. Otherwise moves the report onto the snapshot path and prints pass/fail counts.
+5. If a prior snapshot for the same config exists, prints a delta: passed and failed counts vs the previous run.
 
 ## Reading the output
 

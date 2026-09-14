@@ -1,0 +1,28 @@
+[eval] backend=CLAUDE (merge gate; subscription via claude -p)  repeat=1  -j 1
+── skill-implementing-with-tdd.yml   → report: <repo>/tests/evals/results/claude-reports/skill-implementing-with-tdd.yml.json
+(node:40512) ExperimentalWarning: DecompressInterceptor is experimental and subject to change
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+========================================================================================================================
+⚠️ The current version of promptfoo 0.121.20 is lower than the latest available version 0.123.0.
+
+Please run npx promptfoo@latest or npm install -g promptfoo@latest to update.
+========================================================================================================================
+
+telemetry.shutdown() timed out during shutdown
+file://<repo>/node_modules/promptfoo/dist/src/main.js:2257
+		if (globPaths.length === 0) throw new Error(`No configuration file found at ${configPath}. Run "${promptfooCommand("init")}" to create one or pass --config path/to/promptfooconfig.yaml.`);
+		                                  ^
+
+Error: No configuration file found at <repo>/tests/evals/promptfoo/skill-implementing-with-tdd.yml. Run "promptfoo init" to create one or pass --config path/to/promptfooconfig.yaml.
+    at combineConfigs (file://<repo>/node_modules/promptfoo/dist/src/main.js:2257:37)
+    at resolveConfigs (file://<repo>/node_modules/promptfoo/dist/src/main.js:2431:22)
+    at runEvaluation (file://<repo>/node_modules/promptfoo/dist/src/main.js:4450:80)
+    at async doEval (file://<repo>/node_modules/promptfoo/dist/src/main.js:4858:9)
+    at async Command.<anonymous> (file://<repo>/node_modules/promptfoo/dist/src/main.js:4944:3)
+    at async Command.parseAsync (<repo>/node_modules/commander/lib/command.js:1122:5)
+    at async main (file://<repo>/node_modules/promptfoo/dist/src/main.js:23025:2)
+    at async file://<repo>/node_modules/promptfoo/dist/src/main.js:23035:3
+
+Node.js v24.16.0
+[eval] ERROR: <repo>/tests/evals/promptfoo/skill-implementing-with-tdd.yml produced no readable report (promptfoo exit 1); harness or config error, not a skill verdict and not a provider error. Check the config path and its YAML in the promptfoo output above.

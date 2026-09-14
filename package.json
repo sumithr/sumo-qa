@@ -13,7 +13,7 @@
     "eval:local:reasoning": "SUMO_EVAL_BACKEND=local TIER=reasoning bash tests/evals/promptfoo/run-eval.sh",
     "eval:local:quality": "SUMO_EVAL_BACKEND=local TIER=quality bash tests/evals/promptfoo/run-eval.sh",
     "eval:validate-judge": "bash tests/evals/promptfoo/validate-local-judge/run.sh",
-    "eval:generate": "promptfoo generate dataset -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml --write",
+    "eval:generate": "promptfoo generate dataset -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml --provider file://providers/claude-candidate.yaml --write",
     "eval:view": "promptfoo view"
   },
   "devDependencies": {

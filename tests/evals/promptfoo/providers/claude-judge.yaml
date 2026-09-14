@@ -4,6 +4,6 @@ config:
   # No promptfoo rate-limit retries: `claude -p` already retries transient API errors, so an
   # error reaching promptfoo is final (a usage limit), and retrying it only stalls the run.
   maxRetries: 0
-  # Opus grades: Fable 5.1 costs too much subscription usage for a full matrix.
+  # Judge model: claude-opus-5 (maintainer decision, 2026-09-14).
   model: claude-opus-5
   systemPrompt: 'You are grading a candidate response against a rubric. Reply with a single JSON object: {"pass": <true|false>, "score": <0.0-1.0>, "reason": "<why>"}. No prose outside the JSON.'

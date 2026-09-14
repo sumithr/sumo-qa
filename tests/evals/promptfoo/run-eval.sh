@@ -65,6 +65,17 @@
 #
 #   SUMO_EVAL_DRY_RUN=1 prints each promptfoo command instead of running it (the CLI and
 #   key-file preflights still run; no model is called), to check what a run resolves to.
+#   Unset or empty is a real run; any other value is rejected, so `0` or `false` cannot
+#   silently turn the gate into a run that calls no model.
+#
+# Exit codes (Claude backend):
+#   0  every config ran and passed
+#   1  a preflight or setting failed, or a config had failing test cases
+#   3  ABORT: a readable report carried provider or judge errors (stats.errors > 0 or a
+#      metadata.graderError); not a skill verdict
+#   4  ERROR: promptfoo wrote no readable report (a missing config, malformed YAML, a
+#      missing included file, an unwritable output); a harness or config error, not a
+#      skill verdict and not a provider error
 #
 set -euo pipefail
 
@@ -84,7 +95,13 @@ PROMPTFOO="$ROOT/node_modules/.bin/promptfoo"
 [ -x "$PROMPTFOO" ] || PROMPTFOO="promptfoo"
 
 # SUMO_EVAL_DRY_RUN=1: print the promptfoo command (shell-quoted) instead of running it.
+# Only the value 1 enables it; unset or empty is a real run; anything else stops here.
 DRY_RUN="${SUMO_EVAL_DRY_RUN:-}"
+case "$DRY_RUN" in
+  ''|1) ;;
+  *) echo "[eval] ERROR: SUMO_EVAL_DRY_RUN accepts only '1' (print the promptfoo commands); leave it unset or empty for a real run (got '$DRY_RUN')." >&2
+     exit 1;;
+esac
 run_promptfoo() {
   if [ -n "$DRY_RUN" ]; then
     printf '[eval] dry-run:'; printf ' %q' "$PROMPTFOO" "$@"; printf '\n'
@@ -130,28 +147,43 @@ if [ "$BACKEND" = "claude" ]; then
   REPORT_DIR="$ROOT/tests/evals/results/claude-reports"; mkdir -p "$REPORT_DIR"
   rc=0
   for f in "${files[@]}"; do
-    f="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"   # absolute: promptfoo runs from $EVAL_DIR
+    # absolute: promptfoo runs from $EVAL_DIR. A missing directory is left for promptfoo to
+    # report, so it lands in the no-readable-report branch below like a missing file.
+    if d="$(cd "$(dirname "$f")" 2>/dev/null && pwd)"; then f="$d/$(basename "$f")"; fi
     base="$(basename "$f" .yaml)"; out_json="$REPORT_DIR/${base}.json"
     echo "── $base   → report: $out_json"
     [ -n "$DRY_RUN" ] || rm -f "$out_json"   # a stale report must not pass the error check below for a crashed run
     # provider paths (providers/claude_cli.py) resolve against the eval dir
+    pf_rc=0
     ( cd "$EVAL_DIR" && run_promptfoo eval -c "$f" --no-cache \
         --providers "file://$EVAL_DIR/providers/claude-candidate.yaml" \
         --grader "file://$EVAL_DIR/providers/claude-judge.yaml" \
-        --repeat "$REPEAT" -j "$CONCURRENCY" --output "$out_json" ) || rc=1
+        --repeat "$REPEAT" -j "$CONCURRENCY" --output "$out_json" ) || pf_rc=$?
+    [ "$pf_rc" = 0 ] || rc=1
     [ -z "$DRY_RUN" ] || continue
+    # No readable report means promptfoo stopped before grading anything: nothing to
+    # classify as a provider error or a skill verdict. Exit 4, not the ABORT code.
+    # A report with no results at all is the same case (no test case ran).
     # A provider error (usage limit, quota, CLI failure) stops the run: an error is not a
     # skill verdict, and reporting it as one is the #651 failure. promptfoo
     # counts a candidate-side error in stats.errors, but a JUDGE that fails or returns no
     # parseable verdict becomes a failed assertion tagged metadata.graderError, so count
     # those too.
     errors=$(node -e '
-      const r = require(process.argv[1]).results;
-      if (!r.results.length) { console.log("no results"); process.exit(0); }
+      let r;
+      try { r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).results; }
+      catch (e) { console.log("unreadable"); process.exit(0); }
+      if (!r || !Array.isArray(r.results) || !r.results.length || !r.stats) {
+        console.log("unreadable"); process.exit(0);
+      }
       const graderErrors = r.results
         .flatMap((x) => (x.gradingResult && x.gradingResult.componentResults) || [])
         .filter((c) => c.metadata && c.metadata.graderError).length;
-      console.log(r.stats.errors + graderErrors);' "$out_json" 2>/dev/null || echo unknown)
+      console.log((Number(r.stats.errors) || 0) + graderErrors);' "$out_json" 2>/dev/null || echo unreadable)
+    if [ "$errors" = unreadable ]; then
+      echo "[eval] ERROR: $f produced no readable report (promptfoo exit $pf_rc); harness or config error, not a skill verdict and not a provider error. Check the config path and its YAML in the promptfoo output above." >&2
+      exit 4
+    fi
     if [ "$errors" != 0 ]; then
       echo "[eval] ABORT: $base had provider or judge errors (errors=$errors); see $out_json. Not a skill verdict." >&2
       exit 3

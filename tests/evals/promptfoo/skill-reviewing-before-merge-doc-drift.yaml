@@ -5,12 +5,14 @@ description: >
   repo still carries the OLD count. The candidate loads the enriched
   change_rules.yaml; the judge grades that the reviewer flags the stale doc
   as a merge blocker, not just shrugs at green tests.
-# Candidate is gpt-5-mini (the reasoning tier), not the estate's gpt-4o-mini:
-# per the #245 candidate-by-type policy, reasoning/discovery evals use the
-# reasoning candidate. This scenario requires reasoning over supplied repo state
+# A local reasoning-tier config; the default gate runs it on the Claude pair
+# (candidate claude-haiku-4-5, judge claude-opus-5). Per the #245
+# candidate-by-type policy, reasoning/discovery evals use the reasoning
+# candidate. This scenario requires reasoning over supplied repo state
 # to flag BOTH stale-count files as merge blockers — a reasoning-heavy shape that
 # matches the sibling -repo-map / -mapping-gap configs, not the cheap
-# verdict-format tier. The judge stays gpt-5.5.
+# verdict-format tier. History: the retired OpenAI tier ran it on gpt-5-mini
+# rather than the estate's gpt-4o-mini, with the gpt-5.5 judge.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

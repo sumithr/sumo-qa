@@ -656,6 +656,158 @@ class TestRunBaselineScriptSlugValidation:
         )
 
 
+def _promptfoo_report(
+    *, successes: int, failures: int, errors: int = 0, grader_error: bool = False
+) -> dict:
+    """A crafted promptfoo `--output` JSON in the shape run_baseline.py and
+    run-eval.sh read: `results.stats` plus `results.results[]`, where a judge
+    that failed is a component result tagged `metadata.graderError`."""
+    component: dict = {"pass": not grader_error, "score": 0 if grader_error else 1}
+    if grader_error:
+        component["metadata"] = {"graderError": True}
+    return {
+        "results": {
+            "stats": {"successes": successes, "failures": failures, "errors": errors},
+            "results": [
+                {
+                    "success": not (errors or grader_error),
+                    "gradingResult": {"pass": not grader_error, "componentResults": [component]},
+                }
+            ],
+        }
+    }
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="stand-in npx/claude are sh scripts")
+class TestRunBaselineRejectsProviderErrors:
+    """A baseline is a skill verdict. A run whose report carries provider or
+    judge errors (`stats.errors > 0`, or a component result tagged
+    `metadata.graderError`, the definition run-eval.sh uses) must not be kept or
+    reported as one: the #651 failure was a quota error recorded as a
+    zero-passed baseline. It exits 3, prints neither `Snapshot captured` nor a
+    delta, and leaves every previous baseline byte-for-byte untouched,
+    including one at the same path that `--force` would overwrite.
+
+    promptfoo is replaced by a stand-in `npx` that writes the crafted report to
+    the `--output` path and exits like promptfoo (100 when a case failed); a
+    stand-in `claude` satisfies the CLI preflight. No model is called.
+    """
+
+    RUN_BASELINE = TestRunBaselineScriptSlugValidation.RUN_BASELINE
+
+    def _setup(self, tmp_path: Path, report: dict, promptfoo_exit: int) -> dict:
+        import datetime as _dt
+        import os as _os
+
+        repo = tmp_path / "repo"
+        promptfoo = repo / "tests" / "evals" / "promptfoo"
+        promptfoo.mkdir(parents=True)
+        (repo / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+        (promptfoo / "skill-real.yaml").write_text("")
+        baselines = repo / "docs" / "qa" / "runs" / "eval-baselines"
+        baselines.mkdir(parents=True)
+        older = baselines / "2020-01-01-skill-real__baseline.json"
+        older.write_text(json.dumps(_promptfoo_report(successes=4, failures=1)))
+        today = baselines / f"{_dt.date.today().isoformat()}-skill-real__baseline.json"
+        today.write_text(json.dumps(_promptfoo_report(successes=5, failures=0)))
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        report_file = tmp_path / "report.json"
+        report_file.write_text(json.dumps(report))
+        (bin_dir / "npx").write_text(
+            "#!/bin/sh\n"
+            'while [ "$#" -gt 0 ]; do\n'
+            '  if [ "$1" = --output ]; then cp "$REPORT_FILE" "$2"; fi\n'
+            "  shift\n"
+            "done\n"
+            f"exit {promptfoo_exit}\n"
+        )
+        (bin_dir / "claude").write_text("#!/bin/sh\nexit 97\n")
+        for exe in bin_dir.iterdir():
+            exe.chmod(0o755)
+
+        env = {k: v for k, v in _os.environ.items() if not k.startswith("OPENAI_")}
+        env["PATH"] = f"{bin_dir}{_os.pathsep}{env.get('PATH', '')}"
+        env["REPORT_FILE"] = str(report_file)
+        before = {p.name: p.read_bytes() for p in (older, today)}
+        return {
+            "repo": repo,
+            "baselines": baselines,
+            "older": older,
+            "today": today,
+            "before": before,
+            "env": env,
+        }
+
+    def _run(self, ctx: dict) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(self.RUN_BASELINE),
+                "--skill",
+                "real",
+                "--force",
+                "--repo-root",
+                str(ctx["repo"]),
+            ],
+            capture_output=True,
+            text=True,
+            env=ctx["env"],
+            timeout=60,
+        )
+
+    def _assert_rejected(self, ctx: dict, result: subprocess.CompletedProcess) -> None:
+        assert result.returncode == 3, (result.returncode, result.stdout, result.stderr)
+        output = result.stdout + result.stderr
+        assert "provider or judge errors" in output and "not a skill verdict" in output, output
+        assert "Snapshot captured" not in output, output
+        assert "Delta" not in output, output
+        assert "eval-failure-diagnoser" not in output, output
+        rejected = ctx["today"].with_name(ctx["today"].name + ".rejected")
+        after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir() if p != rejected}
+        assert after == ctx["before"], (
+            "a run with provider/judge errors changed the kept baselines: "
+            f"{sorted(after)} vs {sorted(ctx['before'])}"
+        )
+        # The errored report is kept aside for diagnosis under a name no baseline
+        # lookup matches (the prior-baseline glob is `*-skill-*.json`).
+        assert rejected.is_file(), sorted(p.name for p in ctx["baselines"].iterdir())
+        assert str(rejected.name) in output, output
+        assert sorted(ctx["baselines"].glob("*-skill-*.json")) == sorted(
+            [ctx["older"], ctx["today"]]
+        )
+
+    def test_stats_errors_are_not_captured(self, tmp_path: Path) -> None:
+        ctx = self._setup(
+            tmp_path, _promptfoo_report(successes=0, failures=0, errors=5), promptfoo_exit=100
+        )
+        self._assert_rejected(ctx, self._run(ctx))
+
+    def test_grader_error_is_not_captured(self, tmp_path: Path) -> None:
+        ctx = self._setup(
+            tmp_path,
+            _promptfoo_report(successes=0, failures=1, grader_error=True),
+            promptfoo_exit=100,
+        )
+        self._assert_rejected(ctx, self._run(ctx))
+
+    def test_clean_run_is_still_captured(self, tmp_path: Path) -> None:
+        report = _promptfoo_report(successes=3, failures=2)
+        ctx = self._setup(tmp_path, report, promptfoo_exit=100)
+        result = self._run(ctx)
+        assert result.returncode == 100, (result.returncode, result.stdout, result.stderr)
+        assert "Snapshot captured" in result.stdout, result.stdout
+        assert "3 passed, 2 failed" in result.stdout, result.stdout
+        assert "Prior baseline: 2020-01-01-skill-real__baseline.json" in result.stdout
+        assert "Delta: passed -1, failed +1" in result.stdout, result.stdout
+        assert json.loads(ctx["today"].read_text()) == report
+        assert ctx["older"].is_file()
+        assert sorted(p.name for p in ctx["baselines"].iterdir()) == sorted(
+            [ctx["older"].name, ctx["today"].name]
+        )
+
+
 def _import_run_baseline() -> ModuleType:
     """Import run_baseline.py as a module to exercise its resolution helpers
     directly (the dash-containing path defeats a plain import)."""
