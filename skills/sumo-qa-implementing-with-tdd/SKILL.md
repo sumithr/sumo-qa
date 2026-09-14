@@ -50,10 +50,10 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim.
 
-7. **Hand off to the user** — end with EXACTLY one of these two phrasings (no pleasantries, no confirmation question, no "shall I"):
-   - if you've shown the actual red assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
-   - if no real red output yet: "I'll run this and surface the assertion failure next."
-   Wait.
+7. **Hand off to the user, then stop** — the LAST line of your reply is EXACTLY one of these two phrasings, with nothing after it (no pleasantries, no confirmation question, no "shall I"):
+   - if step 6 really ran the test and you pasted its assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
+   - otherwise: "I'll run this and surface the assertion failure next."
+   Red output you did not run is a guess, not evidence: with no real run (no command tool, or not run yet), write no red-output block; use the second phrasing. Waiting for the user is an action, not text.
 
 8. **Re-run after green-making change** — confirm it passes for the right reason (not a weakened assertion). If it fails, surface the new failure — don't try a second production change without the user.
 
