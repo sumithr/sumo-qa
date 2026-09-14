@@ -1,3 +1,30 @@
+# Discrimination on the Claude pair (issue #688; candidate claude-haiku-4-5,
+# judge claude-opus-5).
+#
+# The three original seeds (VIP promo boundary, youth discount boundary, identity
+# multiplication equivalent) do NOT discriminate on this pair: the #679 run scored
+# A0 3/3, A1 3/3, B 3/3. They cannot, by construction. Every decision the skill
+# teaches for them is already in the A0 leg: the shared prompt states config-side
+# suppression, no tautological test, production unchanged and no confirmation
+# question, and each seed's "Prior turns recap" hands over the real-or-equivalent
+# verdict, the technique name and the missing boundary input. A0 is left with only
+# the mechanics (pick the boundary value, get the assertion polarity right), which
+# the Claude candidate does unaided. They stay as regression guards for B, not as
+# lift evidence.
+#
+# The production-defect seed is the discriminating case. It targets the skill's
+# HARD-GATE, the one taught behaviour absent from both the shared prompt and the
+# recaps: when a mutant survives because the production code is wrong (here the
+# acceptance criterion quoted in the test file matches the MUTANT, not the
+# original), stop the strengthening flow and hand the defect to a separate
+# regression-first fix instead of writing a strengthening test that pins the bug.
+# Its recap does not pre-decide the verdict.
+#
+# Measured 2026-09-14, this seed only, one pass per leg. Before the #688 skill fix
+# all three legs FAILED: A0 and B pinned the bug (`toBe(false)` at 5000), A1
+# delivered a red `toBe(true)` test. That was a skill gap (the HARD-GATE existed
+# but triage had no way to detect it), fixed in the SKILL.md with a third triage
+# outcome, not in this rubric. After the fix: A0 FAIL, A1 FAIL, B PASS (0.88).
 disableVarExpansion: true
 description: 'A/B/C value-measurement for sumo-qa-strengthening-tests'
 providers:
@@ -79,7 +106,10 @@ defaultTest:
          Real mutants should produce a strengthening test artefact anchored to
          the discriminating input. Equivalent mutants should be suppressed in
          the supplied tool config with a rationale, and should not produce test
-         code.
+         code. A mutant that survives because the original production code is
+         wrong (the supplied specification matches the mutant, not the original)
+         should stop the strengthening flow: no strengthening test for it, and
+         the defect handed to a separate regression-first fix.
 
       B. GROUNDING - the response must visibly use the supplied mutant
          description, current test code, and surrounding production code. For a
@@ -87,8 +117,11 @@ defaultTest:
          value that distinguishes the original from the mutant. For an
          equivalent mutant, the response must explain why no observable test can
          distinguish the original from the mutant and must use the supplied
-         config-side suppression surface. Named techniques for real mutants
-         must appear in the loaded techniques catalogue.
+         config-side suppression surface. For a production-defect survivor, the
+         response must cite the supplied specification and the exact input
+         where the original code and the specification disagree. Named
+         techniques for real mutants must appear in the loaded techniques
+         catalogue.
 
       C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
          ABSENT or PRESENT. PRESENT = the response actually exhibits it.
@@ -456,5 +489,67 @@ tests:
         ```ts
         export function identityMultiplier(x: number): number {
           return x * 1;
+        }
+        ```
+  - description: SEED - boundary survivor exposing a production defect
+    vars:
+      user_prompt: >-
+        This surviving mutant is M9; propose the strengthening test.
+      expected_shape: >-
+        Production-defect stop, not a strengthening test. The response
+        identifies M9 as `basket.totalPence > 5000` mutated to
+        `basket.totalPence >= 5000` and recognises, from the SHIP-218
+        acceptance criterion quoted in the test file (delivery is free when the
+        basket total is £50.00 or more), that the ORIGINAL code is wrong at
+        exactly 5000 pence and the mutant matches the specification: M9
+        survives because the production code is wrong, not because an
+        assertion is missing. It does not deliver a strengthening test for M9.
+        It stops this strengthening flow and hands the off-by-one defect to a
+        separate regression-first fix (reproduce the defect as a failing test
+        at 5000 pence, then fix production), and states that production code
+        stays unchanged in this flow.
+      anti_patterns:
+        - Modifies or proposes modifying production code within this strengthening flow.
+        - Writes a test expecting `false` at 5000 pence, pinning the current off-by-one behaviour against the SHIP-218 acceptance criterion.
+        - Treats M9 as an ordinary assertion gap or as an equivalent mutant without flagging that the original code contradicts the acceptance criterion.
+        - Delivers a test expecting `true` at 5000 pence as the M9 strengthening test to add in this flow (it fails against the unchanged production code and turns the suite red) instead of handing the defect to a separate regression-first fix.
+        - Suppresses M9 as equivalent.
+      surviving_mutant_description: |
+        ## Prior turns recap
+        Prior turns (NOT shown above): you have identified M9 and read the
+        production and test files. This is the FINAL TURN - give your proposal
+        for M9 and close without a confirmation question.
+
+        ## Mutation report excerpt
+        M9 survived in `src/shipping/free_delivery.ts`.
+        Mutation: conditional boundary changed from `basket.totalPence > 5000`
+        to `basket.totalPence >= 5000`.
+
+        Existing tests hit 4999 and 7500 pence, but no test exercises exactly
+        5000 pence.
+      current_test_code: |
+        ## Existing test style
+        `tests/shipping/free_delivery.test.ts`
+
+        ```ts
+        // SHIP-218 acceptance criterion: "Standard delivery is free when the
+        // basket total is £50.00 or more."
+        import { expect, it } from "vitest";
+
+        it("charges for delivery on a basket just under £50.00", () => {
+          expect(qualifiesForFreeDelivery(basket({ totalPence: 4999 }))).toBe(false);
+        });
+
+        it("gives free delivery on a large basket", () => {
+          expect(qualifiesForFreeDelivery(basket({ totalPence: 7500 }))).toBe(true);
+        });
+        ```
+      surrounding_production_code: |
+        ## Production code (read-only)
+        `src/shipping/free_delivery.ts`
+
+        ```ts
+        export function qualifiesForFreeDelivery(basket: Basket): boolean {
+          return basket.totalPence > 5000;
         }
         ```

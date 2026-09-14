@@ -864,4 +864,26 @@ renders.
 
 ## A/B value-measurement (experimental)
 
-This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the full SKILL.md. The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` files exist for `deciding-approach`, `reviewing-before-merge`, and the `reviewing-before-merge-adversarial` discovery corpus (issue #236, see above); it is not rolled across the whole estate.
+This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the full SKILL.md. The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` controls exist for a subset of skills and corpora (`ls tests/evals/promptfoo/*.ab.yaml`); the pattern is not rolled across the whole estate.
+
+A control only measures lift if A0 cannot pass on material the prompt already hands it. When the shared prompt or a seed's recap spells out the decisions the skill teaches, A0 passes by construction and the control does not discriminate. Document that in the config header, or add a seed that targets a taught behaviour A0 is not given.
+
+### `skill-strengthening-tests.ab.yaml` on the Claude pair (issue #688)
+
+The three original seeds (VIP promo boundary, youth discount boundary, identity multiplication equivalent) do **not** discriminate on the Claude pair: the #679 run scored A0 3/3, A1 3/3, B 3/3. The shared prompt already states config-side suppression, no tautological test, production unchanged and no confirmation question. Each seed's "Prior turns recap" also hands over the real-or-equivalent verdict, the technique name and the missing boundary input. A0 is left with only the mechanics, which `claude-haiku-4-5` does unaided. Those seeds stay as regression guards for B, not as lift evidence.
+
+The **production-defect seed** (`SEED - boundary survivor exposing a production defect`) is the discriminating case. It targets the skill's HARD-GATE: the test file quotes an acceptance criterion ("free when the basket total is £50.00 or more") that matches the mutant `>= 5000`, not the original `> 5000`. The right move is no strengthening test and a hand-off to a separate regression-first fix. Pinning the current behaviour would lock in the bug. The recap does not pre-decide the verdict. Measured 2026-09-14, this seed only, one pass per leg:
+
+| Leg | Before the SKILL.md fix | After |
+|---|---|---|
+| A0 (no skill) | FAIL: test expects `false` at 5000, pinning the bug | FAIL: same |
+| A1 (catalogues) | FAIL: delivers a red `true`-at-5000 test as the strengthening test | FAIL: same |
+| B (full skill) | FAIL: test expects `false` at 5000 | PASS (0.88): stops, cites the criterion, routes to regression-first |
+
+The before-fix B failure was a skill gap, not a rubric problem. The HARD-GATE existed, but triage only sorted survivors into equivalent or real, so nothing prompted a check against a stated spec. The fix adds a third triage outcome to the SKILL.md (a spec that matches the mutant means a production defect: write no test, apply the HARD-GATE). No rubric clause was loosened. Rerun just this seed with the filtered command:
+
+```bash
+cd tests/evals/promptfoo
+SUMO_EVAL_DRY_RUN=1 bash run-eval.sh skill-strengthening-tests.ab.yaml   # prints the resolved command
+# append --filter-pattern 'production defect' to that command and run it from this directory
+```

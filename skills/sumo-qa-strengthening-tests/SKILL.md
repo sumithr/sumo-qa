@@ -40,11 +40,11 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 2. **Read prod + test files** *(no user question, READ-ONLY on prod)* — read the production file (do NOT edit it) and the matching test file. Note the existing test style (framework, fixtures, parameterise vs separate tests).
 
-3. **Triage the survivor list** *(no user question)* — for each surviving mutant, classify provisionally: (a) likely **tautological / equivalent** (e.g. `i++` → `i--` where only the final value is observable and already asserted); (b) likely **real** (assertion gap is meaningful — e.g. boundary mutated from `>` to `>=` and no test exercises the boundary). User gates the call in step 5.
+3. **Triage the survivor list** *(no user question)* — for each surviving mutant, classify provisionally: (a) likely **tautological / equivalent** (e.g. `i++` → `i--` where only the final value is observable and already asserted); (b) likely **real** (assertion gap is meaningful — e.g. boundary mutated from `>` to `>=` and no test exercises the boundary); (c) likely **production defect**: a stated spec (acceptance criterion, ticket, docstring, test comment) matches the MUTANT, not the original. A killing test would pin the bug, so write none: HARD-GATE. User gates the call in step 5.
 
 4. **Confirm target + report scope, only for the AMBIGUOUS parts** — present what you found (target file, test file, survivor count, provisional split — or, on the named-target path, the weak assertions the user named). Then ONE focused question for what wasn't clear. If unambiguous, move to step 5 — or straight to step 7 on the named-target path (no survivors for the 5–6 triage).
 
-5. **Walk one mutant at a time — confirm tautology vs real** — for each survivor, present line + mutation + your call + rationale, then ask: *"Agree, or is this equivalent given how it's constructed upstream?"* Wait for confirmation. Equivalent → step 6; real → step 7.
+5. **Walk one mutant at a time — confirm tautology vs real** — for each survivor, present line + mutation + your call + rationale, then ask: *"Agree, or is this equivalent given how it's constructed upstream?"* Wait for confirmation. Equivalent → step 6; real → step 7; production defect → HARD-GATE.
 
 6. **Suppress equivalent mutants — config-side if the tool supports it, otherwise source annotation** — preferred: a tool config exclusion (e.g. `pitest.xml` `<excludedMutations>`, Stryker `mutate` exclusions). When the tool has no per-mutant config mechanism (mutmut 3.x, for example — only line-level `# pragma: no mutate` is supported), an inline source annotation is acceptable: it's tooling metadata, not a behaviour change, and the Iron Law's intent (don't reshape production behaviour to make testing easier) is preserved. Each annotation MUST be paired with a one-line rationale comment naming the mutant ID and why the mutation is observably equivalent. Anything else fails review.
   - M21  # x * 1 == x for all numeric inputs
@@ -73,16 +73,15 @@ Production code stays unchanged throughout this skill, and the final report must
 | "Coverage went from 85% to 92% — done" | Line coverage isn't assertion strength. The right measure is "did the mutation survivor count drop?" |
 | "I'll add property-based testing for everything" | Pick from the catalogue based on the actual mutant. Property-based fits invariants, not all mutants. |
 | "I'll process all 8 survivors in one message to save turns" | Blind single-shot dump. Per-CLASS batching is acceptable when mutants share the same mechanism (e.g. 4 boundary-shift mutants on the same function → one decision, one test class); walk class-by-class, not mutant-by-mutant in that case. But one message with ALL survivors of different mechanisms = Iron Law violated — the user's correction on M3 may change how you classify M4. |
-| "I'll ask the user which test framework / fixture style" | Read the test file. The repo answers that. |
 | "Equivalent mutants: suppress all of them silently" | Each suppression needs a one-line rationale in the config (or as a comment next to the source annotation). Otherwise the next reviewer can't tell whether you suppressed a real one. |
 | "I'll add `# pragma: no mutate` because writing tests is harder" | Wrong direction. Source annotations are for genuinely equivalent mutants only — those where no observable behaviour distinguishes mutant from original. If you can articulate a test that would kill it, it's not equivalent. |
-| "No report was pasted, so there's nothing to work from" | Look for the repo's own mutation report (any tool's format) and read it; only when none exists do you say "not available" and ask for a report or the specific weak assertions to target — never INVENT survivors (a coverage report alone has no survivors). Reading a SAVED report is not the live-run hook/router's job — don't duplicate it or re-run the tool to generate the report (step 9's verification re-run is separate). |
+| "No report was pasted, so there's nothing to work from" | Look for the repo's own mutation report (any tool's format) and read it; only when none exists do you say "not available" and ask for a report or the specific weak assertions to target — never INVENT survivors (a coverage report alone has no survivors). Step 1 covers the live-run hook split. |
 
 ## Examples
 
 ### Good (boundary mutant killed by assertion polarity)
 
-Survivor: `subtotal > 10000` mutated to `subtotal >= 10000`. Applying **boundary value analysis**: pick input that exposes the boundary — `subtotal = 10000`. Original evaluates `10000 > 10000` → FALSE. Mutant evaluates `10000 >= 10000` → TRUE. Strengthening test must assert FALSE at this input (`expect(qualifies(...)).toBe(false)`), because then the original passes and the mutant fails. Asserting TRUE would have the inverse effect — pass on mutant, fail on original — meaning the mutant survives.
+Survivor (no spec sides with the mutant): `subtotal > 10000` mutated to `subtotal >= 10000`. Applying **boundary value analysis**: pick input that exposes the boundary — `subtotal = 10000`. Original evaluates `10000 > 10000` → FALSE. Mutant evaluates `10000 >= 10000` → TRUE. Strengthening test must assert FALSE at this input (`expect(qualifies(...)).toBe(false)`), because then the original passes and the mutant fails. Asserting TRUE would have the inverse effect — pass on mutant, fail on original — meaning the mutant survives.
 
 ### Good (explore first, walk one mutant at a time)
 
