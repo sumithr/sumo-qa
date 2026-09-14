@@ -21,7 +21,9 @@ baseline, including one ``--force`` would overwrite, stays untouched.
 A report with no verdict in it (no ``results.stats``, or an empty
 ``results.results``: no test case ran) is a harness or config error, the shape
 run-eval.sh exits 4 on. It is moved aside to the same ``.rejected`` path, never
-promoted, and the script exits 4. A Ctrl-C during the run removes the
+promoted, and the script exits 4. A run that wrote no report, or a report
+that is not JSON, is the same harness or config error and also exits 4, not
+promptfoo's raw status. A Ctrl-C during the run removes the
 ``.partial`` file before the interrupt propagates.
 
 The slug and label are separated by a literal ``__`` (double underscore).
@@ -386,13 +388,19 @@ def capture_report(
     """
     result = subprocess.run(cmd, cwd=repo_root)
 
+    # No report, or one that is not JSON: promptfoo stopped before grading anything.
+    # That is the harness or config error run-eval.sh exits 4 on, so return 4 rather
+    # than promptfoo's raw status (100 is also what an ordinary rubric failure
+    # returns); the raw status stays in the message for diagnosis.
     if not partial_path.is_file():
         print(
             f"\npromptfoo exited with code {result.returncode} and wrote no report at "
-            f"{partial_path}. It failed before producing output; nothing was captured.",
+            f"{partial_path}: a harness or config error, not a skill verdict. It failed "
+            "before producing output; nothing was captured. Check the config and its "
+            "YAML in the promptfoo output above, then re-run.",
             file=sys.stderr,
         )
-        return result.returncode or 1, result.returncode
+        return EXIT_HARNESS_ERROR, result.returncode
 
     try:
         report = json.loads(partial_path.read_text(encoding="utf-8"))
@@ -400,10 +408,11 @@ def capture_report(
         partial_path.unlink(missing_ok=True)
         print(
             f"\npromptfoo exited with code {result.returncode} and its report was not "
-            f"readable ({exc}); nothing was captured.",
+            f"readable ({exc}): a harness or config error, not a skill verdict. Nothing "
+            "was captured. Check the promptfoo output above, then re-run.",
             file=sys.stderr,
         )
-        return result.returncode or 1, result.returncode
+        return EXIT_HARNESS_ERROR, result.returncode
 
     if not report_is_complete(report):
         partial_path.replace(rejected_path)

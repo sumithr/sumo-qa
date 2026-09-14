@@ -869,6 +869,54 @@ class TestRunBaselineRejectsIncompleteReports:
         )
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="stand-in npx/claude are sh scripts")
+class TestRunBaselineMissingOrUnreadableReport:
+    """promptfoo can stop before writing any report (a malformed YAML, a missing
+    included file) or leave a report that is not JSON. Neither holds a verdict:
+    both are the harness or config error run-eval.sh exits 4 on (`[eval] ERROR:
+    ... produced no readable report`). run_baseline.py must exit 4 too, not
+    promptfoo's raw status (1, or 100, the same code an ordinary rubric failure
+    returns), so a caller can tell the two apart. The raw status stays in the
+    message for diagnosis. Nothing is captured and every earlier baseline is
+    byte-for-byte untouched.
+
+    Same stand-in `npx` / `claude` harness as the provider-error tests, with the
+    stand-in's report file removed (no report) or replaced by non-JSON text; no
+    model is called.
+    """
+
+    RUN_BASELINE = TestRunBaselineRejectsProviderErrors.RUN_BASELINE
+    _SETUP = TestRunBaselineRejectsProviderErrors._setup
+    _RUN = TestRunBaselineRejectsProviderErrors._run
+
+    def _assert_harness_error(self, ctx: dict, promptfoo_exit: int) -> None:
+        result = self._RUN(ctx)
+        assert result.returncode == 4, (result.returncode, result.stdout, result.stderr)
+        output = result.stdout + result.stderr
+        assert f"promptfoo exited with code {promptfoo_exit}" in output, output
+        assert "harness or config error" in output, output
+        assert "not a skill verdict" in output, output
+        assert "provider or judge errors" not in output, output
+        assert "Snapshot captured" not in output and "Delta" not in output, output
+        assert "eval-failure-diagnoser" not in output, output
+        after = {p.name: p.read_bytes() for p in ctx["baselines"].iterdir()}
+        assert after == ctx["before"], (sorted(after), sorted(ctx["before"]))
+
+    @pytest.mark.parametrize("promptfoo_exit", [1, 100])
+    def test_no_report_exits_harness_error(self, tmp_path: Path, promptfoo_exit: int) -> None:
+        ctx = self._SETUP(tmp_path, {}, promptfoo_exit=promptfoo_exit)  # type: ignore[arg-type]
+        (tmp_path / "report.json").unlink()
+        self._assert_harness_error(ctx, promptfoo_exit)
+
+    @pytest.mark.parametrize("promptfoo_exit", [0, 100])
+    def test_unreadable_report_exits_harness_error(
+        self, tmp_path: Path, promptfoo_exit: int
+    ) -> None:
+        ctx = self._SETUP(tmp_path, {}, promptfoo_exit=promptfoo_exit)  # type: ignore[arg-type]
+        (tmp_path / "report.json").write_text('{"results": {"stats": {"succ')
+        self._assert_harness_error(ctx, promptfoo_exit)
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="stand-in claude is an sh script")
 class TestRunBaselineInterruptCleansPartial:
     """Ctrl-C during the promptfoo run must not leave `<snapshot>.partial`
