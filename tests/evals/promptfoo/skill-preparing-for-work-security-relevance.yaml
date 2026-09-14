@@ -144,6 +144,10 @@ defaultTest:
 
       {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C/D then verdict>"}
 prompts:
+  # #684: the prompt's risk count was "3-7", contradicting the skill and this
+  # config's own expected_shape (3-5). Only the count changed, to match that
+  # existing rubric; no expectation was removed. The comment sits outside the
+  # block scalar so it does not reach the candidate.
   - |
     You are a senior QA agent in an IDE chat session. You have loaded this
     sumo-qa skill and MUST follow its discipline exactly as written:
@@ -173,7 +177,7 @@ prompts:
 
     > {{user_prompt}}
 
-    This is the QA-prep turn. Name 3-7 risks, each anchored to a specific line
+    This is the QA-prep turn. Name 3-5 risks, each anchored to a specific line
     or behaviour in the supplied context, each tied to a concrete test idea and
     a technique named verbatim from the loaded techniques catalogue. Do NOT
     surface internal taxonomy labels - describe the change in plain risk
