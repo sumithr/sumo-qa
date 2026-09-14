@@ -38,10 +38,15 @@ BASE_FLAGS = [
 
 TIMEOUT_SECONDS = 600
 _EXCERPT = 400
+# How the CLI words a usage-limit stop. Checked even inside a success envelope,
+# so the message can never be graded as the candidate's answer.
+_USAGE_LIMIT_PREFIX = "Claude AI usage limit reached"
 
 
 def call_api(prompt, options=None, context=None):
     config = (options or {}).get("config") or {}
+    if not config.get("model"):
+        return {"error": "provider config has no model"}
     argv = ["claude", *BASE_FLAGS, "--model", config["model"]]
     # Without a system prompt Claude Code's default agent prompt applies: the
     # candidate narrates tool use it cannot perform and the rubrics fail it.
@@ -78,13 +83,18 @@ def call_api(prompt, options=None, context=None):
         return {"error": f"claude call failed (exit {done.returncode}): {done.stdout[:_EXCERPT]}"}
     if not isinstance(result, str) or not result.strip():
         return {"error": f"claude reported success but returned no answer: {result!r}"}
+    if result.lstrip().startswith(_USAGE_LIMIT_PREFIX):
+        return {"error": f"claude usage limit: {result[:_EXCERPT]}"}
 
-    usage = envelope.get("usage") or {}
+    # Accounting is best effort: a malformed usage field must not throw away an answer.
+    usage = envelope.get("usage")
+    if not isinstance(usage, dict):
+        usage = {}
     prompt_tokens = sum(
-        int(usage.get(key) or 0)
+        _number(usage.get(key))
         for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
     )
-    completion_tokens = int(usage.get("output_tokens") or 0)
+    completion_tokens = _number(usage.get("output_tokens"))
     return {
         "output": result,
         "tokenUsage": {
@@ -93,5 +103,12 @@ def call_api(prompt, options=None, context=None):
             "total": prompt_tokens + completion_tokens,
         },
         # List-price notional cost from the CLI; nothing is invoiced.
-        "cost": float(envelope.get("total_cost_usd") or 0.0),
+        "cost": float(_number(envelope.get("total_cost_usd"), float)),
     }
+
+
+def _number(value, kind=int):
+    """A usage figure, or 0 when the CLI sent something that is not a number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return kind(0)
+    return kind(value)

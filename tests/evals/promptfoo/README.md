@@ -441,8 +441,10 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   Without the system prompt Claude Code's agent prompt applies and the candidate
   narrates tool use it cannot perform, so rubrics fail it.
 - Any call that is not a successful answer (usage limit, quota, non-zero exit, empty
-  answer) is a promptfoo **error**, never graded output. `run-eval.sh` stops at the
-  first config with an error and exits 3: an error is not a skill verdict (#651).
+  answer) is a promptfoo **error**, never graded output. A judge call that fails, or
+  returns no parseable verdict, is recorded by promptfoo as a failed assertion tagged
+  `graderError`; `run-eval.sh` counts both, stops at the first config that has either,
+  and exits 3: neither is a skill verdict (#651).
 - Usage is subscription usage. The `cost` in reports is the CLI's list-price figure,
   notional, not an invoice. A full single pass over all 61 configs (2026-09-14,
   `claude-haiku-4-5` candidate, `claude-opus-5` judge) used ~3.6M tokens, $12.30 at

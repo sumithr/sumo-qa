@@ -94,6 +94,11 @@ def test_a_successful_call_returns_the_answer_with_all_prompt_tokens_counted(mon
         ),
         pytest.param(json.dumps(SUCCESS), 1, id="success-envelope-with-nonzero-exit"),
         pytest.param(json.dumps({**SUCCESS, "result": "  "}), 0, id="success-without-answer"),
+        pytest.param(
+            json.dumps({**SUCCESS, "result": "Claude AI usage limit reached|1789400000"}),
+            0,
+            id="usage-limit-text-in-a-success-envelope",
+        ),
         pytest.param("not json", 1, id="unparseable-output"),
         pytest.param("[]", 0, id="json-but-not-an-envelope"),
     ],
@@ -118,3 +123,27 @@ def test_a_cli_that_cannot_run_is_an_error(monkeypatch, exc):
     monkeypatch.setattr(provider.subprocess, "run", run)
 
     assert set(provider.call_api("the prompt", OPTIONS)) == {"error"}
+
+
+def test_a_config_without_a_model_is_an_error(monkeypatch):
+    _fake_cli(monkeypatch, json.dumps(SUCCESS))
+
+    assert set(provider.call_api("the prompt", {"config": {}})) == {"error"}
+
+
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        {**SUCCESS, "usage": "not a dict"},
+        {**SUCCESS, "usage": {"input_tokens": "lots", "output_tokens": None}},
+        {**SUCCESS, "total_cost_usd": "free"},
+    ],
+    ids=["usage-not-a-dict", "non-numeric-tokens", "non-numeric-cost"],
+)
+def test_malformed_accounting_keeps_the_answer(monkeypatch, envelope):
+    _fake_cli(monkeypatch, json.dumps(envelope))
+
+    response = provider.call_api("the prompt", OPTIONS)
+
+    assert response["output"] == "the answer"
+    assert isinstance(response["cost"], float)

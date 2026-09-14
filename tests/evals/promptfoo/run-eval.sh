@@ -131,11 +131,19 @@ if [ "$BACKEND" = "claude" ]; then
         --providers "file://$EVAL_DIR/providers/claude-candidate.yaml" \
         --grader "file://$EVAL_DIR/providers/claude-judge.yaml" \
         --repeat "$REPEAT" -j "$CONCURRENCY" --output "$out_json" ) || rc=1
-    # A provider error (usage limit, quota, CLI failure) stops the run: carrying on would
-    # spend more usage and produce results that read as skill failures (#651).
-    errors=$(node -e 'const r=require(process.argv[1]); console.log(r.results.stats.errors)' "$out_json" 2>/dev/null || echo unknown)
+    # A provider error (usage limit, quota, CLI failure) stops the run: an error is not a
+    # skill verdict, and reporting it as one is the #651 failure. promptfoo
+    # counts a candidate-side error in stats.errors, but a JUDGE that fails or returns no
+    # parseable verdict becomes a failed assertion tagged metadata.graderError, so count
+    # those too.
+    errors=$(node -e '
+      const r = require(process.argv[1]).results;
+      const graderErrors = r.results
+        .flatMap((x) => (x.gradingResult && x.gradingResult.componentResults) || [])
+        .filter((c) => c.metadata && c.metadata.graderError).length;
+      console.log(r.stats.errors + graderErrors);' "$out_json" 2>/dev/null || echo unknown)
     if [ "$errors" != 0 ]; then
-      echo "[eval] ABORT: $base errored (errors=$errors); see $out_json. Not a skill verdict." >&2
+      echo "[eval] ABORT: $base had provider or judge errors (errors=$errors); see $out_json. Not a skill verdict." >&2
       exit 3
     fi
   done
