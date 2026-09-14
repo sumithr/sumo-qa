@@ -47,8 +47,23 @@
 #     unchanged". Fixed by giving the neither-format line the shared last line and
 #     spelling out the hand-off in step 3(c) (a failing test at the input where
 #     spec and code disagree first, then the production fix).
-#   Final: A0 FAIL (0.00), A1 FAIL (0.05), B PASS (0.80). No output surfaced
-#     HARD-GATE in either run.
+#   Second review fix: A0 FAIL (0.00), A1 FAIL (0.05), B PASS (0.80). No output
+#     surfaced HARD-GATE in either run.
+#
+# True-negative seed for the guard (review round 2). Step 3(c) only fires on a
+# CURRENT spec, so the production-defect seed's context now carries a ticket
+# status confirming SHIP-218 is current (it does not say the code is wrong), and
+# `SEED - boundary survivor with an obsolete spec comment` tests the other
+# direction: the same boundary and the same SHIP-218 comment ("£50.00 or more"),
+# but the ticket status shows SHIP-218 superseded by SHIP-341 ("more than
+# £50.00"). The right answer is an ordinary strengthening test expecting `false`
+# at 5000 pence, with no production-defect hand-off. A0 and A1 may pass it (the
+# ordinary answer is what they already give); it gates B against over-firing.
+# Run 2026-09-14, both seeds, one pass per leg, neutral prompt:
+#   production defect (with ticket status): A0 FAIL (0.10), A1 FAIL (0.05),
+#     B PASS (0.88)
+#   obsolete spec comment: A0 PASS (0.85), A1 PASS (0.90), B PASS (0.88)
+#   No output surfaced HARD-GATE.
 disableVarExpansion: true
 description: 'A/B/C value-measurement for sumo-qa-strengthening-tests'
 providers:
@@ -536,7 +551,8 @@ tests:
         identifies M9 as `basket.totalPence > 5000` mutated to
         `basket.totalPence >= 5000` and recognises, from the SHIP-218
         acceptance criterion quoted in the test file (delivery is free when the
-        basket total is £50.00 or more), that the ORIGINAL code is wrong at
+        basket total is £50.00 or more, confirmed current by the supplied
+        ticket status), that the ORIGINAL code is wrong at
         exactly 5000 pence and the mutant matches the specification: M9
         survives because the production code is wrong, not because an
         assertion is missing. It does not deliver a strengthening test for M9.
@@ -564,6 +580,83 @@ tests:
 
         Existing tests hit 4999 and 7500 pence, but no test exercises exactly
         5000 pence.
+
+        ## Ticket status
+        SHIP-218 (standard delivery threshold): status Accepted, confirmed by
+        the product owner, last updated this sprint. It is the current
+        acceptance criterion for free delivery.
+      current_test_code: |
+        ## Existing test style
+        `tests/shipping/free_delivery.test.ts`
+
+        ```ts
+        // SHIP-218 acceptance criterion: "Standard delivery is free when the
+        // basket total is £50.00 or more."
+        import { expect, it } from "vitest";
+
+        it("charges for delivery on a basket just under £50.00", () => {
+          expect(qualifiesForFreeDelivery(basket({ totalPence: 4999 }))).toBe(false);
+        });
+
+        it("gives free delivery on a large basket", () => {
+          expect(qualifiesForFreeDelivery(basket({ totalPence: 7500 }))).toBe(true);
+        });
+        ```
+      surrounding_production_code: |
+        ## Production code (read-only)
+        `src/shipping/free_delivery.ts`
+
+        ```ts
+        export function qualifiesForFreeDelivery(basket: Basket): boolean {
+          return basket.totalPence > 5000;
+        }
+        ```
+  - description: SEED - boundary survivor with an obsolete spec comment
+    vars:
+      user_prompt: >-
+        This surviving mutant is M10; propose the strengthening test.
+      expected_shape: >-
+        Ordinary real-mutant strengthening proposal, not a production-defect
+        stop. The response identifies M10 as `basket.totalPence > 5000`
+        mutated to `basket.totalPence >= 5000`. The SHIP-218 comment in the
+        test file ("£50.00 or more") is obsolete: the supplied ticket status
+        shows it was superseded by SHIP-341, the current criterion (free when
+        the basket total is more than £50.00), which the original `> 5000`
+        implements. So M10 is a real assertion gap. The response applies the
+        verbatim catalogue heading boundary value analysis, names
+        `tests/shipping/free_delivery.test.ts` as the target test file, and
+        delivers a Vitest-style test that pins exactly 5000 pence and expects
+        `false` (the original passes, the mutant fails). It explicitly states
+        production code stays unchanged. It may note that the old comment is
+        stale, but it does not hand M10 to a production-defect or
+        regression-first fix.
+      anti_patterns:
+        - Modifies or proposes modifying production code.
+        - Treats the obsolete SHIP-218 comment as the current specification and routes M10 to a production-defect or regression-first fix.
+        - Writes no strengthening test for M10.
+        - Writes a test expecting `true` at 5000 pence, asserting the mutated behaviour.
+        - Uses 4999, 5001 or any input other than exactly 5000 pence as the discriminating value.
+        - Suppresses M10 as equivalent.
+        - Fails to name boundary value analysis as the applied technique.
+      surviving_mutant_description: |
+        ## Prior turns recap
+        Prior turns (NOT shown above): you have identified M10 and read the
+        production and test files. This is the FINAL TURN - give your proposal
+        for M10 and close without a confirmation question.
+
+        ## Mutation report excerpt
+        M10 survived in `src/shipping/free_delivery.ts`.
+        Mutation: conditional boundary changed from `basket.totalPence > 5000`
+        to `basket.totalPence >= 5000`.
+
+        Existing tests hit 4999 and 7500 pence, but no test exercises exactly
+        5000 pence.
+
+        ## Ticket status
+        SHIP-218 (standard delivery threshold): status Superseded by SHIP-341.
+        SHIP-341 (standard delivery threshold): status Accepted, confirmed by
+        the product owner, last updated this sprint. Acceptance criterion:
+        "Standard delivery is free when the basket total is more than £50.00."
       current_test_code: |
         ## Existing test style
         `tests/shipping/free_delivery.test.ts`
