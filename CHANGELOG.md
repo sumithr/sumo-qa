@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.62.0](https://github.com/sumithr/sumo-qa/compare/v0.61.2...v0.62.0) (2026-09-14)
+
+
+### Features
+
+* **evals:** run the promptfoo matrix on the Claude subscription ([#679](https://github.com/sumithr/sumo-qa/issues/679)) ([3705382](https://github.com/sumithr/sumo-qa/commit/3705382769179fce0ec128717265b6b94f85808e))
+
 ## [0.61.2](https://github.com/sumithr/sumo-qa/compare/v0.61.1...v0.61.2) (2026-09-09)
 
 
