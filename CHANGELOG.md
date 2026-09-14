@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.0](https://github.com/sumithr/sumo-qa/compare/v0.62.0...v0.63.0) (2026-09-14)
+
+
+### Features
+
+* **evals:** show the judge every catalogue the candidate was given ([#691](https://github.com/sumithr/sumo-qa/issues/691)) ([51f724c](https://github.com/sumithr/sumo-qa/commit/51f724cf8da83b03e868c597b7083a20ea66e265))
+
 ## [0.62.0](https://github.com/sumithr/sumo-qa/compare/v0.61.2...v0.62.0) (2026-09-14)
 
 
