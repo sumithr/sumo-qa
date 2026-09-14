@@ -687,7 +687,7 @@ For skills where each scenario has a per-scenario ground-truth context
 1. `skill_content: file://...` in `defaultTest.vars`
 2. ONE seed test inline (with `vars.ground_truth_context`)
 3. Skill-level rubric in `defaultTest.vars` (`expected_shape`, `anti_patterns`, `technique_tag`)
-4. Decision-table rubric prompt in `defaultTest.options.rubricPrompt`
+4. Decision-table rubric prompt in `defaultTest.options.rubricPrompt`. It passes `{{ground_truth_context}}` to the judge in a `SUPPLIED CONTEXT` block, because the GROUNDING axis grades against that evidence and the judge cannot check it otherwise
 5. Candidate wrapper prompt in `prompts:`
 6. A shared `javascript` grounding assertion (`value: file://asserts/cites-catalogue-technique.js`) that passes when the candidate cites a technique name drawn from `knowledge/techniques.md`'s `###` headings; the accepted set is derived from the catalogue, never a hardcoded allowlist (issue #350)
 
