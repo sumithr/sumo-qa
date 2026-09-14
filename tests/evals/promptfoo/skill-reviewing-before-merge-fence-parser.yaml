@@ -14,12 +14,10 @@ description: >
   wrapping a 3-tick block; a ≥4-space-indented fence-looking line; `~~~` vs
   backtick; an unclosed fence at EOF; a close line with trailing content)
   required in the test gate before SAFE, and deliver NOT SAFE TO MERGE.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -35,13 +33,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate REFUSED to
       pronounce a stateful fence/marker parser "verified correct" from a code

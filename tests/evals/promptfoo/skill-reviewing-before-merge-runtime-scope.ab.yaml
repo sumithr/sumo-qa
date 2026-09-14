@@ -25,8 +25,10 @@ description: >
   trigger, surfacing the path-vs-behaviour seam #300 actually moves.)
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-300.SKILL.md
   (= origin/main before the #300 commit); refresh it if the baseline moves.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-reasoning-candidate.yaml') }}
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/claude-candidate.yaml') }}
 defaultTest:
   vars:
     skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -44,7 +46,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/claude-judge.yaml') }}
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate treated an
       EXECUTABLE HOOK that lives OUTSIDE app/src/lib as a RUNTIME change — running

@@ -2,11 +2,7 @@ description: >
   Skill-isolation eval for sumo-qa-planning-qa-rollout. ONE seed test defines
   the final-turn plan handoff shape after the section-by-section walk.
 providers:
-  - id: openai:chat:gpt-4o-mini
-    label: candidate-gpt-4o-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-planning-qa-rollout/SKILL.md
@@ -34,13 +30,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate response
       demonstrates the QA shape AND avoids the named anti-patterns. Be strict.

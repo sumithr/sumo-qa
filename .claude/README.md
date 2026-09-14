@@ -40,7 +40,8 @@ When Claude edits anything under `knowledge/` or `standards/`, `hooks/validate-o
 After a `Bash` command, `hooks/route-qa-runners.py` inspects the result and, when it sees the output of an actual QA runner, injects a reminder (via `additionalContext`) to route through the matching subagent:
 
 - A `mutmut run` that left survivors → reminder to use `mutation-survivor-triage`.
-- A `promptfoo eval` / `npm run eval` / `npm run eval:all` that produced a FAIL → reminder to use `eval-failure-diagnoser`.
+- A `promptfoo eval` / `npm run eval` / `npm run eval:all` / `npm run eval:local:*` / `bash tests/evals/promptfoo/run-eval.sh` run that produced a FAIL → reminder to use `eval-failure-diagnoser`.
+- A `run-eval.sh` run that stopped with `[eval] ABORT:` (a provider or judge error, such as a Claude usage limit) → a reminder that this is not a skill verdict, instead of the diagnoser route.
 
 It is advisory only — it never blocks the Bash result and exits 0 on every path, including internal errors. The detection is built against **real** runner output, captured byte-for-byte under `hooks/fixtures/`: `mutmut run` reports survivors with emoji counters (`🙁` survived, `⏰` timeout, `🤔` suspicious), *never* the word "survived", and exits 0 even with survivors — so the hook parses those counters, not the exit code. `promptfoo eval` exits non-zero (100) on failure and prints `[FAIL]` in its table; either signal counts. The command shape is gated first, so reading a log (`cat mutmut.log`, `grep survived`) or a non-run subcommand (`promptfoo generate`, `npm run eval:view`) never triggers a route.
 

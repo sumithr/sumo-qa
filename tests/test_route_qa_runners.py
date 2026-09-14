@@ -27,6 +27,9 @@ capture of the real tool:
   - promptfoo_fail.stdout.txt    — real `promptfoo eval` (echo provider), 1
                                    failed, table cell `[FAIL]`, exit code 100
   - promptfoo_pass.stdout.txt    — real `promptfoo eval`, 1 passed, exit 0
+  - run_eval_abort.stdout.txt    - real `npm run eval` on the Claude backend
+                                   ending in `[eval] ABORT:` (exit 3); only
+                                   the repo path is replaced by `<repo>`
 
 Technique: equivalence partitioning over (command-shape × output-marker) — the
 substring/token-confusion failure mode this technique warns about IS the bug
@@ -256,6 +259,84 @@ class TestPromptfooFailsRouteToDiagnoser:
             )
         )
         assert "eval-failure-diagnoser" in _additional_context(result)
+
+
+class TestRunEvalScriptRoutes:
+    """The eval gate runs through `tests/evals/promptfoo/run-eval.sh` (#682):
+    `npm run eval` / `eval:all` wrap it, and the eval-gate runbook and the local
+    tiers invoke it directly. A direct run that FAILs must route like the npm
+    form. Equivalence partitioning over the command shape: the script as the
+    executed program (bash/sh/path) routes; the script as a mere argument to a
+    non-shell program (cat, shellcheck) does not.
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "bash tests/evals/promptfoo/run-eval.sh",
+            "bash tests/evals/promptfoo/run-eval.sh all",
+            "SUMO_EVAL_BACKEND=claude bash tests/evals/promptfoo/run-eval.sh "
+            "tests/evals/promptfoo/skill-finding-test-data.yaml",
+            "SUMO_EVAL_BACKEND=local TIER=cheap bash tests/evals/promptfoo/run-eval.sh",
+            "sh tests/evals/promptfoo/run-eval.sh",
+            "./tests/evals/promptfoo/run-eval.sh all",
+            "npm run eval:local:cheap",
+            "npm run eval:local:quality",
+        ],
+    )
+    def test_run_eval_fail_routes(self, command: str) -> None:
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use(command, stdout=out, exit_code=1))
+        assert "eval-failure-diagnoser" in _additional_context(result), (
+            f"hook did not route a failing eval run: {command!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cat tests/evals/promptfoo/run-eval.sh",
+            "shellcheck tests/evals/promptfoo/run-eval.sh",
+            "bash tests/evals/promptfoo/validate-local-judge/run.sh",
+            "bash -n tests/evals/promptfoo/run-eval.sh",
+        ],
+    )
+    def test_run_eval_as_an_argument_does_not_route(self, command: str) -> None:
+        out = _fixture("promptfoo_fail.stdout.txt")
+        result = _run_hook(_post_tool_use(command, stdout=out, exit_code=1))
+        assert _additional_context(result) == "", (
+            f"hook routed a command that does not run the eval: {command!r}"
+        )
+
+
+class TestProviderAbortIsNotASkillVerdict:
+    """run-eval.sh's Claude backend stops with `[eval] ABORT:` (exit 3) when a
+    candidate or judge call errors: a usage limit or a CLI failure is not a
+    skill verdict (#651). Routing that to `eval-failure-diagnoser`, whose job is
+    strengthening a SKILL.md, would turn a provider outage into a skill edit.
+
+    `run_eval_abort.stdout.txt` is a real capture of `NO_COLOR=1 npm run eval`
+    on the Claude backend (stdout + stderr, exit 3) with a `claude` stand-in on
+    PATH that exits non-zero, so every call errors and no model is called. Only
+    the absolute repo path is replaced by `<repo>`; every other byte is the real
+    run-eval.sh / promptfoo output.
+    """
+
+    def test_abort_does_not_route_to_the_diagnoser(self) -> None:
+        out = _fixture("run_eval_abort.stdout.txt")
+        assert "[eval] ABORT:" in out, "fixture lost its ABORT line"
+        result = _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=3))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context, (
+            f"hook routed a provider abort to the SKILL.md diagnoser: {context!r}"
+        )
+        assert "not a skill verdict" in context, (
+            f"hook did not explain the provider abort: {context!r}"
+        )
+
+    def test_abort_marker_on_a_non_eval_command_is_silent(self) -> None:
+        out = _fixture("run_eval_abort.stdout.txt")
+        result = _run_hook(_post_tool_use(f"cat {FIXTURES}/x.txt", stdout=out, exit_code=0))
+        assert _additional_context(result) == ""
 
 
 class TestExcludedEvalCommands:
@@ -537,6 +618,7 @@ def test_hook_is_executable() -> None:
         "mutmut_clean.stdout.txt",
         "promptfoo_fail.stdout.txt",
         "promptfoo_pass.stdout.txt",
+        "run_eval_abort.stdout.txt",
     ],
 )
 def test_fixtures_exist(fixture_name: str) -> None:

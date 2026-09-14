@@ -20,12 +20,10 @@ description: >
   surface-verifier behaviour, not pre-existing risk-coverage handling. A0 body is
   snapshotted at fixtures/reviewing-before-merge-PRE-332.SKILL.md (= origin/main
   before the #332 commit); refresh it if the baseline moves.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content_new: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -41,13 +39,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate treated a
       MISSING relevant surface-specific verifier as a SAFE-blocker instead of

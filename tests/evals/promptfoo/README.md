@@ -24,13 +24,15 @@ the candidate span the judge graded against.
 
 ## NOT in CI
 
-**These evals do not run on the CI pipeline.** Every run hits the OpenAI API
-for both candidate and judge calls — running them on every push or PR would
-bill the maintainer for noise. Run manually at the cadences below.
+**These evals do not run on the CI pipeline.** Every run makes model calls for
+both candidate and judge through the Claude Code CLI (`claude -p`), which needs
+a signed-in Claude account that a CI runner does not have, and model output
+varies run to run, so a per-push verdict would be noise. Run manually at the
+cadences below.
 
 There is no GitHub Actions workflow that invokes `promptfoo` and we should
 not add one. If a future automation is wanted (nightly drift check, etc.),
-it belongs on a separate scheduled runner with explicit billing approval.
+it belongs on a separate scheduled runner with its own explicit approval.
 
 These provider-backed evals are the *quality* layer. The deterministic
 routing + tool-call + output-marker contract runs with no model in the
@@ -78,7 +80,6 @@ to measure it (its full-corpus baseline-vs-postcut *inverted* between runs).
 pin `gpt-5-mini` for the candidate (the judge stays `gpt-5.5`).
 
 ```bash
-source ~/.config/promptfoo-keys.env
 # discovery corpus (B = full skill)
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-adversarial.yaml --no-cache
 # discovery LIFT: A0 (no skill) vs A1 (catalogues only) vs B (full skill)
@@ -131,7 +132,6 @@ candidate is `gpt-5-mini`, judge `gpt-5.5`. This is the catch that scales when
 the adversarial codex pass isn't available (CI-only runs, limited codex tokens).
 
 ```bash
-source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-unproven-escalation.yaml --no-cache
 ```
 
@@ -146,7 +146,6 @@ snapshotted at `fixtures/reviewing-before-merge-PRE-187.SKILL.md` — refresh it
 if the baseline moves.
 
 ```bash
-source ~/.config/promptfoo-keys.env
 # A0 (pre-187 body) FAIL vs A1 (post-187 body) PASS
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-unproven-escalation.ab.yaml --no-cache
 ```
@@ -173,7 +172,6 @@ from the added probe rather than the corpus. Restore with
 `git checkout HEAD -- skills/sumo-qa-reviewing-before-merge/SKILL.md`.
 
 ```bash
-source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-vacuous-test.yaml --no-cache
 ```
 
@@ -204,7 +202,6 @@ Candidate `gpt-5-mini`,
 judge `gpt-5.5`. Picked up by `npm run eval:all` automatically.
 
 ```bash
-source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-fence-parser.yaml --no-cache
 ```
 
@@ -219,7 +216,6 @@ PASSes; that lift isolates the #296 behaviour. The A0 body is snapshotted at
 moves.
 
 ```bash
-source ~/.config/promptfoo-keys.env
 # A0 (pre-296 body) FAIL vs A1 (post-296 body) PASS
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-fence-parser.ab.yaml --no-cache
 ```
@@ -255,7 +251,6 @@ isolates the #300 behaviour. The A0 body is snapshotted at
 moves.
 
 ```bash
-source ~/.config/promptfoo-keys.env
 # A0 (pre-300 body) FAIL vs A1 (post-300 body) PASS
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-runtime-scope.ab.yaml --no-cache
 ```
@@ -273,7 +268,6 @@ must-flag (NOT SAFE) seed AND a true-negative (SAFE-eligible) seed; the
 A1 = post-edit body PASSes). Candidate `gpt-5-mini`, judge `gpt-5.5`.
 
 ```bash
-source ~/.config/promptfoo-keys.env
 for c in verifier-evidence guard-coverage eval-validity feature-flow; do
   ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-$c.yaml --no-cache
 done
@@ -356,7 +350,6 @@ Candidate `gpt-5-mini`, judge `gpt-5.5`. Picked up by `npm run eval:all`
 automatically.
 
 ```bash
-source ~/.config/promptfoo-keys.env
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-preparing-for-work-feedback-memory.yaml --no-cache
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-feedback-memory.yaml --no-cache
 ```
@@ -378,7 +371,6 @@ the #145 behaviour. The A0 bodies are snapshotted at
 moves.
 
 ```bash
-source ~/.config/promptfoo-keys.env
 # A0 (pre-145 body) FAIL vs A1 (post-145 body) PASS
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-preparing-for-work-feedback-memory.ab.yaml --no-cache --repeat 3
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-feedback-memory.ab.yaml --no-cache --repeat 3
@@ -397,41 +389,35 @@ Install promptfoo as a local dev dependency (pinned in `package.json`):
 npm install
 ```
 
-Store your OpenAI API key in a non-tracked file (the harness reads
-`OPENAI_API_KEY` from env; do not put the literal key in any repo file):
-
-```bash
-mkdir -p ~/.config
-cat > ~/.config/promptfoo-keys.env <<'EOF'
-export OPENAI_API_KEY='sk-proj-...'
-EOF
-chmod 600 ~/.config/promptfoo-keys.env
-```
+The eval gate runs on the Claude pair through the Claude Code CLI, so `claude`
+must be on `PATH` and signed in. There is no API key to set up.
 
 ### Common commands (via npm scripts)
 
 ```bash
-source ~/.config/promptfoo-keys.env
-npm run eval              # run TDD skill eval (uses --no-cache)
+npm run eval              # the TDD skill eval on the Claude pair (the merge gate)
+npm run eval:all          # every skill-*.yaml on the Claude pair, sequentially
 npm run eval:generate     # synthesise more tests from the seed (--write merges into the YAML)
 npm run eval:view         # open the local results UI
-npm run eval:all          # run all skill-*.yaml configs sequentially
 ```
 
-### Claude subscription (`SUMO_EVAL_BACKEND=claude`)
+### The Claude pair (the default backend and merge gate)
 
-Runs every config on your Claude subscription through the local Claude Code CLI
-instead of metered API credit: no API key, nothing billed per token. The candidate
-(`--providers`) and judge (`--grader`) are swapped for
+`run-eval.sh` defaults to `SUMO_EVAL_BACKEND=claude`: every config runs on your Claude
+subscription through the local Claude Code CLI. The candidate is
 `providers/claude-candidate.yaml` (`claude-haiku-4-5`, the weakest current model) and
-`providers/claude-judge.yaml` (`claude-opus-5`, lighter on usage than Fable). Rubrics, templates,
-`javascript` asserts and reports are unchanged. Needs `claude` on `PATH`, logged in.
+the judge is `providers/claude-judge.yaml` (`claude-opus-5`). Every `skill-*.yaml` pins
+those two provider files, and `run-eval.sh` also passes them as `--providers` /
+`--grader`, so a bare `promptfoo eval -c <config>` runs on the same pair and never on an
+OpenAI model. The OpenAI cloud backend was removed in #682; `SUMO_EVAL_BACKEND=cloud`
+fails and names the valid backends (`claude|local`).
 
 ```bash
-npm run eval:claude                                   # every skill-*.yaml, one pass
-SUMO_EVAL_BACKEND=claude bash tests/evals/promptfoo/run-eval.sh \
-  tests/evals/promptfoo/skill-using-sumo-qa.yaml     # one config
-SUMO_EVAL_REPEAT=3 npm run eval:claude                # variance run
+npm run eval                                          # skill-implementing-with-tdd.yaml, one pass
+npm run eval -- tests/evals/promptfoo/skill-using-sumo-qa.yaml   # one config
+npm run eval:all                                      # every skill-*.yaml, one pass
+SUMO_EVAL_REPEAT=3 npm run eval:all                   # variance run
+SUMO_EVAL_DRY_RUN=1 npm run eval:all                  # print the promptfoo commands, call no model
 ```
 
 Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
@@ -450,25 +436,27 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   `claude-haiku-4-5` candidate, `claude-opus-5` judge) used ~3.6M tokens, $12.30 at
   list price, with 0 provider errors; the slowest configs take 10 to 20 minutes each.
 
-### Local fallback (OpenWebUI proxy) — when you're out of OpenAI quota
+### Local tiers (OpenWebUI proxy): unmetered iteration, not a merge gate
 
-`run-eval.sh` adds a `SUMO_EVAL_BACKEND=local` toggle so you can keep iterating on
-a SKILL.md when the OpenAI quota is exhausted. Promptfoo talks to ONE endpoint — the
-OpenWebUI proxy (`$SUMO_OWUI_BASE`, OpenAI-compatible) — which routes each model id to
-the box that holds it (single-host tags) and applies model-level params. Only the
-candidate (`--providers`) and judge (`--grader`) are overridden; cloud is untouched.
+`run-eval.sh` adds a `SUMO_EVAL_BACKEND=local` toggle so you can iterate on a SKILL.md
+against models on your own hardware, with no subscription involved. Promptfoo talks to
+ONE endpoint, the OpenWebUI proxy (`$SUMO_OWUI_BASE`, OpenAI-compatible API, key from
+`~/.config/owui.env` as `OPENWEBUI_API_KEY`), which routes each model id to the box that
+holds it (single-host tags) and applies model-level params. Only the candidate
+(`--providers`) and judge (`--grader`) are overridden; the configs' Claude pins are
+untouched.
 
 Split into two tiers so the 4090 (a personal machine) is only touched on demand:
 
 ```bash
 npm run eval:local:cheap      # 4060 candidate + laptop judge — NEVER the 4090
-npm run eval:local:reasoning  # laptop candidate + 4090 judge — gpt-5-mini files, uses the 4090
+npm run eval:local:reasoning  # laptop candidate + 4090 judge: `# local-tier: reasoning` configs, uses the 4090
 npm run eval:local:quality    # laptop candidate + 4090 judge — ALL skills, uses the 4090
 ```
 
-> **NOT merge-authoritative.** Local runs measure *relative* movement — did a
-> SKILL.md edit raise or lower the pass-rate with a **fixed** local candidate+judge
-> — not cloud parity. The merge decision always re-runs the cloud backend
+> **NOT a merge gate.** Local runs measure *relative* movement: did a SKILL.md edit
+> raise or lower the pass-rate with a **fixed** local candidate+judge. They do not
+> reproduce the Claude pair. The merge decision always re-runs the Claude pair
 > (`npm run eval` / `eval:all`); a local lift is iteration signal only.
 
 **Multiple runs & readable reports.** Each test runs `--repeat 3` by default
@@ -495,8 +483,8 @@ The old instant `sumo-cheap-judge-9b` remains available via `SUMO_CHEAP_JUDGE`.
 
 | Tier | Scope | Candidate (host) | Judge (host) | 4090? |
 |---|---|---|---|---|
-| cheap | gpt-4o-mini files | `gemma4-e4b-bounded` — bounded Gemma 4 e4b (4060) | `gemma4-12b-bounded` — bounded Gemma 4 12B (laptop), 92% gpt-5.5 agreement | no |
-| reasoning | gpt-5-mini files | `gemma4-12b-bounded` — OWUI alias for bounded Gemma 4 12B on the laptop | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
+| cheap | configs without the reasoning marker | `gemma4-e4b-bounded`: bounded Gemma 4 e4b (4060) | `gemma4-12b-bounded`: bounded Gemma 4 12B (laptop), 92% agreement with the former gpt-5.5 gate | no |
+| reasoning | configs marked `# local-tier: reasoning` | `gemma4-12b-bounded`: OWUI alias for bounded Gemma 4 12B on the laptop | `sumo-rjudge-20b`: gpt-oss:20b (4090) | yes |
 | quality | **all** skills | `gemma4-12b-bounded` (laptop) — or another model via `SUMO_QUALITY_CANDIDATE` | `sumo-rjudge-20b` — gpt-oss:20b (4090) | yes |
 
 The **quality** tier is the highest-fidelity local option — the laptop reasoning candidate +
@@ -515,53 +503,60 @@ Each model needs a **16k+-num_ctx variant** (`ollama create <m> --from <base>` w
 `num_ctx 16384`) — the ~14k-token skill prompts 400-error at Ollama's 4096 default.
 Tags pinned 2026-06; revisit when the hardware or Ollama version changes.
 
+The reasoning marker is a comment line directly above `providers:` in the configs the
+removed OpenAI tier ran on its `gpt-5-mini` reasoning candidate; `run-eval.sh` greps for
+it to split the cheap and reasoning tiers.
+
 `SUMO_EVAL_CONCURRENCY` sets promptfoo's `-j` (number of test cases in flight; defaults
-**1** local, **4** cloud). Raising local `-j` looks tempting — overlap candidate-gen on one
-host with judge-grading on the other — but on the single-GPU local tiers it **backfires**:
+**1** on both backends). Raising local `-j` looks tempting (overlap candidate-gen on one
+host with judge-grading on the other), but on the single-GPU local tiers it **backfires**:
 `-j>1` stacks several concurrent *reasoning* generations onto the one candidate GPU (and
 grades onto the one judge GPU), which thrashes them. Verified 2026-06-08: at `-j 3` the
 laptop reasoning candidate pegged and never finished a generation while the 4090 judge sat
 idle. The gen/grade host-overlap can't be isolated from same-GPU stacking via `-j`, and the
-reasoning models can't share a GPU, so **local stays `-j 1`**. Cloud has no single-GPU limit
-(OpenAI's fleet) so its default is promptfoo's `4`, bounded only by the OpenAI rate-limit
-(429), not compute.
+reasoning models can't share a GPU, so **local stays `-j 1`**.
 
 ### Reusable provider configs (`providers/`)
 
 Candidate and judge providers are factored out of the test YAMLs into reusable
-`providers/*.yaml` files and referenced through `file://` with an env-var override and a
-**cloud default**. A test file pins its providers like this:
+`providers/*.yaml` files and referenced through `file://`. Every config pins the Claude
+pair; the `.ab` controls add an env-var override on top of that default:
 
 ```yaml
+# a plain config
 providers:
-  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-reasoning-candidate.yaml') }}
+  - file://providers/claude-candidate.yaml
 defaultTest:
   options:
-    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
+    provider: file://providers/claude-judge.yaml
+
+# an .ab control
+providers:
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/claude-candidate.yaml') }}
+defaultTest:
+  options:
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/claude-judge.yaml') }}
 ```
 
-With **no env vars set**, the file resolves to its cloud default → the same pinned
-`gpt-5-mini`/`gpt-4o-mini` candidate + `gpt-5.5` judge as before, so the **cloud merge gate
-is unchanged**. Setting `SUMO_EVAL_CANDIDATES_FILE` and/or `SUMO_EVAL_JUDGE_FILE` swaps in a
+With **no env vars set**, both shapes resolve to the Claude pair, the merge gate. On an
+`.ab` control, setting `SUMO_EVAL_CANDIDATES_FILE` and/or `SUMO_EVAL_JUDGE_FILE` swaps in a
 local pairing for the relative tiers — one switch per side, no per-file `--providers`/`--grader`
 flags, and the judge provider is shared across every test so grading runs **concurrently** with
 candidate generation across the two boxes.
 
 | Provider file | Role | Model (host) |
 |---|---|---|
-| `cloud-quality-judge.yaml` | judge (default) | `gpt-5.5`, `response_format: json_object` — the merge gate |
-| `cloud-reasoning-candidate.yaml` | candidate (default, reasoning files) | `gpt-5-mini` |
 | `local-laptop-qwen-judge.yaml` | judge | `sumo-cheap-judge-9b` — qwen3.5:9b reasoning-off (laptop) |
 | `local-4090-judge.yaml` | judge | `sumo-rjudge-20b` — gpt-oss:20b (4090) |
 | `local-4060-gemma-candidate.yaml` | candidate | `gemma4-e4b-bounded` (4060) |
 | `local-laptop-gemma-candidate.yaml` | candidate | `gemma4-12b-bounded` (laptop) |
 | `local-gemma-candidates.yaml` | candidate list | both bounded Gemma 4 tags (laptop + 4060) |
-| `claude-candidate.yaml` | candidate | `claude-haiku-4-5` via `claude -p` (subscription) |
-| `claude-judge.yaml` | judge | `claude-opus-5` via `claude -p` (subscription) |
+| `claude-candidate.yaml` | candidate (default, the merge gate) | `claude-haiku-4-5` via `claude -p` (subscription) |
+| `claude-judge.yaml` | judge (default, the merge gate) | `claude-opus-5` via `claude -p` (subscription) |
 
 `SUMO_OWUI_BASE` is interpolated into the local provider files' `apiBaseUrl`, and
 `showThinking: false` keeps the judge grading clean `content` (no `<think>` channel). To run a
-`.ab` control on a local pairing instead of the cloud gate:
+`.ab` control on a local pairing instead of the Claude pair:
 
 ```bash
 # from the repo root (env-var paths resolve relative to the config file's dir, the -c path to cwd)
@@ -610,8 +605,6 @@ Reference numbers captured 2026-06 (`sumo-cheap-judge-9b`): agreement ~56 %, dis
 The local binary is at `./node_modules/.bin/promptfoo` after `npm install`.
 
 ```bash
-source ~/.config/promptfoo-keys.env
-
 # Multi-sample variance check (each test runs 5 times):
 ./node_modules/.bin/promptfoo eval \
     -c tests/evals/promptfoo/skill-implementing-with-tdd.yaml \
@@ -724,8 +717,6 @@ See [`skill-answering-testing-question.yaml`](skill-answering-testing-question.y
 ### Pattern B workflow
 
 ```bash
-source ~/.config/promptfoo-keys.env
-
 # 1. Generate user_prompt variations into gen.yaml
 ./node_modules/.bin/promptfoo generate dataset \
     -c tests/evals/promptfoo/skill-<name>.gen.yaml \

@@ -3,7 +3,9 @@
 
 Runs `npx promptfoo eval` against the selected config — a base skill YAML
 (`--skill <name>`) or an exact suffixed / `.ab.yaml` config (`--config
-<selector>`) — writes the JSON output to
+<selector>`) on the Claude eval pair that every config pins
+(providers/claude-candidate.yaml + providers/claude-judge.yaml, through
+`claude -p`), writes the JSON output to
 docs/qa/runs/eval-baselines/<date>-skill-<slug>__<label>.json, and prints a
 pass/fail summary. If a prior baseline exists for the same config, also
 prints a brief delta.
@@ -26,8 +28,8 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -413,10 +415,11 @@ def main() -> int:
         )
         return 2
 
-    if not os.environ.get("OPENAI_API_KEY"):
+    if shutil.which("claude") is None:
         print(
-            "OPENAI_API_KEY is not set. Source ~/.config/promptfoo-keys.env (see tests/evals/promptfoo/README.md) "
-            "before running this script — the key must not be passed inline or pasted in chat.",
+            "claude CLI not on PATH. The skill configs pin the Claude eval pair, which runs "
+            "through `claude -p` on your Claude subscription (see tests/evals/promptfoo/README.md); "
+            "install or sign in to Claude Code, then re-run.",
             file=sys.stderr,
         )
         return 2

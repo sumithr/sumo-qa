@@ -18,8 +18,10 @@ description: >
   ~1-4/6: the discovery pass takes B to a perfect score on the hard families
   A0/A1 miss. A0/A1 flicker run-to-run; B is stable. Read the B-over-A0
   ordering as the signal.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/cloud-reasoning-candidate.yaml') }}
+  - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/claude-candidate.yaml') }}
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -37,7 +39,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/cloud-quality-judge.yaml') }}
+    provider: file://{{ env.SUMO_EVAL_JUDGE_FILE | default('providers/claude-judge.yaml') }}
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate
       INDEPENDENTLY DISCOVERED the seeded defect from a raw diff (no risks were

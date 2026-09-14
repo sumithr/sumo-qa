@@ -17,7 +17,15 @@ Detection is built against REAL runner output (see tests/test_route_qa_runners.p
     exit code is useless here: `mutmut run` exits 0 even with survivors.
 
   * `promptfoo eval` exits non-zero (default 100) on a failing test case and
-    prints `[FAIL]` in the results table. Either signal counts as a FAIL.
+    prints `[FAIL]` in the results table. Either signal counts as a FAIL. The
+    eval gate runs promptfoo through `tests/evals/promptfoo/run-eval.sh`
+    (`npm run eval`, `npm run eval:all`, the `eval:local:*` tiers, or the script
+    directly), so those invocations count as eval runs too.
+
+  * `run-eval.sh` on the Claude backend prints `[eval] ABORT:` and exits 3 when
+    a candidate or judge call errored (a usage limit, a CLI failure). That is
+    not a skill verdict (#651), so it gets its own reminder and is NOT routed to
+    the SKILL.md diagnoser.
 
 Both branches first gate on the COMMAND shape so reading a log
 (`cat mutmut.log`, `grep survived`) or a non-run subcommand
@@ -202,9 +210,33 @@ def _segment_is_promptfoo_eval(eff: list[str]) -> bool:
     if not eff:
         return False
     if os.path.basename(eff[0]) in ("npm", "pnpm", "yarn", "bun"):
-        return _pm_script(eff) in ("eval", "eval:all")
+        script = _pm_script(eff) or ""
+        return script in ("eval", "eval:all") or script.startswith("eval:local:")
+    if _runs_eval_script(eff):
+        return True
     pf = _promptfoo_argv(eff)
     return pf is not None and len(pf) >= 2 and pf[1] == "eval"
+
+
+_EVAL_SCRIPT = "run-eval.sh"
+_SHELLS = {"bash", "sh", "zsh"}
+
+
+def _runs_eval_script(eff: list[str]) -> bool:
+    """Is this segment an execution of the repo's eval runner, run-eval.sh?
+
+    Either the script is the command word (`./tests/evals/promptfoo/run-eval.sh`)
+    or it is the token IMMEDIATELY after a shell (`bash tests/.../run-eval.sh`).
+    A flag in that position is not recognised (`bash -n run-eval.sh` only
+    syntax-checks it), and the script as an argument to any other program
+    (`cat`, `shellcheck`) is not a run."""
+    if os.path.basename(eff[0]) == _EVAL_SCRIPT:
+        return True
+    return (
+        os.path.basename(eff[0]) in _SHELLS
+        and len(eff) >= 2
+        and os.path.basename(eff[1]) == _EVAL_SCRIPT
+    )
 
 
 def _is_promptfoo_eval_run(command: str) -> bool:
@@ -250,6 +282,9 @@ def _promptfoo_failed(output: str, exit_code: object) -> bool:
     return "[FAIL]" in output or _nonzero_exit(exit_code)
 
 
+_EVAL_ABORT_MARKER = "[eval] ABORT:"
+
+
 _MUTMUT_REMINDER = (
     "`mutmut run` left surviving mutants (survived / timeout / suspicious). "
     "Route them through the `mutation-survivor-triage` agent before touching "
@@ -260,6 +295,13 @@ _PROMPTFOO_REMINDER = (
     "promptfoo reported a FAIL. Route the failure through the "
     "`eval-failure-diagnoser` agent. Repo policy: fix a FAIL by strengthening "
     "the SKILL.md so the candidate passes — never by loosening the rubric."
+)
+
+_EVAL_ABORT_REMINDER = (
+    "run-eval.sh aborted on provider or judge errors: this is not a skill "
+    "verdict, so do not diagnose it as a skill failure or edit a SKILL.md. "
+    "Read the error in the report JSON the ABORT line names (a Claude usage "
+    "limit or a CLI failure), resolve that, then re-run the same command once."
 )
 
 
@@ -300,9 +342,13 @@ def main() -> int:
             _emit(_MUTMUT_REMINDER)
             return 0
 
-        if _is_promptfoo_eval_run(command) and _promptfoo_failed(output, exit_code):
-            _emit(_PROMPTFOO_REMINDER)
-            return 0
+        if _is_promptfoo_eval_run(command):
+            if _EVAL_ABORT_MARKER in output:
+                _emit(_EVAL_ABORT_REMINDER)
+                return 0
+            if _promptfoo_failed(output, exit_code):
+                _emit(_PROMPTFOO_REMINDER)
+                return 0
     except Exception:
         # Advisory hook: never break the Bash flow on an internal error.
         return 0

@@ -420,6 +420,37 @@ class TestScaffoldScriptSlugValidation:
         )
         return tmp_path
 
+    def test_scaffolded_eval_config_pins_the_claude_pair(self, tmp_path: Path) -> None:
+        """#682: a new skill's eval stub must pin the Claude candidate + judge
+        provider files like every existing config, so it neither reintroduces
+        an OpenAI candidate nor leaves the llm-rubric on promptfoo's default
+        grader."""
+        import yaml
+
+        repo = self._make_tmp_repo(tmp_path)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.SCAFFOLD),
+                "--name",
+                "widget-probe",
+                "--description",
+                "test",
+                "--approach-tag",
+                "widget-probe",
+                "--repo-root",
+                str(repo),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        configs = list((repo / "tests" / "evals" / "promptfoo").glob("skill-*.yaml"))
+        assert len(configs) == 1, configs
+        data = yaml.safe_load(configs[0].read_text(encoding="utf-8"))
+        assert data["providers"] == ["file://providers/claude-candidate.yaml"]
+        assert data["defaultTest"]["options"]["provider"] == "file://providers/claude-judge.yaml"
+
     def test_rejects_name_with_path_separator(self, tmp_path: Path) -> None:
         """A name containing `/` or `..` must be rejected before any file
         is written. Otherwise an attacker (or accidentally-malformed input)
@@ -490,11 +521,6 @@ class TestRunBaselineScriptSlugValidation:
         (tmp_path / "tests" / "evals" / "promptfoo").mkdir(parents=True)
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
 
-        import os as _os
-
-        env = _os.environ.copy()
-        env["OPENAI_API_KEY"] = "dummy-not-used-because-validation-rejects-first"
-
         result = subprocess.run(
             [
                 sys.executable,
@@ -508,7 +534,6 @@ class TestRunBaselineScriptSlugValidation:
             ],
             capture_output=True,
             text=True,
-            env=env,
         )
 
         assert result.returncode != 0, (
@@ -520,11 +545,6 @@ class TestRunBaselineScriptSlugValidation:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
         # Need the YAML to exist so we don't fail on the earlier check.
         (tmp_path / "tests" / "evals" / "promptfoo" / "skill-real.yaml").write_text("")
-
-        import os as _os
-
-        env = _os.environ.copy()
-        env["OPENAI_API_KEY"] = "dummy"
 
         result = subprocess.run(
             [
@@ -539,12 +559,49 @@ class TestRunBaselineScriptSlugValidation:
             ],
             capture_output=True,
             text=True,
-            env=env,
         )
 
         assert result.returncode != 0, (
             f"script accepted --label with `..` separator: stdout={result.stdout!r}"
         )
+
+    def test_requires_the_claude_cli_not_an_openai_key(self, tmp_path: Path) -> None:
+        """#682: the baseline runs on the Claude pair the configs pin, through
+        `claude -p`. With no `claude` on PATH the script must stop before
+        promptfoo and say so; an OpenAI key is no longer a precondition."""
+        promptfoo = tmp_path / "tests" / "evals" / "promptfoo"
+        promptfoo.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
+        (promptfoo / "skill-real.yaml").write_text("")
+        empty_bin = tmp_path / "empty-bin"
+        empty_bin.mkdir()
+
+        import os as _os
+
+        env = {k: v for k, v in _os.environ.items() if not k.startswith("OPENAI_")}
+        env["PATH"] = str(empty_bin)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.RUN_BASELINE),
+                "--skill",
+                "real",
+                "--repo-root",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 2, (
+            f"expected the preflight to stop the run: rc={result.returncode} "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        assert "claude CLI" in result.stderr, result.stderr
+        assert "OPENAI_API_KEY" not in result.stderr, result.stderr
+        assert "Running: npx promptfoo" not in result.stdout
 
     def test_rejects_config_whose_stem_derives_double_underscore_slug(self, tmp_path: Path) -> None:
         """Codex review R3 (major, latent): the `__` slug/label boundary is
@@ -566,11 +623,6 @@ class TestRunBaselineScriptSlugValidation:
         # A config whose stem derives a slug containing the reserved `__`.
         (promptfoo / "skill-foo__bar.yaml").write_text("")
 
-        import os as _os
-
-        env = _os.environ.copy()
-        env["OPENAI_API_KEY"] = "dummy-not-used-because-validation-rejects-first"
-
         result = subprocess.run(
             [
                 sys.executable,
@@ -582,7 +634,6 @@ class TestRunBaselineScriptSlugValidation:
             ],
             capture_output=True,
             text=True,
-            env=env,
         )
 
         assert result.returncode != 0, (

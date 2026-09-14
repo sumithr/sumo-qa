@@ -2,11 +2,7 @@ description: >
   Skill-isolation eval for sumo-qa-implementing-with-tdd. ONE seed test defines
   the shape; promptfoo's `generate dataset` synthesises variations.
 providers:
-  - id: openai:chat:gpt-4o-mini
-    label: candidate-gpt-4o-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-implementing-with-tdd/SKILL.md
@@ -59,13 +55,7 @@ defaultTest:
       value: file://asserts/cites-catalogue-technique.js
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate response
 

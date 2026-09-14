@@ -12,6 +12,8 @@ description: >
   where inventing a security risk is a false positive. Security flows through the
   EXISTING security_change classification + loaded change rules - no parallel
   taxonomy, no vulnerability-checklist dump, no vendor/tool-name dump.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
   # This eval is a STABLE REGRESSION GUARD, NOT load-bearing. gpt-5-mini catches
   # the grounded security gap UNAIDED (its own reasoning, not the new #282 skill
@@ -19,13 +21,9 @@ providers:
   # line load-bearing. What it DOES guard is the reviewing skill REGRESSING:
   # ceasing to name a grounded security gap when one is present (and not
   # fabricating one when absent). The cross-cutting security-relevance behaviour
-  # is proven load-bearing by the preparing-for-work + answering evals; here we
-  # pin gpt-5-mini purely to keep this guard reliably green.
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  # is proven load-bearing by the preparing-for-work + answering evals; the OpenAI
+  # tier pinned gpt-5-mini here purely to keep this guard reliably green.
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -63,13 +61,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate INDEPENDENTLY
       handled the security-relevance contract from a raw diff (no risks were

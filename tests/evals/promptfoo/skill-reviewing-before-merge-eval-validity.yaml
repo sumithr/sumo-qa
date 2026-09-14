@@ -17,12 +17,10 @@ description: >
   rubric PASS needs only-new-text) AND whose rubric credits only inputs that
   actually discriminate the seed defect -> A/B load-bearing, SAFE-eligible
   (true-negative; the check must NOT over-fire on a genuinely-isolating control).
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
 providers:
-  - id: openai:chat:gpt-5-mini
-    label: candidate-gpt-5-mini
-    config:
-      temperature: 0.0
-      seed: 42
+  - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-reviewing-before-merge/SKILL.md
@@ -37,13 +35,7 @@ defaultTest:
         {% endfor %}
   options:
     disableVarExpansion: true
-    provider:
-      id: openai:chat:gpt-5.5
-      config:
-        temperature: 0.0
-        seed: 42
-        response_format:
-          type: json_object
+    provider: file://providers/claude-judge.yaml
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate probed the
       VALIDITY of a shipped A/B "load-bearing" eval — that A0 is structurally

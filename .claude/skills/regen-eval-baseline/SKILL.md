@@ -1,6 +1,6 @@
 ---
 name: regen-eval-baseline
-description: Captures a promptfoo skill-eval baseline JSON for one sumo-qa skill and snapshots it to docs/qa/runs/eval-baselines/, with an automatic delta against the prior snapshot. Use this whenever the user mentions baselining a skill, capturing a before/after eval, running a single-skill eval, or measuring the effect of a SKILL.md edit — common during token-optimisation rounds. The actual work runs through a bundled script that handles path conventions, API-key checks, and diffing in one go.
+description: Captures a promptfoo skill-eval baseline JSON for one sumo-qa skill and snapshots it to docs/qa/runs/eval-baselines/, with an automatic delta against the prior snapshot. Use this whenever the user mentions baselining a skill, capturing a before/after eval, running a single-skill eval, or measuring the effect of a SKILL.md edit, common during token-optimisation rounds. The actual work runs through a bundled script that handles path conventions, the Claude CLI check, and diffing in one go.
 disable-model-invocation: true
 ---
 
@@ -12,7 +12,7 @@ Captures a promptfoo run for one sumo-qa skill and stores its JSON output in `do
 
 Trigger this skill when the user wants a per-skill eval snapshot. Common phrasings: "baseline this skill", "snapshot the eval", "run the eval for skill X", "capture before/after for the rewrite I just made". The user invokes it explicitly with `/regen-eval-baseline`; it doesn't auto-trigger.
 
-This is single-skill on purpose. Full-sweep regeneration belongs on `npm run eval:all`, which also reads the same `tests/evals/promptfoo/skill-*.yaml` files but runs them sequentially without snapshotting.
+This is single-skill on purpose. Full-sweep regeneration belongs on `npm run eval:all`, which runs the same `tests/evals/promptfoo/skill-*.yaml` files on the Claude pair sequentially without snapshotting.
 
 ## Inputs
 
@@ -30,7 +30,7 @@ Use this wrapper (`--skill` / `--config`) whenever you want the **repeatable bef
 
 ## Prerequisites the script will check
 
-- `OPENAI_API_KEY` must be set in the environment. The harness reads it from `~/.config/promptfoo-keys.env` per `tests/evals/promptfoo/README.md`; tell the user to `source` that file if the script reports it missing. Never accept the key pasted in chat — both repo policy and the `feedback_never_handle_pasted_secrets` memory rule say so.
+- The `claude` CLI must be on PATH and signed in. Every config pins the Claude eval pair (`providers/claude-candidate.yaml` + `providers/claude-judge.yaml`), which runs through `claude -p` on the user's Claude subscription, so no API key is involved. If the script reports the CLI missing, tell the user to install or sign in to Claude Code.
 - The selected config must exist: `tests/evals/promptfoo/skill-<name>.yaml` for `--skill`, or the exact suffixed / `.ab.yaml` config for `--config`. If it doesn't, the script lists every available config so the user can pick again — it does not guess a near-named sibling.
 - A snapshot at the target path already existing will block the run unless `--force` is passed. Don't pass `--force` reflexively — snapshots are evidence of past runs and silently clobbering them loses history.
 

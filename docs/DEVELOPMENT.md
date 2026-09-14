@@ -61,9 +61,11 @@ To run the whole gate manually from the repo root, invoke `scripts/check_markdow
 ```bash
 nvm use 24             # or any Node 20.20+ / 22.22+ install
 npm install            # installs promptfoo from package.json
-npm run eval           # runs the TDD skill eval (needs OPENAI_API_KEY)
-npm run eval:claude    # every config on your Claude subscription via `claude -p` (no API key)
+npm run eval           # the TDD skill eval on the Claude pair via `claude -p` (no API key)
+npm run eval:all       # every skill config on the Claude pair (the full matrix)
 ```
+
+The evals run on your Claude subscription through the Claude Code CLI, so `claude` must be on your PATH and signed in. The local OpenWebUI tiers (`npm run eval:local:*`) are an unmetered iteration option, not a merge gate.
 
 See [`tests/evals/promptfoo/README.md`](../tests/evals/promptfoo/README.md) for full eval usage + cost notes.
 
