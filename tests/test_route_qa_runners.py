@@ -429,6 +429,88 @@ class TestMixedErrorAndAbortMarkers:
         )
 
 
+class TestMarkersMatchOnlyRunnerEmissions:
+    """run-eval.sh writes each marker as its own stderr line
+    (`echo "[eval] ABORT: ..." >&2`), so a runner emission always STARTS a line.
+    Marker text anywhere else (echoed, quoted, grepped, embedded mid-line) is not
+    the runner speaking: a passing eval chained with such output must stay
+    silent rather than claim an ABORT or ERROR that never happened.
+
+    And the mixed reminder needs two eval runs: one run-eval.sh invocation exits
+    on its first marker, so a single eval segment whose output shows both
+    line-anchored markers has not produced a mixed result; the first marker in
+    the output is the one the runner stopped on.
+    """
+
+    PASSING_EVAL = "bash tests/evals/promptfoo/run-eval.sh valid.yaml"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            PASSING_EVAL
+            + "; printf '%s\\n' 'example: [eval] ERROR: bad path [eval] ABORT: usage limit'",
+            PASSING_EVAL
+            + "; npm run eval; printf '%s\\n' 'example: [eval] ERROR: bad path [eval] ABORT: usage limit'",
+        ],
+    )
+    def test_passing_eval_with_quoted_markers_mid_line_is_silent(self, command: str) -> None:
+        out = (
+            _fixture("promptfoo_pass.stdout.txt")
+            + "example: [eval] ERROR: bad path [eval] ABORT: usage limit\n"
+        )
+        result = _run_hook(_post_tool_use(command, stdout=out, exit_code=0))
+        assert _additional_context(result) == "", (
+            f"hook read quoted marker text as a runner emission: {command!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "example: [eval] ABORT: skill-x had provider or judge errors (errors=5)",
+            "example: [eval] ERROR: x.yml produced no readable report (promptfoo exit 1)",
+            'tests/evals/promptfoo/run-eval.sh:188:      echo "[eval] ABORT: $base had errors" >&2',
+            'tests/evals/promptfoo/run-eval.sh:184:      echo "[eval] ERROR: $f produced no report" >&2',
+        ],
+    )
+    def test_marker_embedded_in_a_longer_line_is_silent(self, line: str) -> None:
+        out = _fixture("promptfoo_pass.stdout.txt")
+        result = _run_hook(
+            _post_tool_use(self.PASSING_EVAL, stdout=out, stderr=line + "\n", exit_code=0)
+        )
+        assert _additional_context(result) == "", (
+            f"hook read an embedded marker as a runner emission: {line!r}"
+        )
+
+    @pytest.mark.parametrize(
+        ("order", "expected", "absent"),
+        [
+            (
+                ("run_eval_harness_error.stdout.txt", "run_eval_abort.stdout.txt"),
+                "did not run",
+                "provider or judge errors",
+            ),
+            (
+                ("run_eval_abort.stdout.txt", "run_eval_harness_error.stdout.txt"),
+                "provider or judge errors",
+                "did not run",
+            ),
+        ],
+    )
+    def test_single_eval_segment_with_both_markers_is_not_mixed(
+        self, order: tuple[str, str], expected: str, absent: str
+    ) -> None:
+        out = _fixture(order[0]) + _fixture(order[1])
+        result = _run_hook(_post_tool_use("npm run eval", stdout=out, exit_code=3))
+        context = _additional_context(result)
+        assert "eval-failure-diagnoser" not in context, context
+        assert expected in context, (
+            f"single-run output lost the reminder for its first marker: {context!r}"
+        )
+        assert absent not in context, (
+            f"one eval run got the mixed reminder though it stops at its first marker: {context!r}"
+        )
+
+
 class TestExcludedEvalCommands:
     """`eval:generate` and `eval:view` must be ignored even if their output or
     exit code looks failure-shaped — they are not eval RUNS. Boundary value

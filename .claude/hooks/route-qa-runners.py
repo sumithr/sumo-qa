@@ -32,9 +32,15 @@ Detection is built against REAL runner output (see tests/test_route_qa_runners.p
     YAML; exit 4), or a preflight or setting check failed first. Neither a skill
     verdict nor a provider abort, so it gets its own reminder too.
 
+  * A marker counts only as runner output: a line that STARTS with
+    `[eval] ABORT: ` or `[eval] ERROR: ` (run-eval.sh echoes each on its own
+    stderr line). Marker text echoed, quoted or grepped mid-line is ignored.
+
   * run-eval.sh exits on its first ERROR or ABORT, so one invocation prints at
-    most one marker. A Bash command chaining several eval runs can print both;
-    that gets one reminder covering both, and neither goes to the diagnoser.
+    most one marker. A Bash command chaining two or more eval runs can print
+    both; that gets one reminder covering both, and neither goes to the
+    diagnoser. With a single eval run, the first marker in the output decides
+    which reminder fires.
 
   * Only `bash` (or the script as the command word, via its bash shebang) runs
     run-eval.sh. It is a bash script: `sh` is dash on Debian/Ubuntu and rejects
@@ -296,8 +302,22 @@ def _promptfoo_failed(output: str, exit_code: object) -> bool:
     return "[FAIL]" in output or _nonzero_exit(exit_code)
 
 
-_EVAL_ABORT_MARKER = "[eval] ABORT:"
-_EVAL_ERROR_MARKER = "[eval] ERROR:"
+# run-eval.sh writes each marker as its own stderr line, so a runner emission
+# STARTS a line. Anchoring there keeps echoed, quoted or grepped marker text
+# mid-line from reading as an ABORT or ERROR that never happened.
+_EVAL_MARKER_LINE = re.compile(r"^\[eval\] (ABORT|ERROR): ", re.MULTILINE)
+
+
+def _eval_markers(output: str) -> list[str]:
+    """The runner markers (`ABORT` / `ERROR`) in output order, line-anchored."""
+    return _EVAL_MARKER_LINE.findall(output)
+
+
+def _eval_run_count(command: str) -> int:
+    """How many segments of the command are eval runs."""
+    return sum(
+        _segment_is_promptfoo_eval(_effective_argv(seg)) for seg in _command_segments(command)
+    )
 
 
 _MUTMUT_REMINDER = (
@@ -378,14 +398,13 @@ def main() -> int:
             return 0
 
         if _is_promptfoo_eval_run(command):
-            if _EVAL_ABORT_MARKER in output and _EVAL_ERROR_MARKER in output:
+            markers = _eval_markers(output)
+            if len(set(markers)) == 2 and _eval_run_count(command) >= 2:
                 _emit(_EVAL_MIXED_REMINDER)
                 return 0
-            if _EVAL_ABORT_MARKER in output:
-                _emit(_EVAL_ABORT_REMINDER)
-                return 0
-            if _EVAL_ERROR_MARKER in output:
-                _emit(_EVAL_ERROR_REMINDER)
+            if markers:
+                # One run stops on its first marker, so the first one names it.
+                _emit(_EVAL_ABORT_REMINDER if markers[0] == "ABORT" else _EVAL_ERROR_REMINDER)
                 return 0
             if _promptfoo_failed(output, exit_code):
                 _emit(_PROMPTFOO_REMINDER)
