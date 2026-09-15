@@ -1,4 +1,4 @@
-# Discriminates weakly on the Claude pair: only the refactor seed separates the legs;
+# Discriminates weakly on the Claude pair: only the refactor seed separates the legs consistently;
 # the shared response template carries SHAPE for the others.
 disableVarExpansion: true
 description: 'A/B/C value-measurement for sumo-qa-preparing-for-work'
