@@ -21,7 +21,7 @@ Do NOT write the failing test in the same turn you propose the test idea. Walk: 
 
 **RED PHASE FIRST. NO PRODUCTION CODE BEFORE A FAILING TEST.** A test that has never failed has never tested anything — the red phase is the proof.
 
-**Stub allowance — narrow.** A production-side stub is permitted in the red phase ONLY when the test can't otherwise be collected (e.g. the function under test doesn't exist yet, so the test file fails at import). It must be signature-only: `def apply_discounts(order): raise NotImplementedError` or `: pass`. **Any behaviour in the stub — a partial implementation, a heuristic return, a branch that happens to satisfy the assertion — is an Iron Law violation:** the red phase would then prove the stub matches the assertion, not that the test catches the bug. Writing `if`/`else` or computing a value in the stub → stop; that's green-phase work for the user.
+**Stub allowance — narrow.** A production-side stub is permitted in the red phase ONLY when the test can't otherwise be collected (e.g. the function under test doesn't exist yet, so the test file fails at import). It must be signature-only: `def apply_discounts(order): raise NotImplementedError` or `: pass`. **Any behaviour in the stub — a partial implementation, a heuristic return, a branch that happens to satisfy the assertion — is an Iron Law violation:** the red phase would then prove the stub matches the assertion, not that the test catches the bug.
 
 ## When to Use
 
@@ -46,14 +46,14 @@ You MUST work through these in order. Steps 1–3 are AI-only homework; the user
 
 4. **Confirm the test idea, only for the AMBIGUOUS parts** — name target, fixture style, and proposed assertion, then ask ONE focused question for what code couldn't answer (e.g. *"is 90.0 right, or does VIP stack with promo?"*). If unambiguous, skip the question.
 
-5. **Write the failing test** — use the host's edit tool. Do NOT ask the user to write it. Match the sibling tests' framework and fixture style.
+5. **Write the failing test** — use the host's edit tool. Do NOT ask the user to write it. Match the sibling tests' framework and fixture style. Name its step-3 technique with it.
 
-6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim. **No command tool, or your run attempt was denied by the user or host policy?** Don't delegate the run, ask the user to run it, trace the failure by hand, or write production code: go to step 7's second phrasing. A failed or malformed command isn't that: fix it, re-run.
+6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim. **No command tool, or your run attempt was denied by the user or host policy?** Don't delegate the run, ask the user to run it, trace the failure by hand, or write production code: go to step 7's second phrasing. A failed command isn't that: fix it, re-run.
 
 7. **Hand off to the user, then stop** (retrospective regression: see its item 4) — the LAST line of your reply is EXACTLY one of these two phrasings, with nothing after it (no pleasantries, no confirmation question, no "shall I"):
    - if step 6 really ran the test and you pasted its assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
    - otherwise: "I'll run this and surface the assertion failure next."
-   With no real run, write no red-output block, no production code and no commands for the user to run: the second phrasing is the whole handoff. Waiting is an action, not text.
+   A real run is a command-tool call you made this turn. Without one, write no red-output block, no production code and no commands for the user to run: the second phrasing is the whole handoff.
 
 8. **Re-run after green-making change** — confirm it passes for the right reason (not a weakened assertion). If it fails, surface the new failure — don't try a second production change without the user.
 
@@ -69,7 +69,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework; the user
    - `git show <pre-fix-commit>:<path> > <path>` → reverse `git checkout -- <path>`.
    - `git checkout <pre-fix-commit> -- <path>` → reverse `git checkout HEAD -- <path>` (or `git restore --source=HEAD --staged --worktree <path>`): it writes the OLD file into BOTH index AND worktree, so a bare `git checkout -- <path>` restores the buggy version from the polluted index — reverse against HEAD, not the index.
 
-   Never destructive — `git reset --hard`, `git checkout <branch>`, `git clean` discard the worktree. Run the test; capture the real assertion failure.
+   Never destructive — `git reset --hard`, `git checkout <branch>`, `git clean` discard the worktree. Run the test (no command tool: restore nothing, see item 4); capture the real assertion failure.
 3. **MANDATORY: reverse the restore (with the reverse paired in step 2) and return to the current worktree before final verification**, then re-run and confirm green. Leaving the tree on the old version reintroduces the bug — the cycle is write-current → restore-old → red → restore-current → green, all BEFORE any handoff; you always end on the current tree. If the pre-fix version is unrecoverable, say so — never fabricate red by weakening the assertion against current code.
 4. **Ending:** if not yet run, state each command (never ask the user to run them) and end on step 7's second phrasing; after a real red and green the fix already exists, so skip to step 9.
 
