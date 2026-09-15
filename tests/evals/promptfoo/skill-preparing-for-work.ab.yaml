@@ -1,3 +1,5 @@
+# Discriminates weakly on the Claude pair: only the refactor seed separates the legs consistently;
+# the shared response template carries SHAPE for the others.
 disableVarExpansion: true
 description: 'A/B/C value-measurement for sumo-qa-preparing-for-work'
 providers:
@@ -44,15 +46,11 @@ defaultTest:
       --- END CANDIDATE RESPONSE ---
 
 
-      The candidate has loaded the canonical classifications catalogue below
-      for your verification:
-
-
-      --- LOADED CLASSIFICATIONS ---
+      --- REFERENCE CLASSIFICATIONS (the catalogue the A1 and B legs load; the A0 no-skill leg was not given it, so do not penalise a response for not quoting it) ---
 
       {{loaded_classifications}}
 
-      --- END LOADED CLASSIFICATIONS ---
+      --- END REFERENCE CLASSIFICATIONS ---
 
 
       Evaluate THREE axes independently:
