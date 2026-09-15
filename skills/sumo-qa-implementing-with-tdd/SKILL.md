@@ -5,7 +5,7 @@ description: Use after sumo-qa-deciding-approach picks tdd-scaffold, regression-
 
 # Implementing with TDD
 
-Drive a change through TDD discipline: walk the cycle one step at a time, confirm the test idea before writing it, prove the red phase before handing back the green-making step. The user has product context (what "wrong" looks like, the API shape) the AI can't infer from code — surface it through questions, don't assume.
+The user has product context (what "wrong" looks like, the API shape) the AI can't infer from code: surface it through questions, don't assume.
 
 **Announce at start:** *"Walking the red→green cycle."*
 
@@ -31,7 +31,7 @@ For `strengthen-test-coverage` (mutation follow-up), route to `sumo-qa-strengthe
 
 ## Checklist
 
-You MUST work through these in order. Steps 1–3 are AI-only homework (no user questions). The user's confirmation gates steps 4 onward.
+You MUST work through these in order. Steps 1–3 are AI-only homework; the user's confirmation gates step 4 onward.
 
 1. **Re-state the approach and the named risk** *(no user question)* — restate the TDD-shaped approach and the named risk this cycle targets. If no risk was named, route to `sumo-qa-preparing-for-work` first.
 
@@ -50,10 +50,10 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim.
 
-7. **Hand off to the user** — end with EXACTLY one of these two phrasings (no pleasantries, no confirmation question, no "shall I"):
-   - if you've shown the actual red assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
-   - if no real red output yet: "I'll run this and surface the assertion failure next."
-   Wait.
+7. **Hand off to the user, then stop** (retrospective regression: see its item 4) — the LAST line of your reply is EXACTLY one of these two phrasings, with nothing after it (no pleasantries, no confirmation question, no "shall I"):
+   - if step 6 really ran the test and you pasted its assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
+   - otherwise: "I'll run this and surface the assertion failure next."
+   Red output you did not run is a guess, not evidence: with no real run (no command tool, or not run yet), write no red-output block; use the second phrasing. Waiting for the user is an action, not text.
 
 8. **Re-run after green-making change** — confirm it passes for the right reason (not a weakened assertion). If it fails, surface the new failure — don't try a second production change without the user.
 
@@ -70,7 +70,8 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
    - `git checkout <pre-fix-commit> -- <path>` → reverse `git checkout HEAD -- <path>` (or `git restore --source=HEAD --staged --worktree <path>`): it writes the OLD file into BOTH index AND worktree, so a bare `git checkout -- <path>` restores the buggy version from the polluted index — reverse against HEAD, not the index.
 
    Never destructive — `git reset --hard`, `git checkout <branch>`, `git clean` discard the worktree. Run the test; capture the real assertion failure.
-3. **MANDATORY: reverse the restore (with the reverse paired in step 2) and return to the current worktree before final verification**, then re-run and confirm green. Leaving the tree on the old version reintroduces the bug — the cycle is write-current → restore-old → red → restore-current → green; you always end on the current tree. If the pre-fix version is unrecoverable, say so — never fabricate red by weakening the assertion against current code.
+3. **MANDATORY: reverse the restore (with the reverse paired in step 2) and return to the current worktree before final verification**, then re-run and confirm green. Leaving the tree on the old version reintroduces the bug — the cycle is write-current → restore-old → red → restore-current → green, all BEFORE any handoff; you always end on the current tree. If the pre-fix version is unrecoverable, say so — never fabricate red by weakening the assertion against current code.
+4. **Ending:** if not yet run, state each command and end on step 7's second phrasing; after a real red and green the fix already exists, so skip to step 9.
 
 **Tests for code outside the coverage target.** A test for code outside `--cov=src/sumo_qa` (a script, CI helper, build artifact, sibling package) is still legitimate and often required. Coverage accounting does not decide whether a regression matters. Write it where the code lives and let it gate on its own pass/fail; don't drop it for not moving the number, and don't widen `--cov` to "count" it — the gate stays as configured.
 
@@ -78,7 +79,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 ## Process Flow
 
-See the Checklist above — that's the flow.
+The Checklist above.
 
 ## Red Flags — STOP and rework
 
