@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.1](https://github.com/sumithr/sumo-qa/compare/v0.64.0...v0.64.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **skills:** make strengthening-tests.ab discriminate on the Claude pair ([#699](https://github.com/sumithr/sumo-qa/issues/699)) ([cb42321](https://github.com/sumithr/sumo-qa/commit/cb4232171c8e3a6ffe970cf701a7efaf57e32bf7))
+
 ## [0.64.0](https://github.com/sumithr/sumo-qa/compare/v0.63.0...v0.64.0) (2026-09-14)
 
 
