@@ -48,7 +48,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework; the user
 
 5. **Write the failing test** — use the host's edit tool. Do NOT ask the user to write it. Match the sibling tests' framework and fixture style.
 
-6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim. **Can't run it yourself** (no command tool, or the run is refused)? Don't delegate the run, ask the user to run it, or trace the failure by hand, and write no production code: go to step 7's second phrasing.
+6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim. **No command tool, or the user or host policy denies a valid run?** Don't delegate the run, ask the user to run it, trace the failure by hand, or write production code: go to step 7's second phrasing. A failed or malformed command isn't that: fix it and re-run.
 
 7. **Hand off to the user, then stop** (retrospective regression: see its item 4) — the LAST line of your reply is EXACTLY one of these two phrasings, with nothing after it (no pleasantries, no confirmation question, no "shall I"):
    - if step 6 really ran the test and you pasted its assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
@@ -95,7 +95,7 @@ The Checklist above.
 | "I'll stub the prod function with `return total * 0.9` so the test fails meaningfully" | Iron Law violated via the stub. Red-phase stubs are signature-only (`pass` / `raise NotImplementedError`); the 0.9 belongs in the user's green phase. |
 | "Mutation testing fits here" | Wrong skill. Mutation follow-up is `sumo-qa-strengthening-tests`. |
 | "The bug's already fixed, so I'll commit the test green" | An unred test proves nothing. Manufacture red against the pre-fix version with a scoped reversible restore (`git show <commit>:<path> > <path>` → reverse `git checkout -- <path>`; never `reset --hard` / `checkout <branch>`, and not `git stash` — with the fix committed it reverts to the fixed tree, not the pre-fix file), see red, then reverse (pair the reverse to the restore — `git checkout <commit> -- <path>` pollutes the index, so reverse it against HEAD) and see green. Always end on the current tree. |
-| "No command tool, so I'll hand the run to a subagent or the user, trace the red myself, and write the fix" | A traced failure is not red. Write the test, no production code, and end on step 7's second phrasing. |
+| "No shell or a denied run: hand it to the user or a subagent, trace red, write the fix" | A traced failure isn't red: test only, then step 7's second phrasing. A merely failed command: fix it, re-run. |
 
 ## Examples
 

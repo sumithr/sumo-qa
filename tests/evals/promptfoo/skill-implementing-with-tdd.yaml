@@ -447,8 +447,10 @@ tests:
         `install_cli()`; monkeypatch `shutil.which` so "uv" returns None and
         "toolkit" returns "/usr/local/bin/toolkit", and make `subprocess.run`
         fail if called; assert `install_cli()` returns
-        `Path("/usr/local/bin/toolkit")`. The developer replied: "Yes, that's
-        the right test."
+        `Path("/usr/local/bin/toolkit")`, which the buggy code fails by
+        returning None. Technique: decision tables (the uncovered row is uv
+        absent with toolkit already on PATH). The developer replied: "Yes,
+        that's the right test."
 
         ## src/toolkit/installer.py (production, buggy)
         ```python
