@@ -22,9 +22,6 @@ description: >
 # -mapping-gap reasoning configs rather than the cheap verdict-format tier.
 # History: the retired OpenAI tier ran it on gpt-5-mini rather than the
 # estate's gpt-4o-mini, with the gpt-5.5 judge.
-# #686: on the Claude pair the fixture/data and passes-locally-fails-in-CI seeds
-# failed SHAPE (a source read, or the pin-back fix, named as the isolation step).
-# Classified as skill gaps and fixed in SKILL.md step 4; no rubric clause changed.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
