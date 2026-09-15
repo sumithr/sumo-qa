@@ -144,10 +144,6 @@ defaultTest:
 
       {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C/D then verdict>"}
 prompts:
-  # #684: the prompt's risk count was "3-7", contradicting the skill and the
-  # inclusion seed's expected_shape (3-5). Only the count changed, to match that
-  # existing rubric; no expectation was removed. The comment sits outside the
-  # block scalar so it does not reach the candidate.
   - |
     You are a senior QA agent in an IDE chat session. You have loaded this
     sumo-qa skill and MUST follow its discipline exactly as written:
