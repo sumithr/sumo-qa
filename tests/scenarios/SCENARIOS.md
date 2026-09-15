@@ -23,7 +23,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **Anti-patterns that would fail this scenario:**
 - Generic "add unit tests and integration tests".
-- 15+ risks (confabulation, not reasoning).
+- More than 5 risks, or risks the change does not create or move (padding is confabulation, not reasoning).
 - Asks the user what's in the files instead of reading them.
 - Surfaces "Classification: business_logic_change" verbatim in the output.
 

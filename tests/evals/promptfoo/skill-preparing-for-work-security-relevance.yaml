@@ -5,7 +5,7 @@ description: >
   grounded in the change (auth/token/secret/input-sanitisation/config/dependency
   movement), and is OMITTED when the change has no security-relevant surface.
   Two seeds pin BOTH directions: grounded inclusion (a session-token change) and
-  grounded omission (a presentational CSS-only change). Security must flow through
+  grounded omission (a bulk-discount tier and rounding change). Security must flow through
   the EXISTING security_change classification + loaded rules/techniques — no
   parallel taxonomy, no vulnerability checklist, no vendor/tool-name dumping.
 providers:
@@ -144,8 +144,8 @@ defaultTest:
 
       {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C/D then verdict>"}
 prompts:
-  # #684: the prompt's risk count was "3-7", contradicting the skill and this
-  # config's own expected_shape (3-5). Only the count changed, to match that
+  # #684: the prompt's risk count was "3-7", contradicting the skill and the
+  # inclusion seed's expected_shape (3-5). Only the count changed, to match that
   # existing rubric; no expectation was removed. The comment sits outside the
   # block scalar so it does not reach the candidate.
   - |
