@@ -48,12 +48,12 @@ You MUST work through these in order. Steps 1–3 are AI-only homework; the user
 
 5. **Write the failing test** — use the host's edit tool. Do NOT ask the user to write it. Match the sibling tests' framework and fixture style.
 
-6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim.
+6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim. **Can't run it yourself** (no command tool, or the run is refused)? Don't delegate the run, ask the user to run it, or trace the failure by hand, and write no production code: go to step 7's second phrasing.
 
 7. **Hand off to the user, then stop** (retrospective regression: see its item 4) — the LAST line of your reply is EXACTLY one of these two phrasings, with nothing after it (no pleasantries, no confirmation question, no "shall I"):
    - if step 6 really ran the test and you pasted its assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
    - otherwise: "I'll run this and surface the assertion failure next."
-   Red output you did not run is a guess, not evidence: with no real run (no command tool, or not run yet), write no red-output block; use the second phrasing. Waiting for the user is an action, not text.
+   With no real run, write no red-output block, no production code and no commands for the user to run: the second phrasing is the whole handoff. Waiting is an action, not text.
 
 8. **Re-run after green-making change** — confirm it passes for the right reason (not a weakened assertion). If it fails, surface the new failure — don't try a second production change without the user.
 
@@ -71,11 +71,11 @@ You MUST work through these in order. Steps 1–3 are AI-only homework; the user
 
    Never destructive — `git reset --hard`, `git checkout <branch>`, `git clean` discard the worktree. Run the test; capture the real assertion failure.
 3. **MANDATORY: reverse the restore (with the reverse paired in step 2) and return to the current worktree before final verification**, then re-run and confirm green. Leaving the tree on the old version reintroduces the bug — the cycle is write-current → restore-old → red → restore-current → green, all BEFORE any handoff; you always end on the current tree. If the pre-fix version is unrecoverable, say so — never fabricate red by weakening the assertion against current code.
-4. **Ending:** if not yet run, state each command and end on step 7's second phrasing; after a real red and green the fix already exists, so skip to step 9.
+4. **Ending:** if not yet run, state each command (never ask the user to run them) and end on step 7's second phrasing; after a real red and green the fix already exists, so skip to step 9.
 
-**Tests for code outside the coverage target.** A test for code outside `--cov=src/sumo_qa` (a script, CI helper, build artifact, sibling package) is still legitimate and often required. Coverage accounting does not decide whether a regression matters. Write it where the code lives and let it gate on its own pass/fail; don't drop it for not moving the number, and don't widen `--cov` to "count" it — the gate stays as configured.
+**Tests for code outside the coverage target.** A test for code outside `--cov=src/sumo_qa` (a script, CI helper, build artifact, sibling package) still counts: coverage doesn't decide whether a regression matters. Write it where the code lives; don't drop it, don't widen `--cov`.
 
-**Closest-sibling selection for a novel test file.** No obvious twin? Copy the closest sibling, most-specific first: (1) **same test pattern** — same *kind* of test (loader test for a new loader, CLI-capture test for a new CLI surface, packaging-artifact test for a new artifact check; pattern beats location); (2) **same target area** — same module/subsystem/dir; (3) **same fixture/subprocess style**. Read the match before writing and mirror its imports, fixtures, and assertions rather than inventing a convention.
+**Closest-sibling selection for a novel test file.** No obvious twin? Copy the closest sibling, most-specific first: (1) **same test pattern**, the same *kind* of test (a loader test for a new loader; pattern beats location); (2) **same target area** (module/subsystem/dir); (3) **same fixture/subprocess style**. Read the match first and mirror its imports, fixtures and assertions.
 
 ## Process Flow
 
@@ -95,7 +95,7 @@ The Checklist above.
 | "I'll stub the prod function with `return total * 0.9` so the test fails meaningfully" | Iron Law violated via the stub. Red-phase stubs are signature-only (`pass` / `raise NotImplementedError`); the 0.9 belongs in the user's green phase. |
 | "Mutation testing fits here" | Wrong skill. Mutation follow-up is `sumo-qa-strengthening-tests`. |
 | "The bug's already fixed, so I'll commit the test green" | An unred test proves nothing. Manufacture red against the pre-fix version with a scoped reversible restore (`git show <commit>:<path> > <path>` → reverse `git checkout -- <path>`; never `reset --hard` / `checkout <branch>`, and not `git stash` — with the fix committed it reverts to the fixed tree, not the pre-fix file), see red, then reverse (pair the reverse to the restore — `git checkout <commit> -- <path>` pollutes the index, so reverse it against HEAD) and see green. Always end on the current tree. |
-| "This test won't move `--cov=src/sumo_qa`, so it doesn't count" | Coverage accounting doesn't decide whether a regression matters. Write it where the code lives; don't drop it, don't widen `--cov`. |
+| "No command tool, so I'll hand the run to a subagent or the user, trace the red myself, and write the fix" | A traced failure is not red. Write the test, no production code, and end on step 7's second phrasing. |
 
 ## Examples
 
