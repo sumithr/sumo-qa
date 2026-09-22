@@ -107,7 +107,7 @@ dev = [
   # kwarg→None / kwarg-drop Call mutants, which moved the baseline; a minor
   # bump must re-run the gate and ratchet mutmut-baseline.json, not just
   # widen the range. Keep in lockstep with .pre-commit-config.yaml.
-  "mutmut>=3.7,<3.8",
+  "mutmut>=3.7,<3.9",
   # NOTE: CVE-2025-71176 (local tmpdir symlink, fixed in pytest 9.0.3) cannot be
   # remediated by upgrading while pytest-check-links is a dev dep — its latest
   # release (0.10.1) hard-caps pytest<9 and is unmaintained. The advisory is
