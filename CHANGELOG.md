@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.2](https://github.com/sumithr/sumo-qa/compare/v0.64.1...v0.64.2) (2026-09-22)
+
+
+### Bug Fixes
+
+* **skills:** cap the preparing-for-work brief at the smallest useful set ([#704](https://github.com/sumithr/sumo-qa/issues/704)) ([980cd59](https://github.com/sumithr/sumo-qa/commit/980cd59c2edf17cee18d4b78a213f4b13f4d1027))
+
 ## [0.64.1](https://github.com/sumithr/sumo-qa/compare/v0.64.0...v0.64.1) (2026-09-15)
 
 
