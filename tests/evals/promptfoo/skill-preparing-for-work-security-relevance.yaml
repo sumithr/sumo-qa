@@ -5,7 +5,7 @@ description: >
   grounded in the change (auth/token/secret/input-sanitisation/config/dependency
   movement), and is OMITTED when the change has no security-relevant surface.
   Two seeds pin BOTH directions: grounded inclusion (a session-token change) and
-  grounded omission (a presentational CSS-only change). Security must flow through
+  grounded omission (a bulk-discount tier and rounding change). Security must flow through
   the EXISTING security_change classification + loaded rules/techniques — no
   parallel taxonomy, no vulnerability checklist, no vendor/tool-name dumping.
 providers:
@@ -173,7 +173,8 @@ prompts:
 
     > {{user_prompt}}
 
-    This is the QA-prep turn. Name 3-7 risks, each anchored to a specific line
+    This is the QA-prep turn. Name 3-4 risks (a 5th only where the change has a
+    grounded security surface), each anchored to a specific line
     or behaviour in the supplied context, each tied to a concrete test idea and
     a technique named verbatim from the loaded techniques catalogue. Do NOT
     surface internal taxonomy labels - describe the change in plain risk
