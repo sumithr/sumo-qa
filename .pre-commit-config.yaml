@@ -245,7 +245,7 @@ repos:
           # stats-collection run), 3.7 fixed that but changed pragma
           # placement and the mutant set, so the baseline is per-minor. See
           # the pin comment in pyproject.toml [project.optional-dependencies].
-          - "mutmut>=3.7,<3.8"
+          - "mutmut>=3.7,<3.9"
           - "pydantic>=2.8,<3"
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
