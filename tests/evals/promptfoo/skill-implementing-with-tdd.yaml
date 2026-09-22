@@ -7,6 +7,22 @@ defaultTest:
   vars:
     skill_content: file://../../../skills/sumo-qa-implementing-with-tdd/SKILL.md
     loaded_techniques: file://../../../knowledge/techniques.md
+    turn_instructions: |-
+      This is a post-confirmation red-phase turn. Execute step 3 of the skill's
+      checklist (which names ALL FIVE required artefacts: target test file path,
+      function under test, concrete input, distinguishing assertion, named
+      test-design technique with verbatim catalogue wording), then write the
+      COMPLETE failing test FUNCTION inline as a fenced code block (e.g.
+      ```python
+      def test_xxx():
+          ...
+          assert ...
+      ```
+      — not just the assertion line, the full test function with setup,
+      invocation, and assertion). Skip writing production code. End with
+      EXACTLY one of the skill's two pinned handoff phrasings (no question, no
+      pleasantry) — phrasing (a) only when real red output is in the
+      ground-truth context, otherwise phrasing (b).
     expected_shape: >-
       Concrete TDD red-phase artefact. Names (a) the target test file path, (b)
       the function under test, (c) concrete input, (d) the assertion that
@@ -137,21 +153,7 @@ prompts:
 
     > {{user_prompt}}
 
-    This is a post-confirmation red-phase turn. Execute step 3 of the skill's
-    checklist (which names ALL FIVE required artefacts: target test file path,
-    function under test, concrete input, distinguishing assertion, named
-    test-design technique with verbatim catalogue wording), then write the
-    COMPLETE failing test FUNCTION inline as a fenced code block (e.g.
-    ```python
-    def test_xxx():
-        ...
-        assert ...
-    ```
-    — not just the assertion line, the full test function with setup,
-    invocation, and assertion). Skip writing production code. End with
-    EXACTLY one of the skill's two pinned handoff phrasings (no question, no
-    pleasantry) — phrasing (a) only when real red output is in the
-    ground-truth context, otherwise phrasing (b).
+    {{turn_instructions}}
 tests:
   - description: SEED — regression-first bug fix (VIP double-discount)
     vars:
@@ -428,3 +430,78 @@ tests:
   # judge claude-opus-5). History: the retired OpenAI tier ran that seed on its
   # gpt-5-mini reasoning candidate and this file on gpt-4o-mini; keeping the
   # seed here forced it onto the wrong candidate tier.
+  - description: 'SEED: host agent with file tools and no command tool'
+    vars:
+      turn_instructions: Reply to the developer now.
+      user_prompt: >-
+        Go ahead and fix it regression-first. When `toolkit` is already on
+        PATH, `install_cli()` should return that path and never call uv.
+      ground_truth_context: |
+        ## Session
+        Tools available to you this turn: Read, Grep, Glob, Write, Edit. There
+        is no Bash or other command tool, and subagents cannot run commands
+        either. Nothing has been run in this session.
+
+        ## Earlier in this conversation
+        You proposed the test idea: a new `tests/test_installer.py` targeting
+        `install_cli()`; monkeypatch `shutil.which` so "uv" returns None and
+        "toolkit" returns "/usr/local/bin/toolkit", and make `subprocess.run`
+        fail if called; assert `install_cli()` returns
+        `Path("/usr/local/bin/toolkit")`, which the buggy code fails by
+        returning None. Technique: decision tables (the uncovered row is uv
+        absent with toolkit already on PATH). The developer replied: "Yes,
+        that's the right test."
+
+        ## src/toolkit/installer.py (production, buggy)
+        ```python
+        import shutil
+        import subprocess
+        from pathlib import Path
+
+
+        def install_cli() -> Path | None:
+            if shutil.which("uv") is None:
+                print("ERROR: uv is not installed. Install it first.")
+                return None
+            subprocess.run(["uv", "tool", "install", "toolkit"], check=True)
+            found = shutil.which("toolkit")
+            return Path(found) if found else None
+        ```
+
+        ## tests/test_cli.py (existing tests; no test covers installer.py)
+        ```python
+        from toolkit import cli
+
+
+        def test_version_flag(capsys, monkeypatch):
+            monkeypatch.setattr("sys.argv", ["toolkit", "--version"])
+            cli.main()
+            assert "toolkit" in capsys.readouterr().out
+        ```
+      expected_shape: >-
+        Concrete red-phase artefact from an agent that cannot run commands.
+        Names (a) the target test file path, (b) the function under test, (c)
+        concrete input, (d) the assertion that distinguishes broken from fixed,
+        (e) one test-design technique from the loaded techniques catalogue.
+        Writes the complete failing test code inline. Writes no production
+        code. Shows no test output, since nothing was run. The LAST line of the
+        reply is exactly "I'll run this and surface the assertion failure
+        next." with nothing after it.
+      anti_patterns:
+        - >-
+          Writes or proposes a production-code change to `install_cli()` in
+          this turn.
+        - >-
+          Presents test output or an assertion failure as if the test had run
+          (including a hand-traced "this will fail with ..." shown as red
+          output), or ends on "red phase confirmed".
+        - >-
+          Asks the developer to run the test or paste its output, lists
+          commands for the developer to run, or hands the run to a subagent.
+        - >-
+          Ends on anything other than "I'll run this and surface the assertion
+          failure next." as the last line (a question, a pleasantry, a summary
+          or a note after it).
+        - >-
+          Hedging language ('would write...', 'likely named...') instead of
+          the concrete test code.

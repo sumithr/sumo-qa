@@ -5,7 +5,7 @@ description: Use after sumo-qa-deciding-approach picks tdd-scaffold, regression-
 
 # Implementing with TDD
 
-Drive a change through TDD discipline: walk the cycle one step at a time, confirm the test idea before writing it, prove the red phase before handing back the green-making step. The user has product context (what "wrong" looks like, the API shape) the AI can't infer from code — surface it through questions, don't assume.
+The user has product context (what "wrong" looks like, the API shape) the AI can't infer from code: surface it through questions, don't assume.
 
 **Announce at start:** *"Walking the red→green cycle."*
 
@@ -21,7 +21,7 @@ Do NOT write the failing test in the same turn you propose the test idea. Walk: 
 
 **RED PHASE FIRST. NO PRODUCTION CODE BEFORE A FAILING TEST.** A test that has never failed has never tested anything — the red phase is the proof.
 
-**Stub allowance — narrow.** A production-side stub is permitted in the red phase ONLY when the test can't otherwise be collected (e.g. the function under test doesn't exist yet, so the test file fails at import). It must be signature-only: `def apply_discounts(order): raise NotImplementedError` or `: pass`. **Any behaviour in the stub — a partial implementation, a heuristic return, a branch that happens to satisfy the assertion — is an Iron Law violation:** the red phase would then prove the stub matches the assertion, not that the test catches the bug. Writing `if`/`else` or computing a value in the stub → stop; that's green-phase work for the user.
+**Stub allowance — narrow.** A production-side stub is permitted in the red phase ONLY when the test can't otherwise be collected (e.g. the function under test doesn't exist yet, so the test file fails at import). It must be signature-only: `def apply_discounts(order): raise NotImplementedError` or `: pass`. **Any behaviour in the stub — a partial implementation, a heuristic return, a branch that happens to satisfy the assertion — is an Iron Law violation:** the red phase would then prove the stub matches the assertion, not that the test catches the bug.
 
 ## When to Use
 
@@ -31,7 +31,7 @@ For `strengthen-test-coverage` (mutation follow-up), route to `sumo-qa-strengthe
 
 ## Checklist
 
-You MUST work through these in order. Steps 1–3 are AI-only homework (no user questions). The user's confirmation gates steps 4 onward.
+You MUST work through these in order. Steps 1–3 are AI-only homework; the user's confirmation gates step 4 onward.
 
 1. **Re-state the approach and the named risk** *(no user question)* — restate the TDD-shaped approach and the named risk this cycle targets. If no risk was named, route to `sumo-qa-preparing-for-work` first.
 
@@ -46,14 +46,14 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
 
 4. **Confirm the test idea, only for the AMBIGUOUS parts** — name target, fixture style, and proposed assertion, then ask ONE focused question for what code couldn't answer (e.g. *"is 90.0 right, or does VIP stack with promo?"*). If unambiguous, skip the question.
 
-5. **Write the failing test** — use the host's edit tool. Do NOT ask the user to write it. Match the sibling tests' framework and fixture style.
+5. **Write the failing test** — use the host's edit tool. Do NOT ask the user to write it. Match the sibling tests' framework and fixture style. Name its step-3 technique with it.
 
-6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim.
+6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim. **No command tool, or your run attempt was denied by the user or host policy?** Don't delegate the run, ask the user to run it, trace the failure by hand, or write production code: go to step 7's second phrasing. A failed command isn't that: fix it, re-run.
 
-7. **Hand off to the user** — end with EXACTLY one of these two phrasings (no pleasantries, no confirmation question, no "shall I"):
-   - if you've shown the actual red assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
-   - if no real red output yet: "I'll run this and surface the assertion failure next."
-   Wait.
+7. **Hand off to the user, then stop** (retrospective regression: see its item 4) — the LAST line of your reply is EXACTLY one of these two phrasings, with nothing after it (no pleasantries, no confirmation question, no "shall I"):
+   - if step 6 really ran the test and you pasted its assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
+   - otherwise: "I'll run this and surface the assertion failure next."
+   A real run is a command-tool call you made this turn. Without one, write no red-output block, no production code and no commands for the user to run: the second phrasing is the whole handoff.
 
 8. **Re-run after green-making change** — confirm it passes for the right reason (not a weakened assertion). If it fails, surface the new failure — don't try a second production change without the user.
 
@@ -69,16 +69,17 @@ You MUST work through these in order. Steps 1–3 are AI-only homework (no user 
    - `git show <pre-fix-commit>:<path> > <path>` → reverse `git checkout -- <path>`.
    - `git checkout <pre-fix-commit> -- <path>` → reverse `git checkout HEAD -- <path>` (or `git restore --source=HEAD --staged --worktree <path>`): it writes the OLD file into BOTH index AND worktree, so a bare `git checkout -- <path>` restores the buggy version from the polluted index — reverse against HEAD, not the index.
 
-   Never destructive — `git reset --hard`, `git checkout <branch>`, `git clean` discard the worktree. Run the test; capture the real assertion failure.
-3. **MANDATORY: reverse the restore (with the reverse paired in step 2) and return to the current worktree before final verification**, then re-run and confirm green. Leaving the tree on the old version reintroduces the bug — the cycle is write-current → restore-old → red → restore-current → green; you always end on the current tree. If the pre-fix version is unrecoverable, say so — never fabricate red by weakening the assertion against current code.
+   Never destructive — `git reset --hard`, `git checkout <branch>`, `git clean` discard the worktree. Run the test (no command tool: restore nothing, see item 4); capture the real assertion failure.
+3. **MANDATORY: reverse the restore (with the reverse paired in step 2) and return to the current worktree before final verification**, then re-run and confirm green. Leaving the tree on the old version reintroduces the bug — the cycle is write-current → restore-old → red → restore-current → green, all BEFORE any handoff; you always end on the current tree. If the pre-fix version is unrecoverable, say so — never fabricate red by weakening the assertion against current code.
+4. **Ending:** if not yet run, state each command (never ask the user to run them) and end on step 7's second phrasing; after a real red and green the fix already exists, so skip to step 9.
 
-**Tests for code outside the coverage target.** A test for code outside `--cov=src/sumo_qa` (a script, CI helper, build artifact, sibling package) is still legitimate and often required. Coverage accounting does not decide whether a regression matters. Write it where the code lives and let it gate on its own pass/fail; don't drop it for not moving the number, and don't widen `--cov` to "count" it — the gate stays as configured.
+**Tests for code outside the coverage target.** A test for code outside `--cov=src/sumo_qa` (a script, CI helper, build artifact, sibling package) still counts: coverage doesn't decide whether a regression matters. Write it where the code lives; don't drop it, don't widen `--cov`.
 
-**Closest-sibling selection for a novel test file.** No obvious twin? Copy the closest sibling, most-specific first: (1) **same test pattern** — same *kind* of test (loader test for a new loader, CLI-capture test for a new CLI surface, packaging-artifact test for a new artifact check; pattern beats location); (2) **same target area** — same module/subsystem/dir; (3) **same fixture/subprocess style**. Read the match before writing and mirror its imports, fixtures, and assertions rather than inventing a convention.
+**Closest-sibling selection for a novel test file.** No obvious twin? Copy the closest sibling, most-specific first: (1) **same test pattern**, the same *kind* of test (a loader test for a new loader; pattern beats location); (2) **same target area** (module/subsystem/dir); (3) **same fixture/subprocess style**. Read the match first and mirror its imports, fixtures and assertions.
 
 ## Process Flow
 
-See the Checklist above — that's the flow.
+The Checklist above.
 
 ## Red Flags — STOP and rework
 
@@ -88,13 +89,12 @@ See the Checklist above — that's the flow.
 | "I'll write the test idea AND the test in the same message" | HARD-GATE. Test idea → confirm → write → run; the gate catches misaligned assertions. |
 | "Test passed on first run — must already be correct" | The test is wrong; it's not testing what you think. Tighten the assertion until you can see it fail. |
 | "Failed with import / syntax / fixture error — that's red" | Not red. A red test fails on its assertion, not on a precondition. |
-| "I'll ask the user what test framework they use" | Read a sibling test file. The repo answers that. |
 | "Assertion: `assert add(2,3) == 2+3`" | Tautology. The broken code passes this too. Pick an outcome the bug changes. |
 | "February has 28 days, so `anchorDay=31` lands on the 28th" | Recall, not derivation. Feb 2024 has 29 days; Feb 2023 has 28. Trace input → rule → expected for THIS input. Same trap: *"UTC offset is +0"*, *"ASCII is 7-bit"* — year/locale/encoding-dependent. A broken impl that hardcodes the same generic passes the assertion. |
 | "I'll stub the prod function with `return total * 0.9` so the test fails meaningfully" | Iron Law violated via the stub. Red-phase stubs are signature-only (`pass` / `raise NotImplementedError`); the 0.9 belongs in the user's green phase. |
 | "Mutation testing fits here" | Wrong skill. Mutation follow-up is `sumo-qa-strengthening-tests`. |
 | "The bug's already fixed, so I'll commit the test green" | An unred test proves nothing. Manufacture red against the pre-fix version with a scoped reversible restore (`git show <commit>:<path> > <path>` → reverse `git checkout -- <path>`; never `reset --hard` / `checkout <branch>`, and not `git stash` — with the fix committed it reverts to the fixed tree, not the pre-fix file), see red, then reverse (pair the reverse to the restore — `git checkout <commit> -- <path>` pollutes the index, so reverse it against HEAD) and see green. Always end on the current tree. |
-| "This test won't move `--cov=src/sumo_qa`, so it doesn't count" | Coverage accounting doesn't decide whether a regression matters. Write it where the code lives; don't drop it, don't widen `--cov`. |
+| "No shell or a denied run: hand it to the user or a subagent, trace red, write the fix" | A traced failure isn't red: test only, then step 7's second phrasing. A denial you didn't hit isn't one: attempt the run; a failed command: fix it, re-run. |
 
 ## Examples
 
