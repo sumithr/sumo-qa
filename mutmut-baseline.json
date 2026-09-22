@@ -1,9 +1,9 @@
 {
-  "baseline_date": "2026-05-15",
-  "branch": "feat/qa-phase4.2-mutation-survivor-strengthening",
-  "phase": "4.2",
-  "mutmut_version": "3.7.0",
-  "python_version": "3.14.4",
+  "baseline_date": "2026-09-22",
+  "branch": "dependabot/pip/mutmut-gte-3.7-and-lt-3.9",
+  "phase": "mutmut-3.8",
+  "mutmut_version": "3.8.0",
+  "python_version": "3.13",
   "_notes": [
     "Floor-only baseline. The CI mutation workflow has two gates: (a) regression",
     "catch \u2014 fails if any module's killed count drops below the per-module 'killed'",
@@ -71,12 +71,13 @@
     "all of them after an exact-argv spy test (GIT/head casing survives only on",
     "a case-insensitive filesystem) and an exact-message assertion. The two",
     "utf-8 -> UTF-8 codec-name mutants are equivalent and carry # pragma: no",
-    "mutate. Linux CI remains authoritative."
+    "mutate. Linux CI remains authoritative.",
+    "2026-09-22 (mutmut 3.8.0 bump): re-baselined from CI run 35755657459 (ubuntu, py3.13, 0 survivors in every module). 3.8 adds a conditional-expression branch-forcing operator (`X if C else Y` -> `X if (C) or True else Y` / `and False`), so the mutant set grew and every floor moved up: knowledge_loaders 491->497, tdm_validation 203->205, coverage_models 87->89, report_builder 833->888. rules (81) and standards (70) were unchanged. The seven new report_builder survivors were closed by three strengthening tests (clean persisted rows are available; a sha-mismatched fresh fact is coerced to stale in the evidence table; _first_line falls back to the class name on an empty message) plus one # pragma: no mutate on _measurement_artifact's unreachable `if measure` arm. The floors are per-minor: a further mutmut minor bump must re-run the gate and re-baseline rather than widen the pin. Linux CI remains authoritative."
   ],
   "per_module": {
     "knowledge_loaders": {
       "file": "src/sumo_qa/knowledge_loaders.py",
-      "killed": 491
+      "killed": 497
     },
     "rules": {
       "file": "src/sumo_qa/rules.py",
@@ -88,15 +89,15 @@
     },
     "tdm_validation": {
       "file": "src/sumo_qa/tdm_validation.py",
-      "killed": 203
+      "killed": 205
     },
     "coverage_models": {
       "file": "src/sumo_qa/coverage_models.py",
-      "killed": 87
+      "killed": 89
     },
     "report_builder": {
       "file": "src/sumo_qa/report_builder.py",
-      "killed": 833
+      "killed": 888
     }
   }
 }
