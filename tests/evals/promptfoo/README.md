@@ -868,4 +868,4 @@ This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claud
 
 A control only measures lift if A0 cannot pass on material the prompt already hands it; otherwise document the seed as non-discriminating in the config header, or add a seed that targets a taught behaviour A0 is not given. In `skill-strengthening-tests.ab.yaml`, the three original seeds do not discriminate on the Claude pair; the production-defect seed does.
 
-`skill-preparing-for-work.ab.yaml` discriminates weakly on the Claude pair: only the refactor seed separates the legs consistently, because the response template every leg shares carries the SHAPE axis for the other seeds.
+`skill-preparing-for-work.ab.yaml` does not discriminate on the Claude pair: the response format every leg is handed carries the SHAPE axis, so A0 reaches B's pass count. Two recorded single passes, A0 3/4, A1 2/4, B 4/4 and A0 4/4, A1 4/4, B 4/4. It is kept as a regression guard on the shared rubric rather than a lift measurement; restoring lift needs a seed targeting a taught behaviour A0 is not given.

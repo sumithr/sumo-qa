@@ -1,5 +1,7 @@
-# Discriminates weakly on the Claude pair: only the refactor seed separates the legs consistently;
-# the shared response template carries SHAPE for the others.
+# Does NOT discriminate on the Claude pair. The response format every leg is handed carries the SHAPE
+# axis, so A0 reaches B's pass count. Recorded single passes: A0 3/4, A1 2/4, B 4/4 (2026-09-15) and
+# A0 4/4, A1 4/4, B 4/4 (2026-09-22). Keep it as a regression guard on the shared rubric, not as a
+# lift measurement; restoring lift needs a seed targeting a taught behaviour A0 is not given.
 disableVarExpansion: true
 description: 'A/B/C value-measurement for sumo-qa-preparing-for-work'
 providers:
