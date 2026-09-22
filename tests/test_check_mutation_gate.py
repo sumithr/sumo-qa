@@ -14,6 +14,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 def _repo_root() -> Path:
     here = Path(__file__).resolve()
@@ -650,13 +652,51 @@ def test_changed_files_since_without_a_remote_ref_diffs_only_against_main(monkey
 
 def test_mutated_modules_from_pyproject_keeps_the_real_paths(tmp_path):
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.mutmut]\npaths_to_mutate = ["src/sumo_qa/rules.py", "src/sumo_qa/sub/deep.py"]\n',
+        '[tool.mutmut]\nsource_paths = ["src/sumo_qa/rules.py", "src/sumo_qa/sub/deep.py"]\n',
         encoding="utf-8",
     )
     assert gate.mutated_modules_from_pyproject(tmp_path / "pyproject.toml") == {
         "rules": "src/sumo_qa/rules.py",
         "deep": "src/sumo_qa/sub/deep.py",
     }
+
+
+def test_mutated_modules_from_pyproject_still_reads_the_pre_3_8_key(tmp_path):
+    """mutmut renamed paths_to_mutate to source_paths in 3.8 and still honours
+    the old spelling. The gate reads the same config, so it must agree."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.mutmut]\npaths_to_mutate = ["src/sumo_qa/rules.py"]\n',
+        encoding="utf-8",
+    )
+    assert gate.mutated_modules_from_pyproject(tmp_path / "pyproject.toml") == {
+        "rules": "src/sumo_qa/rules.py",
+    }
+
+
+def test_mutated_modules_from_pyproject_prefers_source_paths_over_the_old_key(tmp_path):
+    """mutmut's own precedence is `source_paths or paths_to_mutate`. If the two
+    ever disagree the gate must scope to the one mutmut actually mutates,
+    otherwise the scoped run targets modules that hold no mutants."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.mutmut]\n"
+        'source_paths = ["src/sumo_qa/rules.py"]\n'
+        'paths_to_mutate = ["src/sumo_qa/standards.py"]\n',
+        encoding="utf-8",
+    )
+    assert gate.mutated_modules_from_pyproject(tmp_path / "pyproject.toml") == {
+        "rules": "src/sumo_qa/rules.py",
+    }
+
+
+def test_mutated_modules_from_pyproject_refuses_an_empty_scope(tmp_path):
+    """Neither key present must be loud. Returning {} would scope the run to no
+    modules at all, which reports a green gate having tested nothing."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.mutmut]\npytest_add_cli_args = ["--no-cov"]\n', encoding="utf-8"
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        gate.mutated_modules_from_pyproject(tmp_path / "pyproject.toml")
+    assert "source_paths" in str(excinfo.value)
 
 
 def test_scope_matches_a_nested_mutated_module_by_its_configured_path():

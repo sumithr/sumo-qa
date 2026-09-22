@@ -81,7 +81,7 @@ test-file edit (a cold full pass is 15+ minutes at --max-children 1):
     (<to> = PRE_COMMIT_TO_REF, the revision being pushed, else HEAD) unioned
     with `<to>...<from>` when PRE_COMMIT_FROM_REF is a real sha, so whatever a
     force-push removes from the remote is in scope too;
-  - a changed `paths_to_mutate` module selects the glob `sumo_qa.<module>.*`;
+  - a changed `source_paths` module selects the glob `sumo_qa.<module>.*`;
   - a changed tests/**/*.py selects one glob per mutated function the cached
     mutants/mutmut-stats.json maps that file to; a file the stats pass ran
     (or mutmut ignores) that maps to nothing exercises no mutated function
@@ -220,11 +220,23 @@ def _mutmut_table(path: Path) -> dict:
 
 
 def mutated_modules_from_pyproject(path: Path) -> dict[str, str]:
-    """``[tool.mutmut] paths_to_mutate`` as {module stem: repo-relative path},
+    """``[tool.mutmut] source_paths`` as {module stem: repo-relative path},
     read live so the scope never drifts from the gate's own target list. The
     path is kept (not rebuilt from the stem) so a nested entry still matches
-    the git diff."""
-    return {Path(p).stem: p for p in _mutmut_table(path).get("paths_to_mutate", [])}
+    the git diff.
+
+    ``paths_to_mutate`` is mutmut's pre-3.8 name for the same key and is still
+    honoured, mirroring mutmut's own precedence. Neither key present is a hard
+    error rather than an empty scope: an empty scope would silently select no
+    mutants and report a false-green gate."""
+    table = _mutmut_table(path)
+    paths = table.get("source_paths") or table.get("paths_to_mutate")
+    if not paths:
+        raise SystemExit(
+            f"{path}: [tool.mutmut] declares neither source_paths nor "
+            "paths_to_mutate, so the gate has no modules to scope to."
+        )
+    return {Path(p).stem: p for p in paths}
 
 
 def ignored_tests_from_pyproject(path: Path) -> set[str]:
@@ -458,7 +470,7 @@ def main(argv: list[str] | None = None) -> int:
         "--pyproject",
         type=Path,
         default=Path("pyproject.toml"),
-        help="where [tool.mutmut] paths_to_mutate is read from",
+        help="where [tool.mutmut] source_paths is read from",
     )
     parser.add_argument(
         "--baseline",

@@ -253,8 +253,11 @@ ignore_missing_imports = true
 
 [tool.mutmut]
 # Target only the four parser/decision modules per the Phase 3 strategy.
+# `source_paths` is mutmut 3.8's name for what 3.7 called `paths_to_mutate`;
+# 3.8 still accepts the old key but warns. Readers: scripts/check_mutation_gate.py
+# and tests/test_mutmut_subprocess_exclusions.py.
 # Other modules (installer, server, tdm_*) aren't included in this baseline.
-paths_to_mutate = [
+source_paths = [
   "src/sumo_qa/knowledge_loaders.py",
   "src/sumo_qa/rules.py",
   "src/sumo_qa/standards.py",
@@ -314,8 +317,8 @@ pytest_add_cli_args = [
   # `mutmut-subprocess-spawning`.
   "--ignore=tests/test_doctor.py",
 ]
-tests_dir = ["tests/"]
-# mutmut only copies paths_to_mutate modules into mutants/src/sumo_qa/, leaving the
+pytest_add_cli_args_test_selection = ["tests/"]
+# mutmut only copies source_paths modules into mutants/src/sumo_qa/, leaving the
 # rest of the package absent. also_copy ensures the full src/ tree is mirrored into
 # mutants/src/ (dirs_exist_ok=True) so the mutated files overwrite the originals
 # while every other module (debug_capture, server, installer, …) stays importable.
