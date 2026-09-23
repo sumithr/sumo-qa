@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.4](https://github.com/sumithr/sumo-qa/compare/v0.64.3...v0.64.4) (2026-09-23)
+
+
+### Bug Fixes
+
+* **skills:** make the triage isolation step a run experiment, not a read or the fix ([#705](https://github.com/sumithr/sumo-qa/issues/705)) ([5c3e892](https://github.com/sumithr/sumo-qa/commit/5c3e892d049cb95ef71b7fabd8e9eac44ff435fc))
+
 ## [0.64.3](https://github.com/sumithr/sumo-qa/compare/v0.64.2...v0.64.3) (2026-09-22)
 
 
