@@ -43,6 +43,9 @@ mutants/
 .sumo-qa/coverage.json
 .sumo-qa/mutation.json
 .sumo-qa/qa-report-summary.json
+# Diff-impact overlay written by sumo_qa_analyze_diff_impact: per-diff
+# generator output, never committed.
+.sumo-qa/diff-impact.json
 
 # Per-machine MCP config written by sumo-qa-install
 .vscode/mcp.json
