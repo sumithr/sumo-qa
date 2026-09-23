@@ -509,6 +509,16 @@ def _measurement_artifact(
     that failed to validate is ``invalid``; nothing on disk is ``missing``.
     """
     if signal is not None and signal.has_measurement():
+        # `measure=None` is unreachable from build_report (both call sites pass
+        # `X_measure[1] if X_measure else None`, and the measure producers return
+        # non-None under exactly this guard's condition), so mutmut 3.8's
+        # forced-true-arm mutant on this ternary is observably equivalent. It is
+        # pinned by a direct call in
+        # test_measurement_artifact_without_a_measure_reports_bare_freshness
+        # rather than silenced with `# pragma: no mutate`, because the pragma is
+        # line-level: measured against 3.8 it drops THREE mutants here, and the
+        # other two (`detail = None`, and the forced-false arm) are ones the
+        # existing tests do kill.
         detail = f"{measure}, freshness={signal.freshness}" if measure else signal.freshness
         status: ArtifactStatus = "available" if signal.freshness == "fresh" else "stale"
     elif source.error is not None:

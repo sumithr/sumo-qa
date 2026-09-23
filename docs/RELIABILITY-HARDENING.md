@@ -93,7 +93,7 @@ INTENTIONALLY BOUNDED (residual named and accepted), never open or unaddressed.
 - **Residual limit:** host-side actions are only partially observable; the transcript
   lint catches blatant evidence-free claims, while the structured path is the rigorous
   one. Follow-up: #488 (add the gate-evidence modules to the mutation gate's
-  `paths_to_mutate`).
+  `source_paths`).
 
 ### 4. Shallow static-analysis integration
 

@@ -21,8 +21,11 @@ import pytest
 from sumo_qa.context_bundle_models import ContextBundle
 from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION, RiskLedger, RiskLedgerRow
 from sumo_qa.report_builder import (
+    ArtifactSource,
     _detect_report_head,
+    _first_line,
     _load_run_summary,
+    _measurement_artifact,
     _readiness_from_scorecard,
     _repo_map_is_stale,
     build_report,
@@ -30,6 +33,7 @@ from sumo_qa.report_builder import (
     load_report_inputs,
     write_run_summary,
 )
+from sumo_qa.scorecard_models import CoverageSignal
 
 _NOW = datetime(2026, 6, 8, 8, 0, 0, tzinfo=timezone.utc)
 _VERSION = "sumo-qa 0.0.0-test"
@@ -787,6 +791,94 @@ def test_ledger_rows_become_risks_with_blocker_count(tmp_path):
     assert report.readiness.state == "blocked"
 
 
+def test_sha_mismatched_fresh_fact_is_coerced_to_stale_in_the_evidence_table(tmp_path):
+    """A fact can be stale for two independent reasons: its own `freshness` says
+    so, or it was captured against a different commit than the bundle head.
+    Every bundle fixture in this file takes the first route (`_bundle_payload`
+    sets ci_status.freshness = "stale" literally), so the coercion was only ever
+    observed where the fallback would have produced "stale" anyway.
+
+    Decision table over (own freshness, sha match) -> rendered freshness:
+      stale, match     -> stale   (test_bundle_evidence_is_mapped_with_trust)
+      fresh, match     -> fresh   (test_fresh_fact_not_in_stale_set_keeps_its_freshness)
+      fresh, MISMATCH  -> stale   (this test, the unexercised combination)
+
+    Without it the evidence table vouches as fresh for a pass captured against
+    another commit, which is the exact dishonesty the coercion exists to stop.
+    Kills x__evidence_streams__mutmut_3 (the stale-field set) and _62 (the
+    coercion itself); both mutants render "fresh" here."""
+    payload = _bundle_payload()
+    payload["head_sha"] = _SHA_A
+    # Fresh AND passing on its own terms, so only the sha mismatch can make it
+    # stale. ci_status is given a clean fresh fact too, to keep the assertion
+    # about test_evidence alone.
+    payload["test_evidence"] = {
+        "result": "passing",
+        "freshness": "fresh",
+        "source": "local_git",
+        "captured_against_sha": _SHA_B,
+    }
+    payload["ci_status"] = {
+        "result": "passing",
+        "freshness": "fresh",
+        "source": "ci_provider",
+    }
+    _write_artifact(tmp_path, "context-bundle.json", payload)
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    by_name = {e.name: e for e in report.evidence}
+
+    assert by_name["tests"].freshness == "stale"
+    # The fact's own label is untouched upstream; only the projection coerces.
+    assert by_name["tests"].status == "passing"
+    # The sibling with no mismatch keeps its own freshness, so the coercion is
+    # attributable to the mismatch rather than to something bundle-wide.
+    assert by_name["ci"].freshness == "fresh"
+
+
+def test_measurement_artifact_without_a_measure_reports_bare_freshness():
+    """`_measurement_artifact`'s defensive `else signal.freshness` arm, which
+    `build_report` never reaches: both its call sites pass
+    `X_measure[1] if X_measure else None`, and the measure producers return
+    non-None under exactly this guard's condition, so `measure` is always a
+    non-empty string there.
+
+    Pinned by a direct call rather than by `# pragma: no mutate`, because the
+    pragma is line-level. Measured against mutmut 3.8 it drops three mutants on
+    this line, not one: the equivalent forced-true arm goes, but so do
+    `detail = None` and the forced-false arm, and the existing tests kill both
+    of those. Silencing one equivalent mutant would cost two live guards on a
+    line that is otherwise fully covered; killing it here keeps all three in the
+    mutant set."""
+    signal = CoverageSignal(line_percent=91.5, freshness="fresh")
+    artifact = _measurement_artifact(
+        "coverage", signal, ArtifactSource(path=".sumo-qa/coverage.json"), None
+    )
+    # No measure text, so the ternary yields the bare freshness and the return
+    # suffixes it. NOT a formatted string carrying the literal "None", which is
+    # what the forced-true-arm mutant produces.
+    assert artifact.detail == "fresh \N{EM DASH} reported, not gated"
+    # The status arm is independent of the detail arm and still reads the signal.
+    assert artifact.status == "available"
+
+
+def test_first_line_falls_back_to_the_class_name_for_an_empty_message(tmp_path):
+    """Equivalence partitioning on `str(exc).strip()`: the non-empty class is
+    covered by every real loader failure (JSONDecodeError, pydantic
+    ValidationError), the empty/whitespace-only class by nothing, because no
+    exception the loaders raise carries a blank message.
+
+    That class is not cosmetic. `_load_json_artifact` documents that it never
+    raises, and `_first_line` indexing an empty list would raise IndexError
+    straight out of `generate_report`. Mirrors the same assertion on the twin
+    helper in tests/test_analysis_artifacts.py. Kills
+    x__first_line__mutmut_4."""
+    assert _first_line(ValueError("")) == "ValueError"
+    assert _first_line(ValueError("   \n  ")) == "ValueError"
+    # The populated partition, so the fallback cannot be reached by a mutant
+    # that simply always returns the class name.
+    assert _first_line(ValueError("boom\nsecond line")) == "boom"
+
+
 def test_bundle_evidence_is_mapped_with_trust(tmp_path):
     # A verified bundle (head_sha == the live HEAD): trust follows freshness.
     (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
@@ -1004,6 +1096,38 @@ def test_present_artifact_rows_carry_their_path(tmp_path):
     assert by_kind["diff_impact"].path == ".sumo-qa/diff-impact.json"
     assert by_kind["risk_ledger"].path == ".sumo-qa/risk-ledger.json"
     assert by_kind["context_bundle"].path == ".sumo-qa/context-bundle.json"
+
+
+def test_clean_persisted_rows_are_available_and_carry_no_stale_detail(tmp_path):
+    """The other half of the two status decisions this module makes. The stale
+    overlay (test_diff_impact_with_persisted_stale_warning_is_stale) and the
+    inline ledger (test_inline_ledger_row_is_inline_not_available) are both
+    pinned; the clean persisted arm of each was only ever asserted on `.path`,
+    so nothing distinguished it from its sibling.
+
+    Decision table, one row per (condition, expected status):
+      diff_impact  no stale warning + fresh repo-map -> available, no detail
+      risk_ledger  read from disk, not supplied inline -> available
+
+    `report_html` counts `status == "stale"` rows for the inventory summary, so
+    a row that wrongly reads stale mis-renders the page. Kills
+    x__diff_impact_artifact__mutmut_34 (status arm), _40 (detail arm) and
+    x__ledger_artifact__mutmut_25 (status arm)."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(tmp_path))
+    _write_artifact(tmp_path, "diff-impact.json", _diff_impact_payload())
+    _write_artifact(tmp_path, "risk-ledger.json", _ledger_payload())
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    by_kind = {a.kind: a for a in report.artifacts}
+
+    assert by_kind["diff_impact"].status == "available"
+    # An available overlay carries no explanatory detail; the detail slot is
+    # where the stale arm puts its "; ".join(warnings), so an empty string here
+    # would mean the stale text was composed from an empty warning list.
+    assert by_kind["diff_impact"].detail is None
+
+    # `inline` means "present and usable but never touched disk". This ledger
+    # WAS read from disk, so the persisted arm must not claim inline.
+    assert by_kind["risk_ledger"].status == "available"
 
 
 def test_invalid_artifact_row_keeps_path_and_real_parser_message(tmp_path):

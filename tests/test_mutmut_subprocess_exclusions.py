@@ -82,7 +82,7 @@ MUTMUT_SUBPROCESS_MARKER = "mutmut-subprocess-spawning"
 def _mutated_module_names() -> set[str]:
     """The bare module names mutmut mutates, e.g. {'knowledge_loaders', ...}."""
     data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
-    paths = data["tool"]["mutmut"]["paths_to_mutate"]
+    paths = data["tool"]["mutmut"]["source_paths"]
     return {Path(p).stem for p in paths}
 
 

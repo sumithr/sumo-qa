@@ -182,7 +182,7 @@ stops being needed fails the check until removed.
 ## Mutation testing
 
 A nightly [`.github/workflows/mutation.yml`](../.github/workflows/mutation.yml) job
-mutates the parser/decision modules listed under `paths_to_mutate` in
+mutates the parser/decision modules listed under `source_paths` in
 `[tool.mutmut]` (`pyproject.toml`) and enforces a strict 100% kill rate. A
 scheduled-run failure files a `mutation-gate` issue (deduped against any open
 one) so a red nightly lands in the backlog instead of going unnoticed. A
@@ -199,7 +199,7 @@ touches instead of running every mutant on any test edit (a cold full pass is
 `git diff --name-only --no-renames origin/main...<to>` (what the branch changes;
 `<to>` is the `PRE_COMMIT_TO_REF` pre-commit exports, the revision actually
 being pushed) and `<to>...<from>` when `PRE_COMMIT_FROM_REF` is a real sha
-(whatever a force-push removes from the remote). A changed `paths_to_mutate`
+(whatever a force-push removes from the remote). A changed `source_paths`
 module selects `sumo_qa.<module>.*`; a changed test file selects one glob per
 mutated function that `mutants/mutmut-stats.json` maps it to, so mutmut also
 limits its clean-test pass to those tests. A test file the stats pass ran (or
