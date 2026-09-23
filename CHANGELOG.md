@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.64.6](https://github.com/sumithr/sumo-qa/compare/v0.64.5...v0.64.6) (2026-09-23)
+
+
+### Bug Fixes
+
+* **deps-dev:** update mutmut requirement from &lt;3.8,&gt;=3.7 to &gt;=3.7,&lt;3.9 ([#708](https://github.com/sumithr/sumo-qa/issues/708)) ([1c30157](https://github.com/sumithr/sumo-qa/commit/1c3015783c384b0d6822cd5bdbf9765a544971ea))
+
+
+### Miscellaneous Chores
+
+* gitignore the .sumo-qa/diff-impact.json overlay ([#720](https://github.com/sumithr/sumo-qa/issues/720)) ([1c99393](https://github.com/sumithr/sumo-qa/commit/1c9939346a4a5d5feb5238270dd7ec001c1cd817))
+
 ## [0.64.5](https://github.com/sumithr/sumo-qa/compare/v0.64.4...v0.64.5) (2026-09-23)
 
 
