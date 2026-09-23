@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumo-qa"
-version = "0.64.2"
+version = "0.64.5"
 description = "Sumo QA — a senior-QA-shaped MCP server for pre-coding QA planning, TDD scaffolding, mutation-testing follow-up, code review, and test-data discovery."
 readme = "README.md"
 license = "Apache-2.0"
@@ -75,6 +75,10 @@ dependencies = [
   # In the core closure via mcp[crypto] -> pyjwt[crypto] -> cryptography
   # (also via the `vertex` extra).
   "cryptography>=50.0.0",
+  # anyio < 4.14.2: GHSA-82r6-8w77-94w6 (TLSStream IDNA 2003 host name
+  #   encoding enables TLS certificate spoofing), plus the process-pool
+  #   undrained-stderr hang. In the core closure via mcp and starlette.
+  "anyio>=4.14.2",
   # TOML reader for the slice-2 repo-map scanner's pyproject.toml parsing.
   # tomllib is stdlib on 3.11+; 3.10 (still supported per requires-python)
   # needs the tomli backport. dev extras already pull tomli for plugin_packaging,

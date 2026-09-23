@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.64.5](https://github.com/sumithr/sumo-qa/compare/v0.64.4...v0.64.5) (2026-09-23)
+
+
+### Bug Fixes
+
+* **deps:** floor anyio&gt;=4.14.2 and clear sharp and qs npm advisories ([#717](https://github.com/sumithr/sumo-qa/issues/717)) ([526ac19](https://github.com/sumithr/sumo-qa/commit/526ac190d0ba74060056a1375c789b134c258b17))
+
+## [0.64.4](https://github.com/sumithr/sumo-qa/compare/v0.64.3...v0.64.4) (2026-09-23)
+
+
+### Bug Fixes
+
+* **skills:** make the triage isolation step a run experiment, not a read or the fix ([#705](https://github.com/sumithr/sumo-qa/issues/705)) ([5c3e892](https://github.com/sumithr/sumo-qa/commit/5c3e892d049cb95ef71b7fabd8e9eac44ff435fc))
+
+## [0.64.3](https://github.com/sumithr/sumo-qa/compare/v0.64.2...v0.64.3) (2026-09-22)
+
+
+### Bug Fixes
+
+* **deps-dev:** bump adm-zip from 0.6.0 to 0.6.1 ([#707](https://github.com/sumithr/sumo-qa/issues/707)) ([60c75e5](https://github.com/sumithr/sumo-qa/commit/60c75e51b3fd9040182c11c68b3681b354068d70))
+* **deps-dev:** bump hono from 4.12.34 to 4.13.7 ([#658](https://github.com/sumithr/sumo-qa/issues/658)) ([658fc2a](https://github.com/sumithr/sumo-qa/commit/658fc2a773333a22cca65a276027c1e0688a5174))
+* **deps-dev:** bump ruff from 0.16.5 to 0.16.8 ([#709](https://github.com/sumithr/sumo-qa/issues/709)) ([939cef8](https://github.com/sumithr/sumo-qa/commit/939cef86443674645385b38079560c9e97498eac))
+* **deps:** bump js-yaml from 4.3.1 to 4.3.2 ([#657](https://github.com/sumithr/sumo-qa/issues/657)) ([618fd78](https://github.com/sumithr/sumo-qa/commit/618fd785fe02ab60c7f0f1f123743c7acc25df9b))
+* **skills:** end the implementing-with-tdd handoff on the pinned phrasing only ([#698](https://github.com/sumithr/sumo-qa/issues/698)) ([680e08f](https://github.com/sumithr/sumo-qa/commit/680e08f722a8b8dd83412fdaa92d4077d564f74e))
+
 ## [0.64.2](https://github.com/sumithr/sumo-qa/compare/v0.64.1...v0.64.2) (2026-09-22)
 
 
