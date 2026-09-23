@@ -72,7 +72,8 @@
     "a case-insensitive filesystem) and an exact-message assertion. The two",
     "utf-8 -> UTF-8 codec-name mutants are equivalent and carry # pragma: no",
     "mutate. Linux CI remains authoritative.",
-    "2026-09-22 (mutmut 3.8.0 bump): re-baselined from CI run 35755657459 (ubuntu, py3.13, 0 survivors in every module). 3.8 adds a conditional-expression branch-forcing operator (`X if C else Y` -> `X if (C) or True else Y` / `and False`), so the mutant set grew and every floor moved up: knowledge_loaders 491->497, tdm_validation 203->205, coverage_models 87->89, report_builder 833->888. rules (81) and standards (70) were unchanged. The seven new report_builder survivors were closed by three strengthening tests (clean persisted rows are available; a sha-mismatched fresh fact is coerced to stale in the evidence table; _first_line falls back to the class name on an empty message) plus one # pragma: no mutate on _measurement_artifact's unreachable `if measure` arm. The floors are per-minor: a further mutmut minor bump must re-run the gate and re-baseline rather than widen the pin. Linux CI remains authoritative."
+    "2026-09-22 (mutmut 3.8.0 bump): re-baselined from CI run 35755657459 (ubuntu, py3.13, 0 survivors in every module). 3.8 adds a conditional-expression branch-forcing operator (`X if C else Y` -> `X if (C) or True else Y` / `and False`), so the mutant set grew and every floor moved up: knowledge_loaders 491->497, tdm_validation 203->205, coverage_models 87->89, report_builder 833->888. rules (81) and standards (70) were unchanged. The seven new report_builder survivors were closed by three strengthening tests (clean persisted rows are available; a sha-mismatched fresh fact is coerced to stale in the evidence table; _first_line falls back to the class name on an empty message) plus one # pragma: no mutate on _measurement_artifact's unreachable `if measure` arm. The floors are per-minor: a further mutmut minor bump must re-run the gate and re-baseline rather than widen the pin. Linux CI remains authoritative.",
+    "2026-09-23 (review follow-up): report_builder 888 -> 891. The first pass silenced _measurement_artifact's equivalent forced-true-arm mutant with a line-level `# pragma: no mutate`, which also dropped `detail = None` and the forced-false arm, both of which existing tests kill. The pragma is gone and the arm is pinned by a direct call instead (test_measurement_artifact_without_a_measure_reports_bare_freshness), so all three mutants are back in the set and killed: 1830 -> 1833 total."
   ],
   "per_module": {
     "knowledge_loaders": {
@@ -97,7 +98,7 @@
     },
     "report_builder": {
       "file": "src/sumo_qa/report_builder.py",
-      "killed": 888
+      "killed": 891
     }
   }
 }

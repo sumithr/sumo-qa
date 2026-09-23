@@ -509,17 +509,17 @@ def _measurement_artifact(
     that failed to validate is ``invalid``; nothing on disk is ``missing``.
     """
     if signal is not None and signal.has_measurement():
-        # The `else signal.freshness` arm is unreachable: both call sites pass
-        # `X_measure[1] if X_measure else None`, and `_coverage_measure` /
-        # `_mutation_measure` return non-None under exactly this guard's
-        # condition, so inside it `measure` is always a non-empty string
-        # (`f"{pct:g}% lines"` or a non-empty `", ".join(bits)`). mutmut 3.8's
-        # conditional-forcing mutant on this ternary (`if (measure) or True`) is
-        # therefore observably equivalent. Named by shape, not by mutant id:
-        # suppressing the line renumbers every later mutant in this function.
-        # fmt: skip keeps this one line so the pragma sits on the mutated node;
-        # without it the formatter wraps the line and the pragma no longer covers it.
-        detail = f"{measure}, freshness={signal.freshness}" if measure else signal.freshness  # pragma: no mutate  # fmt: skip
+        # `measure=None` is unreachable from build_report (both call sites pass
+        # `X_measure[1] if X_measure else None`, and the measure producers return
+        # non-None under exactly this guard's condition), so mutmut 3.8's
+        # forced-true-arm mutant on this ternary is observably equivalent. It is
+        # pinned by a direct call in
+        # test_measurement_artifact_without_a_measure_reports_bare_freshness
+        # rather than silenced with `# pragma: no mutate`, because the pragma is
+        # line-level: measured against 3.8 it drops THREE mutants here, and the
+        # other two (`detail = None`, and the forced-false arm) are ones the
+        # existing tests do kill.
+        detail = f"{measure}, freshness={signal.freshness}" if measure else signal.freshness
         status: ArtifactStatus = "available" if signal.freshness == "fresh" else "stale"
     elif source.error is not None:
         detail = f"unreadable ({_first_line_text(source.error)})"

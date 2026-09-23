@@ -106,8 +106,12 @@ dev = [
   # compound-header comment (mutmut/mutation/pragma_handling.py) and added
   # kwarg→None / kwarg-drop Call mutants, which moved the baseline; a minor
   # bump must re-run the gate and ratchet mutmut-baseline.json, not just
-  # widen the range. Keep in lockstep with .pre-commit-config.yaml.
-  "mutmut>=3.7,<3.9",
+  # widen the range. The floor moves WITH the ceiling for that reason: the
+  # committed floors come from ONE minor's mutant set, so a range spanning
+  # two minors lets an older engine resolve and fail the gate impossibly
+  # (3.7 generates 491 knowledge_loaders mutants against a 497 floor, so
+  # killing every one of them still reports a DROP). Keep in lockstep with .pre-commit-config.yaml.
+  "mutmut>=3.8,<3.9",
   # NOTE: CVE-2025-71176 (local tmpdir symlink, fixed in pytest 9.0.3) cannot be
   # remediated by upgrading while pytest-check-links is a dev dep — its latest
   # release (0.10.1) hard-caps pytest<9 and is unmaintained. The advisory is

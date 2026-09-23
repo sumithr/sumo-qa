@@ -21,9 +21,11 @@ import pytest
 from sumo_qa.context_bundle_models import ContextBundle
 from sumo_qa.ledger_models import LEDGER_SCHEMA_VERSION, RiskLedger, RiskLedgerRow
 from sumo_qa.report_builder import (
+    ArtifactSource,
     _detect_report_head,
     _first_line,
     _load_run_summary,
+    _measurement_artifact,
     _readiness_from_scorecard,
     _repo_map_is_stale,
     build_report,
@@ -31,6 +33,7 @@ from sumo_qa.report_builder import (
     load_report_inputs,
     write_run_summary,
 )
+from sumo_qa.scorecard_models import CoverageSignal
 
 _NOW = datetime(2026, 6, 8, 8, 0, 0, tzinfo=timezone.utc)
 _VERSION = "sumo-qa 0.0.0-test"
@@ -830,6 +833,32 @@ def test_sha_mismatched_fresh_fact_is_coerced_to_stale_in_the_evidence_table(tmp
     # The sibling with no mismatch keeps its own freshness, so the coercion is
     # attributable to the mismatch rather than to something bundle-wide.
     assert by_name["ci"].freshness == "fresh"
+
+
+def test_measurement_artifact_without_a_measure_reports_bare_freshness():
+    """`_measurement_artifact`'s defensive `else signal.freshness` arm, which
+    `build_report` never reaches: both its call sites pass
+    `X_measure[1] if X_measure else None`, and the measure producers return
+    non-None under exactly this guard's condition, so `measure` is always a
+    non-empty string there.
+
+    Pinned by a direct call rather than by `# pragma: no mutate`, because the
+    pragma is line-level. Measured against mutmut 3.8 it drops three mutants on
+    this line, not one: the equivalent forced-true arm goes, but so do
+    `detail = None` and the forced-false arm, and the existing tests kill both
+    of those. Silencing one equivalent mutant would cost two live guards on a
+    line that is otherwise fully covered; killing it here keeps all three in the
+    mutant set."""
+    signal = CoverageSignal(line_percent=91.5, freshness="fresh")
+    artifact = _measurement_artifact(
+        "coverage", signal, ArtifactSource(path=".sumo-qa/coverage.json"), None
+    )
+    # No measure text, so the ternary yields the bare freshness and the return
+    # suffixes it. NOT a formatted string carrying the literal "None", which is
+    # what the forced-true-arm mutant produces.
+    assert artifact.detail == "fresh \N{EM DASH} reported, not gated"
+    # The status arm is independent of the detail arm and still reads the signal.
+    assert artifact.status == "available"
 
 
 def test_first_line_falls_back_to_the_class_name_for_an_empty_message(tmp_path):
