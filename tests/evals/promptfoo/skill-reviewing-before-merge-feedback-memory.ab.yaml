@@ -22,10 +22,11 @@ description: >
   PASS. An A0(FAIL) -> A1(PASS) lift would isolate the #145 behaviour. A0 body is
   snapshotted at fixtures/reviewing-before-merge-PRE-145.SKILL.md (= origin/main
   before the #145 commit); refresh it if the baseline moves.
-# Claude pair: non-discriminating. The SAVED REVIEW FEEDBACK block names the
-# rollover probe, and A0 applies it unprompted: both legs pass over two single
-# passes (A0 0.85, A1 0.90 on the seed with its narration removed). Kept as a
-# regression guard on the A1 leg, not a lift measurement.
+# Claude pair: non-discriminating; the A0 FAIL described above does not occur.
+# The SAVED REVIEW FEEDBACK block names the rollover probe and A0 applies it
+# unprompted: both legs pass on this seed and on a variant without its test-run
+# note (A0 0.85, A1 0.90). Kept as a regression guard on the A1 leg, not a lift
+# measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

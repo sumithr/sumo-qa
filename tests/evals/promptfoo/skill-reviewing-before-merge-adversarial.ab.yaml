@@ -8,7 +8,7 @@ description: >
   baselines miss? Hypothesis: B beats A0/A1 in aggregate because the
   adversarial discovery pass forces a signal->defect-class sweep before the
   risk list; A0/A1 lack that pass and declare green-tested diffs safe. Uses a
-  representative 6-seed spread (easy->hard discovery families + a docs-only
+  representative 7-seed spread (easy->hard discovery families + a docs-only
   negative control) from skill-reviewing-before-merge-adversarial.yaml. The
   default gate runs it on the Claude pair (candidate claude-haiku-4-5, judge
   claude-opus-5); it is a local reasoning-tier config. History on the retired

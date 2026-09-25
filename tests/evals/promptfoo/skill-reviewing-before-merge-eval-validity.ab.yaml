@@ -1,6 +1,6 @@
 disableVarExpansion: true
 description: >
-  Issue #321 — A0/A1 control proving the eval-validity probe is LOAD-BEARING.
+  Issue #321: A0/A1 control designed to show the eval-validity probe is load-bearing.
   The SAME seed (an eval-driven skill change shipping an A/B whose A0 already
   passes via a pre-existing generic rule — so the single A0-FAIL is variance —
   and whose rubric credits a non-discriminating input for the seed defect) runs
@@ -15,8 +15,11 @@ description: >
   it is exactly what the seed exploits). A0 body is snapshotted at
   fixtures/reviewing-before-merge-PRE-321.SKILL.md (= origin/main before the #321
   commit); refresh it if the baseline moves.
-# Claude pair: separates. The seed gives facts only; A0 0/3 (never ties the lift
-# to the pre-existing 2b rule), A1 2/3 over three single-pass samples.
+# Claude pair: separates. A0 0/3, A1 3/3 over three single-pass samples. The
+# anti-pattern requires BOTH non-discriminating inputs to be flagged; A0 reaches
+# NOT SAFE on generic single-sample grounds without the structural isolation
+# argument. Keep the developer observations: without them the skill leg misjudges
+# which fence inputs discriminate and fails too.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -183,9 +186,18 @@ tests:
         Seed defect under test: the parser stores and compares the fence
         CHARACTER but does NOT track the opening run LENGTH.
 
-        Unchanged context in the PRE-EDIT (A0) body, step 2b:
-        "every UNPROVEN row must emit a prescribed concrete discriminating
-        input."
+        ## Observations supplied by the developer
+        - The PRE-EDIT (A0) body ALREADY carries the generic 2b discipline:
+          "every UNPROVEN row must emit a prescribed concrete discriminating
+          input." So A0 can reach NOT-SAFE-with-a-prescribed-input for the SAME
+          generic reason, without the new fence-specific probe. When re-run, A0
+          actually PASSed on a second sample — the single observed A0-FAIL was
+          variance, not isolation.
+        - For the seed's char-stored/length-not-tracked bug, a `~~~`-vs-backtick
+          fence and an unclosed-fence-at-EOF are handled IDENTICALLY by broken and
+          correct impls (different chars → different fences; no close transition
+          at EOF), so they do NOT discriminate this defect. The rubric credits
+          them anyway.
 
         ## Fresh A/B run (single sample)
         ```text
@@ -206,6 +218,6 @@ tests:
       anti_patterns:
         - Accepts the A0-FAIL -> A1-PASS lift as proof the new text is load-bearing without checking A0 could pass via the pre-existing 2b rule.
         - Treats a single A0-FAIL run as isolation rather than variance.
-        - Fails to flag that the rubric credits a non-discriminating input (`~~~` / unclosed-at-EOF) for the char-stored/length-not-tracked bug.
+        - Fails to flag BOTH non-discriminating inputs the rubric credits (`~~~`-vs-backtick AND unclosed-fence-at-EOF) for the char-stored/length-not-tracked bug; flagging only one of them is this anti-pattern.
         - Declares SAFE TO MERGE.
         - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered NOT SAFE verdict are NOT this anti-pattern).

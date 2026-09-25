@@ -207,7 +207,7 @@ tests:
       anti_patterns:
         - Accepts the A0-FAIL -> A1-PASS lift as proof the new text is load-bearing without checking A0 could pass via the pre-existing 2b rule.
         - Treats a single A0-FAIL run as isolation rather than variance.
-        - Fails to flag that the rubric credits a non-discriminating input (`~~~` / unclosed-at-EOF) for the char-stored/length-not-tracked bug.
+        - Fails to flag BOTH non-discriminating inputs the rubric credits (`~~~`-vs-backtick AND unclosed-fence-at-EOF) for the char-stored/length-not-tracked bug; flagging only one of them is this anti-pattern.
         - Declares SAFE TO MERGE.
         - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
   - description: SEED load-bearing — A0 is structurally incapable of passing and the rubric credits only discriminating inputs
