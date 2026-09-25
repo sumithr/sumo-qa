@@ -83,8 +83,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 EVAL_DIR="$ROOT/tests/evals/promptfoo"
 BACKEND="${SUMO_EVAL_BACKEND:-claude}"
 REPEAT="${SUMO_EVAL_REPEAT:-3}"            # relative-lift signal -> repeat for variance
-# Concurrency (-j): number of test cases in flight, 1 by default on both backends. Raising
-# it does NOT help the single-GPU LOCAL tiers: -j>1 stacks several concurrent *reasoning*
+# Concurrency (-j): number of test cases in flight. 1 by default on the local backend; the
+# Claude backend sets its own default below. Raising it does NOT help the single-GPU LOCAL tiers: -j>1 stacks several concurrent *reasoning*
 # generations onto the one candidate GPU (and grades onto the one judge GPU), which thrashes
 # them. Verified 2026-06-08: at -j3 the laptop reasoning candidate pegged and never finished a
 # generation while the 4090 judge sat idle. The gen/grade host-overlap can't be isolated from
@@ -138,6 +138,9 @@ if [ "$BACKEND" = "claude" ]; then
   # One pass by default; set SUMO_EVAL_REPEAT for variance runs. With no argument this runs
   # the single default config; `all` runs the matrix.
   REPEAT="${SUMO_EVAL_REPEAT:-1}"
+  # 4 cases in flight, as the removed OpenAI cloud backend ran: each case is two `claude -p`
+  # calls with no shared GPU to thrash, and cases run one at a time take four times as long.
+  CONCURRENCY="${SUMO_EVAL_CONCURRENCY:-4}"
   command -v claude >/dev/null || { echo "[eval] ERROR: claude CLI not on PATH" >&2; exit 1; }
   echo "[eval] backend=CLAUDE (merge gate; subscription via claude -p)  repeat=$REPEAT  -j $CONCURRENCY"
   files=(); target="${1:-$EVAL_DIR/skill-implementing-with-tdd.yaml}"

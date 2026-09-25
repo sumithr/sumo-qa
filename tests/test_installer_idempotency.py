@@ -276,6 +276,14 @@ def test_install_skills_copies_on_windows_symlink_error(tmp_path: Path) -> None:
     # All skills should have been copied.
     for skill in real_skills:
         assert (skills_dir / skill.name).exists(), f"Expected copied skill: {skill.name}"
+    # #451: a skill's lazy modules travel with it on the copytree path too — a
+    # host reading ~/.claude/skills/<name>/modules/<id>.md must find every one.
+    modular = [s for s in real_skills if (s / "modules").is_dir()]
+    assert modular, "expected at least one bundled skill with a modules/ dir (#451)"
+    for skill in modular:
+        expected = sorted(p.name for p in (skill / "modules").glob("*.md"))
+        copied = sorted(p.name for p in (skills_dir / skill.name / "modules").glob("*.md"))
+        assert copied == expected, f"{skill.name}: modules not copied: {expected} vs {copied}"
 
 
 def test_install_skills_render_includes_copied_count(tmp_path: Path) -> None:

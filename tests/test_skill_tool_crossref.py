@@ -31,12 +31,18 @@ def _registered_tool_names() -> set[str]:
 
 
 def _skill_bodies() -> dict[str, str]:
-    """Map skill name → full SKILL.md body."""
-    return {
-        d.name: (d / "SKILL.md").read_text(encoding="utf-8")
-        for d in sorted(SKILLS_DIR.iterdir())
-        if d.is_dir() and (d / "SKILL.md").is_file()
-    }
+    """Map skill name → full SKILL.md body PLUS every lazy module under
+    ``modules/*.md`` (#451). A module is part of the skill's served surface
+    (``sumo_qa_load_skill_context(mode="module")``), so a tool referenced only
+    from a module is neither dead nor orphaned."""
+    bodies: dict[str, str] = {}
+    for d in sorted(SKILLS_DIR.iterdir()):
+        if not (d.is_dir() and (d / "SKILL.md").is_file()):
+            continue
+        parts = [(d / "SKILL.md").read_text(encoding="utf-8")]
+        parts += [p.read_text(encoding="utf-8") for p in sorted(d.glob("modules/*.md"))]
+        bodies[d.name] = "\n".join(parts)
+    return bodies
 
 
 def _find_dead_refs(skill_bodies: dict[str, str], registered: set[str]) -> dict[str, set[str]]:
