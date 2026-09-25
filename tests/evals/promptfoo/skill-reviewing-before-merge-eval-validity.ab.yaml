@@ -10,7 +10,7 @@ description: >
   it to accept the A0-FAIL/A1-PASS lift at face value and not flag the non-discriminating
   credited input — a SHAPE FAIL under the rubric. A1 (the new body) runs the
   probe, flags the non-load-bearing control and the non-discriminating credited
-  input, and delivers NOT SAFE. The design intended the A0(FAIL) -> A1(PASS) lift
+  input, and delivers NOT SAFE. The design aims for the A0(FAIL) -> A1(PASS) lift
   to isolate the #321 behaviour from pre-existing UNPROVEN/2b handling (A0 already
   carries that, and it is exactly what the seed exploits); on the Claude pair it
   does not, as the header below records. A0 body is snapshotted at

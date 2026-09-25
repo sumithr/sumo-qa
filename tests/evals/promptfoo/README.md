@@ -331,8 +331,9 @@ done
   SAFE) and a genuinely load-bearing A/B (A0 cannot reach PASS, 3/3 deterministic;
   rubric credits only the variable-length nested fence → SAFE-eligible). The
   `.ab.yaml` runs the non-load-bearing seed against
-  `fixtures/reviewing-before-merge-PRE-321.SKILL.md` (A0, no eval-validity probe →
-  accepts the lift at face value = FAIL) vs the post-#321 body (A1 = PASS).
+  `fixtures/reviewing-before-merge-PRE-321.SKILL.md` (A0, no eval-validity probe,
+  expected FAIL) vs the post-#321 body (A1, expected PASS); its header records how
+  the legs behave on the Claude pair.
 - **`skill-reviewing-before-merge-feature-flow.yaml` + `.ab.yaml` (#331).** Even
   with NO supplied AC, a change whose primary FEATURE FLOW (the closest realistic
   UI/API/CLI/worker/artifact path) was never driven end-to-end this turn — only a
