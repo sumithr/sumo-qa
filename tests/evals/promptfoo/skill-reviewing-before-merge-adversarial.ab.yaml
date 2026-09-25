@@ -22,7 +22,7 @@ description: >
   A0/A1 miss. A0/A1 flicker run-to-run; B is stable. Read the B-over-A0
   ordering as the signal.
 # Claude pair: non-discriminating. A no-skill claude-haiku-4-5 finds the seeded
-# defects: A0 3/7, B 7/7 (#679) and A0 7/7, A1 7/7, B 7/7 (#665). A0 flickers
+# defects: A0 3/7 and 7/7, B 7/7 both times over two single passes. A0 flickers
 # run to run and B stays at 7/7, so it is kept as a regression guard on B, not a
 # lift measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;

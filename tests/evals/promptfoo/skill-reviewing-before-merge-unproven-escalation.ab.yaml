@@ -1,22 +1,22 @@
 disableVarExpansion: true
 description: >
-  Issue #187 — A0/A1 control for the UNPROVEN-escalation discipline. Proves the
-  new behaviour is LOAD-BEARING: the SAME seeds run against the PRE-EDIT
+  Issue #187 — A0/A1 control for the UNPROVEN-escalation discipline, designed to show
+  the new behaviour is load-bearing: the SAME seeds run against the PRE-EDIT
   (origin/main) SKILL.md body (A0) and the post-edit body (A1). A0 lacks the
   step-6 technique-keyed failure-mode hints and the 2b prescribed
   discriminating-input requirement, so it marks the risk UNPROVEN / NOT SAFE but
   does NOT prescribe a concrete discriminating input (one value that passes a
   broken impl AND fails a correct impl) grounded in the named technique's
   catalogued failure mode — a SHAPE FAIL under the rubric. A1 (the new body)
-  prescribes that input and PASSES. The A0(FAIL) -> A1(PASS) lift is the proof
+  prescribes that input and PASSES. An A0(FAIL) -> A1(PASS) lift would show
   that #187 isolates new behaviour, not pre-existing UNPROVEN handling.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-187.SKILL.md
   (= origin/main before the #187 commit); refresh it if the baseline moves.
 # Claude pair: non-discriminating. The risk gate names the technique and the
 # failure mode, so A0 prescribes the discriminating input unprompted: both legs
 # passed both seeds with the seed's narration removed (A0 0.75/0.82, A1
-# 0.93/0.88); the #665 run separated on one seed only. Kept as a regression
-# guard on the A1 leg, not a lift measurement.
+# 0.93/0.88), and A0 passes 3 of 4 seed samples over two single passes. Kept as
+# a regression guard on the A1 leg, not a lift measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

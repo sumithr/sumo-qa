@@ -14,8 +14,8 @@ description: >
   that #296 isolates new behaviour, not pre-existing UNPROVEN handling.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-296.SKILL.md
   (= origin/main before the #296 commit); refresh it if the baseline moves.
-# Claude pair: separates. The seed gives facts only; A0 FAIL 0.00 (declares
-# SAFE), A1 PASS 0.93 on a single pass.
+# Claude pair: separates. The seed gives facts only; A0 0/2 graded (a third
+# judge reply was unparseable), A1 3/3 over three single-pass samples.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

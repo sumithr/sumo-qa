@@ -1,7 +1,7 @@
 disableVarExpansion: true
 description: >
-  Issue #145 — A0/A1 control proving the review-feedback-memory advisory-hints
-  NOTE in sumo-qa-reviewing-before-merge is LOAD-BEARING. The SAME memory-PRESENT
+  Issue #145 — A0/A1 control designed to show the review-feedback-memory advisory-hints
+  NOTE in sumo-qa-reviewing-before-merge is load-bearing. The SAME memory-PRESENT
   seed (a billing-day timezone diff whose ONLY fresh test asserts a midday UTC
   instant — nothing exercises the 23:59 -> 00:00 local rollover or DST — plus a
   trigger-matched SAVED REVIEW FEEDBACK block recommending exactly that rollover
@@ -19,12 +19,12 @@ description: >
   the matched lesson as a SEPARATE advisory hint, maps the rollover/DST risk
   through the coverage ledger as UNCOVERED (the fresh test only feeds the midday
   case), and reaches NOT SAFE TO MERGE without inventing or auto-capturing — a
-  PASS. The A0(FAIL) -> A1(PASS) lift isolates the #145 behaviour. A0 body is
+  PASS. An A0(FAIL) -> A1(PASS) lift would isolate the #145 behaviour. A0 body is
   snapshotted at fixtures/reviewing-before-merge-PRE-145.SKILL.md (= origin/main
   before the #145 commit); refresh it if the baseline moves.
 # Claude pair: non-discriminating. The SAVED REVIEW FEEDBACK block names the
-# rollover probe, and A0 applies it unprompted: A0 PASS 0.85, A1 PASS 0.90 with
-# the seed's narration removed, and both legs passed in the #665 run. Kept as a
+# rollover probe, and A0 applies it unprompted: both legs pass over two single
+# passes (A0 0.85, A1 0.90 on the seed with its narration removed). Kept as a
 # regression guard on the A1 leg, not a lift measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
