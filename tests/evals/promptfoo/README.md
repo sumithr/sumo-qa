@@ -6,8 +6,7 @@ LLM-in-the-loop for orchestration.
 
 ## What this measures
 
-For each skill (currently: `sumo-qa-implementing-with-tdd`; others land in
-follow-up PRs):
+For each skill (every skill under `skills/` has a base config):
 
 - **SHAPE** — does the candidate response produce the concrete artefact the
   skill demands (e.g. a failing test, an assertion, a file path), not hedged
@@ -114,9 +113,7 @@ chosen tool plus an external handoff whose only install commands are global
 (`brew install bats-core` / `npm install --global bats`); a passing response
 translates that to the repo-pinned equivalent and wires the CI mirror rather
 than running the global form. Standard Pattern A (inline per-scenario
-context), runs on the Claude pair (originally measured on the retired OpenAI pair as
-estate candidate `gpt-4o-mini`, judge `gpt-5.5`). Picked up by
-`npm run eval:all` automatically.
+context), runs on the Claude pair. Picked up by `npm run eval:all` automatically.
 
 ## UNPROVEN-escalation corpus (issue #187)
 
@@ -459,9 +456,12 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   returns no parseable verdict, is recorded by promptfoo as a failed assertion tagged
   `graderError`; `run-eval.sh` counts both, stops at the first config that has either,
   and exits 3: neither is a skill verdict (#651).
-- Usage is subscription usage. The `cost` in reports is the CLI's list-price figure,
-  notional, not an invoice. A full single pass over all 61 configs (2026-09-14,
-  `claude-haiku-4-5` candidate, `claude-opus-5` judge) used ~3.6M tokens, $12.30 at
+- Usage is subscription usage. The `cost` in reports is the CLI's `total_cost_usd` at
+  list price, notional, not an invoice. promptfoo records it for the candidate calls
+  only: judge calls appear as tokens (`stats.tokenUsage.assertions`) with no cost.
+  A full single pass over all 61 configs (2026-09-14,
+  `claude-haiku-4-5` candidate, `claude-opus-5` judge except the first two configs,
+  judged by `claude-fable-5-1`) used ~3.6M tokens, $12.30 at
   list price, with 0 provider errors; the slowest configs take 10 to 20 minutes each.
 
 ### Local tiers (OpenWebUI proxy): unmetered iteration, not a merge gate
@@ -685,21 +685,8 @@ flip-rate ≤ 20% (the stability bar per the design plan).
 
 ## Usage
 
-Every run goes through `claude -p` on the signed-in Claude account, so it spends
-subscription usage; see "The Claude pair" above for a measured full pass.
-
-### Historical: the retired OpenAI pair
-
-OpenAI pricing as of 2026-05, measured on the retired OpenAI pair:
-
-- Candidate (`gpt-4o-mini`): ~$0.001 per scenario
-- Judge (`gpt-5.5`): ~$0.005 per scenario
-- Full sweep of 18 skills: ~$0.11 per run with `seed: 42` determinism
-- The `reviewing-before-merge-adversarial` corpus pinned a `gpt-5-mini` candidate
-  (reasoning tokens, a few cents per full run); see "Adversarial discovery corpus"
-  above for why.
-
-Running a single skill: pennies. Running all 18 skills with `--repeat 5`: ~$0.30.
+On the default Claude backend every run goes through `claude -p` on the signed-in
+Claude account, so it spends subscription usage (the local tiers do not); see "The Claude pair" above for a measured full pass.
 
 ## Architecture
 
@@ -772,7 +759,7 @@ the synthesised tests stay in-scope or drift into out-of-scope topics that
 route to other skills. The per-skill `.gen.yaml` header comment carries the
 codex-reviewed instruction text for that skill.
 
-You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
+You maintain one file per skill (pattern A) OR ~3 files per skill
 (pattern B), not hundreds of hand-authored test cases.
 
 ### Judge catalogue context
@@ -843,7 +830,7 @@ renders.
 
 | File | Purpose |
 |---|---|
-| `skill-<name>.yaml` (×16) | One config per skill, all covered |
+| `skill-<name>.yaml` | One base config per skill under `skills/` |
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
 | `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) load-bearing control (see "UNPROVEN-escalation corpus" above) |
 | `skill-reviewing-before-merge-external-contract.yaml` | Issue #263 external-contract corpus, three seeds: (1) a matcher/parser over external CLI/API/tool output validated only by a hand-authored fixture → external-contract risk UNPROVEN, withhold SAFE; (2) a fixture traceable to a real run → external-contract risk discharged, SAFE-eligible (over-trigger guard); (3) a matcher over an INTERNAL/self-produced value the same module emits → external-contract axis must NOT fire at all (true-negative over-trigger guard) |
@@ -887,6 +874,18 @@ renders.
 ## A/B value-measurement (experimental)
 
 This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the skill (for `reviewing-before-merge`, the root `SKILL.md` plus the modules the config declares, assembled by `fixtures/assemble-review-skill.js`; for other skills, the whole `SKILL.md`). The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` controls exist for a subset of skills and corpora (`ls tests/evals/promptfoo/*.ab.yaml`); the pattern is not rolled across the whole estate.
+
+Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-opus-5` judge), one pass each:
+
+| Control | A0 | A1 | B | Run |
+|---|---|---|---|---|
+| `skill-answering-testing-question.ab.yaml` | 0/5 | 3/5 | 5/5 | 2026-09-25: 236,037 tokens, $0.36 candidate cost |
+| `skill-deciding-approach.ab.yaml` | 0/7 | not recorded | 7/7 | 2026-09-14 full matrix |
+| `skill-implementing-with-tdd.ab.yaml` | 0/3 | 0/3 | 3/3 | 2026-09-22 |
+| `skill-strengthening-tests.ab.yaml` | 3/5 | 4/5 | 5/5 | 2026-09-15; only the production-defect seed separates B from A1 |
+| `skill-preparing-for-work.ab.yaml` | 4/4 | 4/4 | 4/4 | 2026-09-22; non-discriminating, see below |
+
+The `reviewing-before-merge` controls are being triaged on the Claude pair in #685, and their reference rows land after it. `skill-preparing-for-work-feedback-memory.ab.yaml` has no recorded Claude-pair leg counts yet.
 
 A control only measures lift if A0 cannot pass on material the prompt already hands it; otherwise document the seed as non-discriminating in the config header, or add a seed that targets a taught behaviour A0 is not given. In `skill-strengthening-tests.ab.yaml`, the three original seeds do not discriminate on the Claude pair; the production-defect seed does.
 
