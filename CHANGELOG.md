@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.1](https://github.com/sumithr/sumo-qa/compare/v0.65.0...v0.65.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* **skills:** make the reviewing-before-merge verdict format and A/B controls hold on the Claude pair ([#725](https://github.com/sumithr/sumo-qa/issues/725)) ([51b637e](https://github.com/sumithr/sumo-qa/commit/51b637e2a41609609d3029585ee7abafedd600c7))
+
 ## [0.65.0](https://github.com/sumithr/sumo-qa/compare/v0.64.6...v0.65.0) (2026-09-25)
 
 
