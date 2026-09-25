@@ -12,6 +12,11 @@ description: >
   that #187 isolates new behaviour, not pre-existing UNPROVEN handling.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-187.SKILL.md
   (= origin/main before the #187 commit); refresh it if the baseline moves.
+# Claude pair: non-discriminating. The risk gate names the technique and the
+# failure mode, so A0 prescribes the discriminating input unprompted: both legs
+# passed both seeds with the seed's narration removed (A0 0.75/0.82, A1
+# 0.93/0.88); the #665 run separated on one seed only. Kept as a regression
+# guard on the A1 leg, not a lift measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

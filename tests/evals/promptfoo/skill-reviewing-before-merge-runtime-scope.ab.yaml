@@ -25,6 +25,8 @@ description: >
   trigger, surfacing the path-vs-behaviour seam #300 actually moves.)
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-300.SKILL.md
   (= origin/main before the #300 commit); refresh it if the baseline moves.
+# Claude pair: separates. The seed gives facts only; A0 FAIL 0.35 (no mirrored
+# tests/hooks/ Required-test-path), A1 PASS 0.74 on a single pass.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -263,14 +265,9 @@ tests:
         +24     return "pytest" in tokens
         ```
         Context: `.claude/hooks/route-qa-runners.py` is a PreToolUse hook — it
-        runs on every Bash tool call, parses the command line, and decides
-        whether to route it to the QA runner. It is executable automation with
-        real branching, NOT library code, and it lives under `.claude/hooks/`,
-        OUTSIDE `app/`, `src/`, or `lib/`. The match is a naive whitespace split
-        + membership test: it fires on `echo "run pytest later"` (the word
-        pytest is an argument token, not the program), and it MISSES `py.test -q`
-        (the legacy entrypoint tokenises to `py.test`, not `pytest`) and
-        `pytest:cov` framings where pytest isn't a bare whitespace token.
+        runs on every Bash tool call and decides whether to route the command
+        to the QA runner. It lives under `.claude/hooks/`, OUTSIDE `app/`,
+        `src/`, or `lib/`.
 
         ## Fresh test run
         ```text
@@ -278,8 +275,7 @@ tests:
         tests/hooks/test_route_qa_runners.py::test_matches_bare_pytest PASSED
         9 passed, 0 skipped in 0.44s
         ```
-        (The fixture only feeds the bare `pytest -q` happy case; no echo-token,
-        no `py.test -q`, no quoted-argument command is exercised.)
+        (The fixture only feeds the bare `pytest -q` command.)
       expected_shape: >-
         Evidence-led verdict that treats this executable hook as a RUNTIME change
         despite living under `.claude/hooks/` (outside app/src/lib) and despite
