@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.0](https://github.com/sumithr/sumo-qa/compare/v0.64.6...v0.65.0) (2026-09-25)
+
+
+### Features
+
+* **skills:** split reviewing-before-merge into a compact root and lazy modules ([#653](https://github.com/sumithr/sumo-qa/issues/653)) ([2ec3f46](https://github.com/sumithr/sumo-qa/commit/2ec3f465ad8c7edecc32366d56d578f2833aa2cd))
+
 ## [0.64.6](https://github.com/sumithr/sumo-qa/compare/v0.64.5...v0.64.6) (2026-09-23)
 
 
