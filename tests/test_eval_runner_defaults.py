@@ -226,6 +226,28 @@ class TestRunEvalClaudeDefault:
 
 
 @_posix_only
+class TestRunEvalClaudeConcurrency:
+    """The Claude backend runs 4 cases in flight by default (no shared GPU to
+    thrash, unlike the local tiers' -j 1); SUMO_EVAL_CONCURRENCY overrides it."""
+
+    def test_claude_backend_defaults_to_four_cases_in_flight(self, tmp_path: Path) -> None:
+        result = _run_eval(tmp_path)
+        assert result.returncode == 0, result.stderr
+        commands = _dry_run_commands(result.stdout)
+        assert commands, result.stdout
+        for command in commands:
+            assert re.search(r" -j 4( |$)", command), command
+
+    def test_concurrency_env_overrides_the_claude_default(self, tmp_path: Path) -> None:
+        result = _run_eval(tmp_path, env_overrides={"SUMO_EVAL_CONCURRENCY": "2"})
+        assert result.returncode == 0, result.stderr
+        commands = _dry_run_commands(result.stdout)
+        assert commands, result.stdout
+        for command in commands:
+            assert re.search(r" -j 2( |$)", command), command
+
+
+@_posix_only
 class TestRunEvalRejectsUnknownBackends:
     @pytest.mark.parametrize("backend", ["cloud", "openai", "bogus"])
     def test_invalid_backend_fails_naming_the_valid_ones(
