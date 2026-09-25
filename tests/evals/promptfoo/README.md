@@ -537,7 +537,7 @@ removed OpenAI tier ran on its `gpt-5-mini` reasoning candidate; `run-eval.sh` g
 it to split the cheap and reasoning tiers.
 
 `SUMO_EVAL_CONCURRENCY` sets promptfoo's `-j` (number of test cases in flight; defaults
-**1** on both backends). Raising local `-j` looks tempting (overlap candidate-gen on one
+**4** on the Claude backend and **1** on the local backend). Raising local `-j` looks tempting (overlap candidate-gen on one
 host with judge-grading on the other), but on the single-GPU local tiers it **backfires**:
 `-j>1` stacks several concurrent *reasoning* generations onto the one candidate GPU (and
 grades onto the one judge GPU), which thrashes them. Verified 2026-06-08: at `-j 3` the
