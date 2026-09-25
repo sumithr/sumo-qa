@@ -21,7 +21,8 @@ description: >
   before the #332 commit); refresh it if the baseline moves.
 # Claude pair: separates. The risk gate names no risk and the seed gives facts
 # only; A0 0/3, A1 2/3 at --repeat 3 (the failing A1 sample omitted the pinned
-# Feature flow line).
+# Feature flow line). After the final #685 skill wording, one single pass: A0
+# 0/1, A1 1/1.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

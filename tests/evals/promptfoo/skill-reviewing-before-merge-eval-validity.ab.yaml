@@ -16,10 +16,12 @@ description: >
   does not, as the header below records. A0 body is snapshotted at
   fixtures/reviewing-before-merge-PRE-321.SKILL.md (= origin/main before the #321
   commit); refresh it if the baseline moves.
-# Claude pair: separates in observed samples (A0 0/3, A1 3/3 over three single
-# passes) but is not structurally isolating: the developer observations hand
-# both legs the findings, and A0 fails by framing its NOT SAFE on generic
-# single-sample grounds instead of the named-rule argument the rubric grades.
+# Claude pair: non-discriminating, kept as a regression guard on A1. A0 passed
+# 2 of 5 graded samples (0/3 in three single passes, then 2/2 on the same input
+# after the module fix, with a third reply the judge could not parse); A1 4/4.
+# It is not structurally isolating: the developer observations hand both legs
+# the findings, so A0 passes whenever it frames its NOT SAFE on the named rule
+# instead of generic single-sample grounds.
 # Keep the observations: without them the skill leg misjudges which fence inputs
 # discriminate and fails too.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
