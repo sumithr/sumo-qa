@@ -5,7 +5,7 @@ description: Use when the user asks "review my changes" / "is this safe to merge
 
 # Reviewing before merge
 
-Help the user decide whether a change is safe to ship by walking the review one section at a time: explore the diff, surface what was found, name the risks, run the verification, deliver the verdict. The user holds product context the diff cannot reveal; surface it through questions, never assume it.
+Help the user decide whether a change is safe to ship by walking the review one section at a time (the Checklist below). The user holds product context the diff cannot reveal; surface it through questions, never assume it.
 
 **Announce at start:** *"Reviewing the diff against fresh test evidence."*
 
@@ -53,7 +53,7 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
    Apply `coverage-ledger` to every runtime risk, then the conditional modules the diff calls for: `inventory-drift`; `unproven-escalation` for any UNPROVEN row; `acceptance-criteria` (and `ac-evidence-views` on a close call) when criteria are supplied; `surface-verifier`, `feature-flow`, `eval-validity`, then `discharged-check`.
 
-10. **Deliver the verdict + residual concerns** — `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk has a fresh test demonstrably exercising that exact path, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. Always list residual concerns, even on SAFE. A ledger (`ledger-appendix`) or scorecard (`readiness-scorecard`) goes BELOW the prose verdict.
+10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review — `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk has a fresh test demonstrably exercising that exact path, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. Always list residual concerns, even on SAFE. A ledger (`ledger-appendix`) or scorecard (`readiness-scorecard`) goes BELOW the prose verdict.
 
 ## Module routing table
 
@@ -88,12 +88,12 @@ The verdict line is the LAST line. For a runtime change (per `runtime-scope`), b
 2. A coverage-ledger line per risk as pinned in `coverage-ledger`, plus the 2a/2b/2c/2d extension rows a present risk class requires.
 3. `Touched files:` citing every diff path verbatim (e.g. `app/auth/session.py, tests/billing/test_checkout.py`).
 4. `Change shape:` one phrase anchored to the touched files (e.g. `auth predicate + billing checkout ordering, both runtime`).
-5. The verification command, quoted verbatim as a LABELED evidence-source line (the gate-evidence source cite): `Evidence (command): $ <verification command> → <counts>`.
+5. The verification command, quoted verbatim as a LABELED evidence-source line: `Evidence (command): $ <verification command> → <counts>`.
 6. The test counts verbatim (`X passed, Y skipped, Z failed`).
 7. **AC lines** when criteria were supplied, one per criterion as pinned in `acceptance-criteria` (MET ones too); else exactly `No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`
-8. **Verification-evidence lines** that apply, as pinned in `surface-verifier`, `feature-flow`, `eval-validity`; each a SAFE-blocker until discharged.
+8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`: one per skill/eval change, new guard or `.ab.yaml`, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged.
 
-A runtime verdict emitted before all six (plus item 7 when ACs are present, item 8 when the change touches a verifiable surface / feature flow / guard / eval-driven skill) is a discipline violation. A trivial diff follows `runtime-scope`'s exemption and a test-only diff the `Test probe:` discipline in `test-only-diff`; items 1, 3, 4, 5, 6 stay mandatory in every mode.
+A runtime verdict emitted before all six (plus items 7 and 8 where they apply) is a discipline violation. A trivial diff follows `runtime-scope`'s exemption and a test-only diff the `Test probe:` discipline in `test-only-diff`; items 1, 3, 4, 5, 6 stay mandatory in every mode.
 
 ## Process Flow
 
