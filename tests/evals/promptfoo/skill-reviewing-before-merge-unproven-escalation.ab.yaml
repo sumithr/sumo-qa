@@ -4,15 +4,15 @@ description: >
   the new behaviour is load-bearing: the SAME seeds run against the PRE-EDIT
   (origin/main) SKILL.md body (A0) and the post-edit body (A1). A0 lacks the
   step-6 technique-keyed failure-mode hints and the 2b prescribed
-  discriminating-input requirement, so it marks the risk UNPROVEN / NOT SAFE but
-  does NOT prescribe a concrete discriminating input (one value that passes a
+  discriminating-input requirement, so the design expects it to mark the risk
+  UNPROVEN / NOT SAFE but NOT prescribe a concrete discriminating input (one value that passes a
   broken impl AND fails a correct impl) grounded in the named technique's
   catalogued failure mode — a SHAPE FAIL under the rubric. A1 (the new body)
   prescribes that input and PASSES. An A0(FAIL) -> A1(PASS) lift would show
   that #187 isolates new behaviour, not pre-existing UNPROVEN handling.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-187.SKILL.md
   (= origin/main before the #187 commit); refresh it if the baseline moves.
-# Claude pair: non-discriminating; the A0 FAIL described above does not occur.
+# Claude pair: non-discriminating; the expected A0 FAIL does not occur.
 # The risk gate names the technique and the failure mode, so A0 prescribes the
 # discriminating input unprompted: A0 passes 3 of 4 seed samples on these seeds,
 # and both legs pass both seeds on a variant without the code-context notes (A0

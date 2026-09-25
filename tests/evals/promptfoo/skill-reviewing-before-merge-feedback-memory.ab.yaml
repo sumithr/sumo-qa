@@ -12,7 +12,7 @@ description: >
   ledger-risk / never-override / never-auto-capture behaviour is the loaded skill
   body. The pre-#145 body runs the discovery sweep + coverage ledger but has NO
   review-feedback-memory note, so A0 has no instruction to consult the saved
-  lesson: it grades the diff on the green-but-non-covering test and the named
+  lesson; the design expects that it grades the diff on the green-but-non-covering test and the named
   diff risks alone, does not pull the rollover/DST probe into the ledger as an
   uncovered SAFE-blocker, and can wave the change through (or omit the advisory
   hint entirely) — a SHAPE FAIL under the rubric. A1 (the post-#145 body) consults
@@ -22,10 +22,10 @@ description: >
   PASS. An A0(FAIL) -> A1(PASS) lift would isolate the #145 behaviour. A0 body is
   snapshotted at fixtures/reviewing-before-merge-PRE-145.SKILL.md (= origin/main
   before the #145 commit); refresh it if the baseline moves.
-# Claude pair: non-discriminating; the A0 FAIL described above does not occur.
-# The SAVED REVIEW FEEDBACK block names the rollover probe and A0 applies it
-# unprompted: both legs pass on this seed and on a variant without its test-run
-# note (A0 0.85, A1 0.90). Kept as a regression guard on the A1 leg, not a lift
+# Claude pair: non-discriminating; the expected A0 FAIL does not occur. The
+# SAVED REVIEW FEEDBACK block names the rollover probe and A0 applies it
+# unprompted: A0 2/2, A1 2/2 over two single passes (one on this seed, one on a
+# variant without its test-run note). Kept as a regression guard on the A1 leg, not a lift
 # measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)

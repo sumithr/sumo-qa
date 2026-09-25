@@ -6,20 +6,21 @@ description: >
   and whose rubric credits a non-discriminating input for the seed defect) runs
   against the PRE-EDIT (origin/main) SKILL.md body (A0) and the post-#321 body
   (A1). A0 lacks the step-9 eval-validity probe — it has no rule to check the
-  A/B control's own isolation or to apply 2b to the RUBRIC, so it accepts the
-  A0-FAIL/A1-PASS lift at face value and does not flag the non-discriminating
+  A/B control's own isolation or to apply 2b to the RUBRIC, so the design expects
+  it to accept the A0-FAIL/A1-PASS lift at face value and not flag the non-discriminating
   credited input — a SHAPE FAIL under the rubric. A1 (the new body) runs the
   probe, flags the non-load-bearing control and the non-discriminating credited
-  input, and delivers NOT SAFE. The A0(FAIL) -> A1(PASS) lift isolates the #321
+  input, and delivers NOT SAFE. An A0(FAIL) -> A1(PASS) lift would isolate the #321
   behaviour, not pre-existing UNPROVEN/2b handling (A0 already carries that, and
   it is exactly what the seed exploits). A0 body is snapshotted at
   fixtures/reviewing-before-merge-PRE-321.SKILL.md (= origin/main before the #321
   commit); refresh it if the baseline moves.
-# Claude pair: separates. A0 0/3, A1 3/3 over three single-pass samples. The
-# anti-pattern requires BOTH non-discriminating inputs to be flagged; A0 reaches
-# NOT SAFE on generic single-sample grounds without the structural isolation
-# argument. Keep the developer observations: without them the skill leg misjudges
-# which fence inputs discriminate and fails too.
+# Claude pair: separates in observed samples (A0 0/3, A1 3/3 over three single
+# passes) but is not structurally isolating: the developer observations hand
+# both legs the findings, and A0 fails by framing its NOT SAFE on generic
+# single-sample grounds instead of the named-rule argument the rubric grades.
+# Keep the observations: without them the skill leg misjudges which fence inputs
+# discriminate and fails too.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
