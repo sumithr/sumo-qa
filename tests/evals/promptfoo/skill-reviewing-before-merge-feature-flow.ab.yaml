@@ -19,6 +19,10 @@ description: >
   the flow UNVERIFIED (feature flow) and delivers NOT SAFE. A0 body is
   snapshotted at fixtures/reviewing-before-merge-PRE-332.SKILL.md (= origin/main
   before the #332 commit); refresh it if the baseline moves.
+# Claude pair: separates. The risk gate names no risk and the seed gives facts
+# only; A0 0/3, A1 2/3 at --repeat 3 (the failing A1 sample omitted the pinned
+# Feature flow line). After the final #685 skill wording, one single pass: A0
+# 0/1, A1 1/1.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -171,14 +175,9 @@ tests:
         `qa export --format csv <out_path>` to app/cli/export.py: it gathers the
         QA-run rows and WRITES a CSV report file at the given path. NO acceptance
         criteria were supplied for this review.
-        Risk gate: completed and CLOSED. The developer confirmed there is exactly
-        ONE named risk and NO other outstanding concern — no rollback, no
-        persistence reordering, no schema change, no platform branch, no
-        external-output matcher:
-        R1 — the primary feature flow is a user running `qa export --format csv
-        report.csv` and getting a correctly-populated CSV file on disk (header
-        row + one line per QA run); that end-to-end CLI-to-artifact path is what
-        the change serves.
+        Risk gate: completed and CLOSED. The developer confirmed there is NO
+        outstanding concern: no rollback, no persistence reordering, no schema
+        change, no platform branch, no external-output matcher.
 
         ## git diff
         ```diff
@@ -201,10 +200,7 @@ tests:
         9 passed, 0 skipped in 0.31s
         ```
         The only fresh test for this change asserts the per-row formatter
-        (`_row_to_csv(sample_row) == ["...", "..."]`). NO fresh test invokes the
-        `qa export --format csv` command end-to-end or reads back the written CSV
-        file to assert its header + rows; the end-to-end CLI-to-artifact path was
-        never exercised this turn.
+        (`_row_to_csv(sample_row) == ["...", "..."]`).
       expected_shape: >-
         Evidence-led verdict that checks the primary FEATURE FLOW — a user running
         `qa export --format csv` and getting a correctly-populated CSV file on

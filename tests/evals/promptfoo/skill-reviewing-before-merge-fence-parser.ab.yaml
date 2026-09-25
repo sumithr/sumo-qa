@@ -14,6 +14,8 @@ description: >
   that #296 isolates new behaviour, not pre-existing UNPROVEN handling.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-296.SKILL.md
   (= origin/main before the #296 commit); refresh it if the baseline moves.
+# Claude pair: separates. The seed gives facts only; A0 0/2 graded (a third
+# judge reply was unparseable), A1 3/3 over three single-pass samples.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -282,9 +284,7 @@ tests:
         Context (the relevant part of the pre-existing `FenceState.feed`, for
         reference — unchanged by this diff): on a `` ``` ``/`~~~` line it stores
         the fence's MARKER CHARACTER (`self._char = marker_line.lstrip()[0]`) and
-        treats a later line as a close when `line.lstrip()[0] == self._char`. It
-        records only the fence character; it does not store or compare the
-        opening fence's run LENGTH, and it `lstrip()`s before the marker check.
+        treats a later line as a close when `line.lstrip()[0] == self._char`.
 
         ## Fresh test run
         ```text
@@ -299,10 +299,7 @@ tests:
         (The suite is described as the "comprehensive fenced-code-block test
         set". Reading the fixtures: every one opens and closes with a
         well-formed 3-character fence at column 0, never nested, never indented,
-        always closed before EOF, with nothing after the closing fence. No
-        fixture nests a 3-tick block inside a 4-tick fence, indents a
-        fence-looking line >=4 spaces, leaves a fence unclosed at EOF, or puts
-        trailing content on a close line.)
+        always closed before EOF, with nothing after the closing fence.)
       expected_shape: >-
         Evidence-led verdict that REFUSES to pronounce the fence parser
         "verified correct" from the code read or the green happy-path test. Maps

@@ -14,7 +14,7 @@ Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_co
 
 **Test-only-diff (test_change) discipline (pinned):** if the diff touches ONLY test files (no `app`/`src`/`lib` runtime file), the runtime coverage-ledger (item 2) does NOT apply — but it is NOT a trivial change, and a green suite is NOT a pass. Before the verdict you MUST, per new/changed test, emit one probe line in this shape:
 `Test probe: <test name> | Discriminates broken→fixed? <YES (the assertion a broken impl fails / for a regression, the cited RED-on-pre-fix evidence) | NO (the vacuous assertion, named verbatim — e.g. self-referential expected, type-only, restates prod code)> | <PASS | SAFE-blocker>`
-Any `NO` line is a SAFE-blocker → the verdict is `NEEDS WORK`/`NOT SAFE TO MERGE`, naming the vacuous assertion. Items 1 (named risks = the probe findings), 3, 4, 5, 6 still required; item 2 is replaced by these probe lines.
+Any `NO` line is a SAFE-blocker → the verdict is `NEEDS WORK`/`NOT SAFE TO MERGE`, naming the vacuous assertion. Items 1 (named risks = the probe findings), 3, 4, 5, 6 still required, plus item 8 on a skill/eval or `.ab.yaml` change; item 2 is replaced by these probe lines.
 
 ## Red Flags
 

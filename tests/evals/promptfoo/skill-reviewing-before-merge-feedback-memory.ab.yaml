@@ -1,7 +1,7 @@
 disableVarExpansion: true
 description: >
-  Issue #145 — A0/A1 control proving the review-feedback-memory advisory-hints
-  NOTE in sumo-qa-reviewing-before-merge is LOAD-BEARING. The SAME memory-PRESENT
+  Issue #145: A0/A1 control designed to show the review-feedback-memory advisory-hints
+  NOTE in sumo-qa-reviewing-before-merge is load-bearing. The SAME memory-PRESENT
   seed (a billing-day timezone diff whose ONLY fresh test asserts a midday UTC
   instant — nothing exercises the 23:59 -> 00:00 local rollover or DST — plus a
   trigger-matched SAVED REVIEW FEEDBACK block recommending exactly that rollover
@@ -12,16 +12,21 @@ description: >
   ledger-risk / never-override / never-auto-capture behaviour is the loaded skill
   body. The pre-#145 body runs the discovery sweep + coverage ledger but has NO
   review-feedback-memory note, so A0 has no instruction to consult the saved
-  lesson: it grades the diff on the green-but-non-covering test and the named
+  lesson; the design expects that it grades the diff on the green-but-non-covering test and the named
   diff risks alone, does not pull the rollover/DST probe into the ledger as an
   uncovered SAFE-blocker, and can wave the change through (or omit the advisory
   hint entirely) — a SHAPE FAIL under the rubric. A1 (the post-#145 body) consults
   the matched lesson as a SEPARATE advisory hint, maps the rollover/DST risk
   through the coverage ledger as UNCOVERED (the fresh test only feeds the midday
   case), and reaches NOT SAFE TO MERGE without inventing or auto-capturing — a
-  PASS. The A0(FAIL) -> A1(PASS) lift isolates the #145 behaviour. A0 body is
+  PASS. An A0(FAIL) -> A1(PASS) lift would isolate the #145 behaviour. A0 body is
   snapshotted at fixtures/reviewing-before-merge-PRE-145.SKILL.md (= origin/main
   before the #145 commit); refresh it if the baseline moves.
+# Claude pair: non-discriminating; the expected A0 FAIL does not occur. The
+# SAVED REVIEW FEEDBACK block names the rollover probe and A0 applies it
+# unprompted: A0 2/2, A1 2/2 over two single passes (one on this seed, one on a
+# variant without its test-run note). Kept as a regression guard on the A1 leg, not a lift
+# measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

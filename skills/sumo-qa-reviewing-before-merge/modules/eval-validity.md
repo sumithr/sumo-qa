@@ -11,7 +11,7 @@ Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_co
 ## Guard-coverage and A/B-validity lines (Verdict-format item 8)
 
 - Guard coverage (when the change ADDS a regression guard / "do X but NOT Y" rule): `Guard added: <the guard> | Eval exercises BOTH directions: <YES (positive + discriminating true-negative/over-trigger seed cited) | NO (one-sided)> | Status: <COVERED | UNCOVERED — SAFE-blocker>`
-- A/B validity (when an eval-driven skill change ships a load-bearing A/B eval): `A/B control: <the .ab.yaml> | A0 structurally cannot pass via pre-existing rules: <YES (the rubric PASS needs only-new-text) | NO/UNKNOWN — single A0-FAIL is variance> | Rubric credits only discriminating inputs: <YES | NO (name the non-discriminating one)> | Status: <LOAD-BEARING | UNPROVEN — SAFE-blocker>`
+- A/B validity (when an eval-driven skill change ships a load-bearing A/B eval): `A/B control: <the .ab.yaml> | A0 structurally cannot pass via pre-existing rules: <YES (the rubric PASS needs only-new-text) | NO (name the pre-existing rule A0 carries that reaches PASS; a single A0-FAIL is variance)> | Rubric credits only discriminating inputs: <YES | NO> (for EACH input the rubric credits: what the broken and the correct impl each do with it; any input they handle the same way is non-discriminating) | Status: <LOAD-BEARING | UNPROVEN — SAFE-blocker>`
 
 ## Red Flags
 

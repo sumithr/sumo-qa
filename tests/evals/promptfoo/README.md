@@ -100,7 +100,10 @@ flicker — the candidate echoing a loaded change-rule key into its verdict — 
 a real output-discipline leak and is fixed by tightening the SKILL.md
 output-discipline, not by loosening the rubric.) Read the **delta** (baseline →
 postcut, B over A0) and the negative-control passes as the signal — never chase
-a fixed number by loosening the rubric or trivialising seeds.
+a fixed number by loosening the rubric or trivialising seeds. On the Claude pair
+the `.ab` does not discriminate: the no-skill `claude-haiku-4-5` finds the seeded
+defects (A0 3/7 and 7/7 over two single passes, B 7/7 both times), so the `.ab`
+is a regression guard on B there.
 
 ## Repo-pinned tool-setup corpus (issue #216)
 
@@ -148,7 +151,10 @@ and the 2b prescribed-input requirement, so it does NOT prescribe a concrete
 discriminating input — a SHAPE FAIL under the rubric. A0 (old body) FAILs, A1
 (new body) PASSes; that lift isolates the #187 behaviour. The A0 body is
 snapshotted at `fixtures/reviewing-before-merge-PRE-187.SKILL.md` — refresh it
-if the baseline moves.
+if the baseline moves. On the Claude pair the control does not discriminate: the
+developer-confirmed risk names the technique and the failure mode, so A0
+prescribes the input unprompted. The config header gives the leg counts; it is
+kept as a regression guard on the A1 leg.
 
 ```bash
 # A0 (pre-187 body) FAIL vs A1 (post-187 body) PASS
@@ -274,15 +280,16 @@ surface-specific verifier (and the right one, run correctly) must have run. All
 four route through the same step-9 "Verification-evidence discipline" block, its
 Verdict-format item 8 lines, and the step-10(e) SAFE-blocker. Each carries a
 must-flag (NOT SAFE) seed AND a true-negative (SAFE-eligible) seed; the
-`.ab.yaml` controls prove the new text is load-bearing (A0 = pre-edit body FAILs,
-A1 = post-edit body PASSes). Runs on the Claude pair (originally measured on the retired OpenAI pair,
+`.ab.yaml` controls are designed to show the new text is load-bearing (A0 = pre-edit
+body FAILs, A1 = post-edit body PASSes); on the Claude pair `verifier-evidence` and
+`feature-flow` separate and `eval-validity` does not (see its entry below). Runs on the Claude pair (originally measured on the retired OpenAI pair,
 candidate `gpt-5-mini`, judge `gpt-5.5`).
 
 ```bash
 for c in verifier-evidence guard-coverage eval-validity feature-flow; do
   ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-$c.yaml --no-cache
 done
-# load-bearing controls (.ab.yaml for the checks that carry one)
+# A/B controls (.ab.yaml for the checks that carry one)
 for c in verifier-evidence eval-validity feature-flow; do
   ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-$c.ab.yaml --no-cache
 done
@@ -325,8 +332,9 @@ done
   SAFE) and a genuinely load-bearing A/B (A0 cannot reach PASS, 3/3 deterministic;
   rubric credits only the variable-length nested fence → SAFE-eligible). The
   `.ab.yaml` runs the non-load-bearing seed against
-  `fixtures/reviewing-before-merge-PRE-321.SKILL.md` (A0, no eval-validity probe →
-  accepts the lift at face value = FAIL) vs the post-#321 body (A1 = PASS).
+  `fixtures/reviewing-before-merge-PRE-321.SKILL.md` (A0, no eval-validity probe,
+  expected FAIL) vs the post-#321 body (A1, expected PASS); its header records how
+  the legs behave on the Claude pair.
 - **`skill-reviewing-before-merge-feature-flow.yaml` + `.ab.yaml` (#331).** Even
   with NO supplied AC, a change whose primary FEATURE FLOW (the closest realistic
   UI/API/CLI/worker/artifact path) was never driven end-to-end this turn — only a
@@ -379,7 +387,9 @@ hint and reaches the correct shape/verdict — a PASS. A0(FAIL) → A1(PASS) iso
 the #145 behaviour. The A0 bodies are snapshotted at
 `fixtures/preparing-for-work-PRE-145.SKILL.md` and
 `fixtures/reviewing-before-merge-PRE-145.SKILL.md` — refresh them if the baseline
-moves.
+moves. On the Claude pair the review-side control does not discriminate: A0
+applies the saved rollover probe unprompted. Its header gives the leg counts; it
+is kept as a regression guard on the A1 leg.
 
 ```bash
 # A0 (pre-145 body) FAIL vs A1 (post-145 body) PASS
@@ -845,7 +855,7 @@ renders.
 |---|---|
 | `skill-<name>.yaml` (×16) | One config per skill, all covered |
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
-| `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) load-bearing control (see "UNPROVEN-escalation corpus" above) |
+| `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) control, non-discriminating on the Claude pair (see "UNPROVEN-escalation corpus" above) |
 | `skill-reviewing-before-merge-external-contract.yaml` | Issue #263 external-contract corpus, three seeds: (1) a matcher/parser over external CLI/API/tool output validated only by a hand-authored fixture → external-contract risk UNPROVEN, withhold SAFE; (2) a fixture traceable to a real run → external-contract risk discharged, SAFE-eligible (over-trigger guard); (3) a matcher over an INTERNAL/self-produced value the same module emits → external-contract axis must NOT fire at all (true-negative over-trigger guard) |
 | `skill-reviewing-before-merge-ac-coverage.yaml` | Issue #264 acceptance-criteria coverage: three seeds — UNMET AC → NOT SAFE, all-MET → SAFE-eligible, and plausibly-implemented-but-no-end-to-end-evidence → UNVERIFIED (not UNMET) → NOT SAFE — exercising the three-state MET/UNMET/UNVERIFIED discriminator |
 | `fixtures/reviewing-before-merge-PRE-187.SKILL.md` | Snapshot of the pre-#187 SKILL.md body, the A0 control leg for the unproven-escalation `.ab.yaml` |
@@ -856,11 +866,11 @@ renders.
 | `skill-reviewing-before-merge-verifier-evidence.yaml` + `.ab.yaml` | Issue #332 surface-specific verifier-evidence corpus (3 seeds: unrun eval with a CLOSED risk gate, the unrun eval NOT pre-named → NOT SAFE, no combined-tree run → NOT SAFE, discharged combined-tree run → SAFE-eligible) + A0(pre-edit)/A1(post-edit) load-bearing control (see "Verification-evidence corpus" above) |
 | `fixtures/reviewing-before-merge-PRE-332.SKILL.md` | Snapshot of the pre-#332 SKILL.md body, the shared A0 control leg for the verifier-evidence and feature-flow `.ab.yaml` controls |
 | `skill-reviewing-before-merge-guard-coverage.yaml` | Issue #316 regression-guard coverage corpus (2 seeds: one-sided over-trigger guard → UNCOVERED, NOT SAFE; two-sided guard with a discriminating internal-value true-negative → COVERED, SAFE-eligible) |
-| `skill-reviewing-before-merge-eval-validity.yaml` + `.ab.yaml` | Issue #321 eval-validity probe (2 seeds: non-load-bearing A/B + non-discriminating credited input → NOT SAFE; structurally-isolating A/B with only discriminating inputs → SAFE-eligible) + A0(pre-edit)/A1(post-edit) load-bearing control |
+| `skill-reviewing-before-merge-eval-validity.yaml` + `.ab.yaml` | Issue #321 eval-validity probe (2 seeds: non-load-bearing A/B + non-discriminating credited input → NOT SAFE; structurally-isolating A/B with only discriminating inputs → SAFE-eligible) + A0(pre-edit)/A1(post-edit) control, non-discriminating on the Claude pair |
 | `fixtures/reviewing-before-merge-PRE-321.SKILL.md` | Snapshot of the pre-#321 SKILL.md body, the A0 control leg for the eval-validity `.ab.yaml` |
 | `skill-reviewing-before-merge-feature-flow.yaml` + `.ab.yaml` | Issue #331 primary feature-flow evidence corpus (2 seeds: CSV-export CLI feature with only a `_row_to_csv` formatter unit → UNVERIFIED (feature flow), NOT SAFE; fresh end-to-end test invoking the CLI command + asserting the written CSV → VERIFIED, SAFE-eligible) + A0(pre-#332)/A1(post-#332) load-bearing control on the unexercised seed |
 | `skill-preparing-for-work-feedback-memory.yaml` + `.ab.yaml` | Issue #145 review-feedback-memory advisory-hints corpus (prep side) + A0(pre-edit)/A1(post-edit) load-bearing control (see "Review-feedback-memory corpus" above) |
-| `skill-reviewing-before-merge-feedback-memory.yaml` + `.ab.yaml` | Issue #145 review-feedback-memory advisory-hints corpus (review side, uncovered-rollover NOT-SAFE driver) + A0/A1 load-bearing control |
+| `skill-reviewing-before-merge-feedback-memory.yaml` + `.ab.yaml` | Issue #145 review-feedback-memory advisory-hints corpus (review side, uncovered-rollover NOT-SAFE driver) + A0/A1 control, non-discriminating on the Claude pair |
 | `skill-reviewing-before-merge-coverage-artifact.yaml` | Issue #147 coverage/mutation-artifact corpus (review side, 2 seeds): a local coverage/mutation artifact (any format — Cobertura/lcov/coverage.json/Stryker/PIT/mutmut) is folded in as ASYMMETRIC supporting evidence — an uncovered changed line RAISES a NAMED, UNCOVERED risk (seed 1, high % + green suite must NOT read as SAFE), but a line the artifact marks "covered/executed" never discharges a risk without a fresh path-matching assertion (seed 2) → NOT SAFE while a changed-code risk is uncovered |
 | `skill-strengthening-tests-artifact.yaml` | Issue #147 mutation-artifact corpus (strengthening side, 2 seeds): with no pasted report, DISCOVER + read the repo's own mutation artifact (Stryker schema) and present the artifact-named survivors scoped to the target at the first confirmation gate (seed 1); with no artifact anywhere, a concise "not available" that asks for a report or specific targets without fabricating survivors (seed 2) |
 | `fixtures/preparing-for-work-PRE-145.SKILL.md` | Snapshot of the pre-#145 prep SKILL.md body, the A0 control leg for the prep feedback-memory `.ab.yaml` |
@@ -891,3 +901,5 @@ This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claud
 A control only measures lift if A0 cannot pass on material the prompt already hands it; otherwise document the seed as non-discriminating in the config header, or add a seed that targets a taught behaviour A0 is not given. In `skill-strengthening-tests.ab.yaml`, the three original seeds do not discriminate on the Claude pair; the production-defect seed does.
 
 `skill-preparing-for-work.ab.yaml` does not discriminate on the Claude pair: the response format every leg is handed carries the SHAPE axis, so A0 reaches B's pass count. Two recorded single passes, A0 3/4, A1 2/4, B 4/4 and A0 4/4, A1 4/4, B 4/4. It is kept as a regression guard on the shared rubric rather than a lift measurement; restoring lift needs a seed targeting a taught behaviour A0 is not given.
+
+A pre/post-edit control's ground-truth context states facts only (the diff, the code, the tests and their fixtures), never the defect or the conclusion the edit teaches, with one documented exception: a narrated defect lets the pre-edit leg pass on the Claude pair. On that basis the `reviewing-before-merge` controls `runtime-scope`, `fence-parser` and `feature-flow` separate their legs on the Claude pair (A0 never passes a graded sample; the skill leg passes 2/3, or 3/3 for `fence-parser`). `eval-validity` is the exception: it keeps its developer observations, because the skill leg cannot judge the fence inputs without them, and so it does not separate (A0 2 of 5 graded samples, A1 4/4); its header says why. Five are non-discriminating and kept as regression guards on the skill leg, each header giving its measured leg counts: `feedback-memory` and `unproven-escalation`, where the seed's own saved-feedback block or named risk hands the pre-edit leg the answer, `eval-validity` as above, and the A/B/C controls `skill-reviewing-before-merge.ab.yaml` and `adversarial`, where a no-skill candidate already reaches the skill's result. `verifier-evidence` separates.
