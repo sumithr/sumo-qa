@@ -1,6 +1,6 @@
 disableVarExpansion: true
 description: >
-  Issue #145 — A0/A1 control designed to show the review-feedback-memory advisory-hints
+  Issue #145: A0/A1 control designed to show the review-feedback-memory advisory-hints
   NOTE in sumo-qa-reviewing-before-merge is load-bearing. The SAME memory-PRESENT
   seed (a billing-day timezone diff whose ONLY fresh test asserts a midday UTC
   instant — nothing exercises the 23:59 -> 00:00 local rollover or DST — plus a

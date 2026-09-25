@@ -1,6 +1,6 @@
 disableVarExpansion: true
 description: >
-  Issue #187 — A0/A1 control for the UNPROVEN-escalation discipline, designed to show
+  Issue #187: A0/A1 control for the UNPROVEN-escalation discipline, designed to show
   the new behaviour is load-bearing: the SAME seeds run against the PRE-EDIT
   (origin/main) SKILL.md body (A0) and the post-edit body (A1). A0 lacks the
   step-6 technique-keyed failure-mode hints and the 2b prescribed
