@@ -460,7 +460,8 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
   list price, notional, not an invoice. promptfoo records it for the candidate calls
   only: judge calls appear as tokens (`stats.tokenUsage.assertions`) with no cost.
   A full single pass over all 61 configs (2026-09-14,
-  `claude-haiku-4-5` candidate, `claude-opus-5` judge) used ~3.6M tokens, $12.30 at
+  `claude-haiku-4-5` candidate, `claude-opus-5` judge except the first two configs,
+  judged by `claude-fable-5-1`) used ~3.6M tokens, $12.30 at
   list price, with 0 provider errors; the slowest configs take 10 to 20 minutes each.
 
 ### Local tiers (OpenWebUI proxy): unmetered iteration, not a merge gate
@@ -684,8 +685,8 @@ flip-rate ≤ 20% (the stability bar per the design plan).
 
 ## Usage
 
-Every run goes through `claude -p` on the signed-in Claude account, so it spends
-subscription usage; see "The Claude pair" above for a measured full pass.
+On the default Claude backend every run goes through `claude -p` on the signed-in
+Claude account, so it spends subscription usage (the local tiers do not); see "The Claude pair" above for a measured full pass.
 
 ## Architecture
 
@@ -758,7 +759,7 @@ the synthesised tests stay in-scope or drift into out-of-scope topics that
 route to other skills. The per-skill `.gen.yaml` header comment carries the
 codex-reviewed instruction text for that skill.
 
-You maintain ~13 files (one per skill, pattern A) OR ~3 files per skill
+You maintain one file per skill (pattern A) OR ~3 files per skill
 (pattern B), not hundreds of hand-authored test cases.
 
 ### Judge catalogue context
@@ -881,10 +882,10 @@ Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-op
 | `skill-answering-testing-question.ab.yaml` | 0/5 | 3/5 | 5/5 | 2026-09-25: 236,037 tokens, $0.36 candidate cost |
 | `skill-deciding-approach.ab.yaml` | 0/7 | not recorded | 7/7 | 2026-09-14 full matrix |
 | `skill-implementing-with-tdd.ab.yaml` | 0/3 | 0/3 | 3/3 | 2026-09-22 |
-| `skill-strengthening-tests.ab.yaml` | 3/5 | 4/5 | 5/5 | 2026-09-15; only the production-defect seed separates the legs |
+| `skill-strengthening-tests.ab.yaml` | 3/5 | 4/5 | 5/5 | 2026-09-15; only the production-defect seed separates B from A1 |
 | `skill-preparing-for-work.ab.yaml` | 4/4 | 4/4 | 4/4 | 2026-09-22; non-discriminating, see below |
 
-The `reviewing-before-merge` controls and `skill-preparing-for-work-feedback-memory.ab.yaml` have no recorded Claude-pair leg counts yet.
+The `reviewing-before-merge` controls are being triaged on the Claude pair in #685, and their reference rows land after it. `skill-preparing-for-work-feedback-memory.ab.yaml` has no recorded Claude-pair leg counts yet.
 
 A control only measures lift if A0 cannot pass on material the prompt already hands it; otherwise document the seed as non-discriminating in the config header, or add a seed that targets a taught behaviour A0 is not given. In `skill-strengthening-tests.ab.yaml`, the three original seeds do not discriminate on the Claude pair; the production-defect seed does.
 
