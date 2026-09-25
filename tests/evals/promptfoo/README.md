@@ -280,15 +280,16 @@ surface-specific verifier (and the right one, run correctly) must have run. All
 four route through the same step-9 "Verification-evidence discipline" block, its
 Verdict-format item 8 lines, and the step-10(e) SAFE-blocker. Each carries a
 must-flag (NOT SAFE) seed AND a true-negative (SAFE-eligible) seed; the
-`.ab.yaml` controls prove the new text is load-bearing (A0 = pre-edit body FAILs,
-A1 = post-edit body PASSes). Runs on the Claude pair (originally measured on the retired OpenAI pair,
+`.ab.yaml` controls are designed to show the new text is load-bearing (A0 = pre-edit
+body FAILs, A1 = post-edit body PASSes); on the Claude pair `verifier-evidence` and
+`feature-flow` separate and `eval-validity` does not (see its entry below). Runs on the Claude pair (originally measured on the retired OpenAI pair,
 candidate `gpt-5-mini`, judge `gpt-5.5`).
 
 ```bash
 for c in verifier-evidence guard-coverage eval-validity feature-flow; do
   ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-$c.yaml --no-cache
 done
-# load-bearing controls (.ab.yaml for the checks that carry one)
+# A/B controls (.ab.yaml for the checks that carry one)
 for c in verifier-evidence eval-validity feature-flow; do
   ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-$c.ab.yaml --no-cache
 done
