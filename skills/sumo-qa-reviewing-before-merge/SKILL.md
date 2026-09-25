@@ -53,7 +53,7 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
    Apply `coverage-ledger` to every runtime risk, then the conditional modules the diff calls for: `inventory-drift`; `unproven-escalation` for any UNPROVEN row; `acceptance-criteria` (and `ac-evidence-views` on a close call) when criteria are supplied; `surface-verifier`, `feature-flow`, `eval-validity`, then `discharged-check`.
 
-10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review: `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk has a fresh test demonstrably exercising that exact path, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. Always list residual concerns, even on SAFE. A ledger (`ledger-appendix`) or scorecard (`readiness-scorecard`) goes BELOW the prose verdict.
+10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review, then `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk has a fresh test demonstrably exercising that exact path, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. Always list residual concerns, even on SAFE. A ledger (`ledger-appendix`) or scorecard (`readiness-scorecard`) goes BELOW the prose verdict.
 
 ## Module routing table
 
@@ -93,7 +93,7 @@ The verdict line is the LAST line. For a runtime change (per `runtime-scope`), b
 7. **AC lines** when criteria were supplied, one per criterion as pinned in `acceptance-criteria` (MET ones too); else exactly `No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`
 8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`: one per skill/eval change, new guard or `.ab.yaml`, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged.
 
-A runtime verdict emitted before all six (plus items 7 and 8 where they apply) is a discipline violation. A trivial diff follows `runtime-scope`'s exemption and a test-only diff the `Test probe:` discipline in `test-only-diff`; items 1, 3, 4, 5, 6 stay mandatory in every mode.
+A runtime verdict emitted before all six (plus items 7 and 8 where they apply) is a discipline violation. A trivial diff follows `runtime-scope`'s exemption and a test-only diff the `Test probe:` discipline in `test-only-diff`; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 where it applies.
 
 ## Process Flow
 
