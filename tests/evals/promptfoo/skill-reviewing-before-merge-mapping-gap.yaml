@@ -46,6 +46,10 @@ defaultTest:
       - Asking another confirmation question instead of delivering the verdict.
       - Surfacing literal taxonomy labels such as `business_logic_change`.
   assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed and leg.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}

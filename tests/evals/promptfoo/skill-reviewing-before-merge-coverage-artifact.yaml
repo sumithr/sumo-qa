@@ -42,6 +42,10 @@ defaultTest:
       - Reads "high coverage" as "low risk" or invents a numeric coverage threshold that decides readiness.
       - Ignores the supplied coverage/mutation artifact entirely when reasoning about the changed code.
   assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed and leg.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}

@@ -937,6 +937,7 @@ renders.
 | `aggregate.py` | Variance aggregator for multi-sample runs |
 | `fixtures/assemble-review-skill.js` | Shared dynamic var for every `skill-reviewing-before-merge*` config: assembles the compact root + the seed's declared `review_modules` from the canonical `skills/sumo-qa-reviewing-before-merge/` files (issue #451); no mirrored prose lives here |
 | `asserts/cites-catalogue-technique.js` | Shared `javascript` grounding assertion for the three `skill-implementing-with-tdd*` configs; passes when the candidate cites a technique whose name is a `###` heading in `knowledge/techniques.md`, derived from the catalogue (single source of truth) instead of a hardcoded six-technique allowlist (issue #350) |
+| `asserts/ledger-row-labels.js` | Shared `javascript` ledger-consistency assertion in `defaultTest.assert` of every `skill-reviewing-before-merge*` config that loads the `coverage-ledger` module (every seed, every `.ab` leg); fails any ledger row whose label contradicts its own `Fresh matching tests` field (a listed test labelled UNCOVERED, or NONE labelled UNPROVEN or COVERED), naming each offending row; output with no ledger rows passes (issue #689) |
 | `README.md` | This file |
 
 ## What's intentionally NOT here
