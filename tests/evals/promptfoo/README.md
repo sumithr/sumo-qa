@@ -968,7 +968,7 @@ Pre-edit controls compare a snapshotted pre-edit skill body (A0) with the curren
 |---|---|---|---|
 | `skill-reviewing-before-merge-eval-validity.ab.yaml` | 0/1 | 1/1 | |
 | `skill-reviewing-before-merge-feature-flow.ab.yaml` | 0/1 | 1/1 | |
-| `skill-reviewing-before-merge-feedback-memory.ab.yaml` | 1/1 | 1/1 | Non-discriminating, regression guard |
+| `skill-reviewing-before-merge-feedback-memory.ab.yaml` | 2/3 | 3/3 | 3 repeats after the UNPROVEN rubric change; non-discriminating, regression guard |
 | `skill-reviewing-before-merge-fence-parser.ab.yaml` | 0/1 | 1/1 | |
 | `skill-reviewing-before-merge-runtime-scope.ab.yaml` | 1/3 | 2/3 | 3 repeats under the current rubric; 8 samples under the looser criterion (4) gave A0 1/8, A1 7/8 |
 | `skill-reviewing-before-merge-unproven-escalation.ab.yaml` | 3/6 | 6/6 | 3 repeats after the UNPROVEN-routing fix; the substring seed carries the lift, the boundary seed is a regression guard |
