@@ -5,7 +5,7 @@ description: Use when the user asks "review my changes" / "is this safe to merge
 
 # Reviewing before merge
 
-Help the user decide whether a change is safe to ship by walking the review one section at a time (the Checklist below). The user holds product context the diff cannot reveal; surface it through questions, never assume it.
+Help the user decide whether a change is safe to ship, one Checklist section at a time. The user holds product context the diff cannot reveal; surface it through questions, never assume it.
 
 **Announce at start:** *"Reviewing the diff against fresh test evidence."*
 
@@ -27,19 +27,19 @@ Every gate claim (suite verdict, risk coverage, safe-to-merge call) carries a st
 
 ## When to Use
 
-Triggers: *"review my changes"*, *"is this safe to merge"*, *"what could break"*, *"code review please"*. `sumo-qa-deciding-approach` routes here for `verify-existing`.
+Triggers in the description; `sumo-qa-deciding-approach` routes here for `verify-existing`.
 
 ## Checklist
 
 You MUST work through these in order. Steps 1-4 are AI-only homework (no user questions); the user's confirmation gates steps 5 onward. Load a step's modules (routing table below) first.
 
-1. **Read the diff via the host's git tools** *(no user question)* — `git diff`, `git diff --staged`, or `git diff <base>...HEAD` depending on intent. Capture file list + line counts. Supplied repo-map / bundle / coverage artifacts go through `context-inputs`; if none, say `no coverage/mutation artifact this turn — not measured`.
+1. **Read the diff via the host's git tools** — `git diff`, `git diff --staged`, or `git diff <base>...HEAD`. Capture file list + line counts. Supplied repo-map / bundle / coverage artifacts go through `context-inputs`; if none, say `no coverage/mutation artifact this turn — not measured`.
 
-2. **Read the actual changed files** *(no user question)* — not just the diff hunks. Surrounding code matters for risk analysis. For each changed file: identify the public surface that moved.
+2. **Read the actual changed files** — not just the diff hunks. For each changed file: identify the public surface that moved.
 
-3. **Classify and load applicable standards** *(no user question)* — call `sumo_qa_load_classifications()`, infer the classification(s), then `sumo_qa_load_standards(...)` and `sumo_qa_load_rules(...)`. Note which loaded rules apply.
+3. **Classify and load applicable standards** — call `sumo_qa_load_classifications()`, infer the classification(s), then `sumo_qa_load_standards(...)` and `sumo_qa_load_rules(...)`. Note which loaded rules apply.
 
-4. **Adversarial discovery pass** *(no user question)* — Settle the diff shape with `runtime-scope`: a test-files-only diff runs `test-only-diff` instead; a genuinely non-executable diff takes the trivial-change exemption. For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). Each hit is a named risk anchored to file:line; one the fresh tests do not cover is UNCOVERED, a SAFE-blocker, never a residual note.
+4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). Each hit is a named risk anchored to file:line; one the fresh tests do not cover is UNCOVERED, a SAFE-blocker, never a residual note.
 
 5. **Confirm scope, only for the AMBIGUOUS parts** — name the files, line counts, and what the change does in domain terms, then ask ONE focused question for what the diff couldn't reveal. If nothing's ambiguous, skip the question.
 
@@ -49,11 +49,11 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
 8. **Run targeted tests around the changed files** — e.g. `pytest tests/test_<changed_module>.py -v`; confirm closest neighbours stay green and surface the count.
 
-9. **Map risk coverage** — for each named risk, cite the fresh test that demonstrably exercises that exact failure path (file + fully-qualified test + the verbatim assertion/condition), or mark it UNPROVEN / UNCOVERED. Never infer coverage from a shared name or domain. A risk with no covering test is a SAFE-blocker.
+9. **Map risk coverage** — for each named risk, cite the fresh test that demonstrably exercises that exact failure path (file + fully-qualified test + the verbatim assertion/condition), or mark it UNPROVEN / UNCOVERED. Never infer coverage from a shared name or domain.
 
    Apply `coverage-ledger` to every runtime risk, then the conditional modules the diff calls for: `inventory-drift`; `unproven-escalation` for any UNPROVEN row; `acceptance-criteria` (and `ac-evidence-views` on a close call) when criteria are supplied; `surface-verifier`, `feature-flow`, `eval-validity`, then `discharged-check`.
 
-10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review, then `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk has a fresh test demonstrably exercising that exact path, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. Always list residual concerns, even on SAFE. A ledger (`ledger-appendix`) or scorecard (`readiness-scorecard`) goes BELOW the prose verdict.
+10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review, then `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk COVERED per step 9, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. Always list residual concerns, even on SAFE (the Verdict close below). A ledger (`ledger-appendix`) or scorecard (`readiness-scorecard`) goes BELOW the verdict.
 
 ## Module routing table
 
@@ -83,7 +83,7 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 
 ### Verdict-format discipline
 
-The verdict line is the LAST line. For a runtime change (per `runtime-scope`), before the verdict you MUST emit, in order:
+The verdict line is the LAST line, after `Why:` and `Residual concerns:`. For a runtime change (per `runtime-scope`), before the verdict you MUST emit, in order:
 1. Each named risk by exact name, one per line (`Risk 1: Auth Session Bypass`).
 2. A coverage-ledger line per risk as pinned in `coverage-ledger`, plus the 2a/2b/2c/2d extension rows a present risk class requires.
 3. `Touched files:` citing every diff path verbatim (e.g. `app/auth/session.py, tests/billing/test_checkout.py`).
@@ -91,27 +91,26 @@ The verdict line is the LAST line. For a runtime change (per `runtime-scope`), b
 5. The verification command, quoted verbatim as a LABELED evidence-source line: `Evidence (command): $ <verification command> → <counts>`.
 6. The test counts verbatim (`X passed, Y skipped, Z failed`).
 7. **AC lines** when criteria were supplied, one per criterion as pinned in `acceptance-criteria` (MET ones too); else exactly `No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`
-8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`: one per skill/eval change, new guard or `.ab.yaml`, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged.
+8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`: one per skill/eval change, new guard or `.ab.yaml`, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged. None applies → emit nothing for item 8.
 
-A runtime verdict emitted before all six (plus items 7 and 8 where they apply) is a discipline violation. A trivial diff follows `runtime-scope`'s exemption and a test-only diff the `Test probe:` discipline in `test-only-diff`; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 where it applies.
+A runtime verdict missing an applicable item is a discipline violation. Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 where it applies.
+
+**Verdict close (every mode).** Immediately before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete item the fresh run leaves unexercised, anchored to file:line or a named input (never `none`). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Emit the counts once; the only skip lines are the pinned ones (steps 1 and 4, item 7). Never invent a status or skip line: gate bookkeeping stays internal. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
 
 ## Process Flow
 
-See the Checklist above — that's the flow.
+The Checklist is the flow.
 
 ## Red Flags - STOP and rework
 
 | Thought | Reality |
 |---|---|
-| "Looks good to me" / "CI was green an hour ago" | Neither is fresh evidence. Run the suite now. |
+| "Looks good" / "CI was green an hour ago" / "tests are slow, skip them" | None is fresh evidence; slow tests are still the verdict source. Run the suite now. |
 | "Trivial change, no need to walk through sections" | The Iron Law has no trivial-change exemption; the review can be short, but every section gets confirmation. |
-| "I'll skip running tests — they're slow" | Then you can't claim safe-to-merge. Slow tests are still the verdict source. |
-| "All tests pass, so SAFE" | Necessary, not sufficient. Each named risk must also have a covering test. |
 | "No standards apply to this change" | Re-classify. Every change has at least one applicable classification with loaded rules. |
 | "I'll list the risks AND deliver the verdict in one message" | Gate. The user's correction on the risks is what shapes the verdict. |
-| "Residual concerns: none" | Every change has them. None = you didn't think about what could still go wrong. |
 | "I'll ask which test framework / where tests live" | Read the repo; sibling files answer that. |
 
 ## Next skill in the chain
 
-When the verdict is delivered (SAFE / NOT SAFE / NEEDS WORK) with fresh evidence + risk-coverage map → `sumo-qa-finishing-qa-work` to capture the evidence and produce the PR-ready summary.
+After the verdict → `sumo-qa-finishing-qa-work` to capture the evidence and produce the PR-ready summary.
