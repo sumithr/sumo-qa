@@ -10,17 +10,15 @@ Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_co
 
 **Worked contrast (same-domain ≠ proof).** Risk *"Duplicate Charge on Retry"*; path-matching `tests/billing/test_checkout.py::test_does_not_mark_failed_charge_paid` passes but never re-invokes `complete_checkout` after a partial failure:
 - BAD: *"Covered by `test_does_not_mark_failed_charge_paid`."*
-- GOOD: `... | Fresh matching tests: tests/billing/test_checkout.py::test_does_not_mark_failed_charge_paid | Coverage: UNPROVEN`, then `UNPROVEN escalation: Duplicate Charge on Retry | Discriminating input: retry after partial failure | Broken impl does: charges twice | Correct impl does: charges once | Required before SAFE: add a test asserting one charge to tests/billing/test_checkout.py`
+- GOOD: `... | Fresh matching tests: tests/billing/test_checkout.py::test_does_not_mark_failed_charge_paid | Coverage: UNPROVEN`, then `UNPROVEN escalation: Duplicate Charge on Retry | Discriminating input: retry after partial failure | Broken impl does: charges twice | Correct impl does: charges once | Required before SAFE: a test asserting one charge`
 
 ## Coverage-ledger row shape (Verdict-format item 2)
 
 A coverage-ledger line per risk in this exact shape:
 
 `Risk: <exact name> | Anchor: <diff file:line> | Required test path: <the test dir covering this anchor — tests/<module>/ for app/<module>/, or tests/test_<file>.py in a flat layout; for an executable anchor outside a source dir, its mirror, e.g. tests/hooks/ for .claude/hooks/> | Fresh matching tests: <fresh tests whose path starts with the required path, as fully-qualified `<file>::<test>` IDs, or NONE> | Coverage: <COVERED (cited test + verbatim assertion) | UNPROVEN | UNCOVERED>`
-- `COVERED` only when a fresh path-matching test quotes a verbatim assertion/condition that exercises the risk's failure mode — path prefix is necessary, not sufficient.
-- Risks whose name/anchor/failure-mode contains **Retry, Duplicate, or Idempotency** require an assertion showing the operation invoked MORE THAN ONCE (two calls, a loop, or a call-count/idempotency-token assertion). **Concurrent, Race, or Lock** require overlapping execution (threads, `asyncio.gather`, or an explicit interleave). A single non-overlapping invocation — even one that raises — proves none of these; mark UNPROVEN.
-- `Fresh matching tests: NONE` (no path-matching fresh test) → UNCOVERED; never cite non-matching tests as indirect evidence.
-- Path-matching fresh tests green but none asserts at the failure mode (e.g. a happy fixture, no limit-value case) → UNPROVEN, not UNCOVERED: list them; emit the 2b line (`unproven-escalation`).
+- **Coverage labels (pinned):** defined only here. `COVERED`: a fresh path-matching test quotes a verbatim assertion/condition at the risk's failure mode. `UNPROVEN`: path-matching fresh tests pass but none asserts at the failure mode, including one that never executes the changed branch (a happy fixture, a coverage artifact's missing line); list them, emit the 2b line (`unproven-escalation`). `UNCOVERED`: no path-matching fresh test (`Fresh matching tests: NONE`); never cite non-matching tests as indirect evidence. The label follows the row: a listed test is never UNCOVERED; `NONE` is never UNPROVEN.
+- Risks named **Retry, Duplicate, or Idempotency** require an assertion showing the operation invoked MORE THAN ONCE (two calls, a loop, or a call-count/idempotency-token assertion). **Concurrent, Race, or Lock** require overlapping execution (threads, `asyncio.gather`, or an explicit interleave). A single non-overlapping invocation — even one that raises — proves none of these; mark UNPROVEN.
 - `COVERED BY VERIFICATION` is for the trivial-change exemption (`runtime-scope`) only, never a runtime anchor.
 
 - **2c. External-contract extension (pinned).** For an external-contract risk, emit this row INSTEAD of the path-keyed row (`Required test path` does not apply):
@@ -29,4 +27,4 @@ A coverage-ledger line per risk in this exact shape:
 - **2d. Internal/self-produced declination (pinned).** When the external-output probe resolves INTERNAL (producer test), emit this line so the true-negative is on the record:
   `External-contract axis: NOT FIRED (internal/self-produced) | Value: <verbatim self-produced value, e.g. [sumo-qa:CODE]> | Producer: <fn/module> | Consumer: <fn/module, same change> | No external source: confirmed`
 
-Extension rows: `2a` inventory drift lives in `inventory-drift`; `2b` UNPROVEN escalation lives in `unproven-escalation`. Emit them whenever their risk class is present.
+Extension rows `2a` (`inventory-drift`) and `2b` (`unproven-escalation`) apply whenever their risk class is present.

@@ -130,6 +130,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     ],
     "coverage-ledger": [
         "**Module-match rule (pinned):**",
+        "**Coverage labels (pinned):**",
         "forbidden hallucinated bridges",
         "**Re-anchor first.**",
         "`Risk: <exact name> | Anchor: <diff file:line> | Required test path:",
@@ -234,6 +235,7 @@ PINNED_RULE_MARKERS = (
     "**Acceptance-criteria coverage (pinned).**",
     "**Anti-over-discovery (pinned):**",
     "**Command/input-classifier probe (pinned):**",
+    "**Coverage labels (pinned):**",
     "**Discharged-check discipline (anti-over-fire, pinned).**",
     "**Discovery → verdict (pinned).**",
     "**Documented-inventory drift rule (pinned).**",
@@ -313,6 +315,13 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
             "probe it BOTH ways against the function's stated PURPOSE, not its mechanism line",
             "Each confirmed mis-classification is a named risk with its own ledger row",
             "so that risk is UNPROVEN, never a residual concern",
+        ),
+    ),
+    "**Coverage labels (pinned):**": PinnedClauses(
+        defining="defined only here.",
+        operative=(
+            "`UNPROVEN`: path-matching fresh tests pass but none asserts at the failure mode, including one that never executes the changed branch",
+            "`UNCOVERED`: no path-matching fresh test (`Fresh matching tests: NONE`)",
         ),
     ),
     "**Discharged-check discipline (anti-over-fire, pinned).**": PinnedClauses(

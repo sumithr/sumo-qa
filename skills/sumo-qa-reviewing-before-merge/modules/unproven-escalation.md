@@ -1,6 +1,6 @@
 # Reviewing before merge: UNPROVEN escalation and technique-keyed failure modes
 
-Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_context` with `mode="module"`). **Load when:** any named risk is UNPROVEN (the path is exercised but no assertion hits the failure mode), or a risk's failure mode maps to a catalogued black-box technique. **Extends:** checklist step 6 (technique-keyed hints), Verdict-format item 2b, and step 10. The root's Iron Law, verdict gate, and output discipline apply unchanged.
+Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_context` with `mode="module"`). **Load when:** any named risk is UNPROVEN (path-matching tests green, none asserts at the failure mode), or a risk's failure mode maps to a catalogued black-box technique. **Extends:** checklist step 6 (technique-keyed hints), Verdict-format item 2b, and step 10. The root's Iron Law, verdict gate, and output discipline apply unchanged.
 
 ## Technique-keyed failure-mode hints (step 6)
 
