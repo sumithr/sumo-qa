@@ -324,6 +324,8 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
             "`UNCOVERED`: no path-matching fresh test (`Fresh matching tests: NONE`)",
             "any test ID there makes the row COVERED or UNPROVEN",
             "or the behaviour is missing outright",
+            "since the fix is a new assertion beside those tests",
+            "since the fix is a new assertion beside those tests",
             "Name a risk by what breaks",
         ),
     ),
