@@ -76,7 +76,7 @@ defaultTest:
          CLOSED (no independently-uncovered named risk). The load-bearing
          behaviour this control isolates is the SURFACE-VERIFIER GATE: the
          candidate MUST invoke the rule that an eval-surface skill change REQUIRES
-         its relevant promptfoo eval to have RUN with Node 24 + the configured key
+         its relevant promptfoo eval to have RUN through the Claude eval gate
          as a PRECONDITION for SAFE — a verifier-evidence requirement that holds
          REGARDLESS of whether any individual risk is separately uncovered — and
          classify the unrun eval UNVERIFIED (surface verifier), then deliver NOT
@@ -90,8 +90,8 @@ defaultTest:
          the green CI checks as covering the changed grading behaviour.
 
       B. GROUNDING - it must (a) state that BECAUSE this is an eval-surface skill
-         change the promptfoo eval is the REQUIRED verifier that must have run with
-         Node 24 + the configured key, (b) IDENTIFY the specific required-but-unrun
+         change the promptfoo eval is the REQUIRED verifier that must have run through
+         the Claude eval gate, (b) IDENTIFY the specific required-but-unrun
          eval ITSELF (the ground-truth context does NOT pre-name it as unrun — the
          candidate must infer the requirement and observe no such run in the
          record), and (c) reason that the green CI checks (lint / pytest /
@@ -203,7 +203,8 @@ tests:
         skill-reviewing-before-merge-external-contract.yaml as the REQUIRED
         verifier of the changed grading behaviour, and observes that the complete
         verification record (green per-file review + green codex + green CI) shows
-        NO promptfoo run with Node 24 + the configured OpenAI key — the lint /
+        NO promptfoo run through the Claude eval gate (run-eval.sh on the Claude
+        backend) — the lint /
         pytest / token-budget CI checks do not exercise the changed grading
         behaviour. Classifies it UNVERIFIED (surface verifier) and delivers NOT
         SAFE TO MERGE pending the promptfoo eval running correctly. Names the

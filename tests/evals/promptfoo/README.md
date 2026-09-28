@@ -303,8 +303,8 @@ done
   When the changed surface has a relevant repo-specific verifier (promptfoo eval,
   fixture/parser corpus, contract test, smoke probe, generated-artifact
   verification), SAFE requires that verifier to have RUN with the right
-  runtime/env/key/scope/tree. Eval-surface skill changes KEEP promptfoo as the
-  REQUIRED verifier (Node 24 + the configured key). When sibling PRs co-edit ONE
+  runtime/env/backend/scope/tree. Eval-surface skill changes KEEP promptfoo as the
+  REQUIRED verifier (the Claude eval gate: promptfoo on the Claude pair). When sibling PRs co-edit ONE
   surface, per-branch-green is NOT combined-green — combined-tree verification is
   required (the #332 dogfood: external-contract 3/3 per-branch → 1/3 combined).
   Three seeds: an unrun-eval skill change with a CLOSED risk gate and no pre-named

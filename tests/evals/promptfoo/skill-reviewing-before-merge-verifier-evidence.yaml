@@ -4,16 +4,17 @@ description: >
   evidence that the changed behaviour was exercised: when the changed surface has
   a relevant repo-specific verifier (promptfoo eval, fixture/parser corpus,
   contract test, smoke probe, generated-artifact verification), SAFE requires that
-  verifier to have RUN — and run with the right runtime / env / key / scope / tree.
+  verifier to have RUN — and run with the right runtime / env / backend / scope / tree.
   For an eval-surface skill change (a SKILL.md / promptfoo YAML edit) promptfoo is
-  the REQUIRED verifier and must have run with Node 24 + the configured OpenAI key.
+  the REQUIRED verifier and must have run through the Claude eval gate (run-eval.sh
+  on the Claude backend, SUMO_EVAL_BACKEND=claude, no API key).
   When sibling PRs co-edit ONE behaviour surface, per-branch-green is NOT
   combined-green — combined-tree verification is required before the set is SAFE.
   Three seeds: (1) an eval-surface skill change whose promptfoo eval was NEVER run
   (only per-file review + codex + CI green) → UNVERIFIED (surface verifier), NOT
   SAFE; (2) sibling PRs co-editing the same SKILL.md, each green in isolation, no
   combined-tree run → NOT SAFE pending combined-tree verification; (3) the eval
-  WAS run on the combined tree with Node 24 + key and passed, risks covered →
+  WAS run on the combined tree through the Claude eval gate and passed, risks covered →
   SAFE-eligible (true-negative / over-trigger guard — the check must NOT re-demand
   verification that already exists).
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
@@ -72,12 +73,12 @@ defaultTest:
          green per-file review, a green codex pass, and green CI are NOT evidence
          the changed behaviour was exercised. The candidate MUST recognise that
          the relevant verifier was not run (or was run with the wrong
-         runtime/env/key/scope/tree, or only per-branch when siblings co-edit one
+         runtime/env/backend/scope/tree, or only per-branch when siblings co-edit one
          surface) and treat that as a SAFE-blocker — UNVERIFIED (surface verifier)
          / NOT SAFE — naming the specific verifier and what is missing (e.g. the
-         promptfoo eval was never run with Node 24 + the key; no combined-tree
+         promptfoo eval was never run through the Claude eval gate; no combined-tree
          run). For the SAFE-eligible seed (the verifier DID run on the combined
-         tree with the right runtime + key and passed, risks covered), the
+         tree with the right runtime + backend and passed, risks covered), the
          candidate MUST treat the verification as discharged and NOT re-demand it.
          SHAPE FAILS if ANY of these hold:
            - (missing-verifier / combined-tree seed) it declares SAFE TO MERGE on
@@ -94,9 +95,9 @@ defaultTest:
 
       B. GROUNDING - does the response visibly use the supplied context? It must
          cite the changed surface (the SKILL.md / eval file), the specific verifier
-         that applies, and the concrete gap (never run / wrong runtime / no key /
+         that applies, and the concrete gap (never run / wrong runtime / wrong backend /
          per-branch-only) OR, for the SAFE seed, the cited combined-tree run with
-         Node 24 + key and its pass counts. Narrating a generic verdict without
+         the Claude eval gate and its pass counts. Narrating a generic verdict without
          naming the verifier and the gap -> GROUNDING FAIL.
 
       C. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
@@ -178,7 +179,8 @@ tests:
         skill-reviewing-before-merge-external-contract.yaml as the REQUIRED
         verifier of the changed grading behaviour, and observes that the complete
         verification record (green per-file review + green codex + green CI) shows
-        NO promptfoo run with Node 24 + the configured OpenAI key — the lint /
+        NO promptfoo run through the Claude eval gate (run-eval.sh on the Claude
+        backend) — the lint /
         pytest / token-budget CI checks do not exercise the changed grading
         behaviour. Classifies it UNVERIFIED (surface verifier) and delivers NOT
         SAFE TO MERGE pending the promptfoo eval running correctly. Names the
@@ -216,9 +218,9 @@ tests:
         ```
 
         ## Verification evidence available this turn
-        - PR #312 branch: promptfoo eval ran with Node 24 + key, 3/3.
-        - PR #313 branch: promptfoo eval ran with Node 24 + key, 3/3.
-        - PR #314 branch: promptfoo eval ran with Node 24 + key, 3/3.
+        - PR #312 branch: promptfoo eval ran through the Claude eval gate, 3/3.
+        - PR #313 branch: promptfoo eval ran through the Claude eval gate, 3/3.
+        - PR #314 branch: promptfoo eval ran through the Claude eval gate, 3/3.
         - The COMBINED tree (all three merged together) has NOT been built and
           the evals have NOT been run against it. No combined-tree promptfoo run
           exists.
@@ -228,7 +230,7 @@ tests:
         per-branch-green is NOT combined-green: the additive guidance can
         cross-interfere only when all three are present together, and no
         combined-tree promptfoo run exists. Requires the verifier to have run on
-        the COMBINED tree (with Node 24 + key) before the set is SAFE; delivers
+        the COMBINED tree (through the Claude eval gate) before the set is SAFE; delivers
         NOT SAFE TO MERGE pending that combined-tree verification. Ends without a
         confirmation question.
       anti_patterns:
@@ -236,7 +238,7 @@ tests:
         - Treats per-branch-green as equivalent to combined-tree-green for PRs co-editing one surface.
         - Never requires a combined-tree verifier run before SAFE.
         - Ends with a confirmation/clarifying question in place of the verdict (prescribed remediation steps after a delivered verdict are NOT this anti-pattern).
-  - description: SEED discharged — eval ran on the combined tree with Node 24 + key and passed, risks covered, must NOT re-demand verification
+  - description: SEED discharged — eval ran on the combined tree through the Claude eval gate and passed, risks covered, must NOT re-demand verification
     vars:
       user_prompt: >-
         Is this safe to merge? I ran the combined-tree eval already.
@@ -260,23 +262,22 @@ tests:
 
         ## Verification evidence available this turn
         ```text
-        # Combined tree, Node 24 + configured OpenAI key, run THIS turn:
-        $ nvm use 24 && source ~/.config/promptfoo-keys.env
-        $ ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml --no-cache
+        # Combined tree, the Claude eval gate (Claude backend, no API key), run THIS turn:
+        $ SUMO_EVAL_BACKEND=claude bash tests/evals/promptfoo/run-eval.sh tests/evals/promptfoo/skill-reviewing-before-merge-external-contract.yaml
         Successes: 3   Failures: 0   (3/3)
         ```
         R1 is covered: the seed that exercises the changed grading branch passes
         on the combined tree. CI green; pytest green (412 passed).
       expected_shape: >-
         Evidence-led verdict that treats the surface verifier as DISCHARGED: the
-        promptfoo eval ran on the COMBINED tree with Node 24 + the configured key
+        promptfoo eval ran on the COMBINED tree through the Claude eval gate
         THIS turn and passed 3/3, exercising the changed grading branch, and R1
         is covered. Delivers SAFE TO MERGE (or SAFE-eligible), citing the
         combined-tree run command, the 3/3 result, and the green suite — and does
         NOT re-demand verification that already exists or invent a missing-verifier
         blocker. Lists residual concerns. Ends without a confirmation question.
       anti_patterns:
-        - Re-blocks the change as UNVERIFIED (surface verifier) despite a cited combined-tree run with Node 24 + key passing 3/3.
+        - Re-blocks the change as UNVERIFIED (surface verifier) despite a cited combined-tree run through the Claude eval gate passing 3/3.
         - Demands a redundant re-run of an eval that already ran correctly on the combined tree this turn.
         - Invents a speculative missing-verifier blocker the evidence already discharges.
         - Ignores the cited combined-tree promptfoo run when reasoning about verification.
