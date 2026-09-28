@@ -14,7 +14,7 @@ Help the user decide whether a change is safe to ship, one Checklist section at 
 Inherits the global discipline from `using-sumo-qa`: **output discipline** (no internal taxonomy labels or raw change-rule keys; cite rules in plain English), **output economy** (findings not preamble; one question per turn; no pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit.
 
 <HARD-GATE>
-Do NOT deliver a verdict before running tests in this turn. "CI was green earlier" is not fresh evidence. The Iron Law's only verdict source is the suite running RIGHT NOW against THIS diff, with the actual pass/fail counts surfaced.
+Run tests this turn before the verdict; earlier CI is not fresh evidence; the only verdict source is this turn's run on THIS diff, counts surfaced. A required run you cannot do or see is `unverified`, not invented: deliver `NOT SAFE TO MERGE` now, never a held verdict or a question.
 </HARD-GATE>
 
 ## The Iron Law
@@ -53,7 +53,7 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
    Apply `coverage-ledger` to every runtime risk, then the conditional modules the diff calls for: `inventory-drift`; `unproven-escalation` for any UNPROVEN row; `acceptance-criteria` (and `ac-evidence-views` on a close call) when criteria are supplied; `surface-verifier`, `feature-flow`, `eval-validity`, then `discharged-check`.
 
-10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review, then `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk COVERED per step 9, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. Always list residual concerns, even on SAFE (Verdict close).
+10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review, then `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk COVERED per step 9, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. List residuals even on SAFE (Verdict close).
 
 ## Module routing table
 
@@ -105,7 +105,7 @@ The Checklist is the flow.
 
 | Thought | Reality |
 |---|---|
-| "Looks good" / "CI was green an hour ago" / "tests are slow, skip them" | None is fresh evidence; slow tests are still the verdict source. Run the suite now. |
+| "Looks good" / "CI was green an hour ago" / "tests are slow, skip them" | None is fresh evidence; slow tests are still the verdict source. |
 | "Trivial change, no need to walk through sections" | The Iron Law has no trivial-change exemption; the review can be short, but every section gets confirmation. |
 | "No standards apply to this change" | Re-classify. Every change has at least one applicable classification with loaded rules. |
 | "I'll list the risks AND deliver the verdict in one message" | Gate. The user's correction on the risks is what shapes the verdict. |

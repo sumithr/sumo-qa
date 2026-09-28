@@ -167,6 +167,8 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "`Surface verifier: <verifier",
         "**Sibling/combined-tree rule:**",
         "the relevant config must have run through **the Claude eval gate**",
+        "**A missing run is a verdict, not a question:**",
+        "deliver `NOT SAFE TO MERGE` this turn, and name the run that clears it",
     ],
     "feature-flow": [
         "**(ii) Primary feature flow exercised end-to-end.**",
