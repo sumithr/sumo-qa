@@ -84,7 +84,12 @@ defaultTest:
          code. A mutant that survives because the original production code is
          wrong (the supplied specification matches the mutant, not the original)
          should stop the strengthening flow: no strengthening test for it, and
-         the defect handed to a separate regression-first fix.
+         the defect handed to a separate regression-first fix. This applies
+         only when the expected shape is a production-defect stop: a stop on
+         the defect without an explicit hand-off to a separate regression-first
+         fix (a failing test reproducing the defect at the exact disagreeing
+         input, then the production fix) is SHAPE FAIL; noting that the code
+         "must be reconciled" or "needs fixing" is not a hand-off.
 
       B. GROUNDING - the response must visibly use the supplied mutant
          description, current test code, and surrounding production code. For a
