@@ -125,31 +125,39 @@ def call_api(prompt, options=None, context=None):
 
 def _verdict(text):
     """(verdict, None) for the reply's verdict object, else (None, the problem)."""
-    candidates = []
+    last = None
     start = text.find("{")
     while start != -1:
         try:
             value, end = _DECODER.raw_decode(text, start)
         except ValueError:
+            # A `{` that does not decode (stray prose) starts no object.
             start = text.find("{", start + 1)
             continue
-        # Top level only: a "pass" nested inside another object is not a verdict.
-        if isinstance(value, dict) and "pass" in value:
-            candidates.append(value)
+        # Top level only: an object nested inside another one is never scanned on its own.
+        last = value
         start = text.find("{", end)
-    if not candidates:
-        return None, 'has no verdict object with a "pass" key'
-    # The last verdict wins: the verdict closes the reply, and anything before it is a
-    # quoted example or the restated format.
-    verdict = candidates[-1]
-    if not isinstance(verdict["pass"], bool):
+    # The verdict closes the reply: anything before it is a quoted example or the restated
+    # format, and a reply whose last object is not a verdict did not end in a grade.
+    if not isinstance(last, dict) or "pass" not in last:
+        return None, 'has no verdict object with a "pass" key as its last JSON object'
+    if not isinstance(last["pass"], bool):
         return None, '"pass" is not a JSON boolean'
-    score = verdict.get("score", 0)
-    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
+    if not _finite(last.get("score", 0)):
         return None, '"score" is not a finite number'
-    if not isinstance(verdict.get("reason", ""), str):
+    if not isinstance(last.get("reason", ""), str):
         return None, '"reason" is not a string'
-    return verdict, None
+    return last, None
+
+
+def _finite(value):
+    """True for a JSON number a float can hold; an int too large for one is not finite."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _number(value, kind=int):

@@ -263,6 +263,15 @@ def test_the_graded_verdict_is_the_last_top_level_one(monkeypatch, reply, verdic
             '"pass"',
             id="an-invalid-last-verdict-after-a-valid-one",
         ),
+        # The verdict must be the reply's last JSON object: a later object without "pass"
+        # means the reply did not end in a grade, so the earlier verdict is not graded.
+        pytest.param(
+            '{"pass": true, "score": 1, "reason": "r"} {"error": "grading unavailable"}',
+            "no verdict",
+            id="an-object-without-pass-after-the-verdict",
+        ),
+        # A score too large for a float must be an error, never an OverflowError.
+        pytest.param('{"pass": true, "score": 1' + "0" * 400 + "}", '"score"', id="score-huge-int"),
     ],
 )
 def test_a_json_reply_without_a_boolean_verdict_is_an_error(monkeypatch, reply, problem):
