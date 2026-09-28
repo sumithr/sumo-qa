@@ -39,7 +39,7 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
 3. **Classify and load applicable standards** — call `sumo_qa_load_classifications()`, infer the classification(s), then `sumo_qa_load_standards(...)` and `sumo_qa_load_rules(...)`. Note which loaded rules apply.
 
-4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). Each hit is a named risk anchored to file:line; one the fresh tests do not cover is UNCOVERED, a SAFE-blocker, never a residual note.
+4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). Each hit is a named risk anchored to file:line; one the fresh tests do not cover is UNCOVERED or UNPROVEN per `coverage-ledger`, a SAFE-blocker, never a residual note.
 
 5. **Confirm scope, only for the AMBIGUOUS parts** — name the files, line counts, and what the change does in domain terms, then ask ONE focused question for what the diff couldn't reveal. If nothing's ambiguous, skip the question.
 
@@ -53,7 +53,7 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
    Apply `coverage-ledger` to every runtime risk, then the conditional modules the diff calls for: `inventory-drift`; `unproven-escalation` for any UNPROVEN row; `acceptance-criteria` (and `ac-evidence-views` on a close call) when criteria are supplied; `surface-verifier`, `feature-flow`, `eval-validity`, then `discharged-check`.
 
-10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review, then `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk COVERED per step 9, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. Always list residual concerns, even on SAFE (the Verdict close below). A ledger (`ledger-appendix`) or scorecard (`readiness-scorecard`) goes BELOW the verdict.
+10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review, then `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk COVERED per step 9, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. Always list residual concerns, even on SAFE (Verdict close).
 
 ## Module routing table
 
@@ -83,7 +83,7 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 
 ### Verdict-format discipline
 
-The verdict line is the LAST line, after `Why:` and `Residual concerns:`. For a runtime change (per `runtime-scope`), before the verdict you MUST emit, in order:
+Output order: these items, the Verdict close, the verdict line, then only an appendix `ledger-appendix` or `readiness-scorecard` pins below it. For a runtime change (per `runtime-scope`), before the verdict you MUST emit, in order:
 1. Each named risk by exact name, one per line (`Risk 1: Auth Session Bypass`).
 2. A coverage-ledger line per risk as pinned in `coverage-ledger`, plus the 2a/2b/2c/2d extension rows a present risk class requires.
 3. `Touched files:` citing every diff path verbatim (e.g. `app/auth/session.py, tests/billing/test_checkout.py`).
@@ -95,7 +95,7 @@ The verdict line is the LAST line, after `Why:` and `Residual concerns:`. For a 
 
 A runtime verdict missing an applicable item is a discipline violation. Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 where it applies.
 
-**Verdict close (every mode).** Immediately before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete item the fresh run leaves unexercised, anchored to file:line or a named input (never `none`). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Emit the counts once; the only skip lines are the pinned ones (steps 1 and 4, item 7). Never invent a status or skip line: gate bookkeeping stays internal. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
+**Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete item the fresh run leaves unexercised, anchored to file:line or a named input (never `none`). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear in items 5 and 6 only; never repeat them. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim, so invent no line for it. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
 
 ## Process Flow
 
