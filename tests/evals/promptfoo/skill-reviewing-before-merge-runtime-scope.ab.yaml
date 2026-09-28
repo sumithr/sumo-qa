@@ -24,7 +24,8 @@ description: >
   (= origin/main before the #300 commit); refresh it if the baseline moves.
 # Claude pair: separates. A0 0/5, A1 4/5 over 5 samples on the current skill
 # and rubric; every A1 sample reaches NOT SAFE, and the one A1 fail is the
-# coverage label.
+# coverage label. Three #689 passes, the last on the final tree: A0 0/3, A1
+# 3/3.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

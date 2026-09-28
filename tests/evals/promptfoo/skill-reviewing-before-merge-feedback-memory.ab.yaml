@@ -26,8 +26,9 @@ description: >
 # Claude pair: non-discriminating. The SAVED REVIEW FEEDBACK block names the
 # rollover probe and A0 applies it unprompted: A0 2/3, A1 3/3 over three samples
 # under the current rubric, and A0's one fail was the UNCOVERED-vs-UNPROVEN label,
-# not the advisory hint. Kept as a regression guard on the A1 leg, not a lift
-# measurement.
+# not the advisory hint. On the final #689 tree, one single pass: A0 0/1 (again
+# the coverage label), A1 1/1. Kept as a regression guard on the A1 leg, not a
+# lift measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

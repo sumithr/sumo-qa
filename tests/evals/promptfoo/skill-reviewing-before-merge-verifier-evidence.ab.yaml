@@ -20,6 +20,8 @@ description: >
   surface-verifier behaviour, not pre-existing risk-coverage handling. A0 body is
   snapshotted at fixtures/reviewing-before-merge-PRE-332.SKILL.md (= origin/main
   before the #332 commit); refresh it if the baseline moves.
+# Claude pair: separates. A0 0/3, A1 3/3 over 3 repeats; on the final #689
+# tree, one single pass: A0 0/1, A1 1/1.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
