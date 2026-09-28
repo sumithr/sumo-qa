@@ -188,6 +188,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     "runtime-scope": [
         "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
         "**Command/input-classifier probe (pinned):**",
+        "**Location claim (pinned):**",
         "**Trivial-change exemption (pinned):**",
         "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
     ],
@@ -238,6 +239,7 @@ PINNED_RULE_MARKERS = (
     "**Documented-inventory drift rule (pinned).**",
     "**External-contract exception (pinned):**",
     "**External-contract rule (pinned).**",
+    "**Location claim (pinned):**",
     "**Module-match rule (pinned):**",
     "**Producer test (apply first):**",
     "**Re-anchor first.**",
@@ -342,6 +344,13 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         defining="For an external-contract risk (step 4's external-output probe), a green matcher proves LOGIC, not that its INPUT matches reality",
         operative=(
             "A hand-authored or guessed fixture with no real-run traceability is UNPROVEN — never SAFE on the green suite alone",
+        ),
+    ),
+    "**Location claim (pinned):**": PinnedClauses(
+        defining="when the requester or PR calls a change trivial, tooling, or non-runtime because of WHERE it lives",
+        operative=(
+            "answer that claim in one line of the review: location does not decide runtime scope, executable behaviour does",
+            "name the behaviour that makes THIS change runtime",
         ),
     ),
     "**Module-match rule (pinned):**": PinnedClauses(
@@ -863,7 +872,7 @@ def test_heading_form_pinned_rules_carry_a_bold_marker_in_their_section(name):
 def test_heading_form_pinned_rule_discovery_rejects_a_marker_less_section():
     """Fault injection through the REAL checker: a `## ... (pinned)` heading
     whose section carries no bold pinned marker must be rejected; a marker in
-    the NEXT section does not count; the real runtime-scope module (three
+    the NEXT section does not count; the real runtime-scope module (four
     heading-form pinned rules, each with its bold marker) passes."""
     trivial = "**Trivial-change exemption (pinned):**"
     runtime = "**What counts as a runtime change (pinned — behaviour, not path prefix):**"
@@ -901,10 +910,11 @@ def test_heading_form_pinned_rule_discovery_rejects_a_marker_less_section():
     )
     _assert_pinned_headings_carry_bold_markers(nested, "nested")
     real = _module_text("runtime-scope")
-    assert len(_pinned_heading_sections(real)) == 3
+    assert len(_pinned_heading_sections(real)) == 4
     assert [_normalised_pinned_title(h) for h, _ in _pinned_heading_sections(real)] == [
         "what counts as a runtime change",
         "command input classifier probe",
+        "location claim",
         "trivial change exemption",
     ]
     _assert_pinned_headings_carry_bold_markers(real, "runtime-scope")

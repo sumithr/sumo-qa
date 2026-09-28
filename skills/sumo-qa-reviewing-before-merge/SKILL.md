@@ -11,7 +11,7 @@ Help the user decide whether a change is safe to ship, one Checklist section at 
 
 ## Output discipline (mandatory)
 
-Inherits the global discipline from `using-sumo-qa`: **output discipline** (no internal taxonomy labels or raw change-rule keys; cite rules in plain English), **output economy** (findings not framing; one question per turn; no pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit.
+Inherits the global discipline from `using-sumo-qa`: **output discipline** (no internal taxonomy labels or raw change-rule keys; cite rules in plain English), **output economy** (findings not preamble; one question per turn; no pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit.
 
 <HARD-GATE>
 Do NOT deliver a verdict before running tests in this turn. "CI was green earlier" is not fresh evidence. The Iron Law's only verdict source is the suite running RIGHT NOW against THIS diff, with the actual pass/fail counts surfaced.
