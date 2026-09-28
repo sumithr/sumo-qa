@@ -137,6 +137,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     ],
     "coverage-ledger": [
         "**Module-match rule (pinned):**",
+        "(risks sharing that path list the same IDs)",
         "**Coverage labels (pinned):**",
         "forbidden hallucinated bridges",
         "**Re-anchor first.**",
@@ -159,6 +160,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "`UNPROVEN escalation: <risk name> | Discriminating input: <the input>",
         "`UNPROVEN deferral: <risk name> | Accepted failure mode:",
         "**Technique-keyed failure-mode hints (pinned).**",
+        "Trace the input through the diff's literal code first: it must reach the broken branch",
     ],
     "acceptance-criteria": [
         "**Acceptance-criteria coverage (pinned).**",
