@@ -32,5 +32,5 @@ The sweep produces 3–7 named risks, each citing a specific file + line + the d
 
 | Thought | Reality |
 |---|---|
-| "I spotted a latent issue but tests are green — SAFE, with a residual note" | The discovery sweep's hits are NAMED RISKS, not residual notes. A discovered defect the fresh tests don't exercise is UNCOVERED = NOT SAFE. Demoting it to a residual concern is the gap step 4 closes. |
+| "I spotted a latent issue but tests are green — SAFE, with a residual note" | The discovery sweep's hits are NAMED RISKS, not residual notes. A discovered defect is UNCOVERED when no path-matching fresh test runs it, UNPROVEN when path-matching tests pass but none asserts at its failure mode; either is NOT SAFE. Demoting it to a residual concern is the gap step 4 closes. |
 | "I'll skip the discovery sweep — looks like a clean refactor" | The sweep is mandatory for any runtime diff. Codex-class defects (cwd bypass, rollback data-loss, schema widening, partial CI gate) hide in clean-looking diffs and pass green suites. Only genuinely non-executable diffs (docs / static config) are exempt. |
