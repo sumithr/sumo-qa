@@ -8,8 +8,8 @@ description: >
   guard's prose is present. "The guard is described" is NOT "the guard is
   tested": a one-sided (positive-only) eval is a green matching test that never
   asserts at the over-trigger failure mode, so the guard is UNPROVEN (the
-  skill's single coverage definition; UNCOVERED only when no eval exercises the
-  guard), a SAFE-blocker, mirroring the #255 vacuous-test probe. Two seeds: (1) a new "do NOT over-trigger on internal/self-produced
+  skill's single coverage definition; UNCOVERED only when no eval of the
+  guard ran fresh), a SAFE-blocker, mirroring the #255 vacuous-test probe. Two seeds: (1) a new "do NOT over-trigger on internal/self-produced
   values" guard whose eval has only external-output (positive-direction) seeds
   and NO internal-value true-negative -> guard UNPROVEN, NOT SAFE; (2) the same
   guard whose eval DOES carry a discriminating internal/self-produced

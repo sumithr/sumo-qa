@@ -126,6 +126,50 @@ def test_label_follows_the_tests_field(tests, coverage, passes):
     assert result["pass"] is passes, result["reason"]
 
 
+@pytest.mark.parametrize(
+    "tests",
+    ["N/A", "n/a (no test under tests/billing/)", "nothing", "0 tests", "0 test", "not run"],
+)
+def test_empty_tests_field_spellings_read_as_none(tests):
+    """A correct UNCOVERED row whose tests field says there is no test in
+    other words passes; the same field labelled UNPROVEN fails."""
+    [uncovered, unproven] = _grade([_row(tests, "UNCOVERED"), _row(tests, "UNPROVEN")])
+    assert uncovered["pass"] is True, uncovered["reason"]
+    assert unproven["pass"] is False, unproven["reason"]
+
+
+@pytest.mark.parametrize(
+    ("tests", "coverage", "passes"),
+    [
+        ("tests/parse/test_parse.py::test_parse[a|b]", "UNCOVERED", False),
+        ("tests/parse/test_parse.py::test_parse[a|b]", "UNPROVEN", True),
+        (
+            "tests/parse/test_parse.py::test_parse[a|b], tests/parse/test_parse.py::test_x[|]",
+            "UNCOVERED",
+            False,
+        ),
+    ],
+)
+def test_test_id_containing_a_pipe_is_still_checked(tests, coverage, passes):
+    """A parametrized pytest ID can carry `|`; the row must still be parsed and
+    checked, never skipped as if it had no ledger row."""
+    [result] = _grade([_row(tests, coverage)])
+    assert result["pass"] is passes, result["reason"]
+    if passes:
+        assert "1 ledger row(s) checked" in result["reason"]
+
+
+def test_integration_test_listed_for_a_module_risk_may_be_covered():
+    """The coverage-ledger integration/e2e exception lists the admitted test in
+    the tests field, so the row reads as a listed test, never NONE."""
+    tests = "tests/integration/test_refund_flow.py::test_refund_rejects_zero_amount"
+    [covered, uncovered] = _grade(
+        [_row(tests, "COVERED (assert raises RefundAmountInvalid)"), _row(tests, "UNCOVERED")]
+    )
+    assert covered["pass"] is True, covered["reason"]
+    assert uncovered["pass"] is False, uncovered["reason"]
+
+
 def test_every_offending_row_is_named_and_consistent_rows_are_not():
     output = "\n".join(
         [

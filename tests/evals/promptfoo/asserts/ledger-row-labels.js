@@ -27,12 +27,13 @@ function stripMarkdown(text) {
   return String(text).replace(/\*\*|__|[*`]/g, '');
 }
 
-// NONE, "none", "(none)", "no path-matching test", an empty field, or a bare
-// dash all mean no fresh test is listed.
+// NONE, "none", "(none)", "no path-matching test", "N/A", "nothing",
+// "0 tests", "not run", an empty field, or a bare dash all mean no fresh test
+// is listed.
 function isNone(tests) {
   const value = tests.trim();
   if (value === '' || /^[-–—]+$/.test(value)) return true;
-  return /^[\s([]*(none|no)\b/i.test(value);
+  return /^[\s([]*(none|no|n\/a|nothing|0 tests?|not run)(?![\w/])/i.test(value);
 }
 
 // Returns UNCOVERED / UNPROVEN / COVERED, or null for a label this check ignores.
@@ -51,7 +52,10 @@ function contradiction(tests, label) {
   return null;
 }
 
-const INLINE_ROW = /Fresh matching tests:\s*([^|]*?)\s*\|?\s*Coverage:\s*([^|]*)/gi;
+// The tests field runs lazily up to the row's own `Coverage:` key, so a test ID
+// carrying `|` (a parametrized id such as `test_parse[a|b]`) stays in the
+// field instead of hiding the row from the check.
+const INLINE_ROW = /Fresh matching tests:\s*(.*?)\s*\|?\s*Coverage:\s*([^|]*)/gi;
 
 function inlineRows(line) {
   const rows = [];
