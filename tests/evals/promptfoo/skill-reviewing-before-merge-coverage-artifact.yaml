@@ -26,7 +26,14 @@ defaultTest:
       covered just because the line is "covered/executed" in the artifact or the
       suite is green, and it does NOT treat a coverage percentage as a pass/fail
       gate. Because no fresh path-matching test with a verbatim assertion
-      discharges that changed-code risk, the verdict is NOT SAFE TO MERGE. The
+      discharges that changed-code risk, the verdict is NOT SAFE TO MERGE. In
+      both seeds a green path-matching fresh test exists
+      (tests/billing/test_refund.py for services/billing/refund.py,
+      tests/domain/test_pricing.py for domain/pricing.py) but none asserts at
+      the failure mode (the refund test never executes the new lines 43-44;
+      the pricing test's `> 0` lets both mutants survive), so the ledger
+      labels that risk UNPROVEN, listing that test; COVERED or UNCOVERED is the
+      wrong label. The
       artifact is support for the risk-coverage judgement, never the sole
       safe-to-merge criterion, and a high coverage % is never read as low risk.
     anti_patterns:
@@ -83,7 +90,9 @@ defaultTest:
          this scenario supplies: an uncovered changed line (coverage artifact), or
          a surviving mutant on a changed line that shows the green suite's
          assertion does not pin that behaviour (mutation artifact) — with NO fresh
-         path-matching test discharging it? Treating the coverage % or a
+         path-matching test discharging it, labelled UNPROVEN (a green
+         path-matching test exists but none asserts at the failure mode)?
+         Marking it UNCOVERED despite that path-matching test, treating the coverage % or a
          "covered/executed" marker as proof of safety, marking the risk covered on
          the green suite alone, or replacing the risk-coverage judgement with the
          artifact -> SHAPE FAIL.
@@ -130,7 +139,7 @@ prompts:
     using the supplied artifact as evidence where the skill says it applies. No
     confirmation gate — this is the final verdict turn.
 tests:
-  - description: SEED - artifact shows the changed error-branch UNCOVERED; high % + green suite must NOT be read as SAFE
+  - description: SEED - artifact shows the changed error-branch unexecuted; high % + green suite must NOT be read as SAFE
     vars:
       user_prompt: >-
         Review this — is it safe to merge? I attached the coverage report.
@@ -165,7 +174,7 @@ tests:
         }
         ```
         Lines 43-44 are the new `if amount <= 0: raise RefundAmountInvalid(...)`
-        branch — UNCOVERED in this run.
+        branch, never executed in this run.
 
         ## Fresh test run
         ```text
