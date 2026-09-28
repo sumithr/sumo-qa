@@ -322,6 +322,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         operative=(
             "`UNPROVEN`: path-matching fresh tests pass but none asserts at the failure mode, including one that never executes the changed branch",
             "`UNCOVERED`: no path-matching fresh test (`Fresh matching tests: NONE`)",
+            "any test ID there makes the row COVERED or UNPROVEN",
         ),
     ),
     "**Discharged-check discipline (anti-over-fire, pinned).**": PinnedClauses(
