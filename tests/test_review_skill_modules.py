@@ -128,6 +128,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Anti-over-discovery (pinned):**",
     ],
     "contract-and-fence-probes": [
+        "so it is UNPROVEN (2b input: the omitted required arg), never UNCOVERED",
         "a 4-tick fence wrapping a 3-tick block",
         "`Never raises` / always-returns-envelope claim is violated",
     ],
@@ -178,6 +179,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "name the repo-specific verifier that observes the changed behaviour and judge from the record",
     ],
     "feature-flow": [
+        "The flow status never relabels a risk row",
         "**(ii) Primary feature flow exercised end-to-end.**",
         "`Feature flow: <the realistic UI/API/CLI/worker/artifact path",
     ],
