@@ -240,7 +240,7 @@ tests:
         @@ app/export/limit.py:5-9 @@
          5 MAX_ROWS = 1000
          7 def within_limit(row_count: int) -> bool:
-        -8     return row_count < MAX_ROWS
+        +8     return row_count < MAX_ROWS
         ```
         Context: the guard uses `<` (strict), so exactly 1000 rows is REJECTED
         — but the spec says "at most 1000" should be allowed.
