@@ -15,6 +15,8 @@ failure turned into a zero-passed baseline that read as a skill regression.
 With `jsonReply: true` (the judge) the verdict object is parsed here and handed to
 promptfoo as an object. promptfoo's own extractor counts braces without reading
 strings, so a `{` or `}` inside the reason drops the grade or passes it silently.
+A judge reply with no valid verdict is a promptfoo `error`, never text for promptfoo
+to parse: promptfoo grades a missing or non-boolean "pass" as a pass.
 """
 
 from __future__ import annotations
@@ -104,8 +106,13 @@ def call_api(prompt, options=None, context=None):
         for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
     )
     completion_tokens = _number(usage.get("output_tokens"))
+    output = result
+    if config.get("jsonReply"):
+        output, problem = _verdict(result)
+        if problem:
+            return {"error": f"judge reply {problem}: {result[:_EXCERPT]!r}"}
     return {
-        "output": (_verdict(result) or result) if config.get("jsonReply") else result,
+        "output": output,
         "tokenUsage": {
             "prompt": prompt_tokens,
             "completion": completion_tokens,
@@ -117,17 +124,32 @@ def call_api(prompt, options=None, context=None):
 
 
 def _verdict(text):
-    """The first JSON object in text that carries a "pass" key, else None."""
+    """(verdict, None) for the reply's verdict object, else (None, the problem)."""
+    candidates = []
     start = text.find("{")
     while start != -1:
         try:
-            value, _ = _DECODER.raw_decode(text, start)
+            value, end = _DECODER.raw_decode(text, start)
         except ValueError:
-            value = None
+            start = text.find("{", start + 1)
+            continue
+        # Top level only: a "pass" nested inside another object is not a verdict.
         if isinstance(value, dict) and "pass" in value:
-            return value
-        start = text.find("{", start + 1)
-    return None
+            candidates.append(value)
+        start = text.find("{", end)
+    if not candidates:
+        return None, 'has no verdict object with a "pass" key'
+    # The last verdict wins: the verdict closes the reply, and anything before it is a
+    # quoted example or the restated format.
+    verdict = candidates[-1]
+    if not isinstance(verdict["pass"], bool):
+        return None, '"pass" is not a JSON boolean'
+    score = verdict.get("score", 0)
+    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
+        return None, '"score" is not a finite number'
+    if not isinstance(verdict.get("reason", ""), str):
+        return None, '"reason" is not a string'
+    return verdict, None
 
 
 def _number(value, kind=int):

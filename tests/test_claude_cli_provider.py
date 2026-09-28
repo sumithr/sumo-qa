@@ -204,14 +204,86 @@ def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply
 
 
 @pytest.mark.parametrize(
-    "reply",
-    ["not json", '{"score": 1, "reason": "no pass key"}', '{"pass": true, "reason": "cut off'],
-    ids=["no-json", "object-without-pass", "truncated-object"],
+    ("reply", "verdict"),
+    [
+        # The system prompt's format line quoted back before the real verdict: the last
+        # verdict in the reply is the one graded.
+        pytest.param(
+            'The format is {"pass": true, "score": 1.0, "reason": "example"}. Mine: '
+            + json.dumps(_VERDICT),
+            _VERDICT,
+            id="a-quoted-example-verdict-before-the-real-one",
+        ),
+        # A "pass" key nested inside a verdict's field is not a second verdict.
+        pytest.param(
+            '{"pass": false, "score": 0.2, "reason": "r", "detail": {"pass": true}}',
+            {"pass": False, "score": 0.2, "reason": "r", "detail": {"pass": True}},
+            id="a-nested-pass-inside-the-verdict-is-ignored",
+        ),
+        pytest.param('{"pass": true}', {"pass": True}, id="pass-alone"),
+        pytest.param(
+            '{"pass": true, "score": 1, "reason": "integer score"}',
+            {"pass": True, "score": 1, "reason": "integer score"},
+            id="integer-score",
+        ),
+    ],
 )
-def test_a_json_reply_without_a_verdict_stays_the_raw_text(monkeypatch, reply):
+def test_the_graded_verdict_is_the_last_top_level_one(monkeypatch, reply, verdict):
     _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
 
-    assert provider.call_api("the prompt", JUDGE_OPTIONS)["output"] == reply
+    assert provider.call_api("the prompt", JUDGE_OPTIONS)["output"] == verdict
+
+
+# promptfoo grades a missing or non-boolean "pass" as a pass (`parsed.pass ?? true`, and
+# "yes" matches its truthy pattern), so every reply here must be an error, never a grade.
+@pytest.mark.parametrize(
+    ("reply", "problem"),
+    [
+        pytest.param("not json", "no verdict", id="no-json"),
+        pytest.param(
+            '{"score": 1, "reason": "no pass key"}', "no verdict", id="object-without-pass"
+        ),
+        pytest.param('{"pass": true, "reason": "cut off', "no verdict", id="truncated-object"),
+        pytest.param("I think it passes {", "no verdict", id="stray-opening-brace"),
+        pytest.param(
+            '{"summary": {"pass": true, "score": 1}}',
+            "no verdict",
+            id="pass-only-inside-a-non-verdict-object",
+        ),
+        pytest.param('{"pass": null, "score": 1}', '"pass"', id="pass-null"),
+        pytest.param('{"pass": "yes", "score": 1}', '"pass"', id="pass-string"),
+        pytest.param('{"pass": 1}', '"pass"', id="pass-number"),
+        pytest.param('{"pass": true, "score": "0.9"}', '"score"', id="score-string"),
+        pytest.param('{"pass": true, "score": true}', '"score"', id="score-boolean"),
+        pytest.param('{"pass": true, "score": NaN}', '"score"', id="score-nan"),
+        pytest.param('{"pass": true, "reason": 5}', '"reason"', id="reason-not-a-string"),
+        # The last verdict is the one graded, so a valid example before it cannot rescue it.
+        pytest.param(
+            json.dumps(_VERDICT) + ' then {"pass": null}',
+            '"pass"',
+            id="an-invalid-last-verdict-after-a-valid-one",
+        ),
+    ],
+)
+def test_a_json_reply_without_a_boolean_verdict_is_an_error(monkeypatch, reply, problem):
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
+
+    response = provider.call_api("the prompt", JUDGE_OPTIONS)
+
+    assert "output" not in response
+    assert response["error"].startswith("judge reply ")
+    assert problem in response["error"]
+    assert reply[:40] in response["error"]
+
+
+def test_the_error_excerpt_of_a_long_reply_is_truncated(monkeypatch):
+    reply = "no verdict here " + "x" * 5000
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
+
+    error = provider.call_api("the prompt", JUDGE_OPTIONS)["error"]
+
+    assert len(error) < 600
+    assert "x" * 5000 not in error
 
 
 def test_without_json_reply_a_json_answer_stays_text(monkeypatch):
