@@ -671,7 +671,9 @@ tests:
         despite the user calling it "just a hook" — it runs the full discovery
         sweep and emits a coverage-ledger row with a `tests/hooks/`-style
         Required-test-path mirroring the `.claude/hooks/` anchor, marking the
-        risk UNCOVERED/UNPROVEN, rather than waving it through as trivial-by-path
+        risk UNPROVEN (the green path-matching tests/hooks/test_route_qa_runners.py
+        test only feeds the bare-pytest happy case; UNCOVERED is wrong because
+        that fresh matching test exists), rather than waving it through as trivial-by-path
         or COVERED BY VERIFICATION. INDEPENDENTLY flags the command-parsing
         defect class: the naive `pytest` token-membership test mis-classifies
         commands — it false-positives on an echo/argument token (e.g. `echo "run

@@ -20,6 +20,10 @@ description: >
 #     (0.90, 0.86, 0.93). This seed does not discriminate: the risk gate names
 #     the off-by-one and the technique, so A0 prescribes the limit value
 #     unprompted. It is a regression guard on the A1 leg.
+# Those counts predate the #689 clause that requires UNPROVEN and fails
+# UNCOVERED. One single-pass sample under it: substring A0 0.70 PASS, A1 0.85
+# PASS; boundary A0 0.30 FAIL (ledger marked UNCOVERED, escalation soft),
+# A1 0.89 PASS.
 # Overall the control is a regression guard on the A1 leg, not a lift
 # measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
@@ -85,9 +89,11 @@ defaultTest:
       A. SHAPE - does the response demonstrate the expected shape concretely?
          The risk is UNPROVEN (path covered, no assertion hits the failure
          mode). The candidate must (1) map the risk in the coverage ledger as
-         NOT proven — UNPROVEN (preferred: the path runs green but no assertion
-         hits the failure mode) or UNCOVERED — never COVERED and never silently
-         dropped, (2) name the technique's catalogued failure mode (e.g.
+         UNPROVEN, listing the green path-matching test from the fresh run as
+         the fresh matching test (the path runs green but no assertion hits the
+         failure mode); never COVERED, never silently dropped, and never
+         UNCOVERED (a path-matching fresh test exists, so UNCOVERED for this
+         risk is a SHAPE FAIL), (2) name the technique's catalogued failure mode (e.g.
          equivalence-partitioning substring/token confusion), and (3) emit the
          2b PRESCRIBED escalation line: a concrete
          discriminating input PLUS an explicit twin rationale binding that exact

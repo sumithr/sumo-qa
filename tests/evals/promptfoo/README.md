@@ -152,7 +152,10 @@ if the baseline moves. On the Claude pair the control does not discriminate: the
 developer-confirmed risk names the technique and the failure mode, so A0
 prescribes the input unprompted. Per seed at `--repeat 3`, the substring seed
 carries the lift (A0 1 of 3, A1 3 of 3) and the boundary seed does not (A0 2 of
-3, A1 3 of 3), so the boundary seed is a regression guard only. The config
+3, A1 3 of 3), so the boundary seed is a regression guard only. Those counts
+predate the #689 clause that requires UNPROVEN and fails UNCOVERED; one
+single-pass sample under it passed both A1 legs and failed the boundary A0 leg
+on an UNCOVERED label. The config
 header gives the scores; the control is kept as a regression guard on the A1
 leg.
 
@@ -260,9 +263,11 @@ non-runtime/tooling, uses `N/A` or `COVERED BY VERIFICATION` instead of a
 mirrored `tests/hooks/` ledger row, and does not reject the "outside src =
 trivial" framing — a SHAPE FAIL. A1 (the new body) keys the trigger on executable
 behaviour, runs the full sweep, emits a `tests/hooks/`-style coverage-ledger row
-marked UNCOVERED/UNPROVEN, flags the command-parsing mis-parse, and reaches NOT
-SAFE, a PASS. Under the current rubric, 3 samples on the Claude pair give A0 1/3
-and A1 2/3; 8 samples under the looser criterion (4) gave A0 1/8 and A1 7/8. The A0 body is
+marked UNPROVEN (the green path-matching hook test only feeds the bare-pytest
+happy case), flags the command-parsing mis-parse, and reaches NOT
+SAFE, a PASS. Before the #689 clause that requires UNPROVEN, 3 samples on the
+Claude pair gave A0 1/3 and A1 2/3; one single-pass sample under that clause
+gave A0 0/1 and A1 0/1 (A1 shipped SAFE with no ledger row); 8 samples under the looser criterion (4) gave A0 1/8 and A1 7/8. The A0 body is
 snapshotted at `fixtures/reviewing-before-merge-PRE-300.SKILL.md`; refresh it if the baseline
 moves.
 

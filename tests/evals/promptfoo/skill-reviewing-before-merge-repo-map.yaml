@@ -32,11 +32,13 @@ defaultTest:
       as starting leads but gating the verdict on the FRESH test run. The
       response must: (1) flag `src/auth/session.py` as UNCOVERED — the map's
       risk_surface named it and the fresh run contains no test that exercises
-      it; (2) NOT mark `tests/billing/test_refund.py` as COVERED for the
-      refund-amount change — UNPROVEN or UNCOVERED is the correct label,
-      because the map only listed it under related_tests and the fresh run does
-      not demonstrably exercise the changed refund branch (an explicit prose
-      explanation is welcome but a correct UNPROVEN/UNCOVERED label suffices);
+      it; (2) mark the refund-amount risk UNPROVEN, listing
+      `tests/billing/test_refund.py::test_refund_amount_caps_at_order_total` as
+      the fresh matching test: it runs the changed refund path green but only
+      with an empty refund history, so no assertion hits the partial-refund
+      failure mode, and the map only listed it under related_tests (an
+      explicit prose explanation is welcome but a correct UNPROVEN label
+      suffices); marking it COVERED or UNCOVERED is wrong;
       (3) quote the fresh test counts; (4) end without a confirmation question.
       The map accelerates finding what to inspect; it never substitutes for the
       fresh evidence.
@@ -110,11 +112,13 @@ defaultTest:
 
 
       A. SHAPE - is the verdict NOT SAFE TO MERGE, with `src/auth/session.py`
-         flagged UNCOVERED, AND `tests/billing/test_refund.py` NOT marked
-         COVERED for the refund change? Marking it UNPROVEN or UNCOVERED is
-         correct (the map's related_tests entry is a lead, not proof); a prose
-         explanation of why is welcome but not required. Marking the refund
-         test COVERED, omitting the session.py gap, or a SAFE verdict, is a
+         flagged UNCOVERED, AND the refund change marked UNPROVEN with
+         `tests/billing/test_refund.py` listed as the fresh matching test? That
+         test runs the changed refund path green but only with an empty refund
+         history, so no assertion hits the partial-refund failure mode (the
+         map's related_tests entry is a lead, not proof); a prose explanation
+         of why is welcome but not required. Marking the refund risk COVERED
+         or UNCOVERED, omitting the session.py gap, or a SAFE verdict, is a
          SHAPE FAIL.
 
       B. GROUNDING - the response must visibly use BOTH the supplied diff-impact

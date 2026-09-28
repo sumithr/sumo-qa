@@ -17,13 +17,17 @@ description: >
   hook gets the full discovery sweep + coverage ledger with a tests/hooks/-style
   Required-test-path and the "just a hook, not under src" framing is rejected —
   it flags the command-parsing defect and reaches NOT SAFE, a PASS. Measured
-  on the Claude pair under the current rubric over 3 samples: A0 passes 1/3,
-  A1 passes 2/3; under the looser criterion (4), 8 samples gave A0 1/8, A1 7/8. Both prompts classify strictly by the loaded body's stated trigger,
+  on the Claude pair over 3 samples, before the #689 label clause required
+  UNPROVEN: A0 passes 1/3, A1 passes 2/3; one single-pass sample under the
+  UNPROVEN clause gave A0 0/1 (0.30) and A1 0/1 (0.08); under the looser criterion (4), 8 samples gave A0 1/8, A1 7/8. Both prompts classify strictly by the loaded body's stated trigger,
   which surfaces the path-vs-behaviour seam #300 moves.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-300.SKILL.md
   (= origin/main before the #300 commit); refresh it if the baseline moves.
-# Claude pair: separates, weakly under the current rubric (A0 1/3, A1 2/3 over
-# 3 samples). The seed gives facts only.
+# Claude pair: separates, weakly (A0 1/3, A1 2/3 over 3 samples before the
+# #689 UNPROVEN label clause). One single-pass sample under that clause: A0
+# 0/1 (0.30; ledger marked UNCOVERED, and the py.test / pytest:cov class was
+# missed), A1 0/1 (0.08; SAFE with no ledger row, a failure the label clause
+# does not cause). The seed gives facts only.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -110,8 +114,11 @@ defaultTest:
                `tests/hooks/`-style sibling test dir for `.claude/hooks/`
                (accept any clear tests/hooks/... required-test-path; a generic
                "add tests" with no mirrored path is NOT sufficient) — and mark
-               the risk UNCOVERED or UNPROVEN (the green test only feeds the
-               bare-pytest happy case).
+               the risk UNPROVEN, listing
+               tests/hooks/test_route_qa_runners.py::test_matches_bare_pytest
+               as the fresh matching test (it runs green but only feeds the
+               bare-pytest happy case); marking the risk UNCOVERED is a SHAPE
+               FAIL, because a path-matching fresh test exists.
            (3) INDEPENDENTLY NAME THE COMMAND-PARSING DEFECT CLASS: the naive
                whitespace-split `pytest` token-membership test mis-classifies
                commands — it false-positives on an echo/argument token (e.g.
@@ -286,7 +293,10 @@ tests:
         the developer calling it "just a hook, not under src" — it runs the full
         discovery sweep and emits a coverage-ledger row with a `tests/hooks/`-style
         Required-test-path mirroring the `.claude/hooks/` anchor, marking the risk
-        UNCOVERED/UNPROVEN, rather than waving it through as trivial-by-path or
+        UNPROVEN (the green path-matching tests/hooks/test_route_qa_runners.py
+        test only feeds the bare-pytest happy case; UNCOVERED is wrong because
+        that fresh matching test exists), rather than waving it through as
+        trivial-by-path or
         COVERED BY VERIFICATION. INDEPENDENTLY flags the command-parsing defect
         class: the naive `pytest` token-membership test mis-classifies commands —
         it false-positives on an echo/argument token (e.g. `echo "run pytest

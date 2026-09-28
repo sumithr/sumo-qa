@@ -15,7 +15,10 @@ description: >
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-296.SKILL.md
   (= origin/main before the #296 commit); refresh it if the baseline moves.
 # Claude pair: separates. The seed gives facts only; A0 0/2 graded (a third
-# judge reply was unparseable), A1 3/3 over three single-pass samples.
+# judge reply was unparseable), A1 3/3 over three single-pass samples. One
+# single-pass sample under the #689 clause that requires UNPROVEN and fails
+# UNCOVERED: A0 0/1 (0.20; ledger marked UNCOVERED, no char-vs-length tell),
+# A1 1/1 (0.90).
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -80,10 +83,13 @@ defaultTest:
          The fence parser compares only the marker CHARACTER, not its length /
          full opening run, so its correctness is NOT established by the green
          happy-fixture test. The candidate must (1) map the fence-parser risk in
-         the coverage ledger as NOT proven — UNPROVEN (the parse path runs green
-         but no assertion exercises a variable-length / indented / tilde /
-         unclosed fence) or UNCOVERED — never COVERED and never "verified
-         correct" from reading the code; (2) name the structural tell — that the
+         the coverage ledger as UNPROVEN, listing the green path-matching
+         tests/test_knowledge_loaders.py tests as the fresh matching test (the
+         parse path runs green but no assertion exercises a variable-length /
+         indented / tilde / unclosed fence); never COVERED, never "verified
+         correct" from reading the code, and never UNCOVERED (a path-matching
+         fresh test exists, so UNCOVERED for this risk is a SHAPE FAIL);
+         (2) name the structural tell — that the
          close-test matches the fence CHAR not its LENGTH (or equivalently, does
          not track the opening run length / does not validate the close line),
          which is the defect, not proof; and (3) PRESCRIBE at least one CONCRETE

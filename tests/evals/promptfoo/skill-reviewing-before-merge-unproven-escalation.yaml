@@ -70,9 +70,11 @@ defaultTest:
       A. SHAPE - does the response demonstrate the expected shape concretely?
          The risk is UNPROVEN (path covered, no assertion hits the failure
          mode). The candidate must (1) map the risk in the coverage ledger as
-         NOT proven — UNPROVEN (preferred: the path runs green but no assertion
-         hits the failure mode) or UNCOVERED — never COVERED and never silently
-         dropped, (2) name the technique's catalogued failure mode (e.g.
+         UNPROVEN, listing the green path-matching test from the fresh run as
+         the fresh matching test (the path runs green but no assertion hits the
+         failure mode); never COVERED, never silently dropped, and never
+         UNCOVERED (a path-matching fresh test exists, so UNCOVERED for this
+         risk is a SHAPE FAIL), (2) name the technique's catalogued failure mode (e.g.
          equivalence-partitioning substring/token confusion), and (3) emit the
          2b PRESCRIBED escalation line: a concrete
          discriminating input PLUS an explicit twin rationale binding that exact
