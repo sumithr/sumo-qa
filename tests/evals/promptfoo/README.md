@@ -895,7 +895,7 @@ Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-op
 | `skill-strengthening-tests.ab.yaml` | 3/5 | 4/5 | 5/5 | 2026-09-15; only the production-defect seed separates B from A1 |
 | `skill-preparing-for-work.ab.yaml` | 4/4 | 4/4 | 4/4 | 2026-09-22; non-discriminating, see below |
 
-The `reviewing-before-merge` controls are being triaged on the Claude pair in #685, and their reference rows land after it. `skill-preparing-for-work-feedback-memory.ab.yaml` has no recorded Claude-pair leg counts yet.
+The `reviewing-before-merge` controls were triaged on the Claude pair in #685; their per-leg counts are posted on #680 and are not yet recorded in this table. `skill-preparing-for-work-feedback-memory.ab.yaml` has no recorded Claude-pair leg counts yet.
 
 A control only measures lift if A0 cannot pass on material the prompt already hands it; otherwise document the seed as non-discriminating in the config header, or add a seed that targets a taught behaviour A0 is not given. In `skill-strengthening-tests.ab.yaml`, the three original seeds do not discriminate on the Claude pair; the production-defect seed does.
 
