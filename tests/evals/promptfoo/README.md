@@ -518,7 +518,7 @@ ledger-row slip, was rerun once and the row gives the rerun. Per-leg `.ab` count
 | `skill-preparing-for-work-surface-probes.yaml` | 2/2 | 2/2 |
 | `skill-preparing-for-work.yaml` | 1/1 | 1/1 |
 | `skill-reviewing-before-merge-ac-coverage.yaml` | 2/3, 1 judge parse error | 3/3 |
-| `skill-reviewing-before-merge-adversarial.yaml` | 13/13 | 11/13 (rerun: two ledger-row slips on different seeds; first pass: one judge parse error, and `rollback-data-loss` delivered SAFE) |
+| `skill-reviewing-before-merge-adversarial.yaml` | 13/13 | 13/13 |
 | `skill-reviewing-before-merge-coverage-artifact.yaml` | 2/2 | 2/2 |
 | `skill-reviewing-before-merge-doc-drift.yaml` | 1/1 | 1/1 |
 | `skill-reviewing-before-merge-eval-validity.yaml` | 2/2 | 2/2 |
@@ -959,7 +959,7 @@ renders.
 
 `asserts/ledger-row-labels.js` fails a coverage-ledger row whose label contradicts its own `Fresh matching tests` field: tests listed and the row labelled UNCOVERED, or `NONE` and the row labelled UNPROVEN or COVERED. It runs on every seed and every `.ab` leg of the reviewing-before-merge configs that load `coverage-ledger`.
 
-On the Claude pair the current skill still produces a contradicting row on a few current-skill legs per pass over those configs, almost always a listed test labelled UNCOVERED, and the slip moves between seeds from pass to pass: 2 of about 60 on the final #689 pass, then 2 of 13 on the one `adversarial` rerun, against 2 of 26 `adversarial` legs for the tree before the #689 consistency fixes at `--repeat 2`. The skill states the rule in the row template's Coverage slot, the label definition, a BAD/GOOD row, and the discovery, feature-flow, declared-contract and acceptance-criteria modules, so treat a single failing leg as candidate variance: rerun that config once, and treat the same row failing twice as a regression.
+On the Claude pair the current skill still produces a contradicting row on a few current-skill legs per pass over those configs, almost always a listed test labelled UNCOVERED, and the slip moves between seeds from pass to pass: 2 of about 60 on the final #689 pass, none of 13 on the final `adversarial` pass and 1 of 5 on its `rollback-data-loss` seed at `--repeat 5`, against 2 of 26 `adversarial` legs for the tree before the #689 consistency fixes at `--repeat 2`. The skill states the rule in the row template's Coverage slot, the label definition, a BAD/GOOD row, and the discovery, feature-flow, declared-contract and acceptance-criteria modules, so treat a single failing leg as candidate variance: rerun that config once, and treat the same row failing twice as a regression.
 
 The check reads `NONE`, `N/A`, `nothing`, `0 tests`, `not run`, an empty field or a dash as no test listed, and takes the tests field up to the row's own `Coverage:` key, so a parametrized test ID carrying `|` stays in the field instead of hiding the row.
 

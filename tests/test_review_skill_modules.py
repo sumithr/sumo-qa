@@ -114,6 +114,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "a command/string classifier predicate takes the command/input-classifier probe in `runtime-scope`",
         "**Discovery → verdict (pinned).**",
         "The sweep produces 3–7 named risks",
+        "Probe the whole path the diff touches, not the delta",
         "**The two-pass split (pinned).**",
     ],
     "security-relevance": [
@@ -354,6 +355,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         operative=(
             "and UNCOVERED only when none ran",
             "It is a SAFE-blocker → NOT SAFE TO MERGE",
+            '"pre-existing" or "not worsened by this diff" never demotes it',
             "yet it stays listed in that risk's row, which makes the row UNPROVEN, never UNCOVERED",
             'Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict',
         ),
