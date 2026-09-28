@@ -16,16 +16,17 @@ description: >
   post-#300 body) keys the trigger on EXECUTABLE BEHAVIOUR not path prefix: the
   hook gets the full discovery sweep + coverage ledger with a tests/hooks/-style
   Required-test-path and the "just a hook, not under src" framing is rejected —
-  it flags the command-parsing defect and reaches NOT SAFE, a PASS. The
-  A0(FAIL) -> A1(PASS) lift is deterministic over 3 runs and is the proof that
-  #300 isolates NEW behaviour, not pre-existing handling. (An earlier weaker seed
+  it flags the command-parsing defect and reaches NOT SAFE, a PASS. Measured
+  on the Claude pair over 8 single-pass samples: A0 passes 1/8, A1 passes 7/8.
+  That lift is the proof that #300 isolates NEW behaviour, not pre-existing
+  handling. (An earlier weaker seed
   framing let A0 PASS — the path-keyed body still ran the step-4 sweep on its own
   instinct; the seed was hardened to lean on "nothing under app/src/lib =
   trivial" and to make BOTH prompts classify strictly by the loaded body's stated
   trigger, surfacing the path-vs-behaviour seam #300 actually moves.)
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-300.SKILL.md
   (= origin/main before the #300 commit); refresh it if the baseline moves.
-# Claude pair: separates. The seed gives facts only; A0 0/3, A1 2/3 over three
+# Claude pair: separates. The seed gives facts only; A0 1/8, A1 7/8 over eight
 # single-pass samples.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
@@ -123,6 +124,11 @@ defaultTest:
                Anchor it to `.claude/hooks/route-qa-runners.py:is_test_command`.
            (4) REJECT the developer's "just a hook, not under src" framing as a
                reason to skip the sweep / apply the trivial-change exemption.
+               The response must explicitly address that framing and say why it
+               is wrong (a file's location does not make an executable hook
+               trivial). Silence is not rejection: an answer that never mentions
+               the framing, or only implicitly declines it by running the sweep,
+               FAILS (4).
            (5) DELIVER NOT SAFE TO MERGE or NEEDS WORK, with no trailing
                confirmation question.
          SHAPE FAILS if ANY of these hold:
@@ -133,6 +139,8 @@ defaultTest:
              Required-test-path is produced for the command-parsing risk;
            - the command-parsing defect class is missed or named only
              generically ("hook risks", "edge cases");
+           - the "just a hook, not under src" framing is never explicitly
+             addressed and rejected;
            - the verdict is SAFE TO MERGE, or the wrong verdict direction;
            - the response ends with a confirmation question instead of a verdict.
 

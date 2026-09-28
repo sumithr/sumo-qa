@@ -261,9 +261,9 @@ mirrored `tests/hooks/` ledger row, and does not reject the "outside src =
 trivial" framing — a SHAPE FAIL. A1 (the new body) keys the trigger on executable
 behaviour, runs the full sweep, emits a `tests/hooks/`-style coverage-ledger row
 marked UNCOVERED/UNPROVEN, flags the command-parsing mis-parse, and reaches NOT
-SAFE — a PASS. A0(FAIL) → A1(PASS) is deterministic over 3 runs; that lift
-isolates the #300 behaviour. The A0 body is snapshotted at
-`fixtures/reviewing-before-merge-PRE-300.SKILL.md` — refresh it if the baseline
+SAFE, a PASS. Over 8 single-pass samples on the Claude pair, A0 passes 1/8
+and A1 passes 7/8; that lift isolates the #300 behaviour. The A0 body is
+snapshotted at `fixtures/reviewing-before-merge-PRE-300.SKILL.md`; refresh it if the baseline
 moves.
 
 ```bash
