@@ -19,11 +19,8 @@ description: >
   it flags the command-parsing defect and reaches NOT SAFE, a PASS. Measured
   on the Claude pair over 8 single-pass samples: A0 passes 1/8, A1 passes 7/8.
   That lift is the proof that #300 isolates NEW behaviour, not pre-existing
-  handling. (An earlier weaker seed
-  framing let A0 PASS — the path-keyed body still ran the step-4 sweep on its own
-  instinct; the seed was hardened to lean on "nothing under app/src/lib =
-  trivial" and to make BOTH prompts classify strictly by the loaded body's stated
-  trigger, surfacing the path-vs-behaviour seam #300 actually moves.)
+  handling. Both prompts classify strictly by the loaded body's stated trigger,
+  which surfaces the path-vs-behaviour seam #300 moves.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-300.SKILL.md
   (= origin/main before the #300 commit); refresh it if the baseline moves.
 # Claude pair: separates. The seed gives facts only; A0 1/8, A1 7/8 over eight
