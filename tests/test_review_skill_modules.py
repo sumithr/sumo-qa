@@ -354,6 +354,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         operative=(
             "and UNCOVERED only when none ran",
             "It is a SAFE-blocker → NOT SAFE TO MERGE",
+            "yet it stays listed in that risk's row, which makes the row UNPROVEN, never UNCOVERED",
             'Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict',
         ),
     ),
