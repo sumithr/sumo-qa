@@ -23,7 +23,7 @@ Run tests this turn before the verdict; earlier CI is not fresh evidence; the on
 
 ## Evidence-backed gate reporting
 
-Every gate claim (suite verdict, risk coverage, safe-to-merge call) carries a status (`passed` / `failed` / `skipped` / `blocked` / `unverified`) and, unless `skipped` or `unverified`, cites the ONE observed evidence item backing it by source (`command`, `tool_call`, `file_read`, `user_fact`, `external_ci`, `manual_observation`). Citing means NAMING the source and quoting the observation, as a labeled line: `Evidence (command): $ pytest tests/auth -q → 42 passed, 2 skipped`. Test names or counts alone, with no labeled source behind them, do NOT count as a cite. A `passed` / `failed` / `blocked` claim with no cited source is an overstatement; `unverified` is the honest state when nothing was observed this turn. `SAFE TO MERGE` is a `passed` safe-to-merge gate, unreachable while any gate is `failed` / `blocked` / `unverified`. Keep it compact: a status word + a short source cite per line, never a second dump.
+Every gate claim (suite verdict, risk coverage, safe-to-merge call) carries a status (`passed` / `failed` / `skipped` / `blocked` / `unverified`) and, unless `skipped` or `unverified`, cites the ONE observed evidence item backing it by source (`command`, `tool_call`, `file_read`, `user_fact`, `external_ci`, `manual_observation`). Citing means a labeled line naming the source and quoting the observation: `Evidence (command): $ pytest tests/auth -q → 42 passed, 2 skipped`. Test names or counts alone, with no labeled source behind them, do NOT count as a cite. A `passed` / `failed` / `blocked` claim with no cited source is an overstatement; `unverified` is the honest state when nothing was observed this turn. `SAFE TO MERGE` is a `passed` safe-to-merge gate, unreachable while any gate is `failed` / `blocked` / `unverified`. Keep it compact: a status word + a short source cite per line, never a second dump.
 
 ## When to Use
 
@@ -31,9 +31,9 @@ Triggers in the description; `sumo-qa-deciding-approach` routes here for `verify
 
 ## Checklist
 
-You MUST work through these in order. Steps 1-4 are AI-only homework (no user questions); the user's confirmation gates steps 5 onward. Load a step's modules (routing table below) first.
+Work through these in order. Steps 1-4 are AI-only homework (no user questions); the user's confirmation gates steps 5 onward. Load a step's modules (routing table below) first.
 
-1. **Read the diff via the host's git tools** — `git diff`, `git diff --staged`, or `git diff <base>...HEAD`. Capture file list + line counts. Supplied repo-map / bundle / coverage artifacts go through `context-inputs`; if none, say `no coverage/mutation artifact this turn — not measured`.
+1. **Read the diff via the host's git tools** — `git diff`, `git diff --staged`, or `git diff <base>...HEAD`. Capture files + line counts. Supplied repo-map / bundle / coverage artifacts go through `context-inputs`; if none, say `no coverage/mutation artifact this turn — not measured`.
 
 2. **Read the actual changed files** — not just the diff hunks. For each, identify the public surface that moved.
 
@@ -41,13 +41,13 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
 4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). Each hit is a named risk anchored to file:line; an uncovered one is a SAFE-blocker labelled per `coverage-ledger`, never a residual note.
 
-5. **Confirm scope, only for the AMBIGUOUS parts** — name the files, line counts, and what the change does in domain terms, then ask ONE focused question for what the diff couldn't reveal. If nothing's ambiguous, skip it.
+5. **Confirm scope, only for the AMBIGUOUS parts** — name the files, line counts, and what the change does in domain terms, then ask ONE focused question for what the diff couldn't reveal. Else skip it.
 
 6. **Present named risks, ask after** — 3-7 risks anchored to file:line, each with its domain meaning; ground a technique-shaped failure mode through `unproven-escalation`'s hints, not per-AI judgment. Ask *"do these match how you'd describe the risks? add / remove / refine?"* and wait.
 
-7. **Run the test suite — show the actual output** — use the host's runner. Surface: total / passed / failed / skipped / duration. If failures: name them. Do NOT proceed to verdict on partial output.
+7. **Run the test suite — show the actual output** — use the host's runner. Surface: total / passed / failed / skipped / duration. Name any failures. Do NOT proceed to verdict on partial output.
 
-8. **Run targeted tests around the changed files** — e.g. `pytest tests/test_<changed_module>.py -v`; confirm closest neighbours stay green and surface the count.
+8. **Run targeted tests around the changed files** — e.g. `pytest tests/test_<changed_module>.py -v`; confirm closest neighbours stay green; surface the count.
 
 9. **Map risk coverage** — for each named risk, cite the fresh test that demonstrably exercises that exact failure path (file + fully-qualified test + the verbatim assertion/condition), else label it from its row's tests field: tests listed is UNPROVEN, even for missing behaviour; `NONE` is UNCOVERED. Never infer coverage from a shared name or domain.
 
@@ -88,8 +88,8 @@ Output order: these items, the Verdict close, the verdict line, then only an app
 2. A coverage-ledger line per risk as pinned in `coverage-ledger`, plus the 2a/2b/2c/2d extension rows a present risk class requires.
 3. `Touched files:` citing every diff path verbatim (e.g. `app/auth/session.py, tests/billing/test_checkout.py`).
 4. `Change shape:` one phrase anchored to the touched files (e.g. `auth predicate + billing checkout ordering, both runtime`).
-5. The verification command, quoted verbatim as a LABELED evidence-source line: `Evidence (command): $ <verification command> → <counts>`.
-6. The test counts verbatim (`X passed, Y skipped, Z failed`).
+5. The verification command verbatim as a LABELED evidence line: `Evidence (command): $ <verification command> → <counts>`; no observable run: `Evidence (command): unverified, <the run that clears it>`.
+6. The test counts verbatim (`X passed, Y skipped, Z failed`); none without an observable run.
 7. **AC lines** when criteria were supplied, one per criterion as pinned in `acceptance-criteria` (MET ones too); else exactly `No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`
 8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`: one per skill/eval change, new guard or `.ab.yaml`, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged. None applies → emit nothing for item 8.
 
