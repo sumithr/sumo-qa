@@ -166,6 +166,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Name that eval VERBATIM**",
         "`Surface verifier: <verifier",
         "**Sibling/combined-tree rule:**",
+        "the relevant config must have run through **the Claude eval gate**",
     ],
     "feature-flow": [
         "**(ii) Primary feature flow exercised end-to-end.**",
