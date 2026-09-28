@@ -951,6 +951,14 @@ renders.
   is generative-from-a-seed deliberately, to avoid maintaining hundreds
   of inputs/outputs.
 
+## Ledger-row consistency check
+
+`asserts/ledger-row-labels.js` fails a coverage-ledger row whose label contradicts its own `Fresh matching tests` field: tests listed and the row labelled UNCOVERED, or `NONE` and the row labelled UNPROVEN or COVERED. It runs on every seed and every `.ab` leg of the reviewing-before-merge configs that load `coverage-ledger`.
+
+On the Claude pair the current skill still produces a contradicting row on 1 or 2 of about 60 current-skill legs per pass over those configs, almost always a listed test labelled UNCOVERED, and the slip moves between seeds from pass to pass. The skill states the rule in the row template, the label definition, a BAD/GOOD row and the discovery and acceptance-criteria modules, so treat a single failing leg as candidate variance: rerun that config once, and treat the same row failing twice as a regression.
+
+The slip could be removed structurally by never writing UNCOVERED at all (a `NONE` tests field would mean uncovered, leaving COVERED and UNPROVEN as the only written labels). That is not done: it changes the ledger vocabulary across the skill, its verdict rules and every rubric that grades a label, for a residual rate this check already surfaces.
+
 ## A/B value-measurement (experimental)
 
 This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the skill (for `reviewing-before-merge`, the root `SKILL.md` plus the modules the config declares, assembled by `fixtures/assemble-review-skill.js`; for other skills, the whole `SKILL.md`). The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` controls exist for a subset of skills and corpora (`ls tests/evals/promptfoo/*.ab.yaml`); the pattern is not rolled across the whole estate.
