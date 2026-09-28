@@ -17,14 +17,13 @@ description: >
   hook gets the full discovery sweep + coverage ledger with a tests/hooks/-style
   Required-test-path and the "just a hook, not under src" framing is rejected —
   it flags the command-parsing defect and reaches NOT SAFE, a PASS. Measured
-  on the Claude pair over 8 single-pass samples: A0 passes 1/8, A1 passes 7/8.
-  That lift is the proof that #300 isolates NEW behaviour, not pre-existing
-  handling. Both prompts classify strictly by the loaded body's stated trigger,
+  on the Claude pair under the current rubric over 3 samples: A0 passes 1/3,
+  A1 passes 2/3; under the looser criterion (4), 8 samples gave A0 1/8, A1 7/8. Both prompts classify strictly by the loaded body's stated trigger,
   which surfaces the path-vs-behaviour seam #300 moves.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-300.SKILL.md
   (= origin/main before the #300 commit); refresh it if the baseline moves.
-# Claude pair: separates. The seed gives facts only; A0 1/8, A1 7/8 over eight
-# single-pass samples.
+# Claude pair: separates, weakly under the current rubric (A0 1/3, A1 2/3 over
+# 3 samples). The seed gives facts only.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
