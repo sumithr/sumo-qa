@@ -150,8 +150,11 @@ discriminating input — a SHAPE FAIL under the rubric. A0 (old body) FAILs, A1
 snapshotted at `fixtures/reviewing-before-merge-PRE-187.SKILL.md` — refresh it
 if the baseline moves. On the Claude pair the control does not discriminate: the
 developer-confirmed risk names the technique and the failure mode, so A0
-prescribes the input unprompted. The config header gives the leg counts; it is
-kept as a regression guard on the A1 leg.
+prescribes the input unprompted. Per seed at `--repeat 3`, the substring seed
+carries the lift (A0 1 of 3, A1 3 of 3) and the boundary seed does not (A0 2 of
+3, A1 3 of 3), so the boundary seed is a regression guard only. The config
+header gives the scores; the control is kept as a regression guard on the A1
+leg.
 
 ```bash
 # A0 (pre-187 body) FAIL vs A1 (post-187 body) PASS

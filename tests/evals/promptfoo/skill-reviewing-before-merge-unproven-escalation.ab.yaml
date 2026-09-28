@@ -12,11 +12,15 @@ description: >
   that #187 isolates new behaviour, not pre-existing UNPROVEN handling.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-187.SKILL.md
   (= origin/main before the #187 commit); refresh it if the baseline moves.
-# Claude pair: non-discriminating; the expected A0 FAIL does not occur.
-# The risk gate names the technique and the failure mode, so A0 prescribes the
-# discriminating input unprompted: A0 passes 3 of 4 seed samples on these seeds,
-# and both legs pass both seeds on a variant without the code-context notes (A0
-# 0.75/0.82, A1 0.93/0.88). Kept as a regression guard on the A1 leg, not a lift
+# Claude pair, measured leg counts (--repeat 3):
+#   unproven-substring: A0 passes 1 of 3 (0.42, 0.40, 0.83), A1 passes 3 of 3
+#     (0.93, 0.87, 0.87). This seed carries the lift, but A0 still passes a
+#     sample, so it is not a clean separation.
+#   unproven-boundary: A0 passes 2 of 3 (0.78, 0.82, 0.30), A1 passes 3 of 3
+#     (0.90, 0.86, 0.93). This seed does not discriminate: the risk gate names
+#     the off-by-one and the technique, so A0 prescribes the limit value
+#     unprompted. It is a regression guard on the A1 leg.
+# Overall the control is a regression guard on the A1 leg, not a lift
 # measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
