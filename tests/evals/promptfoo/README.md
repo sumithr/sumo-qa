@@ -472,10 +472,72 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
 - Usage is subscription usage. The `cost` in reports is the CLI's `total_cost_usd` at
   list price, notional, not an invoice. promptfoo records it for the candidate calls
   only: judge calls appear as tokens (`stats.tokenUsage.assertions`) with no cost.
-  A full single pass over all 61 configs (2026-09-14,
-  `claude-haiku-4-5` candidate, `claude-opus-5` judge except the first two configs,
-  judged by `claude-fable-5-1`) used ~3.6M tokens, $12.30 at
-  list price, with 0 provider errors; the slowest configs take 10 to 20 minutes each.
+  A full single pass over all 61 configs (2026-09-28, `claude-haiku-4-5` candidate,
+  `claude-opus-5` judge) used ~2.85M tokens, 1.88M of them judge tokens, and $8.42
+  candidate cost at list price, with 0 provider errors; the slowest configs take 10 to
+  20 minutes each. Results are in "Claude-pair baseline" below.
+- Configs can run in parallel, one `run-eval.sh <config>` per worker, but each worker
+  needs its own `PROMPTFOO_CONFIG_DIR`: promptfoo keeps its results database under
+  `~/.promptfoo`, and concurrent runs sharing it fail at start with `SQLITE_BUSY`.
+- The judge provider sets `jsonReply: true`, so `providers/claude_cli.py` parses the
+  verdict and hands promptfoo an object. promptfoo's own text extractor counts braces
+  without reading strings: a `}` inside the judge's `reason` dropped the grade as
+  unparseable, and a `{` there could turn a failing verdict into a silent pass.
+
+### Claude-pair baseline
+
+One pass of every base config on 2026-09-28, on `main` at `edc7860`. Where this
+round's fixes changed a config's skill or judge, the last column gives its result after
+the fix. Per-leg `.ab` counts are in "A/B value-measurement" below.
+
+| Config | Full pass | After this round's fixes |
+|---|---|---|
+| `skill-answering-testing-question-security-relevance.yaml` | 3/3 |  |
+| `skill-answering-testing-question.yaml` | 1/1 |  |
+| `skill-closing-qa-gaps.yaml` | 5/5 |  |
+| `skill-creating-test-plan.yaml` | 1/1 |  |
+| `skill-deciding-approach.yaml` | 2/2 |  |
+| `skill-executing-qa-rollout.yaml` | 1/1 |  |
+| `skill-finding-test-data.yaml` | 1/1 |  |
+| `skill-finishing-qa-work.yaml` | 1/1 |  |
+| `skill-implementing-with-tdd-retrospective.yaml` | 1/1 | 1/1 (step-7 fix) |
+| `skill-implementing-with-tdd.yaml` | 5/6 | 6/6 (step-7 fix; no-command-tool case 10/10 over two repeat-5 runs) |
+| `skill-measuring-coverage.yaml` | 1/1 |  |
+| `skill-planning-qa-rollout.yaml` | 1/1 |  |
+| `skill-preparing-for-work-feedback-memory.yaml` | 1/2, 1 judge parse error | 2/2 (hint-placement fix, parsed-JSON judge) |
+| `skill-preparing-for-work-ledger.yaml` | 1/1 | 1/1 (hint-placement fix) |
+| `skill-preparing-for-work-security-relevance.yaml` | 1/2, 1 judge parse error | 2/2 (parsed-JSON judge) |
+| `skill-preparing-for-work-surface-probes.yaml` | 2/2 |  |
+| `skill-preparing-for-work.yaml` | 1/1 | 1/1 (hint-placement fix) |
+| `skill-reviewing-before-merge-ac-coverage.yaml` | 2/3, 1 judge parse error | 3/3 (verdict close; 9/9 on repeat 3) |
+| `skill-reviewing-before-merge-adversarial.yaml` | 13/13 | 13/13 (verdict close) |
+| `skill-reviewing-before-merge-coverage-artifact.yaml` | 2/2 |  |
+| `skill-reviewing-before-merge-doc-drift.yaml` | 1/1 |  |
+| `skill-reviewing-before-merge-eval-validity.yaml` | 2/2 |  |
+| `skill-reviewing-before-merge-external-contract.yaml` | 3/3 |  |
+| `skill-reviewing-before-merge-feature-flow.yaml` | 2/2 | 2/2 (verdict close) |
+| `skill-reviewing-before-merge-feedback-memory.yaml` | 2/2 |  |
+| `skill-reviewing-before-merge-fence-parser.yaml` | 1/1 |  |
+| `skill-reviewing-before-merge-guard-coverage.yaml` | 2/2 | 2/2 (UNPROVEN routing) |
+| `skill-reviewing-before-merge-ledger.yaml` | 1/1 | 1/1 (UNPROVEN routing) |
+| `skill-reviewing-before-merge-mapping-gap.yaml` | 1/1 |  |
+| `skill-reviewing-before-merge-repo-map.yaml` | 1/1 |  |
+| `skill-reviewing-before-merge-scorecard.yaml` | 2/2 | 2/2 (verdict close) |
+| `skill-reviewing-before-merge-security-relevance.yaml` | 2/2 |  |
+| `skill-reviewing-before-merge-unproven-escalation.yaml` | 1/2 | 2/2 (UNPROVEN routing, verdict close; boundary seed 5/5 on repeat) |
+| `skill-reviewing-before-merge-vacuous-test.yaml` | 2/2 |  |
+| `skill-reviewing-before-merge-verifier-evidence.yaml` | 3/3 |  |
+| `skill-reviewing-before-merge.yaml` | 1/1 | 1/1 (verdict close) |
+| `skill-security-testing.yaml` | 4/5 | 5/5 (announce-line fix; low-evidence seed 5/5 on repeat) |
+| `skill-strategising-repo-map.yaml` | 1/1 |  |
+| `skill-strategising.yaml` | 1/1 |  |
+| `skill-strengthening-tests-artifact.yaml` | 2/2 |  |
+| `skill-strengthening-tests.yaml` | 1/1 |  |
+| `skill-suggesting-external-skill-conversion.yaml` | 8/8 |  |
+| `skill-suggesting-external-skill.yaml` | 1/1 |  |
+| `skill-triaging-test-failures.yaml` | 6/6 |  |
+| `skill-using-sumo-qa-tool-setup.yaml` | 1/1 |  |
+| `skill-using-sumo-qa.yaml` | 1/1 |  |
 
 ### Local tiers (OpenWebUI proxy): unmetered iteration, not a merge gate
 
@@ -888,17 +950,30 @@ renders.
 
 This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the skill (for `reviewing-before-merge`, the root `SKILL.md` plus the modules the config declares, assembled by `fixtures/assemble-review-skill.js`; for other skills, the whole `SKILL.md`). The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` controls exist for a subset of skills and corpora (`ls tests/evals/promptfoo/*.ab.yaml`); the pattern is not rolled across the whole estate.
 
-Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-opus-5` judge), one pass each:
+Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-opus-5` judge), from the 2026-09-28 full pass unless the row says otherwise:
 
-| Control | A0 | A1 | B | Run |
+| Control | A0 | A1 | B | Notes |
 |---|---|---|---|---|
-| `skill-answering-testing-question.ab.yaml` | 0/5 | 3/5 | 5/5 | 2026-09-25: 236,037 tokens, $0.36 candidate cost |
-| `skill-deciding-approach.ab.yaml` | 0/7 | not recorded | 7/7 | 2026-09-14 full matrix |
-| `skill-implementing-with-tdd.ab.yaml` | 0/3 | 0/3 | 3/3 | 2026-09-22 |
-| `skill-strengthening-tests.ab.yaml` | 3/5 | 4/5 | 5/5 | 2026-09-15; only the production-defect seed separates B from A1 |
-| `skill-preparing-for-work.ab.yaml` | 4/4 | 4/4 | 4/4 | 2026-09-22; non-discriminating, see below |
+| `skill-answering-testing-question.ab.yaml` | 0/5 | 4/5 | 5/5 | |
+| `skill-deciding-approach.ab.yaml` | 0/7 | 1/7 | 7/7 | |
+| `skill-implementing-with-tdd.ab.yaml` | 0/3 | 0/3 | 3/3 | B 3/3 again after the step-7 fix |
+| `skill-strengthening-tests.ab.yaml` | 3/5 | 4/5 | 5/5 | After the axis-A tightening; on the production-defect seed over 3 repeats, B 3/3, A0 0/3, A1 0/3 |
+| `skill-preparing-for-work.ab.yaml` | 4/4 | 4/4 | 4/4 | Non-discriminating, see below |
 
-The `reviewing-before-merge` controls were triaged on the Claude pair in #685; their per-leg counts are posted on #680 and are not yet recorded in this table. `skill-preparing-for-work-feedback-memory.ab.yaml` has no recorded Claude-pair leg counts yet.
+Pre-edit controls compare a snapshotted pre-edit skill body (A0) with the current skill (A1):
+
+| Control | A0 | A1 | Notes |
+|---|---|---|---|
+| `skill-reviewing-before-merge.ab.yaml` | 3/3 | 1/3 | B 3/3; non-discriminating (ceiling), regression guard |
+| `skill-reviewing-before-merge-adversarial.ab.yaml` | 7/7 | 7/7 | B 7/7; non-discriminating (ceiling), regression guard |
+| `skill-reviewing-before-merge-eval-validity.ab.yaml` | 0/1 | 1/1 | |
+| `skill-reviewing-before-merge-feature-flow.ab.yaml` | 0/1 | 1/1 | |
+| `skill-reviewing-before-merge-feedback-memory.ab.yaml` | 1/1 | 1/1 | Non-discriminating, regression guard |
+| `skill-reviewing-before-merge-fence-parser.ab.yaml` | 0/1 | 1/1 | |
+| `skill-reviewing-before-merge-runtime-scope.ab.yaml` | 1/3 | 2/3 | 3 repeats after the criterion-(4) tightening; A0 1/8, A1 7/8 over eight earlier samples |
+| `skill-reviewing-before-merge-unproven-escalation.ab.yaml` | 3/6 | 6/6 | 3 repeats after the UNPROVEN-routing fix; the substring seed carries the lift, the boundary seed is a regression guard |
+| `skill-reviewing-before-merge-verifier-evidence.ab.yaml` | 0/1 | 1/1 | |
+| `skill-preparing-for-work-feedback-memory.ab.yaml` | 0/3 | 2/3 | 3 repeats after the hint-placement fix; the one A1 fail named 2 risks where the shape needs 3 |
 
 A control only measures lift if A0 cannot pass on material the prompt already hands it; otherwise document the seed as non-discriminating in the config header, or add a seed that targets a taught behaviour A0 is not given. In `skill-strengthening-tests.ab.yaml`, the three original seeds do not discriminate on the Claude pair; the production-defect seed does.
 
