@@ -323,6 +323,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
             "`UNPROVEN`: path-matching fresh tests pass but none asserts at the failure mode, including one that never executes the changed branch",
             "`UNCOVERED`: no path-matching fresh test (`Fresh matching tests: NONE`)",
             "any test ID there makes the row COVERED or UNPROVEN",
+            "or the behaviour is missing outright",
         ),
     ),
     "**Discharged-check discipline (anti-over-fire, pinned).**": PinnedClauses(
@@ -332,8 +333,9 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Discovery → verdict (pinned).**": PinnedClauses(
-        defining="A defect this sweep surfaces that the fresh tests do not cover is a NAMED RISK, mapped through the coverage ledger (step 9) as UNCOVERED",
+        defining="A defect this sweep surfaces that the fresh tests do not cover is a NAMED RISK, mapped through the coverage ledger (step 9) as UNPROVEN",
         operative=(
+            "and UNCOVERED only when none ran",
             "It is a SAFE-blocker → NOT SAFE TO MERGE",
             'Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict',
         ),

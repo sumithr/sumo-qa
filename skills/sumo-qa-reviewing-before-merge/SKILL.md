@@ -5,7 +5,7 @@ description: Use when the user asks "review my changes" / "is this safe to merge
 
 # Reviewing before merge
 
-Help the user decide whether a change is safe to ship, one Checklist section at a time. The user holds product context the diff cannot reveal; surface it through questions, never assume it.
+Help the user decide whether a change is safe to ship, one Checklist section at a time; ask for the product context the diff cannot reveal, never assume it.
 
 **Announce at start:** *"Reviewing the diff against fresh test evidence."*
 
@@ -35,13 +35,13 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
 1. **Read the diff via the host's git tools** — `git diff`, `git diff --staged`, or `git diff <base>...HEAD`. Capture file list + line counts. Supplied repo-map / bundle / coverage artifacts go through `context-inputs`; if none, say `no coverage/mutation artifact this turn — not measured`.
 
-2. **Read the actual changed files** — not just the diff hunks. For each changed file: identify the public surface that moved.
+2. **Read the actual changed files** — not just the diff hunks. For each, identify the public surface that moved.
 
 3. **Classify and load applicable standards** — call `sumo_qa_load_classifications()`, infer the classification(s), then `sumo_qa_load_standards(...)` and `sumo_qa_load_rules(...)`. Note which loaded rules apply.
 
-4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). Each hit is a named risk anchored to file:line; one the fresh tests do not cover is UNCOVERED or UNPROVEN per `coverage-ledger`, a SAFE-blocker, never a residual note.
+4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). Each hit is a named risk anchored to file:line; an uncovered one is a SAFE-blocker labelled per `coverage-ledger`, never a residual note.
 
-5. **Confirm scope, only for the AMBIGUOUS parts** — name the files, line counts, and what the change does in domain terms, then ask ONE focused question for what the diff couldn't reveal. If nothing's ambiguous, skip the question.
+5. **Confirm scope, only for the AMBIGUOUS parts** — name the files, line counts, and what the change does in domain terms, then ask ONE focused question for what the diff couldn't reveal. If nothing's ambiguous, skip it.
 
 6. **Present named risks, ask after** — 3-7 risks anchored to file:line, each with its domain meaning; ground a technique-shaped failure mode through `unproven-escalation`'s hints, not per-AI judgment. Ask *"do these match how you'd describe the risks? add / remove / refine?"* and wait.
 
@@ -49,7 +49,7 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
 8. **Run targeted tests around the changed files** — e.g. `pytest tests/test_<changed_module>.py -v`; confirm closest neighbours stay green and surface the count.
 
-9. **Map risk coverage** — for each named risk, cite the fresh test that demonstrably exercises that exact failure path (file + fully-qualified test + the verbatim assertion/condition), or mark it UNPROVEN / UNCOVERED. Never infer coverage from a shared name or domain.
+9. **Map risk coverage** — for each named risk, cite the fresh test that demonstrably exercises that exact failure path (file + fully-qualified test + the verbatim assertion/condition), else label it from its row's tests field: tests listed is UNPROVEN, even for missing behaviour; `NONE` is UNCOVERED. Never infer coverage from a shared name or domain.
 
    Apply `coverage-ledger` to every runtime risk, then the conditional modules the diff calls for: `inventory-drift`; `unproven-escalation` for any UNPROVEN row; `acceptance-criteria` (and `ac-evidence-views` on a close call) when criteria are supplied; `surface-verifier`, `feature-flow`, `eval-validity`, then `discharged-check`.
 
