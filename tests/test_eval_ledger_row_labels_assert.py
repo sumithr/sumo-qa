@@ -159,6 +159,55 @@ def test_test_id_containing_a_pipe_is_still_checked(tests, coverage, passes):
         assert "1 ledger row(s) checked" in result["reason"]
 
 
+@pytest.mark.parametrize(
+    "test_id",
+    [
+        "tests/parse/test_parse.py::test_x[a|b]",
+        "tests/parse/test_parse.py::test_x[a\\|b]",
+        "tests/parse/test_parse.py::test_x[a|b|c]",
+    ],
+    ids=["bracketed-pipe", "escaped-pipe", "two-pipes"],
+)
+def test_table_row_whose_test_id_carries_a_pipe_keeps_its_coverage_column(test_id):
+    """A pipe inside a table cell (bare or markdown-escaped `\\|`) must not shift
+    the Coverage column: the row is still read and checked by its own label."""
+    header = "| Risk | Anchor | Fresh matching tests | Coverage |\n|---|---|---|---|\n"
+    bad, good = _grade(
+        [
+            f"{header}| Parse Split | a.py:1 | `{test_id}` | UNCOVERED |\n",
+            f"{header}| Parse Split | a.py:1 | `{test_id}` | UNPROVEN |\n",
+        ]
+    )
+    assert bad["pass"] is False, bad["reason"]
+    assert "Parse Split" in bad["reason"]
+    assert good["pass"] is True, good["reason"]
+    assert "1 ledger row(s) checked" in good["reason"]
+
+
+@pytest.mark.parametrize("tests", ["NONE", "-", ""])
+def test_inline_field_between_tests_and_coverage_is_not_read_as_a_test(tests):
+    """The tests field ends at the next `| <Label>:` field, so an extra field
+    such as `Notes:` never turns an empty tests field into a listed test."""
+    row = (
+        f"Risk: Parse Split | Anchor: a.py:1 | Fresh matching tests: {tests} | "
+        "Notes: tests/a.py::test_happy covers only the happy path | Coverage: {label}"
+    )
+    uncovered, unproven = _grade([row.format(label="UNCOVERED"), row.format(label="UNPROVEN")])
+    assert uncovered["pass"] is True, uncovered["reason"]
+    assert unproven["pass"] is False, unproven["reason"]
+    assert "Parse Split" in unproven["reason"]
+
+
+def test_inline_field_after_a_listed_test_keeps_the_row_listed():
+    row = (
+        f"Risk: Parse Split | Fresh matching tests: {LISTED} | Notes: none assert the "
+        "failure mode | Coverage: {label}"
+    )
+    unproven, uncovered = _grade([row.format(label="UNPROVEN"), row.format(label="UNCOVERED")])
+    assert unproven["pass"] is True, unproven["reason"]
+    assert uncovered["pass"] is False, uncovered["reason"]
+
+
 def test_integration_test_listed_for_a_module_risk_may_be_covered():
     """The coverage-ledger integration/e2e exception lists the admitted test in
     the tests field, so the row reads as a listed test, never NONE."""

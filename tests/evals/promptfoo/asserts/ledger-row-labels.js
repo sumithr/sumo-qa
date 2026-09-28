@@ -13,7 +13,8 @@
 //   * inline rows: any line carrying both `Fresh matching tests:` and
 //     `Coverage:`, with or without surrounding table pipes;
 //   * markdown tables whose header has a `Fresh matching tests` column and a
-//     `Coverage` column.
+//     `Coverage` column; an escaped `\|` or a bare pipe inside the tests cell
+//     does not shift the Coverage column.
 // Only the three path-keyed labels are checked. Other labels (N/A, COVERED BY
 // VERIFICATION, DISCHARGED, module-pinned statuses) are ignored, and output
 // with no ledger rows passes: other assertions own "a ledger must exist".
@@ -52,10 +53,18 @@ function contradiction(tests, label) {
   return null;
 }
 
-// The tests field runs lazily up to the row's own `Coverage:` key, so a test ID
-// carrying `|` (a parametrized id such as `test_parse[a|b]`) stays in the
-// field instead of hiding the row from the check.
-const INLINE_ROW = /Fresh matching tests:\s*(.*?)\s*\|?\s*Coverage:\s*([^|]*)/gi;
+// A `| <Label>: ` separator starts the next inline field (`| Notes: `,
+// `| Coverage: `); a pipe inside a test ID (`test_parse[a|b]`) is not one.
+const FIELD = String.raw`\|\s*[a-z][\w ()/-]*:\s`;
+
+// The tests field runs up to the next field, so a test ID carrying `|` stays
+// in it, and an extra field before `Coverage:` (`| Notes: ... |`) is skipped
+// rather than read as a listed test.
+const INLINE_ROW = new RegExp(
+  String.raw`Fresh matching tests:\s*((?:(?!${FIELD}).)*?)\s*` +
+    String.raw`(?:\|\s*(?!Coverage:)[a-z][\w ()/-]*:\s[^|]*)*\|?\s*Coverage:\s*([^|]*)`,
+  'gi',
+);
 
 function inlineRows(line) {
   const rows = [];
@@ -65,10 +74,31 @@ function inlineRows(line) {
   return rows;
 }
 
+// Splits a table row on its unescaped pipes; a markdown-escaped `\|` stays
+// inside its cell as `|`.
 function tableCells(line) {
   const trimmed = line.trim();
   if (!trimmed.startsWith('|')) return null;
-  return trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+  return trimmed
+    .replace(/^\|/, '')
+    .replace(/(?<!\\)\|$/, '')
+    .split(/(?<!\\)\|/)
+    .map((c) => c.replace(/\\\|/g, '|').trim());
+}
+
+// A row with more cells than its header carries bare pipes inside the tests
+// cell (a parametrized test ID). Columns up to the tests column keep their
+// header position; the Coverage column is counted from the row's end, so the
+// last cells keep their labels and the surplus cells rejoin the tests field.
+function tableFields(cells, table) {
+  const surplus = cells.length - table.header.length;
+  if (surplus <= 0 || table.coverage < table.tests) {
+    return { tests: cells[table.tests] || '', coverage: cells[table.coverage] || '' };
+  }
+  return {
+    tests: cells.slice(table.tests, table.tests + surplus + 1).join('|'),
+    coverage: cells[table.coverage + surplus] || '',
+  };
 }
 
 function describe(row) {
@@ -104,10 +134,11 @@ function ledgerRows(output) {
     if (!table || cells.every((c) => /^:?-*:?$/.test(c))) continue;
     const riskCol = table.header.findIndex((c) => /^risk/i.test(c));
     const risk = riskCol !== -1 && cells[riskCol] ? `Risk: ${cells[riskCol]} | ` : '';
+    const fields = tableFields(cells, table);
     rows.push({
-      text: `${risk}Fresh matching tests: ${cells[table.tests] || ''} | Coverage: ${cells[table.coverage] || ''}`,
-      tests: cells[table.tests] || '',
-      label: coverageLabel(cells[table.coverage] || ''),
+      text: `${risk}Fresh matching tests: ${fields.tests} | Coverage: ${fields.coverage}`,
+      tests: fields.tests,
+      label: coverageLabel(fields.coverage),
     });
   }
   return rows;
