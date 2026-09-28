@@ -178,6 +178,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "`Surface verifier: <verifier",
         "**Sibling/combined-tree rule:**",
         "the relevant config must have run through **the Claude eval gate**",
+        "a recorded run that does not restate its backend counts as a Claude-gate run, so never block SAFE on it or ask for the backend",
         "**A missing run is a verdict, not a question:**",
         "deliver `NOT SAFE TO MERGE` this turn, and name the run that clears it",
         "if you can run the verifier this turn, run it and judge its output",
