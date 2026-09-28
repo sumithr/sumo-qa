@@ -959,13 +959,13 @@ Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-op
 | `skill-implementing-with-tdd.ab.yaml` | 0/3 | 0/3 | 3/3 | B 3/3 again after the step-7 fix |
 | `skill-strengthening-tests.ab.yaml` | 3/5 | 4/5 | 5/5 | After the axis-A tightening; on the production-defect seed over 3 repeats, B 3/3, A0 0/3, A1 0/3 |
 | `skill-preparing-for-work.ab.yaml` | 4/4 | 4/4 | 4/4 | Non-discriminating, see below |
+| `skill-reviewing-before-merge.ab.yaml` | 3/3 | 1/3 | 3/3 | Non-discriminating (ceiling), regression guard |
+| `skill-reviewing-before-merge-adversarial.ab.yaml` | 7/7 | 7/7 | 7/7 | Non-discriminating (ceiling), regression guard |
 
 Pre-edit controls compare a snapshotted pre-edit skill body (A0) with the current skill (A1):
 
 | Control | A0 | A1 | Notes |
 |---|---|---|---|
-| `skill-reviewing-before-merge.ab.yaml` | 3/3 | 1/3 | B 3/3; non-discriminating (ceiling), regression guard |
-| `skill-reviewing-before-merge-adversarial.ab.yaml` | 7/7 | 7/7 | B 7/7; non-discriminating (ceiling), regression guard |
 | `skill-reviewing-before-merge-eval-validity.ab.yaml` | 0/1 | 1/1 | |
 | `skill-reviewing-before-merge-feature-flow.ab.yaml` | 0/1 | 1/1 | |
 | `skill-reviewing-before-merge-feedback-memory.ab.yaml` | 1/1 | 1/1 | Non-discriminating, regression guard |
@@ -979,4 +979,4 @@ A control only measures lift if A0 cannot pass on material the prompt already ha
 
 `skill-preparing-for-work.ab.yaml` does not discriminate on the Claude pair: the response format every leg is handed carries the SHAPE axis, so A0 reaches B's pass count. Two recorded single passes, A0 3/4, A1 2/4, B 4/4 and A0 4/4, A1 4/4, B 4/4. It is kept as a regression guard on the shared rubric rather than a lift measurement; restoring lift needs a seed targeting a taught behaviour A0 is not given.
 
-A pre/post-edit control's ground-truth context states facts only (the diff, the code, the tests and their fixtures), never the defect or the conclusion the edit teaches, with one documented exception: a narrated defect lets the pre-edit leg pass on the Claude pair. On that basis the `reviewing-before-merge` controls `runtime-scope`, `fence-parser` and `feature-flow` separate their legs on the Claude pair (A0 never passes a graded sample; the skill leg passes 2/3, or 3/3 for `fence-parser`). `eval-validity` is the exception: it keeps its developer observations, because the skill leg cannot judge the fence inputs without them, and so it does not separate (A0 2 of 5 graded samples, A1 4/4); its header says why. Five are non-discriminating and kept as regression guards on the skill leg, each header giving its measured leg counts: `feedback-memory` and `unproven-escalation`, where the seed's own saved-feedback block or named risk hands the pre-edit leg the answer, `eval-validity` as above, and the A/B/C controls `skill-reviewing-before-merge.ab.yaml` and `adversarial`, where a no-skill candidate already reaches the skill's result. `verifier-evidence` separates.
+A pre/post-edit control's ground-truth context states facts only (the diff, the code, the tests and their fixtures), never the defect or the conclusion the edit teaches, with one documented exception: a narrated defect lets the pre-edit leg pass on the Claude pair. On that basis the `reviewing-before-merge` controls `runtime-scope`, `fence-parser` and `feature-flow` separate their legs on the Claude pair: `runtime-scope` A0 1/8 against A1 7/8, and `fence-parser` and `feature-flow` A0 fails every graded sample while the skill leg passes. `eval-validity` is the exception: it keeps its developer observations, because the skill leg cannot judge the fence inputs without them, and so it does not separate (A0 2 of 5 graded samples, A1 4/4); its header says why. Five are non-discriminating and kept as regression guards on the skill leg, each header giving its measured leg counts: `feedback-memory`, where the seed's saved-feedback block hands the pre-edit leg the answer, `unproven-escalation`, whose boundary seed the pre-edit leg passes while its substring seed carries the lift, `eval-validity` as above, and the A/B/C controls `skill-reviewing-before-merge.ab.yaml` and `adversarial`, where a no-skill candidate already reaches the skill's result. `verifier-evidence` separates.
