@@ -13,12 +13,13 @@ description: >
   body. The pre-#145 body runs the discovery sweep + coverage ledger but has NO
   review-feedback-memory note, so A0 has no instruction to consult the saved
   lesson; the design expects that it grades the diff on the green-but-non-covering test and the named
-  diff risks alone, does not pull the rollover/DST probe into the ledger as an
-  uncovered SAFE-blocker, and can wave the change through (or omit the advisory
+  diff risks alone, does not pull the rollover/DST probe into the ledger as a
+  SAFE-blocker, and can wave the change through (or omit the advisory
   hint entirely) — a SHAPE FAIL under the rubric. A1 (the post-#145 body) consults
   the matched lesson as a SEPARATE advisory hint, maps the rollover/DST risk
-  through the coverage ledger as UNCOVERED (the fresh test only feeds the midday
-  case), and reaches NOT SAFE TO MERGE without inventing or auto-capturing — a
+  through the coverage ledger as UNPROVEN (the path-matching fresh test is green
+  but only feeds the midday case, so none asserts at the rollover), and reaches
+  NOT SAFE TO MERGE without inventing or auto-capturing: a
   PASS. An A0(FAIL) -> A1(PASS) lift would isolate the #145 behaviour. A0 body is
   snapshotted at fixtures/reviewing-before-merge-PRE-145.SKILL.md (= origin/main
   before the #145 commit); refresh it if the baseline moves.
@@ -42,9 +43,11 @@ defaultTest:
       timezone diff, the candidate consults it as an ADVISORY hint that sharpens
       the discovery sweep — surfaced SEPARATELY (clearly labelled advisory /
       distinct from bundled ISTQB/rules) and mapped as an ordinary named risk
-      through the coverage ledger. The 23:59 -> 00:00 local rollover / DST risk is
-      UNCOVERED (the only fresh test asserts a midday UTC instant), so it is a
-      SAFE-blocker like any other and the verdict is NOT SAFE TO MERGE. The hint
+      through the coverage ledger. The 23:59 -> 00:00 local rollover / DST risk
+      lists the midday test as its fresh matching test and is UNPROVEN, not
+      COVERED (that path-matching test is green but asserts only a midday UTC
+      instant, never the rollover), so it is a SAFE-blocker like any other and
+      the verdict is NOT SAFE TO MERGE. The hint
       never overrides the canonical classification or a change-rule, and the
       candidate does not auto-capture a new lesson. Ends without a confirmation
       question.
@@ -56,7 +59,7 @@ defaultTest:
         probe or not mapping it as a risk through the coverage ledger.
       - Auto-capturing / claiming to save a new review lesson from this verdict turn.
       - Declaring SAFE TO MERGE while the hint-derived rollover/DST risk is
-        uncovered by the fresh test evidence.
+        not proven by the fresh test evidence.
       - Asking another confirmation question instead of delivering the verdict.
   assert:
     - type: llm-rubric
@@ -73,7 +76,7 @@ defaultTest:
     rubricPrompt: >
       You are an adversarial reviewer grading whether the candidate consulted the
       trigger-matched SAVED REVIEW FEEDBACK as a SEPARATE ADVISORY hint, mapped the
-      uncovered rollover/DST risk through the coverage ledger as a SAFE-blocker,
+      unproven rollover/DST risk through the coverage ledger as a SAFE-blocker,
       and reached NOT SAFE TO MERGE — without overriding the canonical rules,
       inventing, or auto-capturing. Be strict.
 
@@ -106,10 +109,12 @@ defaultTest:
          tests + covered risks, ending without a confirmation question? It must
          surface the matched saved lesson as a SEPARATE advisory hint and map the
          23:59 -> 00:00 rollover / DST risk as an ordinary named risk through the
-         coverage ledger, marked UNCOVERED (the only fresh test asserts a midday
-         UTC instant), and therefore reach NOT SAFE TO MERGE. IGNORING the saved
-         lesson (no advisory hint, rollover/DST risk not mapped) OR declaring SAFE
-         while that risk is uncovered is a SHAPE FAIL.
+         coverage ledger, listing the midday test as its fresh matching test and
+         marked UNPROVEN, not COVERED (that path-matching test is green but
+         asserts only a midday UTC instant, never the rollover), and therefore
+         reach NOT SAFE TO MERGE. IGNORING the saved lesson (no advisory hint,
+         rollover/DST risk not mapped), marking that risk COVERED or UNCOVERED,
+         OR declaring SAFE while it is unproven is a SHAPE FAIL.
 
       B. GROUNDING - the response must reference the diff + the fresh test run
          (note that only a midday UTC instant is asserted). The advisory hint must
@@ -181,7 +186,7 @@ prompts:
       the loaded skill governs whether and how to use it. Keep the response concise
       and evidence-led.
 tests:
-  - description: memory PRESENT and trigger-matched, hint-risk uncovered — advisory hint + NOT SAFE must come from the loaded skill, not the prompt
+  - description: memory PRESENT and trigger-matched, hint-risk unproven; advisory hint + NOT SAFE must come from the loaded skill, not the prompt
     vars:
       user_prompt: >-
         Is this safe to merge?
