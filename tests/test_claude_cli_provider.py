@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 _PATH = Path(__file__).parent / "evals" / "promptfoo" / "providers" / "claude_cli.py"
 _spec = importlib.util.spec_from_file_location("claude_cli_provider", _PATH)
@@ -160,3 +161,71 @@ def test_an_answer_that_quotes_the_usage_limit_phrase_is_still_graded(monkeypatc
     _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": quoted}))
 
     assert provider.call_api("the prompt", OPTIONS)["output"] == quoted
+
+
+JUDGE_OPTIONS = {"config": {**OPTIONS["config"], "jsonReply": True}}
+_VERDICT = {"pass": False, "score": 0.1, "reason": "x } y"}
+
+
+@pytest.mark.parametrize(
+    ("reply", "verdict"),
+    [
+        # A judge reply whose reason ends in a lone `}`: promptfoo's brace counter finds no
+        # object in it and drops the grade.
+        pytest.param(
+            '{"pass": true, "score": 0.87, "reason": "anti-patterns all ABSENT. Verdict: PASS.\\"}"}',
+            {"pass": True, "score": 0.87, "reason": 'anti-patterns all ABSENT. Verdict: PASS."}'},
+            id="lone-closing-brace-in-reason",
+        ),
+        # A lone `{` makes promptfoo extract a garbage object without "pass", which it
+        # grades as a pass with score 1.
+        pytest.param(
+            '{"pass": false, "score": 0.1, "reason": "leaves a brace {\\"not closed\\" in it"}',
+            {"pass": False, "score": 0.1, "reason": 'leaves a brace {"not closed" in it'},
+            id="lone-opening-brace-in-reason",
+        ),
+        pytest.param("```json\n" + json.dumps(_VERDICT) + "\n```", _VERDICT, id="json-fence"),
+        pytest.param(
+            "Here is my grade: " + json.dumps(_VERDICT) + " Hope that helps {.",
+            _VERDICT,
+            id="prose-around-the-verdict",
+        ),
+        pytest.param(
+            'Quoting {"note": 1} first, then ' + json.dumps(_VERDICT),
+            _VERDICT,
+            id="an-object-without-pass-before-the-verdict",
+        ),
+    ],
+)
+def test_a_json_reply_reaches_promptfoo_as_the_parsed_verdict(monkeypatch, reply, verdict):
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
+
+    assert provider.call_api("the prompt", JUDGE_OPTIONS)["output"] == verdict
+
+
+@pytest.mark.parametrize(
+    "reply",
+    ["not json", '{"score": 1, "reason": "no pass key"}', '{"pass": true, "reason": "cut off'],
+    ids=["no-json", "object-without-pass", "truncated-object"],
+)
+def test_a_json_reply_without_a_verdict_stays_the_raw_text(monkeypatch, reply):
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
+
+    assert provider.call_api("the prompt", JUDGE_OPTIONS)["output"] == reply
+
+
+def test_without_json_reply_a_json_answer_stays_text(monkeypatch):
+    reply = json.dumps(_VERDICT)
+    _fake_cli(monkeypatch, json.dumps({**SUCCESS, "result": reply}))
+
+    assert provider.call_api("the prompt", OPTIONS)["output"] == reply
+
+
+@pytest.mark.parametrize(
+    ("config_file", "json_reply"),
+    [("claude-judge.yaml", True), ("claude-candidate.yaml", None)],
+)
+def test_only_the_judge_asks_for_a_parsed_json_reply(config_file, json_reply):
+    config = yaml.safe_load((_PATH.parent / config_file).read_text())["config"]
+
+    assert config.get("jsonReply") is json_reply

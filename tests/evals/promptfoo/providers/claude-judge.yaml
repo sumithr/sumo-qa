@@ -6,4 +6,7 @@ config:
   maxRetries: 0
   # Judge model: claude-opus-5 (maintainer decision, 2026-09-14).
   model: claude-opus-5
+  # Hand promptfoo the parsed verdict object: its brace-counting extractor misreads a
+  # `{` or `}` inside the reason (see claude_cli.py).
+  jsonReply: true
   systemPrompt: 'You are grading a candidate response against a rubric. Reply with a single JSON object: {"pass": <true|false>, "score": <0.0-1.0>, "reason": "<why>"}. No prose outside the JSON.'

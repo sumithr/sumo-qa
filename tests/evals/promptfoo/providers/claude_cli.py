@@ -11,6 +11,10 @@ Any call that does not come back as a successful answer is returned as a
 promptfoo `error`, never as output. A usage-limit or quota message must not be
 graded as the candidate's answer: that is the #651 failure, where a quota
 failure turned into a zero-passed baseline that read as a skill regression.
+
+With `jsonReply: true` (the judge) the verdict object is parsed here and handed to
+promptfoo as an object. promptfoo's own extractor counts braces without reading
+strings, so a `{` or `}` inside the reason drops the grade or passes it silently.
 """
 
 from __future__ import annotations
@@ -45,6 +49,7 @@ _EXCERPT = 400
 # graded as the candidate's answer. The "|<digits>" suffix keeps an answer that merely
 # quotes the phrase from matching.
 _USAGE_LIMIT = re.compile(r"usage limit reached\|\d+", re.IGNORECASE)
+_DECODER = json.JSONDecoder()
 
 
 def call_api(prompt, options=None, context=None):
@@ -100,7 +105,7 @@ def call_api(prompt, options=None, context=None):
     )
     completion_tokens = _number(usage.get("output_tokens"))
     return {
-        "output": result,
+        "output": (_verdict(result) or result) if config.get("jsonReply") else result,
         "tokenUsage": {
             "prompt": prompt_tokens,
             "completion": completion_tokens,
@@ -109,6 +114,20 @@ def call_api(prompt, options=None, context=None):
         # List-price notional cost from the CLI; nothing is invoiced.
         "cost": float(_number(envelope.get("total_cost_usd"), float)),
     }
+
+
+def _verdict(text):
+    """The first JSON object in text that carries a "pass" key, else None."""
+    start = text.find("{")
+    while start != -1:
+        try:
+            value, _ = _DECODER.raw_decode(text, start)
+        except ValueError:
+            value = None
+        if isinstance(value, dict) and "pass" in value:
+            return value
+        start = text.find("{", start + 1)
+    return None
 
 
 def _number(value, kind=int):
