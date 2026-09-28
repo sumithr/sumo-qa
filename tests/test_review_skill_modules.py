@@ -111,6 +111,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     ],
     "discovery-probes": [
         "Reordered statements in a write/persist path",
+        "a command/string classifier predicate takes the command/input-classifier probe in `runtime-scope`",
         "**Discovery → verdict (pinned).**",
         "The sweep produces 3–7 named risks",
         "**The two-pass split (pinned).**",
@@ -118,6 +119,8 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     "security-relevance": [
         "run the grounded security-relevance pass from `using-sumo-qa`",
         "do NOT invent a security risk",
+        "If a fresh path-matching test quotes a verbatim assertion/condition at that security failure mode, it is COVERED",
+        "emit its 2b line (`unproven-escalation`), mandatory for every UNPROVEN row",
     ],
     "external-contract": [
         "**Producer test (apply first):**",
@@ -136,7 +139,9 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "`Risk: <exact name> | Anchor: <diff file:line> | Required test path:",
         "**2c. External-contract extension (pinned).**",
         "**2d. Internal/self-produced declination (pinned).**",
-        "Retry, Duplicate, or Idempotency",
+        "Risks whose name, anchor or failure mode involves **Retry, Duplicate, or Idempotency**",
+        "plus an integration/e2e test the exception admits",
+        "Required before SAFE: add a test asserting one charge to tests/billing/test_checkout.py",
         "**Concurrent, Race, or Lock** require overlapping execution",
         "`External-contract anchor: <file:line> | External source: <tool/CLI/API>",
         "`External-contract axis: NOT FIRED (internal/self-produced)",
@@ -169,6 +174,8 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "the relevant config must have run through **the Claude eval gate**",
         "**A missing run is a verdict, not a question:**",
         "deliver `NOT SAFE TO MERGE` this turn, and name the run that clears it",
+        "if you can run the verifier this turn, run it and judge its output",
+        "name the repo-specific verifier that observes the changed behaviour and judge from the record",
     ],
     "feature-flow": [
         "**(ii) Primary feature flow exercised end-to-end.**",
@@ -178,6 +185,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**(iii) A newly-added regression guard's eval exercises BOTH directions.**",
         "**(iv) An eval-driven skill change's A/B control is structurally load-bearing.**",
         "`Guard added: <the guard>",
+        "UNCOVERED only when no eval of the guard ran fresh this turn, including an unrun or stale one",
         "`A/B control: <the .ab.yaml>",
     ],
     "discharged-check": [
@@ -221,6 +229,8 @@ ROOT_ALWAYS_ON_RULES = (
     "`No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`",
     "`no coverage/mutation artifact this turn — not measured`",
     "`no saved review feedback supplied — advisory-hint check skipped`",
+    "This outranks steps 5-6: their questions never hold a verdict whose required run is missing.",
+    "Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line.",
     '"I\'ll ask which test framework / where tests live"',
     "## Checklist",
     "## Process Flow",
@@ -328,7 +338,6 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
             "any test ID there makes the row COVERED or UNPROVEN",
             "or the behaviour is missing outright",
             "since the fix is a new assertion beside those tests",
-            "since the fix is a new assertion beside those tests",
             "Name a risk by what breaks",
         ),
     ),
@@ -391,7 +400,9 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
     ),
     "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**": PinnedClauses(
         defining="when the feature flow is VERIFIED end-to-end this turn AND the risk gate is closed",
-        operative=("is a RESIDUAL you LIST under `SAFE TO MERGE`; it MUST NOT flip the verdict",),
+        operative=(
+            "is a RESIDUAL you LIST in `Residual concerns:` on a `SAFE TO MERGE` review; it MUST NOT flip the verdict",
+        ),
     ),
     "**Technique-keyed failure-mode hints (pinned).**": PinnedClauses(
         defining="When a risk's failure mode maps to a named black-box technique",

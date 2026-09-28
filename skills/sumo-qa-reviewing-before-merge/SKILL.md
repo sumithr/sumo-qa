@@ -14,7 +14,7 @@ Help the user decide whether a change is safe to ship, one Checklist section at 
 Inherits the global discipline from `using-sumo-qa`: **output discipline** (no internal taxonomy labels or raw change-rule keys; cite rules in plain English), **output economy** (findings not preamble; one question per turn; no pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit.
 
 <HARD-GATE>
-Run tests this turn before the verdict; earlier CI is not fresh evidence; the only verdict source is this turn's run on THIS diff, counts surfaced. A required run you cannot do or see is `unverified`, not invented: deliver `NOT SAFE TO MERGE` now, never a held verdict or a question.
+Run tests this turn before the verdict; earlier CI is not fresh evidence; the only verdict source is this turn's run on THIS diff, counts surfaced. A required run you cannot do or see is `unverified`, not invented: deliver `NOT SAFE TO MERGE` now, never a held verdict or a question. This outranks steps 5-6: their questions never hold a verdict whose required run is missing.
 </HARD-GATE>
 
 ## The Iron Law
@@ -51,9 +51,9 @@ You MUST work through these in order. Steps 1-4 are AI-only homework (no user qu
 
 9. **Map risk coverage** — for each named risk, cite the fresh test that demonstrably exercises that exact failure path (file + fully-qualified test + the verbatim assertion/condition), else label it from its row's tests field: tests listed is UNPROVEN, even for missing behaviour; `NONE` is UNCOVERED. Never infer coverage from a shared name or domain.
 
-   Apply `coverage-ledger` to every runtime risk, then the conditional modules the diff calls for: `inventory-drift`; `unproven-escalation` for any UNPROVEN row; `acceptance-criteria` (and `ac-evidence-views` on a close call) when criteria are supplied; `surface-verifier`, `feature-flow`, `eval-validity`, then `discharged-check`.
+   Apply `coverage-ledger` to every runtime risk, then the step-9 modules the routing table calls for (`unproven-escalation` for any UNPROVEN row), `discharged-check` last.
 
-10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review, then `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk COVERED per step 9, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric. List residuals even on SAFE (Verdict close).
+10. **Deliver the verdict + residual concerns**, emitting the Verdict-format lines below first, even in a single-pass review, then `SAFE TO MERGE` | `NOT SAFE TO MERGE` | `NEEDS WORK`. SAFE only if (a) suite green now, (b) every named risk COVERED per step 9, (c) no loaded rule violated, (d) every supplied acceptance criterion is MET, (e) every applicable verification-evidence line is discharged. **ANY UNCOVERED or UNPROVEN risk, UNMET or UNVERIFIED criterion, or undischarged verification line means NOT SAFE TO MERGE, no exceptions, even on a green suite.** UNPROVEN clears only when its prescribed discriminating input runs GREEN in a fresh run (a deferral never yields SAFE); blockers clear by supplying evidence, never by weakening a verifier or rubric.
 
 ## Module routing table
 
@@ -62,13 +62,13 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 | Module | Load when |
 |---|---|
 | `runtime-scope` | settling whether a diff is runtime (executable behaviour, not path prefix) or trivial |
-| `discovery-probes` | every runtime review (step 4): code-shape probes, discovery-to-verdict, two-pass split |
+| `discovery-probes` | every runtime review (step 4): code-shape probes, discovery-to-verdict; a command/string classifier also takes `runtime-scope`'s probe |
 | `security-relevance` | auth, secrets, input sanitisation, rate limiting, audit logging, security config/dependency |
-| `external-contract` | any matcher/parser over output the diff may not control (tool/CLI/API text, a fixture): its producer test decides INTERNAL (declare it) vs external |
+| `external-contract` | any matcher/parser over output the diff may not control (tool/CLI/API text, a fixture) |
 | `contract-and-fence-probes` | a docstring/contract invariant (`Never raises`), or a stateful marker/fence parser |
 | `feedback-memory` | the host supplies saved review-feedback memory |
 | `context-inputs` | a repo-map / diff-impact result, context bundle, or coverage/mutation artifact is supplied |
-| `coverage-ledger` | every runtime review (step 9): re-anchoring, module-match rule, item-2 rows incl. 2c/2d |
+| `coverage-ledger` | every runtime review (step 9): item-2 rows incl. 2c/2d |
 | `inventory-drift` | a documented count, name, inventory, version, schema field, or generated artifact changed (2a) |
 | `unproven-escalation` | any risk is UNPROVEN, or maps to a catalogued technique's failure mode (2b, hints) |
 | `test-only-diff` | the diff touches only test files |
@@ -95,7 +95,7 @@ Output order: these items, the Verdict close, the verdict line, then only an app
 
 A runtime verdict missing an applicable item is a discipline violation. Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 where it applies.
 
-**Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete item outside every named risk's failure path, anchored to file:line or a named input (never `none`). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear only in items 5 and 6. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim, so invent no line for it. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
+**Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete item outside every named risk's failure path, anchored to file:line or a named input (never `none`). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim, so invent no line for it. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
 
 ## Process Flow
 
@@ -108,7 +108,7 @@ The Checklist is the flow.
 | "Looks good" / "CI was green an hour ago" / "tests are slow, skip them" | None is fresh evidence; slow tests are still the verdict source. |
 | "Trivial change, no need to walk through sections" | The Iron Law has no trivial-change exemption; the review can be short, but every section gets confirmation. |
 | "No standards apply to this change" | Re-classify. Every change has at least one applicable classification with loaded rules. |
-| "I'll list the risks AND deliver the verdict in one message" | Gate. The user's correction on the risks is what shapes the verdict. |
+| "I'll list the risks AND deliver the verdict in one message" | Gate, unless a required run is missing (HARD-GATE). The user's correction on the risks shapes the verdict. |
 | "I'll ask which test framework / where tests live" | Read the repo; sibling files answer that. |
 
 ## Next skill in the chain
