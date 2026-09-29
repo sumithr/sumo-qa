@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -181,6 +181,7 @@ def install_external_skill(
         # installs can neither interleave their writes nor lose records.
         with _lock_guard(lock_base):
             before = _folder_identities(skill, scope, cwd, home)
+            before_entries = {folder: _entry_identity(folder) for folder in before}
             args = ["add", str(checkout), "--skill", skill, "-a", agent, "-y"]
             if scope == "global":
                 args.append("-g")
@@ -193,9 +194,16 @@ def install_external_skill(
                 )
                 _merge_into_lock(lock_base, records)
             except BaseException:
-                # Never leave an install behind that runs as "unrecorded".
-                for location in written:
-                    _remove_install(location.path.parent)
+                # Never leave an install behind that runs as "unrecorded", but
+                # keep entries the CLI did not replace (a user's alias link).
+                replaced = [
+                    location.path.parent
+                    for location in written
+                    if before_entries.get(location.path.parent)
+                    != _entry_identity(location.path.parent)
+                ]
+                for folder in replaced:
+                    _remove_install(folder)
                 raise
     finally:
         _remove_tree(workdir)
@@ -249,20 +257,20 @@ def execute_external_skill(
     """
     cwd = cwd or Path.cwd()
     home = home or Path.home()
-    installed = check_external_skill_installed(skill, scope, cwd, home)
-    if installed is None:
-        raise ExternalSkillError(f"external skill is not installed: {skill}")
-    path = Path(installed["path"])
-    # Read the body once, before verifying, and check those exact bytes against
-    # the verified walk so a swap in between cannot hand over unverified text.
-    lock_base = cwd if installed["scope"] == "project" else home
-    body_bytes = _read_skill_body(path)
-    if (lock_base / _LOCK_RELPATH).parent.is_dir():
-        # Wait for an install in progress: it may be mid-way between writing
-        # the folder and recording it.
-        with _lock_guard(lock_base):
-            provenance = _verify_provenance(path, lock_base, body_bytes)
-    else:
+    with ExitStack() as locks:
+        # Locate, read, and verify only while holding each scope's install lock,
+        # so an install cannot be mid-way (or rolled back) under this read.
+        held: set[str] = set()
+        for base in [cwd, home] if scope == "auto" else [home if scope == "global" else cwd]:
+            if (base / _LOCK_RELPATH).parent.is_dir() and os.path.realpath(base) not in held:
+                held.add(os.path.realpath(base))
+                locks.enter_context(_lock_guard(base))
+        installed = check_external_skill_installed(skill, scope, cwd, home)
+        if installed is None:
+            raise ExternalSkillError(f"external skill is not installed: {skill}")
+        path = Path(installed["path"])
+        lock_base = cwd if installed["scope"] == "project" else home
+        body_bytes = _read_skill_body(path)
         provenance = _verify_provenance(path, lock_base, body_bytes)
     body = body_bytes.decode("utf-8")
     return {
@@ -559,6 +567,12 @@ def _remove_tree(path: Path) -> None:
             if not os.path.islink(entry):
                 os.chmod(entry, stat.S_IRWXU)
     shutil.rmtree(path, ignore_errors=True)
+
+
+def _entry_identity(path: Path) -> tuple[int, int]:
+    """Identity of the directory entry itself (a link, not its target)."""
+    stat_result = os.lstat(path)
+    return stat_result.st_ino, stat_result.st_mtime_ns
 
 
 def _remove_install(folder: Path) -> None:

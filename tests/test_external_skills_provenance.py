@@ -13,6 +13,7 @@ boundaries without network access.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -708,6 +709,59 @@ def test_execute_waits_for_an_install_in_progress(monkeypatch, toolchain) -> Non
             _execute(toolchain)
     finally:
         os.close(holder)
+
+
+def test_execute_locates_and_reads_the_skill_only_under_the_lock(monkeypatch, tmp_path) -> None:
+    """A skill rolled back while execute waited for the lock must not be handed
+    over from a read taken before the lock."""
+    folder = tmp_path / ".agents" / "skills" / "demo"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text("# rolled back\n", "utf-8")
+    (tmp_path / ".sumo-qa").mkdir()
+    real_guard = ext._lock_guard
+
+    @contextlib.contextmanager
+    def rollback_finishes_while_waiting(base):
+        shutil.rmtree(folder)
+        with real_guard(base):
+            yield
+
+    monkeypatch.setattr(ext, "_lock_guard", rollback_finishes_while_waiting)
+
+    with pytest.raises(ext.ExternalSkillError, match="not installed"):
+        ext.execute_external_skill("demo", cwd=tmp_path, home=tmp_path / "home")
+
+
+def test_execute_with_one_folder_for_project_and_home_takes_its_lock_once(tmp_path) -> None:
+    folder = tmp_path / ".agents" / "skills" / "demo"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text("# x\n", "utf-8")
+    (tmp_path / ".sumo-qa").mkdir()
+
+    result = ext.execute_external_skill("demo", cwd=tmp_path, home=tmp_path)
+
+    assert result["provenance"] == {"status": "unrecorded"}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_rollback_keeps_a_pre_existing_alias_the_cli_never_touched(monkeypatch, toolchain) -> None:
+    canonical = toolchain.cwd / ".agents" / "skills" / "find-skills"
+    canonical.mkdir(parents=True)
+    (canonical / "SKILL.md").write_text("# old\n", "utf-8")
+    alias = toolchain.cwd / ".codex" / "skills" / "find-skills"
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(canonical, target_is_directory=True)
+
+    def fail(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(ext, "_write_atomic", fail)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError):
+        _install(toolchain, agent="codex")
+
+    assert alias.is_symlink()  # the user's alias survives
+    assert not canonical.exists()  # the folder the CLI rewrote is removed
 
 
 def test_temporary_checkouts_with_read_only_files_are_removed(tmp_path) -> None:
