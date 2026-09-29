@@ -155,9 +155,9 @@ Follow this order:
 
    `git show` does not expand globs: list a directory first with `git -C <clone> ls-tree --name-only <sha> standards/packs/`, then `git show` each file it names.
 
-   When the skill calls a loader with a `classification` filter, apply the loader's filter to what you read, so the degraded catalogue matches what the MCP call would return. The filter takes one or more classifications, separated by commas, semicolons or whitespace.
+   When the skill calls a loader with a `classification` filter, apply the loader's filter to what you read, so the degraded catalogue matches what the MCP call would return. The filter takes one or more classifications, separated by commas, semicolons or whitespace, with any surrounding backticks or quotes stripped from each one.
    - `sumo_qa_load_standards(classification=...)` keeps only the packs whose `applies_to_classifications` (or `classifications`) metadata names at least one requested classification. A pack with neither field is dropped from a filtered call, and read only when the skill calls the loader unfiltered.
-   - `sumo_qa_load_rules(classification=...)` keeps only the top-level keys of `change_rules.yaml` that match a requested classification. A requested canonical classification with no key of its own falls back to its legacy rules key through the alias map `_RULE_CLASSIFICATION_ALIASES` in `src/sumo_qa/knowledge_loaders.py`, read at the same commit (`frontend_change` takes `ui_only_change`, for example). A request that matches nothing returns no rules.
+   - `sumo_qa_load_rules(classification=...)` keeps only the top-level keys of `change_rules.yaml` that match a requested classification. A requested canonical classification with no key of its own takes the rules of its legacy key through the alias map `_RULE_CLASSIFICATION_ALIASES` in `src/sumo_qa/knowledge_loaders.py`, read at the same commit, and holds them under the requested canonical name (`frontend_change` holds the `ui_only_change` rules as `frontend_change`, for example). A request that matches nothing returns no rules.
 
    This maps each loader to its bundled source only. A running server also honours the `QA_KNOWLEDGE_PATH`, `QA_STANDARDS_PATH` and `QA_RULES_PATH` overrides and any ingested project or global packs; source-tree mode sees none of them, which is one more reason it is a declared degradation.
 
