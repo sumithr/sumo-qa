@@ -8,16 +8,15 @@ for a package a hook also lists is half a change until the hook moves too.
 Each file is individually valid, so running either config cannot reveal the
 disagreement; this guard compares the declarations.
 
-Which hooks are compared. Only Python hooks: a hook whose inline ``language``
-is ``python``. A hook with any other inline ``language`` (``system``, ``node``,
-...) is skipped. A hook from a remote repo usually declares its language in
-that repo's manifest rather than in ``.pre-commit-config.yaml``; when no inline
-``language`` is present, its ``additional_dependencies`` are treated as Python
-only if every entry parses as a PEP 508 requirement without a URL, otherwise
-the hook is skipped. In this repo the compared hooks are the ``repo: local``
-``mutmut`` and ``pytest`` hooks (``language: python``); the other local hooks
-are ``language: system`` and the remote hooks carry no
-``additional_dependencies``.
+Which entries are compared. A hook with an inline ``language`` other than
+``python`` (``system``, ``node``, ...) is skipped. Every other hook, including
+a remote-repo hook whose language lives in that repo's manifest, has each
+``additional_dependencies`` entry checked on its own: an entry that does not
+parse as a PEP 508 requirement is skipped, and a parsed entry is compared only
+when ``pyproject.toml`` declares its package. In this repo the compared hooks
+are the ``repo: local`` ``mutmut`` and ``pytest`` hooks (``language:
+python``); the other local hooks are ``language: system`` and the remote hooks
+carry no ``additional_dependencies``.
 
 Where the source of truth lives. Hooks mirror the dev tooling, so a hook entry
 is compared first with the optional-extra-equivalent declarations: every
@@ -25,12 +24,13 @@ is compared first with the optional-extra-equivalent declarations: every
 group (string entries only; ``{include-group = ...}`` tables are ignored) and
 ``[tool.uv].dev-dependencies``. Only when the package appears in none of those
 is it compared with ``[project].dependencies``. A package the optional sources
-declare with different specifiers or URLs fails as ambiguous. In the
-``[project].dependencies`` fallback, entries that differ only because they
-carry different environment markers are a marker split, not an ambiguity: the
-single unmarked entry is the source if exactly one exists, otherwise the
-package is skipped. A hook entry for a package ``pyproject.toml`` does not
-declare is out of scope.
+declare with different specifiers or URLs fails as ambiguous, and so does a
+package ``[project].dependencies`` declares twice under the same environment
+marker with different pins. Runtime entries under different markers (a marker
+split such as ``demo==1; python_version < '3.12'`` and ``demo==2;
+python_version >= '3.12'``) are all candidates: the hook entry passes when it
+matches any one of them. A hook entry for a package ``pyproject.toml`` does
+not declare is out of scope.
 
 What is compared. The specifier set and the direct-reference URL
 (``pkg @ git+https://...@ref``). Environment markers and extras are ignored in
@@ -110,10 +110,10 @@ class Declaration:
 
 @dataclass
 class PyprojectPins:
-    """pyproject parsed once: every declaration, each package's source, each ambiguity."""
+    """pyproject parsed once: every declaration, each package's candidates, each ambiguity."""
 
     declarations: dict[str, list[Declaration]] = field(default_factory=dict)
-    sources: dict[str, Declaration] = field(default_factory=dict)
+    sources: dict[str, list[Declaration]] = field(default_factory=dict)
     ambiguities: dict[str, str] = field(default_factory=dict)
 
 
@@ -141,24 +141,25 @@ def _ambiguity_message(package: str, declarations: list[Declaration]) -> str:
     )
 
 
+def _distinct(declarations: list[Declaration]) -> list[Declaration]:
+    """The first declaration of each distinct pin, in declaration order."""
+    by_pin: dict[tuple[SpecifierSet, str | None], Declaration] = {}
+    for decl in declarations:
+        by_pin.setdefault(decl.pin, decl)
+    return list(by_pin.values())
+
+
 def _resolve_runtime(package: str, runtime: list[Declaration], pins: PyprojectPins) -> None:
-    if len({decl.pin for decl in runtime}) <= 1:
-        pins.sources[package] = runtime[0]
-        return
-    by_marker: dict[str | None, set[tuple[SpecifierSet, str | None]]] = {}
-    for decl in runtime:
-        by_marker.setdefault(decl.marker, set()).add(decl.pin)
-    if any(len(pins_under_marker) > 1 for pins_under_marker in by_marker.values()):
+    """Every distinct runtime pin is a candidate, unless one marker carries two pins."""
+    markers = [decl.marker for decl in _distinct(runtime)]
+    if len(markers) != len(set(markers)):
         pins.ambiguities[package] = _ambiguity_message(package, runtime)
-        return
-    # A marker split: compare against the one unmarked entry, else nothing.
-    unmarked = [decl for decl in runtime if decl.marker is None]
-    if len(unmarked) == 1:
-        pins.sources[package] = unmarked[0]
+    else:
+        pins.sources[package] = _distinct(runtime)
 
 
 def parse_pyproject(pyproject: dict[str, Any]) -> PyprojectPins:
-    """Map each package to its declarations, its single source, or its ambiguity."""
+    """Map each package to its declarations, its candidate pins, or its ambiguity."""
     pins = PyprojectPins()
     optional: dict[str, list[Declaration]] = {}
     runtime: dict[str, list[Declaration]] = {}
@@ -170,10 +171,10 @@ def parse_pyproject(pyproject: dict[str, Any]) -> PyprojectPins:
             bucket.setdefault(package, []).append(decl)
             pins.declarations.setdefault(package, []).append(decl)
     for package, decls in optional.items():
-        if len({decl.pin for decl in decls}) > 1:
+        if len(_distinct(decls)) > 1:
             pins.ambiguities[package] = _ambiguity_message(package, decls)
         else:
-            pins.sources[package] = decls[0]
+            pins.sources[package] = _distinct(decls)
     for package, decls in runtime.items():
         if package not in optional:
             _resolve_runtime(package, decls, pins)
@@ -181,22 +182,16 @@ def parse_pyproject(pyproject: dict[str, Any]) -> PyprojectPins:
 
 
 def _python_requirements(hook: dict[str, Any]) -> list[tuple[str, Requirement]] | None:
-    """The hook's dependencies as Python requirements, or None when it is not a Python hook."""
-    raws = [str(raw) for raw in hook.get("additional_dependencies", [])]
-    language = hook.get("language")
+    """Each entry that parses as PEP 508, or None when the hook's inline language is not Python."""
+    if hook.get("language", "python") != "python":
+        return None
     parsed: list[tuple[str, Requirement]] = []
-    for raw in raws:
+    for raw in map(str, hook.get("additional_dependencies", [])):
         try:
             parsed.append((raw, Requirement(raw)))
         except InvalidRequirement:
-            if language == "python":
-                raise
-            return None
-    if language is not None:
-        return parsed if language == "python" else None
-    # No inline language (a remote repo's manifest declares it): Python only
-    # when every entry is a URL-free PEP 508 requirement.
-    return None if any(req.url for _, req in parsed) else parsed
+            continue
+    return parsed
 
 
 def _hooks(precommit: dict[str, Any]) -> list[tuple[str | None, str, dict[str, Any]]]:
@@ -208,6 +203,11 @@ def _hooks(precommit: dict[str, Any]) -> list[tuple[str | None, str, dict[str, A
             label = repr(hook_id) if hook_id else f"#{index} of repo {repo.get('repo')!r}"
             hooks.append((hook_id, label, hook))
     return hooks
+
+
+def _disagreement(package: str, candidates: list[Declaration], site: str, value: str) -> str:
+    listed = "".join(f"  {decl.site}: {decl.raw!r}\n" for decl in candidates)
+    return f"{package} pins disagree:\n{listed}  {site}: {value!r}"
 
 
 def hook_dependency_mismatches(pins: PyprojectPins, precommit: dict[str, Any]) -> list[str]:
@@ -230,13 +230,13 @@ def hook_dependency_mismatches(pins: PyprojectPins, precommit: dict[str, Any]) -
                     reported_ambiguous.add(package)
                     messages.append(pins.ambiguities[package])
                 continue
-            source = pins.sources.get(package)
-            if source is None or source.pin == (req.specifier, req.url):
+            candidates = pins.sources.get(package, [])
+            if not candidates or (req.specifier, req.url) in {decl.pin for decl in candidates}:
                 continue
             messages.append(
-                f"{package} pins disagree:\n"
-                f"  {source.site}: {source.raw!r}\n"
-                f"  {PRECOMMIT} hook {label} additional_dependencies: {raw!r}"
+                _disagreement(
+                    package, candidates, f"{PRECOMMIT} hook {label} additional_dependencies", raw
+                )
             )
     return messages
 
@@ -298,12 +298,12 @@ def ruff_rev_mismatch(pins: PyprojectPins, precommit: dict[str, Any]) -> str | N
         )
     if "ruff" in pins.ambiguities:
         return pins.ambiguities["ruff"]
-    source = pins.sources.get("ruff")
-    if source is None:
+    candidates = pins.sources.get("ruff", [])
+    if not candidates:
         return f"{site}: {PYPROJECT} declares no ruff requirement to compare {raw_rev!r} with"
-    if source.pin == (SpecifierSet(f"=={version}"), None):
+    if (SpecifierSet(f"=={version}"), None) in {decl.pin for decl in candidates}:
         return None
-    return f"ruff pins disagree:\n  {source.site}: {source.raw!r}\n  {site}: {raw_rev!r}"
+    return _disagreement("ruff", candidates, site, raw_rev)
 
 
 def lockstep_mismatches(
@@ -447,18 +447,16 @@ def test_runtime_fallback_when_no_optional_group_declares_the_package() -> None:
     assert f"{RUNTIME_SITE}: 'pydantic>=2.8,<3'" in message
 
 
-def test_marker_split_runtime_pair_does_not_falsely_fail() -> None:
-    split = [
-        "numpy>=1.26,<2; python_version < '3.12'",
-        "numpy>=2,<3; python_version >= '3.12'",
-    ]
-    precommit = _precommit(_local(pytest=["numpy>=2,<3"]))
-    # No unmarked entry: nothing to compare against, and not ambiguous.
-    assert _hook_mismatches(_pyproject(split), precommit) == []
-    # Exactly one unmarked entry: it is the source.
-    with_unmarked = _pyproject([*split, "numpy>=1.26"])
-    [message] = _hook_mismatches(with_unmarked, precommit)
-    assert f"{RUNTIME_SITE}: 'numpy>=1.26'" in message
+def test_marker_split_runtime_hook_pin_must_match_one_candidate() -> None:
+    split = _pyproject(["demo==1; python_version < '3.12'", "demo==2; python_version >= '3.12'"])
+    assert _hook_mismatches(split, _precommit(_local(pytest=["demo==2"]))) == []
+    [message] = _hook_mismatches(split, _precommit(_local(pytest=["demo==99"])))
+    assert message == (
+        "demo pins disagree:\n"
+        f"  {RUNTIME_SITE}: \"demo==1; python_version < '3.12'\"\n"
+        f"  {RUNTIME_SITE}: \"demo==2; python_version >= '3.12'\"\n"
+        f"  {PRECOMMIT} hook 'pytest' additional_dependencies: 'demo==99'"
+    )
 
 
 def test_same_marker_runtime_entries_with_different_specifiers_are_ambiguous() -> None:
@@ -487,30 +485,23 @@ def test_dependency_groups_and_uv_dev_dependencies_are_sources() -> None:
     assert required_mirror_mismatches(parse_pyproject(pyproject), precommit) == []
 
 
-def test_non_python_hooks_are_ignored() -> None:
+def test_hooks_with_an_inline_non_python_language_are_ignored() -> None:
     pyproject = _pyproject(dev=["prettier>=4"])
-    node_deps = ["@types/node@20", "prettier@3.0.0"]
     node_local = {
         "repo": "local",
-        "hooks": [{"id": "eslint", "language": "node", "additional_dependencies": node_deps}],
+        "hooks": [
+            {
+                "id": "eslint",
+                "language": "node",
+                "additional_dependencies": ["@types/node@20", "prettier@3.0.0"],
+            }
+        ],
     }
     system_local = {
         "repo": "local",
         "hooks": [{"id": "fmt", "language": "system", "additional_dependencies": ["prettier"]}],
     }
-    # A remote hook with no inline language: not all entries are URL-free PEP 508.
-    remote = {
-        "repo": "https://github.com/example/mirrors-prettier",
-        "rev": "v3.0.0",
-        "hooks": [{"id": "prettier", "additional_dependencies": node_deps}],
-    }
-    remote_url = {
-        "repo": "https://github.com/example/mirrors-prettier",
-        "rev": "v3.0.0",
-        "hooks": [{"id": "prettier-url", "additional_dependencies": ["prettier@3.0.0"]}],
-    }
-    precommit = _precommit(node_local, system_local, remote, remote_url)
-    assert _hook_mismatches(pyproject, precommit) == []
+    assert _hook_mismatches(pyproject, _precommit(node_local, system_local)) == []
 
 
 def test_remote_hook_with_plain_pep508_entries_is_compared() -> None:
@@ -522,6 +513,23 @@ def test_remote_hook_with_plain_pep508_entries_is_compared() -> None:
     }
     [message] = _hook_mismatches(pyproject, _precommit(remote))
     assert "hook 'mypy' additional_dependencies: 'types-PyYAML>=5'" in message
+
+
+def test_each_remote_hook_entry_is_compared_on_its_own() -> None:
+    # A direct-URL entry, an undeclared package and an unparseable entry do not
+    # stop the declared pytest-cov entry beside them from being compared.
+    pyproject = _pyproject(dev=["pytest-cov>=6,<8"])
+    entries = ["pytest-cov>=6,<7", "demo @ https://example.com/demo.whl", "@types/node@20"]
+    remote = {
+        "repo": RUFF_REPO,
+        "rev": "v1.2.3",
+        "hooks": [{"id": "ruff-check", "additional_dependencies": entries}],
+    }
+    assert _hook_mismatches(pyproject, _precommit(remote)) == [
+        "pytest-cov pins disagree:\n"
+        f"  {PYPROJECT} [project.optional-dependencies].dev: 'pytest-cov>=6,<8'\n"
+        f"  {PRECOMMIT} hook 'ruff-check' additional_dependencies: 'pytest-cov>=6,<7'"
+    ]
 
 
 def test_hook_without_id_fails_clearly() -> None:

@@ -375,11 +375,12 @@ hook also lists is half a change until the hook moves too.
 `tests/test_toolchain_pin_lockstep.py` runs in the required pytest jobs and
 enforces these rules:
 
-- **Python hooks only.** A hook is compared when its inline `language` is
-  `python`. Any other inline `language` (`system`, `node`, ...) is skipped. A
-  remote-repo hook without an inline `language` (its manifest declares it) is
-  compared only when every `additional_dependencies` entry is a PEP 508
-  requirement without a URL.
+- **Which entries.** A hook with an inline `language` other than `python`
+  (`system`, `node`, ...) is skipped. Every other hook, including a
+  remote-repo hook whose manifest declares its language, has each
+  `additional_dependencies` entry checked on its own: an entry that does not
+  parse as a PEP 508 requirement is skipped, and a parsed entry is compared
+  only when `pyproject.toml` declares its package.
 - **Same pin.** Every compared entry whose package `pyproject.toml` also
   declares carries the same specifier set and the same direct-reference URL.
   Environment markers and extras are ignored, since a marker says where a
@@ -390,9 +391,10 @@ enforces these rules:
   groups, PEP 735 `[dependency-groups]` (string entries; `include-group`
   tables are ignored) and `[tool.uv].dev-dependencies`. Only a package none of
   those declare falls back to `[project].dependencies`. Different specifiers
-  across the optional sources fail as ambiguous. In the fallback, entries that
-  differ only by environment marker are a marker split: the one unmarked entry
-  is the source if exactly one exists, otherwise the package is skipped.
+  across the optional sources fail as ambiguous, as do two different
+  `[project].dependencies` pins under the same environment marker. In the
+  fallback, entries under different markers (a marker split) are all
+  candidates, and the hook entry passes when it matches any one of them.
 - **Required mirrors.** `REQUIRED_MIRRORS` in the test names the pairs that
   must exist, so deleting one side cannot turn the check into a silent pass:
   `mutmut` must be declared exactly once in `pyproject.toml` and exactly once
@@ -401,8 +403,8 @@ enforces these rules:
   be a `v<version>` tag, and that version must equal the `ruff==` pin.
 
 The test hard-codes no version and lists every mismatch in one failure,
-naming both files, the hook id and both values, so a bump edits the pins and
-nothing else.
+naming both files, the hook id, the hook value and every candidate
+`pyproject.toml` declaration, so a bump edits the pins and nothing else.
 
 ## Branch workflow
 
