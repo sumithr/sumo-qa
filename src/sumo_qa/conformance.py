@@ -320,7 +320,7 @@ _SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:")
 # other is a value, blanked before key matching so ``"skill: beginner"`` is
 # not a skill key.
 _QUOTED_RE = re.compile(r"([\"'])(?:\\.|(?!\1).)*\1", re.DOTALL)
-_KEY_FOLLOWS_RE = re.compile(r"[ \t]*:")
+_KEY_FOLLOWS_RE = re.compile(r"\s*:")
 # One explicit character set for both engines (their ``\s`` differ).
 _LINE_BREAK_RE = re.compile("[\r\u2028\u2029]")
 _SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]")

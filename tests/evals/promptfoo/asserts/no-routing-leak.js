@@ -34,7 +34,7 @@ const SKILL_KEY = /\bskill["']?\s*:/;
 // Quoted strings left to right: one followed by ':' is a key, any other is a
 // value and is blanked before key matching.
 const QUOTED = /(["'])(?:\\.|(?!\1)[\s\S])*\1/g;
-const KEY_FOLLOWS = /^[ \t]*:/;
+const KEY_FOLLOWS = /^\s*:/;
 // One explicit character set for both engines (their \s differ).
 const LINE_BREAK = /[\r\u2028\u2029]/g;
 const SPACE = /[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]/g;

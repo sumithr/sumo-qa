@@ -651,6 +651,10 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
             '"rationale":"say \\"{\\" here","next_action":{"skill":"none"}}',
             "payload_json",
         ),
+        (
+            '{"classification":"x","approach":"y","next_action":{"skill"\n:"review"}}',
+            "payload_json",
+        ),
         ("Routing to **`sumo-qa-reviewing-before-merge`**.", "route_announcement"),
         # Second adversarial pass (codex, #248).
         ("Approach: verify-existing\r\nStart with the suite.", "taxonomy_label"),

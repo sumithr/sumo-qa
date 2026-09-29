@@ -50,6 +50,7 @@ _EXTRA = [
     '{"classification":"x","approach":"y","rationale":"a { b","next_action":{"skill":"none"}}',
     '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
     '{"classification":"x","approach":"y","rationale":"say \\"{\\" here","next_action":{"skill":"none"}}',
+    '{"classification":"x","approach":"y","next_action":{"skill"\n:"review"}}',
     "Routing to **`sumo-qa-reviewing-before-merge`**.",
     "Approach: verify-existing\r\nStart with the suite.",
     "Approach:\u00a0verify-existing",
