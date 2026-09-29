@@ -137,7 +137,6 @@ function bracePairs(text) {
 function braceSpans(text) {
   return bracePairs(text)
     .filter(([, , depth]) => depth === 0)
-    .sort((a, b) => a[0] - b[0])
     .map(([open, close]) => text.slice(open, close + 1));
 }
 
@@ -149,8 +148,8 @@ function nextActionHasSkill(span) {
   const skills = [...span.matchAll(SKILL_KEY_ALL)].map((m) => m.index);
   for (const m of span.matchAll(NEXT_ACTION)) {
     const open = m.index + m[0].length;
-    if (!closes.has(open)) continue;
     const close = closes.get(open);
+    if (close === undefined) continue;
     let lo = 0;
     let hi = skills.length;
     while (lo < hi) {

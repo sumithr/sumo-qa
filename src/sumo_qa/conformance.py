@@ -326,7 +326,8 @@ _SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:", re.ASCII)
 _WORD = "A-Za-z0-9_"
 # Emphasis, code and quote marks a host wraps around a label or its value.
 _DECO_CHARS = "*_`\"'"
-_DECO = f"[{re.escape(_DECO_CHARS)}]"
+_DECO_SET = re.escape(_DECO_CHARS)
+_DECO = f"[{_DECO_SET}]"
 _QUOTED_RE = re.compile(
     r'"(?:\\.|[^"\\])*"'
     rf"|(?<![{_WORD}])'(?:\\.|[^'\\]|(?<=[{_WORD}])'(?=[{_WORD}]))*"
@@ -481,7 +482,8 @@ def _brace_pairs(text: str) -> list[tuple[int, int, int]]:
 
 def _brace_spans(text: str) -> list[str]:
     """Top-level ``{...}`` spans; an unbalanced brace yields no span."""
-    return [text[o : c + 1] for o, c, depth in sorted(_brace_pairs(text)) if depth == 0]
+    # Top-level pairs close in document order, so no sort is needed.
+    return [text[o : c + 1] for o, c, depth in _brace_pairs(text) if depth == 0]
 
 
 def _has_taxonomy_label(text: str) -> bool:
@@ -497,7 +499,7 @@ def _label_re(names: frozenset[str]) -> re.Pattern[str]:
     Labels inside prose are left to the eval's judge."""
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     bare_pair = (
-        rf"(?:classification|approach){_DECO}*[ \t]*:[ \t{re.escape(_DECO_CHARS)}]*"
+        rf"(?:classification|approach){_DECO}*[ \t]*:[ \t{_DECO_SET}]*"
         rf"(?:{alternatives}|n/a){_DECO}*"
     )
     pair = rf"{_DECO}*{bare_pair}"

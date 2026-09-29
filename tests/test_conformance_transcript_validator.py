@@ -692,6 +692,7 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("Classification: docs_change; Approach: no-tests-recommended.", "taxonomy_label"),
         ("**Classification:** docs_change **Approach:** no-tests-recommended", "taxonomy_label"),
         ("**Classification:** docs_change**Approach:** no-tests-recommended", "taxonomy_label"),
+        ("{classification:x,approach:y,next_action:{a:{skill:q}}}", "payload_json"),
         ("Routing to the ***[`sumo-qa-strategising`]**", "route_announcement"),
         (
             "{classification: docs_change, approach: no-tests-recommended, rationale: "
@@ -745,6 +746,7 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         '{"description":"classification: x, approach: y, next_action: {skill: z}"}',
         '{"classification":"p","approach":"c","next_action":{"deploy":"s"},'
         '"see next_action:{skill:x}":1}',
+        "{classification:x,approach:y,next_action:{a:{b:1}},z:{skill:q}}",
         "\u0661. Load catalogues\n\u0662. Pick the approach",
         '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
         "1. Read the diff\n2. Run the suite",
