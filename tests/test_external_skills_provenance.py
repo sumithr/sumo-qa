@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -74,13 +75,14 @@ class FakeToolchain:
             # skills@1.7.0 names the folder sanitizeName(name) (lowercased) and
             # rm -rf's then recreates it on every install (cleanAndCreateDirectory).
             skill = command[command.index("--skill") + 1]
-            skill_dir = self.cwd / ".agents" / "skills" / skill.lower()
+            folder = re.sub(r"[^a-z0-9._]+", "-", skill.lower()).strip(".-")
+            skill_dir = self.cwd / ".agents" / "skills" / folder
             shutil.rmtree(skill_dir, ignore_errors=True)
             (skill_dir / "references").mkdir(parents=True)
             (skill_dir / "SKILL.md").write_text(f"---\nname: {skill}\n---\n# Body\n", "utf-8")
             (skill_dir / "references" / "notes.md").write_text("notes\n", "utf-8")
             if self.links_claude_dir:
-                link = self.cwd / ".claude" / "skills" / skill.lower()
+                link = self.cwd / ".claude" / "skills" / folder
                 link.parent.mkdir(parents=True, exist_ok=True)
                 if link.is_symlink():
                     link.unlink()
@@ -251,12 +253,29 @@ def test_cli_source_alias_resolves_the_repository_the_cli_installs(toolchain) ->
     assert add[add.index("add") + 1] == f"vercel-labs/agent-skills#{SHA}"
 
 
-@pytest.mark.parametrize("skill", ["-g", "--all", "*", "../x", "a/b", "x y", ".hidden"])
+@pytest.mark.parametrize("skill", ["-g", "--all", "*", "a*", "../x", "a/b", "a\\b", ".hidden"])
 def test_skill_names_that_would_act_as_cli_flags_or_paths_are_rejected(toolchain, skill) -> None:
     with pytest.raises(ValueError, match="skill name"):
         _install(toolchain, skill=skill)
 
     assert toolchain.calls == []
+
+
+def test_frontmatter_style_names_with_spaces_are_accepted(toolchain) -> None:
+    """The CLI's --skill takes a frontmatter name, which may contain spaces;
+    only what acts as a flag, wildcard, or path is refused."""
+    assert (
+        ext.check_external_skill_installed(
+            "My Skill", cwd=toolchain.cwd, home=toolchain.cwd.parent / "home"
+        )
+        is None
+    )
+
+    result = _install(toolchain, skill="My Skill")
+
+    add = next(c for c in toolchain.cli_commands() if "add" in c)
+    assert add[add.index("--skill") + 1] == "My Skill"
+    assert result["provenance"]["path"] == ".agents/skills/my-skill"
 
 
 @pytest.mark.parametrize("agent", ["*", "-g", "--agent", "a b"])
@@ -298,6 +317,15 @@ def test_annotated_tag_resolves_to_the_peeled_commit(toolchain) -> None:
         "https://bitbucket.org/o/r",
         "ssh://git@host.example/o/r",
         "o/r/sub/path",
+        # A trailing .git in shorthand makes both sides clone repo.git.git.
+        "o/r.git",
+        # Tree/blob URLs: the CLI parses a ref from the path and drops '#<sha>'.
+        "https://github.com/o/r/tree/main/x.git",
+        "https://gitlab.example/o/r/blob/main/x.git",
+        # Credentials would be written into the lock file.
+        "https://user:token@gitlab.example/o/r.git",
+        "https://ghp_token@github.com/o/r",
+        "ssh://user:password@host.example/o/r.git",
     ],
 )
 def test_unpinnable_sources_are_rejected_before_anything_runs(toolchain, source) -> None:
@@ -505,6 +533,63 @@ def test_a_record_written_by_a_concurrent_install_is_kept(toolchain) -> None:
     }
 
 
+def test_concurrent_lock_updates_keep_every_record(tmp_path) -> None:
+    records = [{"path": f".agents/skills/s{i}", "skill": f"s{i}"} for i in range(12)]
+    threads = [
+        threading.Thread(target=ext._record_in_lock, args=(tmp_path, [record]))
+        for record in records
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert set(_lock(tmp_path)["skills"]) == {record["path"] for record in records}
+
+
+def test_a_held_lock_is_a_typed_error_after_waiting(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(ext, "_LOCK_WAIT_SECONDS", 0.2)
+    guard = tmp_path / ".sumo-qa" / "external-skills.lock.json.lock"
+    guard.parent.mkdir()
+    guard.write_text("", "utf-8")
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="busy"):
+        ext._record_in_lock(tmp_path, [{"path": ".agents/skills/x"}])
+
+    assert guard.exists()  # someone else's guard is never removed
+
+
+def test_an_uncreatable_lock_folder_is_a_typed_error(tmp_path) -> None:
+    (tmp_path / ".sumo-qa").write_text("a file where the folder should be", "utf-8")
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="could not lock"):
+        ext._record_in_lock(tmp_path, [{"path": ".agents/skills/x"}])
+
+
+def test_failed_lock_write_leaves_no_staging_file(monkeypatch, tmp_path) -> None:
+    def full_disk(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(ext.os, "fdopen", full_disk)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="No space"):
+        ext._record_in_lock(tmp_path, [{"path": ".agents/skills/x"}])
+
+    assert list((tmp_path / ".sumo-qa").iterdir()) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_rewriting_the_lock_keeps_it_readable_by_others(tmp_path) -> None:
+    ext._record_in_lock(tmp_path, [{"path": ".agents/skills/a"}])
+    lock_path = tmp_path / ".sumo-qa" / "external-skills.lock.json"
+    assert lock_path.stat().st_mode & 0o044 == 0o044
+    lock_path.chmod(0o640)
+
+    ext._record_in_lock(tmp_path, [{"path": ".agents/skills/b"}])
+
+    assert lock_path.stat().st_mode & 0o777 == 0o640
+
+
 def test_lock_write_failure_is_a_typed_provenance_error(monkeypatch, toolchain) -> None:
     def refuse(*args, **kwargs):
         raise PermissionError("locked by another process")
@@ -567,6 +652,60 @@ def test_links_inside_the_skill_folder_are_pinned_by_target(tmp_path) -> None:
     (skill / "current").symlink_to(skill / "b", target_is_directory=True)
 
     assert ext.skill_content_digest(skill) != first
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_link_and_a_file_named_like_its_entry_cannot_collide(tmp_path) -> None:
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("# x", "utf-8")
+    (skill / "y").write_text("y", "utf-8")
+    (skill / "x@").write_text("a file named like a link entry", "utf-8")
+    (skill / "x").symlink_to("y")
+    first = ext.skill_content_digest(skill)
+
+    (skill / "x").unlink()
+    (skill / "x").symlink_to("SKILL.md")
+
+    assert ext.skill_content_digest(skill) != first
+
+
+@pytest.mark.skipif(os.name == "nt", reason="newlines in file names and symlinks are POSIX")
+def test_digest_framing_is_unambiguous(tmp_path) -> None:
+    """Old framing `path\\0value\\n` let a newline in a link target or name
+    shift bytes between fields so two different trees hashed the same."""
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    for tree in (first, second):
+        tree.mkdir()
+    (first / "a").symlink_to("t\nb")
+    (first / "c").write_text("same", "utf-8")
+    (second / "a").symlink_to("t")
+    (second / "b\nc").write_text("same", "utf-8")
+
+    assert ext.skill_content_digest(first) != ext.skill_content_digest(second)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_skill_md_that_links_inside_its_folder_executes(toolchain) -> None:
+    _install(toolchain)
+    folder = toolchain.cwd / ".agents" / "skills" / "find-skills"
+    body = (folder / "SKILL.md").read_bytes()
+    (folder / "docs").mkdir()
+    (folder / "docs" / "skill.md").write_bytes(body)
+    (folder / "SKILL.md").unlink()
+    (folder / "SKILL.md").symlink_to("docs/skill.md")
+    lock_path = toolchain.cwd / ".sumo-qa" / "external-skills.lock.json"
+    lock = json.loads(lock_path.read_text("utf-8"))
+    lock["skills"][".agents/skills/find-skills"]["content_digest"] = ext.skill_content_digest(
+        folder
+    )
+    lock_path.write_text(json.dumps(lock), "utf-8")
+
+    result = _execute(toolchain)
+
+    assert result["provenance"]["status"] == "verified"
+    assert result["skill_body"] == body.decode("utf-8")
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes are POSIX only")
@@ -774,7 +913,7 @@ def test_a_lowercase_skill_md_is_verified_against_its_own_entry(tmp_path) -> Non
         json.dumps({"schema_version": 1, "skills": {".agents/skills/x": record}}), "utf-8"
     )
 
-    result = ext._verify_provenance(folder, tmp_path, b"# body\n")
+    result = ext._verify_provenance(folder / "SKILL.md", tmp_path, b"# body\n")
 
     assert result["status"] == "verified"
 

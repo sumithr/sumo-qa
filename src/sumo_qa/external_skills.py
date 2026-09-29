@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -77,16 +78,25 @@ _DEFAULT_SOURCE = "https://github.com/vercel-labs/skills"
 # looksLikeGitSource / parseSource); anything else would silently drop the pin.
 _SHORTHAND_SOURCE_RE = re.compile(r"([A-Za-z0-9][\w.-]*/[\w.-]+?)(?:@([\w.-]+))?")
 _GITHUB_REPO_URL_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+?(?:\.git)?/?")
-_GIT_URL_RE = re.compile(r"(?:https|ssh)://[^\s#]+\.git|git@[\w.-]+:[^\s#]+")
+# No userinfo on https (a token would be written into the lock) and none with
+# a password on ssh; no '#' or whitespace anywhere.
+_GIT_URL_RE = re.compile(
+    r"https://[^\s#@/]+/[^\s#@]+\.git|ssh://(?:[^\s#@:/]+@)?[^\s#@/]+/[^\s#@]+\.git"
+    r"|git@[\w.-]+:[^\s#]+"
+)
 # skills@1.7.0 SOURCE_ALIASES: shorthands the CLI rewrites before cloning.
 # Re-check against the CLI source whenever the pin moves.
 _CLI_SOURCE_ALIASES = {
     "coinbase/agentWallet": "coinbase/agentic-wallet-skills",
     "vercel-labs/vercel-skills": "vercel-labs/agent-skills",
 }
-# Skill and agent names reach the CLI argv and filesystem paths: no leading
-# '-' (a flag), no '*' (a wildcard), no separators or '..' (a path).
-_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# Skill names reach the CLI argv and filesystem paths: no leading '-' (a
+# flag), '.' or space, no '*' (a wildcard), no separators (a path). Inner
+# spaces are fine: the CLI's --skill takes a frontmatter name. Agent names are
+# the CLI's fixed identifiers.
+_SKILL_NAME_RE = re.compile(r"[^\s.*/\\-][^*/\\\x00-\x1f]*")
+_AGENT_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_LOCK_WAIT_SECONDS = 10.0
 _COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _LOCK_RELPATH = Path(".sumo-qa") / "external-skills.lock.json"
 _LOCK_SCHEMA_VERSION = 1
@@ -148,8 +158,8 @@ def install_external_skill(
         raise ValueError("source is required")
     if scope not in {"project", "global"}:
         raise ValueError("scope must be 'project' or 'global'")
-    _check_name(skill, "skill")
-    _check_name(agent, "agent")
+    _check_name(skill, "skill", _SKILL_NAME_RE)
+    _check_name(agent, "agent", _AGENT_NAME_RE)
 
     source_base, remote_url, requested_ref, named_skill = _parse_source(source)
     if named_skill is not None and named_skill != skill:
@@ -211,7 +221,7 @@ def check_external_skill_installed(
         raise ValueError("skill is required")
     if scope not in _VALID_SCOPES:
         raise ValueError("scope must be 'auto', 'project', or 'global'")
-    _check_name(skill, "skill")
+    _check_name(skill, "skill", _SKILL_NAME_RE)
     for installed in _iter_installed_skill_candidates(skill, scope, cwd, home):
         if installed.path.is_file():
             return installed.as_dict()
@@ -241,7 +251,7 @@ def execute_external_skill(
     # the verified walk so a swap in between cannot hand over unverified text.
     body_bytes = _read_skill_body(path)
     provenance = _verify_provenance(
-        path.parent, cwd if installed["scope"] == "project" else home, body_bytes
+        path, cwd if installed["scope"] == "project" else home, body_bytes
     )
     body = body_bytes.decode("utf-8")
     return {
@@ -332,15 +342,17 @@ def skill_content_digest(folder: Path) -> str:
     return _digest_of(_content_entries(Path(folder)))
 
 
-def _content_entries(root: Path) -> dict[str, str]:
-    """Map each relative path under ``root`` to its content hash.
+def _content_entries(root: Path) -> dict[tuple[str, str], str]:
+    """Map each ``(kind, relative path)`` under ``root`` to its content.
 
-    A symlink inside the folder is pinned by its target and not followed (the
-    bytes it reaches are hashed at their own path). A link leaving the folder,
-    or anything that is not a regular file, cannot be pinned and is refused.
+    ``kind`` is ``file`` (value: SHA-256 of its bytes) or ``link`` (value: the
+    link target). A symlink inside the folder is pinned by its target and not
+    followed; the bytes it reaches are hashed at their own path. A link
+    leaving the folder, or anything that is not a regular file, cannot be
+    pinned and is refused.
     """
     root_real = os.path.realpath(root)
-    entries: dict[str, str] = {}
+    entries: dict[tuple[str, str], str] = {}
     for dirpath, dirnames, filenames in os.walk(root):
         current = Path(dirpath)
         for name in [*dirnames, *filenames]:
@@ -348,9 +360,9 @@ def _content_entries(root: Path) -> dict[str, str]:
             relpath = path.relative_to(root).as_posix()
             if path.is_symlink():  # pragma: no cover -- platform-conditional (POSIX only)
                 _check_link_stays_inside(path, root_real)
-                entries[relpath + "@"] = os.readlink(path)
+                entries[("link", relpath)] = os.readlink(path)
             elif name in filenames:
-                entries[relpath] = _hash_regular_file(path)
+                entries[("file", relpath)] = _hash_regular_file(path)
     return entries
 
 
@@ -371,11 +383,11 @@ def _hash_regular_file(path: Path) -> str:
         raise ExternalSkillProvenanceError(f"could not read {path}: {exc}") from exc
 
 
-def _digest_of(entries: dict[str, str]) -> str:
-    digest = hashlib.sha256()
-    for relpath, value in sorted(entries.items()):
-        digest.update(f"{relpath}\0{value}\n".encode())
-    return f"sha256:{digest.hexdigest()}"
+def _digest_of(entries: dict[tuple[str, str], str]) -> str:
+    # JSON framing: no name or link target can shift bytes between fields.
+    items = sorted([kind, relpath, value] for (kind, relpath), value in entries.items())
+    encoded = json.dumps(items, ensure_ascii=True, separators=(",", ":")).encode()
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def _read_skill_body(path: Path) -> bytes:
@@ -431,11 +443,11 @@ def _run_cli_process(command: list[str], timeout: int, cwd: Path | None) -> tupl
     return completed.stdout, completed.stderr
 
 
-def _check_name(value: str, kind: str) -> None:
-    if not _NAME_RE.fullmatch(value):
+def _check_name(value: str, kind: str, pattern: re.Pattern[str]) -> None:
+    if not pattern.fullmatch(value):
         raise ValueError(
-            f"{kind} name {value!r} must start with a letter or digit and use only "
-            "letters, digits, '.', '_' or '-'"
+            f"{kind} name {value!r} must not start with '-', '.' or a space, and must "
+            "not contain '*', '/' or '\\'"
         )
 
 
@@ -444,8 +456,10 @@ def _parse_source(source: str) -> tuple[str, str, str | None, str | None]:
     base, has_ref, ref = source.partition("#")
     if has_ref and not ref:
         raise ValueError("source ref after '#' is empty")
+    if "/tree/" in base or "/blob/" in base:
+        raise ValueError("source must be a repository URL; pass a folder's ref as '#<ref>'")
     shorthand = _SHORTHAND_SOURCE_RE.fullmatch(base)
-    if shorthand:
+    if shorthand and not shorthand[1].endswith(".git"):
         repo = _CLI_SOURCE_ALIASES.get(shorthand[1], shorthand[1])
         return repo, f"https://github.com/{repo}.git", ref or None, shorthand[2]
     if _GITHUB_REPO_URL_RE.fullmatch(base) or _GIT_URL_RE.fullmatch(base):
@@ -564,29 +578,57 @@ def _read_lock(base: Path) -> dict[str, Any]:
 
 
 def _record_in_lock(base: Path, records: list[dict[str, Any]]) -> None:
-    """Merge records into the lock, re-read now so a concurrent install's
-    records written since the fail-fast read are kept."""
-    lock = _read_lock(base)
-    for record in records:
-        lock["skills"][record["path"]] = record
+    """Merge records into the lock under an exclusive guard file, re-reading
+    it inside the guard so concurrent installs keep each other's records."""
     path = base / _LOCK_RELPATH
+    guard = path.with_name(path.name + ".lock")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, staging = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(lock, indent=2, sort_keys=True) + "\n")
-        try:
-            os.replace(staging, path)
-        except OSError:
-            os.unlink(staging)
-            raise
+        _acquire_guard(guard)
     except OSError as exc:
+        raise ExternalSkillProvenanceError(f"could not lock {path}: {exc}") from exc
+    try:
+        lock = _read_lock(base)
+        for record in records:
+            lock["skills"][record["path"]] = record
+        _replace_lock_file(path, json.dumps(lock, indent=2, sort_keys=True) + "\n")
+    finally:
+        guard.unlink()
+
+
+def _acquire_guard(guard: Path) -> None:
+    deadline = time.monotonic() + _LOCK_WAIT_SECONDS
+    while True:
+        try:
+            os.close(os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise ExternalSkillProvenanceError(
+                    f"provenance lock is busy ({guard} exists); if no install is "
+                    "running, remove that file and retry"
+                ) from None
+            time.sleep(0.02)
+
+
+def _replace_lock_file(path: Path, content: str) -> None:
+    # The previous lock's permissions carry over (mkstemp creates 0600).
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+    fd, staging = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.chmod(staging, mode)
+        os.replace(staging, path)
+    except OSError as exc:
+        Path(staging).unlink(missing_ok=True)
         raise ExternalSkillProvenanceError(
             f"could not write provenance lock {path}: {exc}"
         ) from exc
 
 
-def _verify_provenance(folder: Path, lock_base: Path, body: bytes) -> dict[str, Any]:
+def _verify_provenance(skill_md: Path, lock_base: Path, body: bytes) -> dict[str, Any]:
+    folder = skill_md.parent
     key, record = _find_record(folder, lock_base)
     if record is None:
         return {"status": "unrecorded"}
@@ -602,9 +644,18 @@ def _verify_provenance(folder: Path, lock_base: Path, body: bytes) -> dict[str, 
             f"content digest mismatch for {key}: recorded "
             f"{record.get('content_digest')}, installed {actual}"
         )
-    # The CLI accepts SKILL.md in any case and keeps the on-disk name.
-    body_entry = entries.get("SKILL.md") or next(
-        (value for name, value in entries.items() if name.lower() == "skill.md"), None
+    # The bytes handed over are those of SKILL.md's real file, which may sit
+    # behind an in-folder link; the CLI also keeps any case of the name.
+    real_relpath = Path(
+        os.path.relpath(os.path.realpath(skill_md), os.path.realpath(folder))
+    ).as_posix()
+    body_entry = entries.get(("file", real_relpath)) or next(
+        (
+            value
+            for (kind, relpath), value in entries.items()
+            if kind == "file" and relpath.lower() == real_relpath.lower()
+        ),
+        None,
     )
     if hashlib.sha256(body).hexdigest() != body_entry:
         raise ExternalSkillProvenanceError(
