@@ -178,6 +178,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "`Surface verifier: <verifier",
         "**Sibling/combined-tree rule:**",
         "the relevant config must have run through **the Claude eval gate**",
+        "On backend, only a run on another backend",
         "a recorded run that does not restate its backend counts as a Claude-gate run, so never block SAFE on it or ask for the backend",
         "**A missing run is a verdict, not a question:**",
         "deliver `NOT SAFE TO MERGE` this turn, and name the run that clears it",
@@ -196,8 +197,8 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**(iv) An eval-driven skill change's A/B control is structurally load-bearing.**",
         "`Guard added: <the guard>",
         "UNCOVERED only when no eval of the guard ran fresh this turn, including an unrun or stale one",
-        "stale means run on another tree or before the change",
-        "a recorded run of this tree in the supplied record counts",
+        "stale means anything but this turn's fresh run (earlier CI, a run before the change or on another tree)",
+        "a run supplied as this turn's fresh run counts",
         "`A/B control: <the .ab.yaml>",
     ],
     "discharged-check": [
