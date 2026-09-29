@@ -34,8 +34,9 @@ const path = require('path');
 const KNOWLEDGE_DIR =
   process.env.QA_KNOWLEDGE_PATH || path.resolve(__dirname, '..', '..', '..', '..', 'knowledge');
 const PAYLOAD_KEYS = ['classification', 'approach', 'next_action'];
-const NEXT_ACTION = /\bnext_action["']?\s*:\s*(?=\{)/g;
-const SKILL_KEY = /\bskill["']?\s*:/;
+// A key may close with an ASCII or a curly quote.
+const NEXT_ACTION = /\bnext_action["'\u201d]?\s*:\s*(?=\{)/g;
+const SKILL_KEY = /\bskill["'\u201d]?\s*:/;
 // Quoted strings left to right: one followed by ':' is a key, any other is a
 // value and is blanked before key matching.
 // A single quote between word characters is an apostrophe, never a delimiter.
@@ -184,7 +185,7 @@ function hasRoutingPayload(text) {
     .map(blankStringValues)
     .some(
       (keys) =>
-        PAYLOAD_KEYS.every((key) => new RegExp(`\\b${key}["']?\\s*:`).test(keys)) &&
+        PAYLOAD_KEYS.every((key) => new RegExp(`\\b${key}["'\u201d]?\\s*:`).test(keys)) &&
         nextActionHasSkill(keys),
     );
 }

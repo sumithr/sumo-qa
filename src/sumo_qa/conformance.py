@@ -316,8 +316,9 @@ def _output_violations(scenario: ConformanceScenario, transcript: Transcript) ->
 # skill's own unquoted-key notation. A config snippet that merely has an
 # ``approach`` key is not.
 _PAYLOAD_KEYS = ("classification", "approach", "next_action")
-_NEXT_ACTION_RE = re.compile(r"\bnext_action[\"']?\s*:\s*(?=\{)", re.ASCII)
-_SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:", re.ASCII)
+# A key may close with an ASCII or a curly quote.
+_NEXT_ACTION_RE = re.compile(r"\bnext_action[\"'\u201d]?\s*:\s*(?=\{)", re.ASCII)
+_SKILL_KEY_RE = re.compile(r"\bskill[\"'\u201d]?\s*:", re.ASCII)
 # Quoted strings, taken left to right. One followed by ``:`` is a key; any
 # other is a value, blanked before key matching so ``"skill: beginner"`` is
 # not a skill key. A single quote between two word characters is an
@@ -424,7 +425,7 @@ def _has_routing_payload(text: str) -> bool:
     object itself carries a ``skill`` handoff; coincidental config keys, or a
     ``skill:`` elsewhere or inside a string value, are not a payload."""
     return any(
-        all(re.search(rf"\b{key}[\"']?\s*:", keys, re.ASCII) for key in _PAYLOAD_KEYS)
+        all(re.search(rf"\b{key}[\"'\u201d]?\s*:", keys, re.ASCII) for key in _PAYLOAD_KEYS)
         and _next_action_has_skill(keys)
         for keys in (_blank_string_values(span) for span in _brace_spans(text))
     )

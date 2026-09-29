@@ -126,6 +126,7 @@ _EXTRA = [
     "{ { {classification:x,approach:y,next_action:{skill:z}} x",
     "{" * 3_000 + "{classification:x,approach:y,next_action:{skill:z}}",
     "Routing to \u201csumo-qa-strategising\u201d.",
+    "{\u201cclassification\u201d:x,\u201capproach\u201d:y,\u201cnext_action\u201d:{\u201cskill\u201d:z}}",
     "{classification:public,approach:canary,next_action:{description:\u201cskill: beginner\u201d}}",
     "{classification: docs_change, approach: n/a, rationale: \u201ca { b\u201d, "
     "next_action: {skill: none}}",
