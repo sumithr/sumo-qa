@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.3](https://github.com/sumithr/sumo-qa/compare/v0.65.2...v0.65.3) (2026-09-29)
+
+
+### Documentation
+
+* **evals:** record the final preparing-for-work.ab pass in its header and the eval README ([#730](https://github.com/sumithr/sumo-qa/issues/730)) ([6566fd6](https://github.com/sumithr/sumo-qa/commit/6566fd65a75f6fa8d24d2e499d98c8239bc1262b))
+
 ## [0.65.2](https://github.com/sumithr/sumo-qa/compare/v0.65.1...v0.65.2) (2026-09-29)
 
 
