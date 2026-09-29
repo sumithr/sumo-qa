@@ -16,11 +16,13 @@ from pathlib import Path
 import pytest
 
 from sumo_qa.conformance import (
+    ROUTING_LEAK_FAMILIES,
     ConformanceScenario,
     ScenarioResult,
     ToolCall,
     Transcript,
     ViolationKind,
+    find_routing_leaks,
     format_report,
     load_scenarios,
     transcript_from_debug_dir,
@@ -589,3 +591,358 @@ def test_same_second_captures_order_by_call_time_not_name(tmp_path, monkeypatch)
         required_tool_calls=("sumo_qa_deciding_approach",),
     )
     assert validate_transcript(scenario, transcript).passed
+
+
+# --------------------------------------------------------------------------- #
+# Routing-state leaks (issue #248)                                            #
+# --------------------------------------------------------------------------- #
+# Technique: equivalence partitioning. Each leak family is one class with a
+# leaking representative; the adjacent clean class is ordinary prose that uses
+# the same words ("approach", "classification", "routing", numbered steps), the
+# substring/token-confusion failure mode a naive marker match would trip on.
+_LEAK_FIXTURE = Path(__file__).parent / "scenarios" / "conformance" / "leak_transcripts.yaml"
+
+
+def _leak_fixture() -> dict:
+    import yaml
+
+    return yaml.safe_load(_LEAK_FIXTURE.read_text(encoding="utf-8"))
+
+
+_LEAK_ENTRIES = _leak_fixture()["transcripts"]
+
+
+def test_leak_fixture_has_a_clean_and_a_leaking_transcript_per_family() -> None:
+    data = _leak_fixture()
+    assert set(data["families"]) == set(ROUTING_LEAK_FAMILIES)
+    for family in ROUTING_LEAK_FAMILIES:
+        entries = [e for e in data["transcripts"] if e["family"] == family]
+        assert any(e["leaks"] for e in entries), f"{family}: no leaking transcript"
+        assert any(not e["leaks"] for e in entries), f"{family}: no clean transcript"
+
+
+def test_leak_fixture_covers_routed_and_both_stop_scenarios(scenarios) -> None:
+    ids = {s.id for s in scenarios}
+    used = {e["scenario_id"] for e in _LEAK_ENTRIES}
+    assert used <= ids
+    assert {"S11-router-invocation", "S10-no-tests-needed", "S20-recommend-removal"} <= used
+
+
+@pytest.mark.parametrize("entry", _LEAK_ENTRIES, ids=[e["id"] for e in _LEAK_ENTRIES])
+def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
+    """A leaking output fails with a routing_state_leak naming its family; a
+    clean near-miss passes the whole scenario contract."""
+    s = next(s for s in scenarios if s.id == entry["scenario_id"])
+    good = _good_transcript(s)
+    transcript = Transcript(s.id, good.tool_calls, entry["output_text"])
+    result = validate_transcript(s, transcript, _known_entry_skills(scenarios))
+    leak_details = [
+        v.detail for v in result.violations if v.kind is ViolationKind.ROUTING_STATE_LEAK
+    ]
+    if entry["leaks"]:
+        assert any(entry["family"] in d for d in leak_details), result.violations
+    else:
+        assert result.passed, result.violations
+
+
+@pytest.mark.parametrize(
+    ("text", "family"),
+    [
+        (
+            '{"classification":"test_change","approach":"triage-test-failure",'
+            '"rationale":"x","next_action":{"skill":"sumo-qa-triaging-test-failures"}}',
+            "payload_json",
+        ),
+        (
+            "{\n  'next_action': {'skill': 'none'},\n  'approach': 'no-tests-recommended',\n"
+            "  'classification': 'docs_change'\n}",
+            "payload_json",
+        ),
+        ("CLASSIFICATION: config_change", "taxonomy_label"),
+        ("> Approach: `verify-existing`", "taxonomy_label"),
+        ("classification: n/a", "taxonomy_label"),
+        ("routing to using-sumo-qa first", "route_announcement"),
+        # Adversarial-review inputs (codex, #248).
+        (
+            '{"classification":"docs_change","approach":"no-tests-recommended",'
+            '"rationale":"Fix the unmatched { in the docs.","next_action":{"skill":"none"}}',
+            "payload_json",
+        ),
+        ('"classification": "docs_change"\n"approach": "no-tests-recommended"', "taxonomy_label"),
+        (
+            '{"classification":"docs_change","approach":"no-tests-recommended",'
+            '"rationale":"say \\"{\\" here","next_action":{"skill":"none"}}',
+            "payload_json",
+        ),
+        (
+            '{"classification":"x","approach":"y","next_action":{"skill"\n:"review"}}',
+            "payload_json",
+        ),
+        ("Routing to **`sumo-qa-reviewing-before-merge`**.", "route_announcement"),
+        # Second adversarial pass (codex, #248).
+        ("Approach: verify-existing\r\nStart with the suite.", "taxonomy_label"),
+        ("Approach:\u00a0verify-existing", "taxonomy_label"),
+        (
+            "Routing to [sumo-qa-reviewing-before-merge](skills/review/SKILL.md).",
+            "route_announcement",
+        ),
+        ("Load catalogues [DONE]\nRemovability check [DONE]", "checklist_status"),
+        ("I\u2019m routing you to the pre-merge review.", "route_announcement"),
+        (
+            "1. Load classifications and approaches.\n2. Pick the approach.\n"
+            "3. Route to the named sub-skill silently.",
+            "router_checklist",
+        ),
+        ("- [PENDING] Pick the approach", "checklist_status"),
+        (
+            "1) Load classifications and approaches\n2) Reason about shape: single change",
+            "router_checklist",
+        ),
+        ("3. Pick the approach.\n4. Build the routing payload", "router_checklist"),
+        # Bare label lines in other layouts, and the article form (#248 review).
+        ("Classification: docs_change.", "taxonomy_label"),
+        ("1. Classification: docs_change", "taxonomy_label"),
+        ("1) Approach: tdd-scaffold", "taxonomy_label"),
+        ("### Approach: tdd-scaffold", "taxonomy_label"),
+        ("* **Approach:** tdd-scaffold", "taxonomy_label"),
+        (">> Approach: tdd-scaffold", "taxonomy_label"),
+        ("Classification: docs_change, Approach: no-tests-recommended", "taxonomy_label"),
+        ("Approach: \u201ctdd-scaffold\u201d", "taxonomy_label"),
+        ("Routing this to the sumo-qa-reviewing-before-merge skill.", "route_announcement"),
+        ("Routing you to the `sumo-qa-strategising` skill.", "route_announcement"),
+        ("Routing to: sumo-qa-strategising", "route_announcement"),
+        ("Routed to sumo-qa-reviewing-before-merge.", "route_announcement"),
+        ("Routing it to sumo-qa-strategising.", "route_announcement"),
+        ("I'll route this to sumo-qa-reviewing-before-merge.", "route_announcement"),
+        ("Approach: \u2018tdd-scaffold\u2019", "taxonomy_label"),
+        ("Classification: docs_change; Approach: no-tests-recommended.", "taxonomy_label"),
+        ("**Classification:** docs_change **Approach:** no-tests-recommended", "taxonomy_label"),
+        ("**Classification:** docs_change**Approach:** no-tests-recommended", "taxonomy_label"),
+        ("{classification:x,approach:y,next_action:{a:{skill:q}}}", "payload_json"),
+        ("Routing to \u201csumo-qa-strategising\u201d.", "route_announcement"),
+        ("Routing to \u201dsumo-qa-strategising\u201d.", "route_announcement"),
+        (
+            "{classification:docs_change,approach:n/a,next_action:{\u201cskill\u201d:none}}",
+            "payload_json",
+        ),
+        (
+            "{\u201cclassification\u201d:docs_change,\u201capproach\u201d:n/a,"
+            "\u201cnext_action\u201d:{\u201cskill\u201d:none}}",
+            "payload_json",
+        ),
+        (
+            "{classification: docs_change, approach: n/a, rationale: \u201ca { b\u201d, "
+            "next_action: {skill: none}}",
+            "payload_json",
+        ),
+        # An opening brace that never closes must not hide a later payload.
+        (
+            "Wrap it in a `{` brace.\n```json\n"
+            '{"classification":"docs_change","approach":"no-tests-recommended",'
+            '"rationale":"typo","next_action":{"skill":"none"}}\n```',
+            "payload_json",
+        ),
+        (
+            '{"a": 1\n{"classification":"docs_change","approach":"no-tests-recommended",'
+            '"rationale":"typo","next_action":{"skill":"none"}}',
+            "payload_json",
+        ),
+        (
+            '{"classification":"docs_change","approach":"no-tests-recommended",'
+            '"rationale":"use \u201c{\u201d literally","next_action":{"skill":"none"}}',
+            "payload_json",
+        ),
+        ("Routing to the ***[`sumo-qa-strategising`]**", "route_announcement"),
+        (
+            "{classification: docs_change, approach: no-tests-recommended, rationale: "
+            "\u2018the user\u2019s change is docs only\u2019, next_action: {skill: none}}",
+            "payload_json",
+        ),
+        # Apostrophes inside quoted values, and curly single quotes (#248 review).
+        (
+            "{classification: docs_change, approach: no-tests-recommended, rationale: "
+            "'the user's change is docs only', next_action: {skill: none}}",
+            "payload_json",
+        ),
+        (
+            "{\u2018classification\u2019: \u2018docs_change\u2019, \u2018approach\u2019: "
+            "\u2018no-tests-recommended\u2019, \u2018next_action\u2019: {\u2018skill\u2019: \u2018none\u2019}}",
+            "payload_json",
+        ),
+        (
+            "{classification: \u2018docs_change\u2019, approach: \u2018n/a\u2019, rationale: "
+            "\u2018it\u2019s docs\u2019, next_action: {skill: \u2018none\u2019}}",
+            "payload_json",
+        ),
+        ("Routing to \u2018sumo-qa-strategising\u2019.", "route_announcement"),
+        (
+            "I\u2019ll route this to \u2018sumo-qa-reviewing-before-merge\u2019.",
+            "route_announcement",
+        ),
+        ("1. [DONE] Read the user\u2018s intent", "checklist_status"),
+    ],
+)
+def test_find_routing_leaks_detects_each_family(text, family) -> None:
+    assert family in find_routing_leaks(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "Your approach: add a boundary test first. Classification of risk: high.",
+        '{"classification": "public", "approach": "canary"}',
+        '{"approach": "tdd-scaffold"} was the old config value',
+        "The classification step is done; the approach is sound.",
+        "Route requests through the gateway; routing to the pricing service works.",
+        "I'm routing traffic through the new load balancer first.",
+        "1. [DONE] Run the pricing regression suite.\n2. [PENDING] Verify the staging deploy.",
+        "1. Add a regression test for the removability gate.",
+        '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"},'
+        '"description":"skill: beginner"}',
+        '{"classification":"public","approach":"canary",'
+        '"next_action":{"description":"skill: beginner","deploy":"staging"}}',
+        '{"description":"classification: x, approach: y, next_action: {skill: z}"}',
+        '{"classification":"p","approach":"c","next_action":{"deploy":"s"},'
+        '"see next_action:{skill:x}":1}',
+        "{classification:x,approach:y,next_action:{a:{b:1}},z:{skill:q}}",
+        '{"classification":"public","approach":"canary",'
+        '"next_action":{"description":"a \u201cskill: beginner\u201d example"}}',
+        "[PEND\u0130NG] Load catalogues",
+        "{classification:public,approach:canary,next_action:{description:\u201cskill: beginner\u201d}}",
+        "\u0661. Load catalogues\n\u0662. Pick the approach",
+        '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
+        "1. Read the diff\n2. Run the suite",
+        "Unbalanced { brace with classification: and approach: but no next action",
+        "Approach: pin the regression-first cases before refactoring.",
+        "Hand the fixture to the pricing team, then rerun the suite.",
+        "I'm routing this traffic through the new load balancer first.",
+        "I'll route this request through the stub server in the test.",
+        "I'm handing this PR back to you with two failing tests.",
+        "The survivors are routed to sumo_qa_record_mutation for the report.",
+        "Parse the report, then routing it to sumo_qa_record_coverage persists the summary.",
+        "Classification: n/a. Approach is up to you once the typo is fixed.",
+        "Approach: tdd-scaffold; classification of the bug is still unclear, so pin it first.",
+        "I'm handing this to you with two failing tests.",
+        "I'll route this to the staging stub before rerunning.",
+        "Routing this to sumo_qa_record_coverage now.",
+        "2024. Approach: tdd-scaffold",
+        "1.Approach: tdd-scaffold",
+        "#Approach:tdd-scaffold",
+        # Second code review (#248): imperative tool instructions, "hands-on",
+        # n/a in prose, and a label split from its value by a line break.
+        "Route the coverage output to sumo_qa_record_coverage.",
+        "Here is a hands-on intro to sumo-qa.",
+        "Data classification: n/a here",
+        "### Approach:\nregression-first work is not needed; nothing is broken.",
+    ],
+)
+def test_find_routing_leaks_ignores_ordinary_prose(text) -> None:
+    assert find_routing_leaks(text) == ()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Handing off to sumo_qa_strategising.",
+        "Approach: no-tests-recommended \u2014 no runtime change.",
+        "\u5206\u985eapproach: verify-existing",
+        "Classification: docs_change so no tests.",
+        "Classification: docs_change and no tests needed.",
+        "Approach: regression-first thinking does not fit.",
+        "Routing your request to sumo-qa-reviewing-before-merge.",
+        "Routing the request to sumo-qa-strategising.",
+        "Handing this over to sumo-qa-strategising.",
+        "Let me route this to sumo-qa-implementing-with-tdd.",
+        "Handed off to sumo-qa-strategising.",
+        "Handoff to sumo-qa-strategising.",
+        "Routing this into sumo-qa-strategising.",
+        "I'll hand you over to the review skill.",
+        "Nothing references install.sh, so approach: recommend-removal. Delete it.",
+        "I'll route this to the pre-merge review.",
+        "I'd recommend handing off to `sumo-qa-reviewing-before-merge` before this lands.",
+    ],
+)
+def test_find_routing_leaks_leaves_paraphrases_to_the_eval_judge(text) -> None:
+    """The deterministic families are high-confidence router voice only (#248).
+    A label inside prose or a paraphrased handoff reads the same as text a
+    downstream skill may legitimately write, so the user-facing eval's judge
+    grades these instead; pinning them here keeps that boundary deliberate."""
+    assert find_routing_leaks(text) == ()
+
+
+def test_routing_leak_catalogue_names_degrade_when_unreadable(monkeypatch) -> None:
+    """An unreadable catalogue must not crash scoring: label detection falls
+    back to the other families rather than erroring."""
+    from sumo_qa import conformance
+
+    def boom() -> str:
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(conformance, "sumo_qa_load_approaches", boom)
+    assert find_routing_leaks("Approach: tdd-scaffold") == ()
+
+    def undecodable() -> str:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(conformance, "sumo_qa_load_approaches", undecodable)
+    assert find_routing_leaks("No tests needed.") == ()
+    assert "route_announcement" in find_routing_leaks("Picking the QA approach for this change.")
+
+
+def test_find_routing_leaks_is_linear_on_blank_line_runs() -> None:
+    """A long run of blank lines must not backtrack quadratically in the
+    numbered-step matcher (adversarial review, #248)."""
+    start = time.perf_counter()
+    assert find_routing_leaks("\n" * 40_000) == ()
+    assert time.perf_counter() - start < 0.5
+
+
+def test_find_routing_leaks_is_linear_on_a_label_line_with_trailing_space() -> None:
+    """A label line padded with spaces and then any character must not
+    backtrack quadratically in the line-end match (#248 review)."""
+    start = time.perf_counter()
+    assert find_routing_leaks("Approach: n/a" + " " * 40_000 + "x") == ()
+    assert time.perf_counter() - start < 0.5
+
+
+def test_find_routing_leaks_is_linear_on_decoration_after_a_label_value() -> None:
+    """A run of emphasis or quote characters after a label value must not
+    backtrack between the value's closing decoration and a second label's
+    opening decoration (#248 review)."""
+    start = time.perf_counter()
+    assert find_routing_leaks("Classification: docs_change" + "*" * 20_000 + "x") == ()
+    assert find_routing_leaks("Classification: docs_change" + "'" * 20_000 + "x") == ()
+    assert time.perf_counter() - start < 0.5
+
+
+def test_find_routing_leaks_scans_repeated_next_action_keys_quickly() -> None:
+    """Each next_action key rescans the rest of the span for its object; the
+    scan must stop at the first object (#248 review)."""
+    start = time.perf_counter()
+    text = "{classification:x,approach:y," + "next_action:{a:1}," * 4_000 + "}"
+    assert find_routing_leaks(text) == ()
+    nested = "{classification:x,approach:y," + "next_action:{a:" * 4_000 + "1" + "}" * 4_001
+    assert find_routing_leaks(nested) == ()
+    quoted = '{"classification":"x","approach":"y",' + '"next_action:{":1,' * 3_000 + '"z":1}'
+    assert find_routing_leaks(quoted) == ()
+    assert time.perf_counter() - start < 1.0
+
+
+def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
+    """Repeated status markers on one line must not rescan the line per
+    marker (second adversarial pass, #248)."""
+    start = time.perf_counter()
+    assert find_routing_leaks("[DONE] " * 8_000) == ()
+    assert time.perf_counter() - start < 0.5
+
+
+def test_blank_string_values_does_not_backtrack_exponentially() -> None:
+    """A backslash must match only the escape branch of the quoted-string
+    pattern; when it could match either, an unterminated string of escapes
+    backtracks exponentially (CodeQL py/redos, #248)."""
+    from sumo_qa import conformance
+
+    start = time.perf_counter()
+    assert conformance._blank_string_values('{"a' + "\\a" * 26) == '{"a' + "\\a" * 26
+    assert time.perf_counter() - start < 0.5

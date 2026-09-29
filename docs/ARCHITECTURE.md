@@ -51,7 +51,7 @@ Each skill is a `skills/<name>/SKILL.md` root, plus optional lazy `skills/<name>
 - YAML frontmatter (`name` + `description`) used by hosts to auto-trigger
 - An Iron Law: non-negotiable rule for the skill
 - A When-to-Use paragraph
-- A Checklist (numbered items the host LLM works through; each is tracked as an entry in the host's ordered work tracker)
+- A Checklist (numbered items the host LLM works through; each is tracked as an entry in the host's ordered work tracker, except in the two silent routing hops, `using-sumo-qa` and `sumo-qa-deciding-approach`, which work through theirs privately)
 - A Process Flow section
 - A Red Flags table (rationalisations to reject)
 - Good/Bad examples, where the skill carries them (a module-split root routes to worked contrasts in its modules instead)

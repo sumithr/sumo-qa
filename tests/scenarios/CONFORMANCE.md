@@ -111,7 +111,49 @@ the final assistant `output_text`. The validator
 ([`../../src/sumo_qa/conformance.py`](../../src/sumo_qa/conformance.py)) scores
 it against a scenario and reports one violation per broken clause:
 `wrong_skill_routing`, `first_hop_violation`, `missing_required_tool`,
-`forbidden_tool_called`, `missing_output_marker`, `forbidden_output_marker`.
+`forbidden_tool_called`, `missing_output_marker`, `forbidden_output_marker`,
+`routing_state_leak`.
+
+## Routing-state leaks
+
+The two routing hops, the entry router (`using-sumo-qa`) and the approach
+router (`sumo-qa-deciding-approach`), are internal: their routing payload,
+taxonomy labels, route announcement and checklist bookkeeping must never reach
+the user. Every deterministic scenario's output is scored for
+five leak families by `find_routing_leaks`, with no per-scenario opt-in:
+
+| Family | Caught | Not caught (ordinary prose) |
+|---|---|---|
+| `payload_json` | one outermost brace-balanced span (braces inside strings ignored; an opening brace that never closes is skipped; a single quote between two ASCII letters, digits or underscores is an apostrophe; `“` opens a string that `”` closes, and inside a `"..."` string both are text) naming `classification`, `approach` and a `next_action` object that itself holds a `skill` handoff (compact, pretty-printed, or unquoted keys) | a config snippet, even one with `classification`/`approach`/`next_action` keys and a `skill:` elsewhere; `next_action:{` written inside a quoted key |
+| `taxonomy_label` | a bare label line: `Classification:` / `Approach:` (after a list, blockquote or heading prefix and a space; bold, code or quoted) whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a`, with nothing else on the line but a clause end or a second label pair with its own catalogue value after `.`, `,`, `;`, a space, or glued straight on | `Approach: pin today's behaviour first`, "a regression-first approach", a label inside a sentence ("so approach: recommend-removal"), a label followed by a reason |
+| `route_announcement` | "Picking the QA approach...", "Routing this QA intent.", "Routing to" or "Routed to" a `sumo-qa-...` skill name with an optional "this", "you" or "it", "the" or a colon ("Routing you to the `sumo-qa-strategising` skill"), a first-person "I'm routing you to..." or "I'll route this to sumo-qa-..." | "routing to the pricing service", "I'm routing traffic through the load balancer", "I'm routing this traffic through the proxy", a downstream skill's handoff offer ("I'd recommend handing off to `sumo-qa-reviewing-before-merge`"), data sent to a tool ("the survivors are routed to sumo_qa_record_mutation") |
+| `checklist_status` | `[DONE]`, `[IN PROGRESS]`, `[PENDING]`, `[COMPLETED]` on a line naming a router step | markdown `[x]` / `[ ]` checkboxes; a downstream plan's `[DONE] Run the suite` |
+| `router_checklist` | two or more numbered lines naming router steps (load classifications/approaches, removability gate, pick the approach, routing payload, ...) | a numbered test plan, even one line mentioning the removability gate |
+
+The families match high-confidence router voice only. A label inside prose and
+a paraphrased handoff ("handing this over to...", "the next step will...") read
+the same as text a downstream skill may legitimately write, so the
+user-facing eval's judge grades them instead, and a test pins that boundary.
+Two overlaps remain, each flagged if it reaches scored output: a downstream
+field line with a catalogue value, such as the planning-qa-rollout task
+template's `**Approach:** regression-first` or the rollout reviewer prompts'
+`- Approach: tdd-scaffold`; and a downstream skill narrating its own onward
+route in router wording, such as "Routing to `sumo-qa-preparing-for-work`
+first". Third-person handoff targets are hyphenated skill names (`sumo-qa-...`,
+`using-sumo-qa`, `using_sumo_qa`); `sumo_qa_*` tool names such as
+`sumo_qa_record_coverage` are not. The silent-hop instruction in
+both routing skills is the primary control.
+
+[`conformance/leak_transcripts.yaml`](conformance/leak_transcripts.yaml) holds
+a leaking and a clean near-miss output for every family, scored against the
+routed scenario (S11) and both STOP scenarios (S10 `no-tests-recommended`,
+S20 `recommend-removal`). The promptfoo assert
+[`../evals/promptfoo/asserts/no-routing-leak.js`](../evals/promptfoo/asserts/no-routing-leak.js)
+applies the same families to live candidate replies in
+`skill-deciding-approach-user-facing.yaml`; a contract test runs both over the
+fixture so they stay in step. One deliberate difference: the assert reads
+catalogue names from `QA_KNOWLEDGE_PATH` or the repo's `knowledge/` (what the
+eval loads), while the validator resolves ingested project/global packs too.
 
 `transcript_from_debug_dir` reconstructs a transcript from a
 `SUMO_QA_DEBUG_DIR` capture (see
@@ -133,8 +175,9 @@ uv run pytest tests/test_conformance_transcript_validator.py tests/test_conforma
 
 Those tests prove the fixture is well-formed (>= 8 deterministic scenarios,
 the required families present, every tool name registered, every source
-heading resolving), that a compliant transcript passes each scenario, and that
-a synthetic bad transcript FAILS on each contract axis.
+heading resolving), that a compliant transcript passes each scenario, that
+a synthetic bad transcript FAILS on each contract axis, and that every
+routing-leak fixture scores as labelled.
 
 To score your own captured run against a scenario:
 

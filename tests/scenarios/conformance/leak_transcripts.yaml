@@ -1,0 +1,215 @@
+# Routing-state leak fixtures (issue #248).
+#
+# The two routing hops, using-sumo-qa and sumo-qa-deciding-approach, are
+# internal orchestration: their routing payload, taxonomy labels, route
+# announcement and checklist bookkeeping must never reach the user. The
+# validator's structured `routing_state_leak` check
+# (src/sumo_qa/conformance.py `find_routing_leaks`) scores every deterministic
+# scenario's final output for these five leak families.
+#
+# Each family carries at least one LEAKING output (must fail) and one CLEAN
+# near-miss (must pass): ordinary prose that uses the same words ("approach",
+# "classification", "routing", "done", numbered steps) without leaking internal
+# state. Every entry is scored against a real scenario in scenarios.yaml: the
+# routed case (S11) and both STOP cases (S10 no-tests-recommended, S20
+# recommend-removal).
+#
+#   id           stable identifier
+#   scenario_id  the scenarios.yaml row the output is scored against
+#   family       the leak family this entry exercises
+#   leaks        true = the validator must report this family; false = clean
+#   output_text  the final user-visible assistant output
+
+families:
+  - payload_json
+  - taxonomy_label
+  - route_announcement
+  - checklist_status
+  - router_checklist
+
+transcripts:
+  # ---------------------------------------------------------------- payload_json
+  - id: payload-compact-json
+    scenario_id: S10-no-tests-needed
+    family: payload_json
+    leaks: true
+    output_text: >-
+      {"classification":"docs_change","approach":"no-tests-recommended","rationale":"Comment typo only.","next_action":{"skill":"none"}}
+      No tests needed for a docs typo.
+
+  - id: payload-pretty-json
+    scenario_id: S11-router-invocation
+    family: payload_json
+    leaks: true
+    output_text: |
+      ```json
+      {
+        "classification": "business_logic_change",
+        "approach": "tdd-scaffold",
+        "rationale": "New pricing function adds behaviour.",
+        "next_action": {
+          "skill": "sumo-qa-implementing-with-tdd"
+        }
+      }
+      ```
+      The seasonal discount needs a boundary test at the season start date.
+
+  - id: payload-unquoted-keys
+    scenario_id: S20-recommend-removal
+    family: payload_json
+    leaks: true
+    output_text: >-
+      {classification: "n/a", approach: "recommend-removal", rationale:
+      "install.sh orphaned", next_action: {skill: "none"}} Delete install.sh:
+      nothing calls it.
+
+  - id: payload-clean-config-snippet
+    scenario_id: S11-router-invocation
+    family: payload_json
+    leaks: false
+    output_text: |
+      The rollout config already sets the strategy, so pin it in the test:
+      ```json
+      {"approach": "canary", "replicas": 3}
+      ```
+      The next action is a boundary test at the season start date.
+
+  # -------------------------------------------------------------- taxonomy_label
+  - id: taxonomy-labels-at-line-start
+    scenario_id: S10-no-tests-needed
+    family: taxonomy_label
+    leaks: true
+    output_text: |
+      Classification: docs_change
+      Approach: no-tests-recommended
+      Just check the doc still renders.
+
+  - id: taxonomy-bold-bullet-label
+    scenario_id: S11-router-invocation
+    family: taxonomy_label
+    leaks: true
+    output_text: |
+      - **Approach:** `tdd-scaffold`
+      Write a boundary test for the season start date first.
+
+  - id: taxonomy-clean-prose
+    scenario_id: S11-router-invocation
+    family: taxonomy_label
+    leaks: false
+    output_text: |
+      Approach: pin today's pricing behaviour first, then add the seasonal case.
+      The classification of this change is a behaviour change in pricing, so a
+      regression-first approach would be wrong here: nothing is broken yet.
+
+  # ---------------------------------------------------------- route_announcement
+  - id: announce-picking-approach
+    scenario_id: S10-no-tests-needed
+    family: route_announcement
+    leaks: true
+    output_text: >-
+      Picking the QA approach for this change. It is a docs-only typo, so no
+      tests are needed.
+
+  - id: announce-routing-to-skill
+    scenario_id: S11-router-invocation
+    family: route_announcement
+    leaks: true
+    output_text: >-
+      Routing to `sumo-qa-implementing-with-tdd` now. Start with a boundary test
+      at the season start date.
+
+  # Real capture: claude-haiku-4-5 on skill-deciding-approach-user-facing.yaml
+  # (2026-09-29). The first-person "I'm routing you to" is router voice even
+  # without a skill name; wider paraphrases are the eval judge's to grade.
+  - id: announce-first-person-routing
+    scenario_id: S11-router-invocation
+    family: route_announcement
+    leaks: true
+    output_text: >-
+      Run your existing payment-service test suite and add smoke tests that
+      confirm traffic reaches the service through the load balancer.
+
+      I'm routing you to the pre-merge standards check, which will detail what
+      validation gates apply to infrastructure changes of this shape.
+
+  - id: announce-routing-object-to-skill
+    scenario_id: S11-router-invocation
+    family: route_announcement
+    leaks: true
+    output_text: >-
+      Routing this to sumo-qa-implementing-with-tdd. Start with a boundary test
+      at the season start date.
+
+  - id: announce-entry-router-preamble
+    scenario_id: S20-recommend-removal
+    family: route_announcement
+    leaks: true
+    output_text: >-
+      Routing this QA intent.
+
+      Delete install.sh: nothing calls it, no CI job runs it and no docs
+      mention it.
+
+  - id: announce-clean-routing-this-prose
+    scenario_id: S11-router-invocation
+    family: route_announcement
+    leaks: false
+    output_text: >-
+      Routing this change through staging first is safer than shipping it
+      straight to production; run the pricing suite there.
+
+  - id: announce-clean-routing-prose
+    scenario_id: S11-router-invocation
+    family: route_announcement
+    leaks: false
+    output_text: >-
+      Check the request routing to the pricing service still hits the seasonal
+      path, then pick the season start date as the boundary to test.
+
+  # ------------------------------------------------------------ checklist_status
+  - id: checklist-done-status
+    scenario_id: S20-recommend-removal
+    family: checklist_status
+    leaks: true
+    output_text: |
+      [DONE] Load catalogues
+      [DONE] Removability check
+      Delete install.sh: nothing calls it and no CI job uses it.
+
+  - id: checklist-in-progress-status
+    scenario_id: S11-router-invocation
+    family: checklist_status
+    leaks: true
+    output_text: |
+      1. [IN PROGRESS] Pick the approach
+      Start with a boundary test at the season start date.
+
+  - id: checklist-clean-markdown-boxes
+    scenario_id: S11-router-invocation
+    family: checklist_status
+    leaks: false
+    output_text: |
+      Before you merge:
+      - [x] boundary test at the season start date
+      - [ ] boundary test at the season end date
+      Once that is done, the seasonal path is covered.
+
+  # ------------------------------------------------------------ router_checklist
+  - id: router-checklist-numbered-steps
+    scenario_id: S10-no-tests-needed
+    family: router_checklist
+    leaks: true
+    output_text: |
+      1. Read the user's intent verbatim.
+      2. Call sumo_qa_load_classifications() and sumo_qa_load_approaches().
+      3. Run the removability gate.
+      No tests are needed for a docs typo.
+
+  - id: router-checklist-clean-numbered-plan
+    scenario_id: S11-router-invocation
+    family: router_checklist
+    leaks: false
+    output_text: |
+      1. Add a boundary test at the season start date.
+      2. Add one for the day before the season starts.
+      3. Run the pricing suite.

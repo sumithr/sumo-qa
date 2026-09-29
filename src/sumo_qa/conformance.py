@@ -29,14 +29,17 @@ from __future__ import annotations
 
 import json
 import re
+from bisect import bisect_left
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from sumo_qa.first_hop import ENTRY_ROUTER, ROUTER_CHAIN
+from sumo_qa.knowledge_loaders import sumo_qa_load_approaches, sumo_qa_load_classifications
 from sumo_qa.skill_prompts import _skills_dir
 
 # The canonical router chain (``sumo_qa.first_hop``) fires BEFORE the
@@ -48,6 +51,14 @@ from sumo_qa.skill_prompts import _skills_dir
 # ordinary destination skill is a legitimate prelude. The first-hop check
 # (`_first_hop_violations`) additionally REQUIRES the whole chain, in order,
 # ahead of the expected skill.
+
+ROUTING_LEAK_FAMILIES = (
+    "payload_json",
+    "taxonomy_label",
+    "route_announcement",
+    "checklist_status",
+    "router_checklist",
+)
 
 _VALID_MODES = frozenset({"deterministic", "provider-backed"})
 
@@ -65,6 +76,7 @@ class ViolationKind(str, Enum):
     MISSING_OUTPUT_MARKER = "missing_output_marker"
     FORBIDDEN_OUTPUT_MARKER = "forbidden_output_marker"
     FIRST_HOP_VIOLATION = "first_hop_violation"
+    ROUTING_STATE_LEAK = "routing_state_leak"
 
 
 @dataclass(frozen=True)
@@ -215,6 +227,7 @@ def validate_transcript(
         + _first_hop_violations(scenario, transcript)
         + _tool_violations(scenario, transcript)
         + _output_violations(scenario, transcript)
+        + _leak_violations(transcript)
     )
     return ScenarioResult(scenario.id, tuple(violations))
 
@@ -382,6 +395,255 @@ def _output_violations(scenario: ConformanceScenario, transcript: Transcript) ->
                 )
             )
     return violations
+
+
+# --------------------------------------------------------------------------- #
+# Routing-state leaks (issue #248)                                            #
+# --------------------------------------------------------------------------- #
+# The approach router's payload keys; a brace-balanced span naming all three is
+# the routing object, whether compact, pretty-printed, or written with the
+# skill's own unquoted-key notation. A config snippet that merely has an
+# ``approach`` key is not.
+_PAYLOAD_KEYS = ("classification", "approach", "next_action")
+# A key may close with an ASCII or a curly quote.
+_NEXT_ACTION_RE = re.compile(r"\bnext_action[\"'\u201d]?\s*:\s*(?=\{)", re.ASCII)
+_SKILL_KEY_RE = re.compile(r"\bskill[\"'\u201d]?\s*:", re.ASCII)
+# Quoted strings, taken left to right. One followed by ``:`` is a key; any
+# other is a value, blanked before key matching so ``"skill: beginner"`` is
+# not a skill key. A single quote between two word characters is an
+# apostrophe (``user's``), never a delimiter. Every character has one way to
+# match, so an unterminated string cannot backtrack exponentially.
+_WORD = "A-Za-z0-9_"
+# Emphasis, code and quote marks a host wraps around a label or its value.
+# Curly double quotes stay un-normalised (inside a JSON string value they are
+# text, not delimiters), so they count as decoration here.
+_DECO_CHARS = "*_`\"'\u201c\u201d"
+_DECO_SET = re.escape(_DECO_CHARS)
+_DECO = f"[{_DECO_SET}]"
+_QUOTED_RE = re.compile(
+    r'"(?:\\.|[^"\\])*"'
+    # A curly-quoted string: \u201c opens, \u201d closes; inside an ASCII
+    # "..." string both are plain text.
+    r"|\u201c(?:\\.|[^\u201d\\])*\u201d"
+    rf"|(?<![{_WORD}])'(?:\\.|[^'\\]|(?<=[{_WORD}])'(?=[{_WORD}]))*"
+    rf"(?:(?<![{_WORD}])'|'(?![{_WORD}]))",
+    re.DOTALL,
+)
+_KEY_FOLLOWS_RE = re.compile(r"\s*:")
+# One explicit character set for both engines (their ``\s`` differ).
+_LINE_BREAK_RE = re.compile("[\r\u2028\u2029]")
+_SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]")
+# High-confidence router voice only. Downstream skills may offer a handoff
+# ("I'd recommend handing off to sumo-qa-reviewing-before-merge") or tell the
+# user to send output to a tool, so paraphrased handoffs are left to the eval's
+# judge rather than matched here.
+_TO_SKILL = (
+    r"[:\s*_`\"'\u201c\u201d\[(]{0,8}(?:the\s+[*_`\"'\u201c\u201d\[(]{0,8})?"
+    r"(?:sumo-qa-|using[-_]sumo[-_]qa)"
+)
+_ROUTE_ANNOUNCEMENT_RE = re.compile(
+    r"picking the qa approach"
+    r"|\brouting this qa intent\b"
+    # A skill is named ``sumo-qa-*`` (hyphens); ``sumo_qa_*`` tool names are
+    # where downstream skills legitimately send data.
+    r"|\b(?:routing|routed)(?:\s+(?:this|you|it))?\s+to"
+    + _TO_SKILL
+    + r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+"
+    r"(?:you\s+to\b|this\s+to" + _TO_SKILL + ")",
+    re.IGNORECASE | re.ASCII,
+)
+# A router step named on a line: what makes a status marker or a numbered
+# line router bookkeeping rather than a downstream plan.
+_ROUTER_STEP = (
+    r"(?:load(?:_|\s+)(?:the\s+)?(?:classifications|approaches|catalogues)"
+    r"|removability (?:gate|check)|reason about (?:classification|shape)"
+    r"|routing[- ]payload|read the user's intent|pick the approach"
+    r"|route to the (?:named )?sub-skill)"
+)
+_ROUTER_STEP_RE = re.compile(_ROUTER_STEP, re.IGNORECASE | re.ASCII)
+_CHECKLIST_STATUS_RE = re.compile(
+    r"\[(?:done|in[ _]progress|pending|completed)\]", re.IGNORECASE | re.ASCII
+)
+_NUMBERED_LINE_RE = re.compile(r"[ \t]*\d+[.)][ \t]", re.ASCII)
+_CATALOGUE_HEADING_RE = re.compile(r"^##\s+([a-z][a-z0-9_-]*)\s*$", re.MULTILINE)
+
+
+def find_routing_leaks(text: str) -> tuple[str, ...]:
+    """The routing-state leak families present in user-visible ``text``.
+
+    The approach router is an internal hop: its payload object, taxonomy
+    labels, route announcement and checklist bookkeeping must never reach the
+    user. Each family is matched structurally rather than by bare word, so
+    prose that says "approach" or "classification", a downstream plan's
+    progress markers, or a config snippet is not a leak. A taxonomy label only
+    counts when its value is exactly a catalogue entry name (or ``n/a``), read
+    from the live catalogues."""
+    text = _normalise(text)
+    checks = {
+        "payload_json": _has_routing_payload,
+        "taxonomy_label": _has_taxonomy_label,
+        "route_announcement": lambda s: bool(_ROUTE_ANNOUNCEMENT_RE.search(s)),
+        "checklist_status": _has_router_status,
+        "router_checklist": lambda s: len(_router_step_lines(s, _NUMBERED_LINE_RE.match)) >= 2,
+    }
+    return tuple(family for family in ROUTING_LEAK_FAMILIES if checks[family](text))
+
+
+def _normalise(text: str) -> str:
+    """Typographic single quotes to ASCII, line breaks (CRLF, CR, U+2028/9) to
+    newlines, and every other whitespace character to a plain space, so the
+    Python and JS matchers see the same text."""
+    text = text.replace("\u2018", "'").replace("\u2019", "'")
+    text = text.replace("\r\n", "\n")
+    text = _LINE_BREAK_RE.sub("\n", text)
+    return _SPACE_RE.sub(" ", text)
+
+
+def _router_step_lines(text: str, qualifies: Any) -> list[str]:
+    """Lines that qualify (a status marker, a numbered-step prefix) AND name a
+    router step. Checked line by line so matching stays linear."""
+    return [line for line in text.split("\n") if qualifies(line) and _ROUTER_STEP_RE.search(line)]
+
+
+def _has_router_status(text: str) -> bool:
+    return bool(_router_step_lines(text, _CHECKLIST_STATUS_RE.search))
+
+
+def _has_routing_payload(text: str) -> bool:
+    """A brace-balanced span naming the payload keys whose ``next_action``
+    object itself carries a ``skill`` handoff; coincidental config keys, or a
+    ``skill:`` elsewhere or inside a string value, are not a payload."""
+    return any(
+        all(re.search(rf"\b{key}[\"'\u201d]?\s*:", keys, re.ASCII) for key in _PAYLOAD_KEYS)
+        and _next_action_has_skill(keys)
+        for keys in (_blank_string_values(span) for span in _brace_spans(text))
+    )
+
+
+def _blank_string_values(span: str) -> str:
+    def keep_keys(m: re.Match[str]) -> str:
+        return m.group(0) if _KEY_FOLLOWS_RE.match(span, m.end()) else '""'
+
+    return _QUOTED_RE.sub(keep_keys, span)
+
+
+def _next_action_has_skill(span: str) -> bool:
+    """Whether an object that is a ``next_action`` value holds a ``skill`` key.
+    One brace pass maps each ``{`` to its ``}``, so every ``next_action`` is a
+    lookup, not a rescan; a ``next_action`` inside a quoted key opens no
+    object."""
+    closes = {open_: close for open_, close, _ in _brace_pairs(span)}
+    skills = [m.start() for m in _SKILL_KEY_RE.finditer(span)]
+    for match in _NEXT_ACTION_RE.finditer(span):
+        close = closes.get(match.end())
+        if close is None:
+            continue
+        k = bisect_left(skills, match.end())
+        if k < len(skills) and skills[k] < close:
+            return True
+    return False
+
+
+_WORD_RE = re.compile(f"[{_WORD}]")
+
+
+def _is_word(text: str, i: int) -> bool:
+    return 0 <= i < len(text) and _WORD_RE.match(text, i) is not None
+
+
+def _brace_pairs(text: str) -> list[tuple[int, int, int]]:
+    """Every balanced ``{...}`` as ``(open, close, depth)``, ignoring braces
+    inside quoted strings (a single quote between word characters is an
+    apostrophe, not a delimiter)."""
+    pairs: list[tuple[int, int, int]] = []
+    stack: list[int] = []
+    quote = ""
+    escaped = False
+    for i, ch in enumerate(text):
+        if quote:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote and not (
+                ch == "'" and _is_word(text, i - 1) and _is_word(text, i + 1)
+            ):
+                quote = ""
+        elif stack and ch == "\u201c":
+            quote = "\u201d"
+        elif stack and (ch == '"' or (ch == "'" and not _is_word(text, i - 1))):
+            quote = ch
+        elif ch == "{":
+            stack.append(i)
+        elif ch == "}" and stack:
+            open_ = stack.pop()
+            pairs.append((open_, i, len(stack)))
+    return pairs
+
+
+def _brace_spans(text: str) -> list[str]:
+    """The outermost ``{...}`` spans that close. An opening brace that never
+    closes (a stray ``{`` in prose) is skipped rather than hiding every later
+    span inside it."""
+    spans: list[str] = []
+    last_close = -1
+    for open_, close, _ in sorted(_brace_pairs(text)):
+        if open_ > last_close:
+            spans.append(text[open_ : close + 1])
+            last_close = close
+    return spans
+
+
+def _has_taxonomy_label(text: str) -> bool:
+    names = _catalogue_names()
+    return bool(names) and bool(_label_re(names).search(text))
+
+
+@lru_cache(maxsize=4)
+def _label_re(names: frozenset[str]) -> re.Pattern[str]:
+    """A bare label line: the label and a catalogue value (or ``n/a``) are the
+    whole line, give or take a list or heading prefix, emphasis, quotes, a
+    clause end and the other label with its own catalogue value.
+    Labels inside prose are left to the eval's judge."""
+    alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    bare_pair = (
+        rf"(?:classification|approach){_DECO}*[ \t]*:[ \t{_DECO_SET}]*"
+        rf"(?:{alternatives}|n/a){_DECO}*"
+    )
+    pair = rf"{_DECO}*{bare_pair}"
+    return re.compile(
+        # List or heading prefixes, each followed by whitespace, so a prefix
+        # run has a single parse.
+        rf"^[ \t]*(?:(?:[-+*]|>+|#{{1,6}}|\d{{1,3}}[.)])[ \t]+)*{pair}"
+        # Then a clause end, or the other label with its own value after a
+        # clause end or whitespace, then line end.
+        # (a second label straight after the first value's decoration starts
+        # with a letter, so that branch has one parse).
+        rf"(?:(?:(?:[ \t]*[.,;][ \t]*|[ \t]+){pair}|{bare_pair})(?:[ \t]*[.,;])?"
+        r"|[ \t]*[.,;])?[ \t]*$",
+        re.IGNORECASE | re.MULTILINE | re.ASCII,
+    )
+
+
+def _catalogue_names() -> frozenset[str]:
+    """Entry names from the live classification + approach catalogues; empty
+    when a catalogue is unreadable or undecodable so scoring degrades instead
+    of erroring."""
+    try:
+        text = sumo_qa_load_classifications() + "\n" + sumo_qa_load_approaches()
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(_CATALOGUE_HEADING_RE.findall(text))
+
+
+def _leak_violations(transcript: Transcript) -> list[Violation]:
+    return [
+        Violation(
+            ViolationKind.ROUTING_STATE_LEAK,
+            f"internal routing state leaked into the output ({family})",
+        )
+        for family in find_routing_leaks(transcript.output_text)
+    ]
 
 
 def registered_entry_skills() -> frozenset[str]:

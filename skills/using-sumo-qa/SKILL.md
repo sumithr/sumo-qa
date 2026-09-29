@@ -5,15 +5,13 @@ description: MUST be called first for any QA-shaped request. Triggers include te
 
 # Using sumo-qa
 
-**Announce at start:** *"Routing this QA intent."*
+**This hop is silent:** no announcement, tracker, status, or skill name reaches the user; the routed skill's answer comes first.
 
 ## Output discipline (mandatory)
 
 **Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
 
 ## Output economy (mandatory)
-
-Spend output tokens on findings, not framing.
 
 - **No preamble or self-narration.** Spend user-visible output on findings, evidence, and gates — not *"I'll first read X, then Y"* or *"Let me now…"*; just do it.
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
@@ -30,7 +28,7 @@ You may not produce test ideas, scaffolds, plans, reviews, or strategies without
 
 First hop: every QA-shaped request, including a development-framed one such as "I'm adding X, how should I test it?", "what tests do I need?" or "write the failing tests first", calls `using_sumo_qa` before any other sumo-qa tool and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill it routes to. No specialist skill is entered directly.
 
-The testing ask, not the "I'm building X" framing, makes a request QA-shaped; that framing with no testing ask (backoff, logging, naming, formatting) is not QA work. This router produces no QA output and names no downstream skill; `sumo-qa-deciding-approach` picks it.
+The testing ask, not the "I'm building X" framing, makes a request QA-shaped; the framing alone (backoff, logging, naming, formatting) is not QA work.
 
 ## Global discipline (inherited by every sub-skill)
 
@@ -86,22 +84,22 @@ Rule of thumb: if you'd predict the user's answer with >80% confidence, don't as
 
 The skills use three terms that name a capability, not any one host's API. Map each to whatever the current host exposes.
 
-- **Ordered work tracker** — an explicit, ordered list the agent maintains and ticks off as work progresses. Use the host's native task primitive when available; otherwise keep a numbered tracker inline and update it visibly as items complete. The tracking obligation is required; the surface is not.
+- **Ordered work tracker** — an explicit, ordered list the agent maintains and ticks off as work progresses. Use the host's native task primitive when available; otherwise keep a numbered tracker inline and update it visibly as items complete. The tracking obligation is required (except in the silent routing hops); the surface is not.
 - **Structured user-choice prompt** — the host's best primitive for collecting an explicit choice from a small set (option-picker, MCP elicitation, etc.). Reserve for genuine 50/50 forks. If no structured UI exists, ask one concise inline question and wait.
 - **Subagent** (a.k.a. **fresh delegated worker**) — a worker dispatched through the host's delegation primitive that starts with no inherited task context, only the prompt you hand it. Used by the rollout chain to keep tasks isolated. If a host cannot delegate to fresh workers, the rollout skill stops and reports the capability gap rather than executing inline.
 
 ## Checklist
-Track these as an ordered work list (see Shared vocabulary), in order:
+Work through these privately, in order. Never render them as a tracker or narrate them: this hop is internal.
 
 1. Read the user's intent verbatim.
-2. Load and re-read this Iron Law to anchor the response.
+2. Re-read the Iron Law.
 3. Invoke the `sumo-qa-deciding-approach` skill immediately. Do NOT answer the user before the approach is decided.
 4. After `sumo-qa-deciding-approach` returns, follow its `next_action` (route to the named sub-skill or stop).
 5. Apply the global discipline (knowledge authority, internal-only citations, specialty+tool fit) for every sub-skill that runs.
 
 ## Process Flow
 
-See the Checklist above — that's the flow.
+Follow the Checklist.
 
 ## Red Flags
 
@@ -110,6 +108,7 @@ See the Checklist above — that's the flow.
 | "I already know what they want — let me just answer" | Iron Law violated. Approach decision is non-negotiable. |
 | "This question is too simple to need the approach skill" | Simple intents still need shape (no-tests-recommended is a valid approach). Skip the decision and you skip the safety net. |
 | "I'll cite the principles myself from training data" | Loaded catalogue is authoritative. Use `sumo_qa_load_principles()`. |
+| "I'll announce the route or show my checklist" | Internal state. The routed skill speaks first. |
 | "Let me echo the citation reasoning in the answer for transparency" | Citations belong to internal scratch, not user output. They burn tokens. |
 | "I'll restrict myself to tool categories I already know" | Wrong. New categories emerge constantly; reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 | "`brew install` / `npm i -g` / system `pip` is the quickest way to get the tool running" | No. Global installs are unpinned and invisible to CI/teammates. Repo test tooling MUST land repo-pinned (manifest/lockfile/pinned pre-commit hook) AND CI-reproducible (a CI step runs that pinned tool). Translate any global instruction to its repo-pinned equivalent first. |
@@ -126,4 +125,4 @@ User: "review my changes". Skill response: "Sure! Looking at your diff, the main
 
 ## Next skill in the chain
 
-Always → `sumo-qa-deciding-approach`. That is the router's only job — set the global discipline, then hand the intent over so the approach can be picked before any QA output is produced.
+Always → `sumo-qa-deciding-approach`, which picks the downstream skill before any QA output; this router names none.
