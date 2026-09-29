@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.4](https://github.com/sumithr/sumo-qa/compare/v0.65.3...v0.65.4) (2026-09-29)
+
+
+### Bug Fixes
+
+* **skills:** keep deciding-approach routing state out of user output ([#738](https://github.com/sumithr/sumo-qa/issues/738)) ([89b3775](https://github.com/sumithr/sumo-qa/commit/89b3775cbffc1d1ea3678f78c3c020f06f9ed993))
+
 ## [0.65.3](https://github.com/sumithr/sumo-qa/compare/v0.65.2...v0.65.3) (2026-09-29)
 
 
