@@ -104,7 +104,7 @@ All take an optional `[path]` and `--json`; `report` renders honest not-availabl
 
 ## When sumo-qa doesn't fit
 
-If your QA intent has no native fit (Playwright E2E, accessibility audits, k6 load testing, type checking), sumo-qa searches for an external skill through its MCP server, offers a `[y/N]` install gate, installs through a pinned Skills CLI version at a resolved commit, records the installed content's digest, then loads the installed `SKILL.md` back into the conversation once that digest still matches.
+If your QA intent has no native fit (Playwright E2E, accessibility audits, k6 load testing, type checking), sumo-qa searches for an external skill through its MCP server, offers a `[y/N]` install gate, checks out the source at a resolved commit itself and installs that checkout through a pinned Skills CLI version, records the installed content's digest, then loads the installed `SKILL.md` back into the conversation once that digest still matches.
 
 The host never runs `npx` directly; four MCP tools own the lifecycle (search → `[y/N]` gate → install → load), and search returns the Skills CLI output verbatim, so there's no parser to drift. Node.js is required; if `npx` is missing the tool returns an actionable error rather than elevating. Any machine-level install the external skill suggests is translated to sumo-qa's repo-pinned, CI-reproducible standard, and sumo-qa keeps its confirmation gates, test evidence, and risk-to-test mapping.
 

@@ -300,7 +300,7 @@ class ExternalSkillProvenanceRecord(_StrictBase):
     """Immutable provenance recorded for one installed external skill."""
 
     skill: str = Field(description="Skill name requested at install time.")
-    source: str = Field(description="Install source without its #ref (git URL or owner/repo).")
+    source: str = Field(description="Git URL sumo-qa cloned the commit from.")
     requested_ref: str | None = Field(
         description="The #ref the caller asked for, or null when the remote HEAD was used."
     )

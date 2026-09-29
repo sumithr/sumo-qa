@@ -1871,10 +1871,10 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         """Install an external agent skill through the pinned Skills CLI.
 
         The confirmed flag records that the host received explicit user
-        approval before invoking the install operation. The source (a git URL
-        or owner/repo, optionally with #ref) is resolved to a commit, exactly
-        that commit is installed, and its provenance (resolved commit and
-        content digest) is recorded in the scope's .sumo-qa lock file.
+        approval before invoking the install operation. sumo-qa clones the
+        source (a git URL or owner/repo, optionally with #ref), checks out the
+        resolved commit, installs that checkout, and records its provenance
+        (resolved commit and content digest) in the scope's .sumo-qa lock file.
         """
         try:
             output = _install_external_skill(

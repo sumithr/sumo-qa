@@ -523,8 +523,11 @@ never resolve a range or dist-tag such as `latest`, and each process checks
 that the CLI reports the pinned version before running it. Moving the pin is a
 reviewed dependency change, made in its own PR:
 
-1. Read the new release's changes, and the `add` / `find` source handling in
-   the published package (`npm pack skills@<version>`), before trusting it.
+1. Read the new release's changes in the published package
+   (`npm pack skills@<version>`) before trusting it. Confirm `add <absolute
+   path>` still installs a local source by copying it (sumo-qa hands the CLI
+   only its own checkout and deletes it afterwards) and that `--version`
+   still prints the bare version.
 2. Update `SKILLS_CLI_VERSION` and the literal in
    `tests/test_external_skills_provenance.py::test_pin_is_an_exact_reviewed_version`
    together, plus the pinned argv in the schema fixtures.

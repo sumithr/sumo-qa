@@ -9,11 +9,14 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from sumo_qa.ingest import _write_atomic
 
 
 class ExternalSkillError(RuntimeError):
@@ -74,29 +77,29 @@ _EXACT_VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
 _VERIFIED_CLI_PATHS: set[str] = set()
 
 _DEFAULT_SOURCE = "https://github.com/vercel-labs/skills"
-# Source forms the pinned CLI strips '#<commit>' from (skills@1.7.0
-# looksLikeGitSource / parseSource); anything else would silently drop the pin.
-_SHORTHAND_SOURCE_RE = re.compile(r"([A-Za-z0-9][\w.-]*/[\w.-]+?)(?:@([\w.-]+))?")
-_GITHUB_REPO_URL_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+?(?:\.git)?/?")
-# No userinfo on https (a token would be written into the lock) and none with
-# a password on ssh; no '#' or whitespace anywhere.
-_GIT_URL_RE = re.compile(
-    r"https://[^\s#@/]+/[^\s#@]+\.git|ssh://(?:[^\s#@:/]+@)?[^\s#@/]+/[^\s#@]+\.git"
-    r"|git@[\w.-]+:[^\s#]+"
+# Install sources are validated here and cloned by sumo-qa itself; the Skills
+# CLI only ever receives the local checkout, so its own URL parsing (which can
+# drop or reinterpret a ref) never applies. No credentials, query strings,
+# whitespace, or '..' segments.
+_SEGMENT = r"[A-Za-z0-9._~-]+"
+_REPO_PATH = rf"{_SEGMENT}(?:/{_SEGMENT})*/?"
+_HOST = r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?"
+_URL_SOURCE_RE = re.compile(
+    rf"https://{_HOST}(?::\d+)?/{_REPO_PATH}"
+    rf"|ssh://(?:[A-Za-z0-9._-]+@)?{_HOST}(?::\d+)?/{_REPO_PATH}"
+    rf"|git@{_HOST}:{_REPO_PATH}"
 )
-# skills@1.7.0 SOURCE_ALIASES: shorthands the CLI rewrites before cloning.
-# Re-check against the CLI source whenever the pin moves.
-_CLI_SOURCE_ALIASES = {
-    "coinbase/agentWallet": "coinbase/agentic-wallet-skills",
-    "vercel-labs/vercel-skills": "vercel-labs/agent-skills",
-}
-# Skill names reach the CLI argv and filesystem paths: no leading '-' (a
-# flag), '.' or space, no '*' (a wildcard), no separators (a path). Inner
-# spaces are fine: the CLI's --skill takes a frontmatter name. Agent names are
-# the CLI's fixed identifiers.
-_SKILL_NAME_RE = re.compile(r"[^\s.*/\\-][^*/\\\x00-\x1f]*")
+_SHORTHAND_SOURCE_RE = re.compile(r"([A-Za-z0-9][\w.-]*)/([\w.-]+?)(?:\.git)?(?:@([\w.-]+))?")
+_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
+_DOT_SEGMENT_RE = re.compile(r"(?:^|[/:])\.{1,2}(?:/|$)")
+_GIT_ALLOWED_PROTOCOLS = "https:ssh:file"
+# Skill names reach the CLI argv and filesystem paths: letters, digits, '.',
+# '_', '-' and inner spaces (the CLI's --skill takes a frontmatter name), and
+# never a leading '-' (a flag) or '.', a wildcard, a separator, or a drive.
+_SKILL_NAME_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9._-])?")
 _AGENT_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-_LOCK_WAIT_SECONDS = 10.0
+# Long enough for another install's CLI run (its default timeout) to finish.
+_LOCK_WAIT_SECONDS = 150.0
 _COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _LOCK_RELPATH = Path(".sumo-qa") / "external-skills.lock.json"
 _LOCK_SCHEMA_VERSION = 1
@@ -141,9 +144,10 @@ def install_external_skill(
 ) -> dict[str, Any]:
     """Install a skill through the pinned Skills CLI after explicit confirmation.
 
-    The source is resolved to a commit first and the CLI installs exactly that
-    commit; the installed folder's digest is then recorded in the scope's
-    provenance lock so ``execute_external_skill`` can verify it later.
+    sumo-qa clones the source and checks out the resolved commit itself, then
+    hands the CLI only that local checkout, so the installed bytes come from
+    exactly the recorded commit. Each folder the install wrote is digested and
+    recorded in the scope's provenance lock for ``execute_external_skill``.
     """
     skill = skill.strip()
     source = source.strip()
@@ -161,38 +165,44 @@ def install_external_skill(
     _check_name(skill, "skill", _SKILL_NAME_RE)
     _check_name(agent, "agent", _AGENT_NAME_RE)
 
-    source_base, remote_url, requested_ref, named_skill = _parse_source(source)
+    remote_url, requested_ref, named_skill = _parse_source(source)
     if named_skill is not None and named_skill != skill:
         raise ValueError(f"source names skill {named_skill!r} but skill is {skill!r}")
     cwd = cwd or Path.cwd()
     home = home or Path.home()
     lock_base = cwd if scope == "project" else home
-    _read_lock(lock_base)  # fail fast on an unreadable lock, before the CLI runs
-    resolved_ref = _resolve_commit(remote_url, requested_ref, timeout)
-    before = _folder_identities(skill, scope, cwd, home)
-
-    args = ["add", f"{source_base}#{resolved_ref}", "--skill", skill, "-a", agent, "-y"]
-    if scope == "global":
-        args.append("-g")
-    command, stdout, stderr = _run_skills_cli(args, timeout=timeout, cwd=cwd)
-    written = _written_folders(skill, scope, before, _folder_identities(skill, scope, cwd, home))
-    installed_at = datetime.now(timezone.utc).isoformat()
-    records = [
-        {
-            "skill": skill,
-            "source": source_base,
-            "requested_ref": requested_ref,
-            "resolved_ref": resolved_ref,
-            "content_digest": skill_content_digest(location.path.parent),
-            "agent": agent,
-            "scope": scope,
-            "path": location.path.parent.relative_to(lock_base).as_posix(),
-            "installed_at": installed_at,
-            "installer": skills_cli_identity(),
-        }
-        for location in written
-    ]
-    _record_in_lock(lock_base, records)
+    _read_lock(lock_base)  # fail fast on an unreadable lock, before any fetch
+    workdir, checkout, resolved_ref = _checkout_commit(remote_url, requested_ref, timeout)
+    try:
+        # One guard around snapshot, CLI run, digest, and record: concurrent
+        # installs can neither interleave their writes nor lose records.
+        with _lock_guard(lock_base):
+            before = _folder_identities(skill, scope, cwd, home)
+            args = ["add", str(checkout), "--skill", skill, "-a", agent, "-y"]
+            if scope == "global":
+                args.append("-g")
+            command, stdout, stderr = _run_skills_cli(args, timeout=timeout, cwd=cwd)
+            after = _folder_identities(skill, scope, cwd, home)
+            written = _written_folders(skill, scope, before, after)
+            installed_at = datetime.now(timezone.utc).isoformat()
+            records = [
+                {
+                    "skill": skill,
+                    "source": remote_url,
+                    "requested_ref": requested_ref,
+                    "resolved_ref": resolved_ref,
+                    "content_digest": skill_content_digest(location.path.parent),
+                    "agent": agent,
+                    "scope": scope,
+                    "path": location.path.parent.relative_to(lock_base).as_posix(),
+                    "installed_at": installed_at,
+                    "installer": skills_cli_identity(),
+                }
+                for location in written
+            ]
+            _merge_into_lock(lock_base, records)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
     installed = written[0].as_dict()
     provenance = records[0]
     return {
@@ -296,8 +306,8 @@ def hint_for_exception(exc: BaseException) -> str:
         )
     if isinstance(exc, SourceResolutionError):
         return (
-            "Check network access and that the source URL and #ref exist. A full "
-            "40-character commit SHA as #ref skips remote resolution."
+            "Check network access and that the source is a git repository whose "
+            "#ref exists (a branch, tag, or full commit SHA)."
         )
     if isinstance(exc, ExternalSkillProvenanceError):
         return (
@@ -446,70 +456,97 @@ def _run_cli_process(command: list[str], timeout: int, cwd: Path | None) -> tupl
 def _check_name(value: str, kind: str, pattern: re.Pattern[str]) -> None:
     if not pattern.fullmatch(value):
         raise ValueError(
-            f"{kind} name {value!r} must not start with '-', '.' or a space, and must "
-            "not contain '*', '/' or '\\'"
+            f"{kind} name {value!r} must start with a letter or digit and use only "
+            "letters, digits, '.', '_', '-' (and inner spaces for a skill)"
         )
 
 
-def _parse_source(source: str) -> tuple[str, str, str | None, str | None]:
-    """Split an install source into (CLI source, git remote URL, ref, named skill)."""
+def _parse_source(source: str) -> tuple[str, str | None, str | None]:
+    """Split an install source into (git remote URL, requested ref, named skill)."""
     base, has_ref, ref = source.partition("#")
-    if has_ref and not ref:
-        raise ValueError("source ref after '#' is empty")
-    if "/tree/" in base or "/blob/" in base:
-        raise ValueError("source must be a repository URL; pass a folder's ref as '#<ref>'")
+    if has_ref and not (_REF_RE.fullmatch(ref) and ".." not in ref):
+        raise ValueError(f"source ref {ref!r} is not a branch, tag, or commit name")
     shorthand = _SHORTHAND_SOURCE_RE.fullmatch(base)
-    if shorthand and not shorthand[1].endswith(".git"):
-        repo = _CLI_SOURCE_ALIASES.get(shorthand[1], shorthand[1])
-        return repo, f"https://github.com/{repo}.git", ref or None, shorthand[2]
-    if _GITHUB_REPO_URL_RE.fullmatch(base) or _GIT_URL_RE.fullmatch(base):
-        return base, base, ref or None, None
+    if shorthand:
+        remote = f"https://github.com/{shorthand[1]}/{shorthand[2]}.git"
+        return remote, ref or None, shorthand[3]
+    if _URL_SOURCE_RE.fullmatch(base) and not _DOT_SEGMENT_RE.search(base):
+        return base, ref or None, None
     raise ValueError(
-        "source must be owner/repo[@skill], https://github.com/owner/repo, or a git "
-        "URL ending in .git (https:// or ssh://) or git@host:path, so the install can "
-        "be pinned to a commit"
+        "source must be owner/repo[@skill], an https:// or ssh:// git URL, or "
+        "git@host:path, without credentials or a query string"
     )
 
 
-def _resolve_commit(remote_url: str, ref: str | None, timeout: int) -> str:
-    """Resolve a ref (default HEAD) to the full commit SHA it points at now."""
-    if ref and _COMMIT_SHA_RE.fullmatch(ref.lower()):
-        return ref.lower()
+def _checkout_commit(remote_url: str, ref: str | None, timeout: int) -> tuple[Path, Path, str]:
+    """Clone ``remote_url`` and check out ``ref`` (default HEAD) detached.
+
+    Returns (temporary folder to remove, checkout, full commit SHA).
+    """
     git = shutil.which("git")
     if not git:
         raise GitNotFoundError("git not found on PATH")
-    wanted = ref or "HEAD"
+    workdir = Path(tempfile.mkdtemp(prefix="sumo-qa-skill-"))
+    checkout = workdir / "checkout"
+    try:
+        _run_git(
+            [git, "clone", "--no-checkout", "--filter=blob:none", "--quiet", "--"]
+            + [remote_url, str(checkout)],
+            timeout,
+        )
+        commit = _rev_parse_commit(git, checkout, ref, timeout)
+        _run_git([git, "-C", str(checkout), "checkout", "--quiet", "--detach", commit], timeout)
+    except BaseException:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
+    return workdir, checkout, commit
+
+
+def _rev_parse_commit(git: str, checkout: Path, ref: str | None, timeout: int) -> str:
+    if ref is None:
+        candidates = ["HEAD"]
+    elif _COMMIT_SHA_RE.fullmatch(ref.lower()):
+        candidates = [ref.lower()]
+    else:
+        # A tag before a same-named branch; a branch through its remote ref.
+        candidates = [f"refs/tags/{ref}", f"refs/remotes/origin/{ref}"]
+    for candidate in candidates:
+        completed = _run_git(
+            [git, "-C", str(checkout), "rev-parse", "--verify", "--quiet", "--end-of-options"]
+            + [f"{candidate}^{{commit}}"],
+            timeout,
+            check=False,
+        )
+        if completed.returncode == 0:
+            return completed.stdout.strip()
+    raise SourceResolutionError(f"ref {ref or 'HEAD'!r} not found in the cloned source")
+
+
+def _run_git(
+    command: list[str], timeout: int, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    env = {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        # Blocks ext:: and other command-running transports.
+        "GIT_ALLOW_PROTOCOL": _GIT_ALLOWED_PROTOCOLS,
+    }
     try:
         completed = subprocess.run(
-            # An annotated tag's commit is only listed when its peeled name is
-            # asked for explicitly; a plain pattern lists the tag object alone.
-            [git, "ls-remote", "--", remote_url, wanted, f"{wanted}^{{}}"],
+            command,
             capture_output=True,
             check=False,
             text=True,
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        raise SourceResolutionError(
-            f"resolving {remote_url}#{wanted} timed out after {timeout}s"
-        ) from exc
-    if completed.returncode != 0:
-        raise SourceResolutionError(
-            f"could not resolve {remote_url}#{wanted}: {completed.stderr.strip()}"
-        )
-    refs: dict[str, str] = {}
-    for line in completed.stdout.splitlines():
-        sha, _, name = line.partition("\t")
-        refs[name.strip()] = sha.strip()
-    # ls-remote matches ref-name suffixes, so pick exact names only, the
-    # peeled (^{}) tag entry first: it names the commit, not the tag object.
-    for name in (f"refs/tags/{wanted}^{{}}", f"refs/tags/{wanted}", f"refs/heads/{wanted}", wanted):
-        if name in refs:
-            return refs[name]
-    raise SourceResolutionError(f"ref {wanted!r} not found in {remote_url}")
+        raise SourceResolutionError(f"git timed out after {timeout}s") from exc
+    if check and completed.returncode != 0:
+        raise SourceResolutionError(f"git failed: {completed.stderr.strip()}")
+    return completed
 
 
 def _folder_identities(
@@ -577,51 +614,67 @@ def _read_lock(base: Path) -> dict[str, Any]:
     return lock
 
 
-def _record_in_lock(base: Path, records: list[dict[str, Any]]) -> None:
-    """Merge records into the lock under an exclusive guard file, re-reading
-    it inside the guard so concurrent installs keep each other's records."""
+@contextmanager
+def _lock_guard(base: Path) -> Iterator[None]:
+    """Hold an OS advisory lock on the scope's guard file.
+
+    The OS releases it when the descriptor closes, including when the process
+    dies, so a crashed install never leaves a stale guard behind.
+    """
     path = base / _LOCK_RELPATH
-    guard = path.with_name(path.name + ".lock")
+    if path.parent.is_symlink():
+        raise ExternalSkillProvenanceError(f"refusing to use {path.parent}: it is a symlink")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        _acquire_guard(guard)
+        fd = os.open(path.with_name(path.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o666)
     except OSError as exc:
         raise ExternalSkillProvenanceError(f"could not lock {path}: {exc}") from exc
     try:
-        lock = _read_lock(base)
-        for record in records:
-            lock["skills"][record["path"]] = record
-        _replace_lock_file(path, json.dumps(lock, indent=2, sort_keys=True) + "\n")
-    finally:
-        guard.unlink()
-
-
-def _acquire_guard(guard: Path) -> None:
-    deadline = time.monotonic() + _LOCK_WAIT_SECONDS
-    while True:
-        try:
-            os.close(os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-            return
-        except FileExistsError:
+        deadline = time.monotonic() + _LOCK_WAIT_SECONDS
+        while not _try_lock(fd):
             if time.monotonic() >= deadline:
                 raise ExternalSkillProvenanceError(
-                    f"provenance lock is busy ({guard} exists); if no install is "
-                    "running, remove that file and retry"
-                ) from None
-            time.sleep(0.02)
+                    f"provenance lock {path} is busy: another install is still running"
+                )
+            time.sleep(0.05)
+        yield
+    finally:
+        os.close(fd)
 
 
-def _replace_lock_file(path: Path, content: str) -> None:
-    # The previous lock's permissions carry over (mkstemp creates 0600).
-    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
-    fd, staging = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+def _try_lock(fd: int) -> bool:
+    if os.name == "nt":  # pragma: no cover -- platform-conditional (Windows only)
+        import msvcrt
+
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return False
+        return True
+    else:  # pragma: no cover -- platform-conditional (POSIX only)
+        import fcntl
+
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
+
+
+def _merge_into_lock(base: Path, records: list[dict[str, Any]]) -> None:
+    """Merge records into the lock; the caller holds ``_lock_guard``."""
+    lock = _read_lock(base)
+    for record in records:
+        lock["skills"][record["path"]] = record
+    path = base / _LOCK_RELPATH
+    # Keep a rewritten lock's permissions; a new one follows the folder's
+    # (umask-derived) mode rather than the 0600 staging file's.
+    source = path if path.exists() else path.parent
+    mode = source.stat().st_mode & 0o666
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        os.chmod(staging, mode)
-        os.replace(staging, path)
+        _write_atomic(path, json.dumps(lock, indent=2, sort_keys=True) + "\n")
+        os.chmod(path, mode)
     except OSError as exc:
-        Path(staging).unlink(missing_ok=True)
         raise ExternalSkillProvenanceError(
             f"could not write provenance lock {path}: {exc}"
         ) from exc

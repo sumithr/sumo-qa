@@ -2,11 +2,13 @@
 """Skills CLI pin + installation provenance for external skills (#513).
 
 Every subprocess here is faked: `subprocess.run` is replaced by a dispatcher
-that plays the pinned Skills CLI and `git ls-remote`, so no test downloads or
-executes a real npm package. The one end-to-end test drives a fake `npx`
-executable against a real local git repository (file:// source) so the
-argv, the pinned source ref, and the lock file are exercised through real
-process boundaries without network access.
+that plays the pinned Skills CLI and git (clone / rev-parse / checkout), so no
+test downloads or executes a real npm package. sumo-qa clones and checks out
+the commit itself and hands the CLI only a local path. The end-to-end test
+drives real git against a local repository (served as an https:// remote via
+`insteadOf`) and a fake `npx` that copies from the path it is given, so the
+argv, the pinned commit, and the lock file are exercised through real process
+boundaries without network access.
 """
 
 from __future__ import annotations
@@ -48,27 +50,31 @@ def _reset_cli_probe_cache():
 
 
 class FakeToolchain:
-    """Plays `npx skills@<pin>` and `git ls-remote` for `subprocess.run`."""
+    """Plays `npx skills@<pin>` and git (clone / rev-parse / checkout)."""
 
     def __init__(self, cwd: Path, *, version: str | None = None, remote_sha: str = SHA):
         self.cwd = cwd
         self.version = ext.SKILLS_CLI_VERSION if version is None else version
         self.remote_sha = remote_sha
-        self.ls_remote_lines: str | None = None
+        # Revisions that exist in the fake remote (each resolves to remote_sha).
+        self.known_refs = {"HEAD", "refs/remotes/origin/main", "refs/tags/v1.2.0"}
         self.writes_skill = True  # False: the CLI "succeeds" but installs nothing
         self.links_claude_dir = False  # True: also symlink .claude/skills/<skill>
         self.during_add = None  # optional callback run while the CLI "installs"
+        self.add_sources: list[tuple[str, bool]] = []  # (path given, was a dir)
         self.calls: list[tuple[list[str], dict]] = []
+        self._lock = threading.Lock()
 
     def __call__(self, command, **kwargs):
-        self.calls.append((list(command), kwargs))
+        with self._lock:
+            self.calls.append((list(command), kwargs))
         if command[0].endswith("git"):
-            lines = self.ls_remote_lines
-            if lines is None:
-                lines = f"{self.remote_sha}\t{command[-2]}\n"  # [-1] is the peeled pattern
-            return _completed(command, stdout=lines)
+            return self._git(command)
         if command[-1] == "--version":
             return _completed(command, stdout=f"{self.version}\n")
+        if "add" in command:
+            source = command[command.index("add") + 1]
+            self.add_sources.append((source, Path(source).is_dir()))
         if "add" in command and self.during_add:
             self.during_add()
         if "add" in command and self.writes_skill:
@@ -91,6 +97,27 @@ class FakeToolchain:
         if "add" in command:
             return _completed(command, stdout="installed")
         return _completed(command, stdout="owner/repo@skill  3 installs\n")
+
+    def _git(self, command):
+        verb = command[3] if command[1] == "-C" else command[1]
+        if verb == "clone":
+            Path(command[-1]).mkdir(parents=True)
+            return _completed(command)
+        if verb == "rev-parse":
+            revision = command[-1].removesuffix("^{commit}")
+            if revision in self.known_refs:
+                return _completed(command, stdout=f"{self.remote_sha}\n")
+            if re.fullmatch(r"[0-9a-f]{40}", revision):
+                return _completed(command, stdout=f"{revision}\n")
+            return _completed(command, returncode=128)
+        return _completed(command)  # checkout
+
+    def git_commands(self, verb: str) -> list[list[str]]:
+        return [
+            c
+            for c, _ in self.calls
+            if c[0].endswith("git") and verb in (c[1], c[3] if len(c) > 3 else None)
+        ]
 
     def cli_commands(self) -> list[list[str]]:
         return [c for c, _ in self.calls if not c[0].endswith("git")]
@@ -204,35 +231,68 @@ def test_cli_runs_without_a_shell_so_arguments_are_not_reinterpreted(toolchain) 
 @pytest.mark.parametrize(
     ("source", "remote_url", "ref"),
     [
-        ("vercel-labs/skills", "https://github.com/vercel-labs/skills.git", "HEAD"),
-        ("https://github.com/vercel-labs/skills", "https://github.com/vercel-labs/skills", "HEAD"),
+        ("vercel-labs/skills", "https://github.com/vercel-labs/skills.git", None),
+        ("vercel-labs/skills.git", "https://github.com/vercel-labs/skills.git", None),
+        ("https://github.com/vercel-labs/skills", "https://github.com/vercel-labs/skills", None),
         ("https://github.com/o/r.git#v1.2.0", "https://github.com/o/r.git", "v1.2.0"),
         ("git@github.com:o/r.git#main", "git@github.com:o/r.git", "main"),
-        ("ssh://git@host.example/o/r.git", "ssh://git@host.example/o/r.git", "HEAD"),
+        ("ssh://git@host.example:2222/o/r.git", "ssh://git@host.example:2222/o/r.git", None),
+        # sumo-qa clones exactly this URL, so no CLI host rewrite can apply.
+        ("https://mirror.corp/github.com/o/r.git", "https://mirror.corp/github.com/o/r.git", None),
+        ("https://gitlab.example/group/sub/r", "https://gitlab.example/group/sub/r", None),
     ],
 )
-def test_install_resolves_the_source_ref_and_pins_the_cli_to_the_commit(
+def test_install_checks_out_the_commit_itself_and_hands_the_cli_a_local_path(
     toolchain, source, remote_url, ref
 ) -> None:
     result = _install(toolchain, source=source)
 
-    git_calls = [c for c, _ in toolchain.calls if c[0].endswith("git")]
-    assert git_calls == [["/opt/bin/git", "ls-remote", "--", remote_url, ref, f"{ref}^{{}}"]]
-    add = next(c for c in toolchain.cli_commands() if "add" in c)
-    base = source.split("#", 1)[0]
-    assert add[add.index("add") + 1] == f"{base}#{SHA}"
+    [clone] = toolchain.git_commands("clone")
+    assert clone[1:6] == ["clone", "--no-checkout", "--filter=blob:none", "--quiet", "--"]
+    assert clone[6] == remote_url
+    [checkout] = toolchain.git_commands("checkout")
+    assert checkout[-2:] == ["--detach", SHA]
+    [(add_source, was_dir)] = toolchain.add_sources
+    assert was_dir and Path(add_source) == Path(clone[7])
+    assert "#" not in add_source and "://" not in add_source
+    assert not Path(clone[7]).exists()  # the temporary checkout is removed
+    assert result["provenance"]["source"] == remote_url
     assert result["provenance"]["resolved_ref"] == SHA
-    assert result["provenance"]["requested_ref"] == (None if ref == "HEAD" else ref)
+    assert result["provenance"]["requested_ref"] == ref
+
+
+def test_git_runs_non_interactively_with_an_allow_listed_transport(toolchain) -> None:
+    _install(toolchain)
+
+    git_kwargs = [k for c, k in toolchain.calls if c[0].endswith("git")]
+    assert git_kwargs
+    for kwargs in git_kwargs:
+        assert kwargs["env"]["GIT_TERMINAL_PROMPT"] == "0"
+        assert kwargs["env"]["GIT_ALLOW_PROTOCOL"] == "https:ssh:file"
+        assert not kwargs.get("shell")
+
+
+def test_a_named_ref_prefers_a_tag_then_a_remote_branch(toolchain) -> None:
+    _install(toolchain, source="o/r#main")
+
+    revisions = [c[-1] for c in toolchain.git_commands("rev-parse")]
+    assert revisions == ["refs/tags/main^{commit}", "refs/remotes/origin/main^{commit}"]
+    for command in toolchain.git_commands("rev-parse"):
+        assert command[3:7] == ["rev-parse", "--verify", "--quiet", "--end-of-options"]
+
+
+def test_a_full_commit_sha_ref_must_exist_in_the_clone(toolchain) -> None:
+    result = _install(toolchain, source=f"vercel-labs/skills#{OTHER_SHA.upper()}")
+
+    assert [c[-1] for c in toolchain.git_commands("rev-parse")] == [f"{OTHER_SHA}^{{commit}}"]
+    assert result["provenance"]["resolved_ref"] == OTHER_SHA
 
 
 def test_search_result_shorthand_with_skill_suffix_is_accepted(toolchain) -> None:
     result = _install(toolchain, source="vercel-labs/skills@find-skills")
 
-    git_call = next(c for c, _ in toolchain.calls if c[0].endswith("git"))
-    assert git_call[3] == "https://github.com/vercel-labs/skills.git"
-    add = next(c for c in toolchain.cli_commands() if "add" in c)
-    assert add[add.index("add") + 1] == f"vercel-labs/skills#{SHA}"
-    assert result["provenance"]["source"] == "vercel-labs/skills"
+    assert toolchain.git_commands("clone")[0][6] == "https://github.com/vercel-labs/skills.git"
+    assert result["provenance"]["source"] == "https://github.com/vercel-labs/skills.git"
 
 
 def test_shorthand_naming_another_skill_is_rejected(toolchain) -> None:
@@ -242,18 +302,10 @@ def test_shorthand_naming_another_skill_is_rejected(toolchain) -> None:
     assert toolchain.calls == []
 
 
-def test_cli_source_alias_resolves_the_repository_the_cli_installs(toolchain) -> None:
-    """skills@1.7.0 rewrites a few shorthands (SOURCE_ALIASES); the commit must
-    be resolved in the repository the CLI will actually clone."""
-    _install(toolchain, source="vercel-labs/vercel-skills")
-
-    git_call = next(c for c, _ in toolchain.calls if c[0].endswith("git"))
-    assert git_call[3] == "https://github.com/vercel-labs/agent-skills.git"
-    add = next(c for c in toolchain.cli_commands() if "add" in c)
-    assert add[add.index("add") + 1] == f"vercel-labs/agent-skills#{SHA}"
-
-
-@pytest.mark.parametrize("skill", ["-g", "--all", "*", "a*", "../x", "a/b", "a\\b", ".hidden"])
+@pytest.mark.parametrize(
+    "skill",
+    ["-g", "--all", "*", "a*", "../x", "a/b", "a\\b", ".hidden", "D:evil", "a\x00b", "\x1b[2J"],
+)
 def test_skill_names_that_would_act_as_cli_flags_or_paths_are_rejected(toolchain, skill) -> None:
     with pytest.raises(ValueError, match="skill name"):
         _install(toolchain, skill=skill)
@@ -286,49 +338,31 @@ def test_agent_names_that_would_act_as_cli_flags_are_rejected(toolchain, agent) 
     assert toolchain.calls == []
 
 
-def test_a_full_commit_sha_ref_is_used_without_remote_resolution(toolchain) -> None:
-    result = _install(toolchain, source=f"vercel-labs/skills#{OTHER_SHA}")
-
-    assert not any(c[0].endswith("git") for c, _ in toolchain.calls)
-    assert result["provenance"]["resolved_ref"] == OTHER_SHA
-
-
-def test_annotated_tag_resolves_to_the_peeled_commit(toolchain) -> None:
-    # Shape captured from real `git ls-remote -- <url> v1.2.0 'v1.2.0^{}'`
-    # (git 2.54); the end-to-end test below re-proves it against a real repo.
-    toolchain.ls_remote_lines = f"{OTHER_SHA}\trefs/tags/v1.2.0\n{SHA}\trefs/tags/v1.2.0^{{}}\n"
-
-    result = _install(toolchain, source="o/r#v1.2.0")
-
-    assert result["provenance"]["resolved_ref"] == SHA
-
-
 @pytest.mark.parametrize(
     "source",
     [
         "./local/skills",
         "/abs/path/skills",
-        "https://github.com/o/r/tree/main/skills/x",
         "github:o/r",
         "o/r#",
-        # skills@1.7.0 looksLikeGitSource() rejects these, so it would never
-        # strip the '#<commit>' and the pin would be silently lost.
-        "file:///srv/skills",
-        "https://bitbucket.org/o/r",
-        "ssh://git@host.example/o/r",
         "o/r/sub/path",
-        # A trailing .git in shorthand makes both sides clone repo.git.git.
-        "o/r.git",
-        # Tree/blob URLs: the CLI parses a ref from the path and drops '#<sha>'.
-        "https://github.com/o/r/tree/main/x.git",
-        "https://gitlab.example/o/r/blob/main/x.git",
-        # Credentials would be written into the lock file.
+        "file:///srv/skills",
+        "http://host.example/o/r.git",  # plain http is not accepted
+        "ext::sh -c touch% /tmp/pwned",
+        # Credentials would be written into the lock file and argv.
         "https://user:token@gitlab.example/o/r.git",
         "https://ghp_token@github.com/o/r",
         "ssh://user:password@host.example/o/r.git",
+        "https://gitlab.example/g/r.git?private_token=secret",
+        "https://dev.azure.com/o/p/_git/r?version=GBmain",
+        "https://host.example/o/../r.git",
+        "https://host.example/o r.git",
+        # Refs that git would read as an option or a range.
+        "o/r#-x",
+        "o/r#a..b",
     ],
 )
-def test_unpinnable_sources_are_rejected_before_anything_runs(toolchain, source) -> None:
+def test_unaccepted_sources_are_rejected_before_anything_runs(toolchain, source) -> None:
     with pytest.raises(ValueError, match="source"):
         _install(toolchain, source=source)
 
@@ -336,27 +370,33 @@ def test_unpinnable_sources_are_rejected_before_anything_runs(toolchain, source)
 
 
 def test_unknown_remote_ref_is_a_typed_resolution_error(toolchain) -> None:
-    toolchain.ls_remote_lines = ""
-
     with pytest.raises(ext.SourceResolutionError, match="nope"):
         _install(toolchain, source="o/r#nope")
 
-    assert not any("add" in c for c in toolchain.cli_commands())
+    assert toolchain.add_sources == []
 
 
-def test_offline_ls_remote_is_a_typed_resolution_error(monkeypatch, toolchain) -> None:
-    def offline(command, **kwargs):
-        if command[0].endswith("git"):
+@pytest.mark.parametrize("failing_verb", ["clone", "checkout"])
+def test_a_failing_git_step_is_a_typed_resolution_error(
+    monkeypatch, toolchain, failing_verb
+) -> None:
+    """Offline, not a repository (a release/raw/tree URL), or a missing blob:
+    every git failure is typed, and the CLI never runs."""
+
+    def failing(command, **kwargs):
+        if command[0].endswith("git") and failing_verb in command:
             return _completed(command, stderr="fatal: unable to access", returncode=128)
         return toolchain(command, **kwargs)
 
-    monkeypatch.setattr(ext.subprocess, "run", offline)
+    monkeypatch.setattr(ext.subprocess, "run", failing)
 
     with pytest.raises(ext.SourceResolutionError, match="unable to access"):
         _install(toolchain)
 
+    assert toolchain.add_sources == []
 
-def test_ls_remote_timeout_is_a_typed_resolution_error(monkeypatch, toolchain) -> None:
+
+def test_git_timeout_is_a_typed_resolution_error(monkeypatch, toolchain) -> None:
     def slow(command, **kwargs):
         raise subprocess.TimeoutExpired(command, kwargs["timeout"])
 
@@ -386,7 +426,7 @@ def test_install_records_immutable_provenance_in_the_project_lock(toolchain) -> 
     record = lock["skills"][".agents/skills/find-skills"]
     assert record == result["provenance"]
     assert record["skill"] == "find-skills"
-    assert record["source"] == "vercel-labs/skills"
+    assert record["source"] == "https://github.com/vercel-labs/skills.git"
     assert record["resolved_ref"] == SHA
     assert record["agent"] == "claude-code"
     assert record["scope"] == "project"
@@ -533,73 +573,99 @@ def test_a_record_written_by_a_concurrent_install_is_kept(toolchain) -> None:
     }
 
 
-def test_concurrent_lock_updates_keep_every_record(tmp_path) -> None:
-    records = [{"path": f".agents/skills/s{i}", "skill": f"s{i}"} for i in range(12)]
-    threads = [
-        threading.Thread(target=ext._record_in_lock, args=(tmp_path, [record]))
-        for record in records
-    ]
+def test_concurrent_installs_are_serialised_and_keep_every_record(toolchain) -> None:
+    errors: list[BaseException] = []
+
+    def install(skill):
+        try:
+            _install(toolchain, skill=skill)
+        except BaseException as exc:  # noqa: BLE001 - surfaced by the assert below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=install, args=(f"s{i}",)) for i in range(6)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
 
-    assert set(_lock(tmp_path)["skills"]) == {record["path"] for record in records}
+    assert errors == []
+    assert set(_lock(toolchain.cwd)["skills"]) == {f".agents/skills/s{i}" for i in range(6)}
 
 
-def test_a_held_lock_is_a_typed_error_after_waiting(monkeypatch, tmp_path) -> None:
+@pytest.mark.skipif(os.name == "nt", reason="the test holds the guard with fcntl")
+def test_a_held_guard_times_out_typed_and_frees_when_its_holder_goes(
+    monkeypatch, toolchain
+) -> None:
+    import fcntl
+
     monkeypatch.setattr(ext, "_LOCK_WAIT_SECONDS", 0.2)
-    guard = tmp_path / ".sumo-qa" / "external-skills.lock.json.lock"
+    guard = toolchain.cwd / ".sumo-qa" / "external-skills.lock.json.lock"
     guard.parent.mkdir()
-    guard.write_text("", "utf-8")
+    holder = os.open(guard, os.O_RDWR | os.O_CREAT)
+    fcntl.flock(holder, fcntl.LOCK_EX)
 
     with pytest.raises(ext.ExternalSkillProvenanceError, match="busy"):
-        ext._record_in_lock(tmp_path, [{"path": ".agents/skills/x"}])
+        _install(toolchain)
+    assert toolchain.add_sources == []  # nothing is installed while the guard is held
 
-    assert guard.exists()  # someone else's guard is never removed
+    os.close(holder)  # a crashed holder releases its lock with its descriptor
+    _install(toolchain)
 
 
-def test_an_uncreatable_lock_folder_is_a_typed_error(tmp_path) -> None:
-    (tmp_path / ".sumo-qa").write_text("a file where the folder should be", "utf-8")
+def test_an_uncreatable_lock_folder_is_a_typed_error(toolchain) -> None:
+    (toolchain.cwd / ".sumo-qa").write_text("a file where the folder should be", "utf-8")
 
     with pytest.raises(ext.ExternalSkillProvenanceError, match="could not lock"):
-        ext._record_in_lock(tmp_path, [{"path": ".agents/skills/x"}])
+        _install(toolchain)
 
 
-def test_failed_lock_write_leaves_no_staging_file(monkeypatch, tmp_path) -> None:
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_symlinked_lock_folder_is_refused(toolchain, tmp_path) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (toolchain.cwd / ".sumo-qa").symlink_to(elsewhere, target_is_directory=True)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="symlink"):
+        _install(toolchain)
+
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_a_lock_folder_reported_as_a_symlink_is_refused_on_every_platform(
+    monkeypatch, toolchain
+) -> None:
+    real_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        ext.Path, "is_symlink", lambda self: self.name == ".sumo-qa" or real_is_symlink(self)
+    )
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="symlink"):
+        _install(toolchain)
+
+
+def test_failed_lock_write_leaves_no_staging_file(monkeypatch, toolchain) -> None:
     def full_disk(*args, **kwargs):
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(ext.os, "fdopen", full_disk)
 
     with pytest.raises(ext.ExternalSkillProvenanceError, match="No space"):
-        ext._record_in_lock(tmp_path, [{"path": ".agents/skills/x"}])
+        _install(toolchain)
 
-    assert list((tmp_path / ".sumo-qa").iterdir()) == []
+    assert not list((toolchain.cwd / ".sumo-qa").glob("*.tmp"))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
-def test_rewriting_the_lock_keeps_it_readable_by_others(tmp_path) -> None:
-    ext._record_in_lock(tmp_path, [{"path": ".agents/skills/a"}])
-    lock_path = tmp_path / ".sumo-qa" / "external-skills.lock.json"
-    assert lock_path.stat().st_mode & 0o044 == 0o044
+def test_rewriting_the_lock_keeps_its_permissions(toolchain) -> None:
+    _install(toolchain, skill="alpha")
+    lock_path = toolchain.cwd / ".sumo-qa" / "external-skills.lock.json"
+    folder_mode = lock_path.parent.stat().st_mode & 0o666
+    assert lock_path.stat().st_mode & 0o777 == folder_mode  # follows the umask
     lock_path.chmod(0o640)
 
-    ext._record_in_lock(tmp_path, [{"path": ".agents/skills/b"}])
+    _install(toolchain, skill="beta")
 
     assert lock_path.stat().st_mode & 0o777 == 0o640
-
-
-def test_lock_write_failure_is_a_typed_provenance_error(monkeypatch, toolchain) -> None:
-    def refuse(*args, **kwargs):
-        raise PermissionError("locked by another process")
-
-    monkeypatch.setattr(ext.os, "replace", refuse)
-
-    with pytest.raises(ext.ExternalSkillProvenanceError, match="locked by another"):
-        _install(toolchain)
-
-    assert list((toolchain.cwd / ".sumo-qa").iterdir()) == []
 
 
 def test_corrupt_lock_file_is_a_provenance_error_not_a_crash(toolchain) -> None:
@@ -963,12 +1029,13 @@ if rest == ["--version"]:
 elif rest[0] == "find":
     print("owner/repo@" + rest[1])
 elif rest[0] == "add":
-    url, sha = rest[1].rsplit("#", 1)
+    # The real CLI treats an absolute path as a local source and copies it.
+    source = rest[1]
+    if not os.path.isabs(source) or not os.path.isdir(source):
+        print("fake npx: expected a local checkout, got " + repr(source), file=sys.stderr)
+        sys.exit(98)
     skill = rest[rest.index("--skill") + 1]
-    work = tempfile.mkdtemp()
-    subprocess.run(["git", "clone", "-q", url, work], check=True)
-    subprocess.run(["git", "-C", work, "checkout", "-q", sha], check=True)
-    shutil.copytree(os.path.join(work, "skills", skill),
+    shutil.copytree(os.path.join(source, "skills", skill),
                     os.path.join(os.getcwd(), ".agents", "skills", skill))
 """
 
@@ -1006,8 +1073,8 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     monkeypatch.setenv("FAKE_NPX_ALLOWED_SPEC", PINNED_SPEC)
     project = tmp_path / "project"
     project.mkdir()
-    # Serve a pinnable https://...git source from the local repo, for both
-    # `git ls-remote` and the fake CLI's clone, without network access.
+    # Serve an https://...git source from the local repo through git's own
+    # `insteadOf`, so real clone/rev-parse/checkout run without network access.
     remote = "https://example.invalid/demo.git"
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{repo.as_uri()}.insteadOf")
@@ -1032,7 +1099,7 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     verified = ext.execute_external_skill("demo", cwd=project, home=tmp_path / "home")
     assert verified["provenance"]["status"] == "verified"
 
-    # Resolving a branch name hits the real repo through `git ls-remote`.
+    # No ref: the remote's HEAD, resolved in a real clone.
     other = tmp_path / "other"
     other.mkdir()
     head = ext.install_external_skill(
@@ -1041,8 +1108,8 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     assert head["provenance"]["resolved_ref"] == v2
     assert (other / ".agents" / "skills" / "demo" / "SKILL.md").read_text("utf-8") == "# v2\n"
 
-    # An annotated tag resolves through real `git ls-remote` output to the
-    # commit it tags, never to the tag object's own SHA.
+    # An annotated tag resolves to the commit it tags, never to the tag
+    # object's own SHA; a branch resolves through the remote-tracking ref.
     _git("-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "v1.0", "-m", "v1", v1, cwd=repo)
     tagged = tmp_path / "tagged"
     tagged.mkdir()
@@ -1056,6 +1123,13 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     assert _git("rev-parse", "v1.0", cwd=repo) != v1  # the tag object has its own SHA
     assert by_tag["provenance"]["resolved_ref"] == v1
     assert by_tag["provenance"]["requested_ref"] == "v1.0"
+    _git("branch", "old", v1, cwd=repo)
+    branch = tmp_path / "branch"
+    branch.mkdir()
+    by_branch = ext.install_external_skill(
+        skill="demo", source=f"{remote}#old", confirmed=True, cwd=branch, home=tmp_path / "home"
+    )
+    assert by_branch["provenance"]["resolved_ref"] == v1
 
     # A pin the fake npx does not allow proves no call can reach "latest".
     ext._VERIFIED_CLI_PATHS.clear()
