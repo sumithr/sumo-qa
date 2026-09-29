@@ -292,19 +292,26 @@ def _locate_verified(
 
     Without a lock folder nothing is locked, but an install always creates that
     folder before writing a skill; if it appeared during the unlocked read,
-    that install may be mid-way, so the read is repeated under the lock.
+    that install may be mid-way, so the unlocked result (or its failure) is
+    discarded and the read is repeated under the lock.
     """
     lock_base = cwd if scope == "project" else home
     lock_folder = (lock_base / _LOCK_RELPATH).parent
     while True:
         locked = lock_folder.is_dir()
-        with _lock_guard(lock_base) if locked else nullcontext():
-            installed = check_external_skill_installed(skill, scope, cwd, home)
-            found = None
-            if installed is not None:
-                path = Path(installed["path"])
-                body = _read_skill_body(path)
-                found = installed, path, body, _verify_provenance(path, lock_base, body)
+        try:
+            with _lock_guard(lock_base) if locked else nullcontext():
+                installed = check_external_skill_installed(skill, scope, cwd, home)
+                found = None
+                if installed is not None:
+                    path = Path(installed["path"])
+                    body = _read_skill_body(path)
+                    found = installed, path, body, _verify_provenance(path, lock_base, body)
+        except ExternalSkillError:
+            # An unlocked result, or its failure, raced an install: retry locked.
+            if locked or not lock_folder.is_dir():
+                raise
+            continue
         if locked or not lock_folder.is_dir():
             return found
 

@@ -855,6 +855,51 @@ def test_execute_rereads_under_the_lock_when_an_install_starts_meanwhile(
     assert reads_under == [0]  # the only read was unlocked; the locked retry found nothing
 
 
+@pytest.mark.parametrize("recorded_digest", ["matching", "mismatched"])
+def test_the_locked_retry_relocates_rereads_and_verifies_a_replaced_skill(
+    monkeypatch, tmp_path, recorded_digest
+) -> None:
+    """An install that starts during the unlocked read replaces and records the
+    skill. The locked retry must read the replacement and verify it against
+    that record: it returns the new bytes verified, or propagates a mismatch."""
+    skill = tmp_path / ".agents" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# before\n", "utf-8")
+    state = _tracking_guards(monkeypatch)
+    real_read = ext._read_skill_body
+    reads_under = []
+
+    def install_replaces_and_records(path):
+        reads_under.append(state["held"])
+        body = real_read(path)
+        if len(reads_under) == 1:
+            (skill / "SKILL.md").write_text("# after\n", "utf-8")
+            digest = ext.skill_content_digest(skill)
+            record = {
+                "resolved_ref": SHA,
+                "content_digest": digest if recorded_digest == "matching" else "sha256:" + "0" * 64,
+                "path": ".agents/skills/demo",
+            }
+            (tmp_path / ".sumo-qa").mkdir()
+            (tmp_path / ".sumo-qa" / "external-skills.lock.json").write_text(
+                json.dumps({"schema_version": 1, "skills": {".agents/skills/demo": record}}),
+                "utf-8",
+            )
+        return body
+
+    monkeypatch.setattr(ext, "_read_skill_body", install_replaces_and_records)
+
+    if recorded_digest == "mismatched":
+        with pytest.raises(ext.ExternalSkillProvenanceError, match="digest"):
+            ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+    else:
+        result = ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+        assert result["skill_body"] == "# after\n"
+        assert result["provenance"]["status"] == "verified"
+    assert reads_under == [0, 1]  # unlocked first, then re-read under the lock
+    assert state["bases"] == [tmp_path]
+
+
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_rollback_keeps_a_pre_existing_alias_the_cli_never_touched(monkeypatch, toolchain) -> None:
     canonical = toolchain.cwd / ".agents" / "skills" / "find-skills"
