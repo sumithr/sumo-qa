@@ -1,10 +1,11 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """The canonical first-hop contract is one rule across every entry surface (#247).
 
-Every surface that tells a host how to enter sumo-qa must (a) name only tools
-the server actually registers, and (b) carry `FIRST_HOP_RULE` verbatim, so the
+Every surface that tells a host how to enter sumo-qa must carry
+`FIRST_HOP_RULE` verbatim, so the
 server instructions, Copilot instructions, entry-skill body, trigger fixture,
-and conformance fixture cannot assert incompatible rules. Text presence is a
+and conformance fixture cannot assert incompatible rules. Tool-name validity of
+the instruction surfaces is pinned in tests/test_server.py. Text presence is a
 drift guard, not proof that a model follows the rule; that proof is the
 conformance validator plus captured live-host runs.
 """
@@ -16,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from sumo_qa.first_hop import ENTRY_ROUTER, FIRST_HOP_RULE
+from sumo_qa.first_hop import FIRST_HOP_RULE
 from sumo_qa.server import build_mcp_server
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -30,10 +31,6 @@ _RULE_FILES = {
     "conformance-fixture": _REPO_ROOT / "tests" / "scenarios" / "conformance" / "scenarios.yaml",
 }
 
-# A backticked sumo-qa tool reference; `sumo_qa_load_*` style wildcards are
-# excluded because they name a family, not one tool.
-_TOOL_REF = re.compile(r"`((?:using_sumo_qa|sumo_qa_[a-z_]+))`")
-
 
 def _normalise(text: str) -> str:
     """Collapse wrapping and YAML/Markdown comment prefixes so a rule wrapped
@@ -44,10 +41,6 @@ def _normalise(text: str) -> str:
 
 def _server_instructions() -> str:
     return getattr(build_mcp_server(), "instructions", "") or ""
-
-
-def _registered_tools() -> set[str]:
-    return set(build_mcp_server()._tool_manager._tools)
 
 
 def test_normalise_joins_wrapped_comment_lines() -> None:
@@ -67,17 +60,3 @@ def test_rule_file_carries_the_first_hop_rule_verbatim(surface: str) -> None:
 
 def test_server_instructions_carry_the_first_hop_rule_verbatim() -> None:
     assert _normalise(FIRST_HOP_RULE) in _normalise(_server_instructions())
-
-
-@pytest.mark.parametrize("surface", ["server-instructions", "copilot-instructions"])
-def test_instruction_surface_names_only_registered_tools(surface: str) -> None:
-    """A host follows the tool name the instructions give it; a name the server
-    never registered is a dead first hop."""
-    if surface == "server-instructions":
-        text = _server_instructions()
-    else:
-        text = _RULE_FILES[surface].read_text(encoding="utf-8")
-    named = set(_TOOL_REF.findall(text))
-    assert ENTRY_ROUTER in named, f"{surface} does not name the entry router {ENTRY_ROUTER!r}"
-    unregistered = named - _registered_tools()
-    assert not unregistered, f"{surface} names unregistered tools: {sorted(unregistered)}"

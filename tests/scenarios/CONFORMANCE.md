@@ -67,7 +67,7 @@ The canonical rule lives in
 carried verbatim by the MCP server instructions,
 `.github/copilot-instructions.md`, the `using-sumo-qa` skill, the trigger
 fixture, and this layer's fixture (a guard test,
-[`../test_first_hop_contract.py`](../test_first_hop_contract.py), fails when any
+[`../test_first_hop.py`](../test_first_hop.py), fails when any
 of them drifts):
 
 > First hop: every QA-shaped request, including a development-framed one such
@@ -112,7 +112,7 @@ manual check.
 The deterministic checks run in the ordinary suite (no key, no network):
 
 ```bash
-uv run pytest tests/test_conformance_transcript_validator.py
+uv run pytest tests/test_conformance_transcript_validator.py tests/test_conformance.py
 ```
 
 Those tests prove the fixture is well-formed (>= 8 deterministic scenarios,
