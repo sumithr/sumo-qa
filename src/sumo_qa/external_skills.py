@@ -200,18 +200,15 @@ def install_external_skill(
                 _merge_into_lock(lock_base, records)
             except BaseException as exc:
                 remaining = _roll_back(written, before_entries)
+                paths = ", ".join(f.as_posix() for f in remaining)
                 if not isinstance(exc, Exception):
                     if remaining:
-                        # stderr, since stdout carries the MCP protocol.
-                        paths = ", ".join(f.as_posix() for f in remaining)
-                        print(
+                        _announce(
                             f"sumo-qa: interrupted install left unrecorded folders: {paths}; "
-                            "remove them before executing",
-                            file=sys.stderr,
+                            "remove them before executing\n"
                         )
                     raise  # an interrupt is never turned into an ordinary error
                 if remaining:
-                    paths = ", ".join(f.as_posix() for f in remaining)
                     raise ExternalSkillProvenanceError(
                         f"provenance could not be recorded ({exc}) and these unrecorded "
                         f"install folders remain: {paths}; remove them before executing"
@@ -650,6 +647,16 @@ def _entry_identity(path: Path) -> tuple[int, int] | _Uninspectable | None:
     return stat_result.st_ino, stat_result.st_mtime_ns
 
 
+def _announce(message: str) -> None:
+    """Best-effort note on stderr. Never stdout (the MCP protocol stream), and
+    never an exception that could replace the interrupt being re-raised."""
+    stream = sys.stderr
+    if stream is not None:
+        with suppress(Exception):
+            stream.write(message)
+            stream.flush()
+
+
 class _Uninspectable:
     """An entry lstat could not read; compares equal only to itself."""
 
@@ -666,12 +673,19 @@ def _roll_back(
     """
     current = {location.path.parent: _entry_identity(location.path.parent) for location in written}
     replaced = [folder for folder, now in current.items() if before_entries.get(folder) != now]
+    remaining = []
     for folder in replaced:
-        # Never chmod or remove what cannot be inspected; it is reported below.
-        if not isinstance(current[folder], _Uninspectable):
-            with suppress(OSError):
-                _remove_install(folder)
-    return [folder for folder in replaced if _entry_identity(folder) is not None]
+        if isinstance(current[folder], _Uninspectable) or isinstance(
+            before_entries.get(folder), _Uninspectable
+        ):
+            # Unknown identity now or before: never chmod or remove it, report it.
+            remaining.append(folder)
+            continue
+        with suppress(OSError):
+            _remove_install(folder)
+        if _entry_identity(folder) is not None:
+            remaining.append(folder)
+    return remaining
 
 
 def _remove_install(folder: Path) -> None:

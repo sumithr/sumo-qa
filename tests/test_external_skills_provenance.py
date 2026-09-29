@@ -752,6 +752,55 @@ def test_an_interrupt_is_never_swallowed_even_when_rollback_leaves_folders(
     assert captured.out == ""
 
 
+class _BrokenStderr:
+    def write(self, text):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    def flush(self):
+        raise BrokenPipeError(32, "Broken pipe")
+
+
+@pytest.mark.parametrize("stderr", ["broken", "missing"])
+def test_an_interrupt_survives_a_broken_or_missing_stderr_and_never_touches_stdout(
+    monkeypatch, toolchain, capsys, stderr
+) -> None:
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ext, "_write_atomic", interrupted)
+    monkeypatch.setattr(ext, "_remove_install", lambda folder: None)
+    monkeypatch.setattr(ext.sys, "stderr", _BrokenStderr() if stderr == "broken" else None)
+
+    with pytest.raises(KeyboardInterrupt):
+        _install(toolchain)
+
+    assert capsys.readouterr().out == ""  # stdout is the MCP protocol stream
+
+
+def test_an_entry_uninspectable_before_the_install_is_never_removed(monkeypatch, toolchain) -> None:
+    """A transient lstat failure in the before snapshot must not turn a
+    pre-existing folder into a removal target at rollback."""
+    removed = []
+    monkeypatch.setattr(ext, "_remove_install", removed.append)
+    real_identity = ext._entry_identity
+    calls = {"n": 0}
+
+    def uninspectable_first_time(path):
+        calls["n"] += 1
+        return ext._Uninspectable() if calls["n"] == 1 else real_identity(path)
+
+    _install(toolchain)  # a pre-existing copy the next install rewrites
+    monkeypatch.setattr(ext, "_entry_identity", uninspectable_first_time)
+    monkeypatch.setattr(
+        ext, "_write_atomic", lambda *a, **k: (_ for _ in ()).throw(OSError("full"))
+    )
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="remain"):
+        _install(toolchain)
+
+    assert removed == []
+
+
 def test_a_removal_that_raises_is_reported_not_a_crash(monkeypatch, toolchain) -> None:
     monkeypatch.setattr(
         ext, "_write_atomic", lambda *a, **k: (_ for _ in ()).throw(OSError("full"))
@@ -810,17 +859,14 @@ def test_an_entry_that_cannot_be_inspected_is_reported_but_never_touched(
     assert removed == []  # never chmod/remove what cannot be inspected
 
 
-def test_uninspectable_entries_never_compare_equal() -> None:
+def test_uninspectable_entries_never_compare_equal(monkeypatch) -> None:
     def uninspectable(path):
         raise PermissionError(13, "Permission denied", str(path))
 
-    real = ext.os.lstat
-    try:
-        ext.os.lstat = uninspectable
-        first = ext._entry_identity(Path("x"))
-        second = ext._entry_identity(Path("x"))
-    finally:
-        ext.os.lstat = real
+    monkeypatch.setattr(ext.os, "lstat", uninspectable)
+
+    first = ext._entry_identity(Path("x"))
+    second = ext._entry_identity(Path("x"))
 
     assert first is not None and first != second
 
