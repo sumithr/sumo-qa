@@ -506,7 +506,8 @@ once and the row gives the rerun. Per-leg `.ab` counts are in
 | `skill-answering-testing-question.yaml` | 1/1 |  |
 | `skill-closing-qa-gaps.yaml` | 5/5 |  |
 | `skill-creating-test-plan.yaml` | 1/1 |  |
-| `skill-deciding-approach.yaml` | 2/2 |  |
+| `skill-deciding-approach-user-facing.yaml` | not in that run (added by #248); 1/3 on `main`'s skill, which leaked the route announcement and taxonomy labels | 3/3 (first pass 2/3: a paraphrased "I'm routing you to..." handoff, since closed in the skill and the leak check) |
+| `skill-deciding-approach.yaml` | 2/2 | 2/2 |
 | `skill-executing-qa-rollout.yaml` | 1/1 |  |
 | `skill-finding-test-data.yaml` | 1/1 |  |
 | `skill-finishing-qa-work.yaml` | 1/1 |  |

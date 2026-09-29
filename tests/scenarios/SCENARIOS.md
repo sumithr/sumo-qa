@@ -417,6 +417,25 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 ---
 
+## 20. Orphan code: recommend removal, no tests
+
+**User prompt:** *"Help me write tests for `./install.sh`. Nothing references it, no CI uses it, no docs mention it, no entry point points at it."*
+
+**Skill activated:** `sumo-qa-deciding-approach` (terminates at the approach decision; approach: `recommend-removal`).
+
+**Expected interaction shape:**
+1. Runs the removability gate before any test-writing approach: zero callers, zero CI/workflow refs, zero docs refs, no entry-point declaration.
+2. Stops with a short natural-language answer: delete the file, citing the reachability evidence (and the supplanting alternative if one is known).
+3. Does NOT route to `sumo-qa-implementing-with-tdd` or scaffold tests on dead code.
+4. Keeps the routing state internal: no routing-payload object, no `Classification:` / `Approach:` labels, no route announcement, no checklist statuses.
+
+**Anti-patterns:**
+- Scaffolds tests for code nothing reaches.
+- Collapses the answer into "no tests needed" instead of recommending deletion.
+- Echoes `{classification, approach, rationale, next_action}` or `[DONE]` router bookkeeping into the reply.
+
+---
+
 ## How to validate these scenarios
 
 Three complementary paths:
@@ -427,6 +446,6 @@ Three complementary paths:
 
 **3. Deterministic trigger-routing harness (CI gate, every commit):** [`tests/test_skill_triggering.py`](../test_skill_triggering.py) reads [`tests/fixtures/skill_triggers.yaml`](../fixtures/skill_triggers.yaml), a machine-readable prompt → expected-skill matrix, and asserts every skill tool is (a) registered and (b) triggerable by at least one user-natural phrase pinned in the fixture. No live LLM; runs in the standard pytest suite. Add a row to the fixture, not the test, when adding coverage for a new prompt or skill. Catches the silent-mis-routing failure mode where a description rewording drops the trigger phrase the host LLM was relying on. Complements (does not replace) the LLM-judged routing evals under [`tests/evals/promptfoo/`](../evals/promptfoo/), which remain optional and run on the Claude eval pair through the `claude` CLI (`npm run eval`).
 
-**4. Deterministic conformance validator (CI gate, no LLM):** [`CONFORMANCE.md`](CONFORMANCE.md) documents a machine-readable fixture ([`conformance/scenarios.yaml`](conformance/scenarios.yaml)) that encodes the routing + tool-call + output-marker contract for the scenarios above, seeded directly from these headings. The validator ([`../../src/sumo_qa/conformance.py`](../../src/sumo_qa/conformance.py)) scores a captured host/tool-call transcript against a scenario and fails it on a wrong-skill route, a missing required tool call, a forbidden tool call, or a forbidden output claim. It goes beyond trigger-phrase presence (path 3) by checking what the host actually did across the turn, still without a live LLM. Tests: [`../test_conformance_transcript_validator.py`](../test_conformance_transcript_validator.py).
+**4. Deterministic conformance validator (CI gate, no LLM):** [`CONFORMANCE.md`](CONFORMANCE.md) documents a machine-readable fixture ([`conformance/scenarios.yaml`](conformance/scenarios.yaml)) that encodes the routing + tool-call + output-marker contract for the scenarios above, seeded directly from these headings. The validator ([`../../src/sumo_qa/conformance.py`](../../src/sumo_qa/conformance.py)) scores a captured host/tool-call transcript against a scenario and fails it on a wrong-skill route, a missing required tool call, a forbidden tool call, a forbidden output claim, or leaked internal routing state (payload, taxonomy label, route announcement, checklist). It goes beyond trigger-phrase presence (path 3) by checking what the host actually did across the turn, still without a live LLM. Tests: [`../test_conformance_transcript_validator.py`](../test_conformance_transcript_validator.py).
 
 The behavioural-shape and anti-pattern checks above are NOT asserted by the deterministic harness — those are LLM-quality questions and live in static review + role-play + the optional promptfoo evals.

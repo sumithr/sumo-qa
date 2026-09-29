@@ -134,6 +134,19 @@ scenarios:
     forbidden_output_markers:
       - "Routing to sumo-qa-deciding-approach"
 
+  - id: S20-recommend-removal
+    source_doc: SCENARIOS.md
+    source_heading: "Orphan code"
+    user_prompt: >-
+      Help me write tests for ./install.sh - nothing references it, no CI uses
+      it, no docs mention it, no entry point points at it.
+    mode: deterministic
+    expected_entry_skill: sumo_qa_deciding_approach
+    forbidden_tool_calls:
+      - sumo_qa_implementing_with_tdd
+    forbidden_output_markers:
+      - "Approach: recommend-removal"
+
   - id: TS01-load-classifications
     source_doc: TOOL-SELECTION.md
     source_heading: "Load classifications"
