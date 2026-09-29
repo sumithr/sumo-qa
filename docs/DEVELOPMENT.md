@@ -411,6 +411,17 @@ naming both files, the hook id, the hook value and every candidate
 Feature work goes on a feature branch off `main`. Don't push without explicit
 review approval.
 
+## When sumo-qa tools are missing from your session
+
+A healthy install (`sumo-qa-doctor` passes) does not mean the current agent
+session has the sumo-qa tools attached; a session keeps the tool list it
+started with. Contributor workflows that route through sumo-qa check the
+session's tool list once before dispatching any work, and when the tools are
+absent they switch every worker to one declared source-tree degraded mode
+pinned to a single commit. The preflight, the degraded route, and its limits
+are defined in
+[`.claude/README.md`](../.claude/README.md#qa-tool-availability-preflight-and-source-tree-degraded-mode).
+
 ## Editing skills
 
 Plain markdown. Edit `skills/<name>/SKILL.md`, or one of its lazy `skills/<name>/modules/*.md`

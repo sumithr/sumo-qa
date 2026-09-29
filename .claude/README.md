@@ -108,6 +108,68 @@ When the subagents or skills under `.claude/` need to verify that a sumo-qa skil
 
 If you author a new approach tag or skill, `sumo-qa-validate` will pass against the source immediately — but `sumo_qa_load_approaches` will keep returning the prior catalogue until the package is reinstalled and the MCP host restarted. That gap is normal mid-development; just don't surprise yourself with it.
 
+## QA tool availability: preflight and source-tree degraded mode
+
+"The server is installed and healthy" and "the tools are attached to this session" are different facts. `sumo-qa-doctor` and the installer's JSON-RPC `initialize` check prove the first: a `sumo-qa` binary starts, initializes, and advertises its tools. Neither can see or change what an already-running agent session was started with. A session opened before the server was registered, a host that failed to spawn it, or a delegated worker launched without MCP access all have a healthy install and no callable sumo-qa tools. Only the session's own tool list answers the second question.
+
+Local contributor workflows that route QA work through sumo-qa (the issue, batch, and epic driver skills contributors keep under `.claude/skills/`) apply this contract. It exists so a missing tool surface is decided once, stated once, and never improvised per worker.
+
+### Preflight (orchestrator, once, before any dispatch)
+
+Before claiming or dispatching implementation work, the orchestrating session inspects its own callable tool list for both:
+
+- `using_sumo_qa`
+- `sumo_qa_deciding_approach`
+
+Match on those registered tool names. The host prefix (`mcp__sumo-qa__`, a plugin-namespaced prefix, or none) is a transport detail, so match the suffix, not one hard-coded spelling. A tool the host lists as deferred or lazily loaded counts as callable. When both are listed, invoke `using_sumo_qa` once as part of the preflight, before any claim or dispatch, so a broken transport shows up here rather than inside a worker.
+
+| Preflight result | Mode | What happens |
+|---|---|---|
+| Both callable | `mcp` | Normal route: `using_sumo_qa`, then `sumo_qa_deciding_approach`, then the routed skill through its MCP tool. Nothing about the normal route changes. |
+| Either absent | `source-tree` | Degraded mode for the whole dispatch. Record the missing tool names once, in the preflight announcement. |
+| Present, but the preflight invocation fails | none yet | Surface the failure as its own finding and stop. Do not switch to source-tree mode after any MCP content has been loaded into a routing decision. Either fix the transport and retry, or have the user choose source-tree mode and restart that routing decision from scratch with no MCP output carried over. |
+| Neither MCP nor the tracked source files below are readable | none | Block dispatch. Never fall back to model memory or a generic `Skill` tool. |
+
+The orchestrator passes the chosen mode to every worker as `qa_context_mode` (`mcp` or `source-tree`) together with the authority commit (the exact SHA every worker branches from) and the worker's own clone or worktree path. Every worker in one batch receives the same mode and the same commit, so no two workers can route from different authority tiers. Workers apply the mode they are given; they never re-run the preflight or rediscover a fallback on their own. The same holds for every later QA move in that dispatch: a fix-worker receives the same mode and commit, and the orchestrator's own pre-merge review routes by the same mode, reading from that issue's clone or worktree. A worker handed `mcp` whose own session does not list the two tools (a delegated worker can start without MCP access even when its orchestrator has it) escalates to the orchestrator and routes nothing. The orchestrator then either fixes the worker's tool access or re-decides the mode for the whole dispatch and announces it again; it never lets one worker drop to source-tree on its own.
+
+### Source-tree degraded mode
+
+The QA authority is the tracked files under `skills/`, `knowledge/` and `standards/`, plus the rules alias map in `src/sumo_qa/knowledge_loaders.py` (step 5). Read them only at the authority commit, only from the worker's own clone or worktree: `git -C <clone> show <sha>:<path>`. The procedure below travels in the workflow instructions each worker is given, so a worker does not need this README section to exist at the authority commit. Reading at the commit, not from the working tree, keeps the worker's in-progress edits out of its own routing. Never read the primary checkout, an installed `site-packages/sumo_qa/_data/`, or a mix of MCP output and source files for one decision.
+
+Follow this order:
+
+1. Read `skills/using-sumo-qa/SKILL.md` and keep its global discipline (output discipline, knowledge authority, confirmation gates).
+2. Read `knowledge/classifications.md`, `knowledge/approaches.md`, and `skills/sumo-qa-deciding-approach/SKILL.md`.
+3. Produce the same internal `{classification, approach, rationale, next_action}` routing payload the deciding-approach skill defines, using only canonical IDs from those two catalogues, or `n/a` exactly where the deciding-approach skill allows it.
+4. Read the routed `skills/<name>/SKILL.md`, plus any `skills/<name>/modules/<id>.md` it routes to. When `next_action.skill` is `none` (the `no-tests-recommended` and `recommend-removal` stops), there is no routed skill: skip to step 7 and carry the plain-English decision forward, as the MCP route does.
+5. Load only the catalogues that skill asks for, from the files the loaders read:
+
+   | Loader | Tracked source |
+   |---|---|
+   | `sumo_qa_load_classifications` | `knowledge/classifications.md` |
+   | `sumo_qa_load_approaches` | `knowledge/approaches.md` |
+   | `sumo_qa_load_principles` | `knowledge/principles.md` |
+   | `sumo_qa_load_techniques` | `knowledge/techniques.md` |
+   | `sumo_qa_load_standards` | every `*.yml` and `*.yaml` file in `standards/packs/` |
+   | `sumo_qa_load_rules` | `standards/rules/change_rules.yaml` |
+
+   `git show` does not expand globs: list a directory first with `git -C <clone> ls-tree --name-only <sha> standards/packs/`, then `git show` each file it names.
+
+   When the skill calls a loader with a `classification` filter, apply the loader's filter to what you read, so the degraded catalogue matches what the MCP call would return. The filter takes one or more classifications, separated by commas, semicolons or whitespace, with any surrounding backticks or quotes stripped from each one.
+   - `sumo_qa_load_standards(classification=...)` keeps only the packs whose `applies_to_classifications` (or `classifications`) metadata names at least one requested classification. A pack with neither field is dropped from a filtered call, and read only when the skill calls the loader unfiltered.
+   - `sumo_qa_load_rules(classification=...)` keeps only the top-level keys of `change_rules.yaml` that match a requested classification. A requested canonical classification with no key of its own takes the rules of its legacy key through the alias map `_RULE_CLASSIFICATION_ALIASES` in `src/sumo_qa/knowledge_loaders.py`, read at the same commit, and holds them under the requested canonical name (`frontend_change` holds the `ui_only_change` rules as `frontend_change`, for example). A request that matches nothing returns no rules.
+
+   This maps each loader to its bundled source only. A running server also honours the `QA_KNOWLEDGE_PATH`, `QA_STANDARDS_PATH` and `QA_RULES_PATH` overrides and any ingested project or global packs; source-tree mode sees none of them, which is one more reason it is a declared degradation.
+
+   Any authority file this route needs that is missing at the authority commit blocks the run: the worker stops, returns the escalation, and produces no routing payload. A missing file never licenses filling the gap from memory.
+6. Continue through the routed skill with every gate it defines. Routed skills also name sumo-qa tools that are not catalogue loaders:
+   - `sumo_qa_load_skill_context` in module mode is the file `skills/<name>/modules/<id>.md`; read that.
+   - A tool whose step only runs when the host supplies an input or the user asks for an extra artifact (a repo map, context bundle, diff-impact result, risk-ledger appendix, readiness scorecard, saved review feedback) is skipped. Record it as not run in the gap note, and state its absence the way the skill already requires when that input is missing.
+   - A tool with no tracked-file equivalent that a mandatory gate cannot pass without is an escalation: stop, name the tool, and produce no verdict. Never hand-write what that tool would have returned.
+7. Record one gap note per worker, including a worker that stopped at step 4: `sumo-qa MCP unavailable; routed from tracked source at <sha>`, with the missing tool names.
+
+This is a declared degradation of the transport, not a second authority. The loaded-catalogue rule, the routing payload shape, and the routed skill's gates all still apply. Source-tree content is also not evidence about the released package: it may be ahead of any release (see the table above). Any claim about what currently ships needs an installed MCP session or an inspection of the installed package.
+
 ## Related
 
 - `hooks/` (repo root, not `.claude/hooks/`) — MCP plugin hooks shipped with the `sumo-qa` package itself; see `hooks/hooks.json`. Distinct from the Claude Code hooks documented above.
