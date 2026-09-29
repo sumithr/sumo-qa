@@ -49,7 +49,7 @@ class SourceResolutionError(ExternalSkillError):
 
 
 class ExternalSkillReadError(ExternalSkillError):
-    """Raised when an installed skill exists but cannot be read."""
+    """Raised when a filesystem error stops locating, locking, or reading a skill."""
 
 
 class ExternalSkillProvenanceError(ExternalSkillError):
@@ -317,7 +317,9 @@ def _locate_verified(
             # An unlocked result, or its failure, raced an install: retry locked.
             if locked or not lock_folder.is_dir():
                 if isinstance(exc, OSError):
-                    raise ExternalSkillReadError(f"could not read skill {skill!r}: {exc}") from exc
+                    raise ExternalSkillReadError(
+                        f"filesystem error while locating or reading skill {skill!r}: {exc}"
+                    ) from exc
                 raise
             retry = True
             continue
@@ -358,8 +360,9 @@ def hint_for_exception(exc: BaseException) -> str:
         )
     if isinstance(exc, ExternalSkillReadError):
         return (
-            "The skill is installed but could not be read (permissions or a "
-            "concurrent change). Surface the error; do not reinstall over it."
+            "A filesystem error stopped sumo-qa locating, locking, or reading the "
+            "skill. Surface it with the path and permissions it names, and check "
+            "whether the skill still exists before reinstalling."
         )
     if isinstance(exc, ExternalSkillProvenanceError):
         return (
@@ -444,7 +447,7 @@ def _hash_regular_file(path: Path) -> str:
             raise ExternalSkillProvenanceError(f"{path} is not a regular file; refusing to read it")
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError as exc:
-        raise ExternalSkillProvenanceError(f"could not read {path}: {exc}") from exc
+        raise ExternalSkillReadError(f"could not read {path}: {exc}") from exc
 
 
 def _digest_of(entries: dict[tuple[str, str], str]) -> str:
@@ -455,6 +458,7 @@ def _digest_of(entries: dict[tuple[str, str], str]) -> str:
 
 
 def _read_skill_body(path: Path) -> bytes:
+    # A seam for tests; errors are typed by the caller (_locate_verified).
     return path.read_bytes()
 
 

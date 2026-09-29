@@ -932,6 +932,7 @@ def test_an_unreadable_skill_is_a_typed_error_that_keeps_its_cause(
     (skill / "SKILL.md").write_text("# x\n", "utf-8")
     if locked:
         (tmp_path / ".sumo-qa").mkdir()
+    state = _tracking_guards(monkeypatch)
 
     def denied(self):
         raise PermissionError("denied")
@@ -942,7 +943,10 @@ def test_an_unreadable_skill_is_a_typed_error_that_keeps_its_cause(
         ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
 
     assert isinstance(excinfo.value.__cause__, PermissionError)
-    assert "do not reinstall" in ext.hint_for_exception(excinfo.value)
+    assert "still exists before reinstalling" in ext.hint_for_exception(excinfo.value)
+    # Without a lock folder a failed read never takes a lock or creates one.
+    assert state["bases"] == ([tmp_path] if locked else [])
+    assert (tmp_path / ".sumo-qa").exists() == locked
 
 
 def test_any_filesystem_race_in_the_unlocked_attempt_takes_the_locked_retry(
@@ -1184,7 +1188,9 @@ def test_special_files_are_refused_not_read(tmp_path) -> None:
         ext.skill_content_digest(skill)
 
 
-def test_unreadable_skill_file_is_a_typed_provenance_error(monkeypatch, tmp_path) -> None:
+def test_an_unreadable_file_in_the_skill_is_a_typed_read_error(monkeypatch, tmp_path) -> None:
+    """A permission problem gets the same typed error wherever it hits, not a
+    'reinstall' hint for one file and a 'do not reinstall' hint for another."""
     skill = tmp_path / "skill"
     skill.mkdir()
     (skill / "SKILL.md").write_text("# x", "utf-8")
@@ -1194,7 +1200,7 @@ def test_unreadable_skill_file_is_a_typed_provenance_error(monkeypatch, tmp_path
 
     monkeypatch.setattr(ext.Path, "read_bytes", unreadable)
 
-    with pytest.raises(ext.ExternalSkillProvenanceError, match="denied"):
+    with pytest.raises(ext.ExternalSkillReadError, match="denied"):
         ext.skill_content_digest(skill)
 
 
@@ -1414,7 +1420,7 @@ def test_execute_reports_an_unrecorded_install_without_blocking(tmp_path) -> Non
         (ext.SourceResolutionError("x"), "commit SHA"),
         (ext.ExternalSkillProvenanceError("x"), "Do not execute"),
         (ext.ExternalSkillProvenanceError("x"), "external-skills.lock.json"),
-        (ext.ExternalSkillReadError("x"), "do not reinstall"),
+        (ext.ExternalSkillReadError("x"), "still exists before reinstalling"),
     ],
 )
 def test_new_errors_carry_actionable_hints(exception, keyword) -> None:
