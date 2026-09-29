@@ -297,8 +297,10 @@ def _locate_verified(
     """
     lock_base = cwd if scope == "project" else home
     lock_folder = (lock_base / _LOCK_RELPATH).parent
+    retry = False
     while True:
-        locked = lock_folder.is_dir()
+        # The retry is always locked, so execute tries at most twice.
+        locked = retry or lock_folder.is_dir()
         try:
             with _lock_guard(lock_base) if locked else nullcontext():
                 installed = check_external_skill_installed(skill, scope, cwd, home)
@@ -311,9 +313,11 @@ def _locate_verified(
             # An unlocked result, or its failure, raced an install: retry locked.
             if locked or not lock_folder.is_dir():
                 raise
+            retry = True
             continue
         if locked or not lock_folder.is_dir():
             return found
+        retry = True
 
 
 def hint_for_exception(exc: BaseException) -> str:
@@ -440,7 +444,10 @@ def _digest_of(entries: dict[tuple[str, str], str]) -> str:
 
 
 def _read_skill_body(path: Path) -> bytes:
-    return path.read_bytes()
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise ExternalSkillError(f"could not read {path}: {exc}") from exc
 
 
 def _cli_spec() -> str:

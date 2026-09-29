@@ -900,6 +900,79 @@ def test_the_locked_retry_relocates_rereads_and_verifies_a_replaced_skill(
     assert state["bases"] == [tmp_path]
 
 
+def test_a_skill_removed_before_the_unlocked_read_retries_under_the_lock(
+    monkeypatch, tmp_path
+) -> None:
+    skill = tmp_path / ".agents" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# x\n", "utf-8")
+    state = _tracking_guards(monkeypatch)
+    real_read_bytes = Path.read_bytes
+
+    def rolled_back_first(self):
+        if self.name == "SKILL.md" and not (tmp_path / ".sumo-qa").exists():
+            (tmp_path / ".sumo-qa").mkdir()
+            shutil.rmtree(skill)
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(ext.Path, "read_bytes", rolled_back_first)
+
+    with pytest.raises(ext.ExternalSkillError, match="not installed"):
+        ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+
+    assert state["bases"] == [tmp_path]
+
+
+def test_an_unreadable_skill_is_a_typed_error(monkeypatch, tmp_path) -> None:
+    skill = tmp_path / ".agents" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# x\n", "utf-8")
+
+    def denied(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(ext.Path, "read_bytes", denied)
+
+    with pytest.raises(ext.ExternalSkillError, match="could not read"):
+        ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+
+
+def test_execute_tries_at_most_twice_and_locks_the_second_time(monkeypatch, tmp_path) -> None:
+    """Something outside sumo-qa removing and recreating .sumo-qa cannot keep
+    execute retrying: the second attempt is always locked and final."""
+    skill = tmp_path / ".agents" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# x\n", "utf-8")
+    state = _tracking_guards(monkeypatch)
+    real_read = ext._read_skill_body
+    reads_under = []
+
+    lock_folder = tmp_path / ".sumo-qa"
+
+    def install_creates_the_lock_folder(path):
+        reads_under.append(state["held"])
+        assert len(reads_under) <= 2, "execute kept retrying"
+        if not state["held"]:
+            lock_folder.mkdir(exist_ok=True)
+        return real_read(path)
+
+    real_is_dir = Path.is_dir
+
+    def seen_then_removed(self):
+        present = real_is_dir(self)
+        if self == lock_folder and present and not state["held"]:
+            shutil.rmtree(self)  # removed again as soon as execute has seen it
+        return present
+
+    monkeypatch.setattr(ext, "_read_skill_body", install_creates_the_lock_folder)
+    monkeypatch.setattr(ext.Path, "is_dir", seen_then_removed)
+
+    result = ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+
+    assert reads_under == [0, 1]
+    assert result["provenance"] == {"status": "unrecorded"}
+
+
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_rollback_keeps_a_pre_existing_alias_the_cli_never_touched(monkeypatch, toolchain) -> None:
     canonical = toolchain.cwd / ".agents" / "skills" / "find-skills"
