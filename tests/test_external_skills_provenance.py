@@ -219,12 +219,38 @@ def test_search_returns_the_cli_identity(toolchain) -> None:
     assert result["command"] == ["/opt/bin/npx", "--yes", PINNED_SPEC, "find", "mypy"]
 
 
-def test_cli_runs_without_a_shell_so_arguments_are_not_reinterpreted(toolchain) -> None:
+def test_a_native_npx_runs_without_a_shell_so_arguments_are_not_reinterpreted(toolchain) -> None:
     ext.search_external_skills('"; rm -rf ~ #')
 
     command, kwargs = toolchain.calls[-1]
     assert command[-1] == '"; rm -rf ~ #'
     assert not kwargs.get("shell")
+
+
+@pytest.mark.parametrize("npx", [r"C:\nodejs\npx.cmd", r"C:\nodejs\NPX.CMD", r"C:\nodejs\npx.bat"])
+@pytest.mark.parametrize(
+    "arg", ["x&calc", 'x" & calc & "', "a|b", "a<b", "a>b", "a^b", "%PATH%", "a\nb"]
+)
+def test_a_batch_file_npx_refuses_arguments_cmd_exe_would_reinterpret(npx, arg) -> None:
+    """Windows runs npx.cmd through cmd.exe, whose parsing list2cmdline's quoting
+    does not survive, so an argument carrying a cmd metacharacter could run a
+    command; refuse it instead."""
+    with pytest.raises(ValueError, match="cmd.exe"):
+        ext.build_skills_cli_command(npx, ["find", arg])
+
+
+def test_a_batch_file_npx_accepts_ordinary_arguments() -> None:
+    npx = r"C:\Program Files\nodejs\npx.cmd"
+
+    command = ext.build_skills_cli_command(npx, ["find", "pdf tools"])
+
+    assert command == [npx, "--yes", PINNED_SPEC, "find", "pdf tools"]
+
+
+def test_a_native_npx_passes_metacharacters_through_unchanged() -> None:
+    command = ext.build_skills_cli_command("/opt/bin/npx", ["find", "x&calc"])
+
+    assert command[-1] == "x&calc"
 
 
 # ---------------------------------------------------------------------------

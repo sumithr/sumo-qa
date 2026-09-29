@@ -79,6 +79,7 @@ class InstalledSkill:
 SKILLS_CLI_PACKAGE = "skills"
 SKILLS_CLI_VERSION = "1.7.0"
 _EXACT_VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
+_CMD_EXE_META_RE = re.compile(r'["%^&|<>\r\n]')
 # npx paths whose CLI already reported the pinned version this process.
 _VERIFIED_CLI_PATHS: set[str] = set()
 
@@ -425,6 +426,16 @@ def build_skills_cli_command(npx: str, args: Sequence[str]) -> list[str]:
             f"Skills CLI pin {SKILLS_CLI_VERSION!r} is not an exact version; "
             "refusing to let npx resolve a floating one"
         )
+    if npx.lower().endswith((".cmd", ".bat")):
+        # Windows runs a batch file through cmd.exe, which re-parses the command
+        # line after list2cmdline has quoted it, so these characters could run
+        # a second command or expand a variable.
+        for arg in args:
+            if _CMD_EXE_META_RE.search(arg):
+                raise ValueError(
+                    f"argument {arg!r} contains a character cmd.exe would "
+                    "reinterpret when running npx; remove it and retry"
+                )
     return [npx, "--yes", _cli_spec(), *args]
 
 

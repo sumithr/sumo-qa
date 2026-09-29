@@ -26,6 +26,7 @@ import errno
 import os
 import sys
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 from typing import TextIO
 
@@ -159,11 +160,14 @@ def _fdopen_or_close(fd: int) -> TextIO:
     """Wrap a freshly created temp fd, closing it if the wrap itself fails.
 
     A leaked fd would keep the temp file open, and Windows cannot unlink an
-    open file, so the caller's cleanup would fail and mask the real error."""
+    open file, so the caller's cleanup would fail and mask the real error.
+    io.open closes the fd itself when it fails late, so that close may find the
+    fd already gone; its error must not replace the original one."""
     try:
         return os.fdopen(fd, "w", encoding="utf-8")
     except BaseException:
-        os.close(fd)
+        with suppress(OSError):
+            os.close(fd)
         raise
 
 

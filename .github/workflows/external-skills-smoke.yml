@@ -18,7 +18,8 @@ name: external-skills-smoke
 # PR check.
 #
 # Interpreting the run (also in docs/DEVELOPMENT.md):
-#   - GREEN with `1 passed`         → CLI reachable, MCP shape contract held.
+#   - GREEN with `2 passed`         → CLI reachable at the pin, search shape
+#                                     held, pinned install verified.
 #   - RED in `Fail if smoke was     → the test self-skipped. With npx verified
 #     skipped`                        present (see step below), the only path
 #                                     to a skip is ExternalSkillCLIError —

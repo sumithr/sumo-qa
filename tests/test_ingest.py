@@ -516,3 +516,19 @@ def test_conflicting_destinations_rejected_before_write(tmp_path, monkeypatch):
         ingest.ingest_pack(str(d), scope="project")
     assert "conflicting sources" in str(exc.value) and "principles.md" in str(exc.value)
     assert not (tmp_path / ".sumo-qa").exists()
+
+
+def test_atomic_write_keeps_the_real_error_when_fdopen_already_closed_the_fd(tmp_path, monkeypatch):
+    # io.open closes the fd itself when it fails after building the raw file,
+    # so the helper's own close hits EBADF; the original error must still win.
+    dest = tmp_path / "knowledge" / "principles.md"
+    dest.parent.mkdir(parents=True)
+
+    def late_failure(fd, *args, **kwargs):
+        os.close(fd)
+        raise LookupError("late wrapper failure")
+
+    monkeypatch.setattr(ingest.os, "fdopen", late_failure)
+    with pytest.raises(LookupError, match="late wrapper failure"):
+        ingest._atomic_write_fallback(dest, "body\n")
+    assert list(dest.parent.glob(".*tmp*")) == []

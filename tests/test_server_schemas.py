@@ -410,7 +410,7 @@ def test_install_external_skill_output_accepts_representative_payload() -> None:
             "--yes",
             "skills@1.7.0",
             "add",
-            "https://github.com/vercel-labs/skills#0123456789abcdef0123456789abcdef01234567",
+            "/tmp/sumo-qa-skill-abc123/checkout",
             "--skill",
             "mypy-type-checking",
             "-a",
