@@ -141,7 +141,7 @@ Follow this order:
 1. Read `skills/using-sumo-qa/SKILL.md` and keep its global discipline (output discipline, knowledge authority, confirmation gates).
 2. Read `knowledge/classifications.md`, `knowledge/approaches.md`, and `skills/sumo-qa-deciding-approach/SKILL.md`.
 3. Produce the same internal `{classification, approach, rationale, next_action}` routing payload the deciding-approach skill defines, using only canonical IDs from those two catalogues.
-4. Read the routed `skills/<name>/SKILL.md`, plus any `skills/<name>/modules/<id>.md` it routes to. When `next_action.skill` is `none` (the `no-tests-recommended` and `recommend-removal` stops), there is no routed skill: stop there and carry the plain-English decision forward, as the MCP route does.
+4. Read the routed `skills/<name>/SKILL.md`, plus any `skills/<name>/modules/<id>.md` it routes to. When `next_action.skill` is `none` (the `no-tests-recommended` and `recommend-removal` stops), there is no routed skill: skip to step 7 and carry the plain-English decision forward, as the MCP route does.
 5. Load only the catalogues that skill asks for, from the files the loaders read:
 
    | Loader | Tracked source |
@@ -166,7 +166,7 @@ Follow this order:
    - `sumo_qa_load_skill_context` in module mode is the file `skills/<name>/modules/<id>.md`; read that.
    - A tool whose step only runs when the host supplies an input or the user asks for an extra artifact (a repo map, context bundle, diff-impact result, risk-ledger appendix, readiness scorecard, saved review feedback) is skipped. Record it as not run in the gap note, and state its absence the way the skill already requires when that input is missing.
    - A tool with no tracked-file equivalent that a mandatory gate cannot pass without is an escalation: stop, name the tool, and produce no verdict. Never hand-write what that tool would have returned.
-7. Record one gap note per worker: `sumo-qa MCP unavailable; routed from tracked source at <sha>`, with the missing tool names.
+7. Record one gap note per worker, including a worker that stopped at step 4: `sumo-qa MCP unavailable; routed from tracked source at <sha>`, with the missing tool names.
 
 This is a declared degradation of the transport, not a second authority. The loaded-catalogue rule, the routing payload shape, and the routed skill's gates all still apply. Source-tree content is also not evidence about the released package: it may be ahead of any release (see the table above). Any claim about what currently ships needs an installed MCP session or an inspection of the installed package.
 
