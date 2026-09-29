@@ -690,6 +690,13 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("I'll route this to sumo-qa-reviewing-before-merge.", "route_announcement"),
         ("Approach: \u2018tdd-scaffold\u2019", "taxonomy_label"),
         ("Classification: docs_change; Approach: no-tests-recommended.", "taxonomy_label"),
+        ("**Classification:** docs_change **Approach:** no-tests-recommended", "taxonomy_label"),
+        ("Routing to the ***[`sumo-qa-strategising`]**", "route_announcement"),
+        (
+            "{classification: docs_change, approach: no-tests-recommended, rationale: "
+            "\u2018the user\u2019s change is docs only\u2019, next_action: {skill: none}}",
+            "payload_json",
+        ),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:

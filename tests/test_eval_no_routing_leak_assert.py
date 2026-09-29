@@ -97,6 +97,11 @@ _EXTRA = [
     "Routing this to sumo_qa_record_coverage now.",
     "Routed to sumo-qa-reviewing-before-merge.",
     "2024. Approach: tdd-scaffold",
+    "I'll route this to sumo-qa-reviewing-before-merge.",
+    "Routing it to sumo-qa-strategising.",
+    "**Classification:** docs_change **Approach:** no-tests-recommended" + " " * 2_000 + "x",
+    "{classification: docs_change, approach: no-tests-recommended, rationale: "
+    "\u2018the user\u2019s change is docs only\u2019, next_action: {skill: none}}",
     "Classification: docs_change; Approach: no-tests-recommended." + " " * 2_000 + "x",
 ]
 

@@ -331,7 +331,7 @@ _SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f
 # ("I'd recommend handing off to sumo-qa-reviewing-before-merge") or tell the
 # user to send output to a tool, so paraphrased handoffs are left to the eval's
 # judge rather than matched here.
-_TO_SKILL = r"[:\s*_`\"'\[(]{0,8}(?:the\s+[*_`\"'\[(]{0,4})?(?:sumo-qa-|using[-_]sumo[-_]qa)"
+_TO_SKILL = r"[:\s*_`\"'\[(]{0,8}(?:the\s+[*_`\"'\[(]{0,8})?(?:sumo-qa-|using[-_]sumo[-_]qa)"
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
     r"picking the qa approach"
     r"|\brouting this qa intent\b"
@@ -379,10 +379,10 @@ def find_routing_leaks(text: str) -> tuple[str, ...]:
 
 
 def _normalise(text: str) -> str:
-    """Typographic apostrophes and double quotes to ASCII, line breaks (CRLF, CR, U+2028/9) to
+    """Typographic closing apostrophes and double quotes to ASCII, line breaks (CRLF, CR, U+2028/9) to
     newlines, and every other whitespace character to a plain space, so the
     Python and JS matchers see the same text."""
-    text = text.replace("\u2018", "'").replace("\u2019", "'")
+    text = text.replace("\u2019", "'")
     text = text.replace("\u201c", '"').replace("\u201d", '"')
     text = text.replace("\r\n", "\n")
     text = _LINE_BREAK_RE.sub("\n", text)
@@ -466,16 +466,20 @@ def _label_re(names: frozenset[str]) -> re.Pattern[str]:
     clause end and the other label with its own catalogue value.
     Labels inside prose are left to the eval's judge."""
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    # U+2018 stays un-normalised (a rationale's "\u2018user\u2019s\u2019" must keep
+    # its quotes balanced), so it is label decoration instead.
+    deco = "[*_`\"'\u2018]*"
+    pair = (
+        rf"{deco}(?:classification|approach){deco}[ \t]*:[ \t*_`\"'\u2018]*"
+        rf"(?:{alternatives}|n/a)[`*_\"']*"
+    )
     return re.compile(
         # List or heading prefixes, each followed by whitespace, so a prefix
         # run has a single parse.
-        r"^[ \t]*(?:(?:[-+*]|>+|#{1,6}|\d{1,3}[.)])[ \t]+)*"
-        r"[*_`\"']*(?:classification|approach)[*_`\"']*[ \t]*:"
-        rf"[ \t*_`\"']*(?:{alternatives}|n/a)[`*_\"']*"
-        # A clause end, optionally followed by the other label with its own
-        # catalogue value, then line end.
-        r"(?:[ \t]*[.,;](?:[ \t]*[*_`\"']*(?:classification|approach)[*_`\"']*[ \t]*:"
-        rf"[ \t*_`\"']*(?:{alternatives}|n/a)[`*_\"']*(?:[ \t]*[.,;])?)?)?[ \t]*$",
+        rf"^[ \t]*(?:(?:[-+*]|>+|#{{1,6}}|\d{{1,3}}[.)])[ \t]+)*{pair}"
+        # Then a clause end, or the other label with its own value (with or
+        # without a separator), then line end.
+        rf"(?:[ \t]*(?:[.,;][ \t]*)?{pair}(?:[ \t]*[.,;])?|[ \t]*[.,;])?[ \t]*$",
         re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
 
