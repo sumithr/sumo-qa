@@ -493,9 +493,11 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
 
 One pass of every base config on 2026-09-28, on `main` at `edc7860`. The last column is the
 result on this branch's final skills and rubrics; a blank cell is a config whose skill and rubric
-this branch does not change. Every `skill-reviewing-before-merge*.yaml` config ran once on the
-final tree, 2026-09-29; a config with a judge reply the provider could not parse, or a single
-ledger-row slip, was rerun once and the row gives the rerun. Per-leg `.ab` counts are in
+this branch does not change. Every `skill-reviewing-before-merge*.yaml` config ran once on
+`e57bd72`, 2026-09-29, and the five configs that load `surface-verifier` (the one module
+`6cbc646` then changed) ran again on `6cbc646`, so every row reflects the final skill slices. A
+config with a judge reply the provider could not parse, or a single ledger-row slip, was rerun
+once and the row gives the rerun. Per-leg `.ab` counts are in
 "A/B value-measurement" below.
 
 | Config | Full pass | Final skill |
@@ -518,10 +520,10 @@ ledger-row slip, was rerun once and the row gives the rerun. Per-leg `.ab` count
 | `skill-preparing-for-work-surface-probes.yaml` | 2/2 | 2/2 |
 | `skill-preparing-for-work.yaml` | 1/1 | 1/1 |
 | `skill-reviewing-before-merge-ac-coverage.yaml` | 2/3, 1 judge parse error | 3/3 |
-| `skill-reviewing-before-merge-adversarial.yaml` | 13/13 | 13/13 |
-| `skill-reviewing-before-merge-coverage-artifact.yaml` | 2/2 | 2/2 |
+| `skill-reviewing-before-merge-adversarial.yaml` | 13/13 | 13/13 (rerun; first pass 12/13, one ledger-row slip) |
+| `skill-reviewing-before-merge-coverage-artifact.yaml` | 2/2 | 2/2 (rerun; first pass 0/2, one row writing `NONE` beside a path-matching test and one judge parse error) |
 | `skill-reviewing-before-merge-doc-drift.yaml` | 1/1 | 1/1 |
-| `skill-reviewing-before-merge-eval-validity.yaml` | 2/2 | 2/2 |
+| `skill-reviewing-before-merge-eval-validity.yaml` | 2/2 | 2/2 (on `6cbc646`; two passes on `e57bd72` 1/2, the load-bearing seed blocked on a recorded run that did not restate its backend) |
 | `skill-reviewing-before-merge-external-contract.yaml` | 3/3 | 3/3 |
 | `skill-reviewing-before-merge-feature-flow.yaml` | 2/2 | 2/2 |
 | `skill-reviewing-before-merge-feedback-memory.yaml` | 2/2 | 2/2 |
@@ -531,10 +533,10 @@ ledger-row slip, was rerun once and the row gives the rerun. Per-leg `.ab` count
 | `skill-reviewing-before-merge-mapping-gap.yaml` | 1/1 | 1/1 |
 | `skill-reviewing-before-merge-repo-map.yaml` | 1/1 | 1/1 |
 | `skill-reviewing-before-merge-scorecard.yaml` | 2/2 | 2/2 |
-| `skill-reviewing-before-merge-security-relevance.yaml` | 2/2 | 2/2 (rerun; first pass 1/2, one ledger-row slip) |
-| `skill-reviewing-before-merge-unproven-escalation.yaml` | 1/2 | 2/2 (rerun; first pass 1/2, a prescribed input a correct impl also tags) |
+| `skill-reviewing-before-merge-security-relevance.yaml` | 2/2 | 2/2 |
+| `skill-reviewing-before-merge-unproven-escalation.yaml` | 1/2 | 2/2 |
 | `skill-reviewing-before-merge-vacuous-test.yaml` | 2/2 | 2/2 |
-| `skill-reviewing-before-merge-verifier-evidence.yaml` | 3/3 | 3/3 |
+| `skill-reviewing-before-merge-verifier-evidence.yaml` | 3/3 | 3/3 (rerun; first pass 2/3, one judge parse error) |
 | `skill-reviewing-before-merge.yaml` | 1/1 | 1/1 |
 | `skill-security-testing.yaml` | 4/5 | 5/5 |
 | `skill-strategising-repo-map.yaml` | 1/1 |  |
@@ -959,7 +961,7 @@ renders.
 
 `asserts/ledger-row-labels.js` fails a coverage-ledger row whose label contradicts its own `Fresh matching tests` field: tests listed and the row labelled UNCOVERED, or `NONE` and the row labelled UNPROVEN or COVERED. It runs on every seed and every `.ab` leg of the reviewing-before-merge configs that load `coverage-ledger`.
 
-On the Claude pair the current skill still produces a contradicting row on a few current-skill legs per pass over those configs, almost always a listed test labelled UNCOVERED, and the slip moves between seeds from pass to pass: 2 of about 60 on the final #689 pass, none of 13 on the final `adversarial` pass and 1 of 5 on its `rollback-data-loss` seed at `--repeat 5`, against 2 of 26 `adversarial` legs for the tree before the #689 consistency fixes at `--repeat 2`. The skill states the rule in the row template's Coverage slot, the label definition, a BAD/GOOD row, and the discovery, feature-flow, declared-contract and acceptance-criteria modules, so treat a single failing leg as candidate variance: rerun that config once, and treat the same row failing twice as a regression.
+On the Claude pair the current skill still produces a contradicting row on a few current-skill legs per pass over those configs, almost always a listed test labelled UNCOVERED, and the slip moves between seeds from pass to pass: 4 of 53 row-checked current-skill legs on the `1d23d4f` pass, 1 of 53 on the final #689 pass (`e57bd72`, the `adversarial` `rollback-data-loss` seed, clean on its rerun), each on a different row, none of 13 on the final `adversarial` pass and 1 of 5 on its `rollback-data-loss` seed at `--repeat 5`, against 2 of 26 `adversarial` legs for the tree before the #689 consistency fixes at `--repeat 2`. The skill states the rule in the row template's Coverage slot, the label definition, a BAD/GOOD row, and the discovery, feature-flow, declared-contract and acceptance-criteria modules, so treat a single failing leg as candidate variance: rerun that config once, and treat the same row failing twice as a regression. The mirror slip, a row writing `NONE` beside a path-matching test and labelling it UNCOVERED, agrees with itself, so this check passes it and the rubric fails it: once each on those two passes (`security-relevance`, then `coverage-artifact`), both clean on the next run.
 
 The check reads `NONE`, `N/A`, `nothing`, `0 tests`, `not run`, an empty field or a dash as no test listed, and takes an inline row's tests field up to the next `| <Label>:` field, so a parametrized test ID carrying `|` stays in the field and an extra field such as `| Notes: ... |` before `Coverage:` is never read as a listed test. In a table ledger an escaped `\|` stays inside its cell, and a row with bare pipes in its tests cell keeps its Coverage column, counted from the row's end.
 
@@ -969,7 +971,7 @@ The slip could be removed structurally by never writing UNCOVERED at all (a `NON
 
 This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the skill (for `reviewing-before-merge`, the root `SKILL.md` plus the modules the config declares, assembled by `fixtures/assemble-review-skill.js`; for other skills, the whole `SKILL.md`). The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` controls exist for a subset of skills and corpora (`ls tests/evals/promptfoo/*.ab.yaml`); the pattern is not rolled across the whole estate.
 
-Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-opus-5` judge) on this branch's final skills and rubrics, one pass unless the row says otherwise:
+Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-opus-5` judge) on this branch's final skills and rubrics, one pass unless the row says otherwise. The `reviewing-before-merge` rows are the final #689 pass: the skill slices as at `6cbc646`, run there for the configs that load `surface-verifier` and on `e57bd72` for the rest, whose slices are identical.
 
 | Control | A0 | A1 | B | Notes |
 |---|---|---|---|---|
@@ -978,8 +980,8 @@ Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-op
 | `skill-implementing-with-tdd.ab.yaml` | 0/3 | 0/3 | 3/3 | |
 | `skill-strengthening-tests.ab.yaml` | 3/5 | 4/5 | 5/5 | After the axis-A tightening; on the production-defect seed over 3 repeats, B 3/3, A0 0/3, A1 0/3 |
 | `skill-preparing-for-work.ab.yaml` | 4/4 | 2/4 | 4/4 | Non-discriminating, see below; one A1 sample lost to an unparseable judge reply |
-| `skill-reviewing-before-merge.ab.yaml` | 1/3 | 2/3 | 3/3 | Non-discriminating, regression guard; rerun after an unparseable judge reply, one A0 sample lost to another |
-| `skill-reviewing-before-merge-adversarial.ab.yaml` | 7/7 | 7/7 | 7/7 | Non-discriminating (ceiling), regression guard; rerun after an unparseable judge reply |
+| `skill-reviewing-before-merge.ab.yaml` | 3/3 | 2/3 | 3/3 | Non-discriminating, regression guard |
+| `skill-reviewing-before-merge-adversarial.ab.yaml` | 7/7 | 7/7 | 7/7 | Non-discriminating (ceiling), regression guard |
 
 Pre-edit controls compare a snapshotted pre-edit skill body (A0) with the current skill (A1):
 
@@ -987,7 +989,7 @@ Pre-edit controls compare a snapshotted pre-edit skill body (A0) with the curren
 |---|---|---|---|
 | `skill-reviewing-before-merge-eval-validity.ab.yaml` | 1/1 | 1/1 | Non-discriminating, regression guard on A1 |
 | `skill-reviewing-before-merge-feature-flow.ab.yaml` | 0/1 | 1/1 | |
-| `skill-reviewing-before-merge-feedback-memory.ab.yaml` | 0/1 | 1/1 | A0 failed on its coverage label; A0 2/3 over three earlier samples under the same rubric; non-discriminating, regression guard |
+| `skill-reviewing-before-merge-feedback-memory.ab.yaml` | 1/1 | 1/1 | A0 2/3 over three earlier samples and 0/2 over two earlier #689 passes, each fail on its coverage label; non-discriminating, regression guard |
 | `skill-reviewing-before-merge-fence-parser.ab.yaml` | 0/1 | 1/1 | |
 | `skill-reviewing-before-merge-runtime-scope.ab.yaml` | 0/1 | 1/1 | Over 5 earlier repeats under the same rubric, A0 0/5 and A1 4/5 |
 | `skill-reviewing-before-merge-unproven-escalation.ab.yaml` | 1/2 | 2/2 | A0 passed the substring seed and failed the boundary seed on its coverage label; regression guard on A1 |
@@ -998,4 +1000,4 @@ A control only measures lift if A0 cannot pass on material the prompt already ha
 
 `skill-preparing-for-work.ab.yaml` does not discriminate on the Claude pair: the response format every leg is handed carries the SHAPE axis, so A0 reaches B's pass count. Two recorded single passes, A0 3/4, A1 2/4, B 4/4 and A0 4/4, A1 4/4, B 4/4. It is kept as a regression guard on the shared rubric rather than a lift measurement; restoring lift needs a seed targeting a taught behaviour A0 is not given.
 
-A pre/post-edit control's ground-truth context states facts only (the diff, the code, the tests and their fixtures), never the defect or the conclusion the edit teaches, with one documented exception: a narrated defect lets the pre-edit leg pass on the Claude pair. On that basis the `reviewing-before-merge` controls `runtime-scope`, `fence-parser` and `feature-flow` separate their legs on the Claude pair: `runtime-scope` A0 0/8 against A1 7/8 (5 repeats, then three #689 passes), and `fence-parser` and `feature-flow` A0 fails every graded sample while the skill leg passes. `eval-validity` is the exception: it keeps its developer observations, because the skill leg cannot judge the fence inputs without them, and so it does not separate (A0 3 of 8 graded samples, A1 7/7, counting three #689 passes); its header says why. Five are non-discriminating and kept as regression guards on the skill leg, each header giving its measured leg counts: `feedback-memory`, where the seed's saved-feedback block hands the pre-edit leg the answer, `unproven-escalation`, whose pre-edit leg under the current rubric passes the substring seed and fails the boundary seed only on its coverage label, `eval-validity` as above, and the A/B/C controls `skill-reviewing-before-merge.ab.yaml` and `adversarial`, where a no-skill candidate already reaches the skill's result. `verifier-evidence` separates.
+A pre/post-edit control's ground-truth context states facts only (the diff, the code, the tests and their fixtures), never the defect or the conclusion the edit teaches, with one documented exception: a narrated defect lets the pre-edit leg pass on the Claude pair. On that basis the `reviewing-before-merge` controls `runtime-scope`, `fence-parser` and `feature-flow` separate their legs on the Claude pair: `runtime-scope` A0 0/10 against A1 9/10 (5 repeats, then five #689 passes), `fence-parser` A0 fails every graded sample while the skill leg passes, and `feature-flow` A0 fails every graded sample while its skill leg passes 2/3 at `--repeat 3`, 1/1 after #685 and 3 of 5 #689 passes (the first two lost to a listed test labelled UNCOVERED, the last three pass). `eval-validity` is the exception: it keeps its developer observations, because the skill leg cannot judge the fence inputs without them, and so it does not separate (A0 5 of 11 graded samples, A1 10/10, counting six #689 passes); its header says why. Five are non-discriminating and kept as regression guards on the skill leg, each header giving its measured leg counts: `feedback-memory`, where the seed's saved-feedback block hands the pre-edit leg the answer, `unproven-escalation`, whose pre-edit leg under the current rubric passes the substring seed and fails the boundary seed only on its coverage label, `eval-validity` as above, and the A/B/C controls `skill-reviewing-before-merge.ab.yaml` and `adversarial`, where a no-skill candidate already reaches the skill's result. `verifier-evidence` separates.

@@ -21,10 +21,12 @@ description: >
 #     the off-by-one and the technique, so A0 prescribes the limit value
 #     unprompted. It is a regression guard on the A1 leg.
 # Those counts predate the #689 clause that requires UNPROVEN and fails
-# UNCOVERED. Two single-pass samples under it, the second on the final #689
-# tree: substring A0 0.70 and 0.87 PASS, A1 0.85 and 0.97 PASS; boundary A0
-# 0.30 and 0.65 FAIL (ledger marked UNCOVERED with the green path-matching
-# tests left out), A1 0.89 and 0.94 PASS.
+# UNCOVERED. Four single-pass samples under it, the fourth on the final #689
+# tree (`6cbc646`; its modules are unchanged since `e57bd72`, where it ran):
+# substring A0 PASS 4/4 (0.70, 0.87, 0.90, 0.91), A1 PASS 4/4 (0.85, 0.97,
+# 0.97, 0.96); boundary A0 FAIL 4/4 (0.30, 0.65, 0.68, 0.15; the ledger marks
+# UNCOVERED with the green path-matching tests left out or listed), A1 PASS
+# 4/4 (0.89, 0.94, 0.96, 0.95).
 # Overall the control is a regression guard on the A1 leg, not a lift
 # measurement.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;

@@ -22,10 +22,11 @@ description: >
   which surfaces the path-vs-behaviour seam #300 moves.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-300.SKILL.md
   (= origin/main before the #300 commit); refresh it if the baseline moves.
-# Claude pair: separates. A0 0/5, A1 4/5 over 5 samples on the current skill
-# and rubric; every A1 sample reaches NOT SAFE, and the one A1 fail is the
-# coverage label. Three #689 passes, the last on the final tree: A0 0/3, A1
-# 3/3.
+# Claude pair: separates. A0 0/5, A1 4/5 over 5 samples on the current skill and
+# rubric; every A1 sample reaches NOT SAFE, and the one A1 fail is the coverage
+# label. Five #689 passes: A0 0/5, A1 5/5. On the final #689 tree (`6cbc646`;
+# its modules are unchanged since `e57bd72`, where it ran), one single pass: A0
+# 0/1 (0.50), A1 1/1 (0.93).
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

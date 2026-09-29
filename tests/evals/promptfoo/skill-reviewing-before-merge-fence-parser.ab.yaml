@@ -17,9 +17,10 @@ description: >
 # Claude pair: separates. The seed gives facts only; A0 0/2 graded (a third
 # judge reply was unparseable), A1 3/3 over three single-pass samples. One
 # single-pass sample under the #689 clause that requires UNPROVEN and fails
-# UNCOVERED: A0 0/1 (0.20; ledger marked UNCOVERED, no char-vs-length tell),
-# A1 1/1 (0.90). On the final #689 tree, one single pass: A0 0/1 (0.56), A1 1/1
-# (0.96).
+# UNCOVERED: A0 0/1 (0.20; ledger marked UNCOVERED, no char-vs-length tell), A1
+# 1/1 (0.90). Three later #689 single passes: A0 0/3, A1 3/3. On the final #689
+# tree (`6cbc646`; its modules are unchanged since `e57bd72`, where it ran), one
+# single pass: A0 0/1 (0.50), A1 1/1 (0.96).
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
