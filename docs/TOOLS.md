@@ -220,12 +220,14 @@ flowchart LR
 
 | Tool | Purpose |
 |---|---|
-| `sumo_qa_search_external_skills` | Run `skills find <query>` and return ANSI-stripped CLI output verbatim (no structured parsing) so Skills CLI format drift doesn't break the flow |
+| `sumo_qa_search_external_skills` | Run the pinned `skills@<version> find <query>` and return ANSI-stripped CLI output verbatim (no structured parsing) so Skills CLI format drift doesn't break the flow, plus the exact CLI identity that ran |
 | `sumo_qa_check_external_skill_installed` | Locate an installed `SKILL.md` in project or global agent skill paths |
-| `sumo_qa_install_external_skill` | Install a named skill through `npx skills add` after explicit user confirmation |
-| `sumo_qa_execute_external_skill` | Load the installed `SKILL.md` and return the execution handoff payload |
+| `sumo_qa_install_external_skill` | After explicit user confirmation, resolve the source to a commit SHA, install exactly that commit through the pinned Skills CLI, and record its provenance |
+| `sumo_qa_execute_external_skill` | Verify the installed skill against its provenance record, then load the `SKILL.md` and return the execution handoff payload |
 
 Install still requires a user `[y/N]` gate in the skill. The host does not shell out to `npx` directly for this flow.
+
+**Pinned CLI and provenance.** Every Skills CLI subprocess runs one exact version (`SKILLS_CLI_VERSION` in `src/sumo_qa/external_skills.py`), passed to npx as `skills@<version>`, and the CLI must report that version before any other call runs. An install source must be a git URL (`https://`, `ssh://`, `git@`, `file://`) or `owner/repo` shorthand, optionally with `#<ref>`; the ref (default `HEAD`) is resolved with `git ls-remote` and the CLI installs `<source>#<commit>`. The install writes a record to `.sumo-qa/external-skills.lock.json` under the project (project scope) or home directory (global scope): source, requested and resolved ref, a SHA-256 digest over every file in the installed folder, agent, scope, time, and the installer CLI identity. Execution recomputes the digest and blocks with an error when it or the recorded commit no longer matches. A skill installed outside sumo-qa has no record and is reported as `unrecorded`.
 
 ## Why the surface is so small
 

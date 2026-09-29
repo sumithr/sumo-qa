@@ -304,7 +304,8 @@ def test_register_output_rejects_unknown_field(tmp_path: Path) -> None:
 def test_search_external_skills_output_accepts_representative_payload() -> None:
     payload = {
         "query": "mypy",
-        "command": ["/usr/bin/npx", "--yes", "skills", "find", "mypy"],
+        "cli": {"package": "skills", "version": "1.7.0", "spec": "skills@1.7.0"},
+        "command": ["/usr/bin/npx", "--yes", "skills@1.7.0", "find", "mypy"],
         "raw_output": "vercel-labs/skills@mypy-type-checking\n",
         "stderr": "",
         "hint": "Read raw_output as the user would in a terminal.",
@@ -313,7 +314,7 @@ def test_search_external_skills_output_accepts_representative_payload() -> None:
     model = SearchExternalSkillsOutput.model_validate(payload)
 
     assert model.query == "mypy"
-    assert model.command == ["/usr/bin/npx", "--yes", "skills", "find", "mypy"]
+    assert model.command == ["/usr/bin/npx", "--yes", "skills@1.7.0", "find", "mypy"]
     assert model.raw_output.startswith("vercel-labs/skills@")
     assert model.stderr == ""
     assert model.hint
@@ -322,7 +323,8 @@ def test_search_external_skills_output_accepts_representative_payload() -> None:
 def test_search_external_skills_output_rejects_unknown_field() -> None:
     payload = {
         "query": "mypy",
-        "command": ["/usr/bin/npx", "--yes", "skills", "find", "mypy"],
+        "cli": {"package": "skills", "version": "1.7.0", "spec": "skills@1.7.0"},
+        "command": ["/usr/bin/npx", "--yes", "skills@1.7.0", "find", "mypy"],
         "raw_output": "vercel-labs/skills@mypy-type-checking\n",
         "stderr": "",
         "hint": "Read raw_output as the user would in a terminal.",
@@ -376,11 +378,24 @@ def test_check_external_skill_installed_output_rejects_unknown_field(tmp_path: P
 # ---------------------------------------------------------------------------
 # InstallExternalSkillOutput
 #
-# Live ``install_external_skill`` requires ``npx`` + network, so we hand-build.
-# We exercise both the populated-installed (nested model) and installed=None
-# arms so the ``CheckExternalSkillInstalledOutput | None`` annotation is
-# covered.
+# Live ``install_external_skill`` requires ``npx`` + network, so we hand-build
+# here; tests/test_external_skills_provenance.py validates live payloads from
+# a faked toolchain against these models.
 # ---------------------------------------------------------------------------
+
+
+_PROVENANCE = {
+    "skill": "mypy-type-checking",
+    "source": "https://github.com/vercel-labs/skills",
+    "requested_ref": None,
+    "resolved_ref": "0123456789abcdef0123456789abcdef01234567",
+    "content_digest": "sha256:" + "a" * 64,
+    "agent": "codex",
+    "scope": "project",
+    "path": ".codex/skills/mypy-type-checking",
+    "installed_at": "2026-09-29T12:00:00+00:00",
+    "installer": {"package": "skills", "version": "1.7.0", "spec": "skills@1.7.0"},
+}
 
 
 def test_install_external_skill_output_accepts_representative_payload() -> None:
@@ -389,12 +404,13 @@ def test_install_external_skill_output_accepts_representative_payload() -> None:
         "source": "https://github.com/vercel-labs/skills",
         "scope": "project",
         "agent": "codex",
+        "cli": {"package": "skills", "version": "1.7.0", "spec": "skills@1.7.0"},
         "command": [
             "/usr/bin/npx",
             "--yes",
-            "skills",
+            "skills@1.7.0",
             "add",
-            "https://github.com/vercel-labs/skills",
+            "https://github.com/vercel-labs/skills#0123456789abcdef0123456789abcdef01234567",
             "--skill",
             "mypy-type-checking",
             "-a",
@@ -407,6 +423,7 @@ def test_install_external_skill_output_accepts_representative_payload() -> None:
             "agent": "codex",
             "scope": "project",
         },
+        "provenance": _PROVENANCE,
         "raw_output": "installed mypy-type-checking\n",
         "stderr": "",
     }
@@ -422,25 +439,32 @@ def test_install_external_skill_output_accepts_representative_payload() -> None:
     # Nested model is the same type CheckExternalSkillInstalledOutput exposes.
     assert model.installed.name == "mypy-type-checking"
     assert model.installed.scope == "project"
+    assert model.provenance.resolved_ref == _PROVENANCE["resolved_ref"]
+    assert model.provenance.installer.spec == "skills@1.7.0"
     assert model.raw_output.startswith("installed")
     assert model.stderr == ""
 
 
-def test_install_external_skill_output_accepts_none_installed() -> None:
+def test_install_external_skill_output_requires_installed_and_provenance() -> None:
+    """An install that cannot be located or recorded is an error envelope, never
+    a success payload with a null location or missing provenance."""
     payload = {
         "skill": "mypy-type-checking",
         "source": "https://github.com/vercel-labs/skills",
         "scope": "project",
         "agent": "codex",
-        "command": ["/usr/bin/npx", "--yes", "skills", "add", "..."],
+        "cli": {"package": "skills", "version": "1.7.0", "spec": "skills@1.7.0"},
+        "command": ["/usr/bin/npx", "--yes", "skills@1.7.0", "add", "..."],
         "installed": None,
         "raw_output": "",
         "stderr": "install failed\n",
     }
 
-    model = InstallExternalSkillOutput.model_validate(payload)
+    with pytest.raises(ValidationError) as excinfo:
+        InstallExternalSkillOutput.model_validate(payload)
 
-    assert model.installed is None
+    failing = {error["loc"][0] for error in excinfo.value.errors()}
+    assert failing == {"installed", "provenance"}
 
 
 def test_install_external_skill_output_rejects_unknown_field() -> None:
@@ -449,14 +473,17 @@ def test_install_external_skill_output_rejects_unknown_field() -> None:
         "source": "https://github.com/vercel-labs/skills",
         "scope": "project",
         "agent": "codex",
-        "command": ["/usr/bin/npx", "--yes", "skills", "add", "..."],
-        "installed": None,
+        "cli": {"package": "skills", "version": "1.7.0", "spec": "skills@1.7.0"},
+        "command": ["/usr/bin/npx", "--yes", "skills@1.7.0", "add", "..."],
+        "installed": {"name": "x", "path": "/p/SKILL.md", "agent": "codex", "scope": "project"},
+        "provenance": {**_PROVENANCE, "stray": True},
         "raw_output": "",
         "stderr": "",
-        "stray": True,
     }
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as excinfo:
         InstallExternalSkillOutput.model_validate(payload)
+
+    assert [error["loc"] for error in excinfo.value.errors()] == [("provenance", "stray")]
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +510,7 @@ def test_execute_external_skill_output_accepts_live_payload(tmp_path: Path) -> N
     assert model.agent == "codex"
     assert model.scope == "project"
     assert model.intent == "add type checking"
+    assert model.provenance.status == "unrecorded"
     assert "# Body" in model.skill_body
     assert model.execution_prompt
 

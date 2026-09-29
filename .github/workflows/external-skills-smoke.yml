@@ -4,7 +4,8 @@ name: external-skills-smoke
 #
 # Why this lives OUTSIDE required PR CI:
 #   The production code path (sumo_qa.external_skills.search_external_skills)
-#   shells out to `npx skills find` — a real Node CLI subprocess that hits
+#   shells out to `npx --yes skills@<pinned version> find` (after a
+#   `--version` probe that must report the pin) — a real Node CLI subprocess that hits
 #   a remote registry. Wiring that into required PR CI would couple every
 #   PR to npm availability, network reachability, and upstream Skills CLI
 #   uptime. The mocked coverage in tests/test_external_skills.py runs in
