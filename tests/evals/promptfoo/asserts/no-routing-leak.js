@@ -45,7 +45,8 @@ const QUOTED = new RegExp(
     `(?:(?<![${WORD}])'|'(?![${WORD}]))`,
   'g',
 );
-const isWord = (ch) => ch !== undefined && /[A-Za-z0-9_]/.test(ch);
+const WORD_CHAR = new RegExp(`[${WORD}]`);
+const isWord = (text, i) => i >= 0 && i < text.length && WORD_CHAR.test(text[i]);
 const KEY_FOLLOWS = /^\s*:/;
 // One explicit character set for both engines (their \s differ).
 const LINE_BREAK = /[\r\u2028\u2029]/g;
@@ -106,7 +107,7 @@ function catalogueNames() {
 }
 
 // Top-level {...} spans, ignoring braces inside quoted strings.
-function braceSpans(text) {
+function braceSpans(text, firstOnly = false) {
   const spans = [];
   let depth = 0;
   let start = 0;
@@ -114,19 +115,22 @@ function braceSpans(text) {
   let escaped = false;
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i];
-    const prevWord = isWord(text[i - 1]);
     if (quote) {
       if (escaped) escaped = false;
       else if (ch === '\\') escaped = true;
-      else if (ch === quote && !(ch === "'" && prevWord && isWord(text[i + 1]))) quote = '';
-    } else if (depth && (ch === '"' || (ch === "'" && !prevWord))) {
+      else if (ch === quote && !(ch === "'" && isWord(text, i - 1) && isWord(text, i + 1)))
+        quote = '';
+    } else if (depth && (ch === '"' || (ch === "'" && !isWord(text, i - 1)))) {
       quote = ch;
     } else if (ch === '{') {
       if (depth === 0) start = i;
       depth += 1;
     } else if (ch === '}' && depth) {
       depth -= 1;
-      if (depth === 0) spans.push(text.slice(start, i + 1));
+      if (depth === 0) {
+        spans.push(text.slice(start, i + 1));
+        if (firstOnly) break;
+      }
     }
   }
   return spans;
@@ -135,7 +139,7 @@ function braceSpans(text) {
 // The skill handoff must sit inside the next_action object itself.
 function nextActionHasSkill(span) {
   for (const m of span.matchAll(NEXT_ACTION)) {
-    const inner = braceSpans(span.slice(m.index + m[0].length));
+    const inner = braceSpans(span.slice(m.index + m[0].length), true);
     if (inner.length && SKILL_KEY.test(inner[0])) return true;
   }
   return false;
@@ -170,16 +174,19 @@ function labelRegExp(names) {
   const key = names.join('|');
   if (!labelCache.has(key)) {
     const alternatives = names.map(escapeRegExp).join('|');
-    const deco = '[*_`"\']*';
-    const pair =
-      `${deco}(?:classification|approach)${deco}[ \\t]*:[ \\t*_\`"']*` +
+    const decoChars = '*_`"\'';
+    const deco = `[${decoChars}]*`;
+    const barePair =
+      `(?:classification|approach)${deco}[ \\t]*:[ \\t${decoChars}]*` +
       `(?:${alternatives}|n/a)${deco}`;
+    const pair = `${deco}${barePair}`;
     labelCache.set(
       key,
       new RegExp(
         // List or heading prefixes, each followed by whitespace.
         `^[ \\t]*(?:(?:[-+*]|>+|#{1,6}|\\d{1,3}[.)])[ \\t]+)*${pair}` +
-          `(?:(?:[ \\t]*[.,;][ \\t]*|[ \\t]+)${pair}(?:[ \\t]*[.,;])?|[ \\t]*[.,;])?[ \\t]*$`,
+          `(?:(?:(?:[ \\t]*[.,;][ \\t]*|[ \\t]+)${pair}|${barePair})(?:[ \\t]*[.,;])?` +
+          '|[ \\t]*[.,;])?[ \\t]*$',
         'im',
       ),
     );

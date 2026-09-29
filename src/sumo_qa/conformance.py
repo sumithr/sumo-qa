@@ -324,7 +324,8 @@ _SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:", re.ASCII)
 # match, so an unterminated string cannot backtrack exponentially.
 _WORD = "A-Za-z0-9_"
 # Emphasis, code and quote marks a host wraps around a label or its value.
-_DECO = "[*_`\"']"
+_DECO_CHARS = "*_`\"'"
+_DECO = f"[{_DECO_CHARS}]"
 _QUOTED_RE = re.compile(
     r'"(?:\\.|[^"\\])*"'
     rf"|(?<![{_WORD}])'(?:\\.|[^'\\]|(?<=[{_WORD}])'(?=[{_WORD}]))*"
@@ -427,37 +428,39 @@ def _blank_string_values(span: str) -> str:
 
 def _next_action_has_skill(span: str) -> bool:
     for match in _NEXT_ACTION_RE.finditer(span):
-        inner = _brace_spans(span[match.end() :])
+        inner = _brace_spans(span[match.end() :], first_only=True)
         if inner and _SKILL_KEY_RE.search(inner[0]):
             return True
     return False
 
 
-def _is_word(ch: str) -> bool:
-    return ch.isascii() and (ch.isalnum() or ch == "_")
+_WORD_RE = re.compile(f"[{_WORD}]")
 
 
-def _brace_spans(text: str) -> list[str]:
+def _is_word(text: str, i: int) -> bool:
+    return 0 <= i < len(text) and _WORD_RE.match(text, i) is not None
+
+
+def _brace_spans(text: str, first_only: bool = False) -> list[str]:
     """Top-level ``{...}`` spans, ignoring braces inside quoted strings (a
     single quote between word characters is an apostrophe, not a delimiter);
-    an unbalanced brace yields no span."""
+    an unbalanced brace yields no span. ``first_only`` stops at the first."""
     spans: list[str] = []
     depth = 0
     start = 0
     quote = ""
     escaped = False
     for i, ch in enumerate(text):
-        prev_word = i > 0 and _is_word(text[i - 1])
         if quote:
             if escaped:
                 escaped = False
             elif ch == "\\":
                 escaped = True
             elif ch == quote and not (
-                ch == "'" and prev_word and i + 1 < len(text) and _is_word(text[i + 1])
+                ch == "'" and _is_word(text, i - 1) and _is_word(text, i + 1)
             ):
                 quote = ""
-        elif depth and (ch == '"' or (ch == "'" and not prev_word)):
+        elif depth and (ch == '"' or (ch == "'" and not _is_word(text, i - 1))):
             quote = ch
         elif ch == "{":
             if depth == 0:
@@ -467,6 +470,8 @@ def _brace_spans(text: str) -> list[str]:
             depth -= 1
             if depth == 0:
                 spans.append(text[start : i + 1])
+                if first_only:
+                    break
     return spans
 
 
@@ -482,17 +487,21 @@ def _label_re(names: frozenset[str]) -> re.Pattern[str]:
     clause end and the other label with its own catalogue value.
     Labels inside prose are left to the eval's judge."""
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
-    pair = (
-        rf"{_DECO}*(?:classification|approach){_DECO}*[ \t]*:[ \t*_`\"']*"
+    bare_pair = (
+        rf"(?:classification|approach){_DECO}*[ \t]*:[ \t{_DECO_CHARS}]*"
         rf"(?:{alternatives}|n/a){_DECO}*"
     )
+    pair = rf"{_DECO}*{bare_pair}"
     return re.compile(
         # List or heading prefixes, each followed by whitespace, so a prefix
         # run has a single parse.
         rf"^[ \t]*(?:(?:[-+*]|>+|#{{1,6}}|\d{{1,3}}[.)])[ \t]+)*{pair}"
         # Then a clause end, or the other label with its own value after a
         # clause end or whitespace, then line end.
-        rf"(?:(?:[ \t]*[.,;][ \t]*|[ \t]+){pair}(?:[ \t]*[.,;])?|[ \t]*[.,;])?[ \t]*$",
+        # (a second label straight after the first value's decoration starts
+        # with a letter, so that branch has one parse).
+        rf"(?:(?:(?:[ \t]*[.,;][ \t]*|[ \t]+){pair}|{bare_pair})(?:[ \t]*[.,;])?"
+        r"|[ \t]*[.,;])?[ \t]*$",
         re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
 

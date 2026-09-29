@@ -691,6 +691,7 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("Approach: \u2018tdd-scaffold\u2019", "taxonomy_label"),
         ("Classification: docs_change; Approach: no-tests-recommended.", "taxonomy_label"),
         ("**Classification:** docs_change **Approach:** no-tests-recommended", "taxonomy_label"),
+        ("**Classification:** docs_change**Approach:** no-tests-recommended", "taxonomy_label"),
         ("Routing to the ***[`sumo-qa-strategising`]**", "route_announcement"),
         (
             "{classification: docs_change, approach: no-tests-recommended, rationale: "
@@ -846,6 +847,15 @@ def test_find_routing_leaks_is_linear_on_decoration_after_a_label_value() -> Non
     assert find_routing_leaks("Classification: docs_change" + "*" * 20_000 + "x") == ()
     assert find_routing_leaks("Classification: docs_change" + "'" * 20_000 + "x") == ()
     assert time.perf_counter() - start < 0.5
+
+
+def test_find_routing_leaks_scans_repeated_next_action_keys_quickly() -> None:
+    """Each next_action key rescans the rest of the span for its object; the
+    scan must stop at the first object (#248 review)."""
+    start = time.perf_counter()
+    text = "{classification:x,approach:y," + "next_action:{a:1}," * 4_000 + "}"
+    assert find_routing_leaks(text) == ()
+    assert time.perf_counter() - start < 1.0
 
 
 def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
