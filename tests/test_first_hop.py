@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from sumo_qa.first_hop import FIRST_HOP_RULE
+from sumo_qa.first_hop import CLARIFY_AFTER_ROUTING, FIRST_HOP_RULE
 from sumo_qa.server import build_mcp_server
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -60,3 +60,16 @@ def test_rule_file_carries_the_first_hop_rule_verbatim(surface: str) -> None:
 
 def test_server_instructions_carry_the_first_hop_rule_verbatim() -> None:
     assert _normalise(FIRST_HOP_RULE) in _normalise(_server_instructions())
+
+
+@pytest.mark.parametrize("surface", ["server-instructions", "copilot-instructions"])
+def test_pre_routing_surface_defers_clarifying_questions_to_the_routed_skill(surface: str) -> None:
+    """Hosts read these surfaces BEFORE any skill body, so the clarify-after-
+    routing clause must live here: on the weakest candidate an underspecified
+    ask ("write the failing tests first") was answered with a clarifying
+    question and no sumo-qa call at all."""
+    if surface == "server-instructions":
+        text = _server_instructions()
+    else:
+        text = _RULE_FILES[surface].read_text(encoding="utf-8")
+    assert _normalise(CLARIFY_AFTER_ROUTING) in _normalise(text)

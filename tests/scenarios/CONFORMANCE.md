@@ -78,6 +78,13 @@ of them drifts):
 > and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill
 > it routes to. No specialist skill is entered directly.
 
+The pre-routing surfaces (the server and Copilot instructions, which a host
+reads before any skill body) also carry `CLARIFY_AFTER_ROUTING` from the same
+module: an underspecified QA request still takes the first hop before the host
+asks the user anything, and the routed skill asks the clarifying question.
+Without it, the weakest candidate answered "write the failing tests first"
+with a clarifying question and never reached the router.
+
 For every scenario with an `expected_entry_skill`, the validator enforces it:
 the first sumo-qa call (`using_sumo_qa` or any `sumo_qa_*` tool) must be
 `using_sumo_qa`, and the FIRST calls of `using_sumo_qa`,

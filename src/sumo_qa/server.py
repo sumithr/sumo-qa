@@ -42,7 +42,7 @@ from sumo_qa.feedback_memory import (
 from sumo_qa.feedback_memory import (
     update_feedback as _update_feedback,
 )
-from sumo_qa.first_hop import FIRST_HOP_RULE
+from sumo_qa.first_hop import CLARIFY_AFTER_ROUTING, FIRST_HOP_RULE
 from sumo_qa.ingest import IngestValidationError, ingest_pack
 from sumo_qa.ingest import _write_atomic as _write_atomic
 from sumo_qa.knowledge_loaders import (
@@ -555,7 +555,11 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             "exploratory testing, code review for safety-to-merge, scaffolding "
             "tests, TDD, mutation testing, finding or validating test data, QA "
             "audit, designing a test pyramid), you MUST call sumo-qa tools "
-            "before producing QA advice. " + FIRST_HOP_RULE + " Do not "
+            "before producing QA advice. "
+            + FIRST_HOP_RULE
+            + " "
+            + CLARIFY_AFTER_ROUTING
+            + " Do not "
             "answer QA questions from general training-data knowledge. "
             "When citing principles, techniques, classifications, or "
             "approaches, first load them via `sumo_qa_load_principles`, "

@@ -17,6 +17,14 @@ APPROACH_DECIDER = "sumo_qa_deciding_approach"
 # The order every QA-shaped request walks before its routed skill.
 ROUTER_CHAIN = (ENTRY_ROUTER, APPROACH_DECIDER)
 
+# Pre-routing surfaces (server and Copilot instructions) also carry this: the
+# weakest candidate (claude-haiku-4-5) answered an underspecified TDD ask with
+# a clarifying question and never reached the router (#247 live runs).
+CLARIFY_AFTER_ROUTING = (
+    "An underspecified QA request still takes the first hop before you ask the "
+    "user anything; the routed skill asks the one clarifying question it needs."
+)
+
 FIRST_HOP_RULE = (
     "First hop: every QA-shaped request, including a development-framed one "
     'such as "I\'m adding X, how should I test it?", "what tests do I need?" '
