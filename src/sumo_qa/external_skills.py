@@ -197,7 +197,7 @@ def install_external_skill(
                     written, remote_url, requested_ref, resolved_ref, skill, agent, scope, lock_base
                 )
                 _merge_into_lock(lock_base, records)
-            except BaseException:
+            except BaseException as exc:
                 # Never leave an install behind that runs as "unrecorded", but
                 # keep entries the CLI did not replace (a user's alias link).
                 replaced = [
@@ -208,6 +208,10 @@ def install_external_skill(
                 ]
                 for folder in replaced:
                     _remove_install(folder)
+                if isinstance(exc, Exception):
+                    raise ExternalSkillProvenanceError(
+                        f"provenance could not be recorded, so the install was rolled back: {exc}"
+                    ) from exc
                 raise
     finally:
         _remove_tree(workdir)
@@ -418,17 +422,25 @@ def _content_entries(root: Path) -> dict[tuple[str, str], str]:
     """
     root_real = os.path.realpath(root)
     entries: dict[tuple[str, str], str] = {}
-    for dirpath, dirnames, filenames in os.walk(root):
-        current = Path(dirpath)
-        for name in [*dirnames, *filenames]:
-            path = current / name
-            relpath = path.relative_to(root).as_posix()
-            if path.is_symlink():  # pragma: no cover -- platform-conditional (POSIX only)
-                _check_link_stays_inside(path, root_real)
-                entries[("link", relpath)] = os.readlink(path)
-            elif name in filenames:
-                entries[("file", relpath)] = _hash_regular_file(path)
+    try:
+        # onerror: an unlistable folder is an error, never a silently partial digest.
+        for dirpath, dirnames, filenames in os.walk(root, onerror=_raise_walk_error):
+            current = Path(dirpath)
+            for name in [*dirnames, *filenames]:
+                path = current / name
+                relpath = path.relative_to(root).as_posix()
+                if path.is_symlink():  # pragma: no cover -- platform-conditional (POSIX only)
+                    _check_link_stays_inside(path, root_real)
+                    entries[("link", relpath)] = os.readlink(path)
+                elif name in filenames:
+                    entries[("file", relpath)] = _hash_regular_file(path)
+    except OSError as exc:
+        raise ExternalSkillReadError(f"could not read {exc.filename or root}: {exc}") from exc
     return entries
+
+
+def _raise_walk_error(error: OSError) -> None:
+    raise error
 
 
 def _check_link_stays_inside(  # pragma: no cover -- POSIX only
@@ -753,7 +765,7 @@ def _lock_guard(base: Path) -> Iterator[None]:
         path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(path.with_name(path.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o666)
     except OSError as exc:
-        raise ExternalSkillProvenanceError(f"could not lock {path}: {exc}") from exc
+        raise ExternalSkillReadError(f"could not lock {path}: {exc}") from exc
     try:
         deadline = time.monotonic() + _LOCK_WAIT_SECONDS
         while not _try_lock(fd):

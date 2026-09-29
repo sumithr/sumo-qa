@@ -647,7 +647,7 @@ def test_a_held_guard_times_out_typed_and_frees_when_its_holder_goes(
 def test_an_uncreatable_lock_folder_is_a_typed_error(toolchain) -> None:
     (toolchain.cwd / ".sumo-qa").write_text("a file where the folder should be", "utf-8")
 
-    with pytest.raises(ext.ExternalSkillProvenanceError, match="could not lock"):
+    with pytest.raises(ext.ExternalSkillReadError, match="could not lock"):
         _install(toolchain)
 
 
@@ -680,20 +680,48 @@ def test_an_install_that_cannot_be_recorded_is_rolled_back(monkeypatch, toolchai
     """An install sumo-qa made but could not record must not stay behind as an
     'unrecorded' skill that executes without verification."""
 
-    def fail(*args, **kwargs):
-        raise OSError(28, "No space left on device")
+    if failure == "record":
 
-    target = "_write_atomic" if failure == "record" else "_hash_regular_file"
-    if failure == "digest":
-        fail = lambda path: (_ for _ in ()).throw(ext.ExternalSkillProvenanceError("unreadable"))  # noqa: E731
-    monkeypatch.setattr(ext, target, fail)
+        def fail(*args, **kwargs):
+            raise OSError(28, "No space left on device")
 
-    with pytest.raises(ext.ExternalSkillProvenanceError):
+        monkeypatch.setattr(ext, "_write_atomic", fail)
+    else:
+        real_read_bytes = Path.read_bytes
+
+        def unreadable_after_install(self):
+            if "references" in self.parts:
+                raise PermissionError("denied")
+            return real_read_bytes(self)
+
+        monkeypatch.setattr(ext.Path, "read_bytes", unreadable_after_install)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="rolled back") as excinfo:
         _install(toolchain)
+
+    cause = excinfo.value.__cause__
+    assert isinstance(
+        cause,
+        ext.ExternalSkillProvenanceError if failure == "record" else ext.ExternalSkillReadError,
+    )
 
     assert not (toolchain.cwd / ".agents" / "skills" / "find-skills").exists()
     with pytest.raises(ext.ExternalSkillError, match="not installed"):
         _execute(toolchain)
+
+
+def test_an_interrupt_while_recording_rolls_back_and_propagates_unwrapped(
+    monkeypatch, toolchain
+) -> None:
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ext, "_write_atomic", interrupted)
+
+    with pytest.raises(KeyboardInterrupt):
+        _install(toolchain)
+
+    assert not (toolchain.cwd / ".agents" / "skills" / "find-skills").exists()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the test holds the guard with fcntl")
@@ -973,6 +1001,48 @@ def test_any_filesystem_race_in_the_unlocked_attempt_takes_the_locked_retry(
         ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
 
     assert state["bases"] == [tmp_path]
+
+
+def test_an_unreadable_sibling_of_skill_md_reaches_the_caller_typed(monkeypatch, toolchain) -> None:
+    _install(toolchain)
+    real_read_bytes = Path.read_bytes
+
+    def notes_unreadable(self):
+        if self.name == "notes.md":
+            raise PermissionError("denied")
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(ext.Path, "read_bytes", notes_unreadable)
+
+    with pytest.raises(ext.ExternalSkillReadError, match="notes.md") as excinfo:
+        _execute(toolchain)
+
+    assert isinstance(excinfo.value.__cause__, PermissionError)
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="POSIX permission bits; root reads anything",
+)
+def test_an_unlistable_folder_in_the_skill_is_a_typed_error_not_a_partial_digest(tmp_path) -> None:
+    skill = tmp_path / "skill"
+    (skill / "sub").mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# x", "utf-8")
+    (skill / "sub" / "hidden.md").write_text("x", "utf-8")
+    (skill / "sub").chmod(0)
+    try:
+        with pytest.raises(ext.ExternalSkillReadError, match="sub"):
+            ext.skill_content_digest(skill)
+    finally:
+        (skill / "sub").chmod(0o755)
+
+
+def test_a_skill_path_that_cannot_be_listed_is_a_typed_error(tmp_path) -> None:
+    not_a_folder = tmp_path / "file"
+    not_a_folder.write_text("x", "utf-8")
+
+    with pytest.raises(ext.ExternalSkillReadError, match="could not read"):
+        ext.skill_content_digest(not_a_folder)
 
 
 def test_execute_tries_at_most_twice_and_locks_the_second_time(monkeypatch, tmp_path) -> None:
