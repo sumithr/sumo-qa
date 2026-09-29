@@ -318,8 +318,10 @@ _NEXT_ACTION_RE = re.compile(r"\bnext_action[\"']?\s*:\s*(?=\{)")
 _SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:")
 # Quoted strings, taken left to right. One followed by ``:`` is a key; any
 # other is a value, blanked before key matching so ``"skill: beginner"`` is
-# not a skill key.
-_QUOTED_RE = re.compile(r"([\"'])(?:\\.|(?!\1).)*\1", re.DOTALL)
+# not a skill key. A backslash only ever starts an escape, so no character has
+# two ways to match (an unterminated string would otherwise backtrack
+# exponentially).
+_QUOTED_RE = re.compile(r"([\"'])(?:\\.|(?!\1)[^\\])*\1", re.DOTALL)
 _KEY_FOLLOWS_RE = re.compile(r"\s*:")
 # One explicit character set for both engines (their ``\s`` differ).
 _LINE_BREAK_RE = re.compile("[\r\u2028\u2029]")

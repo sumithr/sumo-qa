@@ -744,3 +744,14 @@ def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
     start = time.perf_counter()
     assert find_routing_leaks("[DONE] " * 8_000) == ()
     assert time.perf_counter() - start < 0.5
+
+
+def test_blank_string_values_is_linear_on_an_unterminated_escaped_string() -> None:
+    """A backslash must match only the escape branch of the quoted-string
+    pattern; when it could match either, an unterminated string of escapes
+    backtracks exponentially (CodeQL py/redos, #248)."""
+    from sumo_qa import conformance
+
+    start = time.perf_counter()
+    assert conformance._blank_string_values('{"a' + "\\a" * 26) == '{"a' + "\\a" * 26
+    assert time.perf_counter() - start < 0.5

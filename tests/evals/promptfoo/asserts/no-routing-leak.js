@@ -33,7 +33,7 @@ const NEXT_ACTION = /\bnext_action["']?\s*:\s*(?=\{)/g;
 const SKILL_KEY = /\bskill["']?\s*:/;
 // Quoted strings left to right: one followed by ':' is a key, any other is a
 // value and is blanked before key matching.
-const QUOTED = /(["'])(?:\\.|(?!\1)[\s\S])*\1/g;
+const QUOTED = /(["'])(?:\\[\s\S]|(?!\1)[^\\])*\1/g;
 const KEY_FOLLOWS = /^\s*:/;
 // One explicit character set for both engines (their \s differ).
 const LINE_BREAK = /[\r\u2028\u2029]/g;
@@ -177,3 +177,4 @@ module.exports = (output) => {
 
 // Exposed for offline verification.
 module.exports.findRoutingLeaks = findRoutingLeaks;
+module.exports.blankStringValues = blankStringValues;

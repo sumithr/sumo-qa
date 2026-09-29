@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -67,6 +68,7 @@ _EXTRA = [
     "[DONE] Load catalogues",
     "\u5206\u985eapproach: verify-existing",
     "Approach: verify-existing\u2028More text",
+    '{"classification":"x","approach":"y","rationale":"a\\\nb","next_action":{"skill":"none"}}',
 ]
 
 
@@ -99,6 +101,15 @@ def test_js_assert_verdicts_follow_the_fixture_labels() -> None:
         assert grade["pass"] is (not entry["leaks"]), (entry["id"], grade)
         if entry["leaks"]:
             assert entry["family"] in grade["reason"], (entry["id"], grade)
+
+
+def test_js_blank_string_values_is_linear_on_an_unterminated_escaped_string() -> None:
+    """Same CodeQL py/redos shape as the Python matcher: an unterminated
+    string of escapes must not backtrack exponentially."""
+    span = '{"a' + "\\a" * 28
+    start = time.perf_counter()
+    assert _node([span], "check.blankStringValues(o)") == [span]
+    assert time.perf_counter() - start < 2
 
 
 def test_deciding_approach_user_facing_eval_wires_the_assert() -> None:
