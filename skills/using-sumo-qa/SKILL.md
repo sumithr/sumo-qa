@@ -5,7 +5,7 @@ description: MUST be called first for any QA-shaped request. Triggers — test p
 
 # Using sumo-qa
 
-**Announce at start:** *"Routing this QA intent."*
+**This hop is silent.** Routing is internal: no announcement, tracker, status, or skill name reaches the user. The first thing they read is the routed skill's answer.
 
 ## Output discipline (mandatory)
 
@@ -89,7 +89,7 @@ The skills use three terms that name a capability, not any one host's API. Map e
 - **Subagent** (a.k.a. **fresh delegated worker**) — a worker dispatched through the host's delegation primitive that starts with no inherited task context, only the prompt you hand it. Used by the rollout chain to keep tasks isolated. If a host cannot delegate to fresh workers, the rollout skill stops and reports the capability gap rather than executing inline.
 
 ## Checklist
-Track these as an ordered work list (see Shared vocabulary), in order:
+Work through these privately, in order. Never render them as a tracker or narrate them: this hop is internal.
 
 1. Read the user's intent verbatim.
 2. Load and re-read this Iron Law to anchor the response.
@@ -108,6 +108,7 @@ See the Checklist above — that's the flow.
 | "I already know what they want — let me just answer" | Iron Law violated. Approach decision is non-negotiable. |
 | "This question is too simple to need the approach skill" | Simple intents still need shape (no-tests-recommended is a valid approach). Skip the decision and you skip the safety net. |
 | "I'll cite the principles myself from training data" | Loaded catalogue is authoritative. Use `sumo_qa_load_principles()`. |
+| "I'll announce the route or show my checklist" | Internal state. The routed skill speaks first. |
 | "Let me echo the citation reasoning in the answer for transparency" | Citations belong to internal scratch, not user output. They burn tokens. |
 | "I'll restrict myself to tool categories I already know" | Wrong. New categories emerge constantly; reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 | "`brew install` / `npm i -g` / system `pip` is the quickest way to get the tool running" | No. Global installs are unpinned and invisible to CI/teammates. Repo test tooling MUST land repo-pinned (manifest/lockfile/pinned pre-commit hook) AND CI-reproducible (a CI step runs that pinned tool). Translate any global instruction to its repo-pinned equivalent first. |
