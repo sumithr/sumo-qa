@@ -84,6 +84,13 @@ _EXTRA = [
     "### Approach:\nregression-first work is not needed.",
     "Handoff to sumo-qa-strategising.",
     "I'll hand you over to the review skill.",
+    "Approach: \u201ctdd-scaffold\u201d",
+    "* **Approach:** tdd-scaffold",
+    "Classification: docs_change, Approach: no-tests-recommended",
+    "Routing this to the sumo-qa-reviewing-before-merge skill.",
+    "I'm routing this traffic through the new load balancer first.",
+    "The survivors are routed to sumo_qa_record_mutation for the report.",
+    "Approach: n/a" + " " * 2_000 + "x",
 ]
 
 

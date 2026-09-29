@@ -674,6 +674,18 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
             "router_checklist",
         ),
         ("3. Pick the approach.\n4. Build the routing payload", "router_checklist"),
+        # Bare label lines in other layouts, and the article form (#248 review).
+        ("Classification: docs_change.", "taxonomy_label"),
+        ("1. Classification: docs_change", "taxonomy_label"),
+        ("1) Approach: tdd-scaffold", "taxonomy_label"),
+        ("### Approach: tdd-scaffold", "taxonomy_label"),
+        ("* **Approach:** tdd-scaffold", "taxonomy_label"),
+        (">> Approach: tdd-scaffold", "taxonomy_label"),
+        ("Classification: docs_change, Approach: no-tests-recommended", "taxonomy_label"),
+        ("Approach: \u201ctdd-scaffold\u201d", "taxonomy_label"),
+        ("Routing this to the sumo-qa-reviewing-before-merge skill.", "route_announcement"),
+        ("Routing you to the `sumo-qa-strategising` skill.", "route_announcement"),
+        ("Routing to: sumo-qa-strategising", "route_announcement"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:
@@ -703,6 +715,11 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "Unbalanced { brace with classification: and approach: but no next action",
         "Approach: pin the regression-first cases before refactoring.",
         "Hand the fixture to the pricing team, then rerun the suite.",
+        "I'm routing this traffic through the new load balancer first.",
+        "I'll route this request through the stub server in the test.",
+        "I'm handing this PR back to you with two failing tests.",
+        "The survivors are routed to sumo_qa_record_mutation for the report.",
+        "Parse the report, then routing it to sumo_qa_record_coverage persists the summary.",
         # Second code review (#248): imperative tool instructions, "hands-on",
         # n/a in prose, and a label split from its value by a line break.
         "Route the coverage output to sumo_qa_record_coverage.",
@@ -768,6 +785,14 @@ def test_find_routing_leaks_is_linear_on_blank_line_runs() -> None:
     numbered-step matcher (adversarial review, #248)."""
     start = time.perf_counter()
     assert find_routing_leaks("\n" * 40_000) == ()
+    assert time.perf_counter() - start < 0.5
+
+
+def test_find_routing_leaks_is_linear_on_a_label_line_with_trailing_space() -> None:
+    """A label line padded with spaces and then any character must not
+    backtrack quadratically in the line-end match (#248 review)."""
+    start = time.perf_counter()
+    assert find_routing_leaks("Approach: n/a" + " " * 40_000 + "x") == ()
     assert time.perf_counter() - start < 0.5
 
 

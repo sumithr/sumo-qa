@@ -118,8 +118,9 @@ transcripts:
       at the season start date.
 
   # Real capture: claude-haiku-4-5 on skill-deciding-approach-user-facing.yaml
-  # (2026-09-29) paraphrased the handoff instead of naming the skill.
-  - id: announce-paraphrased-handoff
+  # (2026-09-29). The first-person "I'm routing you to" is router voice even
+  # without a skill name; wider paraphrases are the eval judge's to grade.
+  - id: announce-first-person-routing
     scenario_id: S11-router-invocation
     family: route_announcement
     leaks: true

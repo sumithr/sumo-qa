@@ -81,8 +81,8 @@ five leak families by `find_routing_leaks`, with no per-scenario opt-in:
 | Family | Caught | Not caught (ordinary prose) |
 |---|---|---|
 | `payload_json` | one brace-balanced span (braces inside strings ignored) naming `classification`, `approach` and a `next_action` object that itself holds a `skill` handoff (compact, pretty-printed, or unquoted keys) | a config snippet, even one with `classification`/`approach`/`next_action` keys and a `skill:` elsewhere |
-| `taxonomy_label` | a bare label line: `Classification:` / `Approach:` (bullet, bold, code or quoted) whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a`, with nothing else on the line | `Approach: pin today's behaviour first`, "a regression-first approach", a label inside a sentence ("so approach: recommend-removal"), a label followed by a reason |
-| `route_announcement` | "Picking the QA approach...", "Routing this QA intent.", "Routing (this, you or it) to sumo-qa-...", "I'm routing you to..." | "routing to the pricing service", "I'm routing traffic through the load balancer", a downstream skill's handoff offer ("I'd recommend handing off to `sumo-qa-reviewing-before-merge`"), "Route the coverage output to sumo_qa_record_coverage" |
+| `taxonomy_label` | a bare label line: `Classification:` / `Approach:` (after a bullet, number, `>` or `#`; bold, code or quoted) whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a`, with nothing else on the line but a clause end or the other label | `Approach: pin today's behaviour first`, "a regression-first approach", a label inside a sentence ("so approach: recommend-removal"), a label followed by a reason |
+| `route_announcement` | "Picking the QA approach...", "Routing this QA intent.", "Routing to sumo-qa-..." with an optional "this" or "you", "the" or a colon ("Routing you to the `sumo-qa-strategising` skill"), a first-person "I'm routing you to..." or "I'll route this to..." | "routing to the pricing service", "I'm routing traffic through the load balancer", "I'm routing this traffic through the proxy", a downstream skill's handoff offer ("I'd recommend handing off to `sumo-qa-reviewing-before-merge`"), data sent to a tool ("the survivors are routed to sumo_qa_record_mutation") |
 | `checklist_status` | `[DONE]`, `[IN PROGRESS]`, `[PENDING]`, `[COMPLETED]` on a line naming a router step | markdown `[x]` / `[ ]` checkboxes; a downstream plan's `[DONE] Run the suite` |
 | `router_checklist` | two or more numbered lines naming router steps (load classifications/approaches, removability gate, pick the approach, routing payload, ...) | a numbered test plan, even one line mentioning the removability gate |
 
@@ -90,8 +90,10 @@ The families match high-confidence router voice only. A label inside prose and
 a paraphrased handoff ("handing this over to...", "the next step will...") read
 the same as text a downstream skill may legitimately write, so the
 user-facing eval's judge grades them instead, and a test pins that boundary.
-One overlap remains: a downstream plan template that puts `**Approach:**
-regression-first` on its own line is flagged. The silent-hop instruction in
+One overlap remains: a downstream field line with a catalogue value, such as
+the planning-qa-rollout task template's `**Approach:** regression-first` or the
+rollout reviewer prompts' `- Approach: tdd-scaffold`, is flagged if it reaches
+scored output. The silent-hop instruction in
 both routing skills is the primary control.
 
 [`conformance/leak_transcripts.yaml`](conformance/leak_transcripts.yaml) holds
