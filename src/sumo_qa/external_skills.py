@@ -8,6 +8,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Iterator, Sequence
@@ -200,6 +201,14 @@ def install_external_skill(
             except BaseException as exc:
                 remaining = _roll_back(written, before_entries)
                 if not isinstance(exc, Exception):
+                    if remaining:
+                        # stderr, since stdout carries the MCP protocol.
+                        paths = ", ".join(f.as_posix() for f in remaining)
+                        print(
+                            f"sumo-qa: interrupted install left unrecorded folders: {paths}; "
+                            "remove them before executing",
+                            file=sys.stderr,
+                        )
                     raise  # an interrupt is never turned into an ordinary error
                 if remaining:
                     paths = ", ".join(f.as_posix() for f in remaining)
@@ -628,21 +637,26 @@ def _remove_tree(path: Path) -> None:
     shutil.rmtree(path, ignore_errors=True)
 
 
-def _entry_identity(path: Path) -> tuple[int, int] | None:
+def _entry_identity(path: Path) -> tuple[int, int] | _Uninspectable | None:
     """Identity of the directory entry itself (a link, not its target), or
-    None when nothing is there. An entry that cannot be inspected gets an
-    identity matching nothing, so it is treated as present and changed."""
+    None when nothing can be there. An entry that cannot be inspected gets a
+    fresh marker equal to nothing, not even another uninspectable reading."""
     try:
         stat_result = os.lstat(path)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return None
     except OSError:
-        return (-1, -1)
+        return _Uninspectable()
     return stat_result.st_ino, stat_result.st_mtime_ns
 
 
+class _Uninspectable:
+    """An entry lstat could not read; compares equal only to itself."""
+
+
 def _roll_back(
-    written: list[InstalledSkill], before_entries: dict[Path, tuple[int, int] | None]
+    written: list[InstalledSkill],
+    before_entries: dict[Path, tuple[int, int] | _Uninspectable | None],
 ) -> list[Path]:
     """Best-effort removal of what an unrecordable install wrote.
 
@@ -650,14 +664,13 @@ def _roll_back(
     failed removal stop the others, and returns every entry still present so
     the caller can report it rather than leave it to run unrecorded.
     """
-    replaced = [
-        location.path.parent
-        for location in written
-        if before_entries.get(location.path.parent) != _entry_identity(location.path.parent)
-    ]
+    current = {location.path.parent: _entry_identity(location.path.parent) for location in written}
+    replaced = [folder for folder, now in current.items() if before_entries.get(folder) != now]
     for folder in replaced:
-        with suppress(OSError):
-            _remove_install(folder)
+        # Never chmod or remove what cannot be inspected; it is reported below.
+        if not isinstance(current[folder], _Uninspectable):
+            with suppress(OSError):
+                _remove_install(folder)
     return [folder for folder in replaced if _entry_identity(folder) is not None]
 
 
@@ -814,7 +827,7 @@ def _acquire(fd: int, path: Path) -> bool:
 
 
 def _try_lock(fd: int) -> bool:
-    if os.name == "nt":  # pragma: no cover -- platform-conditional (Windows only)
+    if sys.platform == "win32":  # pragma: no cover -- platform-conditional (Windows only)
         import msvcrt
 
         try:

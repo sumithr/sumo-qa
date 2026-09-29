@@ -735,7 +735,7 @@ def test_a_rollback_that_leaves_files_behind_says_so(monkeypatch, toolchain) -> 
 
 
 def test_an_interrupt_is_never_swallowed_even_when_rollback_leaves_folders(
-    monkeypatch, toolchain
+    monkeypatch, toolchain, capsys
 ) -> None:
     def interrupted(*args, **kwargs):
         raise KeyboardInterrupt
@@ -745,6 +745,11 @@ def test_an_interrupt_is_never_swallowed_even_when_rollback_leaves_folders(
 
     with pytest.raises(KeyboardInterrupt):
         _install(toolchain)
+
+    # The leftover is still announced (stderr; stdout is the MCP protocol).
+    captured = capsys.readouterr()
+    assert ".agents/skills/find-skills" in captured.err.replace(os.sep, "/")
+    assert captured.out == ""
 
 
 def test_a_removal_that_raises_is_reported_not_a_crash(monkeypatch, toolchain) -> None:
@@ -769,7 +774,7 @@ def test_an_entry_that_cannot_be_inspected_during_rollback_is_reported(
     def full_then_uninspectable(*args, **kwargs):
         def uninspectable(path, *a, **k):
             if "find-skills" in str(path):
-                raise NotADirectoryError(20, "Not a directory", str(path))
+                raise PermissionError(13, "Permission denied", str(path))
             return real_lstat(path, *a, **k)
 
         monkeypatch.setattr(ext.os, "lstat", uninspectable)
@@ -779,6 +784,51 @@ def test_an_entry_that_cannot_be_inspected_during_rollback_is_reported(
 
     with pytest.raises(ext.ExternalSkillProvenanceError, match="remain"):
         _install(toolchain)
+
+
+def test_an_entry_that_cannot_be_inspected_is_reported_but_never_touched(
+    monkeypatch, toolchain
+) -> None:
+    removed = []
+    monkeypatch.setattr(ext, "_remove_install", removed.append)
+    real_lstat = os.lstat
+
+    def full_then_uninspectable(*args, **kwargs):
+        def uninspectable(path, *a, **k):
+            if "find-skills" in str(path):
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_lstat(path, *a, **k)
+
+        monkeypatch.setattr(ext.os, "lstat", uninspectable)
+        raise OSError("full")
+
+    monkeypatch.setattr(ext, "_write_atomic", full_then_uninspectable)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="remain"):
+        _install(toolchain)
+
+    assert removed == []  # never chmod/remove what cannot be inspected
+
+
+def test_uninspectable_entries_never_compare_equal() -> None:
+    def uninspectable(path):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    real = ext.os.lstat
+    try:
+        ext.os.lstat = uninspectable
+        first = ext._entry_identity(Path("x"))
+        second = ext._entry_identity(Path("x"))
+    finally:
+        ext.os.lstat = real
+
+    assert first is not None and first != second
+
+
+def test_a_path_under_a_non_folder_counts_as_absent(tmp_path) -> None:
+    (tmp_path / "file").write_text("x", "utf-8")
+
+    assert ext._entry_identity(tmp_path / "file" / "child") is None
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
