@@ -710,6 +710,75 @@ def test_an_install_that_cannot_be_recorded_is_rolled_back(monkeypatch, toolchai
         _execute(toolchain)
 
 
+def test_rollback_survives_a_written_folder_that_already_vanished(monkeypatch, toolchain) -> None:
+    def folder_vanishes_then_digest_fails(written, *args):
+        shutil.rmtree(written[0].path.parent)
+        raise ext.ExternalSkillReadError("could not read: gone")
+
+    monkeypatch.setattr(ext, "_provenance_records", folder_vanishes_then_digest_fails)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="rolled back"):
+        _install(toolchain)
+
+
+def test_a_rollback_that_leaves_files_behind_says_so(monkeypatch, toolchain) -> None:
+    monkeypatch.setattr(
+        ext, "_write_atomic", lambda *a, **k: (_ for _ in ()).throw(OSError("full"))
+    )
+    monkeypatch.setattr(ext, "_remove_install", lambda folder: None)  # removal fails silently
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="remain") as excinfo:
+        _install(toolchain)
+
+    assert ".agents/skills/find-skills" in str(excinfo.value).replace(os.sep, "/")
+    assert "rolled back" not in str(excinfo.value)
+
+
+def test_a_permission_copy_failure_after_the_lock_is_written_keeps_the_install(
+    monkeypatch, toolchain
+) -> None:
+    def no_chmod(*args, **kwargs):
+        raise PermissionError("chmod not supported")
+
+    monkeypatch.setattr(ext.os, "chmod", no_chmod)
+
+    result = _install(toolchain)
+
+    assert _lock(toolchain.cwd)["skills"][".agents/skills/find-skills"] == result["provenance"]
+    assert (toolchain.cwd / ".agents" / "skills" / "find-skills" / "SKILL.md").exists()
+
+
+def test_a_lock_the_filesystem_cannot_take_is_a_typed_error(monkeypatch, toolchain) -> None:
+    def no_locks(fd):
+        raise OSError(37, "No locks available")
+
+    monkeypatch.setattr(ext, "_try_lock", no_locks)
+
+    with pytest.raises(ext.ExternalSkillReadError, match="could not lock"):
+        _install(toolchain)
+
+    assert toolchain.add_sources == []
+
+
+def test_an_unlistable_folder_found_while_recording_rolls_the_install_back(
+    monkeypatch, toolchain
+) -> None:
+    real_walk = os.walk
+
+    def walk_with_unlistable_folder(top, onerror=None, **kwargs):
+        if onerror and "find-skills" in str(top):
+            onerror(PermissionError(13, "Permission denied", str(top)))
+        yield from real_walk(top, onerror=onerror, **kwargs)
+
+    monkeypatch.setattr(ext.os, "walk", walk_with_unlistable_folder)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="rolled back") as excinfo:
+        _install(toolchain)
+
+    assert isinstance(excinfo.value.__cause__, ext.ExternalSkillReadError)
+    assert not (toolchain.cwd / ".agents" / "skills" / "find-skills").exists()
+
+
 def test_an_interrupt_while_recording_rolls_back_and_propagates_unwrapped(
     monkeypatch, toolchain
 ) -> None:
@@ -779,7 +848,7 @@ def _tracking_guards(monkeypatch, refuse: Path | None = None) -> dict:
     def tracking(base):
         state["bases"].append(base)
         if base == refuse:
-            raise ext.ExternalSkillProvenanceError(f"could not lock {base}")
+            raise ext.ExternalSkillReadError(f"could not lock {base}")
         with real_guard(base):
             state["held"] += 1
             state["max_held"] = max(state["max_held"], state["held"])

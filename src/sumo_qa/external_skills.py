@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -208,6 +208,13 @@ def install_external_skill(
                 ]
                 for folder in replaced:
                     _remove_install(folder)
+                remaining = [f for f in replaced if _entry_identity(f) is not None]
+                if remaining:
+                    paths = ", ".join(f.as_posix() for f in remaining)
+                    raise ExternalSkillProvenanceError(
+                        f"provenance could not be recorded ({exc}) and these unrecorded "
+                        f"install folders remain: {paths}; remove them before executing"
+                    ) from exc
                 if isinstance(exc, Exception):
                     raise ExternalSkillProvenanceError(
                         f"provenance could not be recorded, so the install was rolled back: {exc}"
@@ -624,13 +631,20 @@ def _remove_tree(path: Path) -> None:
         for name in [*dirnames, *filenames]:
             entry = os.path.join(dirpath, name)
             if not os.path.islink(entry):
-                os.chmod(entry, stat.S_IRWXU)
+                # Best effort: whatever still cannot be removed is reported by
+                # the caller that checks what remains (install rollback).
+                with suppress(OSError):
+                    os.chmod(entry, stat.S_IRWXU)
     shutil.rmtree(path, ignore_errors=True)
 
 
-def _entry_identity(path: Path) -> tuple[int, int]:
-    """Identity of the directory entry itself (a link, not its target)."""
-    stat_result = os.lstat(path)
+def _entry_identity(path: Path) -> tuple[int, int] | None:
+    """Identity of the directory entry itself (a link, not its target), or
+    None when nothing is there."""
+    try:
+        stat_result = os.lstat(path)
+    except FileNotFoundError:
+        return None
     return stat_result.st_ino, stat_result.st_mtime_ns
 
 
@@ -768,7 +782,7 @@ def _lock_guard(base: Path) -> Iterator[None]:
         raise ExternalSkillReadError(f"could not lock {path}: {exc}") from exc
     try:
         deadline = time.monotonic() + _LOCK_WAIT_SECONDS
-        while not _try_lock(fd):
+        while not _acquire(fd, path):
             if time.monotonic() >= deadline:
                 raise ExternalSkillProvenanceError(
                     f"provenance lock {path} is busy: another install is still running"
@@ -777,6 +791,13 @@ def _lock_guard(base: Path) -> Iterator[None]:
         yield
     finally:
         os.close(fd)
+
+
+def _acquire(fd: int, path: Path) -> bool:
+    try:
+        return _try_lock(fd)
+    except OSError as exc:  # e.g. ENOLCK / EOPNOTSUPP on network filesystems
+        raise ExternalSkillReadError(f"could not lock {path}: {exc}") from exc
 
 
 def _try_lock(fd: int) -> bool:
@@ -810,7 +831,8 @@ def _merge_into_lock(base: Path, records: list[dict[str, Any]]) -> None:
     mode = source.stat().st_mode & 0o666
     try:
         _write_atomic(path, json.dumps(lock, indent=2, sort_keys=True) + "\n")
-        os.chmod(path, mode)
+        with suppress(OSError):  # permissions are a courtesy; the record is written
+            os.chmod(path, mode)
     except OSError as exc:
         raise ExternalSkillProvenanceError(
             f"could not write provenance lock {path}: {exc}"
