@@ -16,8 +16,9 @@
 //                        value is exactly a catalogue entry name (read from
 //                        knowledge/) or n/a;
 //   * route_announcement "Picking the QA approach", "Routing this QA intent",
-//                        "Routing [this|you] to [the] sumo-qa-...", or a
-//                        first-person "I'm routing you to" / "I'll route this to";
+//                        "Routing/Routed [this|you|it] to [the] sumo-qa-...",
+//                        or a first-person "I'm routing you to" / "I'll route
+//                        this to sumo-qa-...";
 //   * checklist_status   [DONE] / [IN PROGRESS] / [PENDING] / [COMPLETED] on a
 //                        line naming a router step;
 //   * router_checklist   two or more numbered lines naming router steps.
@@ -42,12 +43,19 @@ const KEY_FOLLOWS = /^\s*:/;
 const LINE_BREAK = /[\r\u2028\u2029]/g;
 const SPACE = /[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]/g;
 // High-confidence router voice only; paraphrased handoffs are the judge's job.
+// A skill is named sumo-qa-* (hyphens); sumo_qa_* tool names are where
+// downstream skills legitimately send data.
+const TO_SKILL =
+  '[:\\s*_`"\'\\[(]{0,8}(?:the\\s+[*_`"\'\\[(]{0,4})?(?:sumo-qa-|using[-_]sumo[-_]qa)';
 const ROUTE_ANNOUNCEMENT = new RegExp(
   'picking the qa approach' +
     '|\\brouting this qa intent\\b' +
-    '|\\brouting(?:\\s+(?:this|you))?\\s+to[:\\s*_`"\'\\[(]{0,8}(?:the\\s+[*_`"\'\\[(]{0,4})?' +
-    '(?:sumo[-_]qa|using[-_]sumo[-_]qa)' +
-    "|\\b(?:i'm|i am|i'll|i will)\\s+(?:now\\s+)?(?:rout(?:e|ing)|handing)\\s+(?:you|this)\\s+to\\b",
+    '|\\b(?:routing|routed)(?:\\s+(?:this|you|it))?\\s+to' +
+    TO_SKILL +
+    "|\\b(?:i'm|i am|i'll|i will)\\s+(?:now\\s+)?(?:rout(?:e|ing)|handing)\\s+" +
+    '(?:you\\s+to\\b|this\\s+to' +
+    TO_SKILL +
+    ')',
   'i',
 );
 const ROUTER_STEP =
@@ -59,11 +67,11 @@ const ROUTER_STEP_RE = new RegExp(ROUTER_STEP, 'i');
 const CHECKLIST_STATUS = /\[(?:done|in[ _]progress|pending|completed)\]/i;
 const NUMBERED_LINE = /^[ \t]*\d+[.)][ \t]/;
 
-// Typographic apostrophes to ASCII, line breaks (CRLF, CR, U+2028/9) to \n,
-// and every other whitespace character to a plain space.
+// Typographic apostrophes and double quotes to ASCII, line breaks (CRLF, CR,
+// U+2028/9) to \n, and every other whitespace character to a plain space.
 function normalise(text) {
   return String(text)
-    .replace(/\u2019/g, "'")
+    .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201c\u201d]/g, '"')
     .replace(/\r\n/g, '\n')
     .replace(LINE_BREAK, '\n')
@@ -148,7 +156,7 @@ const labelCache = new Map();
 
 // A bare label line: label and catalogue value (or n/a) are the whole line,
 // give or take a list or heading prefix, emphasis, quotes, a clause end and
-// the other label.
+// the other label with its own catalogue value.
 function labelRegExp(names) {
   const key = names.join('|');
   if (!labelCache.has(key)) {
@@ -156,11 +164,12 @@ function labelRegExp(names) {
     labelCache.set(
       key,
       new RegExp(
-        // One token per prefix step so a prefix run has a single parse.
-        '^[ \\t]*(?:(?:[-+>#]|\\*(?=[ \\t])|\\d+[.)])[ \\t]*)*' +
+        // List or heading prefixes, each followed by whitespace.
+        '^[ \\t]*(?:(?:[-+*]|>+|#{1,6}|\\d{1,3}[.)])[ \\t]+)*' +
           '[*_`"\']*(?:classification|approach)[*_`"\']*[ \\t]*:' +
           `[ \\t*_\`"']*(?:${alternatives}|n/a)[\`*_"']*` +
-          '(?:[ \\t]*[.,;](?:[ \\t]*[*_`"\']*(?:classification|approach)\\b.*)?)?[ \\t]*$',
+          '(?:[ \\t]*[.,;](?:[ \\t]*[*_`"\']*(?:classification|approach)[*_`"\']*[ \\t]*:' +
+          `[ \\t*_\`"']*(?:${alternatives}|n/a)[\`*_"']*(?:[ \\t]*[.,;])?)?)?[ \\t]*$`,
         'im',
       ),
     );

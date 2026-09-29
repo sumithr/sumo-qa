@@ -331,12 +331,16 @@ _SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f
 # ("I'd recommend handing off to sumo-qa-reviewing-before-merge") or tell the
 # user to send output to a tool, so paraphrased handoffs are left to the eval's
 # judge rather than matched here.
+_TO_SKILL = r"[:\s*_`\"'\[(]{0,8}(?:the\s+[*_`\"'\[(]{0,4})?(?:sumo-qa-|using[-_]sumo[-_]qa)"
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
     r"picking the qa approach"
     r"|\brouting this qa intent\b"
-    r"|\brouting(?:\s+(?:this|you))?\s+to[:\s*_`\"'\[(]{0,8}(?:the\s+[*_`\"'\[(]{0,4})?"
-    r"(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
-    r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+(?:you|this)\s+to\b",
+    # A skill is named ``sumo-qa-*`` (hyphens); ``sumo_qa_*`` tool names are
+    # where downstream skills legitimately send data.
+    r"|\b(?:routing|routed)(?:\s+(?:this|you|it))?\s+to"
+    + _TO_SKILL
+    + r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+"
+    r"(?:you\s+to\b|this\s+to" + _TO_SKILL + ")",
     re.IGNORECASE | re.ASCII,
 )
 # A router step named on a line: what makes a status marker or a numbered
@@ -378,7 +382,8 @@ def _normalise(text: str) -> str:
     """Typographic apostrophes and double quotes to ASCII, line breaks (CRLF, CR, U+2028/9) to
     newlines, and every other whitespace character to a plain space, so the
     Python and JS matchers see the same text."""
-    text = text.replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
+    text = text.replace("\u2018", "'").replace("\u2019", "'")
+    text = text.replace("\u201c", '"').replace("\u201d", '"')
     text = text.replace("\r\n", "\n")
     text = _LINE_BREAK_RE.sub("\n", text)
     return _SPACE_RE.sub(" ", text)
@@ -458,17 +463,19 @@ def _has_taxonomy_label(text: str) -> bool:
 def _label_re(names: frozenset[str]) -> re.Pattern[str]:
     """A bare label line: the label and a catalogue value (or ``n/a``) are the
     whole line, give or take a list or heading prefix, emphasis, quotes, a
-    clause end and the other label.
+    clause end and the other label with its own catalogue value.
     Labels inside prose are left to the eval's judge."""
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     return re.compile(
-        # One token per prefix step (a bullet, ``>``, ``#``, or ``1.``) so a
-        # prefix run has a single parse; ``*`` is a bullet only before a space.
-        r"^[ \t]*(?:(?:[-+>#]|\*(?=[ \t])|\d+[.)])[ \t]*)*"
+        # List or heading prefixes, each followed by whitespace, so a prefix
+        # run has a single parse.
+        r"^[ \t]*(?:(?:[-+*]|>+|#{1,6}|\d{1,3}[.)])[ \t]+)*"
         r"[*_`\"']*(?:classification|approach)[*_`\"']*[ \t]*:"
         rf"[ \t*_`\"']*(?:{alternatives}|n/a)[`*_\"']*"
-        # A clause end, optionally carrying the other label, then line end.
-        r"(?:[ \t]*[.,;](?:[ \t]*[*_`\"']*(?:classification|approach)\b.*)?)?[ \t]*$",
+        # A clause end, optionally followed by the other label with its own
+        # catalogue value, then line end.
+        r"(?:[ \t]*[.,;](?:[ \t]*[*_`\"']*(?:classification|approach)[*_`\"']*[ \t]*:"
+        rf"[ \t*_`\"']*(?:{alternatives}|n/a)[`*_\"']*(?:[ \t]*[.,;])?)?)?[ \t]*$",
         re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
 

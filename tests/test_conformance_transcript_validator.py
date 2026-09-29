@@ -636,7 +636,6 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("> Approach: `verify-existing`", "taxonomy_label"),
         ("classification: n/a", "taxonomy_label"),
         ("routing to using-sumo-qa first", "route_announcement"),
-        ("I'll route this to the pre-merge review.", "route_announcement"),
         # Adversarial-review inputs (codex, #248).
         (
             '{"classification":"docs_change","approach":"no-tests-recommended",'
@@ -686,6 +685,11 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("Routing this to the sumo-qa-reviewing-before-merge skill.", "route_announcement"),
         ("Routing you to the `sumo-qa-strategising` skill.", "route_announcement"),
         ("Routing to: sumo-qa-strategising", "route_announcement"),
+        ("Routed to sumo-qa-reviewing-before-merge.", "route_announcement"),
+        ("Routing it to sumo-qa-strategising.", "route_announcement"),
+        ("I'll route this to sumo-qa-reviewing-before-merge.", "route_announcement"),
+        ("Approach: \u2018tdd-scaffold\u2019", "taxonomy_label"),
+        ("Classification: docs_change; Approach: no-tests-recommended.", "taxonomy_label"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:
@@ -720,6 +724,14 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "I'm handing this PR back to you with two failing tests.",
         "The survivors are routed to sumo_qa_record_mutation for the report.",
         "Parse the report, then routing it to sumo_qa_record_coverage persists the summary.",
+        "Classification: n/a. Approach is up to you once the typo is fixed.",
+        "Approach: tdd-scaffold; classification of the bug is still unclear, so pin it first.",
+        "I'm handing this to you with two failing tests.",
+        "I'll route this to the staging stub before rerunning.",
+        "Routing this to sumo_qa_record_coverage now.",
+        "2024. Approach: tdd-scaffold",
+        "1.Approach: tdd-scaffold",
+        "#Approach:tdd-scaffold",
         # Second code review (#248): imperative tool instructions, "hands-on",
         # n/a in prose, and a label split from its value by a line break.
         "Route the coverage output to sumo_qa_record_coverage.",
@@ -750,6 +762,7 @@ def test_find_routing_leaks_ignores_ordinary_prose(text) -> None:
         "Routing this into sumo-qa-strategising.",
         "I'll hand you over to the review skill.",
         "Nothing references install.sh, so approach: recommend-removal. Delete it.",
+        "I'll route this to the pre-merge review.",
         "I'd recommend handing off to `sumo-qa-reviewing-before-merge` before this lands.",
     ],
 )

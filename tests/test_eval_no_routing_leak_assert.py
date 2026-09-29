@@ -91,6 +91,13 @@ _EXTRA = [
     "I'm routing this traffic through the new load balancer first.",
     "The survivors are routed to sumo_qa_record_mutation for the report.",
     "Approach: n/a" + " " * 2_000 + "x",
+    "Approach: \u2018tdd-scaffold\u2019",
+    "Classification: n/a. Approach is up to you once the typo is fixed.",
+    "I'm handing this to you with two failing tests.",
+    "Routing this to sumo_qa_record_coverage now.",
+    "Routed to sumo-qa-reviewing-before-merge.",
+    "2024. Approach: tdd-scaffold",
+    "Classification: docs_change; Approach: no-tests-recommended." + " " * 2_000 + "x",
 ]
 
 
