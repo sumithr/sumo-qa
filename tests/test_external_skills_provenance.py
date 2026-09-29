@@ -229,22 +229,42 @@ def test_a_native_npx_runs_without_a_shell_so_arguments_are_not_reinterpreted(to
 
 @pytest.mark.parametrize("npx", [r"C:\nodejs\npx.cmd", r"C:\nodejs\NPX.CMD", r"C:\nodejs\npx.bat"])
 @pytest.mark.parametrize(
-    "arg", ["x&calc", 'x" & calc & "', "a|b", "a<b", "a>b", "a^b", "%PATH%", "a\nb"]
+    "arg",
+    [
+        "x&calc",
+        'x" & calc & "',
+        "a|b",
+        "a<b",
+        "a>b",
+        "a^b",
+        "%PATH%",
+        "a b %PATH%",
+        "!TOKEN!",
+        "a b !TOKEN!",
+        "a\nb",
+        "a b\rc",
+    ],
 )
 def test_a_batch_file_npx_refuses_arguments_cmd_exe_would_reinterpret(npx, arg) -> None:
-    """Windows runs npx.cmd through cmd.exe, whose parsing list2cmdline's quoting
-    does not survive, so an argument carrying a cmd metacharacter could run a
-    command; refuse it instead."""
+    """Windows runs npx.cmd through cmd.exe, which re-parses the quoted command
+    line: an unquoted operator runs a second command, and %VAR% or !VAR! expand
+    even inside quotes. Refuse such an argument instead."""
     with pytest.raises(ValueError, match="cmd.exe"):
         ext.build_skills_cli_command(npx, ["find", arg])
 
 
-def test_a_batch_file_npx_accepts_ordinary_arguments() -> None:
+@pytest.mark.parametrize(
+    "arg", ["pdf", "pdf tools", r"C:\Users\R&D Team\AppData\Local\Temp\s\checkout", "c++ | rust"]
+)
+def test_a_batch_file_npx_accepts_arguments_cmd_exe_reads_literally(arg) -> None:
+    """list2cmdline quotes an argument holding a space, and inside quotes cmd.exe
+    reads & | < > ^ literally, so a temp path under a user such as 'R&D Team'
+    must still install."""
     npx = r"C:\Program Files\nodejs\npx.cmd"
 
-    command = ext.build_skills_cli_command(npx, ["find", "pdf tools"])
+    command = ext.build_skills_cli_command(npx, ["find", arg])
 
-    assert command == [npx, "--yes", PINNED_SPEC, "find", "pdf tools"]
+    assert command == [npx, "--yes", PINNED_SPEC, "find", arg]
 
 
 def test_a_native_npx_passes_metacharacters_through_unchanged() -> None:
