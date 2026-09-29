@@ -367,6 +367,13 @@ also_copy = [
   # push whose delta touches any test file (the hook's regex matches all
   # of `tests/*.py`). Same root-level-resource pattern as `.claude/`.
   "release-please-config.json",
+  # tests/test_treesitter_pins.py (#595) compares the [treesitter] extra with
+  # the pre-push pytest hook's pins via `Path(__file__).resolve().parents[1] /
+  # ".pre-commit-config.yaml"`, which under mutmut becomes
+  # `mutants/.pre-commit-config.yaml`. Without this entry the test
+  # FileNotFoundErrors, mutmut's `-x` aborts stats collection, and the pre-push
+  # mutmut hook fails. Same root-level-resource pattern as the entry above.
+  ".pre-commit-config.yaml",
   # tests/test_report_html.py (#157) imports scripts/regen_report_snapshots.py
   # via `Path(__file__).resolve().parents[1] / "scripts"`, which under mutmut
   # becomes `mutants/scripts/`. Without this entry the module FileNotFoundErrors
