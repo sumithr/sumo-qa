@@ -790,23 +790,62 @@ def test_execute_rejects_an_unknown_scope_before_taking_any_lock(monkeypatch, tm
     assert state["bases"] == []
 
 
-def test_execute_holds_one_scope_lock_at_a_time(monkeypatch, tmp_path) -> None:
-    """Falling back from project to home releases the project lock first, so
-    two spellings of one folder can never be locked against each other."""
+@pytest.mark.parametrize("tampered", [False, True])
+def test_home_fallback_verifies_under_the_home_lock_only(
+    monkeypatch, toolchain, tmp_path, tampered
+) -> None:
+    """Falling back from project to home releases the project lock first, then
+    locates, reads, and verifies the home skill against the home record while
+    holding only the home lock."""
     home = tmp_path / "home"
-    skill = home / ".agents" / "skills" / "demo"
-    skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("# x\n", "utf-8")
-    (home / ".sumo-qa").mkdir()
+    toolchain.cwd = home  # the CLI installs a global skill under $HOME
     project = tmp_path / "project"
     (project / ".sumo-qa").mkdir(parents=True)
+    _install(toolchain, scope="global", cwd=project, home=home)
+    skill_md = home / ".agents" / "skills" / "find-skills" / "SKILL.md"
+    if tampered:
+        skill_md.write_text("tampered\n", "utf-8")
     state = _tracking_guards(monkeypatch)
+    real_read = ext._read_skill_body
+    reads_under = []
+    monkeypatch.setattr(
+        ext, "_read_skill_body", lambda path: reads_under.append(state["held"]) or real_read(path)
+    )
 
-    result = ext.execute_external_skill("demo", cwd=project, home=home)
-
-    assert result["scope"] == "global"
+    if tampered:
+        with pytest.raises(ext.ExternalSkillProvenanceError, match="digest"):
+            ext.execute_external_skill("find-skills", cwd=project, home=home)
+    else:
+        result = ext.execute_external_skill("find-skills", cwd=project, home=home)
+        assert result["scope"] == "global"
+        assert result["provenance"]["status"] == "verified"
     assert state["bases"] == [project, home]
     assert state["max_held"] == 1
+    assert reads_under == [1]
+
+
+def test_execute_rereads_under_the_lock_when_an_install_starts_meanwhile(
+    monkeypatch, tmp_path
+) -> None:
+    """With no lock folder, execute reads unlocked; if an install creates the
+    folder during that read, its write may be in progress, so execute reads
+    again under the lock."""
+    skill = tmp_path / ".agents" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# x\n", "utf-8")
+    state = _tracking_guards(monkeypatch)
+    real_read = ext._read_skill_body
+
+    def install_starts(path):
+        (tmp_path / ".sumo-qa").mkdir(exist_ok=True)
+        return real_read(path)
+
+    monkeypatch.setattr(ext, "_read_skill_body", install_starts)
+
+    result = ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+
+    assert state["bases"] == [tmp_path]
+    assert result["provenance"] == {"status": "unrecorded"}
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")

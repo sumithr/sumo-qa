@@ -263,15 +263,10 @@ def execute_external_skill(
     # locating, reading, and verifying: an install cannot be mid-way (or rolled
     # back) under the read, and a project skill never touches the home lock.
     for each_scope in ("project", "global") if scope == "auto" else (scope,):
-        lock_base = cwd if each_scope == "project" else home
-        has_lock = (lock_base / _LOCK_RELPATH).parent.is_dir()
-        with _lock_guard(lock_base) if has_lock else nullcontext():
-            installed = check_external_skill_installed(skill, each_scope, cwd, home)
-            if installed is not None:
-                path = Path(installed["path"])
-                body_bytes = _read_skill_body(path)
-                provenance = _verify_provenance(path, lock_base, body_bytes)
-                break
+        found = _locate_verified(skill, each_scope, cwd, home)
+        if found is not None:
+            installed, path, body_bytes, provenance = found
+            break
     else:
         raise ExternalSkillError(f"external skill is not installed: {skill}")
     body = body_bytes.decode("utf-8")
@@ -288,6 +283,30 @@ def execute_external_skill(
             "confirmation discipline for dependency installs and file writes."
         ),
     }
+
+
+def _locate_verified(
+    skill: str, scope: str, cwd: Path, home: Path
+) -> tuple[dict[str, str], Path, bytes, dict[str, Any]] | None:
+    """Locate, read, and verify ``skill`` in one scope under its install lock.
+
+    Without a lock folder nothing is locked, but an install always creates that
+    folder before writing a skill; if it appeared during the unlocked read,
+    that install may be mid-way, so the read is repeated under the lock.
+    """
+    lock_base = cwd if scope == "project" else home
+    lock_folder = (lock_base / _LOCK_RELPATH).parent
+    while True:
+        locked = lock_folder.is_dir()
+        with _lock_guard(lock_base) if locked else nullcontext():
+            installed = check_external_skill_installed(skill, scope, cwd, home)
+            found = None
+            if installed is not None:
+                path = Path(installed["path"])
+                body = _read_skill_body(path)
+                found = installed, path, body, _verify_provenance(path, lock_base, body)
+        if locked or not lock_folder.is_dir():
+            return found
 
 
 def hint_for_exception(exc: BaseException) -> str:
