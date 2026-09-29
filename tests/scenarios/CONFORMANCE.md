@@ -68,7 +68,31 @@ the final assistant `output_text`. The validator
 ([`../../src/sumo_qa/conformance.py`](../../src/sumo_qa/conformance.py)) scores
 it against a scenario and reports one violation per broken clause:
 `wrong_skill_routing`, `missing_required_tool`, `forbidden_tool_called`,
-`missing_output_marker`, `forbidden_output_marker`.
+`missing_output_marker`, `forbidden_output_marker`, `routing_state_leak`.
+
+## Routing-state leaks
+
+The approach router (`sumo-qa-deciding-approach`) is an internal hop: its
+routing payload, taxonomy labels, route announcement and checklist bookkeeping
+must never reach the user. Every deterministic scenario's output is scored for
+five leak families by `find_routing_leaks`, with no per-scenario opt-in:
+
+| Family | Caught | Not caught (ordinary prose) |
+|---|---|---|
+| `payload_json` | one brace-balanced span naming `classification`, `approach` and `next_action` (compact, pretty-printed, or unquoted keys) | a config snippet with only an `approach` key |
+| `taxonomy_label` | `Classification:` / `Approach:` whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a` | `Approach: pin today's behaviour first`, "a regression-first approach" |
+| `route_announcement` | "Picking the QA approach...", "Routing to sumo-qa-...", "Handing off to sumo_qa_...", "I'm routing you to..." | "routing to the pricing service", "I'm routing traffic through the load balancer" |
+| `checklist_status` | `[DONE]`, `[IN PROGRESS]`, `[PENDING]`, `[COMPLETED]` | markdown `[x]` / `[ ]` checkboxes |
+| `router_checklist` | a numbered line naming a router step (`load_classifications`, removability gate, routing payload, ...) | a numbered test plan |
+
+[`conformance/leak_transcripts.yaml`](conformance/leak_transcripts.yaml) holds
+a leaking and a clean near-miss output for every family, scored against the
+routed scenario (S11) and both STOP scenarios (S10 `no-tests-recommended`,
+S20 `recommend-removal`). The promptfoo assert
+[`../evals/promptfoo/asserts/no-routing-leak.js`](../evals/promptfoo/asserts/no-routing-leak.js)
+applies the same families to live candidate replies in
+`skill-deciding-approach-user-facing.yaml`; a contract test runs both over the
+fixture so they stay in step.
 
 `transcript_from_debug_dir` reconstructs a transcript from a
 `SUMO_QA_DEBUG_DIR` capture (see
@@ -87,8 +111,9 @@ uv run pytest tests/test_conformance_transcript_validator.py
 
 Those tests prove the fixture is well-formed (>= 8 deterministic scenarios,
 the required families present, every tool name registered, every source
-heading resolving), that a compliant transcript passes each scenario, and that
-a synthetic bad transcript FAILS on each contract axis.
+heading resolving), that a compliant transcript passes each scenario, that
+a synthetic bad transcript FAILS on each contract axis, and that every
+routing-leak fixture scores as labelled.
 
 To score your own captured run against a scenario:
 

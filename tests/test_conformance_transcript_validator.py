@@ -16,11 +16,13 @@ from pathlib import Path
 import pytest
 
 from sumo_qa.conformance import (
+    ROUTING_LEAK_FAMILIES,
     ConformanceScenario,
     ScenarioResult,
     ToolCall,
     Transcript,
     ViolationKind,
+    find_routing_leaks,
     format_report,
     load_scenarios,
     transcript_from_debug_dir,
@@ -563,3 +565,115 @@ def test_same_second_captures_order_by_call_time_not_name(tmp_path, monkeypatch)
         required_tool_calls=("sumo_qa_deciding_approach",),
     )
     assert validate_transcript(scenario, transcript).passed
+
+
+# --------------------------------------------------------------------------- #
+# Routing-state leaks (issue #248)                                            #
+# --------------------------------------------------------------------------- #
+# Technique: equivalence partitioning. Each leak family is one class with a
+# leaking representative; the adjacent clean class is ordinary prose that uses
+# the same words ("approach", "classification", "routing", numbered steps), the
+# substring/token-confusion failure mode a naive marker match would trip on.
+_LEAK_FIXTURE = Path(__file__).parent / "scenarios" / "conformance" / "leak_transcripts.yaml"
+
+
+def _leak_fixture() -> dict:
+    import yaml
+
+    return yaml.safe_load(_LEAK_FIXTURE.read_text(encoding="utf-8"))
+
+
+_LEAK_ENTRIES = _leak_fixture()["transcripts"]
+
+
+def test_leak_fixture_has_a_clean_and_a_leaking_transcript_per_family() -> None:
+    data = _leak_fixture()
+    assert set(data["families"]) == set(ROUTING_LEAK_FAMILIES)
+    for family in ROUTING_LEAK_FAMILIES:
+        entries = [e for e in data["transcripts"] if e["family"] == family]
+        assert any(e["leaks"] for e in entries), f"{family}: no leaking transcript"
+        assert any(not e["leaks"] for e in entries), f"{family}: no clean transcript"
+
+
+def test_leak_fixture_covers_routed_and_both_stop_scenarios(scenarios) -> None:
+    ids = {s.id for s in scenarios}
+    used = {e["scenario_id"] for e in _LEAK_ENTRIES}
+    assert used <= ids
+    assert {"S11-router-invocation", "S10-no-tests-needed", "S20-recommend-removal"} <= used
+
+
+@pytest.mark.parametrize("entry", _LEAK_ENTRIES, ids=[e["id"] for e in _LEAK_ENTRIES])
+def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
+    """A leaking output fails with a routing_state_leak naming its family; a
+    clean near-miss passes the whole scenario contract."""
+    s = next(s for s in scenarios if s.id == entry["scenario_id"])
+    good = _good_transcript(s)
+    transcript = Transcript(s.id, good.tool_calls, entry["output_text"])
+    result = validate_transcript(s, transcript, _known_entry_skills(scenarios))
+    leak_details = [
+        v.detail for v in result.violations if v.kind is ViolationKind.ROUTING_STATE_LEAK
+    ]
+    if entry["leaks"]:
+        assert any(entry["family"] in d for d in leak_details), result.violations
+    else:
+        assert result.passed, result.violations
+
+
+@pytest.mark.parametrize(
+    ("text", "family"),
+    [
+        (
+            '{"classification":"test_change","approach":"triage-test-failure",'
+            '"rationale":"x","next_action":{"skill":"sumo-qa-triaging-test-failures"}}',
+            "payload_json",
+        ),
+        (
+            "{\n  'next_action': {'skill': 'none'},\n  'approach': 'no-tests-recommended',\n"
+            "  'classification': 'docs_change'\n}",
+            "payload_json",
+        ),
+        ("CLASSIFICATION: config_change", "taxonomy_label"),
+        ("> Approach: `verify-existing`", "taxonomy_label"),
+        ("classification: n/a", "taxonomy_label"),
+        ("routing to using-sumo-qa first", "route_announcement"),
+        ("Handing off to sumo_qa_strategising.", "route_announcement"),
+        ("I'll route this to the pre-merge review.", "route_announcement"),
+        ("- [PENDING] ask one question", "checklist_status"),
+        ("2) Reason about shape: single change", "router_checklist"),
+        ("4. Build the routing payload", "router_checklist"),
+    ],
+)
+def test_find_routing_leaks_detects_each_family(text, family) -> None:
+    assert family in find_routing_leaks(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "Your approach: add a boundary test first. Classification of risk: high.",
+        '{"classification": "public", "approach": "canary"}',
+        '{"approach": "tdd-scaffold"} was the old config value',
+        "The classification step is done; the approach is sound.",
+        "Route requests through the gateway; routing to the pricing service works.",
+        "I'm routing traffic through the new load balancer first.",
+        "1. Read the diff\n2. Run the suite",
+        "Approach: regression-first thinking does not fit, nothing is broken yet.",
+        "Unbalanced { brace with classification: and approach: but no next action",
+    ],
+)
+def test_find_routing_leaks_ignores_ordinary_prose(text) -> None:
+    assert find_routing_leaks(text) == ()
+
+
+def test_routing_leak_catalogue_names_degrade_when_unreadable(monkeypatch) -> None:
+    """An unreadable catalogue must not crash scoring: label detection falls
+    back to the other families rather than erroring."""
+    from sumo_qa import conformance
+
+    def boom() -> str:
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(conformance, "sumo_qa_load_approaches", boom)
+    assert find_routing_leaks("Approach: tdd-scaffold") == ()
+    assert "route_announcement" in find_routing_leaks("Picking the QA approach for this change.")

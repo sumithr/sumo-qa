@@ -1,0 +1,147 @@
+description: >
+  User-facing leak eval for sumo-qa-deciding-approach (issue #248). The router
+  is an internal hop: in a real chat turn the user must never see its routing
+  payload, taxonomy labels, route announcement, or checklist bookkeeping. STOP
+  cases must still give the decision and its evidence in plain English. The
+  deterministic assert mirrors the conformance validator's leak families; the
+  rubric grades the STOP answer's usefulness.
+providers:
+  - file://providers/claude-candidate.yaml
+defaultTest:
+  vars:
+    skill_content: file://../../../skills/sumo-qa-deciding-approach/SKILL.md
+    classifications: file://../../../knowledge/classifications.md
+    approaches: file://../../../knowledge/approaches.md
+  assert:
+    - type: javascript
+      value: file://asserts/no-routing-leak.js
+      threshold: 1
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider: file://providers/claude-judge.yaml
+    rubricPrompt: >
+      You are an adversarial reviewer grading a chat reply the USER will read.
+      Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The catalogues the candidate had loaded (internal data; their entry
+      names must NOT appear as labels in the reply):
+
+
+      --- LOADED CLASSIFICATIONS ---
+
+      {{classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      --- LOADED APPROACHES ---
+
+      {{approaches}}
+
+      --- END LOADED APPROACHES ---
+
+
+      Evaluate TWO axes independently:
+
+
+      A. SHAPE - does the reply match the expected QA shape?
+
+      B. ANTI-PATTERNS - for each anti-pattern listed in the rubric, mark
+         ABSENT or PRESENT. PRESENT = the reply actually exhibits it.
+
+      Decision table:
+         | A SHAPE | Any anti-pattern PRESENT? | Verdict |
+         | PASS    | No                        | PASS    |
+         | PASS    | Yes                       | FAIL    |
+         | FAIL    | *                         | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session (the host has no task
+    list UI). You have loaded this sumo-qa router skill and MUST follow it
+    exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have already called the catalogue tools; their results are:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    --- LOADED APPROACHES ---
+    {{approaches}}
+    --- END LOADED APPROACHES ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Write the chat reply for this turn exactly as the developer will see it.
+    If the skill hands off to another skill, stop at the point of handoff.
+tests:
+  - description: STOP - docs typo answers in plain English with no internal state
+    vars:
+      user_prompt: >-
+        I'm fixing a typo in a comment in docs/CONFIGURATION.md. Anything I need
+        to do?
+      expected_shape: >-
+        A short plain-English answer that no tests are needed for a docs-only
+        typo, optionally suggesting a quick render/lint check.
+      anti_patterns:
+        - Recommends writing new tests for the typo.
+        - Shows internal routing state (a routing object, Classification/Approach labels, a step checklist, or a "picking the approach" preamble).
+
+  - description: STOP - orphan script recommends deletion with reachability evidence
+    vars:
+      user_prompt: >-
+        Help me write tests for ./install.sh - nothing references it, no CI
+        uses it, no docs mention it, no entry point points at it.
+      expected_shape: >-
+        A short plain-English recommendation to delete install.sh instead of
+        testing it, citing the reachability evidence (no callers, CI, docs, or
+        entry point).
+      anti_patterns:
+        - Scaffolds or proposes tests for install.sh.
+        - Says only "no tests needed" without recommending deletion.
+        - Shows internal routing state (a routing object, Classification/Approach labels, a step checklist, or a "picking the approach" preamble).
+
+  - description: ROUTED - infrastructure change hands off without visible routing
+    vars:
+      user_prompt: >-
+        I changed our Terraform module to move the payments service behind a
+        new internal load balancer. How should I test this?
+      expected_shape: >-
+        Either no router-authored text at all, or only the start of genuinely
+        useful QA content for the infrastructure change. Nothing that narrates
+        the router's own work.
+      anti_patterns:
+        - Shows internal routing state (a routing object, Classification/Approach labels, a step checklist, a "picking the approach" preamble, or "routing to <skill>").

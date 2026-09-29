@@ -36,6 +36,7 @@ from typing import Any
 
 import yaml
 
+from sumo_qa.knowledge_loaders import sumo_qa_load_approaches, sumo_qa_load_classifications
 from sumo_qa.skill_prompts import _skills_dir
 
 # The canonical router chain fires BEFORE the destination skill, in this
@@ -46,6 +47,14 @@ from sumo_qa.skill_prompts import _skills_dir
 # must fire first), while either router before an ordinary destination skill
 # is a legitimate prelude.
 ROUTER_CHAIN = ("using_sumo_qa", "sumo_qa_deciding_approach")
+
+ROUTING_LEAK_FAMILIES = (
+    "payload_json",
+    "taxonomy_label",
+    "route_announcement",
+    "checklist_status",
+    "router_checklist",
+)
 
 _VALID_MODES = frozenset({"deterministic", "provider-backed"})
 
@@ -62,6 +71,7 @@ class ViolationKind(str, Enum):
     FORBIDDEN_TOOL_CALLED = "forbidden_tool_called"
     MISSING_OUTPUT_MARKER = "missing_output_marker"
     FORBIDDEN_OUTPUT_MARKER = "forbidden_output_marker"
+    ROUTING_STATE_LEAK = "routing_state_leak"
 
 
 @dataclass(frozen=True)
@@ -202,6 +212,7 @@ def validate_transcript(
         _routing_violations(scenario, transcript, known_entry_skills)
         + _tool_violations(scenario, transcript)
         + _output_violations(scenario, transcript)
+        + _leak_violations(transcript)
     )
     return ScenarioResult(scenario.id, tuple(violations))
 
@@ -293,6 +304,105 @@ def _output_violations(scenario: ConformanceScenario, transcript: Transcript) ->
                 )
             )
     return violations
+
+
+# --------------------------------------------------------------------------- #
+# Routing-state leaks (issue #248)                                            #
+# --------------------------------------------------------------------------- #
+# The approach router's payload keys; a brace-balanced span naming all three is
+# the routing object, whether compact, pretty-printed, or written with the
+# skill's own unquoted-key notation. A config snippet that merely has an
+# ``approach`` key is not.
+_PAYLOAD_KEYS = ("classification", "approach", "next_action")
+_ROUTE_ANNOUNCEMENT_RE = re.compile(
+    r"picking the qa approach"
+    r"|\b(?:routing|handing off|routed) to\W{0,3}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
+    r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+(?:you|this)\b",
+    re.IGNORECASE,
+)
+_CHECKLIST_STATUS_RE = re.compile(r"\[(?:done|in[ _]progress|pending|completed)\]", re.IGNORECASE)
+_ROUTER_CHECKLIST_RE = re.compile(
+    r"^\s*\d+[.)]\s+.*(?:load_classifications|load_approaches|removability gate"
+    r"|reason about (?:classification|shape)|routing[- ]payload|read the user's intent)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_CATALOGUE_HEADING_RE = re.compile(r"^##\s+([a-z][a-z0-9_-]*)\s*$", re.MULTILINE)
+
+
+def find_routing_leaks(text: str) -> tuple[str, ...]:
+    """The routing-state leak families present in user-visible ``text``.
+
+    The approach router is an internal hop: its payload object, taxonomy
+    labels, route announcement and checklist bookkeeping must never reach the
+    user. Each family is matched structurally rather than by bare word, so
+    prose that says "approach" or "classification" is not a leak. A taxonomy
+    label only counts when its value is exactly a catalogue entry name (or
+    ``n/a``), read from the live catalogues."""
+    checks = {
+        "payload_json": _has_routing_payload,
+        "taxonomy_label": _has_taxonomy_label,
+        "route_announcement": lambda s: bool(_ROUTE_ANNOUNCEMENT_RE.search(s)),
+        "checklist_status": lambda s: bool(_CHECKLIST_STATUS_RE.search(s)),
+        "router_checklist": lambda s: bool(_ROUTER_CHECKLIST_RE.search(s)),
+    }
+    return tuple(family for family in ROUTING_LEAK_FAMILIES if checks[family](text))
+
+
+def _has_routing_payload(text: str) -> bool:
+    return any(
+        all(re.search(rf"\b{key}[\"']?\s*:", span) for key in _PAYLOAD_KEYS)
+        for span in _brace_spans(text)
+    )
+
+
+def _brace_spans(text: str) -> list[str]:
+    """Top-level ``{...}`` spans; an unbalanced brace yields no span."""
+    spans: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth:
+            depth -= 1
+            if depth == 0:
+                spans.append(text[start : i + 1])
+    return spans
+
+
+def _has_taxonomy_label(text: str) -> bool:
+    names = _catalogue_names()
+    if not names:
+        return False
+    alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    label = re.compile(
+        rf"(?<![\w\"'])(?:classification|approach)[\s*`\"']{{0,4}}:[\s*`\"']{{0,6}}"
+        rf"(?:{alternatives}|n/a)[`*\"']*(?=\s*$|[.,;)])",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    return bool(label.search(text))
+
+
+def _catalogue_names() -> frozenset[str]:
+    """Entry names from the live classification + approach catalogues; empty
+    when a catalogue is unreadable so scoring degrades instead of erroring."""
+    try:
+        text = sumo_qa_load_classifications() + "\n" + sumo_qa_load_approaches()
+    except OSError:
+        return frozenset()
+    return frozenset(_CATALOGUE_HEADING_RE.findall(text))
+
+
+def _leak_violations(transcript: Transcript) -> list[Violation]:
+    return [
+        Violation(
+            ViolationKind.ROUTING_STATE_LEAK,
+            f"internal routing state leaked into the output ({family})",
+        )
+        for family in find_routing_leaks(transcript.output_text)
+    ]
 
 
 def registered_entry_skills() -> frozenset[str]:
