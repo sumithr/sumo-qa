@@ -69,6 +69,8 @@ _EXTRA = [
     "\u5206\u985eapproach: verify-existing",
     "Approach: verify-existing\u2028More text",
     '{"classification":"x","approach":"y","rationale":"a\\\nb","next_action":{"skill":"none"}}',
+    "{\u5206\u985eclassification:x,approach:y,next_action:{skill:z}}",
+    "{classification:x,approach:y,next_action:{\u5206\u985eskill:z}}",
 ]
 
 
