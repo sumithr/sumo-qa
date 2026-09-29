@@ -677,6 +677,16 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
             "router_checklist",
         ),
         ("3. Pick the approach.\n4. Build the routing payload", "router_checklist"),
+        # Code review of the fix commits (#248): any word after an exact
+        # catalogue identifier, and handoff verbs with any object.
+        ("Classification: docs_change so no tests.", "taxonomy_label"),
+        ("Classification: docs_change and no tests needed.", "taxonomy_label"),
+        ("Approach: regression-first thinking does not fit.", "taxonomy_label"),
+        ("Routing your request to sumo-qa-reviewing-before-merge.", "route_announcement"),
+        ("Routing the request to sumo-qa-strategising.", "route_announcement"),
+        ("Handing this over to sumo-qa-strategising.", "route_announcement"),
+        ("Let me route this to sumo-qa-implementing-with-tdd.", "route_announcement"),
+        ("Handed off to sumo-qa-strategising.", "route_announcement"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:
@@ -703,8 +713,9 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "\u0661. Load catalogues\n\u0662. Pick the approach",
         '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
         "1. Read the diff\n2. Run the suite",
-        "Approach: regression-first thinking does not fit, nothing is broken yet.",
         "Unbalanced { brace with classification: and approach: but no next action",
+        "Approach: pin the regression-first cases before refactoring.",
+        "Hand the fixture to the pricing team, then rerun the suite.",
     ],
 )
 def test_find_routing_leaks_ignores_ordinary_prose(text) -> None:
@@ -746,7 +757,7 @@ def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
     assert time.perf_counter() - start < 0.5
 
 
-def test_blank_string_values_is_linear_on_an_unterminated_escaped_string() -> None:
+def test_blank_string_values_does_not_backtrack_exponentially() -> None:
     """A backslash must match only the escape branch of the quoted-string
     pattern; when it could match either, an unterminated string of escapes
     backtracks exponentially (CodeQL py/redos, #248)."""

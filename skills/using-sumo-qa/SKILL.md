@@ -5,7 +5,7 @@ description: MUST be called first for any QA-shaped request. Triggers — test p
 
 # Using sumo-qa
 
-**This hop is silent.** Routing is internal: no announcement, tracker, status, or skill name reaches the user. The first thing they read is the routed skill's answer.
+**This hop is silent:** no announcement, tracker, status, or skill name reaches the user; the routed skill's answer comes first.
 
 ## Output discipline (mandatory)
 
@@ -84,7 +84,7 @@ Rule of thumb: if you'd predict the user's answer with >80% confidence, don't as
 
 The skills use three terms that name a capability, not any one host's API. Map each to whatever the current host exposes.
 
-- **Ordered work tracker** — an explicit, ordered list the agent maintains and ticks off as work progresses. Use the host's native task primitive when available; otherwise keep a numbered tracker inline and update it visibly as items complete. The tracking obligation is required; the surface is not.
+- **Ordered work tracker** — an explicit, ordered list the agent maintains and ticks off as work progresses. Use the host's native task primitive when available; otherwise keep a numbered tracker inline and update it visibly as items complete. The tracking obligation is required (except in the silent routing hops); the surface is not.
 - **Structured user-choice prompt** — the host's best primitive for collecting an explicit choice from a small set (option-picker, MCP elicitation, etc.). Reserve for genuine 50/50 forks. If no structured UI exists, ask one concise inline question and wait.
 - **Subagent** (a.k.a. **fresh delegated worker**) — a worker dispatched through the host's delegation primitive that starts with no inherited task context, only the prompt you hand it. Used by the rollout chain to keep tasks isolated. If a host cannot delegate to fresh workers, the rollout skill stops and reports the capability gap rather than executing inline.
 

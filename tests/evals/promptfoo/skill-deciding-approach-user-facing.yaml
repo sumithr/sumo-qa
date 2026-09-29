@@ -124,7 +124,7 @@ tests:
         typo, optionally suggesting a quick render/lint check.
       anti_patterns:
         - Recommends writing new tests for the typo.
-        - Shows internal routing state (a routing object, Classification/Approach labels, a step checklist, or a "picking the approach" preamble).
+        - Shows internal routing state (a routing object, Classification/Approach labels, a step checklist, or a "picking the approach" or "Routing this QA intent" preamble).
 
   - description: STOP - orphan script recommends deletion with reachability evidence
     vars:
@@ -138,7 +138,7 @@ tests:
       anti_patterns:
         - Scaffolds or proposes tests for install.sh.
         - Says only "no tests needed" without recommending deletion.
-        - Shows internal routing state (a routing object, Classification/Approach labels, a step checklist, or a "picking the approach" preamble).
+        - Shows internal routing state (a routing object, Classification/Approach labels, a step checklist, or a "picking the approach" or "Routing this QA intent" preamble).
 
   - description: ROUTED - infrastructure change hands off without visible routing
     vars:
@@ -150,4 +150,4 @@ tests:
         useful QA content for the infrastructure change. Nothing that narrates
         the router's own work.
       anti_patterns:
-        - Shows internal routing state (a routing object, Classification/Approach labels, a step checklist, a "picking the approach" preamble, or "routing to <skill>").
+        - Shows internal routing state (a routing object, Classification/Approach labels, a step checklist, a "picking the approach" or "Routing this QA intent" preamble, or "routing to <skill>").

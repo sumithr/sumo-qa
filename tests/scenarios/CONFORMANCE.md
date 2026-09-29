@@ -72,16 +72,17 @@ it against a scenario and reports one violation per broken clause:
 
 ## Routing-state leaks
 
-The approach router (`sumo-qa-deciding-approach`) is an internal hop: its
-routing payload, taxonomy labels, route announcement and checklist bookkeeping
-must never reach the user. Every deterministic scenario's output is scored for
+The two routing hops, the entry router (`using-sumo-qa`) and the approach
+router (`sumo-qa-deciding-approach`), are internal: their routing payload,
+taxonomy labels, route announcement and checklist bookkeeping must never reach
+the user. Every deterministic scenario's output is scored for
 five leak families by `find_routing_leaks`, with no per-scenario opt-in:
 
 | Family | Caught | Not caught (ordinary prose) |
 |---|---|---|
 | `payload_json` | one brace-balanced span (braces inside strings ignored) naming `classification`, `approach` and a `next_action` object that itself holds a `skill` handoff (compact, pretty-printed, or unquoted keys) | a config snippet, even one with `classification`/`approach`/`next_action` keys and a `skill:` elsewhere |
-| `taxonomy_label` | `Classification:` / `Approach:` (bare, bold, code or quoted) whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a`, optionally followed by ` - note` | `Approach: pin today's behaviour first`, "a regression-first approach" |
-| `route_announcement` | "Picking the QA approach...", "Routing to sumo-qa-...", "Handing off to sumo_qa_...", "I'm routing you to..." | "routing to the pricing service", "I'm routing traffic through the load balancer" |
+| `taxonomy_label` | `Classification:` / `Approach:` (bare, bold, code or quoted) whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a`, whatever follows it (`docs_change (docs only)`, `verify-existing because ...`) | `Approach: pin today's behaviour first`, "a regression-first approach", a one-key config snippet `{"approach": "tdd-scaffold"}` |
+| `route_announcement` | "Picking the QA approach...", "Routing this QA intent.", a route or hand verb followed within the sentence by "to sumo-qa-..." ("Routing this to sumo-qa-...", "Handing this over to sumo_qa_..."), "I'm routing you to..." | "routing to the pricing service", "I'm routing traffic through the load balancer", "hand the fixture to the pricing team" |
 | `checklist_status` | `[DONE]`, `[IN PROGRESS]`, `[PENDING]`, `[COMPLETED]` on a line naming a router step | markdown `[x]` / `[ ]` checkboxes; a downstream plan's `[DONE] Run the suite` |
 | `router_checklist` | two or more numbered lines naming router steps (load classifications/approaches, removability gate, pick the approach, routing payload, ...) | a numbered test plan, even one line mentioning the removability gate |
 

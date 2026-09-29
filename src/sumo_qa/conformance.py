@@ -332,7 +332,7 @@ _DECOR = r"[\s*_`\"']"
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
     r"picking the qa approach"
     r"|\brouting this qa intent\b"
-    r"|\b(?:routing|routed|handing)(?:\s+(?:this|you|it))?(?:\s+off)?\s+to"
+    r"|\b(?:rout(?:e|es|ed|ing)|hand(?:s|ed|ing)?)\b[^.\n]{0,40}?\bto"
     r"[\s*_`\"'\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
     r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+(?:you|this)\b",
     re.IGNORECASE | re.ASCII,
@@ -453,8 +453,9 @@ def _has_taxonomy_label(text: str) -> bool:
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     label = re.compile(
         rf"(?<!\w)(?:classification|approach){_DECOR}{{0,4}}:{_DECOR}{{0,6}}"
-        rf"(?:{alternatives}|n/a)[`*\"']*"
-        r"(?=[ \t]*$|[.,;:)]|\s+[-–—]\s|\s+\(|\s+(?:because|since|as|given)\b)",
+        # Any word may follow an exact identifier; a closing quote then ``}``
+        # marks a one-key config snippet, which the payload family judges.
+        rf"(?:{alternatives}|n/a)(?![\w-])(?![`*\"']*\}})",
         re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
     return bool(label.search(text))

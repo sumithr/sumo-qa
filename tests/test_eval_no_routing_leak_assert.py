@@ -74,6 +74,10 @@ _EXTRA = [
     "Routing you to sumo-qa-strategising.",
     "Approach: verify-existing since the suite covers it.",
     "I'm routing this QA intent to the review.",
+    "Classification: docs_change so no tests.",
+    "Handing this over to sumo-qa-strategising.",
+    "Let me route this to sumo-qa-implementing-with-tdd.",
+    "Hand the fixture to the pricing team, then rerun the suite.",
 ]
 
 
@@ -108,7 +112,7 @@ def test_js_assert_verdicts_follow_the_fixture_labels() -> None:
             assert entry["family"] in grade["reason"], (entry["id"], grade)
 
 
-def test_js_blank_string_values_is_linear_on_an_unterminated_escaped_string() -> None:
+def test_js_blank_string_values_does_not_backtrack_exponentially() -> None:
     """Same CodeQL py/redos shape as the Python matcher: an unterminated
     string of escapes must not backtrack exponentially."""
     span = '{"a' + "\\a" * 28
@@ -123,3 +127,9 @@ def test_deciding_approach_user_facing_eval_wires_the_assert() -> None:
     )
     refs = [a.get("value") for a in config["defaultTest"]["assert"] if a["type"] == "javascript"]
     assert ASSERT_REF in refs
+    # The entry router is graded too: both hops load, entry router first.
+    assert config["defaultTest"]["vars"]["entry_skill_content"].endswith(
+        "skills/using-sumo-qa/SKILL.md"
+    )
+    prompt = config["prompts"][0]
+    assert prompt.index("{{entry_skill_content}}") < prompt.index("{{skill_content}}")

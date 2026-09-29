@@ -1,7 +1,7 @@
-// Deterministic routing-state leak assertion for the deciding-approach
-// user-facing eval (issue #248): the approach router is an internal hop, so
-// its routing payload, taxonomy labels, route announcement and checklist
-// bookkeeping must never appear in what the user reads.
+// Deterministic routing-state leak assertion for the routing-hops
+// user-facing eval (issue #248): the entry router and the approach router are
+// internal hops, so their routing payload, taxonomy labels, route announcement
+// and checklist bookkeeping must never appear in what the user reads.
 //
 // Mirrors `find_routing_leaks` in src/sumo_qa/conformance.py family for
 // family; tests/test_eval_no_routing_leak_assert.py runs both over
@@ -12,9 +12,11 @@
 //                        naming classification, approach, next_action AND a
 //                        skill handoff (compact, pretty, or unquoted keys);
 //   * taxonomy_label     `Classification:` / `Approach:` whose value is exactly
-//                        a catalogue entry name (read from knowledge/) or n/a;
-//   * route_announcement "Picking the QA approach", "Routing to sumo-qa-...",
-//                        or first-person handoff narration ("I'm routing you to");
+//                        a catalogue entry name (read from knowledge/) or n/a,
+//                        whatever follows it;
+//   * route_announcement "Picking the QA approach", "Routing this QA intent",
+//                        a route/hand verb then "to sumo-qa-..." in the same
+//                        sentence, or first-person handoff narration;
 //   * checklist_status   [DONE] / [IN PROGRESS] / [PENDING] / [COMPLETED] on a
 //                        line naming a router step;
 //   * router_checklist   two or more numbered lines naming router steps.
@@ -42,7 +44,7 @@ const DECOR = '[\\s*_`"\']';
 const ROUTE_ANNOUNCEMENT = new RegExp(
   'picking the qa approach' +
     '|\\brouting this qa intent\\b' +
-    '|\\b(?:routing|routed|handing)(?:\\s+(?:this|you|it))?(?:\\s+off)?\\s+to' +
+    '|\\b(?:rout(?:e|es|ed|ing)|hand(?:s|ed|ing)?)\\b[^.\\n]{0,40}?\\bto' +
     '[\\s*_`"\'\\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)' +
     "|\\b(?:i'm|i am|i'll|i will)\\s+(?:now\\s+)?(?:rout(?:e|ing)|handing)\\s+(?:you|this)\\b",
   'i',
@@ -146,8 +148,7 @@ function hasTaxonomyLabel(text) {
   const alternatives = names.map(escapeRegExp).join('|');
   const label = new RegExp(
     `(?<!\\w)(?:classification|approach)${DECOR}{0,4}:${DECOR}{0,6}` +
-      `(?:${alternatives}|n/a)[\`*"']*` +
-      '(?=[ \\t]*$|[.,;:)]|\\s+[-\\u2013\\u2014]\\s|\\s+\\(|\\s+(?:because|since|as|given)\\b)',
+      `(?:${alternatives}|n/a)(?![\\w-])(?![\`*"']*\\})`,
     'im',
   );
   return label.test(text);
