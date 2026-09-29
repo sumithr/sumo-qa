@@ -1,8 +1,8 @@
 # Routing-state leak fixtures (issue #248).
 #
-# The approach router is an internal orchestration hop: its routing payload,
-# taxonomy labels, route announcement and checklist bookkeeping must never
-# reach the user. The validator's structured `routing_state_leak` check
+# The two routing hops, using-sumo-qa and sumo-qa-deciding-approach, are
+# internal orchestration: their routing payload, taxonomy labels, route
+# announcement and checklist bookkeeping must never reach the user. The validator's structured `routing_state_leak` check
 # (src/sumo_qa/conformance.py `find_routing_leaks`) scores every deterministic
 # scenario's final output for these five leak families.
 #

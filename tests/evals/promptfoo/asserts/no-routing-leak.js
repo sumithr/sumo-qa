@@ -132,11 +132,18 @@ function bracePairs(text) {
   return pairs;
 }
 
-// Top-level {...} spans; an unbalanced brace yields no span.
+// The outermost {...} spans that close; an opening brace that never closes
+// is skipped rather than hiding every later span inside it.
 function braceSpans(text) {
-  return bracePairs(text)
-    .filter(([, , depth]) => depth === 0)
-    .map(([open, close]) => text.slice(open, close + 1));
+  const spans = [];
+  let lastClose = -1;
+  for (const [open, close] of bracePairs(text).sort((a, b) => a[0] - b[0])) {
+    if (open > lastClose) {
+      spans.push(text.slice(open, close + 1));
+      lastClose = close;
+    }
+  }
+  return spans;
 }
 
 // The skill handoff must sit inside the next_action object itself. One brace

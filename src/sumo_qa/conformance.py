@@ -484,9 +484,16 @@ def _brace_pairs(text: str) -> list[tuple[int, int, int]]:
 
 
 def _brace_spans(text: str) -> list[str]:
-    """Top-level ``{...}`` spans; an unbalanced brace yields no span."""
-    # Top-level pairs close in document order, so no sort is needed.
-    return [text[o : c + 1] for o, c, depth in _brace_pairs(text) if depth == 0]
+    """The outermost ``{...}`` spans that close. An opening brace that never
+    closes (a stray ``{`` in prose) is skipped rather than hiding every later
+    span inside it."""
+    spans: list[str] = []
+    last_close = -1
+    for open_, close, _ in sorted(_brace_pairs(text)):
+        if open_ > last_close:
+            spans.append(text[open_ : close + 1])
+            last_close = close
+    return spans
 
 
 def _has_taxonomy_label(text: str) -> bool:

@@ -693,6 +693,18 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("**Classification:** docs_change **Approach:** no-tests-recommended", "taxonomy_label"),
         ("**Classification:** docs_change**Approach:** no-tests-recommended", "taxonomy_label"),
         ("{classification:x,approach:y,next_action:{a:{skill:q}}}", "payload_json"),
+        # An opening brace that never closes must not hide a later payload.
+        (
+            "Wrap it in a `{` brace.\n```json\n"
+            '{"classification":"docs_change","approach":"no-tests-recommended",'
+            '"rationale":"typo","next_action":{"skill":"none"}}\n```',
+            "payload_json",
+        ),
+        (
+            '{"a": 1\n{"classification":"docs_change","approach":"no-tests-recommended",'
+            '"rationale":"typo","next_action":{"skill":"none"}}',
+            "payload_json",
+        ),
         (
             '{"classification":"docs_change","approach":"no-tests-recommended",'
             '"rationale":"use \u201c{\u201d literally","next_action":{"skill":"none"}}',

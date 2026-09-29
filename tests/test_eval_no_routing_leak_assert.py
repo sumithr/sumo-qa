@@ -121,6 +121,10 @@ _EXTRA = [
     '{"classification":"docs_change","approach":"no-tests-recommended",'
     '"rationale":"use \u201c{\u201d literally","next_action":{"skill":"none"}}',
     "[PEND\u0130NG] Load catalogues",
+    "Wrap it in a `{` brace.\n"
+    '{"classification":"x","approach":"y","rationale":"r","next_action":{"skill":"none"}}',
+    "{ { {classification:x,approach:y,next_action:{skill:z}} x",
+    "{" * 3_000 + "{classification:x,approach:y,next_action:{skill:z}}",
     "Classification: docs_change; Approach: no-tests-recommended." + " " * 2_000 + "x",
 ]
 
