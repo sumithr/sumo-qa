@@ -24,7 +24,7 @@ description: >
 # Feature flow line). After the final #685 skill wording, one single pass: A0
 # 0/1, A1 1/1. Over five #689 single passes A1 passes 3/5: the first two lost A1
 # to a listed test labelled UNCOVERED, the last three pass with A0 0/3. On the
-# final #689 tree (`6cbc646`; its modules are unchanged since `e57bd72`, where
+# final #689 tree (`cdf71fb`; its modules are unchanged since `26ddd94`, where
 # it ran), one single pass: A0 0/1, A1 1/1.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)

@@ -21,9 +21,9 @@ description: >
   snapshotted at fixtures/reviewing-before-merge-PRE-332.SKILL.md (= origin/main
   before the #332 commit); refresh it if the baseline moves.
 # Claude pair: separates. A0 0/3, A1 3/3 over 3 repeats. On the final #689
-# tree (`6cbc646`), one single pass: A0 0/1 (0.02), A1 1/1 (0.93); an earlier
-# #689 pass lost A1 to an unparseable judge reply, and the pass after it gave
-# A0 0/1, A1 1/1.
+# tree (`cdf71fb`), one single pass: A0 0/1 (0.00), A1 1/1 (0.93). Earlier #689
+# passes: one lost A1 to an unparseable judge reply, the next two gave A0 0/1,
+# A1 1/1 each (the second on `a716dcb`: 0.02, 0.93).
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:

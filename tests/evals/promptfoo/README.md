@@ -493,8 +493,9 @@ Reports land in `tests/evals/results/claude-reports/<config>.json` (gitignored).
 One pass of every base config on 2026-09-28, on `main` at `edc7860`. The last column is the
 result on this branch's final skills and rubrics; a blank cell is a config whose skill and rubric
 this branch does not change. Every `skill-reviewing-before-merge*.yaml` config ran once on
-`e57bd72`, 2026-09-29, and the five configs that load `surface-verifier` (the one module
-`6cbc646` then changed) ran again on `6cbc646`, so every row reflects the final skill slices. A
+`26ddd94`, 2026-09-29, and the five configs that load `surface-verifier` or `eval-validity`
+(the modules `a716dcb` and `cdf71fb` then changed) ran again on `cdf71fb`, so every row reflects
+the final skill slices. A
 config with a judge reply the provider could not parse, or a single ledger-row slip, was rerun
 once and the row gives the rerun. Per-leg `.ab` counts are in
 "A/B value-measurement" below.
@@ -522,7 +523,7 @@ once and the row gives the rerun. Per-leg `.ab` counts are in
 | `skill-reviewing-before-merge-adversarial.yaml` | 13/13 | 13/13 (rerun; first pass 12/13, one ledger-row slip) |
 | `skill-reviewing-before-merge-coverage-artifact.yaml` | 2/2 | 2/2 (rerun; first pass 0/2, one row writing `NONE` beside a path-matching test and one judge parse error) |
 | `skill-reviewing-before-merge-doc-drift.yaml` | 1/1 | 1/1 |
-| `skill-reviewing-before-merge-eval-validity.yaml` | 2/2 | 2/2 (on `6cbc646`; two passes on `e57bd72` 1/2, the load-bearing seed blocked on a recorded run that did not restate its backend) |
+| `skill-reviewing-before-merge-eval-validity.yaml` | 2/2 | 2/2 (on `cdf71fb`; two passes on `26ddd94` 1/2, the load-bearing seed blocked on a recorded run that did not restate its backend) |
 | `skill-reviewing-before-merge-external-contract.yaml` | 3/3 | 3/3 |
 | `skill-reviewing-before-merge-feature-flow.yaml` | 2/2 | 2/2 |
 | `skill-reviewing-before-merge-feedback-memory.yaml` | 2/2 | 2/2 |
@@ -535,7 +536,7 @@ once and the row gives the rerun. Per-leg `.ab` counts are in
 | `skill-reviewing-before-merge-security-relevance.yaml` | 2/2 | 2/2 |
 | `skill-reviewing-before-merge-unproven-escalation.yaml` | 1/2 | 2/2 |
 | `skill-reviewing-before-merge-vacuous-test.yaml` | 2/2 | 2/2 |
-| `skill-reviewing-before-merge-verifier-evidence.yaml` | 3/3 | 3/3 (rerun; first pass 2/3, one judge parse error) |
+| `skill-reviewing-before-merge-verifier-evidence.yaml` | 3/3 | 3/3 |
 | `skill-reviewing-before-merge.yaml` | 1/1 | 1/1 |
 | `skill-security-testing.yaml` | 4/5 | 5/5 |
 | `skill-strategising-repo-map.yaml` | 1/1 |  |
@@ -960,7 +961,7 @@ renders.
 
 `asserts/ledger-row-labels.js` fails a coverage-ledger row whose label contradicts its own `Fresh matching tests` field: tests listed and the row labelled UNCOVERED, or `NONE` and the row labelled UNPROVEN or COVERED. It runs on every seed and every `.ab` leg of the reviewing-before-merge configs that load `coverage-ledger`.
 
-On the Claude pair the current skill still produces a contradicting row on a few current-skill legs per pass over those configs, almost always a listed test labelled UNCOVERED, and the slip moves between seeds from pass to pass: 4 of 53 row-checked current-skill legs on the `1d23d4f` pass, 1 of 53 on the final #689 pass (`e57bd72`, the `adversarial` `rollback-data-loss` seed, clean on its rerun), each on a different row, none of 13 on the final `adversarial` pass and 1 of 5 on its `rollback-data-loss` seed at `--repeat 5`, against 2 of 26 `adversarial` legs for the tree before the #689 consistency fixes at `--repeat 2`. The skill states the rule in the row template's Coverage slot, the label definition, a BAD/GOOD row, and the discovery, feature-flow, declared-contract and acceptance-criteria modules, so treat a single failing leg as candidate variance: rerun that config once, and treat the same row failing twice as a regression. The mirror slip, a row writing `NONE` beside a path-matching test and labelling it UNCOVERED, agrees with itself, so this check passes it and the rubric fails it: once each on those two passes (`security-relevance`, then `coverage-artifact`), both clean on the next run.
+On the Claude pair the current skill still produces a contradicting row on a few current-skill legs per pass over those configs, almost always a listed test labelled UNCOVERED, and the slip moves between seeds from pass to pass: 4 of 53 row-checked current-skill legs on the `49e175d` pass, 1 of 53 on the final #689 pass (`26ddd94`, the `adversarial` `rollback-data-loss` seed, clean on its rerun), each on a different row, none of 13 on the final `adversarial` pass and 1 of 5 on its `rollback-data-loss` seed at `--repeat 5`, against 2 of 26 `adversarial` legs for the tree before the #689 consistency fixes at `--repeat 2`. The skill states the rule in the row template's Coverage slot, the label definition, a BAD/GOOD row, and the discovery, feature-flow, declared-contract and acceptance-criteria modules, so treat a single failing leg as candidate variance: rerun that config once, and treat the same row failing twice as a regression. The mirror slip, a row writing `NONE` beside a path-matching test and labelling it UNCOVERED, agrees with itself, so this check passes it and the rubric fails it: once each on those two passes (`security-relevance`, then `coverage-artifact`), both clean on the next run.
 
 The check reads `NONE`, `N/A`, `nothing`, `0 tests`, `not run`, an empty field or a dash as no test listed, and takes an inline row's tests field up to the next `| <Label>:` field, so a parametrized test ID carrying `|` stays in the field and an extra field such as `| Notes: ... |` before `Coverage:` is never read as a listed test. In a table ledger an escaped `\|` stays inside its cell, and a row with bare pipes in its tests cell keeps its Coverage column, counted from the row's end.
 
@@ -970,7 +971,7 @@ The slip could be removed structurally by never writing UNCOVERED at all (a `NON
 
 This measures skill value as `pass_rate(B) - pass_rate(A1)`. A0 is the raw Claude baseline with no catalogues and no skill. A1 adds catalogues only. B adds the skill (for `reviewing-before-merge`, the root `SKILL.md` plus the modules the config declares, assembled by `fixtures/assemble-review-skill.js`; for other skills, the whole `SKILL.md`). The gap between B and A1 shows what the skill's decision logic contributes beyond raw knowledge. Run it with `./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-deciding-approach.ab.yaml --no-cache`. `.ab.yaml` controls exist for a subset of skills and corpora (`ls tests/evals/promptfoo/*.ab.yaml`); the pattern is not rolled across the whole estate.
 
-Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-opus-5` judge) on this branch's final skills and rubrics, one pass unless the row says otherwise. The `reviewing-before-merge` rows are the final #689 pass: the skill slices as at `6cbc646`, run there for the configs that load `surface-verifier` and on `e57bd72` for the rest, whose slices are identical.
+Per-leg pass counts on the Claude pair (`claude-haiku-4-5` candidate, `claude-opus-5` judge) on this branch's final skills and rubrics, one pass unless the row says otherwise. The `reviewing-before-merge` rows are the final #689 pass: the skill slices as at `cdf71fb`, run there for the configs that load `surface-verifier` or `eval-validity` and on `26ddd94` for the rest, whose slices are identical.
 
 | Control | A0 | A1 | B | Notes |
 |---|---|---|---|---|
@@ -986,7 +987,7 @@ Pre-edit controls compare a snapshotted pre-edit skill body (A0) with the curren
 
 | Control | A0 | A1 | Notes |
 |---|---|---|---|
-| `skill-reviewing-before-merge-eval-validity.ab.yaml` | 1/1 | 1/1 | Non-discriminating, regression guard on A1 |
+| `skill-reviewing-before-merge-eval-validity.ab.yaml` | 0/1 | 1/1 | Non-discriminating (A0 3/7 over the #689 passes), regression guard on A1 |
 | `skill-reviewing-before-merge-feature-flow.ab.yaml` | 0/1 | 1/1 | |
 | `skill-reviewing-before-merge-feedback-memory.ab.yaml` | 1/1 | 1/1 | A0 2/3 over three earlier samples and 0/2 over two earlier #689 passes, each fail on its coverage label; non-discriminating, regression guard |
 | `skill-reviewing-before-merge-fence-parser.ab.yaml` | 0/1 | 1/1 | |
