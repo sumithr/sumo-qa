@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -72,8 +73,20 @@ _EXACT_VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
 _VERIFIED_CLI_PATHS: set[str] = set()
 
 _DEFAULT_SOURCE = "https://github.com/vercel-labs/skills"
-_REMOTE_SOURCE_PREFIXES = ("https://", "ssh://", "git@", "file://")
-_GITHUB_SHORTHAND_RE = re.compile(r"[A-Za-z0-9][\w.-]*/[\w.-]+")
+# Source forms the pinned CLI strips '#<commit>' from (skills@1.7.0
+# looksLikeGitSource / parseSource); anything else would silently drop the pin.
+_SHORTHAND_SOURCE_RE = re.compile(r"([A-Za-z0-9][\w.-]*/[\w.-]+?)(?:@([\w.-]+))?")
+_GITHUB_REPO_URL_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+?(?:\.git)?/?")
+_GIT_URL_RE = re.compile(r"(?:https|ssh)://[^\s#]+\.git|git@[\w.-]+:[^\s#]+")
+# skills@1.7.0 SOURCE_ALIASES: shorthands the CLI rewrites before cloning.
+# Re-check against the CLI source whenever the pin moves.
+_CLI_SOURCE_ALIASES = {
+    "coinbase/agentWallet": "coinbase/agentic-wallet-skills",
+    "vercel-labs/vercel-skills": "vercel-labs/agent-skills",
+}
+# Skill and agent names reach the CLI argv and filesystem paths: no leading
+# '-' (a flag), no '*' (a wildcard), no separators or '..' (a path).
+_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _LOCK_RELPATH = Path(".sumo-qa") / "external-skills.lock.json"
 _LOCK_SCHEMA_VERSION = 1
@@ -135,20 +148,24 @@ def install_external_skill(
         raise ValueError("source is required")
     if scope not in {"project", "global"}:
         raise ValueError("scope must be 'project' or 'global'")
+    _check_name(skill, "skill")
+    _check_name(agent, "agent")
 
-    source_base, remote_url, requested_ref = _parse_source(source)
+    source_base, remote_url, requested_ref, named_skill = _parse_source(source)
+    if named_skill is not None and named_skill != skill:
+        raise ValueError(f"source names skill {named_skill!r} but skill is {skill!r}")
     cwd = cwd or Path.cwd()
     home = home or Path.home()
     lock_base = cwd if scope == "project" else home
-    lock = _read_lock(lock_base)
+    _read_lock(lock_base)  # fail fast on an unreadable lock, before the CLI runs
     resolved_ref = _resolve_commit(remote_url, requested_ref, timeout)
-    before = _installed_folders(skill, scope, cwd, home)
+    before = _folder_identities(skill, scope, cwd, home)
 
     args = ["add", f"{source_base}#{resolved_ref}", "--skill", skill, "-a", agent, "-y"]
     if scope == "global":
         args.append("-g")
     command, stdout, stderr = _run_skills_cli(args, timeout=timeout, cwd=cwd)
-    written = _written_folders(skill, scope, before, _installed_folders(skill, scope, cwd, home))
+    written = _written_folders(skill, scope, before, _folder_identities(skill, scope, cwd, home))
     installed_at = datetime.now(timezone.utc).isoformat()
     records = [
         {
@@ -156,19 +173,17 @@ def install_external_skill(
             "source": source_base,
             "requested_ref": requested_ref,
             "resolved_ref": resolved_ref,
-            "content_digest": digest,
+            "content_digest": skill_content_digest(location.path.parent),
             "agent": agent,
             "scope": scope,
             "path": location.path.parent.relative_to(lock_base).as_posix(),
             "installed_at": installed_at,
             "installer": skills_cli_identity(),
         }
-        for location, digest in written
+        for location in written
     ]
-    for record in records:
-        lock["skills"][record["path"]] = record
-    _write_lock(lock_base, lock)
-    installed = written[0][0].as_dict()
+    _record_in_lock(lock_base, records)
+    installed = written[0].as_dict()
     provenance = records[0]
     return {
         "skill": skill,
@@ -196,6 +211,7 @@ def check_external_skill_installed(
         raise ValueError("skill is required")
     if scope not in _VALID_SCOPES:
         raise ValueError("scope must be 'auto', 'project', or 'global'")
+    _check_name(skill, "skill")
     for installed in _iter_installed_skill_candidates(skill, scope, cwd, home):
         if installed.path.is_file():
             return installed.as_dict()
@@ -276,8 +292,11 @@ def hint_for_exception(exc: BaseException) -> str:
     if isinstance(exc, ExternalSkillProvenanceError):
         return (
             "Do not execute this skill: its installed content or provenance record "
-            "does not match. Reinstall it via sumo_qa_install_external_skill once "
-            "the user confirms."
+            "does not match, or provenance could not be recorded. Reinstall it via "
+            "sumo_qa_install_external_skill once the user confirms. If the error says "
+            "the provenance lock (.sumo-qa/external-skills.lock.json) is unreadable, "
+            "ask the user to repair or remove that file first; removing it drops every "
+            "record."
         )
     if isinstance(exc, ValueError):
         return "Check the tool arguments — the error message names the rejected value."
@@ -316,26 +335,40 @@ def skill_content_digest(folder: Path) -> str:
 def _content_entries(root: Path) -> dict[str, str]:
     """Map each relative path under ``root`` to its content hash.
 
-    Symlinked folders are followed so the bytes behind them are covered, and
-    also record their target so retargeting one changes the digest. A folder
-    reached again through a link (a cycle) is recorded but not re-entered.
+    A symlink inside the folder is pinned by its target and not followed (the
+    bytes it reaches are hashed at their own path). A link leaving the folder,
+    or anything that is not a regular file, cannot be pinned and is refused.
     """
+    root_real = os.path.realpath(root)
     entries: dict[str, str] = {}
-    visited: set[str] = set()
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+    for dirpath, dirnames, filenames in os.walk(root):
         current = Path(dirpath)
-        visited.add(os.path.realpath(current))
-        for name in list(dirnames):
+        for name in [*dirnames, *filenames]:
             path = current / name
-            target = os.readlink(path) if path.is_symlink() else ""
-            entries[path.relative_to(root).as_posix() + "/"] = target
-            if os.path.realpath(path) in visited:
-                dirnames.remove(name)  # pragma: no cover -- platform-conditional (POSIX only)
-        for name in filenames:
-            path = current / name
-            content = hashlib.sha256(path.read_bytes()).hexdigest()
-            entries[path.relative_to(root).as_posix()] = content
+            relpath = path.relative_to(root).as_posix()
+            if path.is_symlink():  # pragma: no cover -- platform-conditional (POSIX only)
+                _check_link_stays_inside(path, root_real)
+                entries[relpath + "@"] = os.readlink(path)
+            elif name in filenames:
+                entries[relpath] = _hash_regular_file(path)
     return entries
+
+
+def _check_link_stays_inside(path: Path, root_real: str) -> None:  # pragma: no cover -- POSIX only
+    target = os.path.realpath(path)
+    if os.path.commonpath([root_real, target]) != root_real:
+        raise ExternalSkillProvenanceError(
+            f"{path} links outside the skill folder ({target}); that content cannot be pinned"
+        )
+
+
+def _hash_regular_file(path: Path) -> str:
+    try:
+        if not path.is_file():  # pragma: no cover -- platform-conditional (POSIX only)
+            raise ExternalSkillProvenanceError(f"{path} is not a regular file; refusing to read it")
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ExternalSkillProvenanceError(f"could not read {path}: {exc}") from exc
 
 
 def _digest_of(entries: dict[str, str]) -> str:
@@ -398,20 +431,29 @@ def _run_cli_process(command: list[str], timeout: int, cwd: Path | None) -> tupl
     return completed.stdout, completed.stderr
 
 
-def _parse_source(source: str) -> tuple[str, str, str | None]:
-    """Split an install source into (CLI source, git remote URL, requested ref)."""
+def _check_name(value: str, kind: str) -> None:
+    if not _NAME_RE.fullmatch(value):
+        raise ValueError(
+            f"{kind} name {value!r} must start with a letter or digit and use only "
+            "letters, digits, '.', '_' or '-'"
+        )
+
+
+def _parse_source(source: str) -> tuple[str, str, str | None, str | None]:
+    """Split an install source into (CLI source, git remote URL, ref, named skill)."""
     base, has_ref, ref = source.partition("#")
     if has_ref and not ref:
         raise ValueError("source ref after '#' is empty")
-    if "/tree/" in base or "/blob/" in base:
-        raise ValueError("source must be a repository URL; pass a folder's ref as '#<ref>'")
-    if base.startswith(_REMOTE_SOURCE_PREFIXES):
-        return base, base, ref or None
-    if _GITHUB_SHORTHAND_RE.fullmatch(base):
-        return base, f"https://github.com/{base}.git", ref or None
+    shorthand = _SHORTHAND_SOURCE_RE.fullmatch(base)
+    if shorthand:
+        repo = _CLI_SOURCE_ALIASES.get(shorthand[1], shorthand[1])
+        return repo, f"https://github.com/{repo}.git", ref or None, shorthand[2]
+    if _GITHUB_REPO_URL_RE.fullmatch(base) or _GIT_URL_RE.fullmatch(base):
+        return base, base, ref or None, None
     raise ValueError(
-        "source must be a git URL (https://, ssh://, git@, file://) or owner/repo "
-        "shorthand so the install can be pinned to a commit"
+        "source must be owner/repo[@skill], https://github.com/owner/repo, or a git "
+        "URL ending in .git (https:// or ssh://) or git@host:path, so the install can "
+        "be pinned to a commit"
     )
 
 
@@ -456,48 +498,50 @@ def _resolve_commit(remote_url: str, ref: str | None, timeout: int) -> str:
     raise SourceResolutionError(f"ref {wanted!r} not found in {remote_url}")
 
 
-def _installed_folders(
+def _folder_identities(
     skill: str, scope: str, cwd: Path, home: Path
-) -> dict[Path, tuple[InstalledSkill, str]]:
-    """Every existing copy of ``skill`` in ``scope``, with its content digest."""
-    found: dict[Path, tuple[InstalledSkill, str]] = {}
+) -> dict[Path, tuple[InstalledSkill, tuple[int, int]]]:
+    """Every existing copy of ``skill`` in ``scope`` with its folder identity.
+
+    The pinned CLI deletes and recreates the folder on every install
+    (cleanAndCreateDirectory), so a new inode or mtime marks a folder it wrote.
+    """
+    # Keyed by (root, inode): name variants that reach one folder (on a
+    # case-insensitive filesystem) count once, under the first spelling tried,
+    # which is the CLI's own.
+    found: dict[tuple[Path, int], tuple[InstalledSkill, tuple[int, int]]] = {}
     for candidate in _iter_installed_skill_candidates(skill, scope, cwd, home):
-        folder = candidate.path.parent
-        if candidate.path.is_file() and folder not in found:
-            found[folder] = (candidate, skill_content_digest(folder))
-    return found
+        if candidate.path.is_file():
+            stat = candidate.path.parent.stat()
+            found.setdefault(
+                (candidate.path.parent.parent, stat.st_ino),
+                (candidate, (stat.st_ino, stat.st_mtime_ns)),
+            )
+    return {location.path.parent: (location, identity) for location, identity in found.values()}
 
 
 def _written_folders(
     skill: str,
     scope: str,
-    before: dict[Path, tuple[InstalledSkill, str]],
-    after: dict[Path, tuple[InstalledSkill, str]],
-) -> list[tuple[InstalledSkill, str]]:
-    """The copies an install wrote: new or changed ones, else the only copy.
+    before: dict[Path, tuple[InstalledSkill, tuple[int, int]]],
+    after: dict[Path, tuple[InstalledSkill, tuple[int, int]]],
+) -> list[InstalledSkill]:
+    """The copies this install created or rewrote.
 
-    The CLI's target folder depends on the agent, and a stale copy elsewhere
-    can be found first; recording that copy would vouch for bytes this install
-    never wrote.
+    A copy it did not touch is never returned, even when it is the only one
+    found: recording it would vouch for bytes this install never wrote.
     """
-    changed = [
-        entry for folder, entry in after.items() if before.get(folder, (None, ""))[1] != entry[1]
+    written = [
+        location
+        for folder, (location, identity) in after.items()
+        if before.get(folder, (None, None))[1] != identity
     ]
-    if changed:
-        return changed
-    if len(after) == 1:
-        return list(after.values())
-    if not after:
+    if not written:
         raise ExternalSkillProvenanceError(
-            f"installed skill {skill!r} not found in the {scope} skill folders; "
-            "provenance was not recorded"
+            f"installed skill {skill!r} not found among the {scope} skill folders this "
+            "install wrote; provenance was not recorded"
         )
-    paths = ", ".join(sorted(entry[0].path.parent.as_posix() for entry in after.values()))
-    raise ExternalSkillProvenanceError(
-        f"several unchanged copies of {skill!r} exist ({paths}); cannot tell which one "
-        "this install wrote, so provenance was not recorded. Remove the stale copies "
-        "and reinstall."
-    )
+    return written
 
 
 def _read_lock(base: Path) -> dict[str, Any]:
@@ -519,17 +563,31 @@ def _read_lock(base: Path) -> dict[str, Any]:
     return lock
 
 
-def _write_lock(base: Path, lock: dict[str, Any]) -> None:
+def _record_in_lock(base: Path, records: list[dict[str, Any]]) -> None:
+    """Merge records into the lock, re-read now so a concurrent install's
+    records written since the fail-fast read are kept."""
+    lock = _read_lock(base)
+    for record in records:
+        lock["skills"][record["path"]] = record
     path = base / _LOCK_RELPATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    staging = path.with_name(path.name + ".tmp")
-    staging.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(staging, path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, staging = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(lock, indent=2, sort_keys=True) + "\n")
+        try:
+            os.replace(staging, path)
+        except OSError:
+            os.unlink(staging)
+            raise
+    except OSError as exc:
+        raise ExternalSkillProvenanceError(
+            f"could not write provenance lock {path}: {exc}"
+        ) from exc
 
 
 def _verify_provenance(folder: Path, lock_base: Path, body: bytes) -> dict[str, Any]:
-    key = folder.relative_to(lock_base).as_posix()
-    record = _read_lock(lock_base)["skills"].get(key)
+    key, record = _find_record(folder, lock_base)
     if record is None:
         return {"status": "unrecorded"}
     resolved_ref = record.get("resolved_ref") if isinstance(record, dict) else None
@@ -544,11 +602,32 @@ def _verify_provenance(folder: Path, lock_base: Path, body: bytes) -> dict[str, 
             f"content digest mismatch for {key}: recorded "
             f"{record.get('content_digest')}, installed {actual}"
         )
-    if hashlib.sha256(body).hexdigest() != entries.get("SKILL.md"):
+    # The CLI accepts SKILL.md in any case and keeps the on-disk name.
+    body_entry = entries.get("SKILL.md") or next(
+        (value for name, value in entries.items() if name.lower() == "skill.md"), None
+    )
+    if hashlib.sha256(body).hexdigest() != body_entry:
         raise ExternalSkillProvenanceError(
             f"{key}/SKILL.md changed while it was being verified; not executing it"
         )
     return {"status": "verified", **record}
+
+
+def _find_record(folder: Path, lock_base: Path) -> tuple[str, Any]:
+    """The lock record for ``folder``, matched by the folder on disk.
+
+    Matching by path spelling alone would let a case or symlink variant of the
+    name miss the record and run the skill as unrecorded.
+    """
+    skills = _read_lock(lock_base)["skills"]
+    key = os.path.relpath(folder, lock_base).replace(os.sep, "/")
+    if key in skills:
+        return key, skills[key]
+    for recorded_key, record in skills.items():
+        recorded = lock_base / recorded_key
+        if recorded.exists() and os.path.samefile(recorded, folder):
+            return recorded_key, record
+    return key, None
 
 
 def _strip_ansi(text: str) -> str:
@@ -577,14 +656,17 @@ def _roots(base: Path):
         yield base / first / second, agent
 
 
-def _candidate_paths(names: set[str], root: Path, agent: str, scope: str):
-    for name in sorted(names):
+def _candidate_paths(names: list[str], root: Path, agent: str, scope: str):
+    for name in names:
         yield InstalledSkill(name=name, path=root / name / "SKILL.md", agent=agent, scope=scope)
 
 
-def _candidate_skill_names(skill: str) -> set[str]:
-    return {
+def _candidate_skill_names(skill: str) -> list[str]:
+    variants = [
+        # skills@1.7.0 sanitizeName(): the folder the CLI actually writes.
+        re.sub(r"[^a-z0-9._]+", "-", skill.lower()).strip(".-"),
         skill,
         skill.replace("_", "-"),
         skill.replace("-", "_"),
-    }
+    ]
+    return list(dict.fromkeys(variants))
