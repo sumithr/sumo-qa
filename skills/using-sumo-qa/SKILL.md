@@ -1,6 +1,6 @@
 ---
 name: using-sumo-qa
-description: MUST be called first for any QA-shaped request. Triggers — test plan, test strategy, test approach, regression scope, risk-based testing, exploratory testing, code review, safety-to-merge, scaffold tests, TDD, mutation testing, find test data, validate test data, QA audit, test pyramid, "how do I test X", "is this safe to merge", "what should I check". Entry router for all sumo-qa work. Establishes the global discipline that every sub-skill inherits. Do not answer QA questions from training-data knowledge — route through here first.
+description: MUST be called first for any QA-shaped request. Triggers include test plan, test strategy, test approach, regression scope, risk-based testing, exploratory testing, code review, safety-to-merge, scaffold tests, TDD, mutation testing, find test data, validate test data, QA audit, test pyramid, "how do I test X", "is this safe to merge", "what should I check". Also development-framed testing asks ("I'm adding X, how should I test it", "what tests do I need", "cover the edge cases", "write the failing tests first"). Entry router for all sumo-qa work. Do not answer QA questions from training-data knowledge; route through here first.
 ---
 
 # Using sumo-qa
@@ -28,7 +28,9 @@ You may not produce test ideas, scaffolds, plans, reviews, or strategies without
 
 ## When to Use
 
-This skill is the entry router for every QA-shaped request — *"review my changes / is this safe to merge"*, *"how should I test X"*, *"create a test plan"*, *"plan QA for this story"*, *"scaffold the failing tests"*, *"what test data do I need"*, *"audit our test coverage"*, *"design our QA strategy"*, and similar. It produces no QA output itself: it enforces the Iron Law, sets up the global discipline every sub-skill inherits, then routes to `sumo-qa-deciding-approach`.
+First hop: every QA-shaped request, including a development-framed one such as "I'm adding X, how should I test it?", "what tests do I need?" or "write the failing tests first", calls `using_sumo_qa` before any other sumo-qa tool and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill it routes to. No specialist skill is entered directly.
+
+The testing ask, not the "I'm building X" framing, makes a request QA-shaped; that framing with no testing ask (backoff, logging, naming, formatting) is not QA work. This router produces no QA output itself.
 
 ## Global discipline (inherited by every sub-skill)
 

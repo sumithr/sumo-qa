@@ -417,6 +417,26 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 ---
 
+## 20. Development-framed testing request
+
+**User prompts:** *"I'm adding `sumo_qa_analyze_diff_impact`. How should I test it?"*, *"I'm implementing a retry worker. What tests do I need for it?"*, *"I'm changing the parser. How do I cover the edge cases?"*, *"I'm building this endpoint. Write the failing tests first."*
+
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → whichever skill the approach routes to.
+
+**Expected interaction shape:**
+1. The implementation framing ("I'm adding / implementing / changing / building X") does not hide the testing ask; the host treats the prompt as QA-shaped.
+2. The first sumo-qa call is `using_sumo_qa`, before any catalogue load and before any test advice, then `sumo_qa_deciding_approach`, then the routed skill. No specialist skill is entered directly.
+3. The user sees the routed skill's output, not the routing trace.
+
+**Controls (must NOT route):** the same framing with no testing ask, such as adding backoff, adding logging, naming a handler, or formatting a file. These are development requests; the host answers them without calling `using_sumo_qa` or `sumo_qa_deciding_approach`.
+
+**Anti-patterns:**
+- Answers "how should I test it" from general knowledge with no sumo-qa call (the original VS Code/Copilot observation behind issue #247).
+- Loads a catalogue or enters a specialist skill before `using_sumo_qa`.
+- Routes a non-testing development request through sumo-qa.
+
+---
+
 ## How to validate these scenarios
 
 Three complementary paths:

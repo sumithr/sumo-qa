@@ -4,18 +4,25 @@
 test approach, regression scope, risk-based testing, exploratory testing,
 code review for safety-to-merge, scaffolding tests, TDD, mutation testing,
 finding or validating test data, QA audit, test pyramid design — you MUST
-call `sumo_qa_using_sumo_qa` (the entry router) before answering. Do not
+call `using_sumo_qa` (the entry router) before answering. Do not
 produce QA advice from general training-data knowledge. When citing
 principles, techniques, classifications, or approaches, load them first
 via the `sumo_qa_load_*` tools and cite the loaded catalogue verbatim;
 say "not in the catalogue" rather than supplementing from memory.
+
+First hop: every QA-shaped request, including a development-framed one such
+as "I'm adding X, how should I test it?", "what tests do I need?" or "write
+the failing tests first", calls `using_sumo_qa` before any other sumo-qa tool
+and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill
+it routes to. No specialist skill is entered directly.
 
 For QA-shaped requests in this repo (test plans, code review, scaffolding
 tests, finding test data, deciding QA approach), fetch the relevant prompt
 from the `sumo-qa` MCP and follow its checklist.
 
 Available skills (each registered as an MCP prompt with the same name,
-hyphens replaced by underscores):
+hyphens replaced by underscores). Every skill after the first two is reached
+through `sumo_qa_deciding_approach`, never called as the first hop:
 
 - `using_sumo_qa` — entry router; load this first for any QA intent
 - `sumo_qa_deciding_approach` — pick the QA approach for the work

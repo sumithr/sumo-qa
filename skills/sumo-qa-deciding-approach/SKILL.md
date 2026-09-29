@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-deciding-approach
-description: Use as the FIRST step on any QA intent. Loads classifications + approaches (the two needed to route), then reasons over the user's intent to pick the canonical approach and routes to the matching sub-skill (which loads any further catalogues on demand).
+description: Use first after using-sumo-qa on any QA intent. Loads classifications + approaches (the two needed to route), then reasons over the user's intent to pick the canonical approach and routes to the matching sub-skill (which loads any further catalogues on demand).
 ---
 
 # Deciding the QA approach

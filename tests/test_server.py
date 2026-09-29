@@ -600,8 +600,8 @@ def test_server_instructions_enforce_qa_routing() -> None:
     assert "ROUTING DIRECTIVE" in text, (
         "MCPServer instructions lost the ROUTING DIRECTIVE header (#238)."
     )
-    assert "sumo_qa_using_sumo_qa" in text, (
-        "MCPServer instructions must name the entry router `sumo_qa_using_sumo_qa`."
+    assert "`using_sumo_qa`" in text, (
+        "MCPServer instructions must name the registered entry router `using_sumo_qa`."
     )
     # Forbids silent supplementation from training data.
     assert "sumo_qa_load_" in text, (
@@ -619,8 +619,8 @@ def test_copilot_instructions_enforce_qa_routing() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     text = (repo_root / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
     assert "Hard rule" in text, "copilot-instructions.md lost the Hard rule header."
-    assert "sumo_qa_using_sumo_qa" in text, (
-        "copilot-instructions.md must name the entry router `sumo_qa_using_sumo_qa`."
+    assert "`using_sumo_qa`" in text, (
+        "copilot-instructions.md must name the registered entry router `using_sumo_qa`."
     )
     assert "sumo_qa_load_" in text, (
         "copilot-instructions.md must require `sumo_qa_load_*` for citations."
