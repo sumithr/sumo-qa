@@ -58,11 +58,11 @@ function contradiction(tests, label) {
 const FIELD = String.raw`\|\s*[a-z][\w ()/-]*:\s`;
 
 // The tests field runs up to the next field, so a test ID carrying `|` stays
-// in it, and an extra field before `Coverage:` (`| Notes: ... |`) is skipped
-// rather than read as a listed test.
+// in it, and an extra field before `Coverage:` (`| Notes: a | b |`, bare
+// pipes included) is skipped rather than read as a listed test.
 const INLINE_ROW = new RegExp(
   String.raw`Fresh matching tests:\s*((?:(?!${FIELD}).)*?)\s*` +
-    String.raw`(?:\|\s*(?!Coverage:)[a-z][\w ()/-]*:\s[^|]*)*\|?\s*Coverage:\s*([^|]*)`,
+    String.raw`(?:\|\s*(?!Coverage:)[a-z][\w ()/-]*:\s(?:(?!${FIELD}).)*)*\|?\s*Coverage:\s*([^|]*)`,
   'gi',
 );
 
@@ -86,19 +86,31 @@ function tableCells(line) {
     .map((c) => c.replace(/\\\|/g, '|').trim());
 }
 
-// A row with more cells than its header carries bare pipes inside the tests
-// cell (a parametrized test ID). Columns up to the tests column keep their
-// header position; the Coverage column is counted from the row's end, so the
-// last cells keep their labels and the surplus cells rejoin the tests field.
+const CHECKED_LABEL = /^(UNCOVERED|UNPROVEN|COVERED)\b/i;
+
+// A row with more cells than its header carries bare pipes in some cell (a
+// parametrized test ID, an anchor note) or an extra trailing cell. The
+// Coverage cell is the first cell at or after its header column holding a
+// coverage label; the tests field ends the same distance before it as in the
+// header. A NONE cell never carries a pipe, so a NONE in that end cell is the
+// whole tests field unless an unclosed `[` shows a test ID split around it;
+// otherwise the cells from the tests column to that end rejoin the field.
 function tableFields(cells, table) {
   const surplus = cells.length - table.header.length;
-  if (surplus <= 0 || table.coverage < table.tests) {
+  let coverageAt = -1;
+  if (surplus > 0 && table.coverage > table.tests) {
+    coverageAt = cells.findIndex((c, i) => i >= table.coverage && CHECKED_LABEL.test(c));
+  }
+  if (coverageAt === -1) {
     return { tests: cells[table.tests] || '', coverage: cells[table.coverage] || '' };
   }
-  return {
-    tests: cells.slice(table.tests, table.tests + surplus + 1).join('|'),
-    coverage: cells[table.coverage + surplus] || '',
-  };
+  const end = coverageAt - (table.coverage - table.tests);
+  const before = cells.slice(table.tests, end).join('|');
+  const tests =
+    isNone(cells[end]) && !/\[[^\]]*$/.test(before)
+      ? cells[end]
+      : cells.slice(table.tests, end + 1).join('|');
+  return { tests, coverage: cells[coverageAt] };
 }
 
 function describe(row) {

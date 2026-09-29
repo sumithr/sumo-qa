@@ -184,6 +184,48 @@ def test_table_row_whose_test_id_carries_a_pipe_keeps_its_coverage_column(test_i
     assert "1 ledger row(s) checked" in good["reason"]
 
 
+def test_table_pipe_outside_the_tests_cell_does_not_shift_the_tests_column():
+    """A bare pipe in an earlier cell (the anchor) adds a cell before the tests
+    column; the tests field is still the NONE cell, so a consistent row passes."""
+    header = "| Risk | Anchor | Fresh matching tests | Coverage |\n|---|---|---|---|\n"
+    good, bad = _grade(
+        [
+            f"{header}| R1 | a.py:1 (or|and) | NONE | UNCOVERED |\n",
+            f"{header}| R1 | a.py:1 (or|and) | NONE | UNPROVEN |\n",
+        ]
+    )
+    assert good["pass"] is True, good["reason"]
+    assert "1 ledger row(s) checked" in good["reason"]
+    assert bad["pass"] is False, bad["reason"]
+
+
+def test_table_row_with_an_extra_trailing_cell_is_still_checked():
+    """An extra cell after Coverage neither hides the row nor moves its label:
+    the Coverage cell is the one holding a coverage label."""
+    header = "| Risk | Anchor | Fresh matching tests | Coverage |\n|---|---|---|---|\n"
+    bad, good = _grade(
+        [
+            f"{header}| R1 | a.py:1 | tests/a.py::t | UNCOVERED | see 2b |\n",
+            f"{header}| R1 | a.py:1 | tests/a.py::t | UNPROVEN | see 2b |\n",
+        ]
+    )
+    assert bad["pass"] is False, bad["reason"]
+    assert "R1" in bad["reason"]
+    assert good["pass"] is True, good["reason"]
+    assert "1 ledger row(s) checked" in good["reason"]
+
+
+def test_inline_extra_field_with_a_bare_pipe_is_still_checked():
+    """A bare pipe inside an extra inline field (`Notes: a | b`) does not hide
+    the row: its NONE tests field still contradicts an UNPROVEN label."""
+    row = "Risk: R1 | Fresh matching tests: NONE | Notes: a | b | Coverage: {label}"
+    bad, good = _grade([row.format(label="UNPROVEN"), row.format(label="UNCOVERED")])
+    assert bad["pass"] is False, bad["reason"]
+    assert "R1" in bad["reason"]
+    assert good["pass"] is True, good["reason"]
+    assert "1 ledger row(s) checked" in good["reason"]
+
+
 @pytest.mark.parametrize("tests", ["NONE", "-", ""])
 def test_inline_field_between_tests_and_coverage_is_not_read_as_a_test(tests):
     """The tests field ends at the next `| <Label>:` field, so an extra field
