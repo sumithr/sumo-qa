@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -339,3 +340,72 @@ def test_search_external_skills_real_cli_smoke() -> None:
     assert isinstance(result["raw_output"], str) and result["raw_output"]
     assert "\x1b" not in result["raw_output"]
     assert "\x1b" not in result["stderr"]
+
+
+def _clean_git(*args: str, cwd: Path) -> str:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", *args],
+        cwd=cwd,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+@pytest.mark.skipif(
+    os.environ.get("SUMO_QA_REAL_CLI_SMOKE") != "1"
+    or shutil.which("npx") is None
+    or shutil.which("git") is None,
+    reason="real Skills CLI install smoke runs only in external-skills-smoke.yml",
+)
+def test_install_external_skill_real_cli_smoke(monkeypatch, tmp_path: Path) -> None:
+    """End-to-end install through the REAL pinned Skills CLI.
+
+    Proves the contracts sumo-qa relies on but cannot fake: the pinned
+    package reports its version, `skills add <absolute path>` installs a
+    local checkout by copying it into the agent folder, and the recorded
+    commit and digest then verify at execution. The source is a local git
+    repository served as an https:// remote through git's own `insteadOf`,
+    so only the npm package download touches the network.
+    """
+    repo = tmp_path / "repo"
+    skill = repo / "skills" / "smoke-demo"
+    skill.mkdir(parents=True)
+    body = "---\nname: smoke-demo\ndescription: sumo-qa install smoke\n---\n# Smoke\n"
+    (skill / "SKILL.md").write_text(body, encoding="utf-8")
+    _clean_git("init", "-q", cwd=repo)
+    _clean_git("add", ".", cwd=repo)
+    _clean_git(
+        "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--no-verify", "-qm", "v1", cwd=repo
+    )
+    commit = _clean_git("rev-parse", "HEAD", cwd=repo)
+    remote = "https://example.invalid/smoke.git"
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{repo.as_uri()}.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", remote)
+    project = tmp_path / "project"
+    project.mkdir()
+
+    try:
+        result = ext.install_external_skill(
+            skill="smoke-demo",
+            source=remote,
+            confirmed=True,
+            cwd=project,
+            home=tmp_path / "home",
+            timeout=180,
+        )
+    except (ext.NodeNotFoundError, ext.ExternalSkillCLIError) as exc:
+        pytest.skip(f"Skills CLI unavailable in this environment: {exc}")
+
+    assert result["cli"] == ext.skills_cli_identity()
+    assert result["provenance"]["resolved_ref"] == commit
+    installed = Path(result["installed"]["path"])
+    assert installed.read_text(encoding="utf-8") == body
+    executed = ext.execute_external_skill(
+        "smoke-demo", scope="project", cwd=project, home=tmp_path / "home"
+    )
+    assert executed["provenance"]["status"] == "verified"
+    assert executed["skill_body"] == body
