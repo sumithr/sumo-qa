@@ -77,12 +77,11 @@ const ROUTER_STEP_RE = new RegExp(ROUTER_STEP, 'i');
 const CHECKLIST_STATUS = /\[(?:done|in[ _]progress|pending|completed)\]/i;
 const NUMBERED_LINE = /^[ \t]*\d+[.)][ \t]/;
 
-// Typographic single and double quotes to ASCII, line breaks (CRLF, CR,
+// Typographic single quotes to ASCII, line breaks (CRLF, CR,
 // U+2028/9) to \n, and every other whitespace character to a plain space.
 function normalise(text) {
   return String(text)
     .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201c\u201d]/g, '"')
     .replace(/\r\n/g, '\n')
     .replace(LINE_BREAK, '\n')
     .replace(SPACE, ' ');
@@ -191,7 +190,9 @@ function labelRegExp(names) {
   const key = names.join('|');
   if (!labelCache.has(key)) {
     const alternatives = names.map(escapeRegExp).join('|');
-    const decoChars = escapeRegExp('*_`"\'');
+    // Curly double quotes stay un-normalised (text inside a JSON value), so
+    // they count as decoration here.
+    const decoChars = escapeRegExp('*_`"\'\u201c\u201d');
     const deco = `[${decoChars}]*`;
     const barePair =
       `(?:classification|approach)${deco}[ \\t]*:[ \\t${decoChars}]*` +

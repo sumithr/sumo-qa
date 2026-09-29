@@ -116,6 +116,11 @@ _EXTRA = [
     "{classification:x,approach:y," + "next_action:{a:" * 300 + "1" + "}" * 301,
     "{classification:x,approach:y,next_action:{a:{b:1}},z:{skill:q}}",
     "{classification:x,approach:y,next_action:{a:{skill:q}}}",
+    '{"classification":"public","approach":"canary",'
+    '"next_action":{"description":"a \u201cskill: beginner\u201d example"}}',
+    '{"classification":"docs_change","approach":"no-tests-recommended",'
+    '"rationale":"use \u201c{\u201d literally","next_action":{"skill":"none"}}',
+    "[PEND\u0130NG] Load catalogues",
     "Classification: docs_change; Approach: no-tests-recommended." + " " * 2_000 + "x",
 ]
 

@@ -325,7 +325,9 @@ _SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:", re.ASCII)
 # match, so an unterminated string cannot backtrack exponentially.
 _WORD = "A-Za-z0-9_"
 # Emphasis, code and quote marks a host wraps around a label or its value.
-_DECO_CHARS = "*_`\"'"
+# Curly double quotes stay un-normalised (inside a JSON string value they are
+# text, not delimiters), so they count as decoration here.
+_DECO_CHARS = "*_`\"'\u201c\u201d"
 _DECO_SET = re.escape(_DECO_CHARS)
 _DECO = f"[{_DECO_SET}]"
 _QUOTED_RE = re.compile(
@@ -363,7 +365,9 @@ _ROUTER_STEP = (
     r"|route to the (?:named )?sub-skill)"
 )
 _ROUTER_STEP_RE = re.compile(_ROUTER_STEP, re.IGNORECASE | re.ASCII)
-_CHECKLIST_STATUS_RE = re.compile(r"\[(?:done|in[ _]progress|pending|completed)\]", re.IGNORECASE)
+_CHECKLIST_STATUS_RE = re.compile(
+    r"\[(?:done|in[ _]progress|pending|completed)\]", re.IGNORECASE | re.ASCII
+)
 _NUMBERED_LINE_RE = re.compile(r"[ \t]*\d+[.)][ \t]", re.ASCII)
 _CATALOGUE_HEADING_RE = re.compile(r"^##\s+([a-z][a-z0-9_-]*)\s*$", re.MULTILINE)
 
@@ -390,11 +394,10 @@ def find_routing_leaks(text: str) -> tuple[str, ...]:
 
 
 def _normalise(text: str) -> str:
-    """Typographic single and double quotes to ASCII, line breaks (CRLF, CR, U+2028/9) to
+    """Typographic single quotes to ASCII, line breaks (CRLF, CR, U+2028/9) to
     newlines, and every other whitespace character to a plain space, so the
     Python and JS matchers see the same text."""
     text = text.replace("\u2018", "'").replace("\u2019", "'")
-    text = text.replace("\u201c", '"').replace("\u201d", '"')
     text = text.replace("\r\n", "\n")
     text = _LINE_BREAK_RE.sub("\n", text)
     return _SPACE_RE.sub(" ", text)
