@@ -19,6 +19,8 @@
 #   forbidden_tool_calls     tools that MUST NOT appear in the transcript
 #   required_output_markers  substrings that MUST appear in the final output
 #   forbidden_output_markers substrings that MUST NOT appear in the final output
+#   forbid_sumo_qa_calls     true: the transcript must contain NO sumo-qa call at
+#                            all (router, decider, specialist, or loader)
 #
 # First hop: every QA-shaped request, including a development-framed one such
 # as "I'm adding X, how should I test it?", "what tests do I need?" or "write
@@ -209,16 +211,14 @@ scenarios:
       - sumo_qa_deciding_approach
 
   # Development controls (#247): the same framing with no testing ask must not
-  # enter sumo-qa at all.
+  # enter sumo-qa at all, through the router or a specialist.
   - id: DC01-dev-implementation-only
     source_doc: SCENARIOS.md
     source_heading: "Development-framed testing request"
     user_prompt: "I'm implementing a retry worker. Add exponential backoff to it."
     mode: deterministic
     expected_entry_skill: null
-    forbidden_tool_calls:
-      - using_sumo_qa
-      - sumo_qa_deciding_approach
+    forbid_sumo_qa_calls: true
 
   - id: DC02-dev-logging
     source_doc: SCENARIOS.md
@@ -226,9 +226,7 @@ scenarios:
     user_prompt: "I'm changing the parser. Add structured logging to its error path."
     mode: deterministic
     expected_entry_skill: null
-    forbidden_tool_calls:
-      - using_sumo_qa
-      - sumo_qa_deciding_approach
+    forbid_sumo_qa_calls: true
 
   - id: DC03-dev-naming
     source_doc: SCENARIOS.md
@@ -236,9 +234,7 @@ scenarios:
     user_prompt: "I'm building this endpoint. Suggest a better name for the handler."
     mode: deterministic
     expected_entry_skill: null
-    forbidden_tool_calls:
-      - using_sumo_qa
-      - sumo_qa_deciding_approach
+    forbid_sumo_qa_calls: true
 
   - id: DC04-dev-formatting
     source_doc: SCENARIOS.md
@@ -246,6 +242,4 @@ scenarios:
     user_prompt: "I'm adding a config loader. Format this file to the repo style."
     mode: deterministic
     expected_entry_skill: null
-    forbidden_tool_calls:
-      - using_sumo_qa
-      - sumo_qa_deciding_approach
+    forbid_sumo_qa_calls: true

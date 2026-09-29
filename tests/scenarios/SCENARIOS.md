@@ -12,7 +12,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Plan QA for ticket BILL-481 — adding a partial-refund flow to the billing service. Files probably touch `services/billing/refund.py` and `services/billing/invoice.py`. Refund amount can be less than the invoice total; consumers expect 4xx-vs-5xx semantics for partial-vs-full failure."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-preparing-for-work`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-preparing-for-work`.
 
 **Expected interaction shape:**
 1. Reads `services/billing/refund.py` and `services/billing/invoice.py` via the host's file tools (NOT asks the user what's in them).
@@ -33,7 +33,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Review my changes — is this safe to merge?"*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-reviewing-before-merge`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-reviewing-before-merge`.
 
 **Expected interaction shape:**
 1. Runs `git diff` / `git diff --staged` / `git diff <base>...HEAD` via the host's git tools to read the actual diff.
@@ -56,7 +56,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Fix the VIP-customer double-discount bug regression-first. The discount stacks twice when a VIP gets a promo code applied. Logic is in `pricing/discount_calculator.py`."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-implementing-with-tdd` (approach: `regression-first`).
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-implementing-with-tdd` (approach: `regression-first`).
 
 **Expected interaction shape:**
 1. Walks the repo: reads `pricing/discount_calculator.py`, finds the matching test file, reads sibling test files to detect framework/fixture conventions. Does NOT ask the user "what test framework do you use?"
@@ -78,7 +78,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"I'm adding rate-limiting to the auth service — 100 requests / minute / IP, sliding window. Want to TDD it. Scaffold the failing tests first."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-implementing-with-tdd` (approach: `tdd-scaffold`).
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-implementing-with-tdd` (approach: `tdd-scaffold`).
 
 **Expected interaction shape:**
 1. Walks the auth service to find where rate-limiting would attach (middleware, request handler, etc.). Reads sibling tests for framework conventions.
@@ -98,7 +98,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Pitest report shows 6 surviving mutants in `pricing/calculator.py`. Help me strengthen the tests. Production code stays unchanged."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-strengthening-tests`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-strengthening-tests`.
 
 **Expected interaction shape:**
 1. Reads the Pitest report to identify the 6 survivors (line + mutation type: e.g. `>` → `>=`, `&&` → `||`, removed-conditional).
@@ -118,7 +118,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"How should I test a service that re-orders user feeds based on engagement signals?"*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-answering-testing-question`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-answering-testing-question`.
 
 **Expected interaction shape:**
 1. Reads any code/spec the user supplied (or asks for one specific clarification if none provided).
@@ -139,7 +139,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Find me a refund-eligible invoice for the partial-refund flow test in staging."*
 
-**Skill activated:** `sumo-qa-finding-test-data`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-finding-test-data`.
 
 **Expected interaction shape:**
 1. Routes internally to `find` (one of the 4 routes: explain / find / validate / register). Does NOT echo "Route: find" to the user.
@@ -160,7 +160,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Audit our test coverage across the customer-platform monorepo and design a QA strategy. We've got 4 services and a shared lib."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-strategising`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-strategising`.
 
 **Expected interaction shape:**
 1. Walks the repo *with the host's file tools first*. Inventory: services, top-level modules, test dirs, CI config, coverage reports. Does NOT ask the user to enumerate the repo.
@@ -181,7 +181,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Create a formal test plan for the Q3 search-relevance launch. We need entry/exit criteria the team can sign off on."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-creating-test-plan`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-creating-test-plan`.
 
 **Expected interaction shape:**
 1. Walks scope → risks → entry criteria → phases → exit criteria → residual risks **one section at a time** with confirmation gates.
@@ -203,7 +203,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"I'm fixing a typo in a comment in `docs/CONFIGURATION.md`. Anything I need to do?"*
 
-**Skill activated:** `sumo-qa-deciding-approach` (terminates at the approach decision).
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` (terminates at the approach decision).
 
 **Expected interaction shape:**
 1. Classifies the change as `docs_change`.
@@ -245,7 +245,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Take the Phase 1 work from our QA strategy (mutation baselines on `pricing/calculator.py` + `shared/money.py`, property-tests on rounding, Hypothesis fixtures) and turn it into a plan I can dispatch across subagents tomorrow."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-planning-qa-rollout`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-planning-qa-rollout`.
 
 **Expected interaction shape:**
 1. Reads the strategy doc (or the cited Phase 1 scope) and the relevant production paths to anchor each task in evidence.
@@ -268,7 +268,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Run the plan at `docs/qa/plans/2026-05-15-phase4.2-mutation-strengthening.md`."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-executing-qa-rollout`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-executing-qa-rollout`.
 
 **Expected interaction shape:**
 1. Reads the plan markdown; extracts each task block.
@@ -291,7 +291,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"All Phase 4.2 mutation tasks ran green. Wrap it up — I need something I can paste into the PR."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-finishing-qa-work`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-finishing-qa-work`.
 
 **Expected interaction shape:**
 1. **Iron Law:** NO FINISH WITHOUT FRESH EVIDENCE + WRITTEN SUMMARY. Runs the suite *in this turn* (does NOT cite "CI was green earlier"); captures pass/fail counts + duration + coverage %.
@@ -313,7 +313,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"I want to add Playwright E2E tests for our checkout flow. None of your skills look right for that — what do I do?"*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-suggesting-external-skill`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-suggesting-external-skill`.
 
 **Expected interaction shape:**
 1. Recognises that Playwright setup is *outside* the native sumo-qa skill set (the catalogue is concept-level discipline; the tool-bring-up is implementation-level work).
@@ -335,7 +335,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Your review flagged three uncovered risks on the refund flow — close them, drive them to regression tests."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-closing-qa-gaps`.
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-closing-qa-gaps`.
 
 **Expected interaction shape:**
 1. Scopes the loop to EXACTLY ONE of the three named gaps and parks the others by id, out loud (*"R2 and R3 are parked as later loops — I'll start the next one only when you ask."*).
@@ -358,7 +358,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"mutmut left a survivor on `pricing/discounts.py:42` (`>` mutated to `>=`) — take it through the loop end to end."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-closing-qa-gaps` (mutation-survivor entry).
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-closing-qa-gaps` (mutation-survivor entry).
 
 **Expected interaction shape:**
 1. Enters under the strengthening skill's Iron Law: **production code stays unchanged** while the test is strengthened to kill the survivor.
@@ -378,7 +378,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"`test_user_cache_hit` keeps failing in the full run but passes when I run it alone — sort it out."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-triaging-test-failures` (approach: `triage-test-failure`).
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-triaging-test-failures` (approach: `triage-test-failure`).
 
 **Expected interaction shape:**
 1. Diagnosis is separated from fixing: the first output is a cause classification plus the smallest next isolation step, NOT a patch.
@@ -399,7 +399,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 
 **User prompt:** *"Security-test the new password reset flow."*
 
-**Skill activated:** `sumo-qa-deciding-approach` → routes to `sumo-qa-security-testing` (approach: `security-focused-qa`).
+**Skill activated:** `using-sumo-qa` → `sumo-qa-deciding-approach` → routes to `sumo-qa-security-testing` (approach: `security-focused-qa`).
 
 **Expected interaction shape:**
 1. Starts from a grounded source anchor: the user-stated flow, named files, config/dependency, or routed security gap. If none exists, asks one scope question instead of inventing vulnerabilities.

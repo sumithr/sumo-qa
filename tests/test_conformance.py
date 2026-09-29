@@ -66,22 +66,19 @@ def test_fixture_carries_every_dev_framed_prompt_as_a_router_first_scenario(scen
 
 
 def test_fixture_carries_non_qa_development_controls(scenarios) -> None:
-    """Adjacent development asks with no testing intent must forbid the router."""
-    controls = [
-        s
-        for s in scenarios
-        if s.deterministic
-        and s.expected_entry_skill is None
-        and "using_sumo_qa" in s.forbidden_tool_calls
-        and s.id.startswith("DC")
-    ]
+    """Adjacent development asks with no testing intent must not enter sumo-qa
+    at all: not the router, and not a specialist skill entered directly."""
+    controls = [s for s in scenarios if s.deterministic and s.id.startswith("DC")]
     assert len(controls) >= 3, f"need >=3 non-QA development controls; got {len(controls)}"
     for control in controls:
-        assert "sumo_qa_deciding_approach" in control.forbidden_tool_calls
-        bypass = Transcript(control.id, (), "Here is the implementation.")
-        assert validate_transcript(control, bypass).passed
-        routed = Transcript(control.id, (ToolCall("using_sumo_qa"),), "")
-        assert ViolationKind.FORBIDDEN_TOOL_CALLED in _kinds(validate_transcript(control, routed))
+        assert control.expected_entry_skill is None
+        assert control.forbid_sumo_qa_calls
+        answered = Transcript(control.id, (ToolCall("Read"),), "Here is the implementation.")
+        assert validate_transcript(control, answered).passed
+        for tool in ("using_sumo_qa", "sumo_qa_implementing_with_tdd", "sumo_qa_load_techniques"):
+            entered = Transcript(control.id, (ToolCall(tool),), "")
+            kinds = _kinds(validate_transcript(control, entered))
+            assert ViolationKind.FORBIDDEN_TOOL_CALLED in kinds, f"{control.id} let {tool} through"
 
 
 def test_dev_framed_answer_without_any_first_hop_fails(scenarios) -> None:
@@ -182,3 +179,36 @@ def test_unrouted_scenario_is_exempt_from_first_hop(scenarios) -> None:
     s = next(s for s in scenarios if s.id == "TS15-capabilities")
     result = validate_transcript(s, Transcript(s.id, (ToolCall("sumo_qa_capabilities"),), ""))
     assert result.passed
+
+
+def test_specialist_between_router_and_decider_fails_first_hop(scenarios) -> None:
+    """For a router-expected scenario the chain check alone sees only the two
+    routers; a specialist entered before the decider still skips the approach
+    decision and must fail."""
+    s = next(s for s in scenarios if s.id == "D04-dev-framed-failing-tests-first")
+    skipped = Transcript(
+        s.id,
+        (
+            ToolCall("using_sumo_qa"),
+            ToolCall("sumo_qa_implementing_with_tdd"),
+            ToolCall("sumo_qa_deciding_approach"),
+        ),
+        "",
+    )
+    details = _first_hop_kinds(validate_transcript(s, skipped))
+    assert details and "sumo_qa_implementing_with_tdd" in details[0]
+
+
+def test_forbid_sumo_qa_calls_counts_as_an_enforceable_clause(tmp_path) -> None:
+    fixture = tmp_path / "control.yaml"
+    fixture.write_text(
+        "scenarios:\n"
+        "  - id: C01\n"
+        "    source_doc: SCENARIOS.md\n"
+        "    source_heading: h\n"
+        "    user_prompt: p\n"
+        "    mode: deterministic\n"
+        "    forbid_sumo_qa_calls: true\n",
+        encoding="utf-8",
+    )
+    assert load_scenarios(fixture)[0].forbid_sumo_qa_calls

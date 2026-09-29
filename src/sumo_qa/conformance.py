@@ -87,6 +87,7 @@ class ConformanceScenario:
     forbidden_tool_calls: tuple[str, ...] = ()
     required_output_markers: tuple[str, ...] = ()
     forbidden_output_markers: tuple[str, ...] = ()
+    forbid_sumo_qa_calls: bool = False
 
     @property
     def deterministic(self) -> bool:
@@ -164,6 +165,7 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
         forbidden_tool_calls=tuple(entry.get("forbidden_tool_calls") or ()),
         required_output_markers=tuple(entry.get("required_output_markers") or ()),
         forbidden_output_markers=tuple(entry.get("forbidden_output_markers") or ()),
+        forbid_sumo_qa_calls=bool(entry.get("forbid_sumo_qa_calls", False)),
     )
     if scenario.deterministic and not (
         scenario.expected_entry_skill
@@ -171,10 +173,12 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
         or scenario.forbidden_tool_calls
         or scenario.required_output_markers
         or scenario.forbidden_output_markers
+        or scenario.forbid_sumo_qa_calls
     ):
         raise ValueError(
             f"scenario {scenario.id!r}: deterministic but declares no enforceable "
-            f"clause (expected_entry_skill, tool calls, or output markers) — it "
+            f"clause (expected_entry_skill, tool calls, output markers, or "
+            f"forbid_sumo_qa_calls) — it "
             f"would pass every transcript vacuously"
         )
     return scenario
@@ -203,7 +207,7 @@ def validate_transcript(
         known_entry_skills = registered_entry_skills()
     violations = (
         _routing_violations(scenario, transcript, known_entry_skills)
-        + _first_hop_violations(scenario, transcript)
+        + _first_hop_violations(scenario, transcript, known_entry_skills)
         + _tool_violations(scenario, transcript)
         + _output_violations(scenario, transcript)
     )
@@ -255,7 +259,11 @@ def _is_sumo_qa_tool(name: str) -> bool:
     return name == ENTRY_ROUTER or name.startswith("sumo_qa_")
 
 
-def _first_hop_violations(scenario: ConformanceScenario, transcript: Transcript) -> list[Violation]:
+def _first_hop_violations(
+    scenario: ConformanceScenario,
+    transcript: Transcript,
+    known_entry_skills: frozenset[str],
+) -> list[Violation]:
     """Enforce ``sumo_qa.first_hop.FIRST_HOP_RULE`` on a routed scenario: the
     first sumo-qa call is the entry router, and the whole router chain then the
     expected skill fire in that order. Host tools (file reads, shell) may come
@@ -297,6 +305,18 @@ def _first_hop_violations(scenario: ConformanceScenario, transcript: Transcript)
                 )
             ]
         previous = index
+    # The decider must pick the skill: a specialist fired between the router
+    # and the decider skipped the approach decision even when the chain order
+    # holds (the only check when the expected skill is the router itself).
+    decider_index = sumo_calls.index(ROUTER_CHAIN[-1])
+    for name in sumo_calls[:decider_index]:
+        if name in known_entry_skills and name not in ROUTER_CHAIN:
+            return [
+                Violation(
+                    ViolationKind.FIRST_HOP_VIOLATION,
+                    f"specialist {name!r} fired before {ROUTER_CHAIN[-1]!r} picked the route",
+                )
+            ]
     return []
 
 
@@ -309,6 +329,17 @@ def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> l
                 Violation(
                     ViolationKind.MISSING_REQUIRED_TOOL,
                     f"required tool {required!r} was not called",
+                )
+            )
+    if scenario.forbid_sumo_qa_calls:
+        called_sumo_qa = sorted(
+            {tc.tool for tc in transcript.tool_calls if _is_sumo_qa_tool(tc.tool)}
+        )
+        for name in called_sumo_qa:
+            violations.append(
+                Violation(
+                    ViolationKind.FORBIDDEN_TOOL_CALLED,
+                    f"sumo-qa tool {name!r} was called on a request that must not enter sumo-qa",
                 )
             )
     for forbidden in scenario.forbidden_tool_calls:

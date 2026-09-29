@@ -17,10 +17,10 @@ and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill
 it routes to. No specialist skill is entered directly.
 
 For QA-shaped requests in this repo (test plans, code review, scaffolding
-tests, finding test data, deciding QA approach), fetch the relevant prompt
-from the `sumo-qa` MCP and follow its checklist.
+tests, finding test data, deciding QA approach), call the relevant skill tool
+on the `sumo-qa` MCP server and follow the checklist it returns.
 
-Available skills (each registered as an MCP prompt with the same name,
+Available skills (each registered as an MCP tool named after the skill,
 hyphens replaced by underscores). Every skill after the first two is reached
 through `sumo_qa_deciding_approach`, never called as the first hop:
 

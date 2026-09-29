@@ -668,3 +668,17 @@ def test_instruction_surface_names_only_registered_tools(surface: str) -> None:
     assert "using_sumo_qa" in named, f"{surface} does not name the entry router"
     unregistered = named - set(server._tool_manager._tools)
     assert not unregistered, f"{surface} names unregistered tools: {sorted(unregistered)}"
+
+
+def test_copilot_instructions_do_not_point_at_unregistered_prompts() -> None:
+    """Skills are served as MCP tools only; telling Copilot to fetch them as MCP
+    prompts sends it to a channel the server never populates."""
+    import asyncio
+    from pathlib import Path
+
+    server = build_mcp_server()
+    if asyncio.run(server.list_prompts()):
+        pytest.skip("server registers MCP prompts; the prompt wording is valid")
+    repo_root = Path(__file__).resolve().parent.parent
+    text = (repo_root / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
+    assert "MCP prompt" not in text and "fetch the relevant prompt" not in text

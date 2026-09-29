@@ -52,9 +52,11 @@ Field reference:
 | `forbidden_tool_calls` | tools that MUST NOT appear |
 | `required_output_markers` | substrings that MUST appear in the final assistant output (case-insensitive) |
 | `forbidden_output_markers` | substrings that MUST NOT appear (anti-pattern claims, leaked internal labels; case-insensitive, so pin distinctive phrases: `INV-12345` also matches inside `INV-123456`) |
+| `forbid_sumo_qa_calls` | `true`: the transcript must contain no sumo-qa call at all (`using_sumo_qa` or any `sumo_qa_*` tool); for requests that must not enter sumo-qa |
 
 A deterministic scenario must declare at least one enforceable clause
-(`expected_entry_skill`, a tool-call list, or an output marker); the loader
+(`expected_entry_skill`, a tool-call list, an output marker, or
+`forbid_sumo_qa_calls`); the loader
 rejects a clause-free row rather than letting it pass every transcript
 vacuously. Mis-route detection compares prior calls against the REGISTERED
 skill-tool surface (every `skills/*/SKILL.md` directory), not just the skills
@@ -79,7 +81,8 @@ of them drifts):
 For every scenario with an `expected_entry_skill`, the validator enforces it:
 the first sumo-qa call (`using_sumo_qa` or any `sumo_qa_*` tool) must be
 `using_sumo_qa`, and the FIRST calls of `using_sumo_qa`,
-`sumo_qa_deciding_approach`, and the expected skill must occur in that order.
+`sumo_qa_deciding_approach`, and the expected skill must occur in that order,
+with no specialist skill before the decider.
 Host tools (file reads, shell) may come before the first hop. A transcript that
 answers with no sumo-qa call, loads a catalogue before the router, enters a
 specialist directly, or skips the decider fails with `first_hop_violation`.
@@ -88,8 +91,8 @@ is checked as "the first hop exists and comes first among sumo-qa calls".
 
 The `D0x` scenarios pin the four development-framed prompts from issue #247.
 The `DC0x` scenarios are their controls: the same framing with no testing ask
-(backoff, logging, naming, formatting) must not call `using_sumo_qa` or
-`sumo_qa_deciding_approach`.
+(backoff, logging, naming, formatting) sets `forbid_sumo_qa_calls`, so neither
+the router nor a directly entered specialist may appear.
 
 ## The transcript
 

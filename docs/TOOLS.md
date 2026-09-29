@@ -10,7 +10,7 @@ The skill bodies are host-neutral: they declare capability obligations (ordered 
 
 Each skill registers as a tool named after its directory with hyphens turned to underscores (`using-sumo-qa` → `using_sumo_qa`, `sumo-qa-deciding-approach` → `sumo_qa_deciding_approach`).
 
-In JetBrains AI Assistant these are slash commands (`/sumo_qa_deciding_approach`). In Claude Code the equivalent slash commands come from the native skill files (`/sumo-qa-deciding-approach`, hyphens); the MCP tools are still callable but only via natural language ("decide the QA approach for this refactor"). VS Code Copilot and Junie pick them by description in Agent / agentic mode.
+In JetBrains AI Assistant these are slash commands (`/using_sumo_qa`). In Claude Code the equivalent slash commands come from the native skill files (`/using-sumo-qa`, hyphens); the MCP tools are still callable but only via natural language ("decide the QA approach for this refactor"). VS Code Copilot and Junie pick them by description in Agent / agentic mode.
 
 See [SKILLS.md](SKILLS.md) for the Iron Law per skill.
 

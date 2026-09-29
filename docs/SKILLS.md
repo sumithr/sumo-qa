@@ -12,8 +12,8 @@ Each skill is also exposed as an MCP tool with the same name (e.g. `sumo_qa_deci
 
 Slash-menu conventions differ per host:
 
-- **Claude Code**: `/sumo-qa-deciding-approach` (hyphens): comes from `~/.claude/skills/<name>/SKILL.md` symlinks. MCP tools (atomic + skill-wrapped) are NOT slash-invocable in Claude Code; call them via natural language.
-- **JetBrains AI Assistant**: `/sumo_qa_deciding_approach` (underscores): comes from the MCP tool. Every MCP entry is slash-invocable.
+- **Claude Code**: `/using-sumo-qa` (hyphens): comes from `~/.claude/skills/<name>/SKILL.md` symlinks. MCP tools (atomic + skill-wrapped) are NOT slash-invocable in Claude Code; call them via natural language.
+- **JetBrains AI Assistant**: `/using_sumo_qa` (underscores): comes from the MCP tool. Every MCP entry is slash-invocable.
 - **JetBrains Junie / VS Code Copilot**: Natural language; the AI picks the tool by description in Agent mode.
 
 All paths invoke the same SKILL.md body.

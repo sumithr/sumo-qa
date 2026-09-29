@@ -60,10 +60,10 @@ defaultTest:
       {{valid_sub_skills}}
 
       Evaluate THREE axes:
-      A. SHAPE - router handoff only, recognises the review-before-merge intent,
-         names sumo-qa-deciding-approach exactly as the first hop, and does not
-         perform the downstream review inline or route directly to a downstream
-         sub-skill.
+      A. SHAPE - router handoff only, recognises the QA intent the Expected QA
+         shape names (it differs per test), names sumo-qa-deciding-approach
+         exactly as the first hop, and does not perform the downstream QA work
+         inline or route directly to a downstream sub-skill.
       B. GROUNDING - the named sub-skill must appear in the exact valid
          sub-skill list above. B GROUNDING: any named sub-skill outside that
          list is GROUNDING FAIL.
