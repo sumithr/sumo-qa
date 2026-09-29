@@ -13,8 +13,8 @@
 //   * inline rows: any line carrying both `Fresh matching tests:` and
 //     `Coverage:`, with or without surrounding table pipes;
 //   * markdown tables whose header has a `Fresh matching tests` column and a
-//     `Coverage` column; an escaped `\|` or a bare pipe inside the tests cell
-//     does not shift the Coverage column.
+//     `Coverage` column; an escaped `\|`, a bare pipe in any cell or an
+//     extra trailing cell does not shift or hide the tests and Coverage cells.
 // Only the three path-keyed labels are checked. Other labels (N/A, COVERED BY
 // VERIFICATION, DISCHARGED, module-pinned statuses) are ignored, and output
 // with no ledger rows passes: other assertions own "a ledger must exist".
