@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.1](https://github.com/sumithr/sumo-qa/compare/v0.66.0...v0.66.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* **deps:** exclude tree-sitter-language-pack 1.14.1/1.14.2 and guard the hook pins ([#748](https://github.com/sumithr/sumo-qa/issues/748)) ([1db14e3](https://github.com/sumithr/sumo-qa/commit/1db14e33bd4f59e4b3a62a2695b3b5e667578fc9))
+
 ## [0.66.0](https://github.com/sumithr/sumo-qa/compare/v0.65.4...v0.66.0) (2026-09-29)
 
 
