@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+from bisect import bisect_left
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
@@ -325,7 +326,7 @@ _SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:", re.ASCII)
 _WORD = "A-Za-z0-9_"
 # Emphasis, code and quote marks a host wraps around a label or its value.
 _DECO_CHARS = "*_`\"'"
-_DECO = f"[{_DECO_CHARS}]"
+_DECO = f"[{re.escape(_DECO_CHARS)}]"
 _QUOTED_RE = re.compile(
     r'"(?:\\.|[^"\\])*"'
     rf"|(?<![{_WORD}])'(?:\\.|[^'\\]|(?<=[{_WORD}])'(?=[{_WORD}]))*"
@@ -427,9 +428,18 @@ def _blank_string_values(span: str) -> str:
 
 
 def _next_action_has_skill(span: str) -> bool:
+    """Whether an object that is a ``next_action`` value holds a ``skill`` key.
+    One brace pass maps each ``{`` to its ``}``, so every ``next_action`` is a
+    lookup, not a rescan; a ``next_action`` inside a quoted key opens no
+    object."""
+    closes = {open_: close for open_, close, _ in _brace_pairs(span)}
+    skills = [m.start() for m in _SKILL_KEY_RE.finditer(span)]
     for match in _NEXT_ACTION_RE.finditer(span):
-        inner = _brace_spans(span[match.end() :], first_only=True)
-        if inner and _SKILL_KEY_RE.search(inner[0]):
+        close = closes.get(match.end())
+        if close is None:
+            continue
+        k = bisect_left(skills, match.end())
+        if k < len(skills) and skills[k] < close:
             return True
     return False
 
@@ -441,13 +451,12 @@ def _is_word(text: str, i: int) -> bool:
     return 0 <= i < len(text) and _WORD_RE.match(text, i) is not None
 
 
-def _brace_spans(text: str, first_only: bool = False) -> list[str]:
-    """Top-level ``{...}`` spans, ignoring braces inside quoted strings (a
-    single quote between word characters is an apostrophe, not a delimiter);
-    an unbalanced brace yields no span. ``first_only`` stops at the first."""
-    spans: list[str] = []
-    depth = 0
-    start = 0
+def _brace_pairs(text: str) -> list[tuple[int, int, int]]:
+    """Every balanced ``{...}`` as ``(open, close, depth)``, ignoring braces
+    inside quoted strings (a single quote between word characters is an
+    apostrophe, not a delimiter)."""
+    pairs: list[tuple[int, int, int]] = []
+    stack: list[int] = []
     quote = ""
     escaped = False
     for i, ch in enumerate(text):
@@ -460,19 +469,19 @@ def _brace_spans(text: str, first_only: bool = False) -> list[str]:
                 ch == "'" and _is_word(text, i - 1) and _is_word(text, i + 1)
             ):
                 quote = ""
-        elif depth and (ch == '"' or (ch == "'" and not _is_word(text, i - 1))):
+        elif stack and (ch == '"' or (ch == "'" and not _is_word(text, i - 1))):
             quote = ch
         elif ch == "{":
-            if depth == 0:
-                start = i
-            depth += 1
-        elif ch == "}" and depth:
-            depth -= 1
-            if depth == 0:
-                spans.append(text[start : i + 1])
-                if first_only:
-                    break
-    return spans
+            stack.append(i)
+        elif ch == "}" and stack:
+            open_ = stack.pop()
+            pairs.append((open_, i, len(stack)))
+    return pairs
+
+
+def _brace_spans(text: str) -> list[str]:
+    """Top-level ``{...}`` spans; an unbalanced brace yields no span."""
+    return [text[o : c + 1] for o, c, depth in sorted(_brace_pairs(text)) if depth == 0]
 
 
 def _has_taxonomy_label(text: str) -> bool:
@@ -488,7 +497,7 @@ def _label_re(names: frozenset[str]) -> re.Pattern[str]:
     Labels inside prose are left to the eval's judge."""
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     bare_pair = (
-        rf"(?:classification|approach){_DECO}*[ \t]*:[ \t{_DECO_CHARS}]*"
+        rf"(?:classification|approach){_DECO}*[ \t]*:[ \t{re.escape(_DECO_CHARS)}]*"
         rf"(?:{alternatives}|n/a){_DECO}*"
     )
     pair = rf"{_DECO}*{bare_pair}"

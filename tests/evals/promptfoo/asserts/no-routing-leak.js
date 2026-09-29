@@ -14,7 +14,8 @@
 //                        skill handoff (compact, pretty, or unquoted keys);
 //   * taxonomy_label     a bare `Classification:` / `Approach:` line whose
 //                        value is exactly a catalogue entry name (read from
-//                        knowledge/) or n/a;
+//                        knowledge/) or n/a, optionally followed by a second
+//                        label pair (after . , ; a space, or glued);
 //   * route_announcement "Picking the QA approach", "Routing this QA intent",
 //                        "Routing/Routed [this|you|it] to [the] sumo-qa-...",
 //                        or a first-person "I'm routing you to" / "I'll route
@@ -106,11 +107,11 @@ function catalogueNames() {
   return names;
 }
 
-// Top-level {...} spans, ignoring braces inside quoted strings.
-function braceSpans(text, firstOnly = false) {
-  const spans = [];
-  let depth = 0;
-  let start = 0;
+// Every balanced {...} as [open, close, depth], ignoring braces in quoted
+// strings (a single quote between word characters is an apostrophe).
+function bracePairs(text) {
+  const pairs = [];
+  const stack = [];
   let quote = '';
   let escaped = false;
   for (let i = 0; i < text.length; i += 1) {
@@ -120,27 +121,44 @@ function braceSpans(text, firstOnly = false) {
       else if (ch === '\\') escaped = true;
       else if (ch === quote && !(ch === "'" && isWord(text, i - 1) && isWord(text, i + 1)))
         quote = '';
-    } else if (depth && (ch === '"' || (ch === "'" && !isWord(text, i - 1)))) {
+    } else if (stack.length && (ch === '"' || (ch === "'" && !isWord(text, i - 1)))) {
       quote = ch;
     } else if (ch === '{') {
-      if (depth === 0) start = i;
-      depth += 1;
-    } else if (ch === '}' && depth) {
-      depth -= 1;
-      if (depth === 0) {
-        spans.push(text.slice(start, i + 1));
-        if (firstOnly) break;
-      }
+      stack.push(i);
+    } else if (ch === '}' && stack.length) {
+      const open = stack.pop();
+      pairs.push([open, i, stack.length]);
     }
   }
-  return spans;
+  return pairs;
 }
 
-// The skill handoff must sit inside the next_action object itself.
+// Top-level {...} spans; an unbalanced brace yields no span.
+function braceSpans(text) {
+  return bracePairs(text)
+    .filter(([, , depth]) => depth === 0)
+    .sort((a, b) => a[0] - b[0])
+    .map(([open, close]) => text.slice(open, close + 1));
+}
+
+// The skill handoff must sit inside the next_action object itself. One brace
+// pass maps each { to its }, so every next_action is a lookup, not a rescan.
+const SKILL_KEY_ALL = new RegExp(SKILL_KEY.source, 'g');
 function nextActionHasSkill(span) {
+  const closes = new Map(bracePairs(span).map(([open, close]) => [open, close]));
+  const skills = [...span.matchAll(SKILL_KEY_ALL)].map((m) => m.index);
   for (const m of span.matchAll(NEXT_ACTION)) {
-    const inner = braceSpans(span.slice(m.index + m[0].length), true);
-    if (inner.length && SKILL_KEY.test(inner[0])) return true;
+    const open = m.index + m[0].length;
+    if (!closes.has(open)) continue;
+    const close = closes.get(open);
+    let lo = 0;
+    let hi = skills.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (skills[mid] < open) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo < skills.length && skills[lo] < close) return true;
   }
   return false;
 }
@@ -174,7 +192,7 @@ function labelRegExp(names) {
   const key = names.join('|');
   if (!labelCache.has(key)) {
     const alternatives = names.map(escapeRegExp).join('|');
-    const decoChars = '*_`"\'';
+    const decoChars = escapeRegExp('*_`"\'');
     const deco = `[${decoChars}]*`;
     const barePair =
       `(?:classification|approach)${deco}[ \\t]*:[ \\t${decoChars}]*` +

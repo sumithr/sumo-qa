@@ -110,6 +110,12 @@ _EXTRA = [
     "1. [DONE] Read the user\u2018s intent",
     "{note: 'don't', classification: x, approach: y, next_action: {skill: z}}",
     "Classification: docs_change" + "*" * 3_000 + "x",
+    "**Classification:** docs_change**Approach:** no-tests-recommended",
+    '{"classification":"p","approach":"c","next_action":{"deploy":"s"},'
+    '"see next_action:{skill:x}":1}',
+    "{classification:x,approach:y," + "next_action:{a:" * 300 + "1" + "}" * 301,
+    "{classification:x,approach:y,next_action:{a:{b:1}},z:{skill:q}}",
+    "{classification:x,approach:y,next_action:{a:{skill:q}}}",
     "Classification: docs_change; Approach: no-tests-recommended." + " " * 2_000 + "x",
 ]
 

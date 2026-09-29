@@ -743,6 +743,8 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         '{"classification":"public","approach":"canary",'
         '"next_action":{"description":"skill: beginner","deploy":"staging"}}',
         '{"description":"classification: x, approach: y, next_action: {skill: z}"}',
+        '{"classification":"p","approach":"c","next_action":{"deploy":"s"},'
+        '"see next_action:{skill:x}":1}',
         "\u0661. Load catalogues\n\u0662. Pick the approach",
         '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
         "1. Read the diff\n2. Run the suite",
@@ -855,6 +857,10 @@ def test_find_routing_leaks_scans_repeated_next_action_keys_quickly() -> None:
     start = time.perf_counter()
     text = "{classification:x,approach:y," + "next_action:{a:1}," * 4_000 + "}"
     assert find_routing_leaks(text) == ()
+    nested = "{classification:x,approach:y," + "next_action:{a:" * 4_000 + "1" + "}" * 4_001
+    assert find_routing_leaks(nested) == ()
+    quoted = '{"classification":"x","approach":"y",' + '"next_action:{":1,' * 3_000 + '"z":1}'
+    assert find_routing_leaks(quoted) == ()
     assert time.perf_counter() - start < 1.0
 
 
