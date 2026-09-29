@@ -923,18 +923,52 @@ def test_a_skill_removed_before_the_unlocked_read_retries_under_the_lock(
     assert state["bases"] == [tmp_path]
 
 
-def test_an_unreadable_skill_is_a_typed_error(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("locked", [False, True])
+def test_an_unreadable_skill_is_a_typed_error_that_keeps_its_cause(
+    monkeypatch, tmp_path, locked
+) -> None:
     skill = tmp_path / ".agents" / "skills" / "demo"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("# x\n", "utf-8")
+    if locked:
+        (tmp_path / ".sumo-qa").mkdir()
 
     def denied(self):
         raise PermissionError("denied")
 
     monkeypatch.setattr(ext.Path, "read_bytes", denied)
 
-    with pytest.raises(ext.ExternalSkillError, match="could not read"):
+    with pytest.raises(ext.ExternalSkillReadError, match="denied") as excinfo:
         ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+
+    assert isinstance(excinfo.value.__cause__, PermissionError)
+    assert "do not reinstall" in ext.hint_for_exception(excinfo.value)
+
+
+def test_any_filesystem_race_in_the_unlocked_attempt_takes_the_locked_retry(
+    monkeypatch, tmp_path
+) -> None:
+    """Not only the SKILL.md read: a folder vanishing under the record lookup
+    (os.path.samefile) during an install that started meanwhile also retries."""
+    skill = tmp_path / ".agents" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# x\n", "utf-8")
+    state = _tracking_guards(monkeypatch)
+    real_find = ext._find_record
+
+    def install_rolls_back_during_lookup(folder, lock_base):
+        if not state["held"]:
+            (tmp_path / ".sumo-qa").mkdir(exist_ok=True)
+            shutil.rmtree(skill)
+            raise FileNotFoundError(str(folder))
+        return real_find(folder, lock_base)
+
+    monkeypatch.setattr(ext, "_find_record", install_rolls_back_during_lookup)
+
+    with pytest.raises(ext.ExternalSkillError, match="not installed"):
+        ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+
+    assert state["bases"] == [tmp_path]
 
 
 def test_execute_tries_at_most_twice_and_locks_the_second_time(monkeypatch, tmp_path) -> None:
@@ -1380,6 +1414,7 @@ def test_execute_reports_an_unrecorded_install_without_blocking(tmp_path) -> Non
         (ext.SourceResolutionError("x"), "commit SHA"),
         (ext.ExternalSkillProvenanceError("x"), "Do not execute"),
         (ext.ExternalSkillProvenanceError("x"), "external-skills.lock.json"),
+        (ext.ExternalSkillReadError("x"), "do not reinstall"),
     ],
 )
 def test_new_errors_carry_actionable_hints(exception, keyword) -> None:

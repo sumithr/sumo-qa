@@ -48,6 +48,10 @@ class SourceResolutionError(ExternalSkillError):
     """Raised when an install source ref cannot be resolved to a commit."""
 
 
+class ExternalSkillReadError(ExternalSkillError):
+    """Raised when an installed skill exists but cannot be read."""
+
+
 class ExternalSkillProvenanceError(ExternalSkillError):
     """Raised when an installed skill's provenance cannot be recorded or verified."""
 
@@ -309,9 +313,11 @@ def _locate_verified(
                     path = Path(installed["path"])
                     body = _read_skill_body(path)
                     found = installed, path, body, _verify_provenance(path, lock_base, body)
-        except ExternalSkillError:
+        except (ExternalSkillError, OSError) as exc:
             # An unlocked result, or its failure, raced an install: retry locked.
             if locked or not lock_folder.is_dir():
+                if isinstance(exc, OSError):
+                    raise ExternalSkillReadError(f"could not read skill {skill!r}: {exc}") from exc
                 raise
             retry = True
             continue
@@ -349,6 +355,11 @@ def hint_for_exception(exc: BaseException) -> str:
         return (
             "Check network access and that the source is a git repository whose "
             "#ref exists (a branch, tag, or full commit SHA)."
+        )
+    if isinstance(exc, ExternalSkillReadError):
+        return (
+            "The skill is installed but could not be read (permissions or a "
+            "concurrent change). Surface the error; do not reinstall over it."
         )
     if isinstance(exc, ExternalSkillProvenanceError):
         return (
@@ -444,10 +455,7 @@ def _digest_of(entries: dict[tuple[str, str], str]) -> str:
 
 
 def _read_skill_body(path: Path) -> bytes:
-    try:
-        return path.read_bytes()
-    except OSError as exc:
-        raise ExternalSkillError(f"could not read {path}: {exc}") from exc
+    return path.read_bytes()
 
 
 def _cli_spec() -> str:
