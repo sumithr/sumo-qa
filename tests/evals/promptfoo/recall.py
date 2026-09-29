@@ -19,8 +19,12 @@ so the report is refused rather than scored as a miss.
 Usage:
     python tests/evals/promptfoo/recall.py <report.json> [<report.json> ...]
 
-Exit codes: 0 report printed; 2 unusable input (no results, an errored result,
-a case missing `category` or `split`).
+Every run must score the same cases, so a filtered run (for example only the
+held-out split) is scored on its own, never beside full runs.
+
+Exit codes: 0 report printed; 2 unusable input (not a promptfoo report, no
+results, no recall cases, an errored result, a case missing `category` or
+`split`, or runs over different case sets).
 """
 
 from __future__ import annotations
@@ -60,7 +64,10 @@ def _rows(path: Path) -> list[dict]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ReportError(f"{path}: unreadable report ({exc})") from exc
-    rows = ((data.get("results") or {}).get("results")) or []
+    results = data.get("results") if isinstance(data, dict) else None
+    rows = results.get("results") if isinstance(results, dict) else None
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise ReportError(f"{path}: not a promptfoo eval report (no results.results list)")
     if not rows:
         raise ReportError(f"{path}: no results")
     return rows
@@ -85,6 +92,7 @@ def _new_run() -> dict:
         "categories": defaultdict(_bucket),
         "splits": defaultdict(_bucket),
         "controls": {"passed": 0, "total": 0},
+        "names": set(),
     }
 
 
@@ -104,13 +112,14 @@ def summarise(paths: list[Path]) -> dict:
             while len(file_runs) <= index:
                 file_runs.append(_new_run())
             run = file_runs[index]
+            run["names"].add(name)
             if category == CONTROL:
                 run["controls"]["total"] += 1
                 run["controls"]["passed"] += caught
-                continue
-            for bucket in (run["overall"], run["categories"][category], run["splits"][split]):
-                bucket["total"] += 1
-                bucket["caught"] += caught
+            else:
+                for bucket in (run["overall"], run["categories"][category], run["splits"][split]):
+                    bucket["total"] += 1
+                    bucket["caught"] += caught
             case = cases.setdefault(
                 name, {"caught": 0, "runs": 0, "category": category, "split": split}
             )
@@ -118,7 +127,13 @@ def summarise(paths: list[Path]) -> dict:
             case["caught"] += caught
         runs.extend(file_runs)
 
+    # Mean and spread compare like with like: every run must score the same cases.
+    if any(run["names"] != runs[0]["names"] for run in runs):
+        raise ReportError("runs scored different case sets; score a filtered run on its own")
+    if not runs[0]["overall"]["total"]:
+        raise ReportError("no recall cases in the reports (controls only)")
     for run in runs:
+        del run["names"]
         run["categories"] = dict(run["categories"])
         run["splits"] = dict(run["splits"])
         run["overall"]["recall"] = _rate(run["overall"])
@@ -150,7 +165,7 @@ def render(summary: dict) -> str:
         f"mean overall recall: {summary['mean_recall']:.0%} over {len(summary['runs'])} run(s); "
         f"spread {summary['spread']:.0%}"
     )
-    out.append("per case (caught/runs):")
+    out.append("per case (caught/runs; a control counts its SAFE passes):")
     for name, case in sorted(summary["cases"].items(), key=lambda kv: (kv[1]["category"], kv[0])):
         out.append(f"  {case['caught']}/{case['runs']}  [{case['split']}] {name}")
     return "\n".join(out)

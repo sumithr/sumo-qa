@@ -1271,29 +1271,32 @@ def _declared_module_sets(config: dict) -> list[list[str]]:
     return sets
 
 
-def _legacy_body_vars(var_sets: list[dict]) -> list[str]:
-    """Vars whose value (or a list item of it) IS the legacy whole-body ref.
+def _legacy_body_refs(node, where: str = "config") -> list[str]:
+    """Every place in a parsed config whose whole string value IS the legacy
+    whole-body ref: a var, a prompt, an assert value, a nested or scenario var.
 
-    promptfoo loads a `file://` var only when the whole value is the ref, so
-    the same string quoted inside a seed's diff (the recall corpus replays real
+    promptfoo loads a `file://` value only when the whole string is the ref, so
+    the same text quoted inside a seed's diff (the recall corpus replays real
     eval diffs) is data, not a load.
     """
-    found = []
-    for var_set in var_sets:
-        for name, value in var_set.items():
-            items = value if isinstance(value, list) else [value]
-            if any(isinstance(i, str) and i.strip() == LEGACY_FULL_BODY_REF for i in items):
-                found.append(name)
-    return found
+    if isinstance(node, str):
+        return [where] if node.strip() == LEGACY_FULL_BODY_REF else []
+    if isinstance(node, dict):
+        return [hit for k, v in node.items() for hit in _legacy_body_refs(v, f"{where}.{k}")]
+    if isinstance(node, list):
+        return [hit for i, v in enumerate(node) for hit in _legacy_body_refs(v, f"{where}[{i}]")]
+    return []
 
 
-def test_legacy_body_check_rejects_a_load_and_ignores_a_quoted_diff():
+def test_legacy_body_check_rejects_a_load_anywhere_and_ignores_a_quoted_diff():
     ref = LEGACY_FULL_BODY_REF
-    assert _legacy_body_vars([{"skill_content": ref}]) == ["skill_content"]
-    assert _legacy_body_vars([{"skill_content_old": f"  {ref}\n"}]) == ["skill_content_old"]
-    assert _legacy_body_vars([{"bodies": ["file://x.md", ref]}]) == ["bodies"]
+    assert _legacy_body_refs({"defaultTest": {"vars": {"skill_content": ref}}})
+    assert _legacy_body_refs({"tests": [{"vars": {"skill_content_old": f"  {ref}\n"}}]})
+    assert _legacy_body_refs({"prompts": [ref]})
+    assert _legacy_body_refs({"defaultTest": {"assert": [{"type": "x", "value": ref}]}})
+    assert _legacy_body_refs({"scenarios": [{"config": [{"vars": {"body": [ref]}}]}]})
     quoted = f"## git diff\n-    skill_content_new: {ref}\n"
-    assert _legacy_body_vars([{"ground_truth_context": quoted}]) == []
+    assert _legacy_body_refs({"tests": [{"vars": {"ground_truth_context": quoted}}]}) == []
 
 
 def test_review_eval_matrix_is_non_empty():
@@ -1310,7 +1313,7 @@ def test_review_eval_assembles_root_plus_declared_modules_only(config_path):
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     default_vars = (config.get("defaultTest") or {}).get("vars") or {}
     seed_vars = [t.get("vars") or {} for t in config.get("tests") or []]
-    legacy = _legacy_body_vars([default_vars, *seed_vars])
+    legacy = _legacy_body_refs(config)
     assert not legacy, (
         f"{config_path.name} still loads the whole SKILL.md body via {legacy}; "
         f"route it through {ASSEMBLER_REF}"

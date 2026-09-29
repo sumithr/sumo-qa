@@ -118,15 +118,20 @@ exists, are not cases.
 - **Score.** A case is caught when the review names the defect file
   (`asserts/recall-expected-file.js`, path or file name) AND the judge finds the
   same failure mechanism treated as a merge blocker. Wording, format and ledger
-  discipline are not scored; other configs grade those.
+  discipline are not scored; other configs grade those. The file check is a
+  floor, not the discriminator: the skill's verdict lists every touched file, so
+  it rarely fails, and the judge's requirement of the same file and code path
+  is what separates a catch from a nearby risk.
 - **Metadata.** `category` is the ledger category; `split` is `train` or
   `held-out`. Tune a category fix (#755 to #759) on `train`; judge it on
   `held-out`. Every promoted category has at least one held-out case.
   `expected_file` feeds the file check; `ledger_issue` or `source_comment` names
   the source.
-- **Controls.** Two cases with `category: control` are clean merged PRs. They
-  pass only on a SAFE verdict, and `recall.py` reports them apart from recall, so
-  a review that blocks everything does not score well.
+- **Controls.** Cases with `category: control` are clean merged PRs: two
+  config-only diffs and two runtime changes with tests that codex and CI passed
+  and nothing later fixed. They pass only on a SAFE verdict, and `recall.py`
+  reports them apart from recall, so a review that blocks every code change
+  shows up as failed controls, not as higher recall.
 
 Run it with separate report paths, then score every report together. Parallel
 promptfoo processes each need their own `PROMPTFOO_CONFIG_DIR`: they otherwise
@@ -147,9 +152,12 @@ python $P/recall.py /tmp/recall/run*.json
 
 `recall.py` prints recall overall, per split and per category for each run, the
 mean and spread of overall recall across runs, and how many runs caught each
-case. It exits 2 on a report with no results, a case missing `category` or
-`split`, or an errored result: a provider or judge error is not a skill verdict,
-so it is never scored as a miss.
+case (controls included). Every run it scores together must cover the same
+cases, so score a filtered run, like the held-out one above, on its own. It
+exits 2 on anything it cannot score as recall: a file that is not a promptfoo
+report, no results, only controls, runs over different case sets, a case missing
+`category` or `split`, or an errored result. A provider or judge error is not a
+skill verdict, so it is never scored as a miss.
 
 Baseline on main at `1db14e3` (claude-haiku-4-5 candidate, claude-opus-5 judge,
 three runs):
@@ -159,9 +167,10 @@ three runs):
 | overall | 7/33 | 6/33 | 7/33 |
 | held-out | 3/11 | 3/11 | 3/11 |
 | train | 4/22 | 3/22 | 4/22 |
-| controls passed | 2/2 | 2/2 | 2/2 |
+| controls passed | 4/4 | 3/4 | 4/4 |
 
-Mean overall recall is 20% with a spread of 3 points (one case). Five cases
+Mean overall recall is 20% with a spread of 3 points (one case). The runtime
+control from PR #475 drew a false alarm in one run of three. Six cases
 flicker between runs, so a single-run comparison needs a move of more than two
 cases (6 points) overall before it is a change, not variance; compare means over
 three runs for anything smaller. The candidate is the eval gate's, not the model
@@ -982,7 +991,7 @@ renders.
 |---|---|
 | `skill-<name>.yaml` | One base config per skill under `skills/` |
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
-| `skill-reviewing-before-merge-recall.yaml` | Issue #754 review-recall corpus: real past misses tagged by ledger category and train/held-out split, plus two clean controls (see "Review-recall corpus" above) |
+| `skill-reviewing-before-merge-recall.yaml` | Issue #754 review-recall corpus: real past misses tagged by ledger category and train/held-out split, plus four clean controls (see "Review-recall corpus" above) |
 | `recall.py` | Recall reporter for the review-recall corpus: overall, per split, per category, per run, with mean and spread |
 | `asserts/recall-expected-file.js` | File half of the recall score: the review must name the defect file |
 | `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) control, kept as a regression guard on the A1 leg (see "UNPROVEN-escalation corpus" above) |

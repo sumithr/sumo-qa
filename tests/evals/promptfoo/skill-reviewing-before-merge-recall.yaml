@@ -9,10 +9,14 @@ description: >
   recall-expected-file.js) AND the judge matches the defect and finds it
   treated as a merge blocker. Wording, format and ledger discipline are
   graded elsewhere and are deliberately not scored here. metadata.category is
-  the ledger category and metadata.split is train or held-out: a category fix
+  the ledger category and metadata.split is train or held-out:
+  a category fix
   (#755-#759) is tuned on train and judged on held-out. Negative controls
   (category control) guard against a review that flags everything; they are
-  reported apart from recall. Score runs with recall.py (see README "Review-
+  reported apart from recall. metadata.defect_state is a commit whose tree
+  holds the defective file state the diff replays (`git show
+  <defect_state>:<expected_file>`), not necessarily the commit that changed
+  that file. Score runs with recall.py (see README "Review-
   recall corpus").
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
@@ -153,8 +157,8 @@ tests:
       split: train
       ledger_issue: 493
       source_pr: 492
-      defect_commit: 10559ba2
-      expected_file: pyproject.toml
+      expected_file: .pre-commit-config.yaml
+      defect_state: 10559ba2
     vars:
       review_modules:
       - runtime-scope
@@ -282,8 +286,8 @@ tests:
       split: train
       ledger_issue: 380
       source_pr: 377
-      defect_commit: 8c666280a2
       expected_file: scripts/generate_marketplace_assets.py
+      defect_state: 8c666280a2
     vars:
       review_modules:
       - runtime-scope
@@ -380,8 +384,8 @@ tests:
       split: held-out
       ledger_issue: 386
       source_pr: 377
-      defect_commit: 6f37ac9458
       expected_file: .github/workflows/release-please.yml
+      defect_state: 6f37ac9458
     vars:
       review_modules:
       - runtime-scope
@@ -479,8 +483,8 @@ tests:
       split: train
       ledger_issue: 389
       source_pr: 390
-      defect_commit: 2e4d978f4d
       expected_file: install.sh
+      defect_state: 2e4d978f4d
     vars:
       review_modules:
       - runtime-scope
@@ -584,8 +588,8 @@ tests:
       split: train
       ledger_issue: 395
       source_pr: 390
-      defect_commit: eec25c7551
       expected_file: install.sh
+      defect_state: eec25c7551
     vars:
       review_modules:
       - runtime-scope
@@ -688,8 +692,8 @@ tests:
       split: held-out
       ledger_issue: 474
       source_pr: 471
-      defect_commit: c4c6dc16cc
       expected_file: src/sumo_qa/skill_prompts.py
+      defect_state: c4c6dc16cc
     vars:
       review_modules:
       - runtime-scope
@@ -812,8 +816,8 @@ tests:
       split: train
       ledger_issue: 487
       source_pr: 476
-      defect_commit: 81f2f3d7d9
       expected_file: src/sumo_qa/conformance.py
+      defect_state: 81f2f3d7d9
     vars:
       review_modules:
       - runtime-scope
@@ -927,8 +931,8 @@ tests:
       split: train
       ledger_issue: 690
       source_pr: 692
-      defect_commit: 50b48c0dcf
       expected_file: tests/evals/promptfoo/run-eval.sh
+      defect_state: 50b48c0dcf
     vars:
       review_modules:
       - runtime-scope
@@ -1024,8 +1028,8 @@ tests:
       ledger_issue: null
       source_pr: 450
       source_comment: https://github.com/sumithr/sumo-qa/pull/450#discussion_r3447807339
-      defect_commit: ee44bada
       expected_file: src/sumo_qa/skill_manifest.py
+      defect_state: ee44bada
     vars:
       review_modules:
       - runtime-scope
@@ -1151,8 +1155,8 @@ tests:
       ledger_issue: null
       source_pr: 486
       source_comment: https://github.com/sumithr/sumo-qa/pull/486#discussion_r3523399161
-      defect_commit: e07135a8
       expected_file: src/sumo_qa/gate_evidence_validation.py
+      defect_state: e07135a8
     vars:
       review_modules:
       - runtime-scope
@@ -1637,9 +1641,9 @@ tests:
       split: train
       ledger_issue: null
       source_pr: 548
-      defect_commit: 0c891691a3019c7eea702ea9f6039115f5fc6046
       expected_file: src/sumo_qa/repo_map_resolvers/csharp.py
       source_comment: https://github.com/sumithr/sumo-qa/pull/548#discussion_r3586987135
+      defect_state: 0c891691a3019c7eea702ea9f6039115f5fc6046
     vars:
       review_modules:
       - runtime-scope
@@ -1826,9 +1830,9 @@ tests:
       split: held-out
       ledger_issue: null
       source_pr: 644
-      defect_commit: bef8b15659614cfea0d52cadf9c0eb711699d178
       expected_file: src/sumo_qa/scorecard_models.py
       source_comment: https://github.com/sumithr/sumo-qa/pull/644#discussion_r3935051942
+      defect_state: bef8b15659614cfea0d52cadf9c0eb711699d178
     vars:
       review_modules:
       - runtime-scope
@@ -1938,9 +1942,9 @@ tests:
       split: train
       ledger_issue: null
       source_pr: 670
-      defect_commit: 5cc99e81cfea6b6052d5985612b377eeb99afe03
       expected_file: tests/evals/claude/loader.py
       source_comment: https://github.com/sumithr/sumo-qa/pull/670#discussion_r3973425152
+      defect_state: 5cc99e81cfea6b6052d5985612b377eeb99afe03
     vars:
       review_modules: &id001
       - runtime-scope
@@ -2172,9 +2176,9 @@ tests:
       split: train
       ledger_issue: null
       source_pr: 692
-      defect_commit: e994baa6832088f6885c5bef9fe3fc22724021a1
       expected_file: .claude/skills/regen-eval-baseline/scripts/run_baseline.py
       source_comment: https://github.com/sumithr/sumo-qa/pull/692#discussion_r4007747293
+      defect_state: e994baa6832088f6885c5bef9fe3fc22724021a1
     vars:
       review_modules:
       - runtime-scope
@@ -2318,9 +2322,9 @@ tests:
       split: held-out
       ledger_issue: null
       source_pr: 739
-      defect_commit: 577350589d4f6f69da02a34345b60bfc3c54bdc9
       expected_file: src/sumo_qa/conformance.py
       source_comment: https://github.com/sumithr/sumo-qa/pull/739#discussion_r4133266549
+      defect_state: 577350589d4f6f69da02a34345b60bfc3c54bdc9
     vars:
       review_modules: *id001
       user_prompt: Is this safe to merge?
@@ -2411,8 +2415,8 @@ tests:
       split: train
       ledger_issue: 418
       source_pr: 417
-      defect_commit: f111b113584175a0b7d61d72fa21f7819ace6212
       expected_file: README.md
+      defect_state: f111b113584175a0b7d61d72fa21f7819ace6212
     vars:
       review_modules:
       - runtime-scope
@@ -2463,8 +2467,8 @@ tests:
       split: held-out
       ledger_issue: 544
       source_pr: 535
-      defect_commit: c4777f913a825bd238fbfad1ce01aa8faf42a162
       expected_file: docs/TOOLS.md
+      defect_state: c4777f913a825bd238fbfad1ce01aa8faf42a162
     vars:
       review_modules:
       - runtime-scope
@@ -2618,8 +2622,8 @@ tests:
       split: train
       ledger_issue: 749
       source_pr: null
-      defect_commit: 9ecf30c7d5e5440983e971fc1f2f81e39a726bc9
       expected_file: docs/SKILLS.md
+      defect_state: 9ecf30c7d5e5440983e971fc1f2f81e39a726bc9
     vars:
       review_modules:
       - runtime-scope
@@ -2840,9 +2844,9 @@ tests:
       split: train
       ledger_issue: null
       source_pr: 585
-      defect_commit: d8e95924
       expected_file: src/sumo_qa/skill_prompts.py
       source_comment: https://github.com/sumithr/sumo-qa/pull/585#discussion_r3704570285
+      defect_state: d8e95924
     vars:
       review_modules:
       - runtime-scope
@@ -2916,8 +2920,8 @@ tests:
       split: train
       ledger_issue: 422
       source_pr: 421
-      defect_commit: ac8cf1d9aad7a2fc4fd47b97377ef5289ede5a4e
       expected_file: src/sumo_qa/capabilities.py
+      defect_state: ac8cf1d9aad7a2fc4fd47b97377ef5289ede5a4e
     vars:
       review_modules:
       - runtime-scope
@@ -3006,8 +3010,8 @@ tests:
       split: held-out
       ledger_issue: 697
       source_pr: null
-      defect_commit: d42bf063cac7a3acd7825a81af48f5f25316aea2
       expected_file: tests/evals/promptfoo/skill-strengthening-tests.ab.yaml
+      defect_state: d42bf063cac7a3acd7825a81af48f5f25316aea2
     vars:
       review_modules:
       - runtime-scope
@@ -3146,8 +3150,8 @@ tests:
       split: train
       ledger_issue: 666
       source_pr: None
-      defect_commit: a7b8cdda
       expected_file: tests/evals/claude/loader.py
+      defect_state: a7b8cdda
     vars:
       review_modules:
       - runtime-scope
@@ -3256,8 +3260,8 @@ tests:
       split: held-out
       ledger_issue: 671
       source_pr: 670
-      defect_commit: 86d43149a2ed7747e22fd5999693429279b02b10
       expected_file: tests/test_claude_eval_runner.py
+      defect_state: 86d43149a2ed7747e22fd5999693429279b02b10
     vars:
       review_modules:
       - runtime-scope
@@ -3350,8 +3354,8 @@ tests:
       ledger_issue: null
       source_pr: 342
       source_comment: https://github.com/sumithr/sumo-qa/pull/342#discussion_r3359364172
-      defect_commit: 7844e7d0
       expected_file: src/sumo_qa/server.py
+      defect_state: 7844e7d0
     vars:
       review_modules:
       - runtime-scope
@@ -3458,9 +3462,9 @@ tests:
       split: train
       ledger_issue: null
       source_pr: 642
-      defect_commit: 73c84bc1c45ca362bece01364050b0f360c81dba
       expected_file: scripts/check_mutation_gate.py
       source_comment: https://github.com/sumithr/sumo-qa/pull/642#discussion_r3925482349
+      defect_state: 73c84bc1c45ca362bece01364050b0f360c81dba
     vars:
       review_modules:
       - runtime-scope
@@ -3574,8 +3578,8 @@ tests:
       split: train
       ledger_issue: 631
       source_pr: 562
-      defect_commit: b88b8baf04cf83440507d808dc05567e0c4845b3
       expected_file: experiments/issue_557/compare_results.py
+      defect_state: b88b8baf04cf83440507d808dc05567e0c4845b3
     vars:
       review_modules:
       - runtime-scope
@@ -3676,8 +3680,8 @@ tests:
       ledger_issue: null
       source_pr: 392
       source_comment: https://github.com/sumithr/sumo-qa/pull/392#discussion_r3392295014
-      defect_commit: 79ec3cc4
       expected_file: src/sumo_qa/scorecard_validation.py
+      defect_state: 79ec3cc4
     vars:
       review_modules:
       - runtime-scope
@@ -4110,8 +4114,8 @@ tests:
       split: train
       ledger_issue: 375
       source_pr: 374
-      defect_commit: cf44b03992a4b851d38da2e9fcfbc5dba2183c69
       expected_file: tests/evals/promptfoo/bakeoff/run-bakeoff.sh
+      defect_state: cf44b03992a4b851d38da2e9fcfbc5dba2183c69
     vars:
       review_modules:
       - runtime-scope
@@ -4203,8 +4207,8 @@ tests:
       ledger_issue: null
       source_pr: 490
       source_comment: https://github.com/sumithr/sumo-qa/pull/490#discussion_r3544729802
-      defect_commit: 282a81b6793545e84293c89b63bd1c607aa20cdc
       expected_file: src/sumo_qa/analysis/diff.py
+      defect_state: 282a81b6793545e84293c89b63bd1c607aa20cdc
     vars:
       review_modules:
       - runtime-scope
@@ -4646,8 +4650,8 @@ tests:
       split: train
       ledger_issue: 592
       source_pr: 504
-      defect_commit: 5adf05d99bb7ce0d4251ed8bdf104116d85ff0ff
       expected_file: tests/test_check_mutation_gate.py
+      defect_state: 5adf05d99bb7ce0d4251ed8bdf104116d85ff0ff
     vars:
       review_modules:
       - runtime-scope
@@ -4740,8 +4744,8 @@ tests:
       split: held-out
       ledger_issue: 668
       source_pr: 670
-      defect_commit: a7b8cddaa3e78c0e0bf7ccde688f73d4b549db7a
       expected_file: tests/test_claude_eval_runner.py
+      defect_state: a7b8cddaa3e78c0e0bf7ccde688f73d4b549db7a
     vars:
       review_modules:
       - runtime-scope
@@ -4841,8 +4845,8 @@ tests:
       ledger_issue: null
       source_pr: 301
       source_comment: https://github.com/sumithr/sumo-qa/pull/301#discussion_r3337769990
-      defect_commit: 3321d829a50710a5ac72cbbe4b4375a61b5c3f26
       expected_file: tests/test_skill_modules.py
+      defect_state: 3321d829a50710a5ac72cbbe4b4375a61b5c3f26
     vars:
       review_modules:
       - runtime-scope
@@ -4948,9 +4952,9 @@ tests:
       split: train
       ledger_issue: null
       source_pr: 556
-      defect_commit: b736babe
       expected_file: tests/test_skill_prompts.py
       source_comment: https://github.com/sumithr/sumo-qa/pull/556#discussion_r3613348876
+      defect_state: b736babe
     vars:
       review_modules:
       - runtime-scope
@@ -5044,7 +5048,7 @@ tests:
       split: control
       ledger_issue: null
       source_pr: 720
-      defect_commit: c3cffdfdf825c1e2f429f8bd3fada5f9e4b5d44b
+      pr_head: c3cffdfdf825c1e2f429f8bd3fada5f9e4b5d44b
     vars:
       review_modules:
       - runtime-scope
@@ -5065,7 +5069,7 @@ tests:
       split: control
       ledger_issue: null
       source_pr: 709
-      defect_commit: 78ddd635c38f83a65d8b9835d4a33358408d24dd
+      pr_head: 78ddd635c38f83a65d8b9835d4a33358408d24dd
     vars:
       review_modules:
       - runtime-scope
@@ -5087,3 +5091,260 @@ tests:
         pre-commit rev in one commit, as their lockstep comments require, with CI green.'
       expected_shape: Concise verdict that recognises the two pins moved together and delivers SAFE TO MERGE
         without inventing a blocker.
+  - description: 'CONTROL - diff-impact ranks affected nodes by connecting-edge confidence, no defect (PR
+      #475)'
+    metadata:
+      category: control
+      split: control
+      ledger_issue: null
+      source_pr: 475
+      pr_head: 79bf4a90f8
+    vars:
+      review_modules:
+      - runtime-scope
+      - discovery-probes
+      - coverage-ledger
+      - inventory-drift
+      user_prompt: Is this safe to merge?
+      ground_truth_context: "## git diff\n```diff\ndiff --git a/docs/REPO-MAP.md b/docs/REPO-MAP.md\n@@\
+        \ docs/REPO-MAP.md:251-261 @@\n 251     convention (e.g. an unusual CamelCase layout), not true\
+        \ zero coverage. Lets a\n 252     consumer distinguish \"the mapper couldn't link these\" from \"\
+        these are\n 253     genuinely untested\".\n-254   - **`affected_nodes`**: one-hop neighbours of\
+        \ the changed nodes.\n+254   - **`affected_nodes`**: one-hop neighbours of the changed nodes, ranked\
+        \ by\n+255     coupling strength. Each carries a `connecting_confidence` (the strongest\n+256  \
+        \   confidence of any edge linking it to the changeset) and the list is ordered\n+257     high →\
+        \ medium → low, so the load-bearing neighbours (tight, module-level\n+258     imports) rank above\
+        \ the lazy ones (function-local imports).\n 259   - **`unmapped_files`**: changed paths absent from\
+        \ the map (new files, or a\n 260     stale map).\n 261   - **`is_stale`**: true when the map's `git_commit`\
+        \ differs from current HEAD.\n\ndiff --git a/src/sumo_qa/repo_map_impact.py b/src/sumo_qa/repo_map_impact.py\n\
+        @@ src/sumo_qa/repo_map_impact.py:23-57 @@\n 23    from sumo_qa.repo_map_models import (\n 24  \
+        \      SCHEMA_VERSION,\n 25        DiffImpact,\n+26        EdgeConfidence,\n 27        ImpactNode,\n\
+        \ 28        RepoMap,\n 29        RepoMapWarning,\n 30    )\n 31    \n+32    # Rank the edge-confidence\
+        \ vocabulary so affected neighbours can be ordered\n+33    # strongest-coupling first (high before\
+        \ medium before low). The ``None`` entry\n+34    # is a defensive default: every affected node carries\
+        \ a confidence, but keying\n+35    # it here keeps the sort branchless and sorts any un-annotated\
+        \ node last.\n+36    _CONFIDENCE_RANK: dict[EdgeConfidence | None, int] = {None: 0, \"low\": 1,\
+        \ \"medium\": 2, \"high\": 3}\n+37    \n+38    \n+39    def _affected_sort_key(node: ImpactNode)\
+        \ -> tuple[int, str]:\n+40        \"\"\"Order affected nodes by strongest connecting-edge confidence\
+        \ (high →\n+41        medium → low), then by path within a confidence bucket for determinism.\"\"\
+        \"\n+42        return (-_CONFIDENCE_RANK[node.connecting_confidence], node.path)\n+43    \n+44 \
+        \   \n+45    def _record_strongest(\n+46        acc: dict[str, EdgeConfidence], node_id: str, confidence:\
+        \ EdgeConfidence\n+47    ) -> None:\n+48        \"\"\"Keep the STRONGEST confidence seen for ``node_id``\
+        \ in ``acc`` — a node\n+49        coupled to the changeset by both a medium and a high edge reads\
+        \ as high,\n+50        independent of edge order.\"\"\"\n+51        prev = acc.get(node_id)\n+52\
+        \        if prev is None or _CONFIDENCE_RANK[prev] < _CONFIDENCE_RANK[confidence]:\n+53        \
+        \    acc[node_id] = confidence\n+54    \n 55    \n 56    def analyze_diff_impact(repo_map: RepoMap,\
+        \ changed_files: Iterable[str]) -> DiffImpact:\n 57        \"\"\"Map ``changed_files`` onto ``repo_map``.\
+        \ Pure; output lists are sorted.\"\"\"\n@@ src/sumo_qa/repo_map_impact.py:101-118 @@\n 101     \
+        \      if verdict is False:\n 102               risk_surface.append(node.path)\n 103   \n-80   \
+        \     affected_ids: set[str] = set()\n+104       # Each affected node is the OTHER endpoint of an\
+        \ edge with exactly one\n+105       # endpoint in the changeset. Annotate it with the STRONGEST\
+        \ confidence of\n+106       # any such connecting edge (a node coupled by both a medium and a high\
+        \ edge\n+107       # reads as high) so the ranking reflects the tightest coupling, not an\n+108\
+        \       # arbitrary edge order. The key set equals the old `affected_ids` set, so\n+109       #\
+        \ affected-node membership is unchanged — this only adds the annotation.\n+110       affected_confidence:\
+        \ dict[str, EdgeConfidence] = {}\n 111       for e in edges:\n 112           if e.source in changed_ids\
+        \ and e.target not in changed_ids:\n-83                affected_ids.add(e.target)\n+113        \
+        \       _record_strongest(affected_confidence, e.target, e.confidence)\n 114           if e.target\
+        \ in changed_ids and e.source not in changed_ids:\n-85                affected_ids.add(e.source)\n\
+        +115               _record_strongest(affected_confidence, e.source, e.confidence)\n 116   \n 117\
+        \       affected_nodes = [\n 118           ImpactNode(\n@@ src/sumo_qa/repo_map_impact.py:120-128\
+        \ @@\n 120               type=node_by_id[nid].type,\n 121               path=node_by_id[nid].path,\n\
+        \ 122               has_mapped_tests=_mapped_tests_verdict(node_by_id[nid]),\n+123             \
+        \  connecting_confidence=affected_confidence[nid],\n 124           )\n-94            for nid in\
+        \ affected_ids\n+125           for nid in affected_confidence\n 126       ]\n 127   \n 128     \
+        \  suggested = sorted(set(unmapped_files) | {n.path for n in affected_nodes})\n@@ src/sumo_qa/repo_map_impact.py:157-163\
+        \ @@\n 157       return DiffImpact(\n 158           schema_version=SCHEMA_VERSION,\n 159       \
+        \    changed_nodes=sorted(changed_nodes, key=lambda n: n.path),\n-129           affected_nodes=sorted(affected_nodes,\
+        \ key=lambda n: n.path),\n+160           affected_nodes=sorted(affected_nodes, key=_affected_sort_key),\n\
+        \ 161           related_tests=sorted(related_tests),\n 162           unmapped_files=sorted(unmapped_files),\n\
+        \ 163           risk_surface=sorted(risk_surface),\n\ndiff --git a/src/sumo_qa/repo_map_models.py\
+        \ b/src/sumo_qa/repo_map_models.py\n@@ src/sumo_qa/repo_map_models.py:171-184 @@\n 171       for\
+        \ every other node type it is None (serialised as JSON ``null``) — the\n 172       mapped-tests\
+        \ question is meaningless there, and a vacuous \"no\" on a docs\n 173       or fixture row must\
+        \ never read as a coverage gap.\n+174   \n+175       ``connecting_confidence`` (#363) ranks an affected\
+        \ node by coupling\n+176       strength: for a node in ``DiffImpact.affected_nodes`` it carries\
+        \ the\n+177       STRONGEST confidence (``high``/``medium``/``low``) of any edge connecting\n+178\
+        \       it to the changeset, and ``affected_nodes`` is ordered high → medium → low\n+179       by\
+        \ it so load-bearing neighbours rank first. It is None for\n+180       ``changed_nodes`` (a changed\
+        \ node has no connecting edge). Additive and\n+181       backward-compatible: existing fields and\
+        \ consumers are unchanged.\n 182       \"\"\"\n 183   \n 184       model_config = ConfigDict(extra=\"\
+        forbid\")\n@@ src/sumo_qa/repo_map_models.py:187-193 @@\n 187       type: NodeType\n 188       path:\
+        \ str\n 189       has_mapped_tests: bool | None = None\n+190       connecting_confidence: EdgeConfidence\
+        \ | None = None\n 191   \n 192   \n 193   class DiffImpact(BaseModel):\n\ndiff --git a/src/sumo_qa/server_schemas.py\
+        \ b/src/sumo_qa/server_schemas.py\n@@ src/sumo_qa/server_schemas.py:474-488 @@\n 474           \
+        \    \"not read null as a coverage gap).\"\n 475           ),\n 476       )\n+477       connecting_confidence:\
+        \ str | None = Field(\n+478           default=None,\n+479           description=(\n+480        \
+        \       \"For an affected node, the strongest confidence (high/medium/low) of \"\n+481         \
+        \      \"any edge connecting it to the changeset; affected_nodes are ordered \"\n+482          \
+        \     \"high → medium → low by this value so the load-bearing neighbours rank \"\n+483         \
+        \      \"first. Null for changed_nodes (they have no connecting edge).\"\n+484           ),\n+485\
+        \       )\n 486   \n 487   \n 488   class DiffImpactOutput(_StrictBase):\n\ndiff --git a/tests/test_repo_map_impact.py\
+        \ b/tests/test_repo_map_impact.py\n@@ tests/test_repo_map_impact.py:92-107 @@\n 92        )\n 93\
+        \    \n 94    \n+95    def _imports(src_path, target_path, conf=\"high\"):\n+96        return RepoMapEdge(\n\
+        +97            source=f\"file:{src_path}\",\n+98            target=f\"file:{target_path}\",\n+99\
+        \            type=\"imports\",\n+100           confidence=conf,\n+101           reason=\"import\"\
+        ,\n+102       )\n+103   \n+104   \n 105   def test_changed_source_with_test_lists_related_test_and_not_risk():\n\
+        \ 106       rm = _map(\n 107           [_src(\"src/a.py\"), _test(\"tests/test_a.py\")], [_likely(\"\
+        tests/test_a.py\", \"src/a.py\")]\n@@ tests/test_repo_map_impact.py:187-274 @@\n 187       assert\
+        \ [(n.path, n.has_mapped_tests) for n in out.affected_nodes] == [(\"src/a.py\", True)]\n 188   \n\
+        \ 189   \n+190   # ---------- Confidence-weighted ranking of affected nodes (#363) ----------\n\
+        +191   \n+192   \n+193   def test_affected_nodes_annotated_and_ordered_high_then_medium():\n+194\
+        \       # A changed source imports three neighbours: two via high-confidence edges\n+195       #\
+        \ and one via a medium edge. Affected nodes must be annotated with the\n+196       # connecting-edge\
+        \ confidence and ordered high -> medium, with path as the\n+197       # within-bucket tiebreaker.\
+        \ Paths are chosen so a plain path sort would put\n+198       # the medium node FIRST (a_medium\
+        \ < y_high < z_high) -- the confidence sort\n+199       # is what reorders it last, so the assertion\
+        \ discriminates ranking from the\n+200       # old path-only order.\n+201       rm = _map(\n+202\
+        \           [\n+203               _src(\"src/changed.py\"),\n+204               _src(\"src/a_medium.py\"\
+        ),\n+205               _src(\"src/y_high.py\"),\n+206               _src(\"src/z_high.py\"),\n+207\
+        \           ],\n+208           [\n+209               _imports(\"src/changed.py\", \"src/a_medium.py\"\
+        , \"medium\"),\n+210               _imports(\"src/changed.py\", \"src/y_high.py\", \"high\"),\n\
+        +211               _imports(\"src/changed.py\", \"src/z_high.py\", \"high\"),\n+212           ],\n\
+        +213       )\n+214       out = analyze_diff_impact(rm, [\"src/changed.py\"])\n+215       assert\
+        \ [(n.path, n.connecting_confidence) for n in out.affected_nodes] == [\n+216           (\"src/y_high.py\"\
+        , \"high\"),\n+217           (\"src/z_high.py\", \"high\"),\n+218           (\"src/a_medium.py\"\
+        , \"medium\"),\n+219       ]\n+220   \n+221   \n+222   def test_affected_node_annotation_takes_strongest_connecting_edge():\n\
+        +223       # A neighbour reachable from the changeset by BOTH a medium and a high edge\n+224   \
+        \    # must be annotated with the STRONGEST (high), regardless of edge order.\n+225       # shared\
+        \ sees medium-then-high (the high must upgrade the annotation);\n+226       # shared2 sees high-then-medium\
+        \ (the later medium must NOT downgrade it).\n+227       # A first-edge-wins or last-edge-wins bug\
+        \ gets one of the two wrong.\n+228       rm = _map(\n+229           [_src(\"src/a.py\"), _src(\"\
+        src/b.py\"), _src(\"src/shared.py\"), _src(\"src/shared2.py\")],\n+230           [\n+231       \
+        \        _imports(\"src/a.py\", \"src/shared.py\", \"medium\"),\n+232               _imports(\"\
+        src/b.py\", \"src/shared.py\", \"high\"),\n+233               _imports(\"src/a.py\", \"src/shared2.py\"\
+        , \"high\"),\n+234               _imports(\"src/b.py\", \"src/shared2.py\", \"medium\"),\n+235 \
+        \          ],\n+236       )\n+237       out = analyze_diff_impact(rm, [\"src/a.py\", \"src/b.py\"\
+        ])\n+238       assert [(n.path, n.connecting_confidence) for n in out.affected_nodes] == [\n+239\
+        \           (\"src/shared.py\", \"high\"),\n+240           (\"src/shared2.py\", \"high\"),\n+241\
+        \       ]\n+242   \n+243   \n+244   def test_ranking_is_backward_compatible_with_existing_affected_node_fields():\n\
+        +245       # The new annotation is additive: affected-node membership and the existing\n+246   \
+        \    # id/type/path/has_mapped_tests fields are unchanged, and changed_nodes\n+247       # carry\
+        \ no connecting_confidence (None) -- so existing consumers that read\n+248       # only the old\
+        \ fields see identical data.\n+249       rm = _map(\n+250           [\n+251               _src(\"\
+        src/changed.py\"),\n+252               _src(\"src/a_medium.py\"),\n+253               _src(\"src/y_high.py\"\
+        ),\n+254           ],\n+255           [\n+256               _imports(\"src/changed.py\", \"src/a_medium.py\"\
+        , \"medium\"),\n+257               _imports(\"src/changed.py\", \"src/y_high.py\", \"high\"),\n\
+        +258           ],\n+259       )\n+260       out = analyze_diff_impact(rm, [\"src/changed.py\"])\n\
+        +261       # Same affected-node membership and existing-field values as before the\n+262       #\
+        \ ranking change (a source file with no likely_tests edge -> False).\n+263       assert {(n.id,\
+        \ n.type, n.path, n.has_mapped_tests) for n in out.affected_nodes} == {\n+264           (\"file:src/a_medium.py\"\
+        , \"source_file\", \"src/a_medium.py\", False),\n+265           (\"file:src/y_high.py\", \"source_file\"\
+        , \"src/y_high.py\", False),\n+266       }\n+267       # changed_nodes never carry a connecting\
+        \ confidence -- the field is None on\n+268       # that side, so changed-node consumers are unaffected.\n\
+        +269       assert all(n.connecting_confidence is None for n in out.changed_nodes)\n+270   \n+271\
+        \   \n 272   def test_empty_changeset_returns_empty_result():\n 273       rm = _map([_src(\"src/a.py\"\
+        )], [])\n 274       out = analyze_diff_impact(rm, [])\n```\n\n## Fresh test run\n```text\n$ pytest\
+        \ tests/test_repo_map_impact.py -q\n24 passed in 1.28s\n```\n"
+      expected_finding: 'No defect: a new ranking field computed from existing edge confidences, added to
+        the model and the published schema together, with tests for the ordering and the new field.'
+      expected_shape: Verdict that reviews the runtime change on its merits, raises no merge blocker it
+        cannot anchor to a concrete failure in the diff, and delivers SAFE TO MERGE.
+  - description: 'CONTROL - CommonMark-correct heading-fence parsing in the skill manifest, no defect (PR
+      #341)'
+    metadata:
+      category: control
+      split: control
+      ledger_issue: null
+      source_pr: 341
+      pr_head: 3790b951c1
+    vars:
+      review_modules:
+      - runtime-scope
+      - discovery-probes
+      - coverage-ledger
+      - contract-and-fence-probes
+      user_prompt: Is this safe to merge?
+      ground_truth_context: "## git diff\n```diff\ndiff --git a/src/sumo_qa/skill_manifest.py b/src/sumo_qa/skill_manifest.py\n\
+        @@ src/sumo_qa/skill_manifest.py:32-46 @@\n 32    # Heading line: 1-6 leading '#', a space, then\
+        \ the heading text. Matched only\n 33    # on lines OUTSIDE fenced code blocks (see _iter_headings).\n\
+        \ 34    _HEADING_RE = re.compile(r\"^(#{1,6})\\s+(.*\\S)\\s*$\")\n-35    # A fence opener/closer:\
+        \ ``` or ~~~ (3+), optionally indented, optional info string.\n-36    _FENCE_RE = re.compile(r\"\
+        ^\\s*(`{3,}|~{3,})\")\n+35    # CommonMark fenced code blocks (parity with knowledge_loaders._ENTRY_FENCE_RE):\n\
+        +36    # an opening fence is a run of >=3 backticks or >=3 tildes, indented by AT MOST\n+37    #\
+        \ 3 spaces (>=4 spaces is an indented code block, not a fence). Capture the whole\n+38    # run\
+        \ so lengths can be compared — a closing fence must use the same char with\n+39    # length >= the\
+        \ opener's, so an outer 4-backtick fence is NOT closed by an inner\n+40    # 3-backtick run. Capture\
+        \ the remainder after the run too: a CLOSING fence may\n+41    # carry only whitespace after it,\
+        \ whereas an OPENING fence may carry an info\n+42    # string (e.g. ```python).\n+43    _FENCE_RE\
+        \ = re.compile(r\"^ {0,3}(`{3,}|~{3,})(.*)$\")\n 44    _FRONTMATTER_RE = re.compile(r\"\\A---\\\
+        s*\\n.*?\\n---\\s*\\n\", re.DOTALL)\n 45    # Sections whose heading text contains any of these\
+        \ terms (case-insensitively)\n 46    # are flagged required=True. `frontmatter` is the synthetic\
+        \ frontmatter section.\n@@ src/sumo_qa/skill_manifest.py:93-122 @@\n 93        that is NOT inside\
+        \ a fenced code block.\n 94    \n 95        Tracks ``` / ~~~ fences so a ``# comment`` inside a\
+        \ python/js example block\n-89        is never mistaken for a section heading.\"\"\"\n+96      \
+        \  is never mistaken for a section heading. Fence handling is CommonMark-correct\n+97        and\
+        \ identical to ``knowledge_loaders._iter_entry_headings``: the open fence is\n+98        held as\
+        \ ``(char, length)``, an indented (>=4 spaces) run is not a fence, an\n+99        info string is\
+        \ allowed on the opener, and a close must be a same-char run of\n+100       length >= the opener's\
+        \ with only whitespace after it (so a 4-backtick fence\n+101       is not closed by an inner 3-backtick\
+        \ run, and ```bash is content not a\n+102       close).\"\"\"\n 103       headings: list[tuple[int,\
+        \ int, str]] = []\n-91        fence: str | None = None\n+104       # Open fence as (char, length),\
+        \ or None when outside a code block. CommonMark\n+105       # closes a fence only on a same-char\
+        \ run at least as long as the opener.\n+106       fence: tuple[str, int] | None = None\n 107   \
+        \    for idx, line in enumerate(body.splitlines()):\n 108           fence_match = _FENCE_RE.match(line)\n\
+        \ 109           if fence_match:\n-95                marker = fence_match.group(1)[0]  # ` or ~\n\
+        +110               run = fence_match.group(1)\n+111               remainder = fence_match.group(2)\n\
+        +112               marker, length = run[0], len(run)\n 113               if fence is None:\n-97\
+        \                    fence = marker\n-98                elif marker == fence:\n+114            \
+        \       # Opening fence: an info string after the run is allowed.\n+115                   fence\
+        \ = (marker, length)\n+116               elif marker == fence[0] and length >= fence[1] and not\
+        \ remainder.strip():\n+117                   # Closing fence: CommonMark requires whitespace-only\
+        \ after the\n+118                   # run. A trailing info string (e.g. ```bash) means this is\n\
+        +119                   # content inside the block, not a valid close.\n 120                   fence\
+        \ = None\n 121               continue\n 122           if fence is not None:\n\ndiff --git a/tests/test_skill_manifest.py\
+        \ b/tests/test_skill_manifest.py\n@@ tests/test_skill_manifest.py:93-187 @@\n 93        assert _ids(sections)\
+        \ == [\"outer\", \"after\"]\n 94    \n 95    \n+96    # --------------------------------------------------------------------------\n\
+        +97    # CommonMark fence-parsing parity with knowledge_loaders._iter_entry_headings\n+98    # (#297).\
+        \ Technique: boundary value analysis — defects cluster at the fence\n+99    # rule boundaries (run\
+        \ length, indent, close-line content). Each case is\n+100   # derived from the CommonMark rule for\
+        \ that specific input, not recalled.\n+101   # --------------------------------------------------------------------------\n\
+        +102   \n+103   \n+104   def test_longer_backtick_fence_is_not_closed_by_a_shorter_inner_run():\n\
+        +105       # CommonMark: a closing fence must be a run of the SAME char with length\n+106      \
+        \ # >= the opener. A 4-backtick opener wraps a 3-backtick run as CONTENT, so\n+107       # the block\
+        \ stays open until the matching 4-backtick close. Any '#' line\n+108       # between the inner 3-backtick\
+        \ run and the 4-backtick close is INSIDE the\n+109       # block and must NOT be indexed. The buggy\
+        \ len-blind tracker closes on the\n+110       # inner ``` and indexes '## leaked' as a real section.\n\
+        +111       text = (\n+112           \"## Outer\\n\\n\"\n+113           \"````\\n\"  # 4-backtick\
+        \ opener\n+114           \"```\\n\"  # inner 3-backtick run — content, NOT a close\n+115       \
+        \    \"## leaked\\n\"  # still inside the block\n+116           \"````\\n\\n\"  # 4-backtick close\
+        \ (length >= opener)\n+117           \"## After\\n\"\n+118       )\n+119       sections = sm._index_sections(text)\n\
+        +120       assert _ids(sections) == [\"outer\", \"after\"]\n+121   \n+122   \n+123   def test_info_string_on_closing_fence_does_not_close_the_block():\n\
+        +124       # CommonMark: a closing fence may carry ONLY whitespace after the run; a\n+125      \
+        \ # trailing info string (```bash) makes it content, not a valid close. So the\n+126       # block\
+        \ opened by ``` stays open across the ```bash line and the '## leaked'\n+127       # heading inside\
+        \ it, until the bare ``` close. The buggy tracker treats the\n+128       # ```bash line as a close\
+        \ and indexes '## leaked'.\n+129       text = (\n+130           \"## Outer\\n\\n\"\n+131       \
+        \    \"```\\n\"  # opener\n+132           \"```bash\\n\"  # info string after the run — content,\
+        \ NOT a close\n+133           \"## leaked\\n\"  # still inside the block\n+134           \"```\\\
+        n\\n\"  # bare close\n+135           \"## After\\n\"\n+136       )\n+137       sections = sm._index_sections(text)\n\
+        +138       assert _ids(sections) == [\"outer\", \"after\"]\n+139   \n+140   \n+141   def test_info_string_on_opening_fence_is_allowed():\n\
+        +142       # An OPENING fence may carry an info string (language tag). The '#' lines\n+143     \
+        \  # inside the ```python block must be suppressed; the block closes on the\n+144       # bare ```.\n\
+        +145       text = \"## Examples\\n\\n```python\\n# not a heading\\n## also not a heading\\n```\\\
+        n\\n## After\\n\"\n+146       sections = sm._index_sections(text)\n+147       assert _ids(sections)\
+        \ == [\"examples\", \"after\"]\n+148   \n+149   \n+150   def test_indented_four_space_backtick_run_is_not_a_fence():\n\
+        +151       # CommonMark: a line indented >= 4 spaces is an indented code block, NOT a\n+152    \
+        \   # fence opener. So the 4-space-indented ``` does NOT open a fenced block,\n+153       # and\
+        \ the '## Real' heading that follows is a normal heading. The buggy\n+154       # tracker (\\\\\
+        s* allows any indent) opens a fence on the indented run and\n+155       # swallows '## Real'.\n\
+        +156       text = \"## Outer\\n\\n    ```\\n## Real\\n\"\n+157       sections = sm._index_sections(text)\n\
+        +158       assert _ids(sections) == [\"outer\", \"real\"]\n+159   \n+160   \n+161   def test_unclosed_fence_at_eof_suppresses_trailing_headings():\n\
+        +162       # An opener with no matching close runs to EOF: every '#' line after it is\n+163    \
+        \   # inside the (unterminated) block and must NOT be indexed.\n+164       text = \"## Outer\\n\\\
+        n```\\n## inside unterminated block\\nstill inside\\n\"\n+165       sections = sm._index_sections(text)\n\
+        +166       assert _ids(sections) == [\"outer\"]\n+167   \n+168   \n+169   def test_tilde_fence_is_not_closed_by_a_backtick_run():\n\
+        +170       # CommonMark: a fence closes only on a run of the SAME char as the opener.\n+171    \
+        \   # A ~~~ block is not closed by a ``` line; the '## leaked' between them stays\n+172       #\
+        \ inside the block until the matching ~~~ close.\n+173       text = (\n+174           \"## Outer\\\
+        n\\n\"\n+175           \"~~~\\n\"  # tilde opener\n+176           \"```\\n\"  # backtick run — different\
+        \ char, NOT a close\n+177           \"## leaked\\n\"  # still inside the tilde block\n+178     \
+        \      \"~~~\\n\\n\"  # tilde close\n+179           \"## After\\n\"\n+180       )\n+181       sections\
+        \ = sm._index_sections(text)\n+182       assert _ids(sections) == [\"outer\", \"after\"]\n+183 \
+        \  \n+184   \n 185   @pytest.mark.parametrize(\n 186       \"heading,expected\",\n 187       [\n\
+        ```\n\n## Fresh test run\n```text\n$ pytest tests/test_skill_manifest.py -q\n72 passed in 0.71s\n\
+        ```\n"
+      expected_finding: 'No defect: the heading parser now tracks fenced code blocks by CommonMark rules,
+        with tests over fence shapes.'
+      expected_shape: Verdict that reviews the runtime change on its merits, raises no merge blocker it
+        cannot anchor to a concrete failure in the diff, and delivers SAFE TO MERGE.

@@ -230,3 +230,54 @@ def test_no_reports_is_refused_not_a_division_by_zero():
     recall = _load()
     with pytest.raises(recall.ReportError, match="no reports"):
         recall.summarise([])
+
+
+def test_runs_over_different_case_sets_are_refused(tmp_path):
+    recall = _load()
+    # A held-out-only run next to a full run would average two denominators.
+    full = _report(
+        tmp_path,
+        "full.json",
+        [_result("a1", "x", "train", True), _result("h1", "x", "held-out", False)],
+    )
+    held_out = _report(tmp_path, "held.json", [_result("h1", "x", "held-out", True)])
+    with pytest.raises(recall.ReportError, match="different case sets"):
+        recall.summarise([full, held_out])
+
+
+def test_a_run_with_only_controls_is_refused(tmp_path):
+    recall = _load()
+    path = _report(tmp_path, "controls.json", [_result("c1", "control", "control", True)])
+    with pytest.raises(recall.ReportError, match="no recall cases"):
+        recall.summarise([path])
+
+
+@pytest.mark.parametrize("payload", [[], {"results": []}, {"results": {"results": {}}}, "x"])
+def test_a_report_of_another_shape_is_refused(tmp_path, payload):
+    recall = _load()
+    path = tmp_path / "shape.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(recall.ReportError):
+        recall.summarise([path])
+
+
+def test_controls_are_listed_per_case_so_a_flickering_control_shows(tmp_path):
+    recall = _load()
+    first = _report(
+        tmp_path,
+        "r1.json",
+        [_result("a1", "x", "train", True), _result("c1", "control", "control", True)],
+    )
+    second = _report(
+        tmp_path,
+        "r2.json",
+        [_result("a1", "x", "train", True), _result("c1", "control", "control", False)],
+    )
+    summary = recall.summarise([first, second])
+    assert summary["cases"]["c1"] == {
+        "caught": 1,
+        "runs": 2,
+        "category": "control",
+        "split": "control",
+    }
+    assert summary["mean_recall"] == pytest.approx(1.0)

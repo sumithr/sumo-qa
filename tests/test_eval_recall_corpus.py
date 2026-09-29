@@ -54,6 +54,22 @@ def _unwrapped(value: str) -> str:
     return value.removeprefix("{% raw %}").removesuffix("{% endraw %}")
 
 
+# Path-like tokens, so `README.md` inside `docs/README.md` is not the root README.
+_PATH_TOKEN = re.compile(r"[\w.-]+(?:/[\w.-]+)*")
+
+
+def _shows_path(context: str, path: str) -> bool:
+    # `a/<path>` and `b/<path>` are the path in a `diff --git` header.
+    wanted = {path, f"a/{path}", f"b/{path}"}
+    return any(token.rstrip(".") in wanted for token in _PATH_TOKEN.findall(context))
+
+
+def test_shows_path_needs_the_whole_path_not_a_substring():
+    assert _shows_path("diff --git a/README.md b/README.md", "README.md")
+    assert not _shows_path('see docs/README.md and "README.mdx"', "README.md")
+    assert not _shows_path("scripts/install.sh", "install.sh")
+
+
 def test_the_corpus_holds_at_least_twenty_cases_and_a_control():
     assert len(CASES) >= 20
     assert CONTROLS
@@ -66,7 +82,7 @@ def test_every_case_is_scorable(case):
     assert meta["split"] in {"train", "held-out"}
     assert meta.get("ledger_issue") or meta.get("source_comment"), "no source recorded"
     context = _unwrapped(case["vars"]["ground_truth_context"])
-    assert meta["expected_file"] in context, "the reviewer never sees the defect file"
+    assert _shows_path(context, meta["expected_file"]), "the reviewer never sees the defect file"
     assert case["vars"]["expected_finding"].strip()
 
 

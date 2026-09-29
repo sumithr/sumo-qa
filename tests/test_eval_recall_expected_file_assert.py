@@ -77,6 +77,32 @@ def test_not_naming_the_file_fails(output):
     assert "run-eval.sh" in result["reason"]
 
 
+@pytest.mark.parametrize(
+    ("expected", "output"),
+    [
+        ("README.md", "The claim in docs/README.md is stale."),
+        ("README.md", "tests/evals/promptfoo/README.md drifted."),
+        ("install.sh", "scripts/install.sh exits 0 on failure."),
+        ("src/sumo_qa/server.py", "tests/fake/server.py strips the title."),
+    ],
+)
+def test_a_same_named_file_in_another_directory_fails(expected, output):
+    assert _grade(output, {"expected_file": expected})["pass"] is False
+
+
+@pytest.mark.parametrize(
+    ("expected", "output"),
+    [
+        ("README.md", "README.md:141 claims the installer prints JSON."),
+        ("src/sumo_qa/server.py", "sumo_qa/server.py:1181 strips the title."),
+        ("src/sumo_qa/server.py", "In `server.py` the schema loses `title`."),
+        ("README.md", "diff --git a/README.md b/README.md is the defect."),
+    ],
+)
+def test_the_right_file_by_path_suffix_or_bare_name_passes(expected, output):
+    assert _grade(output, {"expected_file": expected})["pass"] is True
+
+
 def test_a_case_without_an_expected_file_is_not_checked():
     result = _grade("SAFE TO MERGE", {"category": "control"})
     assert result["pass"] is True
