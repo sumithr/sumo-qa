@@ -79,12 +79,10 @@ class InstalledSkill:
 SKILLS_CLI_PACKAGE = "skills"
 SKILLS_CLI_VERSION = "1.7.0"
 _EXACT_VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
-# cmd.exe expands %VAR% (and !VAR! under delayed expansion) even inside quotes,
-# and a quote or line break changes how the rest of the line is parsed.
-_CMD_EXE_ALWAYS_UNSAFE_RE = re.compile(r'["%!\r\n]')
-# Operators cmd.exe reads literally inside quotes, which list2cmdline adds only
-# around an argument holding a space or tab.
-_CMD_EXE_OPERATOR_RE = re.compile(r"[&|<>^]")
+# cmd.exe expands %VAR% and !VAR! even inside quotes, and when the npx path
+# holds a space, cmd /c strips the outer quotes and shifts which spans are
+# quoted, so an operator is unsafe even in an argument list2cmdline quoted.
+_CMD_EXE_META_RE = re.compile(r'["%!^&|<>\r\n]')
 # npx paths whose CLI already reported the pinned version this process.
 _VERIFIED_CLI_PATHS: set[str] = set()
 
@@ -435,10 +433,7 @@ def build_skills_cli_command(npx: str, args: Sequence[str]) -> list[str]:
         # Windows runs a batch file through cmd.exe, which re-parses the command
         # line after list2cmdline has quoted it.
         for arg in args:
-            quoted = " " in arg or "\t" in arg
-            if _CMD_EXE_ALWAYS_UNSAFE_RE.search(arg) or (
-                not quoted and _CMD_EXE_OPERATOR_RE.search(arg)
-            ):
+            if _CMD_EXE_META_RE.search(arg):
                 raise ValueError(
                     f"argument {arg!r} contains a character cmd.exe would "
                     "reinterpret when running npx; refusing to pass it"
