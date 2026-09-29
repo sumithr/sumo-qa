@@ -1942,15 +1942,27 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
         ext.search_external_skills("demo")
 
 
-def test_a_checkout_of_plain_files_passes_the_link_check(tmp_path) -> None:
+def test_the_link_walk_checks_every_link_outside_git(monkeypatch, tmp_path) -> None:
     """Runs on every platform: the link tests need symlinks, which Windows CI
-    cannot create, so this keeps the walk itself covered there."""
+    cannot create, so a stubbed is_symlink drives the walk there."""
     checkout = tmp_path / "checkout"
     (checkout / ".git").mkdir(parents=True)
+    (checkout / ".git" / "HEAD").write_bytes(b"ref\n")
     (checkout / "skills" / "demo").mkdir(parents=True)
     (checkout / "skills" / "demo" / "SKILL.md").write_bytes(b"# demo\n")
+    link = checkout / "skills" / "demo" / "link.md"
+    link.write_bytes(b"# stands in for a link\n")
+    checked = []
+    monkeypatch.setattr(ext.Path, "is_symlink", lambda self: self.name == "link.md")
+    monkeypatch.setattr(
+        ext,
+        "_check_link_stays_inside",
+        lambda path, root, inside_is_error=False: checked.append((path, inside_is_error)),
+    )
 
     ext._check_checkout_links(checkout)
+
+    assert checked == [(link, False), (link, True)]
 
 
 def test_a_guard_that_stays_busy_times_out_as_a_typed_error(monkeypatch, tmp_path) -> None:
