@@ -1149,7 +1149,7 @@ def test_the_locked_retry_relocates_rereads_and_verifies_a_replaced_skill(
     that record: it returns the new bytes verified, or propagates a mismatch."""
     skill = tmp_path / ".agents" / "skills" / "demo"
     skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("# before\n", "utf-8")
+    (skill / "SKILL.md").write_bytes(b"# before\n")
     state = _tracking_guards(monkeypatch)
     real_read = ext._read_skill_body
     reads_under = []
@@ -1158,7 +1158,7 @@ def test_the_locked_retry_relocates_rereads_and_verifies_a_replaced_skill(
         reads_under.append(state["held"])
         body = real_read(path)
         if len(reads_under) == 1:
-            (skill / "SKILL.md").write_text("# after\n", "utf-8")
+            (skill / "SKILL.md").write_bytes(b"# after\n")
             digest = ext.skill_content_digest(skill)
             record = {
                 "resolved_ref": SHA,
@@ -1710,7 +1710,7 @@ def test_a_record_spelled_differently_from_the_located_path_still_blocks_tamperi
 def test_a_lowercase_skill_md_is_verified_against_its_own_entry(tmp_path) -> None:
     folder = tmp_path / ".agents" / "skills" / "x"
     folder.mkdir(parents=True)
-    (folder / "skill.md").write_text("# body\n", "utf-8")
+    (folder / "skill.md").write_bytes(b"# body\n")
     record = {
         "resolved_ref": SHA,
         "content_digest": ext.skill_content_digest(folder),
