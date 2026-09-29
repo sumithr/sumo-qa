@@ -79,7 +79,7 @@ five leak families by `find_routing_leaks`, with no per-scenario opt-in:
 
 | Family | Caught | Not caught (ordinary prose) |
 |---|---|---|
-| `payload_json` | one brace-balanced span (braces inside strings ignored) naming `classification`, `approach`, `next_action` and a `skill` handoff (compact, pretty-printed, or unquoted keys) | a config snippet, even one with `classification`/`approach`/`next_action` keys but no `skill` |
+| `payload_json` | one brace-balanced span (braces inside strings ignored) naming `classification`, `approach` and a `next_action` object that itself holds a `skill` handoff (compact, pretty-printed, or unquoted keys) | a config snippet, even one with `classification`/`approach`/`next_action` keys and a `skill:` elsewhere |
 | `taxonomy_label` | `Classification:` / `Approach:` (bare, bold, code or quoted) whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a`, optionally followed by ` - note` | `Approach: pin today's behaviour first`, "a regression-first approach" |
 | `route_announcement` | "Picking the QA approach...", "Routing to sumo-qa-...", "Handing off to sumo_qa_...", "I'm routing you to..." | "routing to the pricing service", "I'm routing traffic through the load balancer" |
 | `checklist_status` | `[DONE]`, `[IN PROGRESS]`, `[PENDING]`, `[COMPLETED]` on a line naming a router step | markdown `[x]` / `[ ]` checkboxes; a downstream plan's `[DONE] Run the suite` |

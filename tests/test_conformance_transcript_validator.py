@@ -652,6 +652,14 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
             "payload_json",
         ),
         ("Routing to **`sumo-qa-reviewing-before-merge`**.", "route_announcement"),
+        # Second adversarial pass (codex, #248).
+        ("Approach: verify-existing\r\nStart with the suite.", "taxonomy_label"),
+        ("Approach:\u00a0verify-existing", "taxonomy_label"),
+        (
+            "Routing to [sumo-qa-reviewing-before-merge](skills/review/SKILL.md).",
+            "route_announcement",
+        ),
+        ("Load catalogues [DONE]\nRemovability check [DONE]", "checklist_status"),
         ("I\u2019m routing you to the pre-merge review.", "route_announcement"),
         ("\u5206\u985eapproach: verify-existing", "taxonomy_label"),
         (
@@ -683,6 +691,8 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "I'm routing traffic through the new load balancer first.",
         "1. [DONE] Run the pricing regression suite.\n2. [PENDING] Verify the staging deploy.",
         "1. Add a regression test for the removability gate.",
+        '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"},'
+        '"description":"skill: beginner"}',
         '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
         "1. Read the diff\n2. Run the suite",
         "Approach: regression-first thinking does not fit, nothing is broken yet.",
@@ -717,4 +727,12 @@ def test_find_routing_leaks_is_linear_on_blank_line_runs() -> None:
     numbered-step matcher (adversarial review, #248)."""
     start = time.perf_counter()
     assert find_routing_leaks("\n" * 40_000) == ()
+    assert time.perf_counter() - start < 0.5
+
+
+def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
+    """Repeated status markers on one line must not rescan the line per
+    marker (second adversarial pass, #248)."""
+    start = time.perf_counter()
+    assert find_routing_leaks("[DONE] " * 8_000) == ()
     assert time.perf_counter() - start < 0.5

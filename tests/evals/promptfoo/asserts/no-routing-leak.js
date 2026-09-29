@@ -28,11 +28,13 @@ const path = require('path');
 // does not resolve ingested project/global packs.
 const KNOWLEDGE_DIR =
   process.env.QA_KNOWLEDGE_PATH || path.resolve(__dirname, '..', '..', '..', '..', 'knowledge');
-const PAYLOAD_KEYS = ['classification', 'approach', 'next_action', 'skill'];
+const PAYLOAD_KEYS = ['classification', 'approach', 'next_action'];
+const NEXT_ACTION = /\bnext_action["']?\s*:\s*(?=\{)/g;
+const SKILL_KEY = /\bskill["']?\s*:/;
 const DECOR = '[\\s*_`"\']';
 const ROUTE_ANNOUNCEMENT = new RegExp(
   'picking the qa approach' +
-    `|\\b(?:routing|handing off|routed) to${DECOR}{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)` +
+    '|\\b(?:routing|handing off|routed) to[\\s*_`"\'\\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)' +
     "|\\b(?:i'm|i am|i'll|i will)\\s+(?:now\\s+)?(?:rout(?:e|ing)|handing)\\s+(?:you|this)\\b",
   'i',
 );
@@ -41,14 +43,23 @@ const ROUTER_STEP =
   '|removability (?:gate|check)|reason about (?:classification|shape)' +
   "|routing[- ]payload|read the user's intent|pick the approach" +
   '|route to the (?:named )?sub-skill)';
-const CHECKLIST_STATUS = new RegExp(
-  `\\[(?:done|in[ _]progress|pending|completed)\\][^\\n]*${ROUTER_STEP}`,
-  'i',
-);
-const ROUTER_CHECKLIST_LINE = new RegExp(`^[ \\t]*\\d+[.)][ \\t]+[^\\n]*${ROUTER_STEP}`, 'gim');
+const ROUTER_STEP_RE = new RegExp(ROUTER_STEP, 'i');
+const CHECKLIST_STATUS = /\[(?:done|in[ _]progress|pending|completed)\]/i;
+const NUMBERED_LINE = /^[ \t]*\d+[.)][ \t]/;
 
+// Typographic apostrophes to ASCII, line breaks (CRLF, CR, U+2028/9) to \n,
+// and every other whitespace character to a plain space.
 function normalise(text) {
-  return String(text).replace(/\u2019/g, "'").replace(/[\u2028\u2029]/g, '\n');
+  return String(text)
+    .replace(/\u2019/g, "'")
+    .replace(/\r\n/g, '\n')
+    .replace(/[\r\u2028\u2029]/g, '\n')
+    .replace(/[^\S\n]/g, ' ');
+}
+
+// Lines that qualify AND name a router step, checked line by line (linear).
+function routerStepLines(text, qualifies) {
+  return text.split('\n').filter((line) => qualifies.test(line) && ROUTER_STEP_RE.test(line));
 }
 
 function catalogueNames() {
@@ -91,9 +102,20 @@ function braceSpans(text) {
   return spans;
 }
 
+// The skill handoff must sit inside the next_action object itself.
+function nextActionHasSkill(span) {
+  for (const m of span.matchAll(NEXT_ACTION)) {
+    const inner = braceSpans(span.slice(m.index + m[0].length));
+    if (inner.length && SKILL_KEY.test(inner[0])) return true;
+  }
+  return false;
+}
+
 function hasRoutingPayload(text) {
-  return braceSpans(text).some((span) =>
-    PAYLOAD_KEYS.every((key) => new RegExp(`\\b${key}["']?\\s*:`).test(span)),
+  return braceSpans(text).some(
+    (span) =>
+      PAYLOAD_KEYS.every((key) => new RegExp(`\\b${key}["']?\\s*:`).test(span)) &&
+      nextActionHasSkill(span),
   );
 }
 
@@ -117,8 +139,8 @@ const CHECKS = {
   payload_json: hasRoutingPayload,
   taxonomy_label: hasTaxonomyLabel,
   route_announcement: (s) => ROUTE_ANNOUNCEMENT.test(s),
-  checklist_status: (s) => CHECKLIST_STATUS.test(s),
-  router_checklist: (s) => (s.match(ROUTER_CHECKLIST_LINE) || []).length >= 2,
+  checklist_status: (s) => routerStepLines(s, CHECKLIST_STATUS).length > 0,
+  router_checklist: (s) => routerStepLines(s, NUMBERED_LINE).length >= 2,
 };
 
 function findRoutingLeaks(text) {

@@ -313,13 +313,15 @@ def _output_violations(scenario: ConformanceScenario, transcript: Transcript) ->
 # the routing object, whether compact, pretty-printed, or written with the
 # skill's own unquoted-key notation. A config snippet that merely has an
 # ``approach`` key is not.
-_PAYLOAD_KEYS = ("classification", "approach", "next_action", "skill")
+_PAYLOAD_KEYS = ("classification", "approach", "next_action")
+_NEXT_ACTION_RE = re.compile(r"\bnext_action[\"']?\s*:\s*(?=\{)")
+_SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:")
 # Label/announcement decoration a host wraps around a key or skill name:
 # whitespace, markdown emphasis/code, quotes.
 _DECOR = r"[\s*_`\"']"
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
     r"picking the qa approach"
-    rf"|\b(?:routing|handing off|routed) to{_DECOR}{{0,8}}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
+    r"|\b(?:routing|handing off|routed) to[\s*_`\"'\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
     r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+(?:you|this)\b",
     re.IGNORECASE | re.ASCII,
 )
@@ -331,13 +333,9 @@ _ROUTER_STEP = (
     r"|routing[- ]payload|read the user's intent|pick the approach"
     r"|route to the (?:named )?sub-skill)"
 )
-_CHECKLIST_STATUS_RE = re.compile(
-    rf"\[(?:done|in[ _]progress|pending|completed)\][^\n]*{_ROUTER_STEP}",
-    re.IGNORECASE | re.ASCII,
-)
-_ROUTER_CHECKLIST_LINE_RE = re.compile(
-    rf"^[ \t]*\d+[.)][ \t]+[^\n]*{_ROUTER_STEP}", re.IGNORECASE | re.MULTILINE | re.ASCII
-)
+_ROUTER_STEP_RE = re.compile(_ROUTER_STEP, re.IGNORECASE | re.ASCII)
+_CHECKLIST_STATUS_RE = re.compile(r"\[(?:done|in[ _]progress|pending|completed)\]", re.IGNORECASE)
+_NUMBERED_LINE_RE = re.compile(r"[ \t]*\d+[.)][ \t]")
 _CATALOGUE_HEADING_RE = re.compile(r"^##\s+([a-z][a-z0-9_-]*)\s*$", re.MULTILINE)
 
 
@@ -356,25 +354,48 @@ def find_routing_leaks(text: str) -> tuple[str, ...]:
         "payload_json": _has_routing_payload,
         "taxonomy_label": _has_taxonomy_label,
         "route_announcement": lambda s: bool(_ROUTE_ANNOUNCEMENT_RE.search(s)),
-        "checklist_status": lambda s: bool(_CHECKLIST_STATUS_RE.search(s)),
-        "router_checklist": lambda s: len(_ROUTER_CHECKLIST_LINE_RE.findall(s)) >= 2,
+        "checklist_status": _has_router_status,
+        "router_checklist": lambda s: len(_router_step_lines(s, _NUMBERED_LINE_RE.match)) >= 2,
     }
     return tuple(family for family in ROUTING_LEAK_FAMILIES if checks[family](text))
 
 
 def _normalise(text: str) -> str:
-    """Typographic apostrophes to ASCII and Unicode line/paragraph separators
-    to newlines, so the Python and JS matchers see the same text."""
-    return text.replace("’", "'").replace(" ", "\n").replace(" ", "\n")
+    """Typographic apostrophes to ASCII, line breaks (CRLF, CR, U+2028/9) to
+    newlines, and every other whitespace character to a plain space, so the
+    Python and JS matchers see the same text."""
+    text = text.replace("\u2019", "'").replace("\r\n", "\n")
+    text = re.sub("[\r\u2028\u2029]", "\n", text)
+    return re.sub(r"[^\S\n]", " ", text)
+
+
+def _router_step_lines(text: str, qualifies: Any) -> list[str]:
+    """Lines that qualify (a status marker, a numbered-step prefix) AND name a
+    router step. Checked line by line so matching stays linear."""
+    return [line for line in text.split("\n") if qualifies(line) and _ROUTER_STEP_RE.search(line)]
+
+
+def _has_router_status(text: str) -> bool:
+    return bool(_router_step_lines(text, _CHECKLIST_STATUS_RE.search))
 
 
 def _has_routing_payload(text: str) -> bool:
-    """A brace-balanced span naming the payload keys, with a ``skill`` handoff
-    inside ``next_action``; three coincidental config keys are not a payload."""
+    """A brace-balanced span naming the payload keys whose ``next_action``
+    object itself carries a ``skill`` handoff; coincidental config keys, or a
+    ``skill:`` elsewhere in the span, are not a payload."""
     return any(
         all(re.search(rf"\b{key}[\"']?\s*:", span) for key in _PAYLOAD_KEYS)
+        and _next_action_has_skill(span)
         for span in _brace_spans(text)
     )
+
+
+def _next_action_has_skill(span: str) -> bool:
+    for match in _NEXT_ACTION_RE.finditer(span):
+        inner = _brace_spans(span[match.end() :])
+        if inner and _SKILL_KEY_RE.search(inner[0]):
+            return True
+    return False
 
 
 def _brace_spans(text: str) -> list[str]:
