@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-preparing-for-work
-description: Use when the user asks to plan QA for a story, ticket, or piece of work before coding starts. Identifies named risks anchored in the change shape, then proposes a smallest useful test set tied to those risks. Lighter-weight than sumo-qa-creating-test-plan; no formal entry/exit criteria.
+description: Use after sumo-qa-deciding-approach routes here, when the user asks to plan QA for a story, ticket, or piece of work before coding starts. Lighter-weight than sumo-qa-creating-test-plan; no formal entry/exit criteria.
 ---
 
 # Preparing for QA work

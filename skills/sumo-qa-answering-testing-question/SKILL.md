@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-answering-testing-question
-description: Use when the user asks a generic testing question — "how do I test this?", "what should I check for X?" — that doesn't fit a more specific QA skill. Cites a principle or technique from the loaded catalogue rather than producing generic advice.
+description: Use after sumo-qa-deciding-approach routes here, when the user asks a generic testing question — "how do I test this?", "what should I check for X?" — that doesn't fit a more specific QA skill. Cites a principle or technique from the loaded catalogue rather than producing generic advice.
 ---
 
 # Answering a testing question

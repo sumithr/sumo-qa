@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-reviewing-before-merge
-description: Use when the user asks "review my changes" / "is this safe to merge" / "what could break". Reads the diff and the changed files first, surfaces what was found + named risks, runs tests, then delivers the verdict — section by section with confirmation gates, not as one dump. Refuses to claim safe-to-merge without fresh verification evidence.
+description: Use after sumo-qa-deciding-approach routes here, when the user asks "review my changes" / "is this safe to merge" / "what could break". Refuses to claim safe-to-merge without fresh verification evidence.
 ---
 
 # Reviewing before merge

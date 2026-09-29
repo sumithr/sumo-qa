@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-measuring-coverage
-description: Use when the user wants coverage or mutation numbers in the local QA report — "run coverage", "measure coverage", "run mutation testing", "record the survivors". Runs the repo's configured coverage/mutation tool, reads its output (any format), and persists a compact summary into the .sumo-qa artifacts the report loads.
+description: Use after sumo-qa-deciding-approach routes here, when the user wants coverage or mutation numbers in the local QA report — "run coverage", "measure coverage", "run mutation testing", "record the survivors". Runs the repo's configured coverage/mutation tool, reads its output (any format), and persists a compact summary into the .sumo-qa artifacts the report loads.
 ---
 
 # Measuring coverage & mutation

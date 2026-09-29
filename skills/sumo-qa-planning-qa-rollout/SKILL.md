@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-planning-qa-rollout
-description: Use when you have a chunk of QA work (a story, a PR, a strategy phase) that needs to be turned into a written plan of bite-sized, independently-executable tasks before any test code is written. Walks scope → file structure → bite-sized tasks → confirm, one section per turn. Produces docs/qa/plans/YYYY-MM-DD-<feature>.md ready for subagent dispatch via sumo-qa-executing-qa-rollout.
+description: Use after sumo-qa-deciding-approach routes here, when you have a chunk of QA work (a story, a PR, a strategy phase) that needs to be turned into a written plan of bite-sized, independently-executable tasks before any test code is written. Produces docs/qa/plans/YYYY-MM-DD-<feature>.md ready for subagent dispatch via sumo-qa-executing-qa-rollout.
 ---
 
 # Planning a QA rollout

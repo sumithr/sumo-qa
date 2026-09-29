@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-creating-test-plan
-description: Use when the user asks for a formal test plan, entry/exit criteria, or a phased QA approach for a piece of work. Walk the user through scope → risks → entry criteria → phases → exit criteria → residual risks one section at a time, getting confirmation before each step. Heavier than sumo-qa-preparing-for-work; use when the work is tracked or formally reviewed.
+description: Use after sumo-qa-deciding-approach routes here, when the user asks for a formal test plan, entry/exit criteria, or a phased QA approach for a piece of work. Heavier than sumo-qa-preparing-for-work; use when the work is tracked or formally reviewed.
 ---
 
 # Creating a Test Plan

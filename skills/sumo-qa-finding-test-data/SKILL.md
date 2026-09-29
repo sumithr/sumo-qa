@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-finding-test-data
-description: Use when the user asks about test data — what data to test X, find a known-good record, validate an entry, register new known-good data. Routes between sumo_qa_explain_test_data_requirements, sumo_qa_find_test_data, sumo_qa_validate_test_data, and sumo_qa_register_known_good_test_data.
+description: Use after sumo-qa-deciding-approach routes here, when the user asks about test data — what data to test X, find a known-good record, validate an entry, register new known-good data. Routes between the explain, find, validate and register test-data tools.
 ---
 
 # Finding test data
