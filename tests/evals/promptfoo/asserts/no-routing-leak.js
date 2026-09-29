@@ -31,6 +31,13 @@ const KNOWLEDGE_DIR =
 const PAYLOAD_KEYS = ['classification', 'approach', 'next_action'];
 const NEXT_ACTION = /\bnext_action["']?\s*:\s*(?=\{)/g;
 const SKILL_KEY = /\bskill["']?\s*:/;
+// Quoted strings left to right: one followed by ':' is a key, any other is a
+// value and is blanked before key matching.
+const QUOTED = /(["'])(?:\\.|(?!\1)[\s\S])*\1/g;
+const KEY_FOLLOWS = /^[ \t]*:/;
+// One explicit character set for both engines (their \s differ).
+const LINE_BREAK = /[\r\u2028\u2029]/g;
+const SPACE = /[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]/g;
 const DECOR = '[\\s*_`"\']';
 const ROUTE_ANNOUNCEMENT = new RegExp(
   'picking the qa approach' +
@@ -53,8 +60,8 @@ function normalise(text) {
   return String(text)
     .replace(/\u2019/g, "'")
     .replace(/\r\n/g, '\n')
-    .replace(/[\r\u2028\u2029]/g, '\n')
-    .replace(/[^\S\n]/g, ' ');
+    .replace(LINE_BREAK, '\n')
+    .replace(SPACE, ' ');
 }
 
 // Lines that qualify AND name a router step, checked line by line (linear).
@@ -111,12 +118,20 @@ function nextActionHasSkill(span) {
   return false;
 }
 
-function hasRoutingPayload(text) {
-  return braceSpans(text).some(
-    (span) =>
-      PAYLOAD_KEYS.every((key) => new RegExp(`\\b${key}["']?\\s*:`).test(span)) &&
-      nextActionHasSkill(span),
+function blankStringValues(span) {
+  return span.replace(QUOTED, (match, _q, offset) =>
+    KEY_FOLLOWS.test(span.slice(offset + match.length)) ? match : '""',
   );
+}
+
+function hasRoutingPayload(text) {
+  return braceSpans(text)
+    .map(blankStringValues)
+    .some(
+      (keys) =>
+        PAYLOAD_KEYS.every((key) => new RegExp(`\\b${key}["']?\\s*:`).test(keys)) &&
+        nextActionHasSkill(keys),
+    );
 }
 
 function escapeRegExp(s) {

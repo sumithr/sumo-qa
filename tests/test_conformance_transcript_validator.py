@@ -693,6 +693,10 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "1. Add a regression test for the removability gate.",
         '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"},'
         '"description":"skill: beginner"}',
+        '{"classification":"public","approach":"canary",'
+        '"next_action":{"description":"skill: beginner","deploy":"staging"}}',
+        '{"description":"classification: x, approach: y, next_action: {skill: z}"}',
+        "\u0661. Load catalogues\n\u0662. Pick the approach",
         '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
         "1. Read the diff\n2. Run the suite",
         "Approach: regression-first thinking does not fit, nothing is broken yet.",

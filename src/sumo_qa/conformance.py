@@ -316,6 +316,14 @@ def _output_violations(scenario: ConformanceScenario, transcript: Transcript) ->
 _PAYLOAD_KEYS = ("classification", "approach", "next_action")
 _NEXT_ACTION_RE = re.compile(r"\bnext_action[\"']?\s*:\s*(?=\{)")
 _SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:")
+# Quoted strings, taken left to right. One followed by ``:`` is a key; any
+# other is a value, blanked before key matching so ``"skill: beginner"`` is
+# not a skill key.
+_QUOTED_RE = re.compile(r"([\"'])(?:\\.|(?!\1).)*\1", re.DOTALL)
+_KEY_FOLLOWS_RE = re.compile(r"[ \t]*:")
+# One explicit character set for both engines (their ``\s`` differ).
+_LINE_BREAK_RE = re.compile("[\r\u2028\u2029]")
+_SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]")
 # Label/announcement decoration a host wraps around a key or skill name:
 # whitespace, markdown emphasis/code, quotes.
 _DECOR = r"[\s*_`\"']"
@@ -335,7 +343,7 @@ _ROUTER_STEP = (
 )
 _ROUTER_STEP_RE = re.compile(_ROUTER_STEP, re.IGNORECASE | re.ASCII)
 _CHECKLIST_STATUS_RE = re.compile(r"\[(?:done|in[ _]progress|pending|completed)\]", re.IGNORECASE)
-_NUMBERED_LINE_RE = re.compile(r"[ \t]*\d+[.)][ \t]")
+_NUMBERED_LINE_RE = re.compile(r"[ \t]*\d+[.)][ \t]", re.ASCII)
 _CATALOGUE_HEADING_RE = re.compile(r"^##\s+([a-z][a-z0-9_-]*)\s*$", re.MULTILINE)
 
 
@@ -365,8 +373,8 @@ def _normalise(text: str) -> str:
     newlines, and every other whitespace character to a plain space, so the
     Python and JS matchers see the same text."""
     text = text.replace("\u2019", "'").replace("\r\n", "\n")
-    text = re.sub("[\r\u2028\u2029]", "\n", text)
-    return re.sub(r"[^\S\n]", " ", text)
+    text = _LINE_BREAK_RE.sub("\n", text)
+    return _SPACE_RE.sub(" ", text)
 
 
 def _router_step_lines(text: str, qualifies: Any) -> list[str]:
@@ -382,12 +390,19 @@ def _has_router_status(text: str) -> bool:
 def _has_routing_payload(text: str) -> bool:
     """A brace-balanced span naming the payload keys whose ``next_action``
     object itself carries a ``skill`` handoff; coincidental config keys, or a
-    ``skill:`` elsewhere in the span, are not a payload."""
+    ``skill:`` elsewhere or inside a string value, are not a payload."""
     return any(
-        all(re.search(rf"\b{key}[\"']?\s*:", span) for key in _PAYLOAD_KEYS)
-        and _next_action_has_skill(span)
-        for span in _brace_spans(text)
+        all(re.search(rf"\b{key}[\"']?\s*:", keys) for key in _PAYLOAD_KEYS)
+        and _next_action_has_skill(keys)
+        for keys in (_blank_string_values(span) for span in _brace_spans(text))
     )
+
+
+def _blank_string_values(span: str) -> str:
+    def keep_keys(m: re.Match[str]) -> str:
+        return m.group(0) if _KEY_FOLLOWS_RE.match(span, m.end()) else '""'
+
+    return _QUOTED_RE.sub(keep_keys, span)
 
 
 def _next_action_has_skill(span: str) -> bool:
