@@ -156,6 +156,7 @@ The full suite covers:
 - `test_standards.py`, `test_rules.py`: file loading
 - `test_debug_capture.py`: `SUMO_QA_DEBUG_DIR` capture
 - `test_conformance_transcript_validator.py`: deterministic, no-LLM cross-model conformance (issue #214). Scores a captured host/tool-call transcript against machine-readable fixtures (`tests/scenarios/conformance/scenarios.yaml`, seeded from `SCENARIOS.md` + `TOOL-SELECTION.md`) via `src/sumo_qa/conformance.py`, and proves a synthetic bad transcript fails on each contract axis: wrong skill routing, missing required tool call, forbidden tool call, forbidden output claim. See `tests/scenarios/CONFORMANCE.md`. Complements `test_skill_triggering.py` (trigger-phrase presence) by checking what the host actually did across the turn
+- `test_toolchain_pin_lockstep.py`: fails when a tool pinned in both `pyproject.toml` and `.pre-commit-config.yaml` (ruff, mutmut) disagrees between the two (see [Toolchain pin lockstep](#toolchain-pin-lockstep))
 - `test_mutmut_subprocess_exclusions.py`: loud guard that every subprocess-spawning test which imports a mutated module is excluded from the mutation gate and marked (see [Mutation testing](#mutation-testing)). Runs in the ordinary suite, so it fails at the PR that introduces an unmarked/unignored test, not later against an unrelated change
 
 ## Type checking
@@ -224,9 +225,9 @@ mutmut's `.meta` files, never from `mutmut run`'s exit status: mutmut exits
 0 even when mutants survive, so a bare `mutmut run` hook can never fail on
 a survivor-introducing push (root-caused 2026-07-13).
 
-mutmut is version-capped (`>=3.7,<3.8`, pinned in both `pyproject.toml`'s dev
-extra and the pre-push hook's `additional_dependencies`; keep the two in
-lockstep). The floor excludes 3.6.0, whose `record_trampoline_hit` resolved
+mutmut is version-capped to one minor, pinned in both `pyproject.toml`'s dev
+extra and the pre-push hook's `additional_dependencies`; the two must stay in
+lockstep (see [Toolchain pin lockstep](#toolchain-pin-lockstep)). The floor excludes 3.6.0, whose `record_trampoline_hit` resolved
 its relative `source_paths` against the live cwd with `strict=True`, so any
 test that `chdir`s away and then calls a mutated-module function crashed the
 stats-collection run and zero mutants executed ("failed to collect stats");
@@ -355,6 +356,23 @@ slipping past as one un-split token. The provably non-mutating CLI entry points
 shell-string forms), so `-m sumo_qa.installer --help` style spawns stay
 unflagged. Its classifications are pinned by real fixture meta-tests in
 `tests/fixtures/mutmut_guard/`.
+
+## Toolchain pin lockstep
+
+Some tools are pinned twice: in `pyproject.toml` (what CI and a synced venv
+install) and in `.pre-commit-config.yaml` (what the git hooks install).
+Today that is ruff (`ruff==X` in the dev extra and the ruff-pre-commit
+`rev: vX`) and mutmut (the dev-extra range and the mutmut hook's
+`additional_dependencies` entry). Dependabot only edits `pyproject.toml`, so
+each bump it raises for these tools is half a change until the second site
+moves too.
+
+`tests/test_toolchain_pin_lockstep.py` runs in the required pytest jobs and
+fails when a pair disagrees, naming both files and both values. It compares
+the two sites and hard-codes no version, so a bump only has to edit the two
+pins. To guard another pair, add one row to `LOCKSTEP_PAIRS` in that file,
+reading each site with `pyproject_dev_pin`, `precommit_repo_rev` or
+`precommit_hook_dep`.
 
 ## Branch workflow
 

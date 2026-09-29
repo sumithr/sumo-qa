@@ -114,7 +114,9 @@ dev = [
   # committed floors come from ONE minor's mutant set, so a range spanning
   # two minors lets an older engine resolve and fail the gate impossibly
   # (3.7 generates 491 knowledge_loaders mutants against a 497 floor, so
-  # killing every one of them still reports a DROP). Keep in lockstep with .pre-commit-config.yaml.
+  # killing every one of them still reports a DROP). Keep in lockstep with the
+  # mutmut hook in .pre-commit-config.yaml (enforced by
+  # tests/test_toolchain_pin_lockstep.py).
   "mutmut>=3.8,<3.9",
   # NOTE: CVE-2025-71176 (local tmpdir symlink, fixed in pytest 9.0.3) cannot be
   # remediated by upgrading while pytest-check-links is a dev dep — its latest
@@ -152,7 +154,7 @@ dev = [
   # the ruff-pre-commit hook needs, so the open `>=0.5,<1` had CI, pre-commit
   # and a synced venv all running different ruff versions at once. Bump this and
   # `rev:` in .pre-commit-config.yaml together, in one commit, reformatting in
-  # the same change.
+  # the same change; tests/test_toolchain_pin_lockstep.py fails CI otherwise.
   "ruff==0.16.8",
   # Static type checking — see [tool.mypy]. mypy is pure-Python (no Node
   # toolchain), matching the project's Python-only CI. types-PyYAML supplies
@@ -428,6 +430,14 @@ also_copy = [
   # fails before any mutant runs. Same root-level-resource pattern as
   # `release-please-config.json`. NOT mutated, mutmut-local mirror only.
   "package.json",
+  # tests/test_toolchain_pin_lockstep.py resolves
+  # `Path(__file__).resolve().parents[1] / ".pre-commit-config.yaml"` to compare
+  # its tool pins with this file's, which under mutmut becomes
+  # `mutants/.pre-commit-config.yaml`. Without this entry the test
+  # FileNotFoundErrors, mutmut's `-x` aborts stats collection, and the gate
+  # fails before any mutant runs. Same root-level-resource pattern as
+  # `package.json`. NOT mutated, mutmut-local mirror only.
+  ".pre-commit-config.yaml",
 ]
 
 # ---------------------------------------------------------------------------

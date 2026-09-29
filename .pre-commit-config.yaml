@@ -31,7 +31,8 @@
 # on the user's PATH (pyenv / multiple Pythons / system vs venv).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Keep in lockstep with the `ruff==` pin in pyproject.toml's dev extras.
+    # Keep in lockstep with the `ruff==` pin in pyproject.toml's dev extras
+    # (enforced by tests/test_toolchain_pin_lockstep.py).
     rev: v0.16.8
     hooks:
       - id: ruff-check
@@ -240,11 +241,9 @@ repos:
         additional_dependencies:
           - "hypothesis>=6,<7"
           - "mcp>=2,<3"
-          # >=3.7,<3.8 mirrors the pyproject dev pin: 3.6.0 resolved relative
-          # source_paths against the live cwd (chdir-ing tests crashed the
-          # stats-collection run), 3.7 fixed that but changed pragma
-          # placement and the mutant set, so the baseline is per-minor. See
-          # the pin comment in pyproject.toml [project.optional-dependencies].
+          # Mirrors the mutmut pin in pyproject.toml's dev extra; the reasons
+          # for its floor and per-minor ceiling live in that pin's comment.
+          # tests/test_toolchain_pin_lockstep.py fails CI if the two disagree.
           - "mutmut>=3.8,<3.9"
           - "pydantic>=2.8,<3"
           - "PyYAML>=6,<7"
