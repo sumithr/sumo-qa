@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.2](https://github.com/sumithr/sumo-qa/compare/v0.65.1...v0.65.2) (2026-09-29)
+
+
+### Bug Fixes
+
+* **skills:** pass the eval corpus on the Claude pair and record its baseline ([#723](https://github.com/sumithr/sumo-qa/issues/723)) ([fda7ef8](https://github.com/sumithr/sumo-qa/commit/fda7ef83f11b4d78c3ecb4b5ce6fa777658ea8f0))
+
 ## [0.65.1](https://github.com/sumithr/sumo-qa/compare/v0.65.0...v0.65.1) (2026-09-25)
 
 
