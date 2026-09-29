@@ -98,23 +98,20 @@ dev = [
   # dev host regardless of the interpreter version — hence unconditional
   # here, while the wheel keeps the conditional runtime declaration above.
   "tomli>=2,<3",
-  # >=3.7: mutmut 3.6.0 (2026-06-06) resolved relative Config.source_paths
-  # against the live cwd with strict=True inside record_trampoline_hit, so any
-  # test that monkeypatch.chdir()s away and then calls a mutated-module
-  # function crashed the stats-collection run and zero mutants executed
-  # (nightly gate red 2026-06-07 → 2026-07-13). 3.7.0 resolves source_paths
-  # once at config load (resolved_mutated_source_paths), verified by a full
-  # green gate run on 2026-09-03 (#580). No fixed 3.6.x exists, so the floor
-  # is 3.7, never a bare `<3.8` (which would admit 3.6.0).
-  # <3.8: mutmut 3.7 changed `# pragma: no mutate` to a STATEMENT-level /
-  # compound-header comment (mutmut/mutation/pragma_handling.py) and added
-  # kwarg→None / kwarg-drop Call mutants, which moved the baseline; a minor
-  # bump must re-run the gate and ratchet mutmut-baseline.json, not just
-  # widen the range. The floor moves WITH the ceiling for that reason: the
-  # committed floors come from ONE minor's mutant set, so a range spanning
-  # two minors lets an older engine resolve and fail the gate impossibly
-  # (3.7 generates 491 knowledge_loaders mutants against a 497 floor, so
-  # killing every one of them still reports a DROP). Keep in lockstep with .pre-commit-config.yaml.
+  # One minor per baseline. The per-module floors in mutmut-baseline.json were
+  # generated from mutmut 3.8's mutant set, and every minor moves that set
+  # (3.8 added a ternary-condition mutator; 3.7 changed `# pragma: no mutate`
+  # to statement-level and added kwarg Call mutants), so the gate is only
+  # meaningful against the minor it was baselined on.
+  # >=3.8: the floor is that baselined minor. An older engine generates fewer
+  # mutants (3.7 makes 491 knowledge_loaders mutants against a 497 floor), so
+  # killing every one of them still reports a DROP. Nothing below 3.7 may ever
+  # be admitted: 3.6.0 resolved relative source_paths against the live cwd,
+  # so a test that chdir-s away crashed stats collection and no mutant ran.
+  # <3.9: a new minor is a re-run-the-gate-and-re-baseline task that moves
+  # floor and ceiling together, never a range widening.
+  # Mirrored by the mutmut hook in .pre-commit-config.yaml (enforced by
+  # tests/test_toolchain_pin_lockstep.py).
   "mutmut>=3.8,<3.9",
   # NOTE: CVE-2025-71176 (local tmpdir symlink, fixed in pytest 9.0.3) cannot be
   # remediated by upgrading while pytest-check-links is a dev dep — its latest
@@ -152,7 +149,7 @@ dev = [
   # the ruff-pre-commit hook needs, so the open `>=0.5,<1` had CI, pre-commit
   # and a synced venv all running different ruff versions at once. Bump this and
   # `rev:` in .pre-commit-config.yaml together, in one commit, reformatting in
-  # the same change.
+  # the same change; tests/test_toolchain_pin_lockstep.py fails CI otherwise.
   "ruff==0.16.8",
   # Static type checking — see [tool.mypy]. mypy is pure-Python (no Node
   # toolchain), matching the project's Python-only CI. types-PyYAML supplies
@@ -367,8 +364,8 @@ also_copy = [
   # push whose delta touches any test file (the hook's regex matches all
   # of `tests/*.py`). Same root-level-resource pattern as `.claude/`.
   "release-please-config.json",
-  # tests/test_treesitter_pins.py (#595) compares the [treesitter] extra with
-  # the pre-push pytest hook's pins via `Path(__file__).resolve().parents[1] /
+  # tests/test_treesitter_pins.py (#595) and tests/test_toolchain_pin_lockstep.py
+  # compare pyproject pins with the pre-commit hooks' pins via `Path(__file__).resolve().parents[1] /
   # ".pre-commit-config.yaml"`, which under mutmut becomes
   # `mutants/.pre-commit-config.yaml`. Without this entry the test
   # FileNotFoundErrors, mutmut's `-x` aborts stats collection, and the pre-push

@@ -156,6 +156,7 @@ The full suite covers:
 - `test_standards.py`, `test_rules.py`: file loading
 - `test_debug_capture.py`: `SUMO_QA_DEBUG_DIR` capture
 - `test_conformance_transcript_validator.py`: deterministic, no-LLM cross-model conformance (issue #214). Scores a captured host/tool-call transcript against machine-readable fixtures (`tests/scenarios/conformance/scenarios.yaml`, seeded from `SCENARIOS.md` + `TOOL-SELECTION.md`) via `src/sumo_qa/conformance.py`, and proves a synthetic bad transcript fails on each contract axis: wrong skill routing, missing required tool call, forbidden tool call, forbidden output claim. See `tests/scenarios/CONFORMANCE.md`. Complements `test_skill_triggering.py` (trigger-phrase presence) by checking what the host actually did across the turn
+- `test_toolchain_pin_lockstep.py`: fails when any pre-commit hook `additional_dependencies` entry, or the ruff-pre-commit `rev:`, disagrees with the matching `pyproject.toml` declaration (see [Toolchain pin lockstep](#toolchain-pin-lockstep))
 - `test_mutmut_subprocess_exclusions.py`: loud guard that every subprocess-spawning test which imports a mutated module is excluded from the mutation gate and marked (see [Mutation testing](#mutation-testing)). Runs in the ordinary suite, so it fails at the PR that introduces an unmarked/unignored test, not later against an unrelated change
 
 ## Type checking
@@ -224,21 +225,27 @@ mutmut's `.meta` files, never from `mutmut run`'s exit status: mutmut exits
 0 even when mutants survive, so a bare `mutmut run` hook can never fail on
 a survivor-introducing push (root-caused 2026-07-13).
 
-mutmut is version-capped (`>=3.7,<3.8`, pinned in both `pyproject.toml`'s dev
-extra and the pre-push hook's `additional_dependencies`; keep the two in
-lockstep). The floor excludes 3.6.0, whose `record_trampoline_hit` resolved
-its relative `source_paths` against the live cwd with `strict=True`, so any
-test that `chdir`s away and then calls a mutated-module function crashed the
-stats-collection run and zero mutants executed ("failed to collect stats");
-3.7.0 resolves `source_paths` once at config load. The ceiling is per-minor
-because mutmut minors move the mutant set and the pragma rules (see below), so
-a bump is a re-run-the-gate-and-ratchet-the-baseline task, not a range edit.
+mutmut is pinned to one minor in both `pyproject.toml`'s dev
+extra and the pre-push hook's `additional_dependencies`; the two must stay in
+lockstep (see [Toolchain pin lockstep](#toolchain-pin-lockstep)). The floor is
+the minor whose mutant set the committed `mutmut-baseline.json` was generated
+from: an older engine generates fewer mutants, so a range spanning two minors
+would let it resolve and report a DROP even with every mutant killed. The
+ceiling keeps one minor per baseline, because mutmut minors move the mutant
+set and the pragma rules (see below), so a bump is a
+re-run-the-gate-and-re-baseline task that moves floor and ceiling together,
+not a range edit. Versions below 3.7 must never be admitted: 3.6.0's
+`record_trampoline_hit` resolved its relative `source_paths` against the live
+cwd with `strict=True`, so any test that `chdir`s away and then calls a
+mutated-module function crashed the stats-collection run and zero mutants
+executed ("failed to collect stats").
 
 `tree-sitter-language-pack` (the `[treesitter]` extra) follows the same
 lockstep rule: `pyproject.toml` and the pre-push `pytest` hook's
-`additional_dependencies` carry identical pins, and
-`tests/test_treesitter_pins.py` fails if they differ (Dependabot only edits
-`pyproject.toml`). The range excludes 1.14.1 and 1.14.2, which shipped without
+`additional_dependencies` carry identical pins, and both
+`tests/test_treesitter_pins.py` and the general
+[Toolchain pin lockstep](#toolchain-pin-lockstep) guard fail if they differ
+(Dependabot only edits `pyproject.toml`). The range excludes 1.14.1 and 1.14.2, which shipped without
 the `windows-x86_64` prebuilt parsers, so every repo-map test failed on Windows
 with `DownloadError: No pre-built parsers available for platform
 'windows-x86_64'` (#595). 1.14.3 restored them
@@ -247,14 +254,15 @@ so this is a point exclusion rather than a ceiling: later releases resolve
 normally. Windows `pytest` is not a required check, so a red Windows leg on
 every PR is a signal to read, not background noise.
 
-**Pragma placement (mutmut 3.7).** `# pragma: no mutate` is read only as a
-trailing comment on a *statement* or a compound-statement header (`with …:`,
-`if …:`, `def …:`); it suppresses the mutants whose node starts on that
-statement's first line. A pragma on a continuation line inside an expression
-(a comprehension clause, a kwarg line of a multi-line call) is ignored. For a
-multi-line call whose Call-level mutants (kwarg→None, kwarg-drop) are
-equivalent, put the pragma after the closing paren: it silences the Call
-node's mutants and leaves the inner kwarg-value mutants live. Pair every
+**Pragma placement.** Under the pinned mutmut, `# pragma: no mutate` is read
+only as a trailing comment on a *statement* or a compound-statement header
+(`with …:`, `if …:`, `def …:`); it suppresses the mutants whose node starts on
+that statement's first line. A pragma on a continuation line inside an
+expression (a comprehension clause, a kwarg line of a multi-line call) is
+ignored. For a multi-line call whose Call-level mutants (kwarg→None,
+kwarg-drop) are equivalent, put the pragma after the closing paren: it
+silences the Call node's mutants and leaves the inner kwarg-value mutants
+live. Pair every
 pragma with a one-line rationale naming why the mutation is equivalent.
 
 
@@ -355,6 +363,48 @@ slipping past as one un-split token. The provably non-mutating CLI entry points
 shell-string forms), so `-m sumo_qa.installer --help` style spawns stay
 unflagged. Its classifications are pinned by real fixture meta-tests in
 `tests/fixtures/mutmut_guard/`.
+
+## Toolchain pin lockstep
+
+pre-commit hook venvs install from PyPI, so a hook that needs project
+dependencies repeats them in its `additional_dependencies`, and ruff is pinned
+both as `ruff==X` in the dev extra and as the ruff-pre-commit `rev: vX`.
+Dependabot only edits `pyproject.toml`, so each bump it raises for a package a
+hook also lists is half a change until the hook moves too.
+
+`tests/test_toolchain_pin_lockstep.py` runs in the required pytest jobs and
+enforces these rules:
+
+- **Which entries.** A hook with an inline `language` other than `python`
+  (`system`, `node`, ...) is skipped. Every other hook, including a
+  remote-repo hook whose manifest declares its language, has each
+  `additional_dependencies` entry checked on its own: an entry that does not
+  parse as a PEP 508 requirement is skipped, and a parsed entry is compared
+  only when `pyproject.toml` declares its package.
+- **Same pin.** Every compared entry whose package `pyproject.toml` also
+  declares carries the same specifier set and the same direct-reference URL.
+  Environment markers and extras are ignored, since a marker says where a
+  dependency installs rather than which versions it allows. Hook entries for
+  packages `pyproject.toml` does not declare are out of scope.
+- **Source precedence.** Hooks mirror the dev tooling, so an entry is compared
+  first with the optional-extra sources: `[project.optional-dependencies]`
+  groups, PEP 735 `[dependency-groups]` (string entries; `include-group`
+  tables are ignored) and `[tool.uv].dev-dependencies`. Only a package none of
+  those declare falls back to `[project].dependencies`. Different specifiers
+  across the optional sources fail as ambiguous, as do two different
+  `[project].dependencies` pins under the same environment marker. In the
+  fallback, entries under different markers (a marker split) are all
+  candidates, and the hook entry passes when it matches any one of them.
+- **Required mirrors.** `REQUIRED_MIRRORS` in the test names the pairs that
+  must exist, so deleting one side cannot turn the check into a silent pass:
+  `mutmut` must be declared exactly once in `pyproject.toml` and exactly once
+  in the `mutmut` hook. A new must-exist mirror is one row in that table.
+- **ruff.** Exactly one ruff-pre-commit repo entry must exist, its `rev:` must
+  be a `v<version>` tag, and that version must equal the `ruff==` pin.
+
+The test hard-codes no version and lists every mismatch in one failure,
+naming both files, the hook id, the hook value and every candidate
+`pyproject.toml` declaration, so a bump edits the pins and nothing else.
 
 ## Branch workflow
 

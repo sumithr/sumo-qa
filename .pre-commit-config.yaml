@@ -26,12 +26,15 @@
 # The pytest hook uses `language: python` with explicit
 # `additional_dependencies` (pre-commit's hook venvs can only install
 # from PyPI, so the `.[dev]` shortcut doesn't work — versions are
-# duplicated from `pyproject.toml.dependencies` and kept in sync by
-# hand). This decouples the hook from whatever `python` happens to be
-# on the user's PATH (pyenv / multiple Pythons / system vs venv).
+# duplicated from pyproject.toml's dependencies and extras, and
+# tests/test_toolchain_pin_lockstep.py fails CI when any duplicated
+# specifier disagrees). This decouples the hook from whatever `python`
+# happens to be on the user's PATH (pyenv / multiple Pythons / system vs
+# venv).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Keep in lockstep with the `ruff==` pin in pyproject.toml's dev extras.
+    # Keep in lockstep with the `ruff==` pin in pyproject.toml's dev extras
+    # (enforced by tests/test_toolchain_pin_lockstep.py).
     rev: v0.16.8
     hooks:
       - id: ruff-check
@@ -240,16 +243,14 @@ repos:
         additional_dependencies:
           - "hypothesis>=6,<7"
           - "mcp>=2,<3"
-          # >=3.7,<3.8 mirrors the pyproject dev pin: 3.6.0 resolved relative
-          # source_paths against the live cwd (chdir-ing tests crashed the
-          # stats-collection run), 3.7 fixed that but changed pragma
-          # placement and the mutant set, so the baseline is per-minor. See
-          # the pin comment in pyproject.toml [project.optional-dependencies].
+          # Mirrors the mutmut pin in pyproject.toml's dev extra; the reasons
+          # for its floor and per-minor ceiling live in that pin's comment.
+          # tests/test_toolchain_pin_lockstep.py fails CI if the two disagree.
           - "mutmut>=3.8,<3.9"
           - "pydantic>=2.8,<3"
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
-          - "pytest-cov>=6,<7"
+          - "pytest-cov>=6,<8"
           # tomllib stdlib backport for Python 3.10 (used by
           # plugin_packaging.canonical + tests/test_plugin_metadata.py).
           # 3.11+ ignores this via the marker.
@@ -271,9 +272,9 @@ repos:
         #
         # `additional_dependencies` lists the runtime deps explicitly
         # because pre-commit's hook venvs can only install from PyPI;
-        # the `.[dev]` editable-install trick doesn't work here. Keep
-        # this list in sync with the `dependencies` block in
-        # pyproject.toml when bumping versions.
+        # the `.[dev]` editable-install trick doesn't work here. Every
+        # entry pyproject.toml also declares must carry the same specifier
+        # (tests/test_toolchain_pin_lockstep.py), so bump both together.
         #
         # pytest picks up `pythonpath = ["src"]` from pyproject.toml's
         # `[tool.pytest.ini_options]`, so `import sumo_qa.*` resolves
@@ -286,7 +287,7 @@ repos:
           - "pydantic>=2.8,<3"
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
-          - "pytest-cov>=6,<7"
+          - "pytest-cov>=6,<8"
           # Build backend — tests/test_wheel_packaging.py builds the wheel via
           # `pip wheel --no-build-isolation` to assert it ships py.typed.
           - "hatchling>=1.25"
@@ -303,7 +304,8 @@ repos:
           # Floored at 1.12.5 like pyproject (#491): the adapter targets the
           # upstream binding that release introduced, and bumping the dep string
           # also re-keys pre-commit's cached hook venv past any 1.12.2 install.
-          # tests/test_treesitter_pins.py fails if these drift from pyproject.
+          # tests/test_treesitter_pins.py and tests/test_toolchain_pin_lockstep.py
+          # fail if these drift from pyproject.
           - "tree-sitter>=0.25,<0.27"
           - "tree-sitter-language-pack>=1.12.5,!=1.14.1,!=1.14.2,<2"
           # Conditional via PEP 508 marker: only installed on Windows hooks.
