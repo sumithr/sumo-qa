@@ -636,7 +636,6 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("> Approach: `verify-existing`", "taxonomy_label"),
         ("classification: n/a", "taxonomy_label"),
         ("routing to using-sumo-qa first", "route_announcement"),
-        ("Handing off to sumo_qa_strategising.", "route_announcement"),
         ("I'll route this to the pre-merge review.", "route_announcement"),
         # Adversarial-review inputs (codex, #248).
         (
@@ -645,7 +644,6 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
             "payload_json",
         ),
         ('"classification": "docs_change"\n"approach": "no-tests-recommended"', "taxonomy_label"),
-        ("Approach: no-tests-recommended \u2014 no runtime change.", "taxonomy_label"),
         (
             '{"classification":"docs_change","approach":"no-tests-recommended",'
             '"rationale":"say \\"{\\" here","next_action":{"skill":"none"}}',
@@ -665,7 +663,6 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ),
         ("Load catalogues [DONE]\nRemovability check [DONE]", "checklist_status"),
         ("I\u2019m routing you to the pre-merge review.", "route_announcement"),
-        ("\u5206\u985eapproach: verify-existing", "taxonomy_label"),
         (
             "1. Load classifications and approaches.\n2. Pick the approach.\n"
             "3. Route to the named sub-skill silently.",
@@ -677,19 +674,6 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
             "router_checklist",
         ),
         ("3. Pick the approach.\n4. Build the routing payload", "router_checklist"),
-        # Code review of the fix commits (#248): any word after an exact
-        # catalogue identifier, and handoff verbs with any object.
-        ("Classification: docs_change so no tests.", "taxonomy_label"),
-        ("Classification: docs_change and no tests needed.", "taxonomy_label"),
-        ("Approach: regression-first thinking does not fit.", "taxonomy_label"),
-        ("Routing your request to sumo-qa-reviewing-before-merge.", "route_announcement"),
-        ("Routing the request to sumo-qa-strategising.", "route_announcement"),
-        ("Handing this over to sumo-qa-strategising.", "route_announcement"),
-        ("Let me route this to sumo-qa-implementing-with-tdd.", "route_announcement"),
-        ("Handed off to sumo-qa-strategising.", "route_announcement"),
-        ("Handoff to sumo-qa-strategising.", "route_announcement"),
-        ("Routing this into sumo-qa-strategising.", "route_announcement"),
-        ("I'll hand you over to the review skill.", "route_announcement"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:
@@ -728,6 +712,35 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
     ],
 )
 def test_find_routing_leaks_ignores_ordinary_prose(text) -> None:
+    assert find_routing_leaks(text) == ()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Handing off to sumo_qa_strategising.",
+        "Approach: no-tests-recommended \u2014 no runtime change.",
+        "\u5206\u985eapproach: verify-existing",
+        "Classification: docs_change so no tests.",
+        "Classification: docs_change and no tests needed.",
+        "Approach: regression-first thinking does not fit.",
+        "Routing your request to sumo-qa-reviewing-before-merge.",
+        "Routing the request to sumo-qa-strategising.",
+        "Handing this over to sumo-qa-strategising.",
+        "Let me route this to sumo-qa-implementing-with-tdd.",
+        "Handed off to sumo-qa-strategising.",
+        "Handoff to sumo-qa-strategising.",
+        "Routing this into sumo-qa-strategising.",
+        "I'll hand you over to the review skill.",
+        "Nothing references install.sh, so approach: recommend-removal. Delete it.",
+        "I'd recommend handing off to `sumo-qa-reviewing-before-merge` before this lands.",
+    ],
+)
+def test_find_routing_leaks_leaves_paraphrases_to_the_eval_judge(text) -> None:
+    """The deterministic families are high-confidence router voice only (#248).
+    A label inside prose or a paraphrased handoff reads the same as text a
+    downstream skill may legitimately write, so the user-facing eval's judge
+    grades these instead; pinning them here keeps that boundary deliberate."""
     assert find_routing_leaks(text) == ()
 
 

@@ -327,19 +327,16 @@ _KEY_FOLLOWS_RE = re.compile(r"\s*:")
 # One explicit character set for both engines (their ``\s`` differ).
 _LINE_BREAK_RE = re.compile("[\r\u2028\u2029]")
 _SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]")
-# Label/announcement decoration a host wraps around a key or skill name:
-# whitespace, markdown emphasis/code, quotes.
-_LINE_DECOR = r"[ \t*_`\"']"
+# High-confidence router voice only. Downstream skills may offer a handoff
+# ("I'd recommend handing off to sumo-qa-reviewing-before-merge") or tell the
+# user to send output to a tool, so paraphrased handoffs are left to the eval's
+# judge rather than matched here.
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
     r"picking the qa approach"
     r"|\brouting this qa intent\b"
-    # Narrated handoffs only: an imperative "route X to sumo_qa_tool" is a
-    # downstream instruction, not the router speaking.
-    r"|\b(?:routing|routed|handing|handed|hand-?offs?)"
-    r"(?:\s+(?:this|you|it|over|off|the request|your request)){0,2}\s+(?:in)?to"
+    r"|\b(?:routing|routed)(?:\s+(?:this|you|it))?\s+to"
     r"[\s*_`\"'\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
-    r"|\b(?:i'm|i am|i'll|i will|let me)\s+(?:now\s+)?(?:rout(?:e|ing)|hand(?:ing)?)"
-    r"\s+(?:you|this|it)\b",
+    r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+(?:you|this)\b",
     re.IGNORECASE | re.ASCII,
 )
 # A router step named on a line: what makes a status marker or a numbered
@@ -458,15 +455,13 @@ def _has_taxonomy_label(text: str) -> bool:
 
 @lru_cache(maxsize=4)
 def _label_re(names: frozenset[str]) -> re.Pattern[str]:
-    """The label and its value share a line. Any word may follow an exact
-    catalogue identifier; ``n/a`` only counts at a clause end, since it is also
-    ordinary prose. A closing quote then ``}`` marks a one-key config snippet,
-    which the payload family judges."""
+    """A bare label line: the label and a catalogue value (or ``n/a``) are the
+    whole line, give or take a bullet, emphasis, quotes and a trailing comma.
+    Labels inside prose are left to the eval's judge."""
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     return re.compile(
-        rf"(?<!\w)(?:classification|approach){_LINE_DECOR}{{0,4}}:{_LINE_DECOR}{{0,6}}"
-        rf"(?:(?:{alternatives})(?![\w-])|n/a[`*\"']*(?=[ \t]*$|[.,;:)]|\s+[-–—]\s))"
-        r"(?![`*\"']*\})",
+        r"^[ \t]*(?:[-*+>][ \t]+)*[*_`\"']*(?:classification|approach)[*_`\"']*[ \t]*:"
+        rf"[ \t*_`\"']*(?:{alternatives}|n/a)[`*_\"']*[ \t]*,?[ \t]*$",
         re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
 

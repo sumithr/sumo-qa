@@ -91,29 +91,6 @@ transcripts:
       - **Approach:** `tdd-scaffold`
       Write a boundary test for the season start date first.
 
-  - id: taxonomy-inline-label
-    scenario_id: S20-recommend-removal
-    family: taxonomy_label
-    leaks: true
-    output_text: >-
-      Nothing references install.sh, so approach: recommend-removal. Delete it.
-
-  - id: taxonomy-label-parenthetical-suffix
-    scenario_id: S10-no-tests-needed
-    family: taxonomy_label
-    leaks: true
-    output_text: |
-      Classification: docs_change (docs only)
-      No tests needed for a comment typo.
-
-  - id: taxonomy-label-reason-suffix
-    scenario_id: S11-router-invocation
-    family: taxonomy_label
-    leaks: true
-    output_text: >-
-      Approach: verify-existing because the suite already covers the pricing
-      path. Run it before merging.
-
   - id: taxonomy-clean-prose
     scenario_id: S11-router-invocation
     family: taxonomy_label

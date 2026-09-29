@@ -12,12 +12,12 @@
 //   * payload_json       a brace-balanced span (braces in strings ignored)
 //                        naming classification, approach, next_action AND a
 //                        skill handoff (compact, pretty, or unquoted keys);
-//   * taxonomy_label     `Classification:` / `Approach:` whose value is exactly
-//                        a catalogue entry name (read from knowledge/) or n/a,
-//                        whatever follows it;
+//   * taxonomy_label     a bare `Classification:` / `Approach:` line whose
+//                        value is exactly a catalogue entry name (read from
+//                        knowledge/) or n/a;
 //   * route_announcement "Picking the QA approach", "Routing this QA intent",
-//                        a narrated handoff to a sumo-qa name, or first-person
-//                        handoff narration;
+//                        "Routing (this|you|it) to sumo-qa-...", or
+//                        first-person "I'm routing you";
 //   * checklist_status   [DONE] / [IN PROGRESS] / [PENDING] / [COMPLETED] on a
 //                        line naming a router step;
 //   * router_checklist   two or more numbered lines naming router steps.
@@ -41,15 +41,13 @@ const KEY_FOLLOWS = /^\s*:/;
 // One explicit character set for both engines (their \s differ).
 const LINE_BREAK = /[\r\u2028\u2029]/g;
 const SPACE = /[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]/g;
-const LINE_DECOR = '[ \\t*_`"\']';
+// High-confidence router voice only; paraphrased handoffs are the judge's job.
 const ROUTE_ANNOUNCEMENT = new RegExp(
   'picking the qa approach' +
     '|\\brouting this qa intent\\b' +
-    '|\\b(?:routing|routed|handing|handed|hand-?offs?)' +
-    '(?:\\s+(?:this|you|it|over|off|the request|your request)){0,2}\\s+(?:in)?to' +
+    '|\\b(?:routing|routed)(?:\\s+(?:this|you|it))?\\s+to' +
     '[\\s*_`"\'\\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)' +
-    "|\\b(?:i'm|i am|i'll|i will|let me)\\s+(?:now\\s+)?(?:rout(?:e|ing)|hand(?:ing)?)" +
-    '\\s+(?:you|this|it)\\b',
+    "|\\b(?:i'm|i am|i'll|i will)\\s+(?:now\\s+)?(?:rout(?:e|ing)|handing)\\s+(?:you|this)\\b",
   'i',
 );
 const ROUTER_STEP =
@@ -147,8 +145,8 @@ function escapeRegExp(s) {
 
 const labelCache = new Map();
 
-// The label and its value share a line; n/a only counts at a clause end; a
-// closing quote then } marks a one-key config snippet.
+// A bare label line: label and catalogue value (or n/a) are the whole line,
+// give or take a bullet, emphasis, quotes and a trailing comma.
 function labelRegExp(names) {
   const key = names.join('|');
   if (!labelCache.has(key)) {
@@ -156,9 +154,8 @@ function labelRegExp(names) {
     labelCache.set(
       key,
       new RegExp(
-        `(?<!\\w)(?:classification|approach)${LINE_DECOR}{0,4}:${LINE_DECOR}{0,6}` +
-          `(?:(?:${alternatives})(?![\\w-])|n/a[\`*"']*(?=[ \\t]*$|[.,;:)]|\\s+[-\\u2013\\u2014]\\s))` +
-          `(?![\`*"']*\\})`,
+        '^[ \\t]*(?:[-*+>][ \\t]+)*[*_`"\']*(?:classification|approach)[*_`"\']*[ \\t]*:' +
+          `[ \\t*_\`"']*(?:${alternatives}|n/a)[\`*_"']*[ \\t]*,?[ \\t]*$`,
         'im',
       ),
     );
