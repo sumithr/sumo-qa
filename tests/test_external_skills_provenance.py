@@ -743,6 +743,72 @@ def test_execute_with_one_folder_for_project_and_home_takes_its_lock_once(tmp_pa
     assert result["provenance"] == {"status": "unrecorded"}
 
 
+def _tracking_guards(monkeypatch, refuse: Path | None = None) -> dict:
+    state = {"held": 0, "max_held": 0, "bases": []}
+    real_guard = ext._lock_guard
+
+    @contextlib.contextmanager
+    def tracking(base):
+        state["bases"].append(base)
+        if base == refuse:
+            raise ext.ExternalSkillProvenanceError(f"could not lock {base}")
+        with real_guard(base):
+            state["held"] += 1
+            state["max_held"] = max(state["max_held"], state["held"])
+            try:
+                yield
+            finally:
+                state["held"] -= 1
+
+    monkeypatch.setattr(ext, "_lock_guard", tracking)
+    return state
+
+
+def test_a_project_skill_never_touches_the_home_lock(monkeypatch, tmp_path) -> None:
+    home = tmp_path / "home"
+    (home / ".sumo-qa").mkdir(parents=True)
+    project = tmp_path / "project"
+    skill = project / ".agents" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# x\n", "utf-8")
+    (project / ".sumo-qa").mkdir()
+    state = _tracking_guards(monkeypatch, refuse=home)
+
+    result = ext.execute_external_skill("demo", cwd=project, home=home)
+
+    assert result["scope"] == "project"
+    assert state["bases"] == [project]
+
+
+def test_execute_rejects_an_unknown_scope_before_taking_any_lock(monkeypatch, tmp_path) -> None:
+    (tmp_path / ".sumo-qa").mkdir()
+    state = _tracking_guards(monkeypatch)
+
+    with pytest.raises(ValueError, match="scope must be"):
+        ext.execute_external_skill("demo", scope="team", cwd=tmp_path, home=tmp_path)
+
+    assert state["bases"] == []
+
+
+def test_execute_holds_one_scope_lock_at_a_time(monkeypatch, tmp_path) -> None:
+    """Falling back from project to home releases the project lock first, so
+    two spellings of one folder can never be locked against each other."""
+    home = tmp_path / "home"
+    skill = home / ".agents" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# x\n", "utf-8")
+    (home / ".sumo-qa").mkdir()
+    project = tmp_path / "project"
+    (project / ".sumo-qa").mkdir(parents=True)
+    state = _tracking_guards(monkeypatch)
+
+    result = ext.execute_external_skill("demo", cwd=project, home=home)
+
+    assert result["scope"] == "global"
+    assert state["bases"] == [project, home]
+    assert state["max_held"] == 1
+
+
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_rollback_keeps_a_pre_existing_alias_the_cli_never_touched(monkeypatch, toolchain) -> None:
     canonical = toolchain.cwd / ".agents" / "skills" / "find-skills"

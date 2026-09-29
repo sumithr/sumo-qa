@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Iterator, Sequence
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -257,21 +257,23 @@ def execute_external_skill(
     """
     cwd = cwd or Path.cwd()
     home = home or Path.home()
-    with ExitStack() as locks:
-        # Locate, read, and verify only while holding each scope's install lock,
-        # so an install cannot be mid-way (or rolled back) under this read.
-        held: set[str] = set()
-        for base in [cwd, home] if scope == "auto" else [home if scope == "global" else cwd]:
-            if (base / _LOCK_RELPATH).parent.is_dir() and os.path.realpath(base) not in held:
-                held.add(os.path.realpath(base))
-                locks.enter_context(_lock_guard(base))
-        installed = check_external_skill_installed(skill, scope, cwd, home)
-        if installed is None:
-            raise ExternalSkillError(f"external skill is not installed: {skill}")
-        path = Path(installed["path"])
-        lock_base = cwd if installed["scope"] == "project" else home
-        body_bytes = _read_skill_body(path)
-        provenance = _verify_provenance(path, lock_base, body_bytes)
+    if scope not in _VALID_SCOPES:
+        raise ValueError("scope must be 'auto', 'project', or 'global'")
+    # Search one scope at a time, holding only that scope's install lock while
+    # locating, reading, and verifying: an install cannot be mid-way (or rolled
+    # back) under the read, and a project skill never touches the home lock.
+    for each_scope in ("project", "global") if scope == "auto" else (scope,):
+        lock_base = cwd if each_scope == "project" else home
+        has_lock = (lock_base / _LOCK_RELPATH).parent.is_dir()
+        with _lock_guard(lock_base) if has_lock else nullcontext():
+            installed = check_external_skill_installed(skill, each_scope, cwd, home)
+            if installed is not None:
+                path = Path(installed["path"])
+                body_bytes = _read_skill_body(path)
+                provenance = _verify_provenance(path, lock_base, body_bytes)
+                break
+    else:
+        raise ExternalSkillError(f"external skill is not installed: {skill}")
     body = body_bytes.decode("utf-8")
     return {
         "skill": installed["name"],
