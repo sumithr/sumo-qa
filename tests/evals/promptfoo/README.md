@@ -104,6 +104,70 @@ the `.ab` does not discriminate: the no-skill `claude-haiku-4-5` finds the seede
 defects (A0 3/7 and 7/7 over two single passes, B 7/7 both times), so the `.ab`
 is a regression guard on B there.
 
+## Review-recall corpus (issue #754)
+
+`skill-reviewing-before-merge-recall.yaml` measures how many real past review
+misses `sumo-qa-reviewing-before-merge` now catches. Each case is a diff copied
+from the commit that carried a defect the per-file review let through, the green
+test run that shipped with it, and the finding a reviewer should have raised.
+Sources: the review-miss ledger (#752) entries that reproduce as a bounded diff,
+and fixed findings from codex review comments on merged PRs. Ledger entries that
+record a catalogue or skill-prose gap, or whose defective commit no longer
+exists, are not cases.
+
+- **Score.** A case is caught when the review names the defect file
+  (`asserts/recall-expected-file.js`, path or file name) AND the judge finds the
+  same failure mechanism treated as a merge blocker. Wording, format and ledger
+  discipline are not scored; other configs grade those.
+- **Metadata.** `category` is the ledger category; `split` is `train` or
+  `held-out`. Tune a category fix (#755 to #759) on `train`; judge it on
+  `held-out`. Every promoted category has at least one held-out case.
+  `expected_file` feeds the file check; `ledger_issue` or `source_comment` names
+  the source.
+- **Controls.** Two cases with `category: control` are clean merged PRs. They
+  pass only on a SAFE verdict, and `recall.py` reports them apart from recall, so
+  a review that blocks everything does not score well.
+
+Run it with separate report paths, then score every report together. Parallel
+promptfoo processes each need their own `PROMPTFOO_CONFIG_DIR`: they otherwise
+share one results database and crash with `SQLITE_BUSY: database is locked`.
+
+```bash
+P=tests/evals/promptfoo
+for i in 1 2 3; do
+  PROMPTFOO_CONFIG_DIR=/tmp/recall/pf$i \
+  ./node_modules/.bin/promptfoo eval -c $P/skill-reviewing-before-merge-recall.yaml --no-cache \
+    --providers file://$PWD/$P/providers/claude-candidate.yaml \
+    --grader file://$PWD/$P/providers/claude-judge.yaml -j 4 --output /tmp/recall/run$i.json &
+done; wait
+python $P/recall.py /tmp/recall/run*.json
+# only the held-out split
+./node_modules/.bin/promptfoo eval -c $P/skill-reviewing-before-merge-recall.yaml ... --filter-metadata split=held-out
+```
+
+`recall.py` prints recall overall, per split and per category for each run, the
+mean and spread of overall recall across runs, and how many runs caught each
+case. It exits 2 on a report with no results, a case missing `category` or
+`split`, or an errored result: a provider or judge error is not a skill verdict,
+so it is never scored as a miss.
+
+Baseline on main at `1db14e3` (claude-haiku-4-5 candidate, claude-opus-5 judge,
+three runs):
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| overall | 7/33 | 6/33 | 7/33 |
+| held-out | 3/11 | 3/11 | 3/11 |
+| train | 4/22 | 3/22 | 4/22 |
+| controls passed | 2/2 | 2/2 | 2/2 |
+
+Mean overall recall is 20% with a spread of 3 points (one case). Five cases
+flicker between runs, so a single-run comparison needs a move of more than two
+cases (6 points) overall before it is a change, not variance; compare means over
+three runs for anything smaller. The candidate is the eval gate's, not the model
+a real review runs on, so the number measures what the skill adds to a weak
+model, not the review's absolute recall.
+
 ## Repo-pinned tool-setup corpus (issue #216)
 
 `skill-using-sumo-qa-tool-setup.yaml` measures a different `using-sumo-qa`
@@ -918,6 +982,9 @@ renders.
 |---|---|
 | `skill-<name>.yaml` | One base config per skill under `skills/` |
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
+| `skill-reviewing-before-merge-recall.yaml` | Issue #754 review-recall corpus: real past misses tagged by ledger category and train/held-out split, plus two clean controls (see "Review-recall corpus" above) |
+| `recall.py` | Recall reporter for the review-recall corpus: overall, per split, per category, per run, with mean and spread |
+| `asserts/recall-expected-file.js` | File half of the recall score: the review must name the defect file |
 | `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) control, kept as a regression guard on the A1 leg (see "UNPROVEN-escalation corpus" above) |
 | `skill-reviewing-before-merge-external-contract.yaml` | Issue #263 external-contract corpus, three seeds: (1) a matcher/parser over external CLI/API/tool output validated only by a hand-authored fixture → external-contract risk UNPROVEN, withhold SAFE; (2) a fixture traceable to a real run → external-contract risk discharged, SAFE-eligible (over-trigger guard); (3) a matcher over an INTERNAL/self-produced value the same module emits → external-contract axis must NOT fire at all (true-negative over-trigger guard) |
 | `skill-reviewing-before-merge-ac-coverage.yaml` | Issue #264 acceptance-criteria coverage: three seeds — UNMET AC → NOT SAFE, all-MET → SAFE-eligible, and plausibly-implemented-but-no-end-to-end-evidence → UNVERIFIED (not UNMET) → NOT SAFE — exercising the three-state MET/UNMET/UNVERIFIED discriminator |

@@ -345,9 +345,17 @@ def test_null_output_passes():
     assert json.loads(proc.stdout)["pass"] is True
 
 
+# The review-recall corpus (#754) scores only whether the review found the defect;
+# a ledger-format slip there would count as a missed defect and bias recall. The
+# ledger rule stays graded by every other config that loads coverage-ledger.
+RECALL_ONLY_CONFIGS = {"skill-reviewing-before-merge-recall.yaml"}
+
+
 def _review_configs_loading_coverage_ledger() -> list[Path]:
     configs = []
     for path in sorted(PROMPTFOO_DIR.glob("skill-reviewing-before-merge*.yaml")):
+        if path.name in RECALL_ONLY_CONFIGS:
+            continue
         text = path.read_text(encoding="utf-8")
         declared = [
             line
