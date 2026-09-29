@@ -54,6 +54,8 @@ class FakeToolchain:
         self.version = ext.SKILLS_CLI_VERSION if version is None else version
         self.remote_sha = remote_sha
         self.ls_remote_lines: str | None = None
+        self.writes_skill = True  # False: the CLI "succeeds" but installs nothing
+        self.links_claude_dir = False  # True: also symlink .claude/skills/<skill>
         self.calls: list[tuple[list[str], dict]] = []
 
     def __call__(self, command, **kwargs):
@@ -61,16 +63,22 @@ class FakeToolchain:
         if command[0].endswith("git"):
             lines = self.ls_remote_lines
             if lines is None:
-                lines = f"{self.remote_sha}\t{command[-1]}\n"
+                lines = f"{self.remote_sha}\t{command[-2]}\n"  # [-1] is the peeled pattern
             return _completed(command, stdout=lines)
         if command[-1] == "--version":
             return _completed(command, stdout=f"{self.version}\n")
-        if "add" in command:
+        if "add" in command and self.writes_skill:
             skill = command[command.index("--skill") + 1]
             skill_dir = self.cwd / ".agents" / "skills" / skill
             (skill_dir / "references").mkdir(parents=True, exist_ok=True)
             (skill_dir / "SKILL.md").write_text(f"---\nname: {skill}\n---\n# Body\n", "utf-8")
             (skill_dir / "references" / "notes.md").write_text("notes\n", "utf-8")
+            if self.links_claude_dir:
+                link = self.cwd / ".claude" / "skills" / skill
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(skill_dir, target_is_directory=True)
+            return _completed(command, stdout="installed")
+        if "add" in command:
             return _completed(command, stdout="installed")
         return _completed(command, stdout="owner/repo@skill  3 installs\n")
 
@@ -199,7 +207,7 @@ def test_install_resolves_the_source_ref_and_pins_the_cli_to_the_commit(
     result = _install(toolchain, source=source)
 
     git_calls = [c for c, _ in toolchain.calls if c[0].endswith("git")]
-    assert git_calls == [["/opt/bin/git", "ls-remote", "--", remote_url, ref]]
+    assert git_calls == [["/opt/bin/git", "ls-remote", "--", remote_url, ref, f"{ref}^{{}}"]]
     add = next(c for c in toolchain.cli_commands() if "add" in c)
     base = source.split("#", 1)[0]
     assert add[add.index("add") + 1] == f"{base}#{SHA}"
@@ -215,6 +223,8 @@ def test_a_full_commit_sha_ref_is_used_without_remote_resolution(toolchain) -> N
 
 
 def test_annotated_tag_resolves_to_the_peeled_commit(toolchain) -> None:
+    # Shape captured from real `git ls-remote -- <url> v1.2.0 'v1.2.0^{}'`
+    # (git 2.54); the end-to-end test below re-proves it against a real repo.
     toolchain.ls_remote_lines = f"{OTHER_SHA}\trefs/tags/v1.2.0\n{SHA}\trefs/tags/v1.2.0^{{}}\n"
 
     result = _install(toolchain, source="o/r#v1.2.0")
@@ -344,11 +354,56 @@ def test_cli_runs_in_the_project_directory(toolchain) -> None:
     assert Path(add_kwargs["cwd"]) == toolchain.cwd
 
 
-def test_install_without_a_discoverable_skill_is_a_provenance_error(monkeypatch, toolchain) -> None:
-    monkeypatch.setattr(ext, "check_external_skill_installed", lambda *a, **k: None)
+def test_install_without_a_discoverable_skill_is_a_provenance_error(toolchain) -> None:
+    toolchain.writes_skill = False
 
     with pytest.raises(ext.ExternalSkillProvenanceError, match="not found"):
         _install(toolchain)
+
+    assert not (toolchain.cwd / ".sumo-qa" / "external-skills.lock.json").exists()
+
+
+def _stale_codex_copy(toolchain: FakeToolchain) -> Path:
+    stale = toolchain.cwd / ".codex" / "skills" / "find-skills" / "SKILL.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("# an older hand-copied version\n", "utf-8")
+    return stale
+
+
+def test_install_records_the_folder_the_cli_wrote_not_a_stale_copy(toolchain) -> None:
+    """The pinned CLI installs a codex project skill into .agents/skills, while
+    the locator checks .codex/skills first. The record must describe what this
+    install wrote, never a pre-existing copy that happens to be found first."""
+    _stale_codex_copy(toolchain)
+
+    result = _install(toolchain, agent="codex")
+
+    assert list(_lock(toolchain.cwd)["skills"]) == [".agents/skills/find-skills"]
+    assert result["provenance"]["path"] == ".agents/skills/find-skills"
+    assert result["installed"]["path"].endswith(".agents/skills/find-skills/SKILL.md")
+
+
+def test_unchanged_reinstall_with_several_copies_is_ambiguous(toolchain) -> None:
+    _install(toolchain)
+    _stale_codex_copy(toolchain)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="several"):
+        _install(toolchain)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_every_location_the_install_wrote_is_recorded(toolchain) -> None:
+    toolchain.links_claude_dir = True
+
+    _install(toolchain, agent="claude-code")
+
+    skills = _lock(toolchain.cwd)["skills"]
+    assert set(skills) == {".agents/skills/find-skills", ".claude/skills/find-skills"}
+    assert len({record["content_digest"] for record in skills.values()}) == 1
+    result = ext.execute_external_skill(
+        "find-skills", cwd=toolchain.cwd, home=toolchain.cwd.parent / "home"
+    )
+    assert result["provenance"]["status"] == "verified"
 
 
 def test_corrupt_lock_file_is_a_provenance_error_not_a_crash(toolchain) -> None:
@@ -600,6 +655,22 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     )
     assert head["provenance"]["resolved_ref"] == v2
     assert (other / ".agents" / "skills" / "demo" / "SKILL.md").read_text("utf-8") == "# v2\n"
+
+    # An annotated tag resolves through real `git ls-remote` output to the
+    # commit it tags, never to the tag object's own SHA.
+    _git("-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "v1.0", "-m", "v1", v1, cwd=repo)
+    tagged = tmp_path / "tagged"
+    tagged.mkdir()
+    by_tag = ext.install_external_skill(
+        skill="demo",
+        source=f"{repo.as_uri()}#v1.0",
+        confirmed=True,
+        cwd=tagged,
+        home=tmp_path / "home",
+    )
+    assert _git("rev-parse", "v1.0", cwd=repo) != v1  # the tag object has its own SHA
+    assert by_tag["provenance"]["resolved_ref"] == v1
+    assert by_tag["provenance"]["requested_ref"] == "v1.0"
 
     # A pin the fake npx does not allow proves no call can reach "latest".
     ext._VERIFIED_CLI_PATHS.clear()

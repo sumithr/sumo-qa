@@ -142,33 +142,34 @@ def install_external_skill(
     lock_base = cwd if scope == "project" else home
     lock = _read_lock(lock_base)
     resolved_ref = _resolve_commit(remote_url, requested_ref, timeout)
+    before = _installed_folders(skill, scope, cwd, home)
 
     args = ["add", f"{source_base}#{resolved_ref}", "--skill", skill, "-a", agent, "-y"]
     if scope == "global":
         args.append("-g")
     command, stdout, stderr = _run_skills_cli(args, timeout=timeout, cwd=cwd)
-    installed = check_external_skill_installed(skill, scope=scope, cwd=cwd, home=home)
-    if installed is None:
-        raise ExternalSkillProvenanceError(
-            f"installed skill {skill!r} not found in the {scope} skill folders; "
-            "provenance was not recorded"
-        )
-    folder = Path(installed["path"]).parent
-    key = folder.relative_to(lock_base).as_posix()
-    provenance = {
-        "skill": skill,
-        "source": source_base,
-        "requested_ref": requested_ref,
-        "resolved_ref": resolved_ref,
-        "content_digest": skill_content_digest(folder),
-        "agent": agent,
-        "scope": scope,
-        "path": key,
-        "installed_at": datetime.now(timezone.utc).isoformat(),
-        "installer": skills_cli_identity(),
-    }
-    lock["skills"][key] = provenance
+    written = _written_folders(skill, scope, before, _installed_folders(skill, scope, cwd, home))
+    installed_at = datetime.now(timezone.utc).isoformat()
+    records = [
+        {
+            "skill": skill,
+            "source": source_base,
+            "requested_ref": requested_ref,
+            "resolved_ref": resolved_ref,
+            "content_digest": digest,
+            "agent": agent,
+            "scope": scope,
+            "path": location.path.parent.relative_to(lock_base).as_posix(),
+            "installed_at": installed_at,
+            "installer": skills_cli_identity(),
+        }
+        for location, digest in written
+    ]
+    for record in records:
+        lock["skills"][record["path"]] = record
     _write_lock(lock_base, lock)
+    installed = written[0][0].as_dict()
+    provenance = records[0]
     return {
         "skill": skill,
         "source": source,
@@ -400,7 +401,9 @@ def _resolve_commit(remote_url: str, ref: str | None, timeout: int) -> str:
     wanted = ref or "HEAD"
     try:
         completed = subprocess.run(
-            [git, "ls-remote", "--", remote_url, wanted],
+            # An annotated tag's commit is only listed when its peeled name is
+            # asked for explicitly; a plain pattern lists the tag object alone.
+            [git, "ls-remote", "--", remote_url, wanted, f"{wanted}^{{}}"],
             capture_output=True,
             check=False,
             text=True,
@@ -421,12 +424,56 @@ def _resolve_commit(remote_url: str, ref: str | None, timeout: int) -> str:
     for line in completed.stdout.splitlines():
         sha, _, name = line.partition("\t")
         refs[name.strip()] = sha.strip()
-    # ls-remote matches ref-name suffixes, so pick exact names only; an
-    # annotated tag's peeled entry (^{}) names the commit, not the tag object.
+    # ls-remote matches ref-name suffixes, so pick exact names only, the
+    # peeled (^{}) tag entry first: it names the commit, not the tag object.
     for name in (f"refs/tags/{wanted}^{{}}", f"refs/tags/{wanted}", f"refs/heads/{wanted}", wanted):
         if name in refs:
             return refs[name]
     raise SourceResolutionError(f"ref {wanted!r} not found in {remote_url}")
+
+
+def _installed_folders(
+    skill: str, scope: str, cwd: Path, home: Path
+) -> dict[Path, tuple[InstalledSkill, str]]:
+    """Every existing copy of ``skill`` in ``scope``, with its content digest."""
+    found: dict[Path, tuple[InstalledSkill, str]] = {}
+    for candidate in _iter_installed_skill_candidates(skill, scope, cwd, home):
+        folder = candidate.path.parent
+        if candidate.path.is_file() and folder not in found:
+            found[folder] = (candidate, skill_content_digest(folder))
+    return found
+
+
+def _written_folders(
+    skill: str,
+    scope: str,
+    before: dict[Path, tuple[InstalledSkill, str]],
+    after: dict[Path, tuple[InstalledSkill, str]],
+) -> list[tuple[InstalledSkill, str]]:
+    """The copies an install wrote: new or changed ones, else the only copy.
+
+    The CLI's target folder depends on the agent, and a stale copy elsewhere
+    can be found first; recording that copy would vouch for bytes this install
+    never wrote.
+    """
+    changed = [
+        entry for folder, entry in after.items() if before.get(folder, (None, ""))[1] != entry[1]
+    ]
+    if changed:
+        return changed
+    if len(after) == 1:
+        return list(after.values())
+    if not after:
+        raise ExternalSkillProvenanceError(
+            f"installed skill {skill!r} not found in the {scope} skill folders; "
+            "provenance was not recorded"
+        )
+    paths = ", ".join(sorted(entry[0].path.parent.as_posix() for entry in after.values()))
+    raise ExternalSkillProvenanceError(
+        f"several unchanged copies of {skill!r} exist ({paths}); cannot tell which one "
+        "this install wrote, so provenance was not recorded. Remove the stale copies "
+        "and reinstall."
+    )
 
 
 def _read_lock(base: Path) -> dict[str, Any]:
