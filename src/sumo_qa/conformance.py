@@ -319,10 +319,18 @@ _NEXT_ACTION_RE = re.compile(r"\bnext_action[\"']?\s*:\s*(?=\{)", re.ASCII)
 _SKILL_KEY_RE = re.compile(r"\bskill[\"']?\s*:", re.ASCII)
 # Quoted strings, taken left to right. One followed by ``:`` is a key; any
 # other is a value, blanked before key matching so ``"skill: beginner"`` is
-# not a skill key. A backslash only ever starts an escape, so no character has
-# two ways to match (an unterminated string would otherwise backtrack
-# exponentially).
-_QUOTED_RE = re.compile(r"([\"'])(?:\\.|(?!\1)[^\\])*\1", re.DOTALL)
+# not a skill key. A single quote between two word characters is an
+# apostrophe (``user's``), never a delimiter. Every character has one way to
+# match, so an unterminated string cannot backtrack exponentially.
+_WORD = "A-Za-z0-9_"
+# Emphasis, code and quote marks a host wraps around a label or its value.
+_DECO = "[*_`\"']"
+_QUOTED_RE = re.compile(
+    r'"(?:\\.|[^"\\])*"'
+    rf"|(?<![{_WORD}])'(?:\\.|[^'\\]|(?<=[{_WORD}])'(?=[{_WORD}]))*"
+    rf"(?:(?<![{_WORD}])'|'(?![{_WORD}]))",
+    re.DOTALL,
+)
 _KEY_FOLLOWS_RE = re.compile(r"\s*:")
 # One explicit character set for both engines (their ``\s`` differ).
 _LINE_BREAK_RE = re.compile("[\r\u2028\u2029]")
@@ -379,10 +387,10 @@ def find_routing_leaks(text: str) -> tuple[str, ...]:
 
 
 def _normalise(text: str) -> str:
-    """Typographic closing apostrophes and double quotes to ASCII, line breaks (CRLF, CR, U+2028/9) to
+    """Typographic single and double quotes to ASCII, line breaks (CRLF, CR, U+2028/9) to
     newlines, and every other whitespace character to a plain space, so the
     Python and JS matchers see the same text."""
-    text = text.replace("\u2019", "'")
+    text = text.replace("\u2018", "'").replace("\u2019", "'")
     text = text.replace("\u201c", '"').replace("\u201d", '"')
     text = text.replace("\r\n", "\n")
     text = _LINE_BREAK_RE.sub("\n", text)
@@ -425,23 +433,31 @@ def _next_action_has_skill(span: str) -> bool:
     return False
 
 
+def _is_word(ch: str) -> bool:
+    return ch.isascii() and (ch.isalnum() or ch == "_")
+
+
 def _brace_spans(text: str) -> list[str]:
-    """Top-level ``{...}`` spans, ignoring braces inside quoted strings; an
-    unbalanced brace yields no span."""
+    """Top-level ``{...}`` spans, ignoring braces inside quoted strings (a
+    single quote between word characters is an apostrophe, not a delimiter);
+    an unbalanced brace yields no span."""
     spans: list[str] = []
     depth = 0
     start = 0
     quote = ""
     escaped = False
     for i, ch in enumerate(text):
+        prev_word = i > 0 and _is_word(text[i - 1])
         if quote:
             if escaped:
                 escaped = False
             elif ch == "\\":
                 escaped = True
-            elif ch == quote:
+            elif ch == quote and not (
+                ch == "'" and prev_word and i + 1 < len(text) and _is_word(text[i + 1])
+            ):
                 quote = ""
-        elif ch in "\"'" and depth:
+        elif depth and (ch == '"' or (ch == "'" and not prev_word)):
             quote = ch
         elif ch == "{":
             if depth == 0:
@@ -466,20 +482,17 @@ def _label_re(names: frozenset[str]) -> re.Pattern[str]:
     clause end and the other label with its own catalogue value.
     Labels inside prose are left to the eval's judge."""
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
-    # U+2018 stays un-normalised (a rationale's "\u2018user\u2019s\u2019" must keep
-    # its quotes balanced), so it is label decoration instead.
-    deco = "[*_`\"'\u2018]*"
     pair = (
-        rf"{deco}(?:classification|approach){deco}[ \t]*:[ \t*_`\"'\u2018]*"
-        rf"(?:{alternatives}|n/a)[`*_\"']*"
+        rf"{_DECO}*(?:classification|approach){_DECO}*[ \t]*:[ \t*_`\"']*"
+        rf"(?:{alternatives}|n/a){_DECO}*"
     )
     return re.compile(
         # List or heading prefixes, each followed by whitespace, so a prefix
         # run has a single parse.
         rf"^[ \t]*(?:(?:[-+*]|>+|#{{1,6}}|\d{{1,3}}[.)])[ \t]+)*{pair}"
-        # Then a clause end, or the other label with its own value (with or
-        # without a separator), then line end.
-        rf"(?:[ \t]*(?:[.,;][ \t]*)?{pair}(?:[ \t]*[.,;])?|[ \t]*[.,;])?[ \t]*$",
+        # Then a clause end, or the other label with its own value after a
+        # clause end or whitespace, then line end.
+        rf"(?:(?:[ \t]*[.,;][ \t]*|[ \t]+){pair}(?:[ \t]*[.,;])?|[ \t]*[.,;])?[ \t]*$",
         re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
 

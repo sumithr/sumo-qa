@@ -697,6 +697,28 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
             "\u2018the user\u2019s change is docs only\u2019, next_action: {skill: none}}",
             "payload_json",
         ),
+        # Apostrophes inside quoted values, and curly single quotes (#248 review).
+        (
+            "{classification: docs_change, approach: no-tests-recommended, rationale: "
+            "'the user's change is docs only', next_action: {skill: none}}",
+            "payload_json",
+        ),
+        (
+            "{\u2018classification\u2019: \u2018docs_change\u2019, \u2018approach\u2019: "
+            "\u2018no-tests-recommended\u2019, \u2018next_action\u2019: {\u2018skill\u2019: \u2018none\u2019}}",
+            "payload_json",
+        ),
+        (
+            "{classification: \u2018docs_change\u2019, approach: \u2018n/a\u2019, rationale: "
+            "\u2018it\u2019s docs\u2019, next_action: {skill: \u2018none\u2019}}",
+            "payload_json",
+        ),
+        ("Routing to \u2018sumo-qa-strategising\u2019.", "route_announcement"),
+        (
+            "I\u2019ll route this to \u2018sumo-qa-reviewing-before-merge\u2019.",
+            "route_announcement",
+        ),
+        ("1. [DONE] Read the user\u2018s intent", "checklist_status"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:
@@ -813,6 +835,16 @@ def test_find_routing_leaks_is_linear_on_a_label_line_with_trailing_space() -> N
     backtrack quadratically in the line-end match (#248 review)."""
     start = time.perf_counter()
     assert find_routing_leaks("Approach: n/a" + " " * 40_000 + "x") == ()
+    assert time.perf_counter() - start < 0.5
+
+
+def test_find_routing_leaks_is_linear_on_decoration_after_a_label_value() -> None:
+    """A run of emphasis or quote characters after a label value must not
+    backtrack between the value's closing decoration and a second label's
+    opening decoration (#248 review)."""
+    start = time.perf_counter()
+    assert find_routing_leaks("Classification: docs_change" + "*" * 20_000 + "x") == ()
+    assert find_routing_leaks("Classification: docs_change" + "'" * 20_000 + "x") == ()
     assert time.perf_counter() - start < 0.5
 
 

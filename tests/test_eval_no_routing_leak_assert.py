@@ -102,6 +102,14 @@ _EXTRA = [
     "**Classification:** docs_change **Approach:** no-tests-recommended" + " " * 2_000 + "x",
     "{classification: docs_change, approach: no-tests-recommended, rationale: "
     "\u2018the user\u2019s change is docs only\u2019, next_action: {skill: none}}",
+    "{classification: docs_change, approach: no-tests-recommended, rationale: "
+    "'the user's change is docs only', next_action: {skill: none}}",
+    "{\u2018classification\u2019: \u2018docs_change\u2019, \u2018approach\u2019: "
+    "\u2018no-tests-recommended\u2019, \u2018next_action\u2019: {\u2018skill\u2019: \u2018none\u2019}}",
+    "Routing to \u2018sumo-qa-strategising\u2019.",
+    "1. [DONE] Read the user\u2018s intent",
+    "{note: 'don't', classification: x, approach: y, next_action: {skill: z}}",
+    "Classification: docs_change" + "*" * 3_000 + "x",
     "Classification: docs_change; Approach: no-tests-recommended." + " " * 2_000 + "x",
 ]
 

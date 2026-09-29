@@ -37,7 +37,15 @@ const NEXT_ACTION = /\bnext_action["']?\s*:\s*(?=\{)/g;
 const SKILL_KEY = /\bskill["']?\s*:/;
 // Quoted strings left to right: one followed by ':' is a key, any other is a
 // value and is blanked before key matching.
-const QUOTED = /(["'])(?:\\[\s\S]|(?!\1)[^\\])*\1/g;
+// A single quote between word characters is an apostrophe, never a delimiter.
+const WORD = 'A-Za-z0-9_';
+const QUOTED = new RegExp(
+  '"(?:\\\\[\\s\\S]|[^"\\\\])*"' +
+    `|(?<![${WORD}])'(?:\\\\[\\s\\S]|[^'\\\\]|(?<=[${WORD}])'(?=[${WORD}]))*` +
+    `(?:(?<![${WORD}])'|'(?![${WORD}]))`,
+  'g',
+);
+const isWord = (ch) => ch !== undefined && /[A-Za-z0-9_]/.test(ch);
 const KEY_FOLLOWS = /^\s*:/;
 // One explicit character set for both engines (their \s differ).
 const LINE_BREAK = /[\r\u2028\u2029]/g;
@@ -67,11 +75,11 @@ const ROUTER_STEP_RE = new RegExp(ROUTER_STEP, 'i');
 const CHECKLIST_STATUS = /\[(?:done|in[ _]progress|pending|completed)\]/i;
 const NUMBERED_LINE = /^[ \t]*\d+[.)][ \t]/;
 
-// Typographic closing apostrophes and double quotes to ASCII, line breaks (CRLF, CR,
+// Typographic single and double quotes to ASCII, line breaks (CRLF, CR,
 // U+2028/9) to \n, and every other whitespace character to a plain space.
 function normalise(text) {
   return String(text)
-    .replace(/\u2019/g, "'")
+    .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201c\u201d]/g, '"')
     .replace(/\r\n/g, '\n')
     .replace(LINE_BREAK, '\n')
@@ -106,11 +114,12 @@ function braceSpans(text) {
   let escaped = false;
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i];
+    const prevWord = isWord(text[i - 1]);
     if (quote) {
       if (escaped) escaped = false;
       else if (ch === '\\') escaped = true;
-      else if (ch === quote) quote = '';
-    } else if ((ch === '"' || ch === "'") && depth) {
+      else if (ch === quote && !(ch === "'" && prevWord && isWord(text[i + 1]))) quote = '';
+    } else if (depth && (ch === '"' || (ch === "'" && !prevWord))) {
       quote = ch;
     } else if (ch === '{') {
       if (depth === 0) start = i;
@@ -133,7 +142,7 @@ function nextActionHasSkill(span) {
 }
 
 function blankStringValues(span) {
-  return span.replace(QUOTED, (match, _q, offset) =>
+  return span.replace(QUOTED, (match, offset) =>
     KEY_FOLLOWS.test(span.slice(offset + match.length)) ? match : '""',
   );
 }
@@ -161,18 +170,16 @@ function labelRegExp(names) {
   const key = names.join('|');
   if (!labelCache.has(key)) {
     const alternatives = names.map(escapeRegExp).join('|');
-    // U+2018 stays un-normalised so quoted rationale keeps its balance; it is
-    // label decoration instead.
-    const deco = '[*_`"\'\u2018]*';
+    const deco = '[*_`"\']*';
     const pair =
-      `${deco}(?:classification|approach)${deco}[ \\t]*:[ \\t*_\`"'\u2018]*` +
-      `(?:${alternatives}|n/a)[\`*_"']*`;
+      `${deco}(?:classification|approach)${deco}[ \\t]*:[ \\t*_\`"']*` +
+      `(?:${alternatives}|n/a)${deco}`;
     labelCache.set(
       key,
       new RegExp(
         // List or heading prefixes, each followed by whitespace.
         `^[ \\t]*(?:(?:[-+*]|>+|#{1,6}|\\d{1,3}[.)])[ \\t]+)*${pair}` +
-          `(?:[ \\t]*(?:[.,;][ \\t]*)?${pair}(?:[ \\t]*[.,;])?|[ \\t]*[.,;])?[ \\t]*$`,
+          `(?:(?:[ \\t]*[.,;][ \\t]*|[ \\t]+)${pair}(?:[ \\t]*[.,;])?|[ \\t]*[.,;])?[ \\t]*$`,
         'im',
       ),
     );
