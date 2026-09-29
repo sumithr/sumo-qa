@@ -90,6 +90,8 @@ def _new_run() -> dict:
 
 def summarise(paths: list[Path]) -> dict:
     """Score every report; return per-run buckets, mean, spread and per-case counts."""
+    if not paths:
+        raise ReportError("no reports given")
     runs: list[dict] = []
     cases: dict[str, dict] = {}
     for path in paths:

@@ -224,3 +224,9 @@ def test_cli_exits_two_on_an_unusable_report(tmp_path):
     )
     assert proc.returncode == 2
     assert "no results" in proc.stderr
+
+
+def test_no_reports_is_refused_not_a_division_by_zero():
+    recall = _load()
+    with pytest.raises(recall.ReportError, match="no reports"):
+        recall.summarise([])

@@ -1271,6 +1271,31 @@ def _declared_module_sets(config: dict) -> list[list[str]]:
     return sets
 
 
+def _legacy_body_vars(var_sets: list[dict]) -> list[str]:
+    """Vars whose value (or a list item of it) IS the legacy whole-body ref.
+
+    promptfoo loads a `file://` var only when the whole value is the ref, so
+    the same string quoted inside a seed's diff (the recall corpus replays real
+    eval diffs) is data, not a load.
+    """
+    found = []
+    for var_set in var_sets:
+        for name, value in var_set.items():
+            items = value if isinstance(value, list) else [value]
+            if any(isinstance(i, str) and i.strip() == LEGACY_FULL_BODY_REF for i in items):
+                found.append(name)
+    return found
+
+
+def test_legacy_body_check_rejects_a_load_and_ignores_a_quoted_diff():
+    ref = LEGACY_FULL_BODY_REF
+    assert _legacy_body_vars([{"skill_content": ref}]) == ["skill_content"]
+    assert _legacy_body_vars([{"skill_content_old": f"  {ref}\n"}]) == ["skill_content_old"]
+    assert _legacy_body_vars([{"bodies": ["file://x.md", ref]}]) == ["bodies"]
+    quoted = f"## git diff\n-    skill_content_new: {ref}\n"
+    assert _legacy_body_vars([{"ground_truth_context": quoted}]) == []
+
+
 def test_review_eval_matrix_is_non_empty():
     assert len(REVIEW_EVAL_CONFIGS) >= 20, [p.name for p in REVIEW_EVAL_CONFIGS]
 
@@ -1285,11 +1310,7 @@ def test_review_eval_assembles_root_plus_declared_modules_only(config_path):
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     default_vars = (config.get("defaultTest") or {}).get("vars") or {}
     seed_vars = [t.get("vars") or {} for t in config.get("tests") or []]
-    # A var whose value IS the legacy ref loads the whole body; the same string
-    # quoted inside a seed's diff (the recall corpus replays real eval diffs) is data.
-    legacy = [
-        k for v in [default_vars, *seed_vars] for k, val in v.items() if val == LEGACY_FULL_BODY_REF
-    ]
+    legacy = _legacy_body_vars([default_vars, *seed_vars])
     assert not legacy, (
         f"{config_path.name} still loads the whole SKILL.md body via {legacy}; "
         f"route it through {ASSEMBLER_REF}"
