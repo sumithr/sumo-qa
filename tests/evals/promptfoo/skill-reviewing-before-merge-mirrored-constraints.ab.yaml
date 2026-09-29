@@ -1,21 +1,18 @@
 description: >
   Issue #493: A0/A1 control for the mirrored dependency constraint probe. The
   BLOCKER and CONTROL seeds of skill-reviewing-before-merge-mirrored-constraints.yaml
-  run against the PRE-EDIT skill slice (A0: the root plus runtime-scope,
-  discovery-probes, coverage-ledger, inventory-drift and surface-verifier as
-  they stood before #493, snapshotted at
-  fixtures/reviewing-before-merge-PRE-493.SKILL.md) and the current slice (A1:
-  the modules production routing loads for each seed, mirrored-constraints
-  included, through the shared assembler; CONTROL's discharged hook and CI
-  runs add discharged-check, which #493 leaves unchanged).
+  run against the pre-change skill (A0) and the current skill (A1). The only
+  difference between the arms is the #493 change: per seed, A1 assembles the
+  current root plus the seed's `review_modules` through the shared assembler,
+  and A0 is the frozen pre-change root plus the same module ids, minus
+  mirrored-constraints, in the same order, as they stood before the change
+  (fixtures/reviewing-before-merge-PRE-493.SKILL.md for BLOCKER;
+  fixtures/reviewing-before-merge-PRE-493-discharged.SKILL.md, which adds
+  discharged-check, for CONTROL, whose discharged hook and CI runs load it).
   A0 carries only the generic "search for stale copies of the old value"
   probe: nothing tells it to require the isolated hook environment's own run
   (blocker) or to compare constraint semantics instead of text (control), so
   the design expects A0 to FAIL where A1 PASSES.
-# A0 cannot pass on taught behaviour: the verifier-command and
-# compare-semantics rules exist only in mirrored-constraints, which A0 does
-# not load; it can still pass a blocker sample when it names the hook run
-# unaided.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -343,8 +340,9 @@ tests:
   - description: "CONTROL - manifest, hook and CI install carry semantically compatible constraints in different syntax, and their smoke checks ran"
     vars:
       # The hook and CI runs discharge their verification lines, so routing
-      # also loads discharged-check.
+      # also loads discharged-check, on both arms.
       review_modules: [runtime-scope, discovery-probes, coverage-ledger, inventory-drift, mirrored-constraints, surface-verifier, discharged-check]
+      skill_content_old: file://fixtures/reviewing-before-merge-PRE-493-discharged.SKILL.md
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |

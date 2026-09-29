@@ -3,23 +3,25 @@ description: >
   sumo-qa-reviewing-before-merge. When a diff moves a dependency, tool or
   runtime constraint, the review searches the supplied repo state by the
   dependency's identity (hidden config included), classifies each other
-  occurrence (declared exact mirror, range in another environment,
-  deliberately independent environment, generated resolution, prose only)
-  before judging it, and names each stale mirror as its own inventory-drift
-  anchor plus the install/smoke run its isolated environment needs. Five
-  seeds: (1) BLOCKER, the manifest raises a parser package floor while a
-  pre-push hook's `additional_dependencies` keeps the old floor: the stale
-  hook copy is a named, anchored SAFE-blocker even on a green suite, and the
-  hook verifier is required; (2) CONTROL, the manifest, hook and CI install
-  use semantically compatible constraints in different syntax and order, and
-  their smoke checks ran: no mirror finding; (3) TRUE NEGATIVE, the only other
-  occurrences are historical prose (changelog, ADR): no rewrite demanded;
-  (4) TRUE NEGATIVE, a separate compatibility environment pins the older
-  major on purpose, with a documented reason: no synchronisation demanded;
-  (5) BLOCKER, a hook declared to be kept in sync with the manifest keeps the
-  old ceiling the diff raised: stale although its range still admits what the
-  diff requires, while an undeclared CI pin with the same narrower cap stays
-  compatible.
+  occurrence (declared mirror, range in another environment, deliberately
+  independent environment, generated resolution, prose only) before judging
+  it, and names each stale mirror as its own inventory-drift anchor plus the
+  install/smoke run its isolated environment needs. Five seeds: (1) BLOCKER,
+  the manifest raises a parser package floor while a pre-push hook's
+  `additional_dependencies`, which runs the changed code, keeps the old
+  floor: the stale hook copy is a named, anchored SAFE-blocker even on a
+  green suite, and the hook verifier is required; (2) CONTROL, the manifest,
+  hook and CI install use semantically compatible constraints in different
+  syntax and order, and their smoke checks ran: no mirror finding; (3) TRUE
+  NEGATIVE, a runtime dependency floor bump reviewed as runtime whose only
+  other occurrences are historical prose (changelog, ADR): no rewrite
+  demanded; (4) TRUE NEGATIVE, a separate compatibility environment pins the
+  older major on purpose, with a documented reason, and a plugin extra keeps
+  a wider range that shares versions with the diff's: no synchronisation
+  demanded; (5) BLOCKER, a hook whose block is declared to be kept in sync
+  with the manifest keeps the old ceiling the diff raised: stale although its
+  range still admits what the diff requires, while an undeclared CI install
+  with the same old cap stays compatible.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -403,11 +405,11 @@ tests:
           install are supplied.
         - Asking another confirmation question instead of delivering the verdict.
         - Surfacing literal taxonomy labels such as config_change or docs_change.
-  - description: "TRUE NEGATIVE - the only other occurrences of the old version are historical prose"
+  - description: "TRUE NEGATIVE - a runtime dependency floor bump whose only other occurrences of the old version are historical prose"
     vars:
-      # Manifest and lock only, no executable change: routing loads the
-      # trivial-change modules plus mirrored-constraints (root step 4).
-      review_modules: [runtime-scope, inventory-drift, mirrored-constraints, surface-verifier]
+      # The bumped runtime dependency is imported by src/sumo_qa/fetch.py, so
+      # this is a runtime review: the defaultTest module set (discovery sweep
+      # and coverage ledger included) applies.
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -428,7 +430,20 @@ tests:
         +613 version = "0.28.1"
         ```
         Context: the floor moves to 0.28 so installs pick up 0.28's
-        connection-pool fix; no code changes.
+        connection-pool fix; no source file changes.
+
+        ## src/sumo_qa/fetch.py (unchanged by the diff; the only httpx consumer)
+        ```python
+        1 from __future__ import annotations
+        2 import httpx
+        3
+        4 _CLIENT = httpx.Client(timeout=10.0, limits=httpx.Limits(max_keepalive_connections=4))
+        5
+        6 def fetch(url: str) -> str:
+        7     response = _CLIENT.get(url)
+        8     response.raise_for_status()
+        9     return response.text
+        ```
 
         ## Repo search (hidden files included)
         ```text
@@ -438,6 +453,8 @@ tests:
         CHANGELOG.md:388:- adopt httpx 0.24 for the fetch client (#122)
         docs/adr/0004-http-client.md:9:In 2026-02 we chose httpx 0.24 over requests for async support.
         src/sumo_qa/fetch.py:2:import httpx
+        src/sumo_qa/fetch.py:4:_CLIENT = httpx.Client(timeout=10.0, limits=httpx.Limits(max_keepalive_connections=4))
+        tests/test_fetch.py:3:import httpx
         ```
         No pre-commit hook, workflow, Dockerfile, devcontainer or script
         names httpx; CI installs with `uv sync --locked`
@@ -446,28 +463,45 @@ tests:
         ## Fresh verification this turn
         ```text
         $ uv sync --locked && uv run pytest -q
+        tests/test_fetch.py::test_fetch_returns_body PASSED
+        tests/test_fetch.py::test_fetch_raises_on_http_error PASSED
         tests/test_fetch.py::test_fetch_reuses_pooled_connection PASSED
+        tests/test_fetch.py::test_client_timeout_and_pool_limits PASSED
         812 passed, 3 skipped in 40.02s
         ```
+        The four fetch tests run the real `fetch()` against an
+        `httpx.MockTransport` on httpx 0.28.1 (the locked version), asserting
+        `fetch(url) == "ok"`, `pytest.raises(httpx.HTTPStatusError)` on a 500,
+        `transport.connections_opened == 1` after two calls, and
+        `_CLIENT.timeout.read == 10.0` with
+        `_CLIENT._transport._pool._max_keepalive_connections == 4`.
       not_stale_paths: [CHANGELOG.md, docs/adr/0004-http-client.md, uv.lock]
       expected_shape: >-
-        Concise evidence-led verdict. Records that the identity search found no
-        other constraint location: CHANGELOG.md:388 and
-        docs/adr/0004-http-client.md:9 are historical records of an earlier
-        decision, not constraints, and stay as written; uv.lock is the
-        generated resolution already at 0.28.1 and CI installs from it. Cites
-        the fresh locked sync and test run and delivers SAFE TO MERGE. Ends
-        without a confirmation question.
+        Concise evidence-led runtime review. Names the risk the bump carries
+        on the runtime consumer, the fetch client at src/sumo_qa/fetch.py
+        running on httpx 0.28 (body, error, pooling, timeout/limits), anchored
+        to file:line with a coverage-ledger row citing the fresh
+        tests/test_fetch.py tests and their assertions, so it is COVERED.
+        Records that the identity search found no other constraint location:
+        CHANGELOG.md:388 and docs/adr/0004-http-client.md:9 are historical
+        records of an earlier decision, not constraints, and stay as written;
+        uv.lock is the generated resolution already at 0.28.1 and CI installs
+        from it. Cites the fresh locked sync and test run and delivers SAFE
+        TO MERGE. Ends without a confirmation question.
       mirror_expectation: >-
         NO MIRROR FINDING SHOULD BE RAISED. The old version text appears only
-        in historical prose. Flagging CHANGELOG.md or the ADR as stale, or
-        asking to rewrite either, FAILS this axis.
+        in historical prose, and the lock already resolves the new floor.
+        Flagging CHANGELOG.md or the ADR as stale, asking to rewrite either,
+        or treating uv.lock as a stale mirror FAILS this axis.
       anti_patterns:
         - >-
           Flags `CHANGELOG.md:388` or `docs/adr/0004-http-client.md:9` as a
           stale constraint, an inventory-drift anchor, or asks to update either
           to 0.28.
         - Invents a hook, CI or image mirror the supplied search does not show.
+        - >-
+          Treats the change as trivial and skips the runtime review of the
+          fetch client that consumes the bumped dependency.
         - Asking another confirmation question instead of delivering the verdict.
         - Surfacing literal taxonomy labels such as config_change or docs_change.
   - description: "TRUE NEGATIVE - a separate compatibility environment pins the older major on purpose, with a documented reason"
@@ -543,14 +577,18 @@ tests:
         constraints/pytest7-compat.txt:3 (and the compat.yml install that uses
         it) as a deliberately independent environment with its documented
         reason on lines 1-2, and pyproject.toml:31 as the plugin's published
-        support range for a different audience, so neither must follow the
-        dev group's floor. Cites the fresh test run and the compat job and
+        support range for a different audience: `pytest>=7.4` shares versions
+        with the dev group's `>=8.3` (every 8.3+ release satisfies both), is
+        not declared to be kept in sync, and its environment does not run the
+        dev-only option the new floor exists for, so it is a compatible range,
+        not a stale mirror. Neither must follow the dev group's floor. Cites the fresh test run and the compat job and
         delivers SAFE TO MERGE. Ends without a confirmation question.
       mirror_expectation: >-
         NO MIRROR FINDING SHOULD BE RAISED. The pytest 7 constraint is an
         intentionally separate environment with a documented compatibility
-        reason, and the plugin extra is a separate published range.
-        Demanding either move to `>=8.3` FAILS this axis.
+        reason, and the plugin extra is an undeclared range for another
+        audience that shares versions with the diff's range. Demanding either
+        move to `>=8.3` FAILS this axis.
       anti_patterns:
         - >-
           Flags `constraints/pytest7-compat.txt:3` or `pyproject.toml:31` as a
@@ -559,63 +597,65 @@ tests:
         - Treats the `<8` ceiling as conflicting with the dev group's floor as though both governed one environment.
         - Asking another confirmation question instead of delivering the verdict.
         - Surfacing literal taxonomy labels such as config_change or docs_change.
-  - description: "BLOCKER - a declared keep-in-sync hook mirror keeps the old ceiling the manifest raised, while an undeclared narrower CI cap stays compatible"
+  - description: "BLOCKER - a declared keep-in-sync hook mirror keeps the old ceiling the manifest raised, while an undeclared CI install carrying the same old cap stays compatible"
     vars:
       # Manifest and lock only, no executable change: routing loads the
       # trivial-change modules plus mirrored-constraints (root step 4).
       review_modules: [runtime-scope, inventory-drift, mirrored-constraints, surface-verifier]
       user_prompt: >-
-        Is this safe to merge? It only widens the pytest-cov cap.
+        Is this safe to merge? It only widens the hypothesis cap.
       ground_truth_context: |
         ## git diff
         ```diff
         diff --git a/pyproject.toml b/pyproject.toml
-        @@ pyproject.toml:52-56 @@
-         52 [dependency-groups]
-         53 test = [
-         54     "pytest>=8.3",
-        -55     "pytest-cov>=6,<7",
-        +55     "pytest-cov>=6,<8",
-         56 ]
+        @@ pyproject.toml:60-64 @@
+         60 [dependency-groups]
+         61 dev = [
+         62     "ruff>=0.6",
+        -63     "hypothesis>=6.100,<6.120",
+        +63     "hypothesis>=6.100,<6.140",
+         64 ]
         diff --git a/uv.lock b/uv.lock
-        @@ uv.lock:1002-1003 @@
-         1002 name = "pytest-cov"
-        -1003 version = "6.1.1"
-        +1003 version = "7.0.0"
+        @@ uv.lock:733-734 @@
+         733 name = "hypothesis"
+        -734 version = "6.118.0"
+        +734 version = "6.135.2"
         ```
-        Context: the cap moves to `<8` so the dev test group can take
-        pytest-cov 7.0; the floor is unchanged and nothing requires 7.x.
-        No code changes.
+        Context: the cap moves to `<6.140` so the dev group can take
+        hypothesis 6.135; the floor is unchanged and nothing requires 6.120 or
+        later. No code changes.
 
         ## Repo search (hidden files included)
         ```text
-        $ rg -n --hidden -g '!.git' -i 'pytest[-_]cov'
-        .github/workflows/coverage.yml:26:        run: pip install "pytest-cov>=6,<7" coverage-badge
-        .pre-commit-config.yaml:42:          - pytest-cov>=6,<7  # keep in sync with pyproject [dependency-groups] test
-        pyproject.toml:55:    "pytest-cov>=6,<8",
-        uv.lock:1002:name = "pytest-cov"
+        $ rg -n --hidden -g '!.git' -i 'hypothesis'
+        .github/workflows/nightly.yml:31:        run: pip install "hypothesis>=6.100,<6.120" hypofuzz
+        .pre-commit-config.yaml:58:          - hypothesis>=6.100,<6.120
+        pyproject.toml:63:    "hypothesis>=6.100,<6.140",
+        uv.lock:733:name = "hypothesis"
         ```
 
         ## .pre-commit-config.yaml (unchanged by the diff)
         ```yaml
-        34   - repo: local
-        35     hooks:
-        36       - id: coverage-gate
-        37         name: coverage gate (pre-push)
-        38         entry: pytest --cov=sumo_qa --cov-fail-under=90 -q
-        39         language: python
-        40         stages: [pre-push]
-        41         additional_dependencies:
-        42           - pytest-cov>=6,<7  # keep in sync with pyproject [dependency-groups] test
+        48   # keep in sync with pyproject [dependency-groups] dev
+        49   - repo: local
+        50     hooks:
+        51       - id: property-tests
+        52         name: property tests (pre-push)
+        53         entry: pytest tests/property -q
+        54         language: python
+        55         stages: [pre-push]
+        56         additional_dependencies:
+        57           - ruff>=0.6
+        58           - hypothesis>=6.100,<6.120
         ```
         The hook runs in pre-commit's own isolated virtualenv, built from
         `additional_dependencies`.
 
-        ## .github/workflows/coverage.yml (unchanged by the diff)
+        ## .github/workflows/nightly.yml (unchanged by the diff)
         ```yaml
-        24       - uses: actions/setup-python@v5
-        25       - name: Install badge tooling
-        26         run: pip install "pytest-cov>=6,<7" coverage-badge
+        29       - uses: actions/setup-python@v5
+        30       - name: Install fuzzing tooling
+        31         run: pip install "hypothesis>=6.100,<6.120" hypofuzz
         ```
 
         ## Fresh verification this turn
@@ -623,39 +663,42 @@ tests:
         $ uv sync --locked && uv run pytest -q
         812 passed, 3 skipped in 40.11s
         ```
-        (This ran in the project's uv environment, which resolves pytest-cov
-        7.0.0 from uv.lock. No pre-commit hook was run this turn.)
+        (This ran in the project's uv environment, which resolves hypothesis
+        6.135.2 from uv.lock. No pre-commit hook was run this turn.)
       stale_mirror_path: .pre-commit-config.yaml
-      not_stale_paths: [.github/workflows/coverage.yml, uv.lock]
+      not_stale_paths: [.github/workflows/nightly.yml, uv.lock]
       expected_shape: >-
-        Evidence-led verdict. Classifies `.pre-commit-config.yaml:42` as a
-        declared exact mirror (its comment says to keep it in sync with the
-        test group), so it is held to both ends: its `<7` ceiling no longer
-        matches the manifest's `<8`, which makes it stale even though both
-        ranges admit 6.x. Names it as its own anchored row with the old and
-        required constraints inline (for example `(>=6,<7 → >=6,<8)`),
-        UNCOVERED / a SAFE-blocker because the diff does not update that
-        file, and requires the hook's own run (for example `pre-commit run
-        coverage-gate --hook-stage pre-push --all-files` after the hook
-        environment is rebuilt). Classifies
-        `.github/workflows/coverage.yml:26` as an undeclared range in another
-        environment whose narrower cap still admits what the diff requires,
-        so it raises no finding there, and treats uv.lock as the generated
-        resolution. Delivers NOT SAFE TO MERGE. Ends without a confirmation
-        question.
+        Evidence-led verdict. Classifies `.pre-commit-config.yaml:58` as a
+        declared mirror (the block's line-48 comment says to keep it in sync
+        with the dev group), so it is held to both ends: its `<6.120` ceiling
+        no longer matches the manifest's `<6.140`, which makes it stale even
+        though both ranges admit 6.100 to 6.119. Names it as its own anchored
+        row with the old and required constraints inline (for example
+        `(>=6.100,<6.120 → >=6.100,<6.140)`), UNCOVERED / a SAFE-blocker
+        because the diff does not update that file, and requires the hook's
+        own run (for example `pre-commit run property-tests --hook-stage
+        pre-push --all-files` after the hook environment is rebuilt).
+        Classifies `.github/workflows/nightly.yml:31` as an undeclared range in
+        another environment that shares versions with the diff's range and
+        admits nothing the diff excludes, so it raises no finding there (no
+        drift row, no risk, no verifier line, no residual), and treats uv.lock
+        as the generated resolution. Delivers NOT SAFE TO MERGE. Ends without
+        a confirmation question.
       mirror_expectation: >-
         A STALE MIRROR SHOULD BE FLAGGED, AND ONLY ONE.
-        `.pre-commit-config.yaml:42` is declared to be kept in sync with the
-        changed constraint, so its unraised `<7` ceiling is stale: the review
-        must name it by path and line with old and required constraints,
-        keep it a SAFE-blocker despite the green run, require the hook's own
-        run, and deliver NOT SAFE TO MERGE. `.github/workflows/coverage.yml:26`
-        carries the same `<7` cap with no sync declaration: it is compatible,
-        and demanding it be raised or aligned FAILS this axis.
+        `.pre-commit-config.yaml:58` is declared (in its block) to be kept in
+        sync with the changed constraint, so its unraised `<6.120` ceiling is
+        stale: the review must name it by path and line with old and required
+        constraints, keep it a SAFE-blocker despite the green run, require
+        the hook's own run, and deliver NOT SAFE TO MERGE.
+        `.github/workflows/nightly.yml:31` carries the same old `<6.120` cap
+        with no sync declaration: it is compatible, and demanding it be
+        raised, aligned or verified FAILS this axis.
       anti_patterns:
         - >-
           Declares SAFE TO MERGE or treats the hook as compatible because
-          `>=6,<7` still admits 6.x, ignoring the keep-in-sync declaration.
+          `>=6.100,<6.120` still admits 6.100, ignoring the keep-in-sync
+          declaration on its block.
         - >-
           Names the stale hook ceiling only as a residual concern, a
           follow-up, or a generic "keep pins in sync" note instead of a named,
@@ -665,7 +708,8 @@ tests:
           environment, or omits the hook's own run from what clears the
           blocker.
         - >-
-          Flags `.github/workflows/coverage.yml:26` as stale, demands its cap
-          be raised to `<8`, or asks to align it with the manifest.
+          Flags `.github/workflows/nightly.yml:31` as stale, demands its cap
+          be raised to `<6.140`, asks to align it with the manifest, or
+          requires a nightly run to verify it.
         - Asking another confirmation question instead of delivering the verdict.
         - Surfacing literal taxonomy labels such as config_change or docs_change.

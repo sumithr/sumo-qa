@@ -154,11 +154,14 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     "inventory-drift": [
         "**Documented-inventory drift rule (pinned).**",
         "`Inventory drift anchor: <path>:<line> (<old> → <new>) | Required update: this file",
+        "**Not a drift anchor (pinned).**",
+        "**Residual concerns on a constraint diff (pinned).**",
     ],
     "mirrored-constraints": [
         "**Mirrored-constraint probe (pinned).**",
         "Search for the canonical package/tool name and its spelling variants",
         "**Classify before judging.**",
+        "A **declared mirror** has a keep-in-sync/lockstep statement on its line, its enclosing block or its file header",
         "**Compare semantics, not text.**",
         "never a description of the environment",
         "**No mirror to fix (pinned).**",
@@ -281,6 +284,8 @@ PINNED_RULE_MARKERS = (
     "**Mirrored-constraint probe (pinned).**",
     "**Module-match rule (pinned):**",
     "**No mirror to fix (pinned).**",
+    "**Not a drift anchor (pinned).**",
+    "**Residual concerns on a constraint diff (pinned).**",
     "**Producer test (apply first):**",
     "**Re-anchor first.**",
     "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**",
@@ -419,6 +424,16 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         operative=(
             "record each relationship in one line and raise no synchronisation requirement",
             "no 2a row, no named risk, no residual asking to align or refresh them",
+        ),
+    ),
+    "**Not a drift anchor (pinned).**": PinnedClauses(
+        defining="An occurrence that merely still carries the old constraint text, but is not a declared mirror",
+        operative=("is not a drift anchor: no 2a row, no item-8 line, no residual",),
+    ),
+    "**Residual concerns on a constraint diff (pinned).**": PinnedClauses(
+        defining="Stale mirror or not, the root's one concrete `Residual concerns:` item comes from an unexercised code path or input of the changed code",
+        operative=(
+            "never from history, a lock, or differing caps, syntax or bounds among compatible occurrences",
         ),
     ),
     "**Module-match rule (pinned):**": PinnedClauses(

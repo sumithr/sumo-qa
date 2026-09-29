@@ -70,8 +70,8 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 | `context-inputs` | a repo-map / diff-impact result, context bundle, or coverage/mutation artifact is supplied |
 | `coverage-ledger` | every runtime review (step 9): item-2 rows incl. 2c/2d |
 | `inventory-drift` | a documented count, name, inventory, version, schema field, or generated artifact changed (2a) |
-| `mirrored-constraints` | a dependency/tool/runtime constraint changed (step 4) |
-| `unproven-escalation` | any risk is UNPROVEN, or maps to a catalogued technique's failure mode (2b; step-6 hints, not per-AI judgment) |
+| `mirrored-constraints` | a dependency/tool/runtime constraint changed |
+| `unproven-escalation` | any risk is UNPROVEN, or maps to a catalogued technique's failure mode (2b; step-6 hints) |
 | `test-only-diff` | the diff touches only test files |
 | `acceptance-criteria` | the host supplies acceptance criteria |
 | `ac-evidence-views` | with `acceptance-criteria`: a close MET/UNVERIFIED call, or the AC map as a table |
@@ -94,7 +94,7 @@ Output order: these items, the Verdict close, the verdict line, then only an app
 7. **AC lines** when criteria were supplied, one per criterion as pinned in `acceptance-criteria` (MET ones too); else exactly `No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`
 8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`, `mirrored-constraints`: one per skill/eval change, new guard or `.ab.yaml`, isolated env, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged. None applies → emit nothing for item 8.
 
-A runtime verdict missing an applicable item is a discipline violation. Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 where it applies.
+A runtime verdict missing an applicable item is a discipline violation. Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 and a stale mirror's 2a row where they apply.
 
 **Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete item outside every named risk's failure path, anchored to file:line or a named input (never `none`). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim, so invent no line for it. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
 
