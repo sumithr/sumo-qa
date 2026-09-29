@@ -140,7 +140,7 @@ Follow this order:
 
 1. Read `skills/using-sumo-qa/SKILL.md` and keep its global discipline (output discipline, knowledge authority, confirmation gates).
 2. Read `knowledge/classifications.md`, `knowledge/approaches.md`, and `skills/sumo-qa-deciding-approach/SKILL.md`.
-3. Produce the same internal `{classification, approach, rationale, next_action}` routing payload the deciding-approach skill defines, using only canonical IDs from those two catalogues.
+3. Produce the same internal `{classification, approach, rationale, next_action}` routing payload the deciding-approach skill defines, using only canonical IDs from those two catalogues, or `n/a` exactly where the deciding-approach skill allows it.
 4. Read the routed `skills/<name>/SKILL.md`, plus any `skills/<name>/modules/<id>.md` it routes to. When `next_action.skill` is `none` (the `no-tests-recommended` and `recommend-removal` stops), there is no routed skill: skip to step 7 and carry the plain-English decision forward, as the MCP route does.
 5. Load only the catalogues that skill asks for, from the files the loaders read:
 
