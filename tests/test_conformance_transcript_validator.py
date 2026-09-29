@@ -693,6 +693,12 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("**Classification:** docs_change **Approach:** no-tests-recommended", "taxonomy_label"),
         ("**Classification:** docs_change**Approach:** no-tests-recommended", "taxonomy_label"),
         ("{classification:x,approach:y,next_action:{a:{skill:q}}}", "payload_json"),
+        ("Routing to \u201csumo-qa-strategising\u201d.", "route_announcement"),
+        (
+            "{classification: docs_change, approach: n/a, rationale: \u201ca { b\u201d, "
+            "next_action: {skill: none}}",
+            "payload_json",
+        ),
         # An opening brace that never closes must not hide a later payload.
         (
             "Wrap it in a `{` brace.\n```json\n"
@@ -767,6 +773,7 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         '{"classification":"public","approach":"canary",'
         '"next_action":{"description":"a \u201cskill: beginner\u201d example"}}',
         "[PEND\u0130NG] Load catalogues",
+        "{classification:public,approach:canary,next_action:{description:\u201cskill: beginner\u201d}}",
         "\u0661. Load catalogues\n\u0662. Pick the approach",
         '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
         "1. Read the diff\n2. Run the suite",

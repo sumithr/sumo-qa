@@ -332,6 +332,9 @@ _DECO_SET = re.escape(_DECO_CHARS)
 _DECO = f"[{_DECO_SET}]"
 _QUOTED_RE = re.compile(
     r'"(?:\\.|[^"\\])*"'
+    # A curly-quoted string: \u201c opens, \u201d closes; inside an ASCII
+    # "..." string both are plain text.
+    r"|\u201c(?:\\.|[^\u201d\\])*\u201d"
     rf"|(?<![{_WORD}])'(?:\\.|[^'\\]|(?<=[{_WORD}])'(?=[{_WORD}]))*"
     rf"(?:(?<![{_WORD}])'|'(?![{_WORD}]))",
     re.DOTALL,
@@ -344,7 +347,10 @@ _SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f
 # ("I'd recommend handing off to sumo-qa-reviewing-before-merge") or tell the
 # user to send output to a tool, so paraphrased handoffs are left to the eval's
 # judge rather than matched here.
-_TO_SKILL = r"[:\s*_`\"'\[(]{0,8}(?:the\s+[*_`\"'\[(]{0,8})?(?:sumo-qa-|using[-_]sumo[-_]qa)"
+_TO_SKILL = (
+    r"[:\s*_`\"'\u201c\[(]{0,8}(?:the\s+[*_`\"'\u201c\[(]{0,8})?"
+    r"(?:sumo-qa-|using[-_]sumo[-_]qa)"
+)
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
     r"picking the qa approach"
     r"|\brouting this qa intent\b"
@@ -473,6 +479,8 @@ def _brace_pairs(text: str) -> list[tuple[int, int, int]]:
                 ch == "'" and _is_word(text, i - 1) and _is_word(text, i + 1)
             ):
                 quote = ""
+        elif stack and ch == "\u201c":
+            quote = "\u201d"
         elif stack and (ch == '"' or (ch == "'" and not _is_word(text, i - 1))):
             quote = ch
         elif ch == "{":

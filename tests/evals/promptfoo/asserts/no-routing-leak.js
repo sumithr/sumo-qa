@@ -42,6 +42,8 @@ const SKILL_KEY = /\bskill["']?\s*:/;
 const WORD = 'A-Za-z0-9_';
 const QUOTED = new RegExp(
   '"(?:\\\\[\\s\\S]|[^"\\\\])*"' +
+    // A curly-quoted string: \u201c opens, \u201d closes.
+    '|\u201c(?:\\\\[\\s\\S]|[^\u201d\\\\])*\u201d' +
     `|(?<![${WORD}])'(?:\\\\[\\s\\S]|[^'\\\\]|(?<=[${WORD}])'(?=[${WORD}]))*` +
     `(?:(?<![${WORD}])'|'(?![${WORD}]))`,
   'g',
@@ -56,7 +58,8 @@ const SPACE = /[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\uf
 // A skill is named sumo-qa-* (hyphens); sumo_qa_* tool names are where
 // downstream skills legitimately send data.
 const TO_SKILL =
-  '[:\\s*_`"\'\\[(]{0,8}(?:the\\s+[*_`"\'\\[(]{0,8})?(?:sumo-qa-|using[-_]sumo[-_]qa)';
+  '[:\\s*_`"\'\u201c\\[(]{0,8}(?:the\\s+[*_`"\'\u201c\\[(]{0,8})?' +
+  '(?:sumo-qa-|using[-_]sumo[-_]qa)';
 const ROUTE_ANNOUNCEMENT = new RegExp(
   'picking the qa approach' +
     '|\\brouting this qa intent\\b' +
@@ -120,6 +123,8 @@ function bracePairs(text) {
       else if (ch === '\\') escaped = true;
       else if (ch === quote && !(ch === "'" && isWord(text, i - 1) && isWord(text, i + 1)))
         quote = '';
+    } else if (stack.length && ch === '\u201c') {
+      quote = '\u201d';
     } else if (stack.length && (ch === '"' || (ch === "'" && !isWord(text, i - 1)))) {
       quote = ch;
     } else if (ch === '{') {

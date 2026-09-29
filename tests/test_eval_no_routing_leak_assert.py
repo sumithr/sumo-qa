@@ -125,6 +125,11 @@ _EXTRA = [
     '{"classification":"x","approach":"y","rationale":"r","next_action":{"skill":"none"}}',
     "{ { {classification:x,approach:y,next_action:{skill:z}} x",
     "{" * 3_000 + "{classification:x,approach:y,next_action:{skill:z}}",
+    "Routing to \u201csumo-qa-strategising\u201d.",
+    "{classification:public,approach:canary,next_action:{description:\u201cskill: beginner\u201d}}",
+    "{classification: docs_change, approach: n/a, rationale: \u201ca { b\u201d, "
+    "next_action: {skill: none}}",
+    "{a: \u201c" + "x" * 3_000,
     "Classification: docs_change; Approach: no-tests-recommended." + " " * 2_000 + "x",
 ]
 
