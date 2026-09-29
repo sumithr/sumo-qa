@@ -99,6 +99,25 @@ _SHORTHAND_SOURCE_RE = re.compile(r"([A-Za-z0-9][\w.-]*)/([\w.-]+?)(?:\.git)?(?:
 _REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
 _DOT_SEGMENT_RE = re.compile(r"(?:^|[/:])\.{1,2}(?:/|$)")
 _GIT_ALLOWED_PROTOCOLS = "https:ssh:file"
+# Repository-location variables (from `git rev-parse --local-env-vars`, minus
+# the user's own config ones). A caller such as a git hook exports these, and
+# they would point sumo-qa's git at the caller's repository, not the clone.
+_GIT_REPO_LOCATION_VARIABLES = frozenset(
+    {
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_DIR",
+        "GIT_GRAFT_FILE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_NO_REPLACE_OBJECTS",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_PREFIX",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_SHALLOW_FILE",
+        "GIT_WORK_TREE",
+    }
+)
 # Skill names reach the CLI argv and filesystem paths: letters, digits, '.',
 # '_', '-' and inner spaces (the CLI's --skill takes a frontmatter name), and
 # never a leading '-' (a flag) or '.', a wildcard, a separator, or a drive.
@@ -717,7 +736,7 @@ def _run_git(
     command: list[str], timeout: int, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
     env = {
-        **os.environ,
+        **{k: v for k, v in os.environ.items() if k not in _GIT_REPO_LOCATION_VARIABLES},
         "GIT_TERMINAL_PROMPT": "0",
         # Blocks ext:: and other command-running transports.
         "GIT_ALLOW_PROTOCOL": _GIT_ALLOWED_PROTOCOLS,

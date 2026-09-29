@@ -276,6 +276,26 @@ def test_git_runs_non_interactively_with_an_allow_listed_transport(toolchain) ->
         assert not kwargs.get("shell")
 
 
+@pytest.mark.parametrize(
+    "variable",
+    ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"],
+)
+def test_git_ignores_repository_location_variables_from_the_caller(
+    monkeypatch, toolchain, variable
+) -> None:
+    """Run from a git hook (or with GIT_DIR exported), git would act on the
+    caller's repository instead of the fresh clone."""
+    monkeypatch.setenv(variable, "/somewhere/else")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "0")  # the user's own config is kept
+
+    _install(toolchain)
+
+    for command, kwargs in toolchain.calls:
+        if command[0].endswith("git"):
+            assert variable not in kwargs["env"]
+            assert kwargs["env"]["GIT_CONFIG_COUNT"] == "0"
+
+
 def test_a_named_ref_prefers_a_tag_then_a_remote_branch(toolchain) -> None:
     _install(toolchain, source="o/r#main")
 
@@ -1765,8 +1785,17 @@ elif rest[0] == "add":
 
 
 def _git(*args: str, cwd: Path) -> str:
+    # Strip GIT_* (as the other git-spawning tests do): under the pre-push hook
+    # GIT_DIR points at the real repository, and `git init` would re-initialise
+    # it. Hooks are disabled so nothing fires inside the throwaway repository.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+        ["git", "-c", "core.hooksPath=/dev/null", *args],
+        cwd=cwd,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
 
 
@@ -1780,10 +1809,14 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     (repo / "skills" / "demo" / "SKILL.md").write_text("# v1\n", "utf-8")
     _git("init", "-q", cwd=repo)
     _git("-c", "user.name=t", "-c", "user.email=t@t", "add", ".", cwd=repo)
-    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "v1", cwd=repo)
+    _git(
+        "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--no-verify", "-qm", "v1", cwd=repo
+    )
     v1 = _git("rev-parse", "HEAD", cwd=repo)
     (repo / "skills" / "demo" / "SKILL.md").write_text("# v2\n", "utf-8")
-    _git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "v2", cwd=repo)
+    _git(
+        "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--no-verify", "-qam", "v2", cwd=repo
+    )
     v2 = _git("rev-parse", "HEAD", cwd=repo)
 
     bin_dir = tmp_path / "bin"
@@ -1803,6 +1836,9 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{repo.as_uri()}.insteadOf")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", remote)
+    # As in a pre-push hook: sumo-qa's git must ignore the caller's repository.
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "callers-repo.git"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "callers-index"))
 
     result = ext.install_external_skill(
         skill="demo",
