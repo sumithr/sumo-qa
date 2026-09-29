@@ -41,7 +41,9 @@ const SPACE = /[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\uf
 const DECOR = '[\\s*_`"\']';
 const ROUTE_ANNOUNCEMENT = new RegExp(
   'picking the qa approach' +
-    '|\\b(?:routing|handing off|routed) to[\\s*_`"\'\\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)' +
+    '|\\brouting this qa intent\\b' +
+    '|\\b(?:routing|routed|handing)(?:\\s+(?:this|you|it))?(?:\\s+off)?\\s+to' +
+    '[\\s*_`"\'\\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)' +
     "|\\b(?:i'm|i am|i'll|i will)\\s+(?:now\\s+)?(?:rout(?:e|ing)|handing)\\s+(?:you|this)\\b",
   'i',
 );
@@ -144,7 +146,8 @@ function hasTaxonomyLabel(text) {
   const alternatives = names.map(escapeRegExp).join('|');
   const label = new RegExp(
     `(?<!\\w)(?:classification|approach)${DECOR}{0,4}:${DECOR}{0,6}` +
-      `(?:${alternatives}|n/a)[\`*"']*(?=[ \\t]*$|[.,;:)]|\\s+[-\\u2013\\u2014]\\s)`,
+      `(?:${alternatives}|n/a)[\`*"']*` +
+      '(?=[ \\t]*$|[.,;:)]|\\s+[-\\u2013\\u2014]\\s|\\s+\\(|\\s+(?:because|since|as|given)\\b)',
     'im',
   );
   return label.test(text);

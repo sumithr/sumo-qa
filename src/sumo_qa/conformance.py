@@ -331,7 +331,9 @@ _SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f
 _DECOR = r"[\s*_`\"']"
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
     r"picking the qa approach"
-    r"|\b(?:routing|handing off|routed) to[\s*_`\"'\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
+    r"|\brouting this qa intent\b"
+    r"|\b(?:routing|routed|handing)(?:\s+(?:this|you|it))?(?:\s+off)?\s+to"
+    r"[\s*_`\"'\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
     r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+(?:you|this)\b",
     re.IGNORECASE | re.ASCII,
 )
@@ -451,7 +453,8 @@ def _has_taxonomy_label(text: str) -> bool:
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     label = re.compile(
         rf"(?<!\w)(?:classification|approach){_DECOR}{{0,4}}:{_DECOR}{{0,6}}"
-        rf"(?:{alternatives}|n/a)[`*\"']*(?=[ \t]*$|[.,;:)]|\s+[-–—]\s)",
+        rf"(?:{alternatives}|n/a)[`*\"']*"
+        r"(?=[ \t]*$|[.,;:)]|\s+[-–—]\s|\s+\(|\s+(?:because|since|as|given)\b)",
         re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
     return bool(label.search(text))

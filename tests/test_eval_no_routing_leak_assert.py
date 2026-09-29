@@ -71,6 +71,9 @@ _EXTRA = [
     '{"classification":"x","approach":"y","rationale":"a\\\nb","next_action":{"skill":"none"}}',
     "{\u5206\u985eclassification:x,approach:y,next_action:{skill:z}}",
     "{classification:x,approach:y,next_action:{\u5206\u985eskill:z}}",
+    "Routing you to sumo-qa-strategising.",
+    "Approach: verify-existing since the suite covers it.",
+    "I'm routing this QA intent to the review.",
 ]
 
 
