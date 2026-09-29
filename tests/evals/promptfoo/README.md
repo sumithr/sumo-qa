@@ -152,11 +152,10 @@ if the baseline moves. On the Claude pair the control does not isolate the lift:
 developer-confirmed risk names the technique and the failure mode, so A0
 prescribes the input unprompted. At `--repeat 3`, before the #689 clause that
 requires UNPROVEN and fails UNCOVERED, A0 passed the substring seed 1 of 3 and
-the boundary seed 2 of 3, and A1 passed both 3 of 3. Under that clause two
-single passes, the one in the config header and the final #689 pass, both passed
-the substring A0 leg and failed the boundary A0 leg on its coverage label
-(UNCOVERED with the green path-matching tests left out), and passed both A1
-legs. Neither seed separates on the prescribed-input behaviour #187 teaches. The
+the boundary seed 2 of 3, and A1 passed both 3 of 3. Under that clause four
+single passes, the last the final #689 pass, all passed the substring A0 leg and
+failed the boundary A0 leg on its coverage label (UNCOVERED with the green
+path-matching tests left out or listed), and passed both A1 legs. Neither seed separates on the prescribed-input behaviour #187 teaches. The
 config header gives the scores; the control is kept as a regression guard on
 the A1 leg.
 
@@ -320,10 +319,10 @@ done
   ADDS a regression guard / bidirectional "do X but NOT Y" rule, "the guard is
   described" is NOT "the guard is tested": its eval must carry a discriminating
   true-negative / over-trigger seed a guard-violating reviewer would FAIL. A
-  one-sided (positive-only) eval leaves the guard UNCOVERED, a SAFE-blocker,
-  mirroring uncovered-risk → NOT SAFE and the #255 vacuous-test probe. Two seeds:
+  one-sided (positive-only) eval leaves the guard UNPROVEN, a SAFE-blocker,
+  mirroring unproven-risk → NOT SAFE and the #255 vacuous-test probe. Two seeds:
   a one-sided over-trigger guard (only external-output seeds, no internal-value
-  true-negative → guard UNCOVERED, NOT SAFE) and the same guard with a
+  true-negative → guard UNPROVEN, NOT SAFE) and the same guard with a
   discriminating internal/self-produced true-negative seed (→ COVERED,
   SAFE-eligible).
 - **`skill-reviewing-before-merge-eval-validity.yaml` + `.ab.yaml` (#321).** When
@@ -927,7 +926,7 @@ renders.
 | `fixtures/reviewing-before-merge-PRE-300.SKILL.md` | Snapshot of the pre-#300 SKILL.md body, the A0 control leg for the runtime-scope `.ab.yaml` |
 | `skill-reviewing-before-merge-verifier-evidence.yaml` + `.ab.yaml` | Issue #332 surface-specific verifier-evidence corpus (3 seeds: unrun eval with a CLOSED risk gate, the unrun eval NOT pre-named → NOT SAFE, no combined-tree run → NOT SAFE, discharged combined-tree run → SAFE-eligible) + A0(pre-edit)/A1(post-edit) load-bearing control (see "Verification-evidence corpus" above) |
 | `fixtures/reviewing-before-merge-PRE-332.SKILL.md` | Snapshot of the pre-#332 SKILL.md body, the shared A0 control leg for the verifier-evidence and feature-flow `.ab.yaml` controls |
-| `skill-reviewing-before-merge-guard-coverage.yaml` | Issue #316 regression-guard coverage corpus (2 seeds: one-sided over-trigger guard → UNCOVERED, NOT SAFE; two-sided guard with a discriminating internal-value true-negative → COVERED, SAFE-eligible) |
+| `skill-reviewing-before-merge-guard-coverage.yaml` | Issue #316 regression-guard coverage corpus (2 seeds: one-sided over-trigger guard → UNPROVEN, NOT SAFE; two-sided guard with a discriminating internal-value true-negative → COVERED, SAFE-eligible) |
 | `skill-reviewing-before-merge-eval-validity.yaml` + `.ab.yaml` | Issue #321 eval-validity probe (2 seeds: non-load-bearing A/B + non-discriminating credited input → NOT SAFE; structurally-isolating A/B with only discriminating inputs → SAFE-eligible) + A0(pre-edit)/A1(post-edit) control, non-discriminating on the Claude pair |
 | `fixtures/reviewing-before-merge-PRE-321.SKILL.md` | Snapshot of the pre-#321 SKILL.md body, the A0 control leg for the eval-validity `.ab.yaml` |
 | `skill-reviewing-before-merge-feature-flow.yaml` + `.ab.yaml` | Issue #331 primary feature-flow evidence corpus (2 seeds: CSV-export CLI feature with only a `_row_to_csv` formatter unit → UNVERIFIED (feature flow), NOT SAFE; fresh end-to-end test invoking the CLI command + asserting the written CSV → VERIFIED, SAFE-eligible) + A0(pre-#332)/A1(post-#332) load-bearing control on the unexercised seed |
