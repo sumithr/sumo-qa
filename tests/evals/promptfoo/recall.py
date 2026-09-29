@@ -73,7 +73,7 @@ def _rows(path: Path) -> list[dict]:
     return rows
 
 
-def _case(path: Path, row: dict) -> tuple[str, str, str, bool]:
+def _case(path: Path, row: dict) -> tuple[str, str, str, bool, tuple]:
     test = row.get("testCase") or {}
     name = row.get("description") or test.get("description") or "<unnamed>"
     if _is_error(row):
@@ -83,7 +83,9 @@ def _case(path: Path, row: dict) -> tuple[str, str, str, bool]:
         if not meta.get(key):
             raise ReportError(f"{path}: {name} has no metadata.{key}")
     caught = bool((row.get("gradingResult") or {}).get("pass"))
-    return name, meta["category"], meta["split"], caught
+    # What a run graded the case against; runs compared together must agree on it.
+    identity = (name, meta["category"], meta["split"], meta.get("expected_file"))
+    return name, meta["category"], meta["split"], caught, identity
 
 
 def _new_run() -> dict:
@@ -92,7 +94,8 @@ def _new_run() -> dict:
         "categories": defaultdict(_bucket),
         "splits": defaultdict(_bucket),
         "controls": {"passed": 0, "total": 0},
-        "names": set(),
+        "identities": set(),
+        "source": "",
     }
 
 
@@ -106,13 +109,14 @@ def summarise(paths: list[Path]) -> dict:
         seen: dict[str, int] = defaultdict(int)
         file_runs: list[dict] = []
         for row in _rows(Path(path)):
-            name, category, split, caught = _case(Path(path), row)
+            name, category, split, caught, identity = _case(Path(path), row)
             index = seen[name]
             seen[name] += 1
             while len(file_runs) <= index:
                 file_runs.append(_new_run())
+                file_runs[-1]["source"] = f"{Path(path).name} run {len(file_runs)}"
             run = file_runs[index]
-            run["names"].add(name)
+            run["identities"].add(identity)
             if category == CONTROL:
                 run["controls"]["total"] += 1
                 run["controls"]["passed"] += caught
@@ -127,13 +131,20 @@ def summarise(paths: list[Path]) -> dict:
             case["caught"] += caught
         runs.extend(file_runs)
 
-    # Mean and spread compare like with like: every run must score the same cases.
-    if any(run["names"] != runs[0]["names"] for run in runs):
-        raise ReportError("runs scored different case sets; score a filtered run on its own")
+    # Mean and spread compare like with like: every run must grade the same cases
+    # against the same category, split and expected file.
+    reference = runs[0]["identities"]
+    for run in runs[1:]:
+        if run["identities"] != reference:
+            changed = sorted({i[0] for i in run["identities"] ^ reference})
+            raise ReportError(
+                f"{run['source']} graded different cases than {runs[0]['source']} "
+                f"(score a filtered or re-labelled run on its own): {', '.join(changed)}"
+            )
     if not runs[0]["overall"]["total"]:
         raise ReportError("no recall cases in the reports (controls only)")
     for run in runs:
-        del run["names"]
+        del run["identities"], run["source"]
         run["categories"] = dict(run["categories"])
         run["splits"] = dict(run["splits"])
         run["overall"]["recall"] = _rate(run["overall"])

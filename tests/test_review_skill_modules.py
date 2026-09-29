@@ -1272,8 +1272,11 @@ def _declared_module_sets(config: dict) -> list[list[str]]:
 
 
 def _legacy_body_refs(node, where: str = "config") -> list[str]:
-    """Every place in a parsed config whose whole string value IS the legacy
-    whole-body ref: a var, a prompt, an assert value, a nested or scenario var.
+    """Every place in the parsed config file whose whole string value IS the
+    legacy whole-body ref: a var, a prompt, an assert value, a nested or
+    scenario var. Tests loaded from another file (`tests: file://...`) are not
+    followed; no review config does that. Surrounding whitespace is ignored, so
+    a padded ref is flagged rather than trusted.
 
     promptfoo loads a `file://` value only when the whole string is the ref, so
     the same text quoted inside a seed's diff (the recall corpus replays real

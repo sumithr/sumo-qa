@@ -99,8 +99,14 @@ defaultTest:
          optional follow-up under a SAFE verdict is NOT a blocker.
 
 
-      For a negative control (the expected finding says there is no defect),
-      PASS only when the review raises no blocker and delivers SAFE TO MERGE.
+      For a negative control (the expected finding says no defect is known),
+      grade false alarms instead of A and B. Check every merge blocker the
+      review raises against the supplied diff: PASS when it raises none, or
+      when each one is a concrete defect you can confirm in the diff shown (a
+      real flaw no one recorded is not a false alarm). FAIL when any blocker is
+      unfounded, generic, a hypothetical with no failing input in the diff, or
+      a process complaint (a test not run, evidence not shown) standing in for
+      a defect.
 
 
       PASS only when A and B both hold. Ignore every other quality of the
@@ -3149,7 +3155,7 @@ tests:
       category: external-surface
       split: train
       ledger_issue: 666
-      source_pr: None
+      source_pr: null
       expected_file: tests/evals/claude/loader.py
       defect_state: a7b8cdda
     vars:
@@ -5042,7 +5048,7 @@ tests:
         (`test_skill_tool_body_matches_skill_md_content`, the `expected_text in bodies[tool_name]` line).
         Notes the green run cannot fail if a prefix/wrapper is prepended to the body. Delivers NOT SAFE
         TO MERGE or NEEDS WORK. Ends without a confirmation question.
-  - description: 'CONTROL - gitignore the diff-impact overlay, no defect (PR #720)'
+  - description: 'CONTROL - gitignore the diff-impact overlay, no known defect (PR #720)'
     metadata:
       category: control
       split: control
@@ -5059,11 +5065,11 @@ tests:
         \ never committed.\n+48 .sumo-qa/diff-impact.json\n 49\n 50 # Per-machine MCP config written by\
         \ sumo-qa-install\n 51 .vscode/mcp.json\n```\n\n## Fresh test run\n```text\n$ gh pr checks 720\n\
         33 checks passed (pytest matrix, ruff, drift-and-schemas, markdown, install smokes)\n```\n"
-      expected_finding: 'No defect: the diff only adds a gitignore entry for a per-diff generated overlay,
-        beside the sibling .sumo-qa artifacts already ignored.'
-      expected_shape: Concise verdict that recognises a one-line ignore-list addition with no runtime consumer
-        and delivers SAFE TO MERGE without inventing a blocker.
-  - description: 'CONTROL - ruff bump kept in lockstep in both pins, no defect (PR #709)'
+      expected_finding: 'No known defect: the diff only adds a gitignore entry for a per-diff generated
+        overlay, beside the sibling .sumo-qa artifacts already ignored.'
+      expected_shape: Verdict that reviews the change on its merits and raises no merge blocker it cannot
+        anchor to a concrete defect in the diff shown; SAFE TO MERGE when it finds none.
+  - description: 'CONTROL - ruff bump kept in lockstep in both pins, no known defect (PR #709)'
     metadata:
       category: control
       split: control
@@ -5087,12 +5093,12 @@ tests:
         \   # the stubs PyYAML doesn't ship inline. hatchling (the build backend) lets\n```\n\n## Fresh\
         \ test run\n```text\n$ gh pr checks 709\n33 checks passed (pytest matrix, ruff, drift-and-schemas,\
         \ markdown, install smokes)\n```\n"
-      expected_finding: 'No defect: a patch-level ruff bump applied to both the pyproject dev pin and the
-        pre-commit rev in one commit, as their lockstep comments require, with CI green.'
-      expected_shape: Concise verdict that recognises the two pins moved together and delivers SAFE TO MERGE
-        without inventing a blocker.
-  - description: 'CONTROL - diff-impact ranks affected nodes by connecting-edge confidence, no defect (PR
-      #475)'
+      expected_finding: 'No known defect: a patch-level ruff bump applied to both the pyproject dev pin
+        and the pre-commit rev in one commit, as their lockstep comments require, with CI green.'
+      expected_shape: Verdict that reviews the change on its merits and raises no merge blocker it cannot
+        anchor to a concrete defect in the diff shown; SAFE TO MERGE when it finds none.
+  - description: 'CONTROL - diff-impact ranks affected nodes by connecting-edge confidence, no known defect
+      (PR #475)'
     metadata:
       category: control
       split: control
@@ -5236,12 +5242,12 @@ tests:
         \   \n 272   def test_empty_changeset_returns_empty_result():\n 273       rm = _map([_src(\"src/a.py\"\
         )], [])\n 274       out = analyze_diff_impact(rm, [])\n```\n\n## Fresh test run\n```text\n$ pytest\
         \ tests/test_repo_map_impact.py -q\n24 passed in 1.28s\n```\n"
-      expected_finding: 'No defect: a new ranking field computed from existing edge confidences, added to
-        the model and the published schema together, with tests for the ordering and the new field.'
-      expected_shape: Verdict that reviews the runtime change on its merits, raises no merge blocker it
-        cannot anchor to a concrete failure in the diff, and delivers SAFE TO MERGE.
-  - description: 'CONTROL - CommonMark-correct heading-fence parsing in the skill manifest, no defect (PR
-      #341)'
+      expected_finding: 'No known defect: a new ranking field computed from existing edge confidences, added
+        to the model and the published schema together, with tests for the ordering and the new field.'
+      expected_shape: Verdict that reviews the change on its merits and raises no merge blocker it cannot
+        anchor to a concrete defect in the diff shown; SAFE TO MERGE when it finds none.
+  - description: 'CONTROL - CommonMark-correct heading-fence parsing in the skill manifest, no known defect
+      (PR #341)'
     metadata:
       category: control
       split: control
@@ -5344,7 +5350,7 @@ tests:
         \  \n+184   \n 185   @pytest.mark.parametrize(\n 186       \"heading,expected\",\n 187       [\n\
         ```\n\n## Fresh test run\n```text\n$ pytest tests/test_skill_manifest.py -q\n72 passed in 0.71s\n\
         ```\n"
-      expected_finding: 'No defect: the heading parser now tracks fenced code blocks by CommonMark rules,
-        with tests over fence shapes.'
-      expected_shape: Verdict that reviews the runtime change on its merits, raises no merge blocker it
-        cannot anchor to a concrete failure in the diff, and delivers SAFE TO MERGE.
+      expected_finding: 'No known defect: the heading parser now tracks fenced code blocks by CommonMark
+        rules, with tests over fence shapes.'
+      expected_shape: Verdict that reviews the change on its merits and raises no merge blocker it cannot
+        anchor to a concrete defect in the diff shown; SAFE TO MERGE when it finds none.

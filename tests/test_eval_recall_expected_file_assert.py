@@ -97,6 +97,9 @@ def test_a_same_named_file_in_another_directory_fails(expected, output):
         ("src/sumo_qa/server.py", "sumo_qa/server.py:1181 strips the title."),
         ("src/sumo_qa/server.py", "In `server.py` the schema loses `title`."),
         ("README.md", "diff --git a/README.md b/README.md is the defect."),
+        ("src/sumo_qa/server.py", "/Users/x/sumo-qa/src/sumo_qa/server.py:12 strips it."),
+        ("src/sumo_qa/server.py", "sumo-qa/src/sumo_qa/server.py drops the title."),
+        ("README.md", "https://github.com/sumithr/sumo-qa/blob/main/README.md#L5 is stale."),
     ],
 )
 def test_the_right_file_by_path_suffix_or_bare_name_passes(expected, output):

@@ -15,7 +15,10 @@ analysis* on the corpus-size and held-out-per-category minimums.
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -54,20 +57,38 @@ def _unwrapped(value: str) -> str:
     return value.removeprefix("{% raw %}").removesuffix("{% endraw %}")
 
 
-# Path-like tokens, so `README.md` inside `docs/README.md` is not the root README.
-_PATH_TOKEN = re.compile(r"[\w.-]+(?:/[\w.-]+)*")
+ASSERT_PATH = REPO_ROOT / "tests" / "evals" / "promptfoo" / "asserts" / "recall-expected-file.js"
 
 
-def _shows_path(context: str, path: str) -> bool:
-    # `a/<path>` and `b/<path>` are the path in a `diff --git` header.
-    wanted = {path, f"a/{path}", f"b/{path}"}
-    return any(token.rstrip(".") in wanted for token in _PATH_TOKEN.findall(context))
+def _file_anchor_passes(pairs: list[tuple[str, str]]) -> list[bool]:
+    """Run the scorer's own file check (the JS the eval loads) on each
+    (text, expected_file) pair, so the corpus is held to the rule it is scored by."""
+    script = (
+        "const check = require(process.argv[1]);"
+        "const pairs = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+        "process.stdout.write(JSON.stringify(pairs.map(([t, f]) =>"
+        " check(t, {test: {metadata: {expected_file: f}}}).pass)));"
+    )
+    proc = subprocess.run(
+        ["node", "-e", script, str(ASSERT_PATH)],
+        input=json.dumps(pairs),
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
+    )
+    return json.loads(proc.stdout)
 
 
-def test_shows_path_needs_the_whole_path_not_a_substring():
-    assert _shows_path("diff --git a/README.md b/README.md", "README.md")
-    assert not _shows_path('see docs/README.md and "README.mdx"', "README.md")
-    assert not _shows_path("scripts/install.sh", "install.sh")
+def _git_has(spec: str) -> bool | None:
+    """True/False when git can answer; None when the object is not in this clone."""
+    sha = spec.split(":", 1)[0]
+    if subprocess.run(
+        ["git", "cat-file", "-e", sha], cwd=REPO_ROOT, capture_output=True
+    ).returncode:
+        return None
+    return not subprocess.run(
+        ["git", "cat-file", "-e", spec], cwd=REPO_ROOT, capture_output=True
+    ).returncode
 
 
 def test_the_corpus_holds_at_least_twenty_cases_and_a_control():
@@ -81,15 +102,43 @@ def test_every_case_is_scorable(case):
     assert meta["category"] in CATEGORIES
     assert meta["split"] in {"train", "held-out"}
     assert meta.get("ledger_issue") or meta.get("source_comment"), "no source recorded"
-    context = _unwrapped(case["vars"]["ground_truth_context"])
-    assert _shows_path(context, meta["expected_file"]), "the reviewer never sees the defect file"
+    assert meta.get("source_pr") is None or isinstance(meta["source_pr"], int)
+    assert re.fullmatch(r"[0-9a-f]{7,40}", str(meta.get("defect_state"))), "no defect_state"
     assert case["vars"]["expected_finding"].strip()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not on PATH (the promptfoo runtime)")
+def test_every_case_shows_the_reviewer_its_defect_file():
+    """The scorer's file check must be satisfiable from what the reviewer saw."""
+    pairs = [
+        (_unwrapped(c["vars"]["ground_truth_context"]), c["metadata"]["expected_file"])
+        for c in CASES
+    ]
+    hidden = [
+        c["description"] for c, ok in zip(CASES, _file_anchor_passes(pairs), strict=True) if not ok
+    ]
+    assert not hidden
+
+
+def test_every_defect_state_holds_its_defect_file_when_the_clone_has_it():
+    """`git show <defect_state>:<expected_file>` reproduces the defective file.
+    PR-branch commits are absent from a shallow CI clone; those are checked
+    wherever the objects exist (a maintainer clone) and skipped otherwise."""
+    results = [
+        _git_has(f"{c['metadata']['defect_state']}:{c['metadata']['expected_file']}") for c in CASES
+    ]
+    if all(r is None for r in results):
+        pytest.skip("no defect_state commit is in this clone")
+    missing = [c["description"] for c, r in zip(CASES, results, strict=True) if r is False]
+    assert not missing
 
 
 @pytest.mark.parametrize("control", CONTROLS, ids=lambda t: t["description"][:60])
 def test_every_control_is_outside_both_splits(control):
     assert control["metadata"]["split"] == "control"
     assert "expected_file" not in control["metadata"]
+    assert isinstance(control["metadata"].get("source_pr"), int)
+    assert re.fullmatch(r"[0-9a-f]{7,40}", str(control["metadata"].get("pr_head")))
 
 
 @pytest.mark.parametrize("category", sorted(PROMOTED))

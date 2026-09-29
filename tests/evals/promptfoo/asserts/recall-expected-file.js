@@ -19,15 +19,20 @@
 // Path-like tokens: segments of name characters joined by `/`.
 const PATH_TOKEN = /[\w.-]+(?:\/[\w.-]+)*/g;
 
-function names(output, expected) {
-  const base = expected.split('/').pop();
+// Prefixes that put a repo path inside a longer token without naming another
+// file: a `diff --git` side, or a GitHub blob/tree URL at any ref.
+const REPO_PREFIX = /^(?:[ab]\/|.*\/(?:blob|tree)\/[^/]+\/)/;
+
+function names(output, expected, base) {
   for (const match of output.matchAll(PATH_TOKEN)) {
     const token = match[0].replace(/^\.\//, '').replace(/\.+$/, '');
     if (token.split('/').pop() !== base) continue;
-    // `a/<path>` and `b/<path>` are the path as a `diff --git` header quotes it.
-    for (const path of [token, token.replace(/^[ab]\//, '')]) {
-      if (path === expected || expected.endsWith(`/${path}`)) return true;
-    }
+    const path = token.replace(REPO_PREFIX, '');
+    if (path === expected || expected.endsWith(`/${path}`)) return true;
+    // A longer path ending in a nested expected path (an absolute path, a
+    // checkout-name prefix) is the same file; a root file has no such proof,
+    // since `docs/README.md` ends in `README.md` too.
+    if (expected.includes('/') && path.endsWith(`/${expected}`)) return true;
   }
   return false;
 }
@@ -40,7 +45,7 @@ module.exports = function recallExpectedFile(output, context) {
   }
   const text = String(output || '');
   const base = expected.split('/').pop();
-  if (names(text, expected)) {
+  if (names(text, expected, base)) {
     return { pass: true, score: 1, reason: `review names the defect file ${expected}` };
   }
   return {

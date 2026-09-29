@@ -241,7 +241,7 @@ def test_runs_over_different_case_sets_are_refused(tmp_path):
         [_result("a1", "x", "train", True), _result("h1", "x", "held-out", False)],
     )
     held_out = _report(tmp_path, "held.json", [_result("h1", "x", "held-out", True)])
-    with pytest.raises(recall.ReportError, match="different case sets"):
+    with pytest.raises(recall.ReportError, match="graded different cases"):
         recall.summarise([full, held_out])
 
 
@@ -281,3 +281,24 @@ def test_controls_are_listed_per_case_so_a_flickering_control_shows(tmp_path):
         "split": "control",
     }
     assert summary["mean_recall"] == pytest.approx(1.0)
+
+
+def test_runs_that_graded_a_case_differently_are_refused_and_named(tmp_path):
+    recall = _load()
+    # Same case names, but the corpus moved a1 to held-out between the runs.
+    before = _report(tmp_path, "before.json", [_result("a1", "x", "train", True)])
+    after = _report(tmp_path, "after.json", [_result("a1", "x", "held-out", True)])
+    with pytest.raises(recall.ReportError, match=r"after\.json.*a1"):
+        recall.summarise([before, after])
+
+
+def test_a_changed_expected_file_between_runs_is_refused(tmp_path):
+    recall = _load()
+    old = _result("a1", "x", "train", True)
+    old["testCase"]["metadata"]["expected_file"] = "pyproject.toml"
+    new = _result("a1", "x", "train", True)
+    new["testCase"]["metadata"]["expected_file"] = ".pre-commit-config.yaml"
+    first = _report(tmp_path, "r1.json", [old])
+    second = _report(tmp_path, "r2.json", [new])
+    with pytest.raises(recall.ReportError, match="a1"):
+        recall.summarise([first, second])

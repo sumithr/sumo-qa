@@ -127,10 +127,12 @@ exists, are not cases.
   `held-out`. Every promoted category has at least one held-out case.
   `expected_file` feeds the file check; `ledger_issue` or `source_comment` names
   the source.
-- **Controls.** Cases with `category: control` are clean merged PRs: two
-  config-only diffs and two runtime changes with tests that codex and CI passed
-  and nothing later fixed. They pass only on a SAFE verdict, and `recall.py`
-  reports them apart from recall, so a review that blocks every code change
+- **Controls.** Cases with `category: control` are merged PRs with no known
+  defect: two config-only diffs and two runtime changes with tests that codex
+  and CI passed and nothing later fixed. The judge fails a control only on a
+  false alarm, a blocker that is not a real defect in the diff shown, so a
+  genuine flaw nobody recorded does not count against the review. `recall.py`
+  reports controls apart from recall, so a review that blocks every code change
   shows up as failed controls, not as higher recall.
 
 Run it with separate report paths, then score every report together. Parallel
@@ -167,10 +169,11 @@ three runs):
 | overall | 7/33 | 6/33 | 7/33 |
 | held-out | 3/11 | 3/11 | 3/11 |
 | train | 4/22 | 3/22 | 4/22 |
-| controls passed | 4/4 | 3/4 | 4/4 |
+| controls passed | 4/4 | 4/4 | 3/4 |
 
 Mean overall recall is 20% with a spread of 3 points (one case). The runtime
-control from PR #475 drew a false alarm in one run of three. Six cases
+control from PR #341 drew one false alarm in three runs: a blocker on a missing
+cross-module test, not on a defect in the diff. Six cases
 flicker between runs, so a single-run comparison needs a move of more than two
 cases (6 points) overall before it is a change, not variance; compare means over
 three runs for anything smaller. The candidate is the eval gate's, not the model
