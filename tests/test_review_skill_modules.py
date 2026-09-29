@@ -155,6 +155,14 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Documented-inventory drift rule (pinned).**",
         "`Inventory drift anchor: <path>:<line> (<old> → <new>) | Required update: this file",
     ],
+    "mirrored-constraints": [
+        "**Mirrored-constraint probe (pinned).**",
+        "Search for the canonical package/tool name and its spelling variants",
+        "**Classify before judging.**",
+        "**Compare semantics, not text.**",
+        "never a description of the environment",
+        "**No mirror to fix (pinned).**",
+    ],
     "unproven-escalation": [
         "**2b. UNPROVEN-escalation extension (pinned).**",
         "`UNPROVEN escalation: <risk name> | Discriminating input: <the input>",
@@ -270,7 +278,9 @@ PINNED_RULE_MARKERS = (
     "**External-contract exception (pinned):**",
     "**External-contract rule (pinned).**",
     "**Location claim (pinned):**",
+    "**Mirrored-constraint probe (pinned).**",
     "**Module-match rule (pinned):**",
+    "**No mirror to fix (pinned).**",
     "**Producer test (apply first):**",
     "**Re-anchor first.**",
     "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**",
@@ -395,6 +405,20 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         operative=(
             "answer that claim in one line of the review: location does not decide runtime scope, executable behaviour does",
             "name the behaviour that makes THIS change runtime",
+        ),
+    ),
+    "**Mirrored-constraint probe (pinned).**": PinnedClauses(
+        defining="When the diff adds, removes, floors, ceilings or pins a dependency, tool or runtime constraint",
+        operative=(
+            "classify each occurrence before judging it",
+            "name every stale mirror as its own 2a row plus the exact command that runs its environment's own install/smoke check",
+        ),
+    ),
+    "**No mirror to fix (pinned).**": PinnedClauses(
+        defining="When the search finds no second occurrence, or only compatible, independent, generated or prose ones",
+        operative=(
+            "record each relationship in one line and raise no synchronisation requirement",
+            "no 2a row, no named risk, no residual asking to align or refresh them",
         ),
     ),
     "**Module-match rule (pinned):**": PinnedClauses(

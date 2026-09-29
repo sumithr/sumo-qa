@@ -401,6 +401,19 @@ is kept as a regression guard on the A1 leg.
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-feedback-memory.ab.yaml --no-cache --repeat 3
 ```
 
+## Mirrored dependency constraint corpus (issue #493)
+
+`skill-reviewing-before-merge-mirrored-constraints.yaml` grades the `mirrored-constraints` review module: when a diff moves a dependency, tool or runtime constraint, the review searches the supplied repo state by the dependency's identity (hidden config included), classifies every other occurrence before judging it, anchors each stale mirror as its own inventory-drift row, and requires each isolated environment's own install/smoke command. Four seeds:
+
+- **BLOCKER.** `pyproject.toml` raises a parser package floor because older bindings are incompatible, while the pre-push pytest hook's `additional_dependencies` in `.pre-commit-config.yaml` keeps the old floor. The search output includes the hidden hook file. Expected: the stale hook constraint named with old and required constraints, NOT SAFE on a green suite, and the hook's own run (a `pre-commit run` command) required.
+- **CONTROL.** The manifest, the hook and a CI install carry semantically compatible constraints in different syntax and order (`>=1.12.5`, `<2,>=1.12.5`, `~=1.12.5` with the underscore spelling), and each environment's run is supplied. Expected: no mirror finding, SAFE.
+- **TRUE NEGATIVE, history.** The only other occurrences of the old version are a changelog entry and an ADR. Expected: no rewrite demanded.
+- **TRUE NEGATIVE, independent environment.** A compatibility constraints file pins the older pytest major on purpose, with the reason documented beside it. Expected: no synchronisation demanded.
+
+Besides the rubric, a deterministic `javascript` gate requires the blocker seed to name the stale file, deliver NOT SAFE and name a `pre-commit run`/`install` command, and fails any seed whose ledger or drift row anchors a non-mirror path (history, the generated lock, the independent environment) as UNCOVERED. It reads only a row's own anchor field, so a prose sentence that mentions a path beside the word UNCOVERED is not a finding about that path.
+
+On the Claude pair the pre-change skill reproduced the miss (2/4: the blocker never required the hook environment's run, the control raised a "constraint inconsistency" blocker on the compatible ranges), so per #427 `skill-reviewing-before-merge-mirrored-constraints.ab.yaml` runs the BLOCKER and CONTROL seeds against the pre-change skill slice (`fixtures/reviewing-before-merge-PRE-493.SKILL.md`, A0) and the current slice (A1). The two true negatives passed on the pre-change skill and stay as over-trigger regression guards. The current skill passes the base corpus 8/8 at `--repeat 2`; the `.ab.yaml` gave A0 1/4 and A1 4/4 at `--repeat 2` (an earlier pass, before the residual-concern red flag landed in the module, gave A0 0/4 and A1 3/4). The control seed is the variance-prone one: over the iterations the candidate most often slips by proposing to align upper bounds across compatible pins, so a single control failure calls for a rerun before it counts as a regression.
+
 ## Reviewing-before-merge module assembly (issue #451)
 
 `sumo-qa-reviewing-before-merge` ships as a compact routing root (`SKILL.md`) plus lazy modules under `skills/sumo-qa-reviewing-before-merge/modules/*.md` that a host fetches with `sumo_qa_load_skill_context(mode="module")` only when the diff shape needs them. The eval matrix mirrors that: no `skill-reviewing-before-merge*.yaml` loads the whole body any more. Instead every config points its live skill var at the shared dynamic var `fixtures/assemble-review-skill.js` and declares the module set its scenario requires:
@@ -532,6 +545,7 @@ once and the row gives the rerun. Per-leg `.ab` counts are in
 | `skill-reviewing-before-merge-guard-coverage.yaml` | 2/2 | 2/2 |
 | `skill-reviewing-before-merge-ledger.yaml` | 1/1 | 1/1 |
 | `skill-reviewing-before-merge-mapping-gap.yaml` | 1/1 | 1/1 |
+| `skill-reviewing-before-merge-mirrored-constraints.yaml` | not in that run (added by #493); 2/4 on `main`'s skill | 8/8 at `--repeat 2` |
 | `skill-reviewing-before-merge-repo-map.yaml` | 1/1 | 1/1 |
 | `skill-reviewing-before-merge-scorecard.yaml` | 2/2 | 2/2 |
 | `skill-reviewing-before-merge-security-relevance.yaml` | 2/2 | 2/2 |
@@ -938,6 +952,8 @@ renders.
 | `skill-strengthening-tests-artifact.yaml` | Issue #147 mutation-artifact corpus (strengthening side, 2 seeds): with no pasted report, DISCOVER + read the repo's own mutation artifact (Stryker schema) and present the artifact-named survivors scoped to the target at the first confirmation gate (seed 1); with no artifact anywhere, a concise "not available" that asks for a report or specific targets without fabricating survivors (seed 2) |
 | `fixtures/preparing-for-work-PRE-145.SKILL.md` | Snapshot of the pre-#145 prep SKILL.md body, the A0 control leg for the prep feedback-memory `.ab.yaml` |
 | `fixtures/reviewing-before-merge-PRE-145.SKILL.md` | Snapshot of the pre-#145 review SKILL.md body, the A0 control leg for the review feedback-memory `.ab.yaml` |
+| `skill-reviewing-before-merge-mirrored-constraints.yaml` + `.ab.yaml` | Issue #493 mirrored dependency constraint corpus (4 seeds: stale pre-push hook `additional_dependencies` floor → NOT SAFE with the hook run required; compatible constraints in different syntax with each environment verified → SAFE; old version only in history → no rewrite; deliberately independent compatibility pin → no sync) + A0(pre-edit)/A1(post-edit) control on the blocker and control seeds (see "Mirrored dependency constraint corpus" above) |
+| `fixtures/reviewing-before-merge-PRE-493.SKILL.md` | Snapshot of the pre-#493 assembled review slice (root + runtime-scope, discovery-probes, coverage-ledger, inventory-drift, surface-verifier), the A0 control leg for the mirrored-constraints `.ab.yaml` |
 | `skill-answering-testing-question.gen.yaml` | Pattern B generator-only seed |
 | `skill-answering-testing-question.generated-tests.yaml` | Pattern B bare-list tests (regenerated) |
 | `extract_tests.py` | Pattern B post-processor |
@@ -992,6 +1008,7 @@ Pre-edit controls compare a snapshotted pre-edit skill body (A0) with the curren
 | `skill-reviewing-before-merge-feature-flow.ab.yaml` | 0/1 | 1/1 | |
 | `skill-reviewing-before-merge-feedback-memory.ab.yaml` | 1/1 | 1/1 | A0 2/3 over three earlier samples and 0/2 over two earlier #689 passes, each fail on its coverage label; non-discriminating, regression guard |
 | `skill-reviewing-before-merge-fence-parser.ab.yaml` | 0/1 | 1/1 | |
+| `skill-reviewing-before-merge-mirrored-constraints.ab.yaml` | 1/4 | 4/4 | `--repeat 2` on the #493 branch; an earlier pass before the final module edit gave A0 0/4, A1 3/4 |
 | `skill-reviewing-before-merge-runtime-scope.ab.yaml` | 0/1 | 1/1 | Over 5 earlier repeats under the same rubric, A0 0/5 and A1 4/5 |
 | `skill-reviewing-before-merge-unproven-escalation.ab.yaml` | 1/2 | 2/2 | A0 passed the substring seed and failed the boundary seed on its coverage label; regression guard on A1 |
 | `skill-reviewing-before-merge-verifier-evidence.ab.yaml` | 0/1 | 1/1 | A0 0/3, A1 3/3 over 3 earlier repeats |

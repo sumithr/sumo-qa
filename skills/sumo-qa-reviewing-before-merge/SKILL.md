@@ -39,7 +39,7 @@ Work through these in order. Steps 1-4 are AI-only homework (no user questions);
 
 3. **Classify and load applicable standards** — call `sumo_qa_load_classifications()`, infer the classification(s), then `sumo_qa_load_standards(...)` and `sumo_qa_load_rules(...)`. Note which loaded rules apply.
 
-4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). Each hit is a named risk anchored to file:line; an uncovered one is a SAFE-blocker labelled per `coverage-ledger`, never a residual note.
+4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). Moved dependency constraints run `mirrored-constraints`. Each hit is a named risk anchored to file:line; an uncovered one is a SAFE-blocker labelled per `coverage-ledger`, never a residual note.
 
 5. **Confirm scope, only for the AMBIGUOUS parts** — name the files, line counts, and what the change does in domain terms, then ask ONE focused question for what the diff couldn't reveal. Else skip it.
 
@@ -70,6 +70,7 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 | `context-inputs` | a repo-map / diff-impact result, context bundle, or coverage/mutation artifact is supplied |
 | `coverage-ledger` | every runtime review (step 9): item-2 rows incl. 2c/2d |
 | `inventory-drift` | a documented count, name, inventory, version, schema field, or generated artifact changed (2a) |
+| `mirrored-constraints` | a dependency/tool/runtime constraint changed, trivial diff too |
 | `unproven-escalation` | any risk is UNPROVEN, or maps to a catalogued technique's failure mode (2b, hints) |
 | `test-only-diff` | the diff touches only test files |
 | `acceptance-criteria` | the host supplies acceptance criteria |
@@ -91,7 +92,7 @@ Output order: these items, the Verdict close, the verdict line, then only an app
 5. The verification command verbatim as a LABELED evidence line: `Evidence (command): $ <verification command> → <counts>`; no observable run: `Evidence (command): unverified, <the run that clears it>`.
 6. The test counts verbatim (`X passed, Y skipped, Z failed`); none without an observable run.
 7. **AC lines** when criteria were supplied, one per criterion as pinned in `acceptance-criteria` (MET ones too); else exactly `No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`
-8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`: one per skill/eval change, new guard or `.ab.yaml`, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged. None applies → emit nothing for item 8.
+8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`: one per skill/eval change, new guard or `.ab.yaml`, isolated env, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged. None applies → emit nothing for item 8.
 
 A runtime verdict missing an applicable item is a discipline violation. Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 where it applies.
 
