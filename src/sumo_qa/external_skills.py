@@ -221,8 +221,13 @@ def execute_external_skill(
     if installed is None:
         raise ExternalSkillError(f"external skill is not installed: {skill}")
     path = Path(installed["path"])
-    provenance = _verify_provenance(path.parent, cwd if installed["scope"] == "project" else home)
-    body = path.read_text(encoding="utf-8")
+    # Read the body once, before verifying, and check those exact bytes against
+    # the verified walk so a swap in between cannot hand over unverified text.
+    body_bytes = _read_skill_body(path)
+    provenance = _verify_provenance(
+        path.parent, cwd if installed["scope"] == "project" else home, body_bytes
+    )
+    body = body_bytes.decode("utf-8")
     return {
         "skill": installed["name"],
         "path": path.as_posix(),
@@ -305,24 +310,43 @@ def build_skills_cli_command(npx: str, args: Sequence[str]) -> list[str]:
 
 def skill_content_digest(folder: Path) -> str:
     """SHA-256 over every file path and file content under an installed skill."""
-    root = Path(folder)
-    entries: list[tuple[str, str]] = []
-    for dirpath, dirnames, filenames in os.walk(root):
+    return _digest_of(_content_entries(Path(folder)))
+
+
+def _content_entries(root: Path) -> dict[str, str]:
+    """Map each relative path under ``root`` to its content hash.
+
+    Symlinked folders are followed so the bytes behind them are covered, and
+    also record their target so retargeting one changes the digest. A folder
+    reached again through a link (a cycle) is recorded but not re-entered.
+    """
+    entries: dict[str, str] = {}
+    visited: set[str] = set()
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
         current = Path(dirpath)
-        for name in dirnames:
+        visited.add(os.path.realpath(current))
+        for name in list(dirnames):
             path = current / name
-            # os.walk does not descend into a symlinked folder; record its
-            # target so retargeting it changes the digest.
             target = os.readlink(path) if path.is_symlink() else ""
-            entries.append((path.relative_to(root).as_posix() + "/", target))
+            entries[path.relative_to(root).as_posix() + "/"] = target
+            if os.path.realpath(path) in visited:
+                dirnames.remove(name)  # pragma: no cover -- platform-conditional (POSIX only)
         for name in filenames:
             path = current / name
             content = hashlib.sha256(path.read_bytes()).hexdigest()
-            entries.append((path.relative_to(root).as_posix(), content))
+            entries[path.relative_to(root).as_posix()] = content
+    return entries
+
+
+def _digest_of(entries: dict[str, str]) -> str:
     digest = hashlib.sha256()
-    for relpath, value in sorted(entries):
+    for relpath, value in sorted(entries.items()):
         digest.update(f"{relpath}\0{value}\n".encode())
     return f"sha256:{digest.hexdigest()}"
+
+
+def _read_skill_body(path: Path) -> bytes:
+    return path.read_bytes()
 
 
 def _cli_spec() -> str:
@@ -503,7 +527,7 @@ def _write_lock(base: Path, lock: dict[str, Any]) -> None:
     os.replace(staging, path)
 
 
-def _verify_provenance(folder: Path, lock_base: Path) -> dict[str, Any]:
+def _verify_provenance(folder: Path, lock_base: Path, body: bytes) -> dict[str, Any]:
     key = folder.relative_to(lock_base).as_posix()
     record = _read_lock(lock_base)["skills"].get(key)
     if record is None:
@@ -513,11 +537,16 @@ def _verify_provenance(folder: Path, lock_base: Path) -> dict[str, Any]:
         raise ExternalSkillProvenanceError(
             f"recorded resolved ref {resolved_ref!r} for {key} is not an immutable commit SHA"
         )
-    actual = skill_content_digest(folder)
+    entries = _content_entries(folder)
+    actual = _digest_of(entries)
     if actual != record.get("content_digest"):
         raise ExternalSkillProvenanceError(
             f"content digest mismatch for {key}: recorded "
             f"{record.get('content_digest')}, installed {actual}"
+        )
+    if hashlib.sha256(body).hexdigest() != entries.get("SKILL.md"):
+        raise ExternalSkillProvenanceError(
+            f"{key}/SKILL.md changed while it was being verified; not executing it"
         )
     return {"status": "verified", **record}
 
