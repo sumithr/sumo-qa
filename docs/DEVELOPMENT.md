@@ -373,16 +373,36 @@ Dependabot only edits `pyproject.toml`, so each bump it raises for a package a
 hook also lists is half a change until the hook moves too.
 
 `tests/test_toolchain_pin_lockstep.py` runs in the required pytest jobs and
-enforces one rule: every hook `additional_dependencies` entry whose package
-`pyproject.toml` also declares (in `[project].dependencies` or any
-`[project.optional-dependencies]` group) carries the same specifier set, and
-the ruff `rev:` equals the `ruff==` pin. Hook entries for packages
-`pyproject.toml` does not declare are out of scope. Environment markers and
-extras are ignored, since a marker says where a dependency installs rather
-than which versions it allows. A package `pyproject.toml` declares in several
-places with different specifiers fails as ambiguous. The test hard-codes no
-version and lists every mismatch in one failure, naming both files, the hook
-id and both values, so a bump edits the pins and nothing else.
+enforces these rules:
+
+- **Python hooks only.** A hook is compared when its inline `language` is
+  `python`. Any other inline `language` (`system`, `node`, ...) is skipped. A
+  remote-repo hook without an inline `language` (its manifest declares it) is
+  compared only when every `additional_dependencies` entry is a PEP 508
+  requirement without a URL.
+- **Same pin.** Every compared entry whose package `pyproject.toml` also
+  declares carries the same specifier set and the same direct-reference URL.
+  Environment markers and extras are ignored, since a marker says where a
+  dependency installs rather than which versions it allows. Hook entries for
+  packages `pyproject.toml` does not declare are out of scope.
+- **Source precedence.** Hooks mirror the dev tooling, so an entry is compared
+  first with the optional-extra sources: `[project.optional-dependencies]`
+  groups, PEP 735 `[dependency-groups]` (string entries; `include-group`
+  tables are ignored) and `[tool.uv].dev-dependencies`. Only a package none of
+  those declare falls back to `[project].dependencies`. Different specifiers
+  across the optional sources fail as ambiguous. In the fallback, entries that
+  differ only by environment marker are a marker split: the one unmarked entry
+  is the source if exactly one exists, otherwise the package is skipped.
+- **Required mirrors.** `REQUIRED_MIRRORS` in the test names the pairs that
+  must exist, so deleting one side cannot turn the check into a silent pass:
+  `mutmut` must be declared exactly once in `pyproject.toml` and exactly once
+  in the `mutmut` hook. A new must-exist mirror is one row in that table.
+- **ruff.** Exactly one ruff-pre-commit repo entry must exist, its `rev:` must
+  be a `v<version>` tag, and that version must equal the `ruff==` pin.
+
+The test hard-codes no version and lists every mismatch in one failure,
+naming both files, the hook id and both values, so a bump edits the pins and
+nothing else.
 
 ## Branch workflow
 
