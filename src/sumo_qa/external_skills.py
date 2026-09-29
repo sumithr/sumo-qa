@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -100,6 +101,7 @@ _SKILL_NAME_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9._-])?")
 _AGENT_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # Long enough for another install's CLI run (its default timeout) to finish.
 _LOCK_WAIT_SECONDS = 150.0
+_NO_RECORD = object()  # distinct from a present-but-null (malformed) record
 _COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _LOCK_RELPATH = Path(".sumo-qa") / "external-skills.lock.json"
 _LOCK_SCHEMA_VERSION = 1
@@ -174,6 +176,7 @@ def install_external_skill(
     _read_lock(lock_base)  # fail fast on an unreadable lock, before any fetch
     workdir, checkout, resolved_ref = _checkout_commit(remote_url, requested_ref, timeout)
     try:
+        _check_checkout_links(checkout)
         # One guard around snapshot, CLI run, digest, and record: concurrent
         # installs can neither interleave their writes nor lose records.
         with _lock_guard(lock_base):
@@ -184,25 +187,18 @@ def install_external_skill(
             command, stdout, stderr = _run_skills_cli(args, timeout=timeout, cwd=cwd)
             after = _folder_identities(skill, scope, cwd, home)
             written = _written_folders(skill, scope, before, after)
-            installed_at = datetime.now(timezone.utc).isoformat()
-            records = [
-                {
-                    "skill": skill,
-                    "source": remote_url,
-                    "requested_ref": requested_ref,
-                    "resolved_ref": resolved_ref,
-                    "content_digest": skill_content_digest(location.path.parent),
-                    "agent": agent,
-                    "scope": scope,
-                    "path": location.path.parent.relative_to(lock_base).as_posix(),
-                    "installed_at": installed_at,
-                    "installer": skills_cli_identity(),
-                }
-                for location in written
-            ]
-            _merge_into_lock(lock_base, records)
+            try:
+                records = _provenance_records(
+                    written, remote_url, requested_ref, resolved_ref, skill, agent, scope, lock_base
+                )
+                _merge_into_lock(lock_base, records)
+            except BaseException:
+                # Never leave an install behind that runs as "unrecorded".
+                for location in written:
+                    _remove_install(location.path.parent)
+                raise
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        _remove_tree(workdir)
     installed = written[0].as_dict()
     provenance = records[0]
     return {
@@ -259,10 +255,15 @@ def execute_external_skill(
     path = Path(installed["path"])
     # Read the body once, before verifying, and check those exact bytes against
     # the verified walk so a swap in between cannot hand over unverified text.
+    lock_base = cwd if installed["scope"] == "project" else home
     body_bytes = _read_skill_body(path)
-    provenance = _verify_provenance(
-        path, cwd if installed["scope"] == "project" else home, body_bytes
-    )
+    if (lock_base / _LOCK_RELPATH).parent.is_dir():
+        # Wait for an install in progress: it may be mid-way between writing
+        # the folder and recording it.
+        with _lock_guard(lock_base):
+            provenance = _verify_provenance(path, lock_base, body_bytes)
+    else:
+        provenance = _verify_provenance(path, lock_base, body_bytes)
     body = body_bytes.decode("utf-8")
     return {
         "skill": installed["name"],
@@ -376,11 +377,13 @@ def _content_entries(root: Path) -> dict[tuple[str, str], str]:
     return entries
 
 
-def _check_link_stays_inside(path: Path, root_real: str) -> None:  # pragma: no cover -- POSIX only
+def _check_link_stays_inside(  # pragma: no cover -- POSIX only
+    path: Path, root_real: str, inside_is_error: bool = False
+) -> None:
     target = os.path.realpath(path)
-    if os.path.commonpath([root_real, target]) != root_real:
+    if (os.path.commonpath([root_real, target]) == root_real) == inside_is_error:
         raise ExternalSkillProvenanceError(
-            f"{path} links outside the skill folder ({target}); that content cannot be pinned"
+            f"{path} links to {target}, outside the pinned content; it cannot be pinned"
         )
 
 
@@ -497,9 +500,70 @@ def _checkout_commit(remote_url: str, ref: str | None, timeout: int) -> tuple[Pa
         commit = _rev_parse_commit(git, checkout, ref, timeout)
         _run_git([git, "-C", str(checkout), "checkout", "--quiet", "--detach", commit], timeout)
     except BaseException:
-        shutil.rmtree(workdir, ignore_errors=True)
+        _remove_tree(workdir)
         raise
     return workdir, checkout, commit
+
+
+def _provenance_records(
+    written: list[InstalledSkill],
+    remote_url: str,
+    requested_ref: str | None,
+    resolved_ref: str,
+    skill: str,
+    agent: str,
+    scope: str,
+    lock_base: Path,
+) -> list[dict[str, Any]]:
+    installed_at = datetime.now(timezone.utc).isoformat()
+    return [
+        {
+            "skill": skill,
+            "source": remote_url,
+            "requested_ref": requested_ref,
+            "resolved_ref": resolved_ref,
+            "content_digest": skill_content_digest(location.path.parent),
+            "agent": agent,
+            "scope": scope,
+            "path": location.path.parent.relative_to(lock_base).as_posix(),
+            "installed_at": installed_at,
+            "installer": skills_cli_identity(),
+        }
+        for location in written
+    ]
+
+
+def _check_checkout_links(checkout: Path) -> None:
+    """Refuse a checkout whose links reach bytes outside the commit.
+
+    The CLI copies a local source by dereferencing links, so a link out of
+    the checkout, or into its .git folder, would install bytes no commit holds.
+    """
+    root_real = os.path.realpath(checkout)
+    git_real = os.path.join(root_real, ".git")
+    for dirpath, dirnames, filenames in os.walk(checkout):
+        current = Path(dirpath)
+        dirnames[:] = [d for d in dirnames if not (current == checkout and d == ".git")]
+        for name in [*dirnames, *filenames]:
+            path = current / name
+            if path.is_symlink():  # pragma: no cover -- platform-conditional (POSIX only)
+                _check_link_stays_inside(path, root_real)
+                _check_link_stays_inside(path, git_real, inside_is_error=True)
+
+
+def _remove_tree(path: Path) -> None:
+    """Remove a temporary tree, including git's read-only object files."""
+    for dirpath, dirnames, filenames in os.walk(path):
+        for name in [*dirnames, *filenames]:
+            entry = os.path.join(dirpath, name)
+            if not os.path.islink(entry):
+                os.chmod(entry, stat.S_IRWXU)
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _remove_install(folder: Path) -> None:
+    # An agent folder may be a link to the canonical copy: drop the link only.
+    folder.unlink(missing_ok=True) if folder.is_symlink() else _remove_tree(folder)
 
 
 def _rev_parse_commit(git: str, checkout: Path, ref: str | None, timeout: int) -> str:
@@ -683,7 +747,7 @@ def _merge_into_lock(base: Path, records: list[dict[str, Any]]) -> None:
 def _verify_provenance(skill_md: Path, lock_base: Path, body: bytes) -> dict[str, Any]:
     folder = skill_md.parent
     key, record = _find_record(folder, lock_base)
-    if record is None:
+    if record is _NO_RECORD:
         return {"status": "unrecorded"}
     resolved_ref = record.get("resolved_ref") if isinstance(record, dict) else None
     if not isinstance(resolved_ref, str) or not _COMMIT_SHA_RE.fullmatch(resolved_ref):
@@ -731,7 +795,7 @@ def _find_record(folder: Path, lock_base: Path) -> tuple[str, Any]:
         recorded = lock_base / recorded_key
         if recorded.exists() and os.path.samefile(recorded, folder):
             return recorded_key, record
-    return key, None
+    return key, _NO_RECORD
 
 
 def _strip_ansi(text: str) -> str:

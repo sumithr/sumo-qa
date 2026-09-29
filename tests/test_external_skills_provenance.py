@@ -61,6 +61,7 @@ class FakeToolchain:
         self.writes_skill = True  # False: the CLI "succeeds" but installs nothing
         self.links_claude_dir = False  # True: also symlink .claude/skills/<skill>
         self.during_add = None  # optional callback run while the CLI "installs"
+        self.on_clone = None  # optional callback(checkout) populating the clone
         self.add_sources: list[tuple[str, bool]] = []  # (path given, was a dir)
         self.calls: list[tuple[list[str], dict]] = []
         self._lock = threading.Lock()
@@ -102,6 +103,8 @@ class FakeToolchain:
         verb = command[3] if command[1] == "-C" else command[1]
         if verb == "clone":
             Path(command[-1]).mkdir(parents=True)
+            if self.on_clone:
+                self.on_clone(Path(command[-1]))
             return _completed(command)
         if verb == "rev-parse":
             revision = command[-1].removesuffix("^{commit}")
@@ -367,6 +370,34 @@ def test_unaccepted_sources_are_rejected_before_anything_runs(toolchain, source)
         _install(toolchain, source=source)
 
     assert toolchain.calls == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+@pytest.mark.parametrize("target", ["outside", "git-metadata"])
+def test_a_checkout_linking_outside_its_commit_is_refused_before_the_cli_runs(
+    toolchain, tmp_path, target
+) -> None:
+    """The CLI copies a local source by dereferencing links, so a link out of
+    the checkout (or into .git) would install bytes that no commit holds."""
+    outside = tmp_path / "host-file"
+    outside.write_text("host bytes", "utf-8")
+
+    def populate(checkout: Path) -> None:
+        (checkout / ".git").mkdir()
+        (checkout / ".git" / "config").write_text("[core]", "utf-8")
+        skill = checkout / "skills" / "find-skills"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("# x", "utf-8")
+        (skill / "inside").symlink_to(skill / "SKILL.md")  # stays in the commit
+        leak = outside if target == "outside" else checkout / ".git" / "config"
+        (skill / "leak").symlink_to(leak)
+
+    toolchain.on_clone = populate
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="outside"):
+        _install(toolchain)
+
+    assert toolchain.add_sources == []
 
 
 def test_unknown_remote_ref_is_a_typed_resolution_error(toolchain) -> None:
@@ -643,6 +674,56 @@ def test_a_lock_folder_reported_as_a_symlink_is_refused_on_every_platform(
         _install(toolchain)
 
 
+@pytest.mark.parametrize("failure", ["record", "digest"])
+def test_an_install_that_cannot_be_recorded_is_rolled_back(monkeypatch, toolchain, failure) -> None:
+    """An install sumo-qa made but could not record must not stay behind as an
+    'unrecorded' skill that executes without verification."""
+
+    def fail(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    target = "_write_atomic" if failure == "record" else "_hash_regular_file"
+    if failure == "digest":
+        fail = lambda path: (_ for _ in ()).throw(ext.ExternalSkillProvenanceError("unreadable"))  # noqa: E731
+    monkeypatch.setattr(ext, target, fail)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError):
+        _install(toolchain)
+
+    assert not (toolchain.cwd / ".agents" / "skills" / "find-skills").exists()
+    with pytest.raises(ext.ExternalSkillError, match="not installed"):
+        _execute(toolchain)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the test holds the guard with fcntl")
+def test_execute_waits_for_an_install_in_progress(monkeypatch, toolchain) -> None:
+    import fcntl
+
+    _install(toolchain)
+    monkeypatch.setattr(ext, "_LOCK_WAIT_SECONDS", 0.2)
+    holder = os.open(toolchain.cwd / ".sumo-qa" / "external-skills.lock.json.lock", os.O_RDWR)
+    fcntl.flock(holder, fcntl.LOCK_EX)
+    try:
+        with pytest.raises(ext.ExternalSkillProvenanceError, match="busy"):
+            _execute(toolchain)
+    finally:
+        os.close(holder)
+
+
+def test_temporary_checkouts_with_read_only_files_are_removed(tmp_path) -> None:
+    """git marks object files read-only; on Windows a plain rmtree leaves them."""
+    tree = tmp_path / "checkout"
+    (tree / ".git" / "objects").mkdir(parents=True)
+    packed = tree / ".git" / "objects" / "pack"
+    packed.write_text("x", "utf-8")
+    packed.chmod(0o444)
+    (tree / ".git" / "objects").chmod(0o555)
+
+    ext._remove_tree(tree)
+
+    assert not tree.exists()
+
+
 def test_failed_lock_write_leaves_no_staging_file(monkeypatch, toolchain) -> None:
     def full_disk(*args, **kwargs):
         raise OSError(28, "No space left on device")
@@ -698,7 +779,7 @@ def test_links_leaving_the_skill_folder_cannot_be_pinned(tmp_path, kind) -> None
     target = outside if kind == "folder" else outside / "run.sh"
     (skill / "linked").symlink_to(target, target_is_directory=kind == "folder")
 
-    with pytest.raises(ext.ExternalSkillProvenanceError, match="outside the skill folder"):
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="outside the pinned content"):
         ext.skill_content_digest(skill)
 
 
@@ -895,6 +976,17 @@ def test_execute_blocks_when_the_record_is_not_an_object(toolchain) -> None:
     lock_path = toolchain.cwd / ".sumo-qa" / "external-skills.lock.json"
     lock = json.loads(lock_path.read_text("utf-8"))
     lock["skills"][".agents/skills/find-skills"] = SHA
+    lock_path.write_text(json.dumps(lock), "utf-8")
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="resolved ref"):
+        _execute(toolchain)
+
+
+def test_execute_blocks_when_the_record_is_null(toolchain) -> None:
+    _install(toolchain)
+    lock_path = toolchain.cwd / ".sumo-qa" / "external-skills.lock.json"
+    lock = json.loads(lock_path.read_text("utf-8"))
+    lock["skills"][".agents/skills/find-skills"] = None
     lock_path.write_text(json.dumps(lock), "utf-8")
 
     with pytest.raises(ext.ExternalSkillProvenanceError, match="resolved ref"):
