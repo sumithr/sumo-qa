@@ -22,7 +22,8 @@ ROUTER_CHAIN = (ENTRY_ROUTER, APPROACH_DECIDER)
 # a clarifying question and never reached the router (#247 live runs).
 CLARIFY_AFTER_ROUTING = (
     "An underspecified QA request still takes the first hop before you ask the "
-    "user anything; the routed skill asks the one clarifying question it needs."
+    "user anything; `sumo_qa_deciding_approach`, or the skill it routes to, asks "
+    "the one clarifying question it needs."
 )
 
 FIRST_HOP_RULE = (

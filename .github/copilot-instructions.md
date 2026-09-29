@@ -16,7 +16,8 @@ the failing tests first", calls `using_sumo_qa` before any other sumo-qa tool
 and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill
 it routes to. No specialist skill is entered directly.
 An underspecified QA request still takes the first hop before you ask the user
-anything; the routed skill asks the one clarifying question it needs.
+anything; `sumo_qa_deciding_approach`, or the skill it routes to, asks the one
+clarifying question it needs.
 
 For QA-shaped requests in this repo (test plans, code review, scaffolding
 tests, finding test data, deciding QA approach), call the relevant skill tool
