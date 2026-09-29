@@ -186,9 +186,13 @@ vertex = [
 # str-only method-style binding to the upstream `tree_sitter.Parser` (bytes-only
 # `parse()`, property accessors, `type` not `kind()`), and the two APIs are
 # mutually exclusive — repo_map_treesitter targets the upstream shape (#491).
+# 1.14.1 and 1.14.2 are excluded: they shipped without the windows-x86_64
+# prebuilt parsers, so every parse raised `DownloadError` on Windows (#595);
+# 1.14.3 restored them. The pre-push pytest hook repeats these pins, and
+# tests/test_treesitter_pins.py fails if the two copies differ.
 treesitter = [
   "tree-sitter>=0.25,<0.27",
-  "tree-sitter-language-pack>=1.12.5,<2",
+  "tree-sitter-language-pack>=1.12.5,!=1.14.1,!=1.14.2,<2",
 ]
 
 [project.urls]
