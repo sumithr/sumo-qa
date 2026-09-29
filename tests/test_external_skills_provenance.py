@@ -828,24 +828,31 @@ def test_execute_rereads_under_the_lock_when_an_install_starts_meanwhile(
     monkeypatch, tmp_path
 ) -> None:
     """With no lock folder, execute reads unlocked; if an install creates the
-    folder during that read, its write may be in progress, so execute reads
-    again under the lock."""
+    folder during that read, its write may be in progress, so execute discards
+    the unlocked result and locates, reads, and verifies again under the lock.
+    Here that install rolls the skill back before the lock is free, so the
+    stale bytes from the unlocked read must never be returned."""
     skill = tmp_path / ".agents" / "skills" / "demo"
     skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("# x\n", "utf-8")
+    (skill / "SKILL.md").write_text("# mid-install\n", "utf-8")
     state = _tracking_guards(monkeypatch)
     real_read = ext._read_skill_body
+    reads_under = []
 
-    def install_starts(path):
+    def install_starts_then_rolls_back(path):
+        reads_under.append(state["held"])
+        body = real_read(path)
         (tmp_path / ".sumo-qa").mkdir(exist_ok=True)
-        return real_read(path)
+        shutil.rmtree(skill)
+        return body
 
-    monkeypatch.setattr(ext, "_read_skill_body", install_starts)
+    monkeypatch.setattr(ext, "_read_skill_body", install_starts_then_rolls_back)
 
-    result = ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+    with pytest.raises(ext.ExternalSkillError, match="not installed"):
+        ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
 
     assert state["bases"] == [tmp_path]
-    assert result["provenance"] == {"status": "unrecorded"}
+    assert reads_under == [0]  # the only read was unlocked; the locked retry found nothing
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
