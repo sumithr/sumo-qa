@@ -638,9 +638,33 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("routing to using-sumo-qa first", "route_announcement"),
         ("Handing off to sumo_qa_strategising.", "route_announcement"),
         ("I'll route this to the pre-merge review.", "route_announcement"),
-        ("- [PENDING] ask one question", "checklist_status"),
-        ("2) Reason about shape: single change", "router_checklist"),
-        ("4. Build the routing payload", "router_checklist"),
+        # Adversarial-review inputs (codex, #248).
+        (
+            '{"classification":"docs_change","approach":"no-tests-recommended",'
+            '"rationale":"Fix the unmatched { in the docs.","next_action":{"skill":"none"}}',
+            "payload_json",
+        ),
+        ('"classification": "docs_change"\n"approach": "no-tests-recommended"', "taxonomy_label"),
+        ("Approach: no-tests-recommended \u2014 no runtime change.", "taxonomy_label"),
+        (
+            '{"classification":"docs_change","approach":"no-tests-recommended",'
+            '"rationale":"say \\"{\\" here","next_action":{"skill":"none"}}',
+            "payload_json",
+        ),
+        ("Routing to **`sumo-qa-reviewing-before-merge`**.", "route_announcement"),
+        ("I\u2019m routing you to the pre-merge review.", "route_announcement"),
+        ("\u5206\u985eapproach: verify-existing", "taxonomy_label"),
+        (
+            "1. Load classifications and approaches.\n2. Pick the approach.\n"
+            "3. Route to the named sub-skill silently.",
+            "router_checklist",
+        ),
+        ("- [PENDING] Pick the approach", "checklist_status"),
+        (
+            "1) Load classifications and approaches\n2) Reason about shape: single change",
+            "router_checklist",
+        ),
+        ("3. Pick the approach.\n4. Build the routing payload", "router_checklist"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:
@@ -657,6 +681,9 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "The classification step is done; the approach is sound.",
         "Route requests through the gateway; routing to the pricing service works.",
         "I'm routing traffic through the new load balancer first.",
+        "1. [DONE] Run the pricing regression suite.\n2. [PENDING] Verify the staging deploy.",
+        "1. Add a regression test for the removability gate.",
+        '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
         "1. Read the diff\n2. Run the suite",
         "Approach: regression-first thinking does not fit, nothing is broken yet.",
         "Unbalanced { brace with classification: and approach: but no next action",
@@ -676,4 +703,18 @@ def test_routing_leak_catalogue_names_degrade_when_unreadable(monkeypatch) -> No
 
     monkeypatch.setattr(conformance, "sumo_qa_load_approaches", boom)
     assert find_routing_leaks("Approach: tdd-scaffold") == ()
+
+    def undecodable() -> str:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(conformance, "sumo_qa_load_approaches", undecodable)
+    assert find_routing_leaks("No tests needed.") == ()
     assert "route_announcement" in find_routing_leaks("Picking the QA approach for this change.")
+
+
+def test_find_routing_leaks_is_linear_on_blank_line_runs() -> None:
+    """A long run of blank lines must not backtrack quadratically in the
+    numbered-step matcher (adversarial review, #248)."""
+    start = time.perf_counter()
+    assert find_routing_leaks("\n" * 40_000) == ()
+    assert time.perf_counter() - start < 0.5

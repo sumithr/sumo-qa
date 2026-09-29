@@ -313,18 +313,30 @@ def _output_violations(scenario: ConformanceScenario, transcript: Transcript) ->
 # the routing object, whether compact, pretty-printed, or written with the
 # skill's own unquoted-key notation. A config snippet that merely has an
 # ``approach`` key is not.
-_PAYLOAD_KEYS = ("classification", "approach", "next_action")
+_PAYLOAD_KEYS = ("classification", "approach", "next_action", "skill")
+# Label/announcement decoration a host wraps around a key or skill name:
+# whitespace, markdown emphasis/code, quotes.
+_DECOR = r"[\s*_`\"']"
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
     r"picking the qa approach"
-    r"|\b(?:routing|handing off|routed) to\W{0,3}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
+    rf"|\b(?:routing|handing off|routed) to{_DECOR}{{0,8}}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
     r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+(?:you|this)\b",
-    re.IGNORECASE,
+    re.IGNORECASE | re.ASCII,
 )
-_CHECKLIST_STATUS_RE = re.compile(r"\[(?:done|in[ _]progress|pending|completed)\]", re.IGNORECASE)
-_ROUTER_CHECKLIST_RE = re.compile(
-    r"^\s*\d+[.)]\s+.*(?:load_classifications|load_approaches|removability gate"
-    r"|reason about (?:classification|shape)|routing[- ]payload|read the user's intent)",
-    re.IGNORECASE | re.MULTILINE,
+# A router step named on a line: what makes a status marker or a numbered
+# line router bookkeeping rather than a downstream plan.
+_ROUTER_STEP = (
+    r"(?:load(?:_|\s+)(?:the\s+)?(?:classifications|approaches|catalogues)"
+    r"|removability (?:gate|check)|reason about (?:classification|shape)"
+    r"|routing[- ]payload|read the user's intent|pick the approach"
+    r"|route to the (?:named )?sub-skill)"
+)
+_CHECKLIST_STATUS_RE = re.compile(
+    rf"\[(?:done|in[ _]progress|pending|completed)\][^\n]*{_ROUTER_STEP}",
+    re.IGNORECASE | re.ASCII,
+)
+_ROUTER_CHECKLIST_LINE_RE = re.compile(
+    rf"^[ \t]*\d+[.)][ \t]+[^\n]*{_ROUTER_STEP}", re.IGNORECASE | re.MULTILINE | re.ASCII
 )
 _CATALOGUE_HEADING_RE = re.compile(r"^##\s+([a-z][a-z0-9_-]*)\s*$", re.MULTILINE)
 
@@ -335,20 +347,30 @@ def find_routing_leaks(text: str) -> tuple[str, ...]:
     The approach router is an internal hop: its payload object, taxonomy
     labels, route announcement and checklist bookkeeping must never reach the
     user. Each family is matched structurally rather than by bare word, so
-    prose that says "approach" or "classification" is not a leak. A taxonomy
-    label only counts when its value is exactly a catalogue entry name (or
-    ``n/a``), read from the live catalogues."""
+    prose that says "approach" or "classification", a downstream plan's
+    progress markers, or a config snippet is not a leak. A taxonomy label only
+    counts when its value is exactly a catalogue entry name (or ``n/a``), read
+    from the live catalogues."""
+    text = _normalise(text)
     checks = {
         "payload_json": _has_routing_payload,
         "taxonomy_label": _has_taxonomy_label,
         "route_announcement": lambda s: bool(_ROUTE_ANNOUNCEMENT_RE.search(s)),
         "checklist_status": lambda s: bool(_CHECKLIST_STATUS_RE.search(s)),
-        "router_checklist": lambda s: bool(_ROUTER_CHECKLIST_RE.search(s)),
+        "router_checklist": lambda s: len(_ROUTER_CHECKLIST_LINE_RE.findall(s)) >= 2,
     }
     return tuple(family for family in ROUTING_LEAK_FAMILIES if checks[family](text))
 
 
+def _normalise(text: str) -> str:
+    """Typographic apostrophes to ASCII and Unicode line/paragraph separators
+    to newlines, so the Python and JS matchers see the same text."""
+    return text.replace("’", "'").replace(" ", "\n").replace(" ", "\n")
+
+
 def _has_routing_payload(text: str) -> bool:
+    """A brace-balanced span naming the payload keys, with a ``skill`` handoff
+    inside ``next_action``; three coincidental config keys are not a payload."""
     return any(
         all(re.search(rf"\b{key}[\"']?\s*:", span) for key in _PAYLOAD_KEYS)
         for span in _brace_spans(text)
@@ -356,12 +378,24 @@ def _has_routing_payload(text: str) -> bool:
 
 
 def _brace_spans(text: str) -> list[str]:
-    """Top-level ``{...}`` spans; an unbalanced brace yields no span."""
+    """Top-level ``{...}`` spans, ignoring braces inside quoted strings; an
+    unbalanced brace yields no span."""
     spans: list[str] = []
     depth = 0
     start = 0
+    quote = ""
+    escaped = False
     for i, ch in enumerate(text):
-        if ch == "{":
+        if quote:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = ""
+        elif ch in "\"'" and depth:
+            quote = ch
+        elif ch == "{":
             if depth == 0:
                 start = i
             depth += 1
@@ -378,19 +412,20 @@ def _has_taxonomy_label(text: str) -> bool:
         return False
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     label = re.compile(
-        rf"(?<![\w\"'])(?:classification|approach)[\s*`\"']{{0,4}}:[\s*`\"']{{0,6}}"
-        rf"(?:{alternatives}|n/a)[`*\"']*(?=\s*$|[.,;)])",
-        re.IGNORECASE | re.MULTILINE,
+        rf"(?<!\w)(?:classification|approach){_DECOR}{{0,4}}:{_DECOR}{{0,6}}"
+        rf"(?:{alternatives}|n/a)[`*\"']*(?=[ \t]*$|[.,;:)]|\s+[-–—]\s)",
+        re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
     return bool(label.search(text))
 
 
 def _catalogue_names() -> frozenset[str]:
     """Entry names from the live classification + approach catalogues; empty
-    when a catalogue is unreadable so scoring degrades instead of erroring."""
+    when a catalogue is unreadable or undecodable so scoring degrades instead
+    of erroring."""
     try:
         text = sumo_qa_load_classifications() + "\n" + sumo_qa_load_approaches()
-    except OSError:
+    except (OSError, ValueError):
         return frozenset()
     return frozenset(_CATALOGUE_HEADING_RE.findall(text))
 

@@ -43,9 +43,20 @@ _EXTRA = [
     "> Approach: `verify-existing`",
     "Handing off to sumo_qa_strategising.",
     "- [PENDING] ask one question",
+    "- [PENDING] Pick the approach",
     "4. Build the routing payload",
     "I'm routing traffic through the new load balancer first.",
     "I'll route this to the next step.",
+    '{"classification":"x","approach":"y","rationale":"a { b","next_action":{"skill":"none"}}',
+    '{"classification":"public","approach":"canary","next_action":{"deploy":"staging"}}',
+    '{"classification":"x","approach":"y","rationale":"say \\"{\\" here","next_action":{"skill":"none"}}',
+    "Routing to **`sumo-qa-reviewing-before-merge`**.",
+    "I\u2019m routing you to the pre-merge review.",
+    "Approach: no-tests-recommended \u2014 no runtime change.",
+    "1. [DONE] Run the pricing regression suite.\n2. [PENDING] Verify staging.",
+    "[DONE] Load catalogues",
+    "\u5206\u985eapproach: verify-existing",
+    "Approach: verify-existing\u2028More text",
 ]
 
 

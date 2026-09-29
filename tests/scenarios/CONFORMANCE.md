@@ -79,11 +79,11 @@ five leak families by `find_routing_leaks`, with no per-scenario opt-in:
 
 | Family | Caught | Not caught (ordinary prose) |
 |---|---|---|
-| `payload_json` | one brace-balanced span naming `classification`, `approach` and `next_action` (compact, pretty-printed, or unquoted keys) | a config snippet with only an `approach` key |
-| `taxonomy_label` | `Classification:` / `Approach:` whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a` | `Approach: pin today's behaviour first`, "a regression-first approach" |
+| `payload_json` | one brace-balanced span (braces inside strings ignored) naming `classification`, `approach`, `next_action` and a `skill` handoff (compact, pretty-printed, or unquoted keys) | a config snippet, even one with `classification`/`approach`/`next_action` keys but no `skill` |
+| `taxonomy_label` | `Classification:` / `Approach:` (bare, bold, code or quoted) whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a`, optionally followed by ` - note` | `Approach: pin today's behaviour first`, "a regression-first approach" |
 | `route_announcement` | "Picking the QA approach...", "Routing to sumo-qa-...", "Handing off to sumo_qa_...", "I'm routing you to..." | "routing to the pricing service", "I'm routing traffic through the load balancer" |
-| `checklist_status` | `[DONE]`, `[IN PROGRESS]`, `[PENDING]`, `[COMPLETED]` | markdown `[x]` / `[ ]` checkboxes |
-| `router_checklist` | a numbered line naming a router step (`load_classifications`, removability gate, routing payload, ...) | a numbered test plan |
+| `checklist_status` | `[DONE]`, `[IN PROGRESS]`, `[PENDING]`, `[COMPLETED]` on a line naming a router step | markdown `[x]` / `[ ]` checkboxes; a downstream plan's `[DONE] Run the suite` |
+| `router_checklist` | two or more numbered lines naming router steps (load classifications/approaches, removability gate, pick the approach, routing payload, ...) | a numbered test plan, even one line mentioning the removability gate |
 
 [`conformance/leak_transcripts.yaml`](conformance/leak_transcripts.yaml) holds
 a leaking and a clean near-miss output for every family, scored against the
@@ -92,7 +92,9 @@ S20 `recommend-removal`). The promptfoo assert
 [`../evals/promptfoo/asserts/no-routing-leak.js`](../evals/promptfoo/asserts/no-routing-leak.js)
 applies the same families to live candidate replies in
 `skill-deciding-approach-user-facing.yaml`; a contract test runs both over the
-fixture so they stay in step.
+fixture so they stay in step. One deliberate difference: the assert reads
+catalogue names from `QA_KNOWLEDGE_PATH` or the repo's `knowledge/` (what the
+eval loads), while the validator resolves ingested project/global packs too.
 
 `transcript_from_debug_dir` reconstructs a transcript from a
 `SUMO_QA_DEBUG_DIR` capture (see

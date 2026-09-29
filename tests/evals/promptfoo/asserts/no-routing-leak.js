@@ -8,26 +8,48 @@
 // tests/scenarios/conformance/leak_transcripts.yaml so the two cannot drift.
 //
 // Families:
-//   * payload_json       a brace-balanced span naming classification, approach
-//                        AND next_action (compact, pretty, or unquoted keys);
+//   * payload_json       a brace-balanced span (braces in strings ignored)
+//                        naming classification, approach, next_action AND a
+//                        skill handoff (compact, pretty, or unquoted keys);
 //   * taxonomy_label     `Classification:` / `Approach:` whose value is exactly
 //                        a catalogue entry name (read from knowledge/) or n/a;
 //   * route_announcement "Picking the QA approach", "Routing to sumo-qa-...",
 //                        or first-person handoff narration ("I'm routing you to");
-//   * checklist_status   [DONE] / [IN PROGRESS] / [PENDING] / [COMPLETED];
-//   * router_checklist   a numbered line naming a router step.
+//   * checklist_status   [DONE] / [IN PROGRESS] / [PENDING] / [COMPLETED] on a
+//                        line naming a router step;
+//   * router_checklist   two or more numbered lines naming router steps.
 // Ordinary prose using "approach" or "classification" passes.
 
 const fs = require('fs');
 const path = require('path');
 
-const KNOWLEDGE_DIR = path.resolve(__dirname, '..', '..', '..', '..', 'knowledge');
-const PAYLOAD_KEYS = ['classification', 'approach', 'next_action'];
-const ROUTE_ANNOUNCEMENT =
-  /picking the qa approach|\b(?:routing|handing off|routed) to\W{0,3}(?:sumo[-_]qa|using[-_]sumo[-_]qa)|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+(?:you|this)\b/i;
-const CHECKLIST_STATUS = /\[(?:done|in[ _]progress|pending|completed)\]/i;
-const ROUTER_CHECKLIST =
-  /^\s*\d+[.)]\s+.*(?:load_classifications|load_approaches|removability gate|reason about (?:classification|shape)|routing[- ]payload|read the user's intent)/im;
+// Catalogue names come from QA_KNOWLEDGE_PATH when set, else the repo's
+// knowledge/ (what the eval configs load). Unlike the Python validator, this
+// does not resolve ingested project/global packs.
+const KNOWLEDGE_DIR =
+  process.env.QA_KNOWLEDGE_PATH || path.resolve(__dirname, '..', '..', '..', '..', 'knowledge');
+const PAYLOAD_KEYS = ['classification', 'approach', 'next_action', 'skill'];
+const DECOR = '[\\s*_`"\']';
+const ROUTE_ANNOUNCEMENT = new RegExp(
+  'picking the qa approach' +
+    `|\\b(?:routing|handing off|routed) to${DECOR}{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)` +
+    "|\\b(?:i'm|i am|i'll|i will)\\s+(?:now\\s+)?(?:rout(?:e|ing)|handing)\\s+(?:you|this)\\b",
+  'i',
+);
+const ROUTER_STEP =
+  '(?:load(?:_|\\s+)(?:the\\s+)?(?:classifications|approaches|catalogues)' +
+  '|removability (?:gate|check)|reason about (?:classification|shape)' +
+  "|routing[- ]payload|read the user's intent|pick the approach" +
+  '|route to the (?:named )?sub-skill)';
+const CHECKLIST_STATUS = new RegExp(
+  `\\[(?:done|in[ _]progress|pending|completed)\\][^\\n]*${ROUTER_STEP}`,
+  'i',
+);
+const ROUTER_CHECKLIST_LINE = new RegExp(`^[ \\t]*\\d+[.)][ \\t]+[^\\n]*${ROUTER_STEP}`, 'gim');
+
+function normalise(text) {
+  return String(text).replace(/\u2019/g, "'").replace(/[\u2028\u2029]/g, '\n');
+}
 
 function catalogueNames() {
   const names = [];
@@ -43,15 +65,25 @@ function catalogueNames() {
   return names;
 }
 
+// Top-level {...} spans, ignoring braces inside quoted strings.
 function braceSpans(text) {
   const spans = [];
   let depth = 0;
   let start = 0;
+  let quote = '';
+  let escaped = false;
   for (let i = 0; i < text.length; i += 1) {
-    if (text[i] === '{') {
+    const ch = text[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === quote) quote = '';
+    } else if ((ch === '"' || ch === "'") && depth) {
+      quote = ch;
+    } else if (ch === '{') {
       if (depth === 0) start = i;
       depth += 1;
-    } else if (text[i] === '}' && depth) {
+    } else if (ch === '}' && depth) {
       depth -= 1;
       if (depth === 0) spans.push(text.slice(start, i + 1));
     }
@@ -74,8 +106,8 @@ function hasTaxonomyLabel(text) {
   if (!names.length) return false;
   const alternatives = names.map(escapeRegExp).join('|');
   const label = new RegExp(
-    `(?<![\\w"'])(?:classification|approach)[\\s*\`"']{0,4}:[\\s*\`"']{0,6}` +
-      `(?:${alternatives}|n/a)[\`*"']*(?=\\s*$|[.,;)])`,
+    `(?<!\\w)(?:classification|approach)${DECOR}{0,4}:${DECOR}{0,6}` +
+      `(?:${alternatives}|n/a)[\`*"']*(?=[ \\t]*$|[.,;:)]|\\s+[-\\u2013\\u2014]\\s)`,
     'im',
   );
   return label.test(text);
@@ -86,11 +118,12 @@ const CHECKS = {
   taxonomy_label: hasTaxonomyLabel,
   route_announcement: (s) => ROUTE_ANNOUNCEMENT.test(s),
   checklist_status: (s) => CHECKLIST_STATUS.test(s),
-  router_checklist: (s) => ROUTER_CHECKLIST.test(s),
+  router_checklist: (s) => (s.match(ROUTER_CHECKLIST_LINE) || []).length >= 2,
 };
 
 function findRoutingLeaks(text) {
-  return Object.keys(CHECKS).filter((family) => CHECKS[family](String(text)));
+  const s = normalise(text);
+  return Object.keys(CHECKS).filter((family) => CHECKS[family](s));
 }
 
 module.exports = (output) => {
