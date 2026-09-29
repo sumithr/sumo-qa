@@ -329,7 +329,7 @@ Restart any host you changed.
 
 After install: restart Claude Code. Type `/` and start typing `sumo-qa-`:
 
-- **Skills appear with hyphens** (`/sumo-qa-deciding-approach`, `/sumo-qa-creating-test-plan`, …): Claude Code's native skill loader picks these up from `~/.claude/skills/<skill>/`.
+- **Skills appear with hyphens** (`/using-sumo-qa`, `/sumo-qa-creating-test-plan`, …): Claude Code's native skill loader picks these up from `~/.claude/skills/<skill>/`.
 - **MCP tools appear with underscores** (`/sumo_qa_load_classifications`, `/sumo_qa_find_test_data`, …): registered through the MCP server. Because the skills are *also* registered through MCP, you'll typically see both hyphen and underscore variants for each skill in the slash menu. They call the same SKILL.md content and behave identically.
 
 Natural language always works too: ask *"review my changes"* or *"load the QA classifications"* and Claude Code routes by tool description. Use whichever style you prefer.
@@ -374,7 +374,7 @@ Settings → Tools → AI Assistant → Model Context Protocol → + Add server
 Apply.
 ```
 
-Add once; persists across restarts. After it's added, every MCP entry (`/sumo_qa_deciding_approach`, `/sumo_qa_load_classifications`, etc.) appears in AI Assistant chat's slash menu.
+Add once; persists across restarts. After it's added, every MCP entry (`/using_sumo_qa`, `/sumo_qa_load_classifications`, etc.) appears in AI Assistant chat's slash menu.
 
 **Junie** (JetBrains' agentic coding agent, separate from AI Assistant) reads MCP configs from JSON files in `~/.junie/mcp/` (global) or `<repo>/.junie/mcp/` (per-project). Create one named `sumo-qa.json`:
 

@@ -19,6 +19,21 @@
 #   forbidden_tool_calls     tools that MUST NOT appear in the transcript
 #   required_output_markers  substrings that MUST appear in the final output
 #   forbidden_output_markers substrings that MUST NOT appear in the final output
+#   forbid_sumo_qa_calls     true: the transcript must contain NO sumo-qa call at
+#                            all (router, decider, specialist, or loader)
+#
+# First hop: every QA-shaped request, including a development-framed one such
+# as "I'm adding X, how should I test it?", "what tests do I need?" or "write
+# the failing tests first", calls `using_sumo_qa` before any other sumo-qa tool
+# and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill
+# it routes to. No specialist skill is entered directly.
+#
+# The validator enforces that rule on every scenario with an
+# expected_entry_skill: the first sumo-qa call must be `using_sumo_qa`, and
+# `sumo_qa_deciding_approach` must follow it before the expected skill. So
+# expected_entry_skill names the skill the chain must reach, not the first call.
+# Scenarios with expected_entry_skill: null are not QA requests (pure tool
+# selection, or a development control that must not route at all).
 #
 # This is NOT a second source of truth: every row back-references the catalogue
 # heading it encodes, a guard test enforces the reference resolves, and every
@@ -170,3 +185,74 @@ scenarios:
     forbidden_tool_calls:
       - using_sumo_qa
       - sumo_qa_deciding_approach
+
+  # Development-framed QA requests (#247): implementation framing, testing ask.
+  - id: D01-dev-framed-how-to-test
+    source_doc: SCENARIOS.md
+    source_heading: "Development-framed testing request"
+    user_prompt: "I'm adding sumo_qa_analyze_diff_impact. How should I test it?"
+    mode: deterministic
+    expected_entry_skill: using_sumo_qa
+    required_tool_calls:
+      - sumo_qa_deciding_approach
+
+  - id: D02-dev-framed-what-tests
+    source_doc: SCENARIOS.md
+    source_heading: "Development-framed testing request"
+    user_prompt: "I'm implementing a retry worker. What tests do I need for it?"
+    mode: deterministic
+    expected_entry_skill: using_sumo_qa
+    required_tool_calls:
+      - sumo_qa_deciding_approach
+
+  - id: D03-dev-framed-edge-cases
+    source_doc: SCENARIOS.md
+    source_heading: "Development-framed testing request"
+    user_prompt: "I'm changing the parser. How do I cover the edge cases?"
+    mode: deterministic
+    expected_entry_skill: using_sumo_qa
+    required_tool_calls:
+      - sumo_qa_deciding_approach
+
+  - id: D04-dev-framed-failing-tests-first
+    source_doc: SCENARIOS.md
+    source_heading: "Development-framed testing request"
+    user_prompt: "I'm building this endpoint. Write the failing tests first."
+    mode: deterministic
+    expected_entry_skill: using_sumo_qa
+    required_tool_calls:
+      - sumo_qa_deciding_approach
+
+  # Development controls (#247): the same framing with no testing ask must not
+  # enter sumo-qa at all, through the router or a specialist.
+  - id: DC01-dev-implementation-only
+    source_doc: SCENARIOS.md
+    source_heading: "Development-framed testing request"
+    user_prompt: "I'm implementing a retry worker. Add exponential backoff to it."
+    mode: deterministic
+    expected_entry_skill: null
+    forbid_sumo_qa_calls: true
+
+  - id: DC02-dev-logging
+    source_doc: SCENARIOS.md
+    source_heading: "Development-framed testing request"
+    user_prompt: "I'm changing the parser. Add structured logging to its error path."
+    mode: deterministic
+    expected_entry_skill: null
+    forbid_sumo_qa_calls: true
+
+  - id: DC03-dev-naming
+    source_doc: SCENARIOS.md
+    source_heading: "Development-framed testing request"
+    user_prompt: "I'm building this endpoint. Suggest a better name for the handler."
+    mode: deterministic
+    expected_entry_skill: null
+    forbid_sumo_qa_calls: true
+
+  - id: DC04-dev-formatting
+    source_doc: SCENARIOS.md
+    source_heading: "Development-framed testing request"
+    user_prompt: "I'm adding a config loader. Format this file to the repo style."
+    mode: deterministic
+    expected_entry_skill: null
+    forbid_sumo_qa_calls: true

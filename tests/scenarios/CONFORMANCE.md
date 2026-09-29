@@ -47,19 +47,62 @@ Field reference:
 | Field | Meaning |
 |---|---|
 | `mode` | `deterministic` (scored here) or `provider-backed` (the validator skips it; promptfoo judges it) |
-| `expected_entry_skill` | the skill tool the host must route to first (`null` for a pure tool-selection scenario) |
+| `expected_entry_skill` | the skill tool the router chain must reach (`null` for a pure tool-selection scenario or a non-QA development control); see *The first hop* below |
 | `required_tool_calls` | tools that MUST appear in the transcript (checked as a set: presence, not order or multiplicity, a documented first-slice limit) |
 | `forbidden_tool_calls` | tools that MUST NOT appear |
 | `required_output_markers` | substrings that MUST appear in the final assistant output (case-insensitive) |
 | `forbidden_output_markers` | substrings that MUST NOT appear (anti-pattern claims, leaked internal labels; case-insensitive, so pin distinctive phrases: `INV-12345` also matches inside `INV-123456`) |
+| `forbid_sumo_qa_calls` | `true`: the transcript must contain no sumo-qa call at all (`using_sumo_qa` or any `sumo_qa_*` tool); for requests that must not enter sumo-qa |
 
 A deterministic scenario must declare at least one enforceable clause
-(`expected_entry_skill`, a tool-call list, or an output marker); the loader
+(`expected_entry_skill`, a tool-call list, an output marker, or
+`forbid_sumo_qa_calls`); the loader
 rejects a clause-free row rather than letting it pass every transcript
 vacuously. Mis-route detection compares prior calls against the REGISTERED
 skill-tool surface (every `skills/*/SKILL.md` directory), not just the skills
-this fixture happens to name, and the router chain is order-aware:
-`using_sumo_qa` must precede `sumo_qa_deciding_approach` when both fire.
+this fixture happens to name.
+
+## The first hop
+
+The canonical rule lives in
+[`../../src/sumo_qa/first_hop.py`](../../src/sumo_qa/first_hop.py) and is
+carried verbatim by the MCP server instructions,
+`.github/copilot-instructions.md`, the `using-sumo-qa` skill, the trigger
+fixture, and this layer's fixture (a guard test,
+[`../test_first_hop.py`](../test_first_hop.py), fails when any
+of them drifts):
+
+> First hop: every QA-shaped request, including a development-framed one such
+> as "I'm adding X, how should I test it?", "what tests do I need?" or "write
+> the failing tests first", calls `using_sumo_qa` before any other sumo-qa tool
+> and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill
+> it routes to. No specialist skill is entered directly.
+
+The pre-routing surfaces (the server and Copilot instructions, which a host
+reads before any skill body) also carry `CLARIFY_AFTER_ROUTING` from the same
+module: an underspecified QA request still takes the first hop before the host
+asks the user anything, and `sumo_qa_deciding_approach` (or the skill it
+routes to) asks the clarifying question.
+Without it, the weakest candidate answered "write the failing tests first"
+with a clarifying question and never reached the router.
+
+For every scenario with an `expected_entry_skill`, the validator enforces it:
+the first sumo-qa call (`using_sumo_qa` or any `sumo_qa_*` tool) must be
+`using_sumo_qa`, and the FIRST calls of `using_sumo_qa`,
+`sumo_qa_deciding_approach`, and the expected skill must occur in that order,
+with no other sumo-qa call (a specialist or a catalogue loader) between the
+router and the decider.
+Host tools (file reads, shell) may come anywhere. A transcript that answers
+with no sumo-qa call, loads a catalogue before the router or before the
+decider, enters a specialist directly, or skips the decider fails with
+`first_hop_violation`.
+The transcript does not interleave output with calls, so "before any QA advice"
+is checked as "the first hop exists and comes first among sumo-qa calls".
+
+The `D0x` scenarios pin the four development-framed prompts from issue #247.
+The `DC0x` scenarios are their controls: the same framing with no testing ask
+(backoff, logging, naming, formatting) sets `forbid_sumo_qa_calls`, so neither
+the router nor a directly entered specialist may appear.
 
 ## The transcript
 
@@ -67,8 +110,9 @@ A transcript is provider-agnostic: an ordered list of `(tool, args)` calls plus
 the final assistant `output_text`. The validator
 ([`../../src/sumo_qa/conformance.py`](../../src/sumo_qa/conformance.py)) scores
 it against a scenario and reports one violation per broken clause:
-`wrong_skill_routing`, `missing_required_tool`, `forbidden_tool_called`,
-`missing_output_marker`, `forbidden_output_marker`, `routing_state_leak`.
+`wrong_skill_routing`, `first_hop_violation`, `missing_required_tool`,
+`forbidden_tool_called`, `missing_output_marker`, `forbidden_output_marker`,
+`routing_state_leak`.
 
 ## Routing-state leaks
 
@@ -116,14 +160,17 @@ eval loads), while the validator resolves ingested project/global packs too.
 [`../../src/sumo_qa/debug_capture.py`](../../src/sumo_qa/debug_capture.py)),
 which records the tool exchanges of a live run. The capture holds tool calls
 only, so the final assistant text is supplied by the reviewer running the
-manual check.
+manual check. It records MCP tool calls only: a host that loads the router through
+a native skill (Claude Code's Skill tool, or the SessionStart hook injecting the
+router body) leaves no `using_sumo_qa` call in the capture, so score such a run
+from the host's own transcript instead.
 
 ## Running it
 
 The deterministic checks run in the ordinary suite (no key, no network):
 
 ```bash
-uv run pytest tests/test_conformance_transcript_validator.py
+uv run pytest tests/test_conformance_transcript_validator.py tests/test_conformance.py
 ```
 
 Those tests prove the fixture is well-formed (>= 8 deterministic scenarios,

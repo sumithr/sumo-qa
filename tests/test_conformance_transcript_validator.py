@@ -30,6 +30,7 @@ from sumo_qa.conformance import (
     validate_transcript,
 )
 from sumo_qa.debug_capture import maybe_capture
+from sumo_qa.first_hop import ROUTER_CHAIN
 from sumo_qa.server import build_mcp_server
 
 _FIXTURE = Path(__file__).parent / "scenarios" / "conformance" / "scenarios.yaml"
@@ -55,10 +56,13 @@ def _known_entry_skills(scenarios: list[ConformanceScenario]) -> frozenset[str]:
 
 
 def _good_transcript(s: ConformanceScenario) -> Transcript:
-    """A transcript that satisfies every clause of the scenario's contract."""
+    """A transcript that satisfies every clause of the scenario's contract:
+    a routed scenario walks the canonical router chain before its skill."""
     calls: list[ToolCall] = []
     if s.expected_entry_skill:
-        calls.append(ToolCall(s.expected_entry_skill))
+        calls.extend(ToolCall(t) for t in ROUTER_CHAIN)
+        if s.expected_entry_skill not in ROUTER_CHAIN:
+            calls.append(ToolCall(s.expected_entry_skill))
     calls.extend(ToolCall(t) for t in s.required_tool_calls)
     output = " ".join(s.required_output_markers) + " ...clean senior-QA output..."
     return Transcript(scenario_id=s.id, tool_calls=tuple(calls), output_text=output)
@@ -170,13 +174,16 @@ def test_every_deterministic_scenario_passes_a_compliant_transcript(scenarios) -
 
 
 def test_router_prefixed_transcript_still_routes_cleanly(scenarios) -> None:
-    """A destination-skill transcript legitimately prefixed by the router/decider
-    passes (router tools before the entry skill are not a mis-route)."""
+    """A destination-skill transcript prefixed by the full router chain passes
+    (router tools before the entry skill are not a mis-route), and host tools
+    ahead of the first sumo-qa call do not break the first hop."""
     known = _known_entry_skills(scenarios)
     s = next(s for s in scenarios if s.id == "S02-review-before-merge")
     transcript = Transcript(
         scenario_id=s.id,
         tool_calls=(
+            ToolCall("Bash", {"command": "git diff"}),
+            ToolCall("using_sumo_qa"),
             ToolCall("sumo_qa_deciding_approach"),
             ToolCall("sumo_qa_reviewing_before_merge"),
             ToolCall("sumo_qa_load_classifications"),
@@ -488,6 +495,25 @@ def test_vacuous_deterministic_scenario_is_rejected(tmp_path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="no enforceable clause"):
+        load_scenarios(fixture)
+
+
+def test_scenario_expecting_a_skill_and_forbidding_sumo_qa_is_rejected(tmp_path) -> None:
+    """A row that expects an entry skill and also forbids every sumo-qa call
+    can never pass, so it must fail to load rather than fail every transcript."""
+    fixture = tmp_path / "contradictory.yaml"
+    fixture.write_text(
+        "scenarios:\n"
+        "  - id: X01\n"
+        "    source_doc: SCENARIOS.md\n"
+        "    source_heading: whatever\n"
+        "    user_prompt: hi\n"
+        "    mode: deterministic\n"
+        "    expected_entry_skill: using_sumo_qa\n"
+        "    forbid_sumo_qa_calls: true\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="X01.*cannot both"):
         load_scenarios(fixture)
 
 

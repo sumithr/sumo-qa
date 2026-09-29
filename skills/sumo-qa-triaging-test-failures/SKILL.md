@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-triaging-test-failures
-description: Use when a test is failing or flaky and the cause is not yet known — e.g. 'this test keeps failing', 'red in CI but passes locally', 'this test is flaky', 'a test failed, what now?'. Reads the failure output, classifies the likely cause (product regression, test bug, fixture/data, environment/dependency, timing/order, external service), and names the smallest next isolation step BEFORE any fix. Diagnosis only — it does not patch; it routes to a fixing skill only once a concrete product-behaviour gap is confirmed.
+description: Use after sumo-qa-deciding-approach routes here, when a test is failing or flaky and the cause is not yet known — e.g. 'this test keeps failing', 'red in CI but passes locally', 'this test is flaky', 'a test failed, what now?'. Reads the failure output, classifies the likely cause, and names the smallest next isolation step BEFORE any fix. Diagnosis only — it does not patch; it routes to a fixing skill only once a concrete product-behaviour gap is confirmed.
 ---
 
 # Triaging test failures

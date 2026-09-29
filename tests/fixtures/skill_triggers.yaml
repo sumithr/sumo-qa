@@ -12,6 +12,18 @@
 # Edit this file (not the test) to add coverage for a new prompt or skill.
 # The test asserts every registered skill tool has at least one trigger row.
 #
+# First hop: every QA-shaped request, including a development-framed one such
+# as "I'm adding X, how should I test it?", "what tests do I need?" or "write
+# the failing tests first", calls `using_sumo_qa` before any other sumo-qa tool
+# and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill
+# it routes to. No specialist skill is entered directly.
+#
+# So `expected_skill` on a specialist row names the skill the router chain
+# reaches, not the first call; the router rows pin the first hop itself. This
+# harness checks phrase presence in tool descriptions only. It is a drift guard,
+# not proof that a model routes: that evidence is the conformance validator
+# (tests/scenarios/CONFORMANCE.md) scoring captured transcripts.
+#
 # Phrases are partitioned per skill in the spirit of equivalence partitioning:
 # the prompts in each partition stand in for the broader user-intent class
 # that should route to that skill.
@@ -102,12 +114,36 @@ triggers:
       - "entry router for all sumo-qa work"
     note: "Router invocation; phrases are the description's own multi-word signposts for the catch-all-QA-intent surface, not single-word jargon."
 
+  - prompt: "I'm adding sumo_qa_analyze_diff_impact. How should I test it?"
+    expected_skill: using_sumo_qa
+    expected_phrases:
+      - "how should i test it"
+    note: "Development-framed QA (#247): implementation framing, testing ask. The router must be the first hop, not an inline answer."
+
+  - prompt: "I'm implementing a retry worker. What tests do I need for it?"
+    expected_skill: using_sumo_qa
+    expected_phrases:
+      - "what tests do i need"
+    note: "Development-framed QA (#247)."
+
+  - prompt: "I'm changing the parser. How do I cover the edge cases?"
+    expected_skill: using_sumo_qa
+    expected_phrases:
+      - "cover the edge cases"
+    note: "Development-framed QA (#247)."
+
+  - prompt: "I'm building this endpoint. Write the failing tests first."
+    expected_skill: using_sumo_qa
+    expected_phrases:
+      - "write the failing tests first"
+    note: "Development-framed QA (#247): a TDD ask still enters through the router, which routes on to implementing-with-tdd."
+
   - prompt: "pick the QA approach for this change"
     expected_skill: sumo_qa_deciding_approach
     expected_phrases:
-      - "first step on any qa intent"
+      - "first after using-sumo-qa"
       - "canonical approach"
-    note: "Explicit approach-deciding intent — the iron-law gate before any QA output."
+    note: "Explicit approach-deciding intent: the second hop, after the using_sumo_qa router, before any QA output."
 
   - prompt: "turn this strategy phase into a bite-sized rollout plan"
     expected_skill: sumo_qa_planning_qa_rollout
@@ -199,3 +235,21 @@ non_triggers:
   - prompt: "make the login button blue"
     must_not_match_skill: sumo_qa_security_testing
     note: "Frontend styling with no grounded security surface must not route to the security-testing specialist."
+
+  # Development controls (#247): the same implementation framing with no
+  # testing ask. Router phrases must stay specific enough not to match these.
+  - prompt: "I'm implementing a retry worker. Add exponential backoff to it."
+    must_not_match_skill: using_sumo_qa
+    note: "Implementation-only ask; no testing intent."
+
+  - prompt: "I'm changing the parser. Add structured logging to its error path."
+    must_not_match_skill: using_sumo_qa
+    note: "Logging ask; no testing intent."
+
+  - prompt: "I'm building this endpoint. Suggest a better name for the handler."
+    must_not_match_skill: using_sumo_qa
+    note: "Naming ask; no testing intent."
+
+  - prompt: "I'm adding a config loader. Format this file to the repo style."
+    must_not_match_skill: using_sumo_qa
+    note: "Formatting ask; no testing intent."

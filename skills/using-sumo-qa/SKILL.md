@@ -1,6 +1,6 @@
 ---
 name: using-sumo-qa
-description: MUST be called first for any QA-shaped request. Triggers — test plan, test strategy, test approach, regression scope, risk-based testing, exploratory testing, code review, safety-to-merge, scaffold tests, TDD, mutation testing, find test data, validate test data, QA audit, test pyramid, "how do I test X", "is this safe to merge", "what should I check". Entry router for all sumo-qa work. Establishes the global discipline that every sub-skill inherits. Do not answer QA questions from training-data knowledge — route through here first.
+description: MUST be called first for any QA-shaped request. Triggers include test plan, test strategy, test approach, regression scope, risk-based testing, exploratory testing, code review, safety-to-merge, scaffold tests, TDD, mutation testing, find test data, validate test data, QA audit, test pyramid, "how do I test X", "is this safe to merge", "what should I check". Also development-framed testing asks ("I'm adding X, how should I test it", "what tests do I need", "cover the edge cases", "write the failing tests first"). Entry router for all sumo-qa work. Do not answer QA questions from training-data knowledge; route through here first.
 ---
 
 # Using sumo-qa
@@ -12,8 +12,6 @@ description: MUST be called first for any QA-shaped request. Triggers — test p
 **Never surface internal taxonomy labels in user-facing output.** No "Classification: X", "Approach: Y", "Per the checklist", "Step 3 of 6". The taxonomy is internal scaffolding; translate to natural English when the meaning matters to the user — *"this is a behaviour change in pricing"*, not *"Classification: business_logic_change"*. If you catch yourself typing a label, delete it.
 
 ## Output economy (mandatory)
-
-Spend output tokens on findings, not framing.
 
 - **No preamble or self-narration.** Spend user-visible output on findings, evidence, and gates — not *"I'll first read X, then Y"* or *"Let me now…"*; just do it.
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
@@ -28,7 +26,9 @@ You may not produce test ideas, scaffolds, plans, reviews, or strategies without
 
 ## When to Use
 
-This skill is the entry router for every QA-shaped request — *"review my changes / is this safe to merge"*, *"how should I test X"*, *"create a test plan"*, *"plan QA for this story"*, *"scaffold the failing tests"*, *"what test data do I need"*, *"audit our test coverage"*, *"design our QA strategy"*, and similar. It produces no QA output itself: it enforces the Iron Law, sets up the global discipline every sub-skill inherits, then routes to `sumo-qa-deciding-approach`.
+First hop: every QA-shaped request, including a development-framed one such as "I'm adding X, how should I test it?", "what tests do I need?" or "write the failing tests first", calls `using_sumo_qa` before any other sumo-qa tool and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill it routes to. No specialist skill is entered directly.
+
+The testing ask, not the "I'm building X" framing, makes a request QA-shaped; the framing alone (backoff, logging, naming, formatting) is not QA work.
 
 ## Global discipline (inherited by every sub-skill)
 
@@ -92,14 +92,14 @@ The skills use three terms that name a capability, not any one host's API. Map e
 Work through these privately, in order. Never render them as a tracker or narrate them: this hop is internal.
 
 1. Read the user's intent verbatim.
-2. Load and re-read this Iron Law to anchor the response.
+2. Re-read the Iron Law.
 3. Invoke the `sumo-qa-deciding-approach` skill immediately. Do NOT answer the user before the approach is decided.
 4. After `sumo-qa-deciding-approach` returns, follow its `next_action` (route to the named sub-skill or stop).
 5. Apply the global discipline (knowledge authority, internal-only citations, specialty+tool fit) for every sub-skill that runs.
 
 ## Process Flow
 
-See the Checklist above — that's the flow.
+Follow the Checklist.
 
 ## Red Flags
 
@@ -125,4 +125,4 @@ User: "review my changes". Skill response: "Sure! Looking at your diff, the main
 
 ## Next skill in the chain
 
-Always → `sumo-qa-deciding-approach`. That is the router's only job — set the global discipline, then hand the intent over so the approach can be picked before any QA output is produced.
+Always → `sumo-qa-deciding-approach`, which picks the downstream skill before any QA output; this router names none.

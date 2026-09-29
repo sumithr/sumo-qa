@@ -38,17 +38,19 @@ from typing import Any
 
 import yaml
 
+from sumo_qa.first_hop import ENTRY_ROUTER, ROUTER_CHAIN
 from sumo_qa.knowledge_loaders import sumo_qa_load_approaches, sumo_qa_load_classifications
 from sumo_qa.skill_prompts import _skills_dir
 
-# The canonical router chain fires BEFORE the destination skill, in this
-# order: the entry router first, then the approach decider. A router tool ahead
-# of the expected entry skill is exempt from mis-route detection ONLY when it
-# precedes the expected skill in this chain — `sumo_qa_deciding_approach`
-# before an expected `using_sumo_qa` is still a wrong route (the entry router
-# must fire first), while either router before an ordinary destination skill
-# is a legitimate prelude.
-ROUTER_CHAIN = ("using_sumo_qa", "sumo_qa_deciding_approach")
+# The canonical router chain (``sumo_qa.first_hop``) fires BEFORE the
+# destination skill, in this order: the entry router first, then the approach
+# decider. A router tool ahead of the expected entry skill is exempt from
+# mis-route detection ONLY when it precedes the expected skill in this chain:
+# `sumo_qa_deciding_approach` before an expected `using_sumo_qa` is still a
+# wrong route (the entry router must fire first), while either router before an
+# ordinary destination skill is a legitimate prelude. The first-hop check
+# (`_first_hop_violations`) additionally REQUIRES the whole chain, in order,
+# ahead of the expected skill.
 
 ROUTING_LEAK_FAMILIES = (
     "payload_json",
@@ -73,6 +75,7 @@ class ViolationKind(str, Enum):
     FORBIDDEN_TOOL_CALLED = "forbidden_tool_called"
     MISSING_OUTPUT_MARKER = "missing_output_marker"
     FORBIDDEN_OUTPUT_MARKER = "forbidden_output_marker"
+    FIRST_HOP_VIOLATION = "first_hop_violation"
     ROUTING_STATE_LEAK = "routing_state_leak"
 
 
@@ -96,6 +99,7 @@ class ConformanceScenario:
     forbidden_tool_calls: tuple[str, ...] = ()
     required_output_markers: tuple[str, ...] = ()
     forbidden_output_markers: tuple[str, ...] = ()
+    forbid_sumo_qa_calls: bool = False
 
     @property
     def deterministic(self) -> bool:
@@ -173,17 +177,25 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
         forbidden_tool_calls=tuple(entry.get("forbidden_tool_calls") or ()),
         required_output_markers=tuple(entry.get("required_output_markers") or ()),
         forbidden_output_markers=tuple(entry.get("forbidden_output_markers") or ()),
+        forbid_sumo_qa_calls=bool(entry.get("forbid_sumo_qa_calls", False)),
     )
+    if scenario.expected_entry_skill and scenario.forbid_sumo_qa_calls:
+        raise ValueError(
+            f"scenario {scenario.id!r}: expected_entry_skill and forbid_sumo_qa_calls "
+            f"cannot both be set; no transcript could satisfy it"
+        )
     if scenario.deterministic and not (
         scenario.expected_entry_skill
         or scenario.required_tool_calls
         or scenario.forbidden_tool_calls
         or scenario.required_output_markers
         or scenario.forbidden_output_markers
+        or scenario.forbid_sumo_qa_calls
     ):
         raise ValueError(
             f"scenario {scenario.id!r}: deterministic but declares no enforceable "
-            f"clause (expected_entry_skill, tool calls, or output markers) — it "
+            f"clause (expected_entry_skill, tool calls, output markers, or "
+            f"forbid_sumo_qa_calls) — it "
             f"would pass every transcript vacuously"
         )
     return scenario
@@ -212,6 +224,7 @@ def validate_transcript(
         known_entry_skills = registered_entry_skills()
     violations = (
         _routing_violations(scenario, transcript, known_entry_skills)
+        + _first_hop_violations(scenario, transcript)
         + _tool_violations(scenario, transcript)
         + _output_violations(scenario, transcript)
         + _leak_violations(transcript)
@@ -260,6 +273,71 @@ def _router_exempt(name: str, expected: str) -> bool:
     return ROUTER_CHAIN.index(name) < ROUTER_CHAIN.index(expected)
 
 
+def _is_sumo_qa_tool(name: str) -> bool:
+    return name == ENTRY_ROUTER or name.startswith("sumo_qa_")
+
+
+def _first_hop_violations(
+    scenario: ConformanceScenario,
+    transcript: Transcript,
+) -> list[Violation]:
+    """Enforce ``sumo_qa.first_hop.FIRST_HOP_RULE`` on a routed scenario: the
+    first sumo-qa call is the entry router, and the whole router chain then the
+    expected skill fire in that order. Host tools (file reads, shell) may come
+    first; any sumo-qa call ahead of the router is QA work before the first hop.
+
+    Scenarios without an expected entry skill are not QA requests and are exempt.
+    The transcript does not interleave output with calls, so "before any QA
+    advice" is checked as "a first hop exists at all" (a documented limit)."""
+    expected = scenario.expected_entry_skill
+    if expected is None:
+        return []
+    sumo_calls = [tc.tool for tc in transcript.tool_calls if _is_sumo_qa_tool(tc.tool)]
+    if not sumo_calls:
+        return [
+            Violation(
+                ViolationKind.FIRST_HOP_VIOLATION,
+                f"no sumo-qa call at all; the first hop must be {ENTRY_ROUTER!r}",
+            )
+        ]
+    if sumo_calls[0] != ENTRY_ROUTER:
+        return [
+            Violation(
+                ViolationKind.FIRST_HOP_VIOLATION,
+                f"first sumo-qa call was {sumo_calls[0]!r}; the first hop must be {ENTRY_ROUTER!r}",
+            )
+        ]
+    # Each step's FIRST call must come after the previous step's first call, so
+    # a late re-call of a step cannot mask the order it first fired in.
+    chain = ROUTER_CHAIN if expected in ROUTER_CHAIN else (*ROUTER_CHAIN, expected)
+    previous = -1
+    for number, step in enumerate(chain):
+        index = sumo_calls.index(step) if step in sumo_calls else -1
+        if index <= previous:
+            return [
+                Violation(
+                    ViolationKind.FIRST_HOP_VIOLATION,
+                    f"router chain broken: {step!r} does not first fire after "
+                    f"{' -> '.join(chain[:number])}",
+                )
+            ]
+        previous = index
+    # The router hands off to the decider before any further QA work: a
+    # specialist or catalogue loader fired between them skipped the approach
+    # decision even when the chain order holds (the only check when the
+    # expected skill is the router itself). Host tools are not sumo-qa calls.
+    decider_index = sumo_calls.index(ROUTER_CHAIN[-1])
+    for name in sumo_calls[:decider_index]:
+        if name not in ROUTER_CHAIN:
+            return [
+                Violation(
+                    ViolationKind.FIRST_HOP_VIOLATION,
+                    f"{name!r} fired before {ROUTER_CHAIN[-1]!r} picked the route",
+                )
+            ]
+    return []
+
+
 def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> list[Violation]:
     called = {tc.tool for tc in transcript.tool_calls}
     violations: list[Violation] = []
@@ -269,6 +347,17 @@ def _tool_violations(scenario: ConformanceScenario, transcript: Transcript) -> l
                 Violation(
                     ViolationKind.MISSING_REQUIRED_TOOL,
                     f"required tool {required!r} was not called",
+                )
+            )
+    if scenario.forbid_sumo_qa_calls:
+        called_sumo_qa = sorted(
+            {tc.tool for tc in transcript.tool_calls if _is_sumo_qa_tool(tc.tool)}
+        )
+        for name in called_sumo_qa:
+            violations.append(
+                Violation(
+                    ViolationKind.FORBIDDEN_TOOL_CALLED,
+                    f"sumo-qa tool {name!r} was called on a request that must not enter sumo-qa",
                 )
             )
     for forbidden in scenario.forbidden_tool_calls:

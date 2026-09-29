@@ -1,4 +1,8 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
+import re
+
+import pytest
+
 from sumo_qa.server import build_mcp_server
 
 # Phase 4 slimmed surface: 4 test-data tools + 6 knowledge loaders = 10 atomic tools.
@@ -600,8 +604,8 @@ def test_server_instructions_enforce_qa_routing() -> None:
     assert "ROUTING DIRECTIVE" in text, (
         "MCPServer instructions lost the ROUTING DIRECTIVE header (#238)."
     )
-    assert "sumo_qa_using_sumo_qa" in text, (
-        "MCPServer instructions must name the entry router `sumo_qa_using_sumo_qa`."
+    assert "`using_sumo_qa`" in text, (
+        "MCPServer instructions must name the registered entry router `using_sumo_qa`."
     )
     # Forbids silent supplementation from training data.
     assert "sumo_qa_load_" in text, (
@@ -619,8 +623,8 @@ def test_copilot_instructions_enforce_qa_routing() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     text = (repo_root / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
     assert "Hard rule" in text, "copilot-instructions.md lost the Hard rule header."
-    assert "sumo_qa_using_sumo_qa" in text, (
-        "copilot-instructions.md must name the entry router `sumo_qa_using_sumo_qa`."
+    assert "`using_sumo_qa`" in text, (
+        "copilot-instructions.md must name the registered entry router `using_sumo_qa`."
     )
     assert "sumo_qa_load_" in text, (
         "copilot-instructions.md must require `sumo_qa_load_*` for citations."
@@ -640,3 +644,41 @@ def test_using_sumo_qa_skill_carries_iron_law() -> None:
     assert "sumo-qa-deciding-approach" in text, (
         "using-sumo-qa SKILL.md must still route to `sumo-qa-deciding-approach` (#238)."
     )
+
+
+# A backticked sumo-qa tool reference; `sumo_qa_load_*` style wildcards are
+# excluded because they name a family, not one tool.
+_TOOL_REF = re.compile(r"`((?:using_sumo_qa|sumo_qa_[a-z_]+))`")
+
+
+@pytest.mark.parametrize("surface", ["server-instructions", "copilot-instructions"])
+def test_instruction_surface_names_only_registered_tools(surface: str) -> None:
+    """A host follows the tool name the instructions give it; a name the server
+    never registered is a dead first hop (#247: both surfaces named the
+    unregistered `sumo_qa_using_sumo_qa`)."""
+    from pathlib import Path
+
+    server = build_mcp_server()
+    if surface == "server-instructions":
+        text = getattr(server, "instructions", "") or ""
+    else:
+        repo_root = Path(__file__).resolve().parent.parent
+        text = (repo_root / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
+    named = set(_TOOL_REF.findall(text))
+    assert "using_sumo_qa" in named, f"{surface} does not name the entry router"
+    unregistered = named - set(server._tool_manager._tools)
+    assert not unregistered, f"{surface} names unregistered tools: {sorted(unregistered)}"
+
+
+def test_copilot_instructions_do_not_point_at_unregistered_prompts() -> None:
+    """Skills are served as MCP tools only; telling Copilot to fetch them as MCP
+    prompts sends it to a channel the server never populates."""
+    import asyncio
+    from pathlib import Path
+
+    server = build_mcp_server()
+    if asyncio.run(server.list_prompts()):
+        pytest.skip("server registers MCP prompts; the prompt wording is valid")
+    repo_root = Path(__file__).resolve().parent.parent
+    text = (repo_root / ".github" / "copilot-instructions.md").read_text(encoding="utf-8")
+    assert "MCP prompt" not in text and "fetch the relevant prompt" not in text

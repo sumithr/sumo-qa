@@ -1,11 +1,11 @@
 ---
 name: sumo-qa-security-testing
-description: Use when explicit security testing or a grounded security gap needs deeper evidence selection.
+description: Use after sumo-qa-deciding-approach routes here, when explicit security testing or a grounded security gap needs deeper evidence selection.
 ---
 
 # Security Testing
 
-Security testing here means turning an already grounded security concern into the smallest evidence that proves the risk is covered. It is a routed specialist path after `sumo-qa-deciding-approach`.
+Security testing here means turning an already grounded security concern into the smallest evidence that proves the risk is covered.
 
 **Announce at start:** *"Focusing the security test evidence."* It opens every reply, anchored or not.
 

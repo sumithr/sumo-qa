@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-strategising
-description: Use for repo-wide / policy-shaped asks — "audit our test coverage", "design our QA strategy from scratch", "where should we invest QA effort first", "design our test pyramid". Walks repo inventory → per-area risks → specialty fit → prioritisation → pyramid → phased rollout → residual risks, one section at a time with confirmation gates. Walks the repo with the host's file tools first.
+description: Use after sumo-qa-deciding-approach routes here, for repo-wide / policy-shaped asks — "audit our test coverage", "design our QA strategy from scratch", "where should we invest QA effort first", "design our test pyramid". Walks the repo with the host's file tools first.
 ---
 
 # Strategising sumo-qa work

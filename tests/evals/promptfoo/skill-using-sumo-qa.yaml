@@ -60,10 +60,10 @@ defaultTest:
       {{valid_sub_skills}}
 
       Evaluate THREE axes:
-      A. SHAPE - router handoff only, recognises the review-before-merge intent,
-         names sumo-qa-deciding-approach exactly as the first hop, and does not
-         perform the downstream review inline or route directly to a downstream
-         sub-skill.
+      A. SHAPE - router handoff only, recognises the QA intent the Expected QA
+         shape names (it differs per test), names sumo-qa-deciding-approach
+         exactly as the first hop, and does not perform the downstream QA work
+         inline or route directly to a downstream sub-skill.
       B. GROUNDING - the named sub-skill must appear in the exact valid
          sub-skill list above. B GROUNDING: any named sub-skill outside that
          list is GROUNDING FAIL.
@@ -116,6 +116,49 @@ tests:
     vars:
       user_prompt: >-
         Can you review my changes before I push?
+  # Development-framed QA (#247): implementation framing hides a testing ask.
+  # The router must still hand off to sumo-qa-deciding-approach instead of
+  # answering the testing question inline.
+  - description: "DEV-FRAMED - adding-analyze-diff-impact"
+    vars:
+      user_prompt: >-
+        I'm adding sumo_qa_analyze_diff_impact. How should I test it?
+      expected_shape: >-
+        Router handoff only. Recognises the implementation-framed message as a
+        QA-shaped testing request despite the development framing. Routes to
+        the exact first-hop sub-skill name sumo-qa-deciding-approach and
+        states that handoff explicitly. Does not list test cases, name
+        techniques, write tests, or route directly to a downstream sub-skill.
+  - description: "DEV-FRAMED - implementing-retry-worker"
+    vars:
+      user_prompt: >-
+        I'm implementing a retry worker. What tests do I need for it?
+      expected_shape: >-
+        Router handoff only. Recognises the implementation-framed message as a
+        QA-shaped testing request despite the development framing. Routes to
+        the exact first-hop sub-skill name sumo-qa-deciding-approach and
+        states that handoff explicitly. Does not list test cases, name
+        techniques, write tests, or route directly to a downstream sub-skill.
+  - description: "DEV-FRAMED - changing-parser-edge-cases"
+    vars:
+      user_prompt: >-
+        I'm changing the parser. How do I cover the edge cases?
+      expected_shape: >-
+        Router handoff only. Recognises the implementation-framed message as a
+        QA-shaped testing request despite the development framing. Routes to
+        the exact first-hop sub-skill name sumo-qa-deciding-approach and
+        states that handoff explicitly. Does not list test cases, name
+        techniques, write tests, or route directly to a downstream sub-skill.
+  - description: "DEV-FRAMED - building-endpoint-failing-tests"
+    vars:
+      user_prompt: >-
+        I'm building this endpoint. Write the failing tests first.
+      expected_shape: >-
+        Router handoff only. Recognises the implementation-framed message as a
+        QA-shaped testing request despite the development framing. Routes to
+        the exact first-hop sub-skill name sumo-qa-deciding-approach and
+        states that handoff explicitly. Does not list test cases, name
+        techniques, write tests, or route directly to a downstream sub-skill.
   # Generated scenarios - bare TestCase array, produced by extract_tests.py
   # from .gen.yaml after `promptfoo generate dataset --write`.
   - file://skill-using-sumo-qa.generated-tests.yaml

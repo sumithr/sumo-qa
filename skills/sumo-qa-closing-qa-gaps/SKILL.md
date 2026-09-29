@@ -1,6 +1,6 @@
 ---
 name: sumo-qa-closing-qa-gaps
-description: Use when a review, mutation run, or graded scenario has already named a concrete uncovered behavior gap and the user wants it closed with evidence — e.g. 'close this gap', 'drive this uncovered risk to a regression test', 'fix this surviving mutant end to end'. Drives ONE closed loop per gap — failing test → red evidence → minimal fix → green evidence → risk/ledger update. Pauses when repo context or evidence is insufficient.
+description: Use after sumo-qa-deciding-approach routes here, when a review, mutation run, or graded scenario has already named a concrete uncovered behavior gap and the user wants it closed with evidence — e.g. 'close this gap', 'drive this uncovered risk to a regression test', 'fix this surviving mutant end to end'. Drives ONE closed loop per gap, with red and green evidence. Pauses when repo context or evidence is insufficient.
 ---
 
 # Closing QA gaps
