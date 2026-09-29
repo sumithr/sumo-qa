@@ -77,7 +77,7 @@ COMPACT_MANIFEST_TOKEN_BUDGET = 2820  # epic #137 / #306: shipped compact defaul
 # raised it to ~13,806 on the merged tree, so the ceiling moves to 14,100.
 # #283's sumo-qa-security-testing adds a measured full section index, raising
 # the opt-in payload to ~14,615; ceiling moves to 14,900. #451 ships the first
-# lazy modules (19 under sumo-qa-reviewing-before-merge), each adding one
+# lazy modules (under sumo-qa-reviewing-before-merge), each adding one
 # modules[] index entry (id, path, estimated_tokens) to the opt-in payload:
 # measured ~15,385, so the ceiling moves to 15,900 (~3% headroom). The shipped
 # compact default is unaffected (it carries no sections[]/modules[] arrays).

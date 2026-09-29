@@ -3,30 +3,29 @@ description: >
   sumo-qa-reviewing-before-merge. When a diff moves a dependency, tool or
   runtime constraint, the review searches the supplied repo state by the
   dependency's identity (hidden config included), classifies each other
-  occurrence (exact mirror, compatible range, deliberately independent
-  environment, generated resolution, prose only) before judging it, and names
-  each stale mirror as its own inventory-drift anchor plus the install/smoke
-  run its isolated environment needs. Four seeds: (1) BLOCKER, the manifest
-  raises a parser package floor while a pre-push hook's
-  `additional_dependencies` keeps the old floor: the stale hook mirror is a
-  named, anchored SAFE-blocker even on a green suite, and the hook verifier
-  is required; (2) CONTROL, the manifest, hook and CI install use
-  semantically compatible constraints in different syntax and order, and their
-  smoke checks ran: no mirror finding; (3) TRUE NEGATIVE, the only other
+  occurrence (declared exact mirror, range in another environment,
+  deliberately independent environment, generated resolution, prose only)
+  before judging it, and names each stale mirror as its own inventory-drift
+  anchor plus the install/smoke run its isolated environment needs. Five
+  seeds: (1) BLOCKER, the manifest raises a parser package floor while a
+  pre-push hook's `additional_dependencies` keeps the old floor: the stale
+  hook copy is a named, anchored SAFE-blocker even on a green suite, and the
+  hook verifier is required; (2) CONTROL, the manifest, hook and CI install
+  use semantically compatible constraints in different syntax and order, and
+  their smoke checks ran: no mirror finding; (3) TRUE NEGATIVE, the only other
   occurrences are historical prose (changelog, ADR): no rewrite demanded;
   (4) TRUE NEGATIVE, a separate compatibility environment pins the older
-  major on purpose, with a documented reason: no synchronisation demanded.
+  major on purpose, with a documented reason: no synchronisation demanded;
+  (5) BLOCKER, a hook declared to be kept in sync with the manifest keeps the
+  old ceiling the diff raised: stale although its range still admits what the
+  diff requires, while an undeclared CI pin with the same narrower cap stays
+  compatible.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
-  # The pre-change skill reproduced the miss on the Claude pair (2/4: the
-  # blocker never required the hook environment's own run, and the control
-  # raised a "constraint inconsistency" blocker on compatible ranges), so per
-  # #427 the BLOCKER and CONTROL seeds also run as an A0/A1 control in
-  # skill-reviewing-before-merge-mirrored-constraints.ab.yaml. The two true
-  # negatives passed on the pre-change skill and are regression guards
-  # against over-triggering. Pass counts: README, "Mirrored dependency
-  # constraint corpus".
+  # The BLOCKER and CONTROL seeds also run as an A0/A1 control in
+  # skill-reviewing-before-merge-mirrored-constraints.ab.yaml (per #427). The
+  # true negatives guard against over-triggering.
   - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
@@ -39,39 +38,13 @@ defaultTest:
     # agree with its own Fresh matching tests field. Grades every seed.
     - type: javascript
       value: file://asserts/ledger-row-labels.js
-    # Decisive #493 mirror gate, isolated from SHAPE/GROUNDING wobble. The
-    # blocker seed must name the stale hook file, deliver NOT SAFE and require
-    # the hook's own run; no seed may mark a non-mirror occurrence (history,
-    # generated lock, independent environment) as an UNCOVERED stale anchor.
-    # Strengthens, never loosens, the llm-rubric below.
+    # Decisive mirror gate, isolated from SHAPE/GROUNDING wobble (shared by
+    # the base corpus and its .ab.yaml): a stale-mirror seed must name the
+    # stale file, deliver NOT SAFE and require the environment's own run; no
+    # seed may anchor a non-mirror occurrence as UNCOVERED. Strengthens,
+    # never loosens, the llm-rubric below.
     - type: javascript
-      value: |
-        const text = String(output || '');
-        const lower = text.toLowerCase();
-        const fails = [];
-        const mustFlag = context.vars.stale_mirror_path;
-        if (mustFlag) {
-          if (!text.includes(mustFlag)) fails.push(`stale mirror ${mustFlag} not named`);
-          if (!/not safe to merge/i.test(text)) fails.push('blocker seed did not deliver NOT SAFE TO MERGE');
-          if (!/pre-commit\s+(run|install)/i.test(text)) fails.push('hook environment verifier (a pre-commit run/install command) not required');
-        }
-        // A ledger or drift row flags a path when that path sits in the row's
-        // own anchor field (up to the next `|`) and the row is UNCOVERED; a
-        // path named in prose on the same line as an UNCOVERED word is not a
-        // row about that path.
-        const anchorFields = (line) => [...line.matchAll(/anchor:([^|]*)/gi)].map((m) => m[1]);
-        for (const p of (context.vars.not_stale_paths || [])) {
-          const flagged = text.split('\n').some(
-            (line) => /UNCOVERED/.test(line) && anchorFields(line).some((field) => field.includes(p)),
-          );
-          if (flagged) fails.push(`non-mirror occurrence ${p} anchored as UNCOVERED`);
-        }
-        if (!mustFlag && /inventory drift anchor:[^\n]*uncovered/.test(lower)) {
-          fails.push('control seed emitted an UNCOVERED inventory drift anchor');
-        }
-        return fails.length
-          ? { pass: false, score: 0, reason: `Mirror gate FAIL: ${fails.join('; ')}` }
-          : { pass: true, score: 1, reason: 'Mirror gate: stale mirrors named and non-mirrors left alone as this seed requires.' };
+      value: file://asserts/mirror-gate.js
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}
@@ -260,7 +233,7 @@ tests:
         $ rg -n --hidden -g '!.git' -i 'tree[-_]sitter[-_]language[-_]pack'
         pyproject.toml:16:    "tree-sitter-language-pack>=1.12.5",
         uv.lock:1440:name = "tree-sitter-language-pack"
-        .pre-commit-config.yaml:33:          - tree-sitter-language-pack>=1.10.0
+        .pre-commit-config.yaml:34:          - tree-sitter-language-pack>=1.10.0
         src/sumo_qa/repo_map/parser.py:3:from tree_sitter_language_pack import get_binding
         CHANGELOG.md:212:- repo map: parse with tree-sitter-language-pack 1.10.0 (#301)
         ```
@@ -310,9 +283,9 @@ tests:
         history, and flags neither. Delivers NOT SAFE TO MERGE. Ends without a
         confirmation question.
       mirror_expectation: >-
-        A STALE MIRROR SHOULD BE FLAGGED. `.pre-commit-config.yaml:33-34` is an
-        exact mirror of the changed constraint in an isolated hook
-        environment, and its `>=1.10.0` range admits the versions the diff
+        A STALE MIRROR SHOULD BE FLAGGED. `.pre-commit-config.yaml:33-34` is a
+        copy of the changed constraint in an isolated hook environment,
+        and its `>=1.10.0` range admits the versions the diff
         declares incompatible. The review must name it by path and line with
         old and required constraints, keep it a SAFE-blocker despite the green
         812-passed run, require the hook environment's own run, and deliver
@@ -334,6 +307,9 @@ tests:
         - Surfacing literal taxonomy labels such as config_change or docs_change.
   - description: "CONTROL - manifest, hook and CI install carry semantically compatible constraints in different syntax, and their smoke checks ran"
     vars:
+      # The hook and CI runs discharge their verification lines, so routing
+      # also loads discharged-check.
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, inventory-drift, mirrored-constraints, surface-verifier, discharged-check]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -429,6 +405,9 @@ tests:
         - Surfacing literal taxonomy labels such as config_change or docs_change.
   - description: "TRUE NEGATIVE - the only other occurrences of the old version are historical prose"
     vars:
+      # Manifest and lock only, no executable change: routing loads the
+      # trivial-change modules plus mirrored-constraints (root step 4).
+      review_modules: [runtime-scope, inventory-drift, mirrored-constraints, surface-verifier]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -493,6 +472,9 @@ tests:
         - Surfacing literal taxonomy labels such as config_change or docs_change.
   - description: "TRUE NEGATIVE - a separate compatibility environment pins the older major on purpose, with a documented reason"
     vars:
+      # Manifest and lock only, no executable change: routing loads the
+      # trivial-change modules plus mirrored-constraints (root step 4).
+      review_modules: [runtime-scope, inventory-drift, mirrored-constraints, surface-verifier]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
@@ -517,12 +499,25 @@ tests:
 
         ## Repo search (hidden files included)
         ```text
-        $ rg -n --hidden -g '!.git' -i '\bpytest(==|>=|<|~=|,)'
-        pyproject.toml:54:    "pytest>=8.3",
-        pyproject.toml:31:plugin = ["pytest>=7.4"]
-        constraints/pytest7-compat.txt:3:pytest>=7.4,<8
+        $ rg -n --hidden -g '!.git' -g '!*.py' -i 'pytest'
         .github/workflows/compat.yml:22:        run: pip install -c constraints/pytest7-compat.txt -e ".[plugin]"
+        .github/workflows/compat.yml:23:      - run: pytest tests/plugin
+        .github/workflows/test.yml:40:      - run: uv run pytest -q
+        constraints/pytest7-compat.txt:1:# Deliberately independent of the dev test group: the published pytest
+        constraints/pytest7-compat.txt:2:# plugin still supports pytest 7.x, and this environment proves it (docs/compat.md#pytest-7).
+        constraints/pytest7-compat.txt:3:pytest>=7.4,<8
+        docs/compat.md:12:## pytest 7
+        pyproject.toml:31:plugin = ["pytest>=7.4"]
+        pyproject.toml:54:    "pytest>=8.3",
+        pyproject.toml:55:    "pytest-cov>=5",
+        pyproject.toml:61:[tool.pytest.ini_options]
+        uv.lock:980:name = "pytest"
+        uv.lock:1002:name = "pytest-cov"
+        uv.lock:1008:    { name = "pytest" },
         ```
+        Python sources are excluded from the search: they import pytest, they
+        do not constrain it. No pre-commit hook, Dockerfile or devcontainer
+        names pytest.
 
         ## constraints/pytest7-compat.txt (unchanged by the diff)
         ```text
@@ -562,5 +557,115 @@ tests:
           stale mirror, or demands they move to `pytest>=8.3`, despite the
           documented independent purpose.
         - Treats the `<8` ceiling as conflicting with the dev group's floor as though both governed one environment.
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as config_change or docs_change.
+  - description: "BLOCKER - a declared keep-in-sync hook mirror keeps the old ceiling the manifest raised, while an undeclared narrower CI cap stays compatible"
+    vars:
+      # Manifest and lock only, no executable change: routing loads the
+      # trivial-change modules plus mirrored-constraints (root step 4).
+      review_modules: [runtime-scope, inventory-drift, mirrored-constraints, surface-verifier]
+      user_prompt: >-
+        Is this safe to merge? It only widens the pytest-cov cap.
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:52-56 @@
+         52 [dependency-groups]
+         53 test = [
+         54     "pytest>=8.3",
+        -55     "pytest-cov>=6,<7",
+        +55     "pytest-cov>=6,<8",
+         56 ]
+        diff --git a/uv.lock b/uv.lock
+        @@ uv.lock:1002-1003 @@
+         1002 name = "pytest-cov"
+        -1003 version = "6.1.1"
+        +1003 version = "7.0.0"
+        ```
+        Context: the cap moves to `<8` so the dev test group can take
+        pytest-cov 7.0; the floor is unchanged and nothing requires 7.x.
+        No code changes.
+
+        ## Repo search (hidden files included)
+        ```text
+        $ rg -n --hidden -g '!.git' -i 'pytest[-_]cov'
+        .github/workflows/coverage.yml:26:        run: pip install "pytest-cov>=6,<7" coverage-badge
+        .pre-commit-config.yaml:42:          - pytest-cov>=6,<7  # keep in sync with pyproject [dependency-groups] test
+        pyproject.toml:55:    "pytest-cov>=6,<8",
+        uv.lock:1002:name = "pytest-cov"
+        ```
+
+        ## .pre-commit-config.yaml (unchanged by the diff)
+        ```yaml
+        34   - repo: local
+        35     hooks:
+        36       - id: coverage-gate
+        37         name: coverage gate (pre-push)
+        38         entry: pytest --cov=sumo_qa --cov-fail-under=90 -q
+        39         language: python
+        40         stages: [pre-push]
+        41         additional_dependencies:
+        42           - pytest-cov>=6,<7  # keep in sync with pyproject [dependency-groups] test
+        ```
+        The hook runs in pre-commit's own isolated virtualenv, built from
+        `additional_dependencies`.
+
+        ## .github/workflows/coverage.yml (unchanged by the diff)
+        ```yaml
+        24       - uses: actions/setup-python@v5
+        25       - name: Install badge tooling
+        26         run: pip install "pytest-cov>=6,<7" coverage-badge
+        ```
+
+        ## Fresh verification this turn
+        ```text
+        $ uv sync --locked && uv run pytest -q
+        812 passed, 3 skipped in 40.11s
+        ```
+        (This ran in the project's uv environment, which resolves pytest-cov
+        7.0.0 from uv.lock. No pre-commit hook was run this turn.)
+      stale_mirror_path: .pre-commit-config.yaml
+      not_stale_paths: [.github/workflows/coverage.yml, uv.lock]
+      expected_shape: >-
+        Evidence-led verdict. Classifies `.pre-commit-config.yaml:42` as a
+        declared exact mirror (its comment says to keep it in sync with the
+        test group), so it is held to both ends: its `<7` ceiling no longer
+        matches the manifest's `<8`, which makes it stale even though both
+        ranges admit 6.x. Names it as its own anchored row with the old and
+        required constraints inline (for example `(>=6,<7 → >=6,<8)`),
+        UNCOVERED / a SAFE-blocker because the diff does not update that
+        file, and requires the hook's own run (for example `pre-commit run
+        coverage-gate --hook-stage pre-push --all-files` after the hook
+        environment is rebuilt). Classifies
+        `.github/workflows/coverage.yml:26` as an undeclared range in another
+        environment whose narrower cap still admits what the diff requires,
+        so it raises no finding there, and treats uv.lock as the generated
+        resolution. Delivers NOT SAFE TO MERGE. Ends without a confirmation
+        question.
+      mirror_expectation: >-
+        A STALE MIRROR SHOULD BE FLAGGED, AND ONLY ONE.
+        `.pre-commit-config.yaml:42` is declared to be kept in sync with the
+        changed constraint, so its unraised `<7` ceiling is stale: the review
+        must name it by path and line with old and required constraints,
+        keep it a SAFE-blocker despite the green run, require the hook's own
+        run, and deliver NOT SAFE TO MERGE. `.github/workflows/coverage.yml:26`
+        carries the same `<7` cap with no sync declaration: it is compatible,
+        and demanding it be raised or aligned FAILS this axis.
+      anti_patterns:
+        - >-
+          Declares SAFE TO MERGE or treats the hook as compatible because
+          `>=6,<7` still admits 6.x, ignoring the keep-in-sync declaration.
+        - >-
+          Names the stale hook ceiling only as a residual concern, a
+          follow-up, or a generic "keep pins in sync" note instead of a named,
+          anchored SAFE-blocker at `.pre-commit-config.yaml`.
+        - >-
+          Treats the green `uv run pytest` run as verifying the hook
+          environment, or omits the hook's own run from what clears the
+          blocker.
+        - >-
+          Flags `.github/workflows/coverage.yml:26` as stale, demands its cap
+          be raised to `<8`, or asks to align it with the manifest.
         - Asking another confirmation question instead of delivering the verdict.
         - Surfacing literal taxonomy labels such as config_change or docs_change.

@@ -4,7 +4,7 @@ The sumo-qa MCP ships a library of skills under [`skills/`](../skills/). Each is
 `SKILL.md` root the host LLM follows literally (YAML frontmatter, an Iron Law, a
 checklist, a Process Flow section, a Red Flags table, and worked examples where the
 skill carries them), plus optional lazy `modules/*.md` the root's routing table loads
-on demand (`sumo-qa-reviewing-before-merge` ships 19).
+on demand (`sumo-qa-reviewing-before-merge` ships several).
 
 Each skill is also exposed as an MCP tool with the same name (e.g. `sumo_qa_deciding_approach`). The tool returns the SKILL.md body verbatim, so hosts that don't have a native skill loader (JetBrains AI Assistant, Junie, VS Code Copilot) get the same content.
 
@@ -45,7 +45,7 @@ flowchart LR
     class NoFit fallback
 ```
 
-Each skill is a `SKILL.md` root under [`skills/`](../skills/), carrying its own Iron Law and HARD-GATE, plus optional lazy `modules/*.md` its routing table loads on demand (`sumo-qa-reviewing-before-merge` ships 19). Browse that directory for the current set and per-skill detail, it is the source of truth, so this page deliberately does not re-list them.
+Each skill is a `SKILL.md` root under [`skills/`](../skills/), carrying its own Iron Law and HARD-GATE, plus optional lazy `modules/*.md` its routing table loads on demand (`sumo-qa-reviewing-before-merge` ships several). Browse that directory for the current set and per-skill detail, it is the source of truth, so this page deliberately does not re-list them.
 
 ## Global discipline (declared in using-sumo-qa, inherited by all sub-skills)
 

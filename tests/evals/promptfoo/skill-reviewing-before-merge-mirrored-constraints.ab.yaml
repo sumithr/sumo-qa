@@ -5,19 +5,15 @@ description: >
   discovery-probes, coverage-ledger, inventory-drift and surface-verifier as
   they stood before #493, snapshotted at
   fixtures/reviewing-before-merge-PRE-493.SKILL.md) and the current slice (A1:
-  the same modules plus mirrored-constraints, through the shared assembler).
+  the modules production routing loads for each seed, mirrored-constraints
+  included, through the shared assembler; CONTROL's discharged hook and CI
+  runs add discharged-check, which #493 leaves unchanged).
   A0 carries only the generic "search for stale copies of the old value"
   probe: nothing tells it to require the isolated hook environment's own run
   (blocker) or to compare constraint semantics instead of text (control), so
   the design expects A0 to FAIL where A1 PASSES.
-# Claude pair: discriminating. The first pre-change pass of the base corpus
-# reproduced both misses (blocker: no hook-environment run required; control:
-# a "constraint inconsistency" blocker raised on compatible ranges), which is
-# why this control exists per #427. Two passes at --repeat 2 on the #493
-# branch: A0 0/4 then 1/4 (the one A0 pass was a blocker sample), A1 3/4 then
-# 4/4 (the A1 miss came before the module's residual-concern red flag).
-# A0 is structurally unable to pass on taught behaviour: the verifier-command
-# and compare-semantics rules exist only in mirrored-constraints, which A0 does
+# A0 cannot pass on taught behaviour: the verifier-command and
+# compare-semantics rules exist only in mirrored-constraints, which A0 does
 # not load; it can still pass a blocker sample when it names the hook run
 # unaided.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
@@ -36,39 +32,13 @@ defaultTest:
     # agree with its own Fresh matching tests field. Grades every seed.
     - type: javascript
       value: file://asserts/ledger-row-labels.js
-    # Decisive #493 mirror gate, isolated from SHAPE/GROUNDING wobble. The
-    # blocker seed must name the stale hook file, deliver NOT SAFE and require
-    # the hook's own run; no seed may mark a non-mirror occurrence (history,
-    # generated lock, independent environment) as an UNCOVERED stale anchor.
-    # Strengthens, never loosens, the llm-rubric below.
+    # Decisive mirror gate, isolated from SHAPE/GROUNDING wobble (shared by
+    # the base corpus and its .ab.yaml): a stale-mirror seed must name the
+    # stale file, deliver NOT SAFE and require the environment's own run; no
+    # seed may anchor a non-mirror occurrence as UNCOVERED. Strengthens,
+    # never loosens, the llm-rubric below.
     - type: javascript
-      value: |
-        const text = String(output || '');
-        const lower = text.toLowerCase();
-        const fails = [];
-        const mustFlag = context.vars.stale_mirror_path;
-        if (mustFlag) {
-          if (!text.includes(mustFlag)) fails.push(`stale mirror ${mustFlag} not named`);
-          if (!/not safe to merge/i.test(text)) fails.push('blocker seed did not deliver NOT SAFE TO MERGE');
-          if (!/pre-commit\s+(run|install)/i.test(text)) fails.push('hook environment verifier (a pre-commit run/install command) not required');
-        }
-        // A ledger or drift row flags a path when that path sits in the row's
-        // own anchor field (up to the next `|`) and the row is UNCOVERED; a
-        // path named in prose on the same line as an UNCOVERED word is not a
-        // row about that path.
-        const anchorFields = (line) => [...line.matchAll(/anchor:([^|]*)/gi)].map((m) => m[1]);
-        for (const p of (context.vars.not_stale_paths || [])) {
-          const flagged = text.split('\n').some(
-            (line) => /UNCOVERED/.test(line) && anchorFields(line).some((field) => field.includes(p)),
-          );
-          if (flagged) fails.push(`non-mirror occurrence ${p} anchored as UNCOVERED`);
-        }
-        if (!mustFlag && /inventory drift anchor:[^\n]*uncovered/.test(lower)) {
-          fails.push('control seed emitted an UNCOVERED inventory drift anchor');
-        }
-        return fails.length
-          ? { pass: false, score: 0, reason: `Mirror gate FAIL: ${fails.join('; ')}` }
-          : { pass: true, score: 1, reason: 'Mirror gate: stale mirrors named and non-mirrors left alone as this seed requires.' };
+      value: file://asserts/mirror-gate.js
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}
@@ -298,7 +268,7 @@ tests:
         $ rg -n --hidden -g '!.git' -i 'tree[-_]sitter[-_]language[-_]pack'
         pyproject.toml:16:    "tree-sitter-language-pack>=1.12.5",
         uv.lock:1440:name = "tree-sitter-language-pack"
-        .pre-commit-config.yaml:33:          - tree-sitter-language-pack>=1.10.0
+        .pre-commit-config.yaml:34:          - tree-sitter-language-pack>=1.10.0
         src/sumo_qa/repo_map/parser.py:3:from tree_sitter_language_pack import get_binding
         CHANGELOG.md:212:- repo map: parse with tree-sitter-language-pack 1.10.0 (#301)
         ```
@@ -348,9 +318,9 @@ tests:
         history, and flags neither. Delivers NOT SAFE TO MERGE. Ends without a
         confirmation question.
       mirror_expectation: >-
-        A STALE MIRROR SHOULD BE FLAGGED. `.pre-commit-config.yaml:33-34` is an
-        exact mirror of the changed constraint in an isolated hook
-        environment, and its `>=1.10.0` range admits the versions the diff
+        A STALE MIRROR SHOULD BE FLAGGED. `.pre-commit-config.yaml:33-34` is a
+        copy of the changed constraint in an isolated hook environment,
+        and its `>=1.10.0` range admits the versions the diff
         declares incompatible. The review must name it by path and line with
         old and required constraints, keep it a SAFE-blocker despite the green
         812-passed run, require the hook environment's own run, and deliver
@@ -372,6 +342,9 @@ tests:
         - Surfacing literal taxonomy labels such as config_change or docs_change.
   - description: "CONTROL - manifest, hook and CI install carry semantically compatible constraints in different syntax, and their smoke checks ran"
     vars:
+      # The hook and CI runs discharge their verification lines, so routing
+      # also loads discharged-check.
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, inventory-drift, mirrored-constraints, surface-verifier, discharged-check]
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
