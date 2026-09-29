@@ -687,6 +687,9 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("Handing this over to sumo-qa-strategising.", "route_announcement"),
         ("Let me route this to sumo-qa-implementing-with-tdd.", "route_announcement"),
         ("Handed off to sumo-qa-strategising.", "route_announcement"),
+        ("Handoff to sumo-qa-strategising.", "route_announcement"),
+        ("Routing this into sumo-qa-strategising.", "route_announcement"),
+        ("I'll hand you over to the review skill.", "route_announcement"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:
@@ -716,6 +719,12 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "Unbalanced { brace with classification: and approach: but no next action",
         "Approach: pin the regression-first cases before refactoring.",
         "Hand the fixture to the pricing team, then rerun the suite.",
+        # Second code review (#248): imperative tool instructions, "hands-on",
+        # n/a in prose, and a label split from its value by a line break.
+        "Route the coverage output to sumo_qa_record_coverage.",
+        "Here is a hands-on intro to sumo-qa.",
+        "Data classification: n/a here",
+        "### Approach:\nregression-first work is not needed; nothing is broken.",
     ],
 )
 def test_find_routing_leaks_ignores_ordinary_prose(text) -> None:

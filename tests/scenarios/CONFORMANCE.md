@@ -81,10 +81,16 @@ five leak families by `find_routing_leaks`, with no per-scenario opt-in:
 | Family | Caught | Not caught (ordinary prose) |
 |---|---|---|
 | `payload_json` | one brace-balanced span (braces inside strings ignored) naming `classification`, `approach` and a `next_action` object that itself holds a `skill` handoff (compact, pretty-printed, or unquoted keys) | a config snippet, even one with `classification`/`approach`/`next_action` keys and a `skill:` elsewhere |
-| `taxonomy_label` | `Classification:` / `Approach:` (bare, bold, code or quoted) whose value is exactly a catalogue entry name (read from the live catalogues) or `n/a`, whatever follows it (`docs_change (docs only)`, `verify-existing because ...`) | `Approach: pin today's behaviour first`, "a regression-first approach", a one-key config snippet `{"approach": "tdd-scaffold"}` |
-| `route_announcement` | "Picking the QA approach...", "Routing this QA intent.", a route or hand verb followed within the sentence by "to sumo-qa-..." ("Routing this to sumo-qa-...", "Handing this over to sumo_qa_..."), "I'm routing you to..." | "routing to the pricing service", "I'm routing traffic through the load balancer", "hand the fixture to the pricing team" |
+| `taxonomy_label` | `Classification:` / `Approach:` (bare, bold, code or quoted) whose value is exactly a catalogue entry name (read from the live catalogues) on the same line, whatever follows it (`docs_change (docs only)`, `verify-existing because ...`), or `n/a` at a clause end | `Approach: pin today's behaviour first`, "a regression-first approach", `Data classification: n/a here`, a one-key config snippet `{"approach": "tdd-scaffold"}`, a heading whose next line starts with a catalogue name |
+| `route_announcement` | "Picking the QA approach...", "Routing this QA intent.", a narrated handoff to a sumo-qa name ("Routing this to sumo-qa-...", "Handing this over to sumo_qa_...", "Handoff to ...", "Routing it into ..."), first-person handoffs ("I'm routing you to...", "Let me route this...", "I'll hand you over...") | "routing to the pricing service", "I'm routing traffic through the load balancer", an imperative "Route the coverage output to sumo_qa_record_coverage", "hands-on" |
 | `checklist_status` | `[DONE]`, `[IN PROGRESS]`, `[PENDING]`, `[COMPLETED]` on a line naming a router step | markdown `[x]` / `[ ]` checkboxes; a downstream plan's `[DONE] Run the suite` |
 | `router_checklist` | two or more numbered lines naming router steps (load classifications/approaches, removability gate, pick the approach, routing payload, ...) | a numbered test plan, even one line mentioning the removability gate |
+
+The families are tripwires, not a parser. Known misses: a handoff whose object
+runs longer than two words or holds a period ("Routing it to e.g. sumo-qa-..."),
+and a label value that is not an exact catalogue identifier. The silent-hop
+instruction in both routing skills is the primary control, and the eval's judge
+grades paraphrases the tripwires cannot see.
 
 [`conformance/leak_transcripts.yaml`](conformance/leak_transcripts.yaml) holds
 a leaking and a clean near-miss output for every family, scored against the

@@ -31,6 +31,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -328,13 +329,17 @@ _LINE_BREAK_RE = re.compile("[\r\u2028\u2029]")
 _SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]")
 # Label/announcement decoration a host wraps around a key or skill name:
 # whitespace, markdown emphasis/code, quotes.
-_DECOR = r"[\s*_`\"']"
+_LINE_DECOR = r"[ \t*_`\"']"
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
     r"picking the qa approach"
     r"|\brouting this qa intent\b"
-    r"|\b(?:rout(?:e|es|ed|ing)|hand(?:s|ed|ing)?)\b[^.\n]{0,40}?\bto"
+    # Narrated handoffs only: an imperative "route X to sumo_qa_tool" is a
+    # downstream instruction, not the router speaking.
+    r"|\b(?:routing|routed|handing|handed|hand-?offs?)"
+    r"(?:\s+(?:this|you|it|over|off|the request|your request)){0,2}\s+(?:in)?to"
     r"[\s*_`\"'\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)"
-    r"|\b(?:i'm|i am|i'll|i will)\s+(?:now\s+)?(?:rout(?:e|ing)|handing)\s+(?:you|this)\b",
+    r"|\b(?:i'm|i am|i'll|i will|let me)\s+(?:now\s+)?(?:rout(?:e|ing)|hand(?:ing)?)"
+    r"\s+(?:you|this|it)\b",
     re.IGNORECASE | re.ASCII,
 )
 # A router step named on a line: what makes a status marker or a numbered
@@ -448,17 +453,22 @@ def _brace_spans(text: str) -> list[str]:
 
 def _has_taxonomy_label(text: str) -> bool:
     names = _catalogue_names()
-    if not names:
-        return False
+    return bool(names) and bool(_label_re(names).search(text))
+
+
+@lru_cache(maxsize=4)
+def _label_re(names: frozenset[str]) -> re.Pattern[str]:
+    """The label and its value share a line. Any word may follow an exact
+    catalogue identifier; ``n/a`` only counts at a clause end, since it is also
+    ordinary prose. A closing quote then ``}`` marks a one-key config snippet,
+    which the payload family judges."""
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
-    label = re.compile(
-        rf"(?<!\w)(?:classification|approach){_DECOR}{{0,4}}:{_DECOR}{{0,6}}"
-        # Any word may follow an exact identifier; a closing quote then ``}``
-        # marks a one-key config snippet, which the payload family judges.
-        rf"(?:{alternatives}|n/a)(?![\w-])(?![`*\"']*\}})",
+    return re.compile(
+        rf"(?<!\w)(?:classification|approach){_LINE_DECOR}{{0,4}}:{_LINE_DECOR}{{0,6}}"
+        rf"(?:(?:{alternatives})(?![\w-])|n/a[`*\"']*(?=[ \t]*$|[.,;:)]|\s+[-–—]\s))"
+        r"(?![`*\"']*\})",
         re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
-    return bool(label.search(text))
 
 
 def _catalogue_names() -> frozenset[str]:

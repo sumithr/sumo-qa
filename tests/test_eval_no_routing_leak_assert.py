@@ -78,6 +78,12 @@ _EXTRA = [
     "Handing this over to sumo-qa-strategising.",
     "Let me route this to sumo-qa-implementing-with-tdd.",
     "Hand the fixture to the pricing team, then rerun the suite.",
+    "Route the coverage output to sumo_qa_record_coverage.",
+    "Here is a hands-on intro to sumo-qa.",
+    "Data classification: n/a here",
+    "### Approach:\nregression-first work is not needed.",
+    "Handoff to sumo-qa-strategising.",
+    "I'll hand you over to the review skill.",
 ]
 
 

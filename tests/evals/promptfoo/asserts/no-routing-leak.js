@@ -1,7 +1,8 @@
-// Deterministic routing-state leak assertion for the routing-hops
-// user-facing eval (issue #248): the entry router and the approach router are
-// internal hops, so their routing payload, taxonomy labels, route announcement
-// and checklist bookkeeping must never appear in what the user reads.
+// Deterministic routing-state leak assertion for
+// skill-deciding-approach-user-facing.yaml (issue #248), which grades both
+// routing hops: the entry router and the approach router are internal, so their
+// routing payload, taxonomy labels, route announcement and checklist
+// bookkeeping must never appear in what the user reads.
 //
 // Mirrors `find_routing_leaks` in src/sumo_qa/conformance.py family for
 // family; tests/test_eval_no_routing_leak_assert.py runs both over
@@ -15,8 +16,8 @@
 //                        a catalogue entry name (read from knowledge/) or n/a,
 //                        whatever follows it;
 //   * route_announcement "Picking the QA approach", "Routing this QA intent",
-//                        a route/hand verb then "to sumo-qa-..." in the same
-//                        sentence, or first-person handoff narration;
+//                        a narrated handoff to a sumo-qa name, or first-person
+//                        handoff narration;
 //   * checklist_status   [DONE] / [IN PROGRESS] / [PENDING] / [COMPLETED] on a
 //                        line naming a router step;
 //   * router_checklist   two or more numbered lines naming router steps.
@@ -40,13 +41,15 @@ const KEY_FOLLOWS = /^\s*:/;
 // One explicit character set for both engines (their \s differ).
 const LINE_BREAK = /[\r\u2028\u2029]/g;
 const SPACE = /[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]/g;
-const DECOR = '[\\s*_`"\']';
+const LINE_DECOR = '[ \\t*_`"\']';
 const ROUTE_ANNOUNCEMENT = new RegExp(
   'picking the qa approach' +
     '|\\brouting this qa intent\\b' +
-    '|\\b(?:rout(?:e|es|ed|ing)|hand(?:s|ed|ing)?)\\b[^.\\n]{0,40}?\\bto' +
+    '|\\b(?:routing|routed|handing|handed|hand-?offs?)' +
+    '(?:\\s+(?:this|you|it|over|off|the request|your request)){0,2}\\s+(?:in)?to' +
     '[\\s*_`"\'\\[(]{0,8}(?:sumo[-_]qa|using[-_]sumo[-_]qa)' +
-    "|\\b(?:i'm|i am|i'll|i will)\\s+(?:now\\s+)?(?:rout(?:e|ing)|handing)\\s+(?:you|this)\\b",
+    "|\\b(?:i'm|i am|i'll|i will|let me)\\s+(?:now\\s+)?(?:rout(?:e|ing)|hand(?:ing)?)" +
+    '\\s+(?:you|this|it)\\b',
   'i',
 );
 const ROUTER_STEP =
@@ -142,16 +145,30 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const labelCache = new Map();
+
+// The label and its value share a line; n/a only counts at a clause end; a
+// closing quote then } marks a one-key config snippet.
+function labelRegExp(names) {
+  const key = names.join('|');
+  if (!labelCache.has(key)) {
+    const alternatives = names.map(escapeRegExp).join('|');
+    labelCache.set(
+      key,
+      new RegExp(
+        `(?<!\\w)(?:classification|approach)${LINE_DECOR}{0,4}:${LINE_DECOR}{0,6}` +
+          `(?:(?:${alternatives})(?![\\w-])|n/a[\`*"']*(?=[ \\t]*$|[.,;:)]|\\s+[-\\u2013\\u2014]\\s))` +
+          `(?![\`*"']*\\})`,
+        'im',
+      ),
+    );
+  }
+  return labelCache.get(key);
+}
+
 function hasTaxonomyLabel(text) {
   const names = catalogueNames().sort((a, b) => b.length - a.length);
-  if (!names.length) return false;
-  const alternatives = names.map(escapeRegExp).join('|');
-  const label = new RegExp(
-    `(?<!\\w)(?:classification|approach)${DECOR}{0,4}:${DECOR}{0,6}` +
-      `(?:${alternatives}|n/a)(?![\\w-])(?![\`*"']*\\})`,
-    'im',
-  );
-  return label.test(text);
+  return names.length > 0 && labelRegExp(names).test(text);
 }
 
 const CHECKS = {
