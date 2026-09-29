@@ -30,7 +30,7 @@ You may not produce test ideas, scaffolds, plans, reviews, or strategies without
 
 First hop: every QA-shaped request, including a development-framed one such as "I'm adding X, how should I test it?", "what tests do I need?" or "write the failing tests first", calls `using_sumo_qa` before any other sumo-qa tool and before any QA advice, then `sumo_qa_deciding_approach`, then the one skill it routes to. No specialist skill is entered directly.
 
-The testing ask, not the "I'm building X" framing, makes a request QA-shaped; that framing with no testing ask (backoff, logging, naming, formatting) is not QA work. This router produces no QA output itself.
+The testing ask, not the "I'm building X" framing, makes a request QA-shaped; that framing with no testing ask (backoff, logging, naming, formatting) is not QA work. This router produces no QA output and names no downstream skill; `sumo-qa-deciding-approach` picks it.
 
 ## Global discipline (inherited by every sub-skill)
 
