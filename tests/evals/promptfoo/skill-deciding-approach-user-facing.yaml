@@ -1,7 +1,8 @@
 description: >
-  User-facing leak eval for sumo-qa-deciding-approach (issue #248). The router
-  is an internal hop: in a real chat turn the user must never see its routing
-  payload, taxonomy labels, route announcement, or checklist bookkeeping. STOP
+  User-facing leak eval for the two routing hops, using-sumo-qa and
+  sumo-qa-deciding-approach (issue #248). Both are internal: in a real chat turn
+  the user must never see a routing payload, taxonomy labels, a route
+  announcement, or checklist bookkeeping. STOP
   cases must still give the decision and its evidence in plain English. The
   deterministic assert mirrors the conformance validator's leak families; the
   rubric grades the STOP answer's usefulness.
@@ -9,6 +10,7 @@ providers:
   - file://providers/claude-candidate.yaml
 defaultTest:
   vars:
+    entry_skill_content: file://../../../skills/using-sumo-qa/SKILL.md
     skill_content: file://../../../skills/sumo-qa-deciding-approach/SKILL.md
     classifications: file://../../../knowledge/classifications.md
     approaches: file://../../../knowledge/approaches.md
@@ -84,12 +86,16 @@ defaultTest:
 prompts:
   - |
     You are a senior QA agent in an IDE chat session (the host has no task
-    list UI). You have loaded this sumo-qa router skill and MUST follow it
-    exactly as written:
+    list UI). You have loaded the sumo-qa entry router skill, which sends you
+    to the approach router skill, and you MUST follow both exactly as written:
 
-    --- BEGIN SKILL ---
+    --- BEGIN ENTRY ROUTER SKILL ---
+    {{entry_skill_content}}
+    --- END ENTRY ROUTER SKILL ---
+
+    --- BEGIN APPROACH ROUTER SKILL ---
     {{skill_content}}
-    --- END SKILL ---
+    --- END APPROACH ROUTER SKILL ---
 
     You have already called the catalogue tools; their results are:
 
