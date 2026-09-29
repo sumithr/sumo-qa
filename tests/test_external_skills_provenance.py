@@ -1940,3 +1940,25 @@ def test_end_to_end_install_pins_cli_and_commit_through_real_processes(
     monkeypatch.setenv("FAKE_NPX_ALLOWED_SPEC", "skills@0.0.1")
     with pytest.raises(ext.ExternalSkillCLIError, match="refusing unpinned"):
         ext.search_external_skills("demo")
+
+
+def test_a_checkout_of_plain_files_passes_the_link_check(tmp_path) -> None:
+    """Runs on every platform: the link tests need symlinks, which Windows CI
+    cannot create, so this keeps the walk itself covered there."""
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    (checkout / "skills" / "demo").mkdir(parents=True)
+    (checkout / "skills" / "demo" / "SKILL.md").write_bytes(b"# demo\n")
+
+    ext._check_checkout_links(checkout)
+
+
+def test_a_guard_that_stays_busy_times_out_as_a_typed_error(monkeypatch, tmp_path) -> None:
+    """Runs on every platform: the contention tests hold the guard with fcntl,
+    which Windows lacks."""
+    monkeypatch.setattr(ext, "_acquire", lambda fd, path: False)
+    monkeypatch.setattr(ext, "_LOCK_WAIT_SECONDS", 0.0)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="busy"):
+        with ext._lock_guard(tmp_path):
+            pass
