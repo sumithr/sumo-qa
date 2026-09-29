@@ -90,10 +90,12 @@ For every scenario with an `expected_entry_skill`, the validator enforces it:
 the first sumo-qa call (`using_sumo_qa` or any `sumo_qa_*` tool) must be
 `using_sumo_qa`, and the FIRST calls of `using_sumo_qa`,
 `sumo_qa_deciding_approach`, and the expected skill must occur in that order,
-with no specialist skill before the decider.
-Host tools (file reads, shell) may come before the first hop. A transcript that
-answers with no sumo-qa call, loads a catalogue before the router, enters a
-specialist directly, or skips the decider fails with `first_hop_violation`.
+with no other sumo-qa call (a specialist or a catalogue loader) between the
+router and the decider.
+Host tools (file reads, shell) may come anywhere. A transcript that answers
+with no sumo-qa call, loads a catalogue before the router or before the
+decider, enters a specialist directly, or skips the decider fails with
+`first_hop_violation`.
 The transcript does not interleave output with calls, so "before any QA advice"
 is checked as "the first hop exists and comes first among sumo-qa calls".
 
@@ -116,7 +118,10 @@ it against a scenario and reports one violation per broken clause:
 [`../../src/sumo_qa/debug_capture.py`](../../src/sumo_qa/debug_capture.py)),
 which records the tool exchanges of a live run. The capture holds tool calls
 only, so the final assistant text is supplied by the reviewer running the
-manual check.
+manual check. It records MCP tool calls only: a host that loads the router through
+a native skill (Claude Code's Skill tool, or the SessionStart hook injecting the
+router body) leaves no `using_sumo_qa` call in the capture, so score such a run
+from the host's own transcript instead.
 
 ## Running it
 

@@ -167,6 +167,11 @@ def _parse_scenario(entry: dict[str, Any]) -> ConformanceScenario:
         forbidden_output_markers=tuple(entry.get("forbidden_output_markers") or ()),
         forbid_sumo_qa_calls=bool(entry.get("forbid_sumo_qa_calls", False)),
     )
+    if scenario.expected_entry_skill and scenario.forbid_sumo_qa_calls:
+        raise ValueError(
+            f"scenario {scenario.id!r}: expected_entry_skill and forbid_sumo_qa_calls "
+            f"cannot both be set; no transcript could satisfy it"
+        )
     if scenario.deterministic and not (
         scenario.expected_entry_skill
         or scenario.required_tool_calls
@@ -207,7 +212,7 @@ def validate_transcript(
         known_entry_skills = registered_entry_skills()
     violations = (
         _routing_violations(scenario, transcript, known_entry_skills)
-        + _first_hop_violations(scenario, transcript, known_entry_skills)
+        + _first_hop_violations(scenario, transcript)
         + _tool_violations(scenario, transcript)
         + _output_violations(scenario, transcript)
     )
@@ -262,7 +267,6 @@ def _is_sumo_qa_tool(name: str) -> bool:
 def _first_hop_violations(
     scenario: ConformanceScenario,
     transcript: Transcript,
-    known_entry_skills: frozenset[str],
 ) -> list[Violation]:
     """Enforce ``sumo_qa.first_hop.FIRST_HOP_RULE`` on a routed scenario: the
     first sumo-qa call is the entry router, and the whole router chain then the
@@ -305,16 +309,17 @@ def _first_hop_violations(
                 )
             ]
         previous = index
-    # The decider must pick the skill: a specialist fired between the router
-    # and the decider skipped the approach decision even when the chain order
-    # holds (the only check when the expected skill is the router itself).
+    # The router hands off to the decider before any further QA work: a
+    # specialist or catalogue loader fired between them skipped the approach
+    # decision even when the chain order holds (the only check when the
+    # expected skill is the router itself). Host tools are not sumo-qa calls.
     decider_index = sumo_calls.index(ROUTER_CHAIN[-1])
     for name in sumo_calls[:decider_index]:
-        if name in known_entry_skills and name not in ROUTER_CHAIN:
+        if name not in ROUTER_CHAIN:
             return [
                 Violation(
                     ViolationKind.FIRST_HOP_VIOLATION,
-                    f"specialist {name!r} fired before {ROUTER_CHAIN[-1]!r} picked the route",
+                    f"{name!r} fired before {ROUTER_CHAIN[-1]!r} picked the route",
                 )
             ]
     return []

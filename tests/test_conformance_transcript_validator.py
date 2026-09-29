@@ -496,6 +496,25 @@ def test_vacuous_deterministic_scenario_is_rejected(tmp_path) -> None:
         load_scenarios(fixture)
 
 
+def test_scenario_expecting_a_skill_and_forbidding_sumo_qa_is_rejected(tmp_path) -> None:
+    """A row that expects an entry skill and also forbids every sumo-qa call
+    can never pass, so it must fail to load rather than fail every transcript."""
+    fixture = tmp_path / "contradictory.yaml"
+    fixture.write_text(
+        "scenarios:\n"
+        "  - id: X01\n"
+        "    source_doc: SCENARIOS.md\n"
+        "    source_heading: whatever\n"
+        "    user_prompt: hi\n"
+        "    mode: deterministic\n"
+        "    expected_entry_skill: using_sumo_qa\n"
+        "    forbid_sumo_qa_calls: true\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="X01.*cannot both"):
+        load_scenarios(fixture)
+
+
 def test_registered_entry_skills_reflects_skills_dir_and_degrades(monkeypatch, tmp_path) -> None:
     """The mis-route set mirrors the registered skills/ surface; an unavailable
     skills directory degrades to an empty set instead of erroring."""

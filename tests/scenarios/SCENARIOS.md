@@ -428,7 +428,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 2. The first sumo-qa call is `using_sumo_qa`, before any catalogue load and before any test advice, then `sumo_qa_deciding_approach`, then the routed skill. No specialist skill is entered directly.
 3. The user sees the routed skill's output, not the routing trace.
 
-**Controls (must NOT route):** the same framing with no testing ask, such as adding backoff, adding logging, naming a handler, or formatting a file. These are development requests; the host answers them without calling `using_sumo_qa` or `sumo_qa_deciding_approach`.
+**Controls (must NOT route):** the same framing with no testing ask, such as adding backoff, adding logging, naming a handler, or formatting a file. These are development requests; the host answers them without calling any sumo-qa tool.
 
 **Anti-patterns:**
 - Answers "how should I test it" from general knowledge with no sumo-qa call (the original VS Code/Copilot observation behind issue #247).

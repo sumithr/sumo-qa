@@ -199,6 +199,56 @@ def test_specialist_between_router_and_decider_fails_first_hop(scenarios) -> Non
     assert details and "sumo_qa_implementing_with_tdd" in details[0]
 
 
+@pytest.mark.parametrize(
+    ("scenario_id", "calls"),
+    [
+        (
+            "S02-review-before-merge",
+            (
+                "using_sumo_qa",
+                "sumo_qa_load_rules",
+                "sumo_qa_load_classifications",
+                "sumo_qa_deciding_approach",
+                "sumo_qa_reviewing_before_merge",
+            ),
+        ),
+        (
+            "D02-dev-framed-what-tests",
+            (
+                "using_sumo_qa",
+                "sumo_qa_load_techniques",
+                "sumo_qa_deciding_approach",
+            ),
+        ),
+    ],
+)
+def test_catalogue_load_between_router_and_decider_fails_first_hop(
+    scenarios, scenario_id, calls
+) -> None:
+    """The router hands off to the decider before any further QA work, so a
+    catalogue loader between them fails like a specialist would."""
+    s = next(s for s in scenarios if s.id == scenario_id)
+    transcript = Transcript(s.id, tuple(ToolCall(c) for c in calls), "")
+    details = _first_hop_kinds(validate_transcript(s, transcript))
+    assert details == [f"{calls[1]!r} fired before 'sumo_qa_deciding_approach' picked the route"]
+
+
+def test_host_tools_between_router_and_decider_pass_first_hop(scenarios) -> None:
+    """Only sumo-qa calls count: a host file read between the router and the
+    decider is not QA work before the approach decision."""
+    s = next(s for s in scenarios if s.id == "D02-dev-framed-what-tests")
+    transcript = Transcript(
+        s.id,
+        (
+            ToolCall("using_sumo_qa"),
+            ToolCall("Read"),
+            ToolCall("sumo_qa_deciding_approach"),
+        ),
+        "",
+    )
+    assert _first_hop_kinds(validate_transcript(s, transcript)) == []
+
+
 def test_forbid_sumo_qa_calls_counts_as_an_enforceable_clause(tmp_path) -> None:
     fixture = tmp_path / "control.yaml"
     fixture.write_text(
