@@ -694,6 +694,7 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         ("**Classification:** docs_change**Approach:** no-tests-recommended", "taxonomy_label"),
         ("{classification:x,approach:y,next_action:{a:{skill:q}}}", "payload_json"),
         ("Routing to \u201csumo-qa-strategising\u201d.", "route_announcement"),
+        ("Routing to \u201dsumo-qa-strategising\u201d.", "route_announcement"),
         (
             "{classification:docs_change,approach:n/a,next_action:{\u201cskill\u201d:none}}",
             "payload_json",

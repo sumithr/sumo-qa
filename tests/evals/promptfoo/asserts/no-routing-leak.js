@@ -59,7 +59,7 @@ const SPACE = /[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f\u3000\uf
 // A skill is named sumo-qa-* (hyphens); sumo_qa_* tool names are where
 // downstream skills legitimately send data.
 const TO_SKILL =
-  '[:\\s*_`"\'\u201c\\[(]{0,8}(?:the\\s+[*_`"\'\u201c\\[(]{0,8})?' +
+  '[:\\s*_`"\'\u201c\u201d\\[(]{0,8}(?:the\\s+[*_`"\'\u201c\u201d\\[(]{0,8})?' +
   '(?:sumo-qa-|using[-_]sumo[-_]qa)';
 const ROUTE_ANNOUNCEMENT = new RegExp(
   'picking the qa approach' +

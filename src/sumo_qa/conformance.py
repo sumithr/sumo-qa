@@ -349,7 +349,7 @@ _SPACE_RE = re.compile("[\t\v\f \x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u202f\u205f
 # user to send output to a tool, so paraphrased handoffs are left to the eval's
 # judge rather than matched here.
 _TO_SKILL = (
-    r"[:\s*_`\"'\u201c\[(]{0,8}(?:the\s+[*_`\"'\u201c\[(]{0,8})?"
+    r"[:\s*_`\"'\u201c\u201d\[(]{0,8}(?:the\s+[*_`\"'\u201c\u201d\[(]{0,8})?"
     r"(?:sumo-qa-|using[-_]sumo[-_]qa)"
 )
 _ROUTE_ANNOUNCEMENT_RE = re.compile(
