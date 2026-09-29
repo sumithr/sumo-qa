@@ -33,7 +33,8 @@ WINDOWS_PARSERLESS_RELEASES = ("1.14.1", "1.14.2")
 
 
 def _dist_name(requirement: str) -> str:
-    return re.split(r"[<>=!~;\s\[]", requirement, maxsplit=1)[0].lower()
+    name = re.split(r"[<>=!~;\s\[]", requirement, maxsplit=1)[0]
+    return re.sub(r"[-_.]+", "-", name).lower()  # PEP 503 normalisation
 
 
 def _pyproject_treesitter_extra() -> list[str]:
