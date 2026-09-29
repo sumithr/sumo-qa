@@ -134,7 +134,7 @@ The orchestrator passes the chosen mode to every worker as `qa_context_mode` (`m
 
 ### Source-tree degraded mode
 
-The QA authority is the tracked files under `skills/`, `knowledge/` and `standards/`. Read them only at the authority commit, only from the worker's own clone or worktree: `git -C <clone> show <sha>:<path>`. The procedure below travels in the workflow instructions each worker is given, so a worker does not need this README section to exist at the authority commit. Reading at the commit, not from the working tree, keeps the worker's in-progress edits out of its own routing. Never read the primary checkout, an installed `site-packages/sumo_qa/_data/`, or a mix of MCP output and source files for one decision.
+The QA authority is the tracked files under `skills/`, `knowledge/` and `standards/`, plus the rules alias map in `src/sumo_qa/knowledge_loaders.py` (step 5). Read them only at the authority commit, only from the worker's own clone or worktree: `git -C <clone> show <sha>:<path>`. The procedure below travels in the workflow instructions each worker is given, so a worker does not need this README section to exist at the authority commit. Reading at the commit, not from the working tree, keeps the worker's in-progress edits out of its own routing. Never read the primary checkout, an installed `site-packages/sumo_qa/_data/`, or a mix of MCP output and source files for one decision.
 
 Follow this order:
 
@@ -153,10 +153,15 @@ Follow this order:
    | `sumo_qa_load_standards` | every `*.yml` and `*.yaml` file in `standards/packs/` |
    | `sumo_qa_load_rules` | `standards/rules/change_rules.yaml` |
 
+   `git show` does not expand globs: list a directory first with `git -C <clone> ls-tree --name-only <sha> standards/packs/`, then `git show` each file it names.
+
+   When the skill calls a loader with a `classification` filter, apply the loader's filter to what you read, so the degraded catalogue matches what the MCP call would return. The filter takes one or more classifications, separated by commas, semicolons or whitespace.
+   - `sumo_qa_load_standards(classification=...)` keeps only the packs whose `applies_to_classifications` (or `classifications`) metadata names at least one requested classification. A pack with neither field is dropped from a filtered call, and read only when the skill calls the loader unfiltered.
+   - `sumo_qa_load_rules(classification=...)` keeps only the top-level keys of `change_rules.yaml` that match a requested classification. A requested canonical classification with no key of its own falls back to its legacy rules key through the alias map `_RULE_CLASSIFICATION_ALIASES` in `src/sumo_qa/knowledge_loaders.py`, read at the same commit (`frontend_change` takes `ui_only_change`, for example). A request that matches nothing returns no rules.
+
    This maps each loader to its bundled source only. A running server also honours the `QA_KNOWLEDGE_PATH`, `QA_STANDARDS_PATH` and `QA_RULES_PATH` overrides and any ingested project or global packs; source-tree mode sees none of them, which is one more reason it is a declared degradation.
 
    Any authority file this route needs that is missing at the authority commit blocks the run: the worker stops, returns the escalation, and produces no routing payload. A missing file never licenses filling the gap from memory.
-   `git show` does not expand globs: list a directory first with `git -C <clone> ls-tree --name-only <sha> standards/packs/`, then `git show` each file it names.
 6. Continue through the routed skill with every gate it defines. Routed skills also name sumo-qa tools that are not catalogue loaders:
    - `sumo_qa_load_skill_context` in module mode is the file `skills/<name>/modules/<id>.md`; read that.
    - A tool whose step only runs when the host supplies an input or the user asks for an extra artifact (a repo map, context bundle, diff-impact result, risk-ledger appendix, readiness scorecard, saved review feedback) is skipped. Record it as not run in the gap note, and state its absence the way the skill already requires when that input is missing.
