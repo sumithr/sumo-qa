@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.0](https://github.com/sumithr/sumo-qa/compare/v0.65.4...v0.66.0) (2026-09-29)
+
+
+### Features
+
+* **routing:** route development-framed testing requests through the canonical QA first hop ([#739](https://github.com/sumithr/sumo-qa/issues/739)) ([c454cce](https://github.com/sumithr/sumo-qa/commit/c454cce254f7cd34d8f7f079c9783fe91b72799d))
+
 ## [0.65.4](https://github.com/sumithr/sumo-qa/compare/v0.65.3...v0.65.4) (2026-09-29)
 
 
