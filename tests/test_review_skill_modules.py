@@ -111,13 +111,17 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     ],
     "discovery-probes": [
         "Reordered statements in a write/persist path",
+        "a command/string classifier predicate takes the command/input-classifier probe in `runtime-scope`",
         "**Discovery → verdict (pinned).**",
         "The sweep produces 3–7 named risks",
+        "Probe the whole path the diff touches, not the delta",
         "**The two-pass split (pinned).**",
     ],
     "security-relevance": [
         "run the grounded security-relevance pass from `using-sumo-qa`",
         "do NOT invent a security risk",
+        "If a fresh path-matching test quotes a verbatim assertion/condition at that security failure mode, it is COVERED",
+        "emit its 2b line (`unproven-escalation`), mandatory for every UNPROVEN row",
     ],
     "external-contract": [
         "**Producer test (apply first):**",
@@ -125,17 +129,24 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Anti-over-discovery (pinned):**",
     ],
     "contract-and-fence-probes": [
+        "so it is UNPROVEN (2b input: the input that triggers the contract violation), never UNCOVERED",
+        "When path-matching fresh tests ran, its row lists them",
+        "when none ran, it is UNCOVERED.",
         "a 4-tick fence wrapping a 3-tick block",
         "`Never raises` / always-returns-envelope claim is violated",
     ],
     "coverage-ledger": [
         "**Module-match rule (pinned):**",
+        "(risks sharing that path list the same IDs)",
+        "**Coverage labels (pinned):**",
         "forbidden hallucinated bridges",
         "**Re-anchor first.**",
         "`Risk: <exact name> | Anchor: <diff file:line> | Required test path:",
         "**2c. External-contract extension (pinned).**",
         "**2d. Internal/self-produced declination (pinned).**",
-        "Retry, Duplicate, or Idempotency",
+        "Risks whose name, anchor or failure mode involves **Retry, Duplicate, or Idempotency**",
+        "plus an integration/e2e test the exception admits",
+        "Required before SAFE: add a test asserting one charge to tests/billing/test_checkout.py",
         "**Concurrent, Race, or Lock** require overlapping execution",
         "`External-contract anchor: <file:line> | External source: <tool/CLI/API>",
         "`External-contract axis: NOT FIRED (internal/self-produced)",
@@ -149,6 +160,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "`UNPROVEN escalation: <risk name> | Discriminating input: <the input>",
         "`UNPROVEN deferral: <risk name> | Accepted failure mode:",
         "**Technique-keyed failure-mode hints (pinned).**",
+        "Trace the input through the diff's literal code first: it must reach the broken branch",
     ],
     "acceptance-criteria": [
         "**Acceptance-criteria coverage (pinned).**",
@@ -165,8 +177,18 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Name that eval VERBATIM**",
         "`Surface verifier: <verifier",
         "**Sibling/combined-tree rule:**",
+        "the relevant config must have run through **the Claude eval gate**",
+        "On backend, only a run on another backend",
+        "a recorded run that does not restate its backend counts as a Claude-gate run, so never block SAFE on it or ask for the backend",
+        "**A missing run is a verdict, not a question:**",
+        "deliver `NOT SAFE TO MERGE` this turn, and name the run that clears it",
+        "if you can run the verifier this turn, run it and judge its output",
+        "name the repo-specific verifier that observes the changed behaviour and judge from the record",
     ],
     "feature-flow": [
+        "The flow status never relabels a risk row",
+        "label it per `coverage-ledger`",
+        "is COVERED when that unit asserts at the risk's failure mode, else UNPROVEN",
         "**(ii) Primary feature flow exercised end-to-end.**",
         "`Feature flow: <the realistic UI/API/CLI/worker/artifact path",
     ],
@@ -174,6 +196,9 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**(iii) A newly-added regression guard's eval exercises BOTH directions.**",
         "**(iv) An eval-driven skill change's A/B control is structurally load-bearing.**",
         "`Guard added: <the guard>",
+        "UNCOVERED only when no eval of the guard ran fresh this turn, including an unrun or stale one",
+        "stale means anything but this turn's fresh run (earlier CI, a run before the change or on another tree)",
+        "a run supplied as this turn's fresh run counts",
         "`A/B control: <the .ab.yaml>",
     ],
     "discharged-check": [
@@ -187,6 +212,8 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     ],
     "runtime-scope": [
         "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
+        "**Command/input-classifier probe (pinned):**",
+        "**Location claim (pinned):**",
         "**Trivial-change exemption (pinned):**",
         "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
     ],
@@ -215,6 +242,10 @@ ROOT_ALWAYS_ON_RULES = (
     "`No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`",
     "`no coverage/mutation artifact this turn — not measured`",
     "`no saved review feedback supplied — advisory-hint check skipped`",
+    "This outranks steps 5-6: their questions never hold a verdict whose required run is missing.",
+    "Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line.",
+    "no observable run: `Evidence (command): unverified, <the run that clears it>`",
+    "none without an observable run.",
     '"I\'ll ask which test framework / where tests live"',
     "## Checklist",
     "## Process Flow",
@@ -231,11 +262,14 @@ PINNED_RULE_MARKERS = (
     "**2d. Internal/self-produced declination (pinned).**",
     "**Acceptance-criteria coverage (pinned).**",
     "**Anti-over-discovery (pinned):**",
+    "**Command/input-classifier probe (pinned):**",
+    "**Coverage labels (pinned):**",
     "**Discharged-check discipline (anti-over-fire, pinned).**",
     "**Discovery → verdict (pinned).**",
     "**Documented-inventory drift rule (pinned).**",
     "**External-contract exception (pinned):**",
     "**External-contract rule (pinned).**",
+    "**Location claim (pinned):**",
     "**Module-match rule (pinned):**",
     "**Producer test (apply first):**",
     "**Re-anchor first.**",
@@ -303,6 +337,25 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
             "Inventing speculative variant risks to re-block a COVERED external contract is the SAME over-trigger this guard prevents",
         ),
     ),
+    "**Command/input-classifier probe (pinned):**": PinnedClauses(
+        defining="when the change adds or edits a predicate that classifies a command or string",
+        operative=(
+            "probe it BOTH ways against the function's stated PURPOSE, not its mechanism line",
+            "Each confirmed mis-classification is a named risk with its own ledger row",
+            "so that risk is UNPROVEN, never a residual concern",
+        ),
+    ),
+    "**Coverage labels (pinned):**": PinnedClauses(
+        defining="defined only here.",
+        operative=(
+            "`UNPROVEN`: path-matching fresh tests pass but none asserts at the failure mode, including one that never executes the changed branch",
+            "`UNCOVERED`: no path-matching fresh test (`Fresh matching tests: NONE`)",
+            "any test ID there makes the row COVERED or UNPROVEN",
+            "or the behaviour is missing outright",
+            "since the fix is a new assertion beside those tests",
+            "Name a risk by what breaks",
+        ),
+    ),
     "**Discharged-check discipline (anti-over-fire, pinned).**": PinnedClauses(
         defining="When a check is DISCHARGED — the verifier ran correctly, the flow was exercised end-to-end, the guard's both-direction seed passes, or the A/B control is load-bearing",
         operative=(
@@ -310,9 +363,12 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Discovery → verdict (pinned).**": PinnedClauses(
-        defining="A defect this sweep surfaces that the fresh tests do not cover is a NAMED RISK, mapped through the coverage ledger (step 9) as UNCOVERED",
+        defining="A defect this sweep surfaces that the fresh tests do not cover is a NAMED RISK, mapped through the coverage ledger (step 9) as UNPROVEN",
         operative=(
+            "and UNCOVERED only when none ran",
             "It is a SAFE-blocker → NOT SAFE TO MERGE",
+            '"pre-existing" or "not worsened by this diff" never demotes it',
+            "yet when path-matching fresh tests ran it stays listed in that risk's row, which makes the row UNPROVEN, never UNCOVERED",
             'Do NOT demote a discovered latent defect to a "residual concern" under a SAFE verdict',
         ),
     ),
@@ -332,6 +388,13 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         defining="For an external-contract risk (step 4's external-output probe), a green matcher proves LOGIC, not that its INPUT matches reality",
         operative=(
             "A hand-authored or guessed fixture with no real-run traceability is UNPROVEN — never SAFE on the green suite alone",
+        ),
+    ),
+    "**Location claim (pinned):**": PinnedClauses(
+        defining="when the requester or PR calls a change trivial, tooling, or non-runtime because of WHERE it lives",
+        operative=(
+            "answer that claim in one line of the review: location does not decide runtime scope, executable behaviour does",
+            "name the behaviour that makes THIS change runtime",
         ),
     ),
     "**Module-match rule (pinned):**": PinnedClauses(
@@ -354,7 +417,9 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
     ),
     "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**": PinnedClauses(
         defining="when the feature flow is VERIFIED end-to-end this turn AND the risk gate is closed",
-        operative=("is a RESIDUAL you LIST under `SAFE TO MERGE`; it MUST NOT flip the verdict",),
+        operative=(
+            "is a RESIDUAL you LIST in `Residual concerns:` on a `SAFE TO MERGE` review; it MUST NOT flip the verdict",
+        ),
     ),
     "**Technique-keyed failure-mode hints (pinned).**": PinnedClauses(
         defining="When a risk's failure mode maps to a named black-box technique",
@@ -853,7 +918,7 @@ def test_heading_form_pinned_rules_carry_a_bold_marker_in_their_section(name):
 def test_heading_form_pinned_rule_discovery_rejects_a_marker_less_section():
     """Fault injection through the REAL checker: a `## ... (pinned)` heading
     whose section carries no bold pinned marker must be rejected; a marker in
-    the NEXT section does not count; the real runtime-scope module (two
+    the NEXT section does not count; the real runtime-scope module (four
     heading-form pinned rules, each with its bold marker) passes."""
     trivial = "**Trivial-change exemption (pinned):**"
     runtime = "**What counts as a runtime change (pinned — behaviour, not path prefix):**"
@@ -891,9 +956,11 @@ def test_heading_form_pinned_rule_discovery_rejects_a_marker_less_section():
     )
     _assert_pinned_headings_carry_bold_markers(nested, "nested")
     real = _module_text("runtime-scope")
-    assert len(_pinned_heading_sections(real)) == 2
+    assert len(_pinned_heading_sections(real)) == 4
     assert [_normalised_pinned_title(h) for h, _ in _pinned_heading_sections(real)] == [
         "what counts as a runtime change",
+        "command input classifier probe",
+        "location claim",
         "trivial change exemption",
     ]
     _assert_pinned_headings_carry_bold_markers(real, "runtime-scope")

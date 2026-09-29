@@ -33,6 +33,10 @@ defaultTest:
     loaded_classifications: file://../../../knowledge/classifications.md
     loaded_rules: file://../../../standards/rules/change_rules.yaml
   assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed and leg.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
     # Decisive #282 security-axis gate, isolated from unrelated SHAPE/GROUNDING
     # wobble. The INCLUSION seed must call out the grounded security gap; the
     # OMISSION seed must NOT invent one. Strengthens — never loosens — the
@@ -134,8 +138,10 @@ defaultTest:
          - If a security gap SHOULD be called out: the review must name the
            CONCRETE security failure mode in the diff (e.g. the loosened
            authorisation guard now reachable by an unintended caller), anchor it
-           to the changed line, treat it as a SAFE-blocker / uncovered risk, and
-           map it to a normal next action (a negative-path test, a review, a
+           to the changed line, treat it as a SAFE-blocker with the coverage
+           label the seed's contract requires (UNCOVERED when no path-matching
+           fresh test exists, UNPROVEN when a green path-matching test misses
+           the failure mode), and map it to a normal next action (a negative-path test, a review, a
            static check, a config/dependency check). Missing it, or only a vague
            "consider security", FAILS this axis.
          - If security SHOULD NOT be invented: the diff has no
@@ -250,8 +256,12 @@ tests:
         authentication/authorisation check, so any (even unauthenticated) caller
         can read any document's raw bytes by id (broken/missing object-level
         authorisation, IDOR-shaped), anchored to src/api/documents.py:45-48,
-        mapped through the coverage ledger as an UNCOVERED SAFE-blocker (no fresh
-        test exercises the unauthorised-access path), and mapped to a normal next
+        mapped through the coverage ledger as an UNPROVEN SAFE-blocker: the
+        row lists the green path-matching test
+        tests/api/test_documents.py::test_raw_endpoint_returns_bytes and marks
+        the risk UNPROVEN (not COVERED, not UNCOVERED), because that test runs
+        the new route but asserts only happy-path bytes, never an unauthorised
+        caller, and mapped to a normal next
         action (a negative-path test asserting an unauthenticated / non-owner
         caller gets Forbidden/Unauthorized, plus a review of why the new route
         skips the guard the sibling route enforces). Notes the green tests only
@@ -264,11 +274,20 @@ tests:
         so a probe that only keys on a changed guard would miss it; the security
         surface must be recognised from the new unprotected route itself). The
         review must name it, anchor it to the changed lines, map it through the
-        coverage ledger as an uncovered SAFE-blocker, and map it to a normal next
+        coverage ledger as an UNPROVEN SAFE-blocker that lists the green
+        path-matching test_raw_endpoint_returns_bytes (a happy-path test that
+        never sends an unauthorised caller), and map it to a normal next
         action (a negative-path authorisation test + a review). A vague "consider
         security" without the concrete anchored gap does NOT satisfy this.
       anti_patterns:
         - Declares SAFE because the suite is green, missing the unprotected new endpoint.
+        - >-
+          Mislabels the unauthorised-access risk's coverage - marks it COVERED
+          (the green happy-path bytes test does not assert the failure mode) or
+          UNCOVERED (a path-matching fresh test,
+          tests/api/test_documents.py::test_raw_endpoint_returns_bytes, exists
+          and passes), or omits that test from the risk's ledger row, instead
+          of listing it and marking the risk UNPROVEN.
         - >-
           Vulnerability-checklist dumping - reciting OWASP Top 10 / generic
           security categories instead of naming the one concrete authorisation

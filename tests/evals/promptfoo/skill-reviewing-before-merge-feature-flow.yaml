@@ -28,6 +28,10 @@ defaultTest:
     skill_content: file://fixtures/assemble-review-skill.js
     review_modules: [runtime-scope, discovery-probes, coverage-ledger, feature-flow, discharged-check]
   assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed and leg.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}

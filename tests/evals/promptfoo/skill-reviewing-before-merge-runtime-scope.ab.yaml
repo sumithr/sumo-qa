@@ -16,17 +16,17 @@ description: >
   post-#300 body) keys the trigger on EXECUTABLE BEHAVIOUR not path prefix: the
   hook gets the full discovery sweep + coverage ledger with a tests/hooks/-style
   Required-test-path and the "just a hook, not under src" framing is rejected —
-  it flags the command-parsing defect and reaches NOT SAFE, a PASS. The
-  A0(FAIL) -> A1(PASS) lift is deterministic over 3 runs and is the proof that
-  #300 isolates NEW behaviour, not pre-existing handling. (An earlier weaker seed
-  framing let A0 PASS — the path-keyed body still ran the step-4 sweep on its own
-  instinct; the seed was hardened to lean on "nothing under app/src/lib =
-  trivial" and to make BOTH prompts classify strictly by the loaded body's stated
-  trigger, surfacing the path-vs-behaviour seam #300 actually moves.)
+  it flags the command-parsing defect and reaches NOT SAFE, a PASS. Measured
+  on the Claude pair over 5 samples on the current skill and rubric: A0 passes
+  0/5, A1 passes 4/5, and every A1 sample reaches NOT SAFE. Both prompts classify strictly by the loaded body's stated trigger,
+  which surfaces the path-vs-behaviour seam #300 moves.
   A0 body is snapshotted at fixtures/reviewing-before-merge-PRE-300.SKILL.md
   (= origin/main before the #300 commit); refresh it if the baseline moves.
-# Claude pair: separates. The seed gives facts only; A0 0/3, A1 2/3 over three
-# single-pass samples.
+# Claude pair: separates. A0 0/5, A1 4/5 over 5 samples on the current skill and
+# rubric; every A1 sample reaches NOT SAFE, and the one A1 fail is the coverage
+# label. Five #689 passes: A0 0/5, A1 5/5. On the final #689 tree (`cdf71fb`;
+# its modules are unchanged since `26ddd94`, where it ran), one single pass: A0
+# 0/1 (0.50), A1 1/1 (0.93).
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -39,6 +39,10 @@ defaultTest:
     loaded_classifications: file://../../../knowledge/classifications.md
     loaded_rules: file://../../../standards/rules/change_rules.yaml
   assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed and leg.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}
@@ -113,8 +117,11 @@ defaultTest:
                `tests/hooks/`-style sibling test dir for `.claude/hooks/`
                (accept any clear tests/hooks/... required-test-path; a generic
                "add tests" with no mirrored path is NOT sufficient) — and mark
-               the risk UNCOVERED or UNPROVEN (the green test only feeds the
-               bare-pytest happy case).
+               the risk UNPROVEN, listing
+               tests/hooks/test_route_qa_runners.py::test_matches_bare_pytest
+               as the fresh matching test (it runs green but only feeds the
+               bare-pytest happy case); marking the risk UNCOVERED is a SHAPE
+               FAIL, because a path-matching fresh test exists.
            (3) INDEPENDENTLY NAME THE COMMAND-PARSING DEFECT CLASS: the naive
                whitespace-split `pytest` token-membership test mis-classifies
                commands — it false-positives on an echo/argument token (e.g.
@@ -123,6 +130,11 @@ defaultTest:
                Anchor it to `.claude/hooks/route-qa-runners.py:is_test_command`.
            (4) REJECT the developer's "just a hook, not under src" framing as a
                reason to skip the sweep / apply the trivial-change exemption.
+               The response must explicitly address that framing and say why it
+               is wrong (a file's location does not make an executable hook
+               trivial). Silence is not rejection: an answer that never mentions
+               the framing, or only implicitly declines it by running the sweep,
+               FAILS (4).
            (5) DELIVER NOT SAFE TO MERGE or NEEDS WORK, with no trailing
                confirmation question.
          SHAPE FAILS if ANY of these hold:
@@ -133,6 +145,8 @@ defaultTest:
              Required-test-path is produced for the command-parsing risk;
            - the command-parsing defect class is missed or named only
              generically ("hook risks", "edge cases");
+           - the "just a hook, not under src" framing is never explicitly
+             addressed and rejected;
            - the verdict is SAFE TO MERGE, or the wrong verdict direction;
            - the response ends with a confirmation question instead of a verdict.
 
@@ -282,7 +296,10 @@ tests:
         the developer calling it "just a hook, not under src" — it runs the full
         discovery sweep and emits a coverage-ledger row with a `tests/hooks/`-style
         Required-test-path mirroring the `.claude/hooks/` anchor, marking the risk
-        UNCOVERED/UNPROVEN, rather than waving it through as trivial-by-path or
+        UNPROVEN (the green path-matching tests/hooks/test_route_qa_runners.py
+        test only feeds the bare-pytest happy case; UNCOVERED is wrong because
+        that fresh matching test exists), rather than waving it through as
+        trivial-by-path or
         COVERED BY VERIFICATION. INDEPENDENTLY flags the command-parsing defect
         class: the naive `pytest` token-membership test mis-classifies commands —
         it false-positives on an echo/argument token (e.g. `echo "run pytest

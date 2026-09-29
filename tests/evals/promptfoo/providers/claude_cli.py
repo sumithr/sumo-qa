@@ -11,6 +11,12 @@ Any call that does not come back as a successful answer is returned as a
 promptfoo `error`, never as output. A usage-limit or quota message must not be
 graded as the candidate's answer: that is the #651 failure, where a quota
 failure turned into a zero-passed baseline that read as a skill regression.
+
+With `jsonReply: true` (the judge) the verdict object is parsed here and handed to
+promptfoo as an object. promptfoo's own extractor counts braces without reading
+strings, so a `{` or `}` inside the reason drops the grade or passes it silently.
+A judge reply with no valid verdict is a promptfoo `error`, never text for promptfoo
+to parse: promptfoo grades a missing or non-boolean "pass" as a pass.
 """
 
 from __future__ import annotations
@@ -45,6 +51,7 @@ _EXCERPT = 400
 # graded as the candidate's answer. The "|<digits>" suffix keeps an answer that merely
 # quotes the phrase from matching.
 _USAGE_LIMIT = re.compile(r"usage limit reached\|\d+", re.IGNORECASE)
+_DECODER = json.JSONDecoder()
 
 
 def call_api(prompt, options=None, context=None):
@@ -99,8 +106,13 @@ def call_api(prompt, options=None, context=None):
         for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
     )
     completion_tokens = _number(usage.get("output_tokens"))
+    output = result
+    if config.get("jsonReply"):
+        output, problem = _verdict(result)
+        if problem:
+            return {"error": f"judge reply {problem}: {result[:_EXCERPT]!r}"}
     return {
-        "output": result,
+        "output": output,
         "tokenUsage": {
             "prompt": prompt_tokens,
             "completion": completion_tokens,
@@ -109,6 +121,43 @@ def call_api(prompt, options=None, context=None):
         # List-price notional cost from the CLI; nothing is invoiced.
         "cost": float(_number(envelope.get("total_cost_usd"), float)),
     }
+
+
+def _verdict(text):
+    """(verdict, None) for the reply's verdict object, else (None, the problem)."""
+    last = None
+    start = text.find("{")
+    while start != -1:
+        try:
+            value, end = _DECODER.raw_decode(text, start)
+        except ValueError:
+            # A `{` that does not decode (stray prose) starts no object.
+            start = text.find("{", start + 1)
+            continue
+        # Top level only: an object nested inside another one is never scanned on its own.
+        last = value
+        start = text.find("{", end)
+    # The verdict closes the reply: anything before it is a quoted example or the restated
+    # format, and a reply whose last object is not a verdict did not end in a grade.
+    if not isinstance(last, dict) or "pass" not in last:
+        return None, 'has no verdict object with a "pass" key as its last JSON object'
+    if not isinstance(last["pass"], bool):
+        return None, '"pass" is not a JSON boolean'
+    if not _finite(last.get("score", 0)):
+        return None, '"score" is not a finite number'
+    if not isinstance(last.get("reason", ""), str):
+        return None, '"reason" is not a string'
+    return last, None
+
+
+def _finite(value):
+    """True for a JSON number a float can hold; an int too large for one is not finite."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _number(value, kind=int):

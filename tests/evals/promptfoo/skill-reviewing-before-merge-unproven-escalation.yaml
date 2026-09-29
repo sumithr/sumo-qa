@@ -18,6 +18,10 @@ defaultTest:
     review_modules: [runtime-scope, discovery-probes, coverage-ledger, unproven-escalation]
     loaded_techniques: file://../../../knowledge/techniques.md
   assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed and leg.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}
@@ -70,9 +74,11 @@ defaultTest:
       A. SHAPE - does the response demonstrate the expected shape concretely?
          The risk is UNPROVEN (path covered, no assertion hits the failure
          mode). The candidate must (1) map the risk in the coverage ledger as
-         NOT proven — UNPROVEN (preferred: the path runs green but no assertion
-         hits the failure mode) or UNCOVERED — never COVERED and never silently
-         dropped, (2) name the technique's catalogued failure mode (e.g.
+         UNPROVEN, listing the green path-matching test from the fresh run as
+         the fresh matching test (the path runs green but no assertion hits the
+         failure mode); never COVERED, never silently dropped, and never
+         UNCOVERED (a path-matching fresh test exists, so UNCOVERED for this
+         risk is a SHAPE FAIL), (2) name the technique's catalogued failure mode (e.g.
          equivalence-partitioning substring/token confusion), and (3) emit the
          2b PRESCRIBED escalation line: a concrete
          discriminating input PLUS an explicit twin rationale binding that exact
@@ -240,7 +246,7 @@ tests:
         @@ app/export/limit.py:5-9 @@
          5 MAX_ROWS = 1000
          7 def within_limit(row_count: int) -> bool:
-        -8     return row_count < MAX_ROWS
+        +8     return row_count < MAX_ROWS
         ```
         Context: the guard uses `<` (strict), so exactly 1000 rows is REJECTED
         — but the spec says "at most 1000" should be allowed.

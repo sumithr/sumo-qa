@@ -4,7 +4,9 @@ description: 'A/B/C value-measurement for sumo-qa-reviewing-before-merge'
 # plus test evidence before verdict; A1 may match B on the trivial seed.
 # Claude pair: non-discriminating. The risks are pre-supplied, so a no-skill
 # claude-haiku-4-5 reaches B's verdict shape: A0 2/3 and 3/3, A1 1/3 and 3/3,
-# B 3/3 both times over two single passes. Kept as a regression guard on B, not a lift
+# B 3/3 both times over two single passes. On the final #689 tree (`cdf71fb`;
+# its modules are unchanged since `26ddd94`, where it ran), one single pass:
+# A0 3/3, A1 2/3, B 3/3. Kept as a regression guard on B, not a lift
 # measurement.
 providers:
   - file://{{ env.SUMO_EVAL_CANDIDATES_FILE | default('providers/claude-candidate.yaml') }}
@@ -16,6 +18,10 @@ defaultTest:
     approaches: file://../../../knowledge/approaches.md
     principles: file://../../../knowledge/principles.md
   assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed and leg.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}

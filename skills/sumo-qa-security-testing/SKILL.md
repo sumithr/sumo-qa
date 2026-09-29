@@ -5,39 +5,39 @@ description: Use when explicit security testing or a grounded security gap needs
 
 # Security Testing
 
-Security testing here means turning an already grounded security concern into the smallest evidence that can prove the risk is covered. It is a routed specialist path after normal QA classification, not a replacement for `sumo-qa-deciding-approach`.
+Security testing here means turning an already grounded security concern into the smallest evidence that proves the risk is covered. It is a routed specialist path after `sumo-qa-deciding-approach`.
 
-**Announce at start:** *"Focusing the security test evidence."*
+**Announce at start:** *"Focusing the security test evidence."* It opens every reply, anchored or not.
 
 ## Output discipline (mandatory)
 
-Inherits the global discipline from `using-sumo-qa`: grounded risks only, no internal taxonomy labels in user output, no vulnerability checklist dump, no vendor/tool-name dump, and no external setup without confirmation.
+Inherits the global discipline from `using-sumo-qa`: grounded risks only, no internal taxonomy labels, no vulnerability checklist or vendor/tool-name dump, and no external setup without confirmation.
 
 ## Output economy (mandatory)
 
-Spend output tokens on the security brief: risk, anchor, evidence choice, first action, and residual risk.
+Spend output on the brief fields below.
 
 ## The Iron Law
 
-Grounded risk first, tool second. Do not recommend a scanner, external skill, live probe, or dependency install until the concrete security failure mode, source anchor, and native evidence fit have been checked.
+Grounded risk first, tool second. Do not recommend a scanner, external skill, live probe, or dependency install until the concrete failure mode, source anchor, and native evidence fit are checked.
 
 ## When to Use
 
-Use after `sumo-qa-deciding-approach` routes an explicit security-testing request here, or after another sumo-qa workflow has named a material security gap that needs deeper treatment than a normal regression test / review line. Do not use for low-evidence prompts; ask for the missing scope or stop short.
+Use after `sumo-qa-deciding-approach` routes an explicit security-testing request here, or after another sumo-qa workflow has named a material security gap that needs more than a normal regression test / review line. Low-evidence prompt: no brief; announce, ask for the scope, stop.
 
 ## Checklist
 
-1. Confirm the source anchor: file, flow, config, dependency, data path, or explicit user-stated scope. If none exists, ask one scope question; stop. No hypothetical risks/actions.
+1. Confirm the source anchor: file, flow, config, dependency, data path, or explicit user-stated scope. If none exists, announce, note no anchor, ask one scope question; stop. No hypothetical risks/actions.
 2. Load `sumo_qa_load_standards(classification="security_change")`, `sumo_qa_load_rules(classification="security_change")`, and `sumo_qa_load_techniques()`. Use repo-map or file reads when available to verify the path.
 3. State the grounded failure mode in concrete terms: who/what can do something they should not, which token/secret/input/config can fail, or which security control can regress. For account-recovery or lookup flows, include account enumeration when the request path can reveal user existence.
 4. Choose the smallest evidence type that fits: native test, review, static check, dynamic check, config check, dependency check, fuzz/property check, or external tool/skill.
-5. Name the first concrete action: the test to add, file/config to inspect, command to run, local safe check to perform, or external-skill discovery to request.
-6. Separate safe local regression work from invasive or live-target testing. Get confirmation before dependency installs, scanner setup, external skill execution, or live probing.
-7. Return a compact security QA brief with residual risk when specialist tooling, credentials, environment, or live target scope is unavailable.
+5. Name the first concrete action: test to add, file/config to inspect, command or safe local check to run, or external skill to request.
+6. Keep safe local work apart from live or invasive testing. Confirm before dependency installs, scanner setup, external skill execution, or live probing.
+7. Return the compact brief below, with residual risk for any missing tooling, credentials, environment, or live scope.
 
 ## Process Flow
 
-See the Checklist above; each step narrows from anchored risk to evidence fit.
+Follow the Checklist in order.
 
 ## Security QA Brief Shape
 
@@ -67,7 +67,7 @@ See the Checklist above; each step narrows from anchored risk to evidence fit.
 | "Security means list OWASP categories." | No. Name the concrete failure mode the repo or user scope exposes. |
 | "Use ZAP/Burp/Snyk because this is security." | Tool names are earned by stack + risk evidence; otherwise choose native tests or review. |
 | "The prompt says security testing, so broad live DAST is fine." | Live or invasive testing needs explicit scope and confirmation. Prefer safe local checks first. |
-| "No files or flow are visible, but I'll infer likely vulnerabilities." | Ask one scope question or state insufficient evidence. Ungrounded claims fail the contract. |
+| "No files or flow are visible, but I'll infer likely vulnerabilities." | Announce, then ask one scope question. Ungrounded claims fail the contract. |
 | "A scanner found nothing, so risk is covered." | A specific risk is covered only by evidence that exercises or checks that path. |
 
 ## Examples
@@ -86,7 +86,11 @@ Brief: grounded risk is any authenticated user reading another user's document. 
 
 ### Bad
 
-"Run OWASP Top 10, ZAP, Burp, Snyk, and a SAST scanner." This dumps categories and vendor/tool names without source anchor, stack fit, first proof action, or confirmation for setup.
+"Run OWASP Top 10, ZAP, Burp, Snyk, and a SAST scanner." This dumps categories and vendor/tool names without anchor, stack fit, first action, or setup confirmation.
+
+### No anchor
+
+User: "Pen-test our platform." Good: "Focusing the security test evidence. No source anchor given; which flow, file, or concern should I test?" Bad: leading with a verdict ("Insufficient scope.") instead. With an anchor, never claim one is missing.
 
 ## Next skill in the chain
 

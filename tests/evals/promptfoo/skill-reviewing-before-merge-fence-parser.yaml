@@ -24,6 +24,10 @@ defaultTest:
     review_modules: [runtime-scope, discovery-probes, contract-and-fence-probes, coverage-ledger, unproven-escalation]
     loaded_techniques: file://../../../knowledge/techniques.md
   assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed and leg.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}
@@ -77,10 +81,13 @@ defaultTest:
          The fence parser compares only the marker CHARACTER, not its length /
          full opening run, so its correctness is NOT established by the green
          happy-fixture test. The candidate must (1) map the fence-parser risk in
-         the coverage ledger as NOT proven — UNPROVEN (the parse path runs green
-         but no assertion exercises a variable-length / indented / tilde /
-         unclosed fence) or UNCOVERED — never COVERED and never "verified
-         correct" from reading the code; (2) name the structural tell — that the
+         the coverage ledger as UNPROVEN, listing the green path-matching
+         tests/test_knowledge_loaders.py tests as the fresh matching test (the
+         parse path runs green but no assertion exercises a variable-length /
+         indented / tilde / unclosed fence); never COVERED, never "verified
+         correct" from reading the code, and never UNCOVERED (a path-matching
+         fresh test exists, so UNCOVERED for this risk is a SHAPE FAIL);
+         (2) name the structural tell — that the
          close-test matches the fence CHAR not its LENGTH (or equivalently, does
          not track the opening run length / does not validate the close line),
          which is the defect, not proof; and (3) PRESCRIBE at least one CONCRETE

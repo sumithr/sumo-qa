@@ -48,12 +48,15 @@ You MUST work through these in order. Steps 1–3 are AI-only homework; the user
 
 5. **Write the failing test** — use the host's edit tool. Do NOT ask the user to write it. Match the sibling tests' framework and fixture style. Name its step-3 technique with it.
 
-6. **Run the test and SHOW THE RED OUTPUT** — capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim. **No command tool, or your run attempt was denied by the user or host policy?** Don't delegate the run, ask the user to run it, trace the failure by hand, or write production code: go to step 7's second phrasing. A failed command isn't that: fix it, re-run.
+6. **Run the test and SHOW THE RED OUTPUT** — from a real run only, capture the actual assertion failure (expected vs. got, line number). Import/syntax/fixture errors are NOT red — adjust until you see a real assertion failure for the right reason. Surface verbatim. **No command tool, or your run attempt was denied by the user or host policy?** Don't delegate the run, ask the user to run it, trace the failure by hand, or write production code: go to step 7's second phrasing. A failed command isn't that: fix it, re-run.
 
 7. **Hand off to the user, then stop** (retrospective regression: see its item 4) — the LAST line of your reply is EXACTLY one of these two phrasings, with nothing after it (no pleasantries, no confirmation question, no "shall I"):
    - if step 6 really ran the test and you pasted its assertion failure: "red phase confirmed. Implement to make it green; I'll re-run when ready. If you'd like me to write the production code, say so."
    - otherwise: "I'll run this and surface the assertion failure next."
    A real run is a command-tool call you made this turn. Without one, write no red-output block, no production code and no commands for the user to run: the second phrasing is the whole handoff.
+   No run means no failure text anywhere, prose included: never write what a test runner would print (`AssertionError: ...`, a traceback, a `FAILED` line, a line number) or an "Expected red output" section. That text is a run's evidence; writing it yourself forges it and hides the one thing only a run shows: whether the test fails for the right reason. The step-3 trace justifies the expected value, never a predicted failure. To say why the test discriminates, state in words what broken and fixed code return for this input.
+   - Bad: *"the buggy code returns None, so it fails: `AssertionError: assert None == Path(...)` at line 24."*
+   - Good: *"For this input the buggy code returns None; the fixed code returns the toolkit path."*, then the second phrasing.
 
 8. **Re-run after green-making change** — confirm it passes for the right reason (not a weakened assertion). If it fails, surface the new failure — don't try a second production change without the user.
 
@@ -71,7 +74,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework; the user
 
    Never destructive — `git reset --hard`, `git checkout <branch>`, `git clean` discard the worktree. Run the test (no command tool: restore nothing, see item 4); capture the real assertion failure.
 3. **MANDATORY: reverse the restore (with the reverse paired in step 2) and return to the current worktree before final verification**, then re-run and confirm green. Leaving the tree on the old version reintroduces the bug — the cycle is write-current → restore-old → red → restore-current → green, all BEFORE any handoff; you always end on the current tree. If the pre-fix version is unrecoverable, say so — never fabricate red by weakening the assertion against current code.
-4. **Ending:** if not yet run, state each command (never ask the user to run them) and end on step 7's second phrasing; after a real red and green the fix already exists, so skip to step 9.
+4. **Ending:** if not yet run, state each command as a plan (never ask the user to run them, never narrate running them or show their output: step 7's no-run rule applies) and end on step 7's second phrasing; after a real red and green the fix already exists, so skip to step 9.
 
 **Tests for code outside the coverage target.** A test for code outside `--cov=src/sumo_qa` (a script, CI helper, build artifact, sibling package) still counts: coverage doesn't decide whether a regression matters. Write it where the code lives; don't drop it, don't widen `--cov`.
 
@@ -94,7 +97,7 @@ The Checklist above.
 | "I'll stub the prod function with `return total * 0.9` so the test fails meaningfully" | Iron Law violated via the stub. Red-phase stubs are signature-only (`pass` / `raise NotImplementedError`); the 0.9 belongs in the user's green phase. |
 | "Mutation testing fits here" | Wrong skill. Mutation follow-up is `sumo-qa-strengthening-tests`. |
 | "The bug's already fixed, so I'll commit the test green" | An unred test proves nothing. Manufacture red against the pre-fix version with a scoped reversible restore (`git show <commit>:<path> > <path>` → reverse `git checkout -- <path>`; never `reset --hard` / `checkout <branch>`, and not `git stash` — with the fix committed it reverts to the fixed tree, not the pre-fix file), see red, then reverse (pair the reverse to the restore — `git checkout <commit> -- <path>` pollutes the index, so reverse it against HEAD) and see green. Always end on the current tree. |
-| "No shell or a denied run: hand it to the user or a subagent, trace red, write the fix" | A traced failure isn't red: test only, then step 7's second phrasing. A denial you didn't hit isn't one: attempt the run; a failed command: fix it, re-run. |
+| "No shell or a denied run: hand it to the user or a subagent, trace red, write the fix" | A traced failure isn't red, even inline (`AssertionError ... at line N`): test only, then step 7's second phrasing. A denial you didn't hit isn't one: attempt the run; a failed command: fix it, re-run. |
 
 ## Examples
 
