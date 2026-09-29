@@ -186,9 +186,13 @@ vertex = [
 # str-only method-style binding to the upstream `tree_sitter.Parser` (bytes-only
 # `parse()`, property accessors, `type` not `kind()`), and the two APIs are
 # mutually exclusive — repo_map_treesitter targets the upstream shape (#491).
+# 1.14.1 and 1.14.2 are excluded: they shipped without the windows-x86_64
+# prebuilt parsers, so every parse raised `DownloadError` on Windows (#595);
+# 1.14.3 restored them. The pre-push pytest hook repeats these pins, and
+# tests/test_treesitter_pins.py fails if the two copies differ.
 treesitter = [
   "tree-sitter>=0.25,<0.27",
-  "tree-sitter-language-pack>=1.12.5,<2",
+  "tree-sitter-language-pack>=1.12.5,!=1.14.1,!=1.14.2,<2",
 ]
 
 [project.urls]
@@ -363,6 +367,13 @@ also_copy = [
   # push whose delta touches any test file (the hook's regex matches all
   # of `tests/*.py`). Same root-level-resource pattern as `.claude/`.
   "release-please-config.json",
+  # tests/test_treesitter_pins.py (#595) compares the [treesitter] extra with
+  # the pre-push pytest hook's pins via `Path(__file__).resolve().parents[1] /
+  # ".pre-commit-config.yaml"`, which under mutmut becomes
+  # `mutants/.pre-commit-config.yaml`. Without this entry the test
+  # FileNotFoundErrors, mutmut's `-x` aborts stats collection, and the pre-push
+  # mutmut hook fails. Same root-level-resource pattern as the entry above.
+  ".pre-commit-config.yaml",
   # tests/test_report_html.py (#157) imports scripts/regen_report_snapshots.py
   # via `Path(__file__).resolve().parents[1] / "scripts"`, which under mutmut
   # becomes `mutants/scripts/`. Without this entry the module FileNotFoundErrors

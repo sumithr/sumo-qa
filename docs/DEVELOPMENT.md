@@ -234,6 +234,19 @@ stats-collection run and zero mutants executed ("failed to collect stats");
 because mutmut minors move the mutant set and the pragma rules (see below), so
 a bump is a re-run-the-gate-and-ratchet-the-baseline task, not a range edit.
 
+`tree-sitter-language-pack` (the `[treesitter]` extra) follows the same
+lockstep rule: `pyproject.toml` and the pre-push `pytest` hook's
+`additional_dependencies` carry identical pins, and
+`tests/test_treesitter_pins.py` fails if they differ (Dependabot only edits
+`pyproject.toml`). The range excludes 1.14.1 and 1.14.2, which shipped without
+the `windows-x86_64` prebuilt parsers, so every repo-map test failed on Windows
+with `DownloadError: No pre-built parsers available for platform
+'windows-x86_64'` (#595). 1.14.3 restored them
+([upstream #174](https://github.com/xberg-io/tree-sitter-language-pack/issues/174)),
+so this is a point exclusion rather than a ceiling: later releases resolve
+normally. Windows `pytest` is not a required check, so a red Windows leg on
+every PR is a signal to read, not background noise.
+
 **Pragma placement (mutmut 3.7).** `# pragma: no mutate` is read only as a
 trailing comment on a *statement* or a compound-statement header (`with …:`,
 `if …:`, `def …:`); it suppresses the mutants whose node starts on that
