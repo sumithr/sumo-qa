@@ -762,8 +762,9 @@ class _BrokenStderr:
 
 @pytest.mark.parametrize("stderr", ["broken", "missing"])
 def test_an_interrupt_survives_a_broken_or_missing_stderr_and_never_touches_stdout(
-    monkeypatch, toolchain, capsys, stderr
+    capsys, monkeypatch, toolchain, stderr
 ) -> None:
+    # capsys before monkeypatch: monkeypatch must restore sys.stderr first.
     def interrupted(*args, **kwargs):
         raise KeyboardInterrupt
 
