@@ -734,6 +734,77 @@ def test_a_rollback_that_leaves_files_behind_says_so(monkeypatch, toolchain) -> 
     assert "rolled back" not in str(excinfo.value)
 
 
+def test_an_interrupt_is_never_swallowed_even_when_rollback_leaves_folders(
+    monkeypatch, toolchain
+) -> None:
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ext, "_write_atomic", interrupted)
+    monkeypatch.setattr(ext, "_remove_install", lambda folder: None)
+
+    with pytest.raises(KeyboardInterrupt):
+        _install(toolchain)
+
+
+def test_a_removal_that_raises_is_reported_not_a_crash(monkeypatch, toolchain) -> None:
+    monkeypatch.setattr(
+        ext, "_write_atomic", lambda *a, **k: (_ for _ in ()).throw(OSError("full"))
+    )
+
+    def undeletable(folder):
+        raise PermissionError("in use")
+
+    monkeypatch.setattr(ext, "_remove_install", undeletable)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="remain"):
+        _install(toolchain)
+
+
+def test_an_entry_that_cannot_be_inspected_during_rollback_is_reported(
+    monkeypatch, toolchain
+) -> None:
+    real_lstat = os.lstat
+
+    def full_then_uninspectable(*args, **kwargs):
+        def uninspectable(path, *a, **k):
+            if "find-skills" in str(path):
+                raise NotADirectoryError(20, "Not a directory", str(path))
+            return real_lstat(path, *a, **k)
+
+        monkeypatch.setattr(ext.os, "lstat", uninspectable)
+        raise OSError("full")
+
+    monkeypatch.setattr(ext, "_write_atomic", full_then_uninspectable)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="remain"):
+        _install(toolchain)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_rollback_reports_only_the_folders_that_actually_remain(monkeypatch, toolchain) -> None:
+    toolchain.links_claude_dir = True
+    monkeypatch.setattr(
+        ext, "_write_atomic", lambda *a, **k: (_ for _ in ()).throw(OSError("full"))
+    )
+    real_unlink = Path.unlink
+
+    def link_undeletable(self, *args, **kwargs):
+        if ".claude" in self.parts:
+            raise PermissionError("EPERM")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(ext.Path, "unlink", link_undeletable)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="remain") as excinfo:
+        _install(toolchain, agent="claude-code")
+
+    message = str(excinfo.value).replace(os.sep, "/")
+    assert ".claude/skills/find-skills" in message
+    assert ".agents/skills/find-skills" not in message  # that one was removed
+    assert not (toolchain.cwd / ".agents" / "skills" / "find-skills").exists()
+
+
 def test_a_permission_copy_failure_after_the_lock_is_written_keeps_the_install(
     monkeypatch, toolchain
 ) -> None:

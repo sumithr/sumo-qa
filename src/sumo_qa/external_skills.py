@@ -198,28 +198,18 @@ def install_external_skill(
                 )
                 _merge_into_lock(lock_base, records)
             except BaseException as exc:
-                # Never leave an install behind that runs as "unrecorded", but
-                # keep entries the CLI did not replace (a user's alias link).
-                replaced = [
-                    location.path.parent
-                    for location in written
-                    if before_entries.get(location.path.parent)
-                    != _entry_identity(location.path.parent)
-                ]
-                for folder in replaced:
-                    _remove_install(folder)
-                remaining = [f for f in replaced if _entry_identity(f) is not None]
+                remaining = _roll_back(written, before_entries)
+                if not isinstance(exc, Exception):
+                    raise  # an interrupt is never turned into an ordinary error
                 if remaining:
                     paths = ", ".join(f.as_posix() for f in remaining)
                     raise ExternalSkillProvenanceError(
                         f"provenance could not be recorded ({exc}) and these unrecorded "
                         f"install folders remain: {paths}; remove them before executing"
                     ) from exc
-                if isinstance(exc, Exception):
-                    raise ExternalSkillProvenanceError(
-                        f"provenance could not be recorded, so the install was rolled back: {exc}"
-                    ) from exc
-                raise
+                raise ExternalSkillProvenanceError(
+                    f"provenance could not be recorded, so the install was rolled back: {exc}"
+                ) from exc
     finally:
         _remove_tree(workdir)
     installed = written[0].as_dict()
@@ -640,12 +630,35 @@ def _remove_tree(path: Path) -> None:
 
 def _entry_identity(path: Path) -> tuple[int, int] | None:
     """Identity of the directory entry itself (a link, not its target), or
-    None when nothing is there."""
+    None when nothing is there. An entry that cannot be inspected gets an
+    identity matching nothing, so it is treated as present and changed."""
     try:
         stat_result = os.lstat(path)
     except FileNotFoundError:
         return None
+    except OSError:
+        return (-1, -1)
     return stat_result.st_ino, stat_result.st_mtime_ns
+
+
+def _roll_back(
+    written: list[InstalledSkill], before_entries: dict[Path, tuple[int, int] | None]
+) -> list[Path]:
+    """Best-effort removal of what an unrecordable install wrote.
+
+    Keeps entries the CLI did not replace (a user's alias link), never lets a
+    failed removal stop the others, and returns every entry still present so
+    the caller can report it rather than leave it to run unrecorded.
+    """
+    replaced = [
+        location.path.parent
+        for location in written
+        if before_entries.get(location.path.parent) != _entry_identity(location.path.parent)
+    ]
+    for folder in replaced:
+        with suppress(OSError):
+            _remove_install(folder)
+    return [folder for folder in replaced if _entry_identity(folder) is not None]
 
 
 def _remove_install(folder: Path) -> None:
