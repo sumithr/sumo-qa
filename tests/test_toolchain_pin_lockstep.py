@@ -644,9 +644,17 @@ def test_ruff_and_hook_mismatches_are_reported_together() -> None:
 
 
 # The delivery skills treat the pre-push pytest hook's output as the full local
-# suite's evidence, so a clone must install that hook by default and a push of
-# new commits must run it even when the pushed range has no net file changes
-# (an `--allow-empty` commit, or a commit plus its revert) (#773).
+# suite's evidence, so a clone must install that hook by default and a push must
+# run it even when the pushed range has no net file changes (an `--allow-empty`
+# commit, or a commit plus its revert) (#773).
+
+
+def _pytest_hook() -> dict[str, Any]:
+    pytest_hook = next(
+        (hook for hook_id, _, hook in _hooks(_repo_precommit()) if hook_id == "pytest"), None
+    )
+    assert pytest_hook is not None, f"{PRECOMMIT} has no hook with id 'pytest'"
+    return pytest_hook
 
 
 def test_plain_install_adds_the_pre_push_hook() -> None:
@@ -654,30 +662,27 @@ def test_plain_install_adds_the_pre_push_hook() -> None:
     assert {"pre-commit", "pre-push"} <= set(precommit.get("default_install_hook_types", []))
     # Older pre-commit ignores `default_install_hook_types`; the minimum makes
     # it fail loudly instead of installing the commit hook alone.
-    assert precommit.get("minimum_pre_commit_version") == "2.18.0"
+    assert Version(str(precommit.get("minimum_pre_commit_version", "0"))) >= Version("2.18")
 
 
-def test_pre_push_pytest_hook_runs_on_every_push() -> None:
-    pytest_hook = next(
-        (hook for hook_id, _, hook in _hooks(_repo_precommit()) if hook_id == "pytest"), None
-    )
-    assert pytest_hook is not None, f"{PRECOMMIT} has no hook with id 'pytest'"
+def test_pre_push_pytest_hook_always_runs() -> None:
+    pytest_hook = _pytest_hook()
     assert pytest_hook.get("stages") == ["pre-push"]
     assert pytest_hook.get("always_run") is True
 
 
+def _lowers_verbosity(arg: str) -> bool:
+    if arg == "--quiet" or arg.startswith("--verbosity"):
+        return True
+    return arg.startswith("-") and not arg.startswith("--") and "q" in arg
+
+
 def test_pre_push_pytest_hook_prints_its_counts() -> None:
-    # pre-commit hides a passing hook's output unless `verbose` is set, and an
-    # extra `-q` on top of addopts' `-q` drops pytest's "N passed" line, so
-    # either would leave the push log without the counts the skills quote.
-    pytest_hook = next(
-        (hook for hook_id, _, hook in _hooks(_repo_precommit()) if hook_id == "pytest"), None
-    )
-    assert pytest_hook is not None, f"{PRECOMMIT} has no hook with id 'pytest'"
+    # pre-commit hides a passing hook's output unless `verbose` is set, and
+    # lowering pytest's verbosity below addopts' `-q` drops the "N passed"
+    # line, so either would leave the push log without the counts the skills
+    # quote. pre-commit appends `args` to `entry`, so both are checked.
+    pytest_hook = _pytest_hook()
     assert pytest_hook.get("verbose") is True
-    quiet = [
-        arg
-        for arg in pytest_hook["entry"].split()
-        if arg == "--quiet" or (arg.startswith("-") and not arg.startswith("--") and "q" in arg)
-    ]
-    assert quiet == []
+    argv = pytest_hook["entry"].split() + [str(arg) for arg in pytest_hook.get("args", [])]
+    assert [arg for arg in argv if _lowers_verbosity(arg)] == []

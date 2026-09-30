@@ -335,13 +335,13 @@ repos:
           # system tz database, so stdlib `zoneinfo` falls through to `tzdata`.
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
-        # Run on every push that sends new commits, even when the pushed
-        # range has no net file changes (an `--allow-empty` commit, or a
-        # commit plus its revert). pre-commit runs no pre-push hook at all
-        # for a push whose commits are already on the remote or a branch
-        # deletion. The delivery skills treat this hook's output as the
-        # full local suite's evidence, so `Skipped` would leave a push
-        # unverified.
+        # Run even when the pushed range has no net file changes (an
+        # `--allow-empty` commit, or a commit plus its revert): the delivery
+        # skills treat this hook's output as the full local suite's
+        # evidence, so `Skipped` would leave a push unverified. pre-commit
+        # itself still runs no pre-push hook for a branch deletion, or for a
+        # new remote branch whose commits are all in the local
+        # remote-tracking refs.
         always_run: true
         stages: [pre-push]
 
