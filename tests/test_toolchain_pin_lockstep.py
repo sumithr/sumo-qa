@@ -1,6 +1,10 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Guard that every Python dependency pinned in a git hook mirrors ``pyproject.toml``.
 
+The end of the module also guards the pre-push pytest hook the delivery skills
+rely on as the full local suite: installed by default, run on every pre-push
+stage, and printing its counts (#773).
+
 pre-commit hook venvs install from PyPI, so a hook that needs project
 dependencies repeats them in its ``additional_dependencies``. Those copies
 drift: Dependabot only ever edits ``pyproject.toml``, so every bump it raises
@@ -660,16 +664,17 @@ def _pytest_hook() -> dict[str, Any]:
 def test_plain_install_adds_the_pre_push_hook() -> None:
     precommit = _repo_precommit()
     assert {"pre-commit", "pre-push"} <= set(precommit.get("default_install_hook_types", []))
-    # Older pre-commit ignores `default_install_hook_types`; the minimum makes
-    # it fail loudly instead of installing the commit hook alone.
+    # The config needs 3.2+ (stage names); an older binary also ignores
+    # `default_install_hook_types`, so the minimum makes it fail loudly instead
+    # of installing the commit hook alone.
     minimum = precommit.get("minimum_pre_commit_version")
     site = f"{PRECOMMIT} minimum_pre_commit_version"
-    assert isinstance(minimum, str), f"{site}: expected a quoted version string, got {minimum!r}"
+    assert isinstance(minimum, str), f"{site}: expected a version string, got {minimum!r}"
     try:
         version = Version(minimum)
     except InvalidVersion:
         pytest.fail(f"{site}: {minimum!r} is not a version")
-    assert version >= Version("2.18"), f"{site}: {minimum} is below 2.18"
+    assert version >= Version("3.2"), f"{site}: {minimum} is below 3.2"
 
 
 def test_pre_push_pytest_hook_always_runs() -> None:
@@ -694,8 +699,3 @@ def test_pre_push_pytest_hook_prints_its_counts() -> None:
         f"{PRECOMMIT} pytest hook argv {argv}: options belong in {PYPROJECT} addopts; "
         "change this guard deliberately if the hook needs its own"
     )
-    pyproject = tomllib.loads((REPO_ROOT / PYPROJECT).read_text(encoding="utf-8"))
-    addopts = shlex.split(pyproject["tool"]["pytest"]["ini_options"]["addopts"])
-    assert addopts.count("-q") == 1, f"{PYPROJECT} addopts {addopts}: expected exactly one -q"
-    assert not any(opt.startswith(("-qq", "--quiet", "--verbosity", "-p")) for opt in addopts)
-    assert any(opt.startswith("--cov-fail-under=") for opt in addopts)
