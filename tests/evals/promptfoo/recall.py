@@ -176,7 +176,7 @@ def render(summary: dict) -> str:
         f"mean overall recall: {summary['mean_recall']:.0%} over {len(summary['runs'])} run(s); "
         f"spread {summary['spread']:.0%}"
     )
-    out.append("per case (caught/runs; a control counts its SAFE passes):")
+    out.append("per case (caught/runs; a control counts its runs with no false alarm):")
     for name, case in sorted(summary["cases"].items(), key=lambda kv: (kv[1]["category"], kv[0])):
         out.append(f"  {case['caught']}/{case['runs']}  [{case['split']}] {name}")
     return "\n".join(out)

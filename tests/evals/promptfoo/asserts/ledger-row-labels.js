@@ -20,7 +20,9 @@
 // with no ledger rows passes: other assertions own "a ledger must exist".
 //
 // Shared by every skill-reviewing-before-merge*.yaml config that loads the
-// coverage-ledger module, via `value: file://asserts/ledger-row-labels.js`.
+// coverage-ledger module, via `value: file://asserts/ledger-row-labels.js`,
+// except skill-reviewing-before-merge-recall.yaml: recall grades substance only,
+// so a ledger-format slip there would count as a missed defect.
 
 const LABELS = ['UNCOVERED', 'UNPROVEN', 'COVERED'];
 

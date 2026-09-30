@@ -180,6 +180,10 @@ three runs for anything smaller. The candidate is the eval gate's, not the model
 a real review runs on, so the number measures what the skill adds to a weak
 model, not the review's absolute recall.
 
+The config matches `skill-*.yaml`, so `npm run eval:all` runs it too and reports
+every missed case as a failure. Those failures are the recall measurement, not
+a regression: read this config through `recall.py`, not the sweep's pass count.
+
 ## Repo-pinned tool-setup corpus (issue #216)
 
 `skill-using-sumo-qa-tool-setup.yaml` measures a different `using-sumo-qa`
@@ -1023,7 +1027,7 @@ renders.
 | `aggregate.py` | Variance aggregator for multi-sample runs |
 | `fixtures/assemble-review-skill.js` | Shared dynamic var for every `skill-reviewing-before-merge*` config: assembles the compact root + the seed's declared `review_modules` from the canonical `skills/sumo-qa-reviewing-before-merge/` files (issue #451); no mirrored prose lives here |
 | `asserts/cites-catalogue-technique.js` | Shared `javascript` grounding assertion for the three `skill-implementing-with-tdd*` configs; passes when the candidate cites a technique whose name is a `###` heading in `knowledge/techniques.md`, derived from the catalogue (single source of truth) instead of a hardcoded six-technique allowlist (issue #350) |
-| `asserts/ledger-row-labels.js` | Shared `javascript` ledger-consistency assertion in `defaultTest.assert` of every `skill-reviewing-before-merge*` config that loads the `coverage-ledger` module (every seed, every `.ab` leg); fails any ledger row whose label contradicts its own `Fresh matching tests` field (a listed test labelled UNCOVERED, or NONE labelled UNPROVEN or COVERED), naming each offending row; output with no ledger rows passes (issue #689) |
+| `asserts/ledger-row-labels.js` | Shared `javascript` ledger-consistency assertion in `defaultTest.assert` of every `skill-reviewing-before-merge*` config that loads the `coverage-ledger` module (every seed, every `.ab` leg) except the review-recall corpus, which grades substance only; fails any ledger row whose label contradicts its own `Fresh matching tests` field (a listed test labelled UNCOVERED, or NONE labelled UNPROVEN or COVERED), naming each offending row; output with no ledger rows passes (issue #689) |
 | `README.md` | This file |
 
 ## What's intentionally NOT here
@@ -1039,7 +1043,7 @@ renders.
 
 ## Ledger-row consistency check
 
-`asserts/ledger-row-labels.js` fails a coverage-ledger row whose label contradicts its own `Fresh matching tests` field: tests listed and the row labelled UNCOVERED, or `NONE` and the row labelled UNPROVEN or COVERED. It runs on every seed and every `.ab` leg of the reviewing-before-merge configs that load `coverage-ledger`.
+`asserts/ledger-row-labels.js` fails a coverage-ledger row whose label contradicts its own `Fresh matching tests` field: tests listed and the row labelled UNCOVERED, or `NONE` and the row labelled UNPROVEN or COVERED. It runs on every seed and every `.ab` leg of the reviewing-before-merge configs that load `coverage-ledger`, except `skill-reviewing-before-merge-recall.yaml`: recall scores only whether the review found the defect, so a ledger-format slip there would count as a miss.
 
 On the Claude pair the current skill still produces a contradicting row on a few current-skill legs per pass over those configs, almost always a listed test labelled UNCOVERED, and the slip moves between seeds from pass to pass: 4 of 53 row-checked current-skill legs on the `49e175d` pass, 1 of 53 on the final #689 pass (`26ddd94`, the `adversarial` `rollback-data-loss` seed, clean on its rerun), each on a different row, none of 13 on the final `adversarial` pass and 1 of 5 on its `rollback-data-loss` seed at `--repeat 5`, against 2 of 26 `adversarial` legs for the tree before the #689 consistency fixes at `--repeat 2`. The skill states the rule in the row template's Coverage slot, the label definition, a BAD/GOOD row, and the discovery, feature-flow, declared-contract and acceptance-criteria modules, so treat a single failing leg as candidate variance: rerun that config once, and treat the same row failing twice as a regression. The mirror slip, a row writing `NONE` beside a path-matching test and labelling it UNCOVERED, agrees with itself, so this check passes it and the rubric fails it: once each on those two passes (`security-relevance`, then `coverage-artifact`), both clean on the next run.
 
