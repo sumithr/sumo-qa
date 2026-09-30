@@ -284,6 +284,18 @@ def test_a_line_suffix_with_trailing_junk_does_not_satisfy_the_stale_anchor(junk
     assert "has no UNVERIFIED `Surface verifier:` line" in result["reason"]
 
 
+def test_a_numeric_filename_suffix_is_another_file():
+    output = BLOCKER.replace(".pre-commit-config.yaml:34", ".pre-commit-config.yaml-2026").replace(
+        ".pre-commit-config.yaml hook", ".pre-commit-config.yaml-2026 hook"
+    )
+    result = _one(output, BLOCKER_VARS)
+    assert result["pass"] is False
+    assert "has no UNCOVERED `Inventory drift anchor:` row" in result["reason"]
+    assert "has no UNVERIFIED `Surface verifier:` line" in result["reason"]
+    row = "Inventory drift anchor: uv.lock-2026 (1.10.0 → 1.12.5) | Coverage: UNCOVERED"
+    assert _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)["pass"] is True
+
+
 def test_a_line_range_names_a_configured_path_with_a_line():
     row = "Inventory drift anchor: pyproject.toml:31-33 (>=1.10 → >=1.12.5) | Coverage: UNCOVERED"
     variables = {**BLOCKER_VARS, "not_stale_paths": ["pyproject.toml:31"]}

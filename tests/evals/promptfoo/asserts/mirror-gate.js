@@ -54,14 +54,16 @@ function pinnedRows(output) {
 // True when `head` names `path` as a whole path token: bounded before by the
 // start, whitespace, a backtick, a quote or `(` (an optional `./` prefix
 // allowed), then an optional `:<line>` or `:<line>-<line>` suffix consumed in
-// full (a `-<line>` range end too, for a configured `path:<line>`), and after
+// full (only a `-<line>` range end for a configured `path:<line>`), and after
 // by the end, whitespace, a backtick, a quote, `)`, `,`, `;` or `|`. So
 // `.pre-commit-config.yaml.bak:34` and `.pre-commit-config.yaml:34.bak` do not
 // name `.pre-commit-config.yaml`, while `./uv.lock` names `uv.lock` and
 // `pyproject.toml:31-33` names `pyproject.toml:31`.
 function namesPath(head, path) {
   const escaped = String(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const suffix = '(?::\\d+)?(?:-\\d+)?';
+  // A range end only follows a line number: the configured path's own, or
+  // the `:<line>` just consumed. `uv.lock-2026` is another file.
+  const suffix = /:\d+$/.test(String(path)) ? '(?:-\\d+)?' : '(?::\\d+(?:-\\d+)?)?';
   return new RegExp(`(?:^|[\\s\`'"(])(?:\\./)?${escaped}${suffix}(?=$|[\\s\`'"),;|])`).test(head);
 }
 
