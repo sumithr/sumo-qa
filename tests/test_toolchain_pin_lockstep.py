@@ -665,9 +665,8 @@ def _pytest_hook() -> dict[str, Any]:
 def test_plain_install_adds_the_pre_push_hook() -> None:
     precommit = _repo_precommit()
     assert {"pre-commit", "pre-push"} <= set(precommit.get("default_install_hook_types", []))
-    # The config needs 3.2+ (stage names); an older binary also ignores
-    # `default_install_hook_types`, so the minimum makes it fail loudly instead
-    # of installing the commit hook alone.
+    # The config needs 3.2+ (the stage names and the pinned pre-commit-hooks);
+    # the minimum makes an older binary fail with a clear version error.
     minimum = precommit.get("minimum_pre_commit_version")
     site = f"{PRECOMMIT} minimum_pre_commit_version"
     assert isinstance(minimum, str), f"{site}: expected a version string, got {minimum!r}"
@@ -689,10 +688,10 @@ def test_pre_push_pytest_hook_always_runs() -> None:
 
 def test_pre_push_pytest_hook_prints_its_counts() -> None:
     # pre-commit hides a passing hook's output unless `verbose` is set, and a
-    # hook option that lowers pytest's verbosity drops the "N passed" line, so
-    # either would leave the push log without the counts the skills quote. The
-    # hook takes its options from addopts alone: an option added here is a
-    # deliberate change that updates this guard too.
+    # hook option that takes pytest below addopts' `-q` drops the "N passed"
+    # line, so either would leave the push log without the counts the skills
+    # quote. The hook takes its options from addopts alone: an option added
+    # here is a deliberate change that updates this guard too.
     pytest_hook = _pytest_hook()
     assert pytest_hook.get("verbose") is True
     argv = shlex.split(pytest_hook["entry"]) + [str(arg) for arg in pytest_hook.get("args", [])]

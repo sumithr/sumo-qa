@@ -19,9 +19,11 @@
 #
 # After that:
 #   git commit  → ruff + format + hygiene on staged files (~1s)
-#   git push    → full pytest suite at 100% coverage (minutes; the first
-#                 push is slower because pre-commit installs the project
-#                 deps into its own isolated venv), plus the scoped mutmut
+#   git push    → the hooks not limited to the commit stage, on the
+#                 pushed files; the full pytest suite at 100% coverage
+#                 (minutes; the first push is slower because pre-commit
+#                 installs the project deps into its own isolated venv);
+#                 and the scoped mutmut
 #                 gate when the push touches a mutated module, a test,
 #                 conftest.py or pyproject.toml (the last two force the
 #                 full mutation pass).
@@ -40,11 +42,8 @@
 # venv).
 #
 # This config needs pre-commit 3.2+: the `pre-commit`/`pre-push` stage names
-# need it, and so do the pinned pre-commit-hooks. The minimum below makes an
-# older binary fail with a version error on `pre-commit install
-# --install-hooks` (the documented setup) and on every hook run, rather than
-# misreading the config (a binary before 2.18 would also ignore
-# `default_install_hook_types` and leave the push hook uninstalled).
+# need it, and so do the pinned pre-commit-hooks. The minimum below turns an
+# older binary's failure into a clear version error.
 minimum_pre_commit_version: "3.2.0"
 default_install_hook_types: [pre-commit, pre-push]
 
