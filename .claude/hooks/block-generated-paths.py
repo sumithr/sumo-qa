@@ -2,7 +2,8 @@
 """PreToolUse hook: deny Edit/Write to generated, cached, or captured paths.
 
 Why: tests/fixtures/ and .claude/hooks/fixtures/ are byte-for-byte CLI captures
-(see .pre-commit-config.yaml:46) — editing masks parser/matcher bugs. mutants/,
+(see the trailing-whitespace exclude in .pre-commit-config.yaml) — editing
+masks parser/matcher bugs. mutants/,
 dist/, build/, .coverage, .hypothesis/, and the *_cache/ dirs are all regenerated
 artefacts; hand-edits drift away from the generator and silently rot.
 node_modules/ and .venv/ are dependencies, not source.

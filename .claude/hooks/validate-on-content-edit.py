@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PostToolUse hook: run sumo-qa-validate when knowledge/ or standards/ files change.
 
-Mirrors the pre-commit `sumo-qa-validate` hook (.pre-commit-config.yaml:122) but
+Mirrors the pre-commit `sumo-qa-validate` hook in .pre-commit-config.yaml but
 fires during the edit loop instead of at commit time. Faster feedback when a
 schema or knowledge change breaks the strict loaders.
 

@@ -1,6 +1,11 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Guard that every Python dependency pinned in a git hook mirrors ``pyproject.toml``.
 
+The end of the module also guards the pre-push pytest hook the delivery skills
+rely on as the full local suite: installed by default, run on every pre-push
+stage, verbose, and with a bare ``pytest`` argv so addopts alone sets its
+options (#773).
+
 pre-commit hook venvs install from PyPI, so a hook that needs project
 dependencies repeats them in its ``additional_dependencies``. Those copies
 drift: Dependabot only ever edits ``pyproject.toml``, so every bump it raises
@@ -51,12 +56,13 @@ repo's ``rev: v<version>`` (exactly one such repo entry must exist), not an
 ``additional_dependencies`` entry, and it must equal the ``ruff==<version>``
 pin in pyproject.
 
-The check is version-agnostic: it hard-codes no version, only asserts that the
-sites agree, and it reports every mismatch in one failure.
+The pin check is version-agnostic: it hard-codes no version, only asserts that
+the sites agree, and it reports every mismatch in one failure.
 """
 
 from __future__ import annotations
 
+import shlex
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -321,10 +327,13 @@ def lockstep_mismatches(
     )
 
 
+def _repo_precommit() -> dict[str, Any]:
+    return yaml.safe_load((REPO_ROOT / PRECOMMIT).read_text(encoding="utf-8"))
+
+
 def test_repo_hook_pins_mirror_pyproject() -> None:
     pyproject = tomllib.loads((REPO_ROOT / PYPROJECT).read_text(encoding="utf-8"))
-    precommit = yaml.safe_load((REPO_ROOT / PRECOMMIT).read_text(encoding="utf-8"))
-    messages = lockstep_mismatches(pyproject, precommit)
+    messages = lockstep_mismatches(pyproject, _repo_precommit())
     if messages:
         pytest.fail(
             f"{len(messages)} pin mismatch(es) between {PYPROJECT} and {PRECOMMIT}; "
@@ -638,3 +647,55 @@ def test_ruff_and_hook_mismatches_are_reported_together() -> None:
         "ruff pins disagree:",
         "pytest-cov pins disagree:",
     ]
+
+
+# The delivery skills treat the pre-push pytest hook's output as the full local
+# suite's evidence, so a clone must install that hook by default, and whenever
+# pre-commit runs the pre-push stage the hook must run too, even when the pushed
+# range has no net file changes (an `--allow-empty` commit, or a commit plus its
+# revert) (#773).
+
+
+def _pytest_hook() -> dict[str, Any]:
+    hooks = [hook for hook_id, _, hook in _hooks(_repo_precommit()) if hook_id == "pytest"]
+    assert len(hooks) == 1, f"{PRECOMMIT}: expected one hook with id 'pytest', found {len(hooks)}"
+    return hooks[0]
+
+
+def test_plain_install_adds_the_pre_push_hook() -> None:
+    precommit = _repo_precommit()
+    assert {"pre-commit", "pre-push"} <= set(precommit.get("default_install_hook_types", []))
+    # The config needs 3.2+ (the stage names and the pinned pre-commit-hooks);
+    # the minimum makes an older binary fail with a clear version error.
+    minimum = precommit.get("minimum_pre_commit_version")
+    site = f"{PRECOMMIT} minimum_pre_commit_version"
+    assert isinstance(minimum, str), f"{site}: expected a version string, got {minimum!r}"
+    try:
+        version = Version(minimum)
+    except InvalidVersion:
+        pytest.fail(f"{site}: {minimum!r} is not a version")
+    assert version >= Version("3.2"), f"{site}: {minimum} is below 3.2"
+
+
+def test_pre_push_pytest_hook_always_runs() -> None:
+    pytest_hook = _pytest_hook()
+    assert pytest_hook.get("stages") == ["pre-push"]
+    assert pytest_hook.get("always_run") is True
+    # With filenames passed, `always_run` would run `pytest <changed files>`,
+    # not the full suite.
+    assert pytest_hook.get("pass_filenames") is False
+
+
+def test_pre_push_pytest_hook_prints_its_counts() -> None:
+    # pre-commit hides a passing hook's output unless `verbose` is set, and a
+    # hook option that takes pytest below addopts' `-q` drops the "N passed"
+    # line, so either would leave the push log without the counts the skills
+    # quote. The hook takes its options from addopts alone: an option added
+    # here is a deliberate change that updates this guard too.
+    pytest_hook = _pytest_hook()
+    assert pytest_hook.get("verbose") is True
+    argv = shlex.split(pytest_hook["entry"]) + [str(arg) for arg in pytest_hook.get("args", [])]
+    assert argv == ["pytest"], (
+        f"{PRECOMMIT} pytest hook argv {argv}: options belong in {PYPROJECT} addopts; "
+        "change this guard deliberately if the hook needs its own"
+    )
