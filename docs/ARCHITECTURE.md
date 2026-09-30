@@ -46,7 +46,7 @@ flowchart LR
 
 ## 1. Skills (markdown): the orchestration layer
 
-Each skill is a `skills/<name>/SKILL.md` root, plus optional lazy `skills/<name>/modules/*.md` the root's routing table loads on demand (`sumo-qa-reviewing-before-merge` ships 19), with:
+Each skill is a `skills/<name>/SKILL.md` root, plus optional lazy `skills/<name>/modules/*.md` the root's routing table loads on demand (`sumo-qa-reviewing-before-merge` ships several), with:
 
 - YAML frontmatter (`name` + `description`) used by hosts to auto-trigger
 - An Iron Law: non-negotiable rule for the skill

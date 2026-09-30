@@ -154,6 +154,17 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
     "inventory-drift": [
         "**Documented-inventory drift rule (pinned).**",
         "`Inventory drift anchor: <path>:<line> (<old> → <new>) | Required update: this file",
+        "**Not a drift anchor (pinned).**",
+        "**Residual concerns on a constraint diff (pinned).**",
+    ],
+    "mirrored-constraints": [
+        "**Mirrored-constraint probe (pinned).**",
+        "Search for the canonical package/tool name and its spelling variants",
+        "**Classify before judging.**",
+        "A **declared mirror** has a keep-in-sync/lockstep statement on its line, its enclosing block or its file header",
+        "**Compare semantics, not text.**",
+        "never a description of the environment",
+        "**No mirror to fix (pinned).**",
     ],
     "unproven-escalation": [
         "**2b. UNPROVEN-escalation extension (pinned).**",
@@ -214,6 +225,8 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
         "**Command/input-classifier probe (pinned):**",
         "**Location claim (pinned):**",
+        "directly, transitively (a lock entry beneath an imported package) or by dynamic load",
+        "or to the interpreter or base image that code runs on, is a runtime change",
         "**Trivial-change exemption (pinned):**",
         "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
     ],
@@ -270,7 +283,11 @@ PINNED_RULE_MARKERS = (
     "**External-contract exception (pinned):**",
     "**External-contract rule (pinned).**",
     "**Location claim (pinned):**",
+    "**Mirrored-constraint probe (pinned).**",
     "**Module-match rule (pinned):**",
+    "**No mirror to fix (pinned).**",
+    "**Not a drift anchor (pinned).**",
+    "**Residual concerns on a constraint diff (pinned).**",
     "**Producer test (apply first):**",
     "**Re-anchor first.**",
     "**Residuals are LISTED under SAFE, never blocking, on a discharged check (pinned):**",
@@ -395,6 +412,31 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         operative=(
             "answer that claim in one line of the review: location does not decide runtime scope, executable behaviour does",
             "name the behaviour that makes THIS change runtime",
+        ),
+    ),
+    "**Mirrored-constraint probe (pinned).**": PinnedClauses(
+        defining="When the diff adds, removes, floors, ceilings or pins a dependency, tool or runtime constraint",
+        operative=(
+            "classify each occurrence before judging it",
+            "name every stale mirror as its own 2a row plus the exact command that runs its environment's own install/smoke check",
+        ),
+    ),
+    "**No mirror to fix (pinned).**": PinnedClauses(
+        defining="When the search finds no second occurrence, or only compatible, independent, prose, or generated ones resolving inside the range",
+        operative=(
+            "record each relationship in one line and raise no synchronisation requirement",
+            "no 2a row, no named risk, no residual asking to align or refresh them",
+        ),
+    ),
+    "**Not a drift anchor (pinned).**": PinnedClauses(
+        defining="An occurrence that merely still carries the old constraint text, but is not a declared mirror",
+        operative=("is not a drift anchor: no 2a row, no item-8 line, no residual",),
+    ),
+    "**Residual concerns on a constraint diff (pinned).**": PinnedClauses(
+        defining="Stale mirror or not, the root's one concrete `Residual concerns:` item is an unexercised code path or input",
+        operative=(
+            "on a manifest/lock-only diff, of the consumer of the dependency whose constraint moved",
+            "never drawn from history, a lock, or differing caps, syntax or bounds among compatible occurrences",
         ),
     ),
     "**Module-match rule (pinned):**": PinnedClauses(

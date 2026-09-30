@@ -1,0 +1,892 @@
+description: >
+  Issue #493 mirrored dependency constraint corpus for
+  sumo-qa-reviewing-before-merge. When a diff moves a dependency, tool or
+  runtime constraint, the review searches the supplied repo state by the
+  dependency's identity (hidden config included), classifies each other
+  occurrence (declared mirror, range in another environment, deliberately
+  independent environment, generated resolution, prose only) before judging
+  it, and names each stale mirror as its own inventory-drift anchor plus the
+  install/smoke run its isolated environment needs. Six seeds: (1) BLOCKER,
+  the manifest raises a parser package floor while a pre-push hook's
+  `additional_dependencies`, which runs the changed code, keeps the old
+  floor: the stale hook copy is a named, anchored SAFE-blocker even on a
+  green suite, and the hook verifier is required; (2) CONTROL, the manifest,
+  hook and CI install use semantically compatible constraints in different
+  syntax and order, and their smoke checks ran: no mirror finding; (3) TRUE
+  NEGATIVE, a runtime dependency floor bump reviewed as runtime whose only
+  other occurrences are historical prose (changelog, ADR): no rewrite
+  demanded; (4) TRUE NEGATIVE, a dev pin on a package the published plugin
+  imports moves (a runtime review), while a separate compatibility
+  environment pins the older major on purpose, with a documented reason,
+  and a plugin extra keeps a wider range that shares versions with the
+  diff's: no synchronisation demanded; (5) BLOCKER, a hook requirement that
+  a CI guard script holds equal to the manifest keeps the old floor the diff
+  lowered: stale although its range still admits the locked version, while
+  an undeclared devcontainer install with the same old floor stays
+  compatible; (6) TRUE NEGATIVE, the manifest adds a cap that an unchanged
+  keep-in-sync hook already carries in a different order: equal bounds, no
+  finding and no hook run demanded.
+# local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
+# it needs a reasoning-capable local candidate)
+providers:
+  # The BLOCKER and CONTROL seeds also run as an A0/A1 control in
+  # skill-reviewing-before-merge-mirrored-constraints.ab.yaml (per #427). The
+  # true negatives guard against over-triggering.
+  - file://providers/claude-candidate.yaml
+defaultTest:
+  vars:
+    skill_content: file://fixtures/assemble-review-skill.js
+    review_modules: [runtime-scope, discovery-probes, coverage-ledger, inventory-drift, mirrored-constraints, surface-verifier]
+    loaded_classifications: file://../../../knowledge/classifications.md
+    loaded_rules: file://../../../standards/rules/change_rules.yaml
+  assert:
+    # Deterministic ledger check (#689): a coverage-ledger row's label must
+    # agree with its own Fresh matching tests field. Grades every seed.
+    - type: javascript
+      value: file://asserts/ledger-row-labels.js
+    # Structural mirror gate (shared by the base corpus and its .ab.yaml):
+    # a stale-mirror seed must carry the stale path in an UNCOVERED
+    # inventory-drift row and an UNVERIFIED surface-verifier line; no seed may
+    # put a non-mirror path in a drift row or in any verifier line other than
+    # a `Ran: YES`, DISCHARGED one (a run already done is never a sync
+    # demand). Verdict and command wording are judged by the llm-rubric
+    # below, which this never loosens.
+    - type: javascript
+      value: file://asserts/mirror-gate.js
+    - type: llm-rubric
+      value: |
+        **Expected QA shape:** {{expected_shape}}
+
+        **Mirrored-constraint contract for THIS seed:** {{mirror_expectation}}
+
+        **Anti-patterns (any PRESENT = FAIL - apply the decision table):**
+        {% for ap in anti_patterns %}
+        - {{ ap }}
+        {% endfor %}
+  options:
+    disableVarExpansion: true
+    provider: file://providers/claude-judge.yaml
+    rubricPrompt: >
+      You are an adversarial reviewer grading whether the candidate handled a
+      dependency constraint change's mirrored copies correctly from a raw diff
+      and supplied repo search (no risks were pre-supplied) AND avoided the
+      named anti-patterns. Be strict.
+
+
+      --- RUBRIC ---
+
+      {{rubric}}
+
+      --- END RUBRIC ---
+
+
+      --- SUPPLIED CONTEXT (what the candidate was given) ---
+
+      {{ground_truth_context}}
+
+      --- END SUPPLIED CONTEXT ---
+
+
+      --- CANDIDATE RESPONSE ---
+
+      {{output}}
+
+      --- END CANDIDATE RESPONSE ---
+
+
+      The candidate has loaded the canonical change classifications and the
+      team's change rules below for your verification:
+
+
+      --- LOADED CLASSIFICATIONS ---
+
+      {{loaded_classifications}}
+
+      --- END LOADED CLASSIFICATIONS ---
+
+
+      --- LOADED RULES ---
+
+      {{loaded_rules}}
+
+      --- END LOADED RULES ---
+
+
+      Evaluate FOUR axes independently:
+
+
+      This is a MIRRORED-CONSTRAINT eval: the GATING axes are C (mirrored
+      constraints) and D (anti-patterns). A and B are sanity checks. NEVER
+      relax C or D.
+
+
+      A. SHAPE (sanity) - is this an evidence-led, diff-anchored verdict (not
+         generic "check your dependencies")? PASS unless it is clearly not a
+         real review.
+
+      B. GROUNDING (sanity) - does it cite the specific changed and searched
+         file:line locations from the supplied context? PASS unless wholly
+         unanchored.
+
+      C. MIRRORED CONSTRAINTS (gating) - apply the mirrored-constraint
+         contract for this seed:
+         - If a stale mirror SHOULD be flagged: the review must name the exact
+           stale location (file:line) with the old constraint and the required
+           one, treat it as a SAFE-blocker that the green application suite
+           does not clear, and name, as what clears the blocker, the exact
+           command that runs that isolated environment's own install/smoke
+           check (a `pre-commit run ...` invocation, the guard script, the
+           image build, the CI job) as a run still required. The FINAL
+           verdict line must be NOT SAFE TO MERGE; a verdict phrase quoted
+           conditionally earlier does not count. Folding the stale mirror
+           into a generic "update dependencies" note, naming it only as a
+           residual concern, describing the environment instead of naming
+           its command, mentioning the command only as not run or as having
+           no evidence without requiring it, offering `pre-commit install`
+           (which runs nothing) as the clearing step, or dismissing the
+           environment's own run as unnecessary because the application
+           suite passed, FAILS this axis.
+         - If NO mirror finding should be raised: each other occurrence is
+           compatible, deliberately independent with a documented reason,
+           generated, or prose only. The review must not demand byte-identical
+           strings, must not demand rewriting history, and must not demand
+           synchronising the independent environment. The FINAL verdict
+           line must be SAFE TO MERGE; a NOT SAFE or NEEDS WORK verdict driven by a mirror,
+           sync, stale-constraint or unverified-environment finding FAILS this
+           axis. Recording each occurrence's relationship in a line is correct,
+           not over-triggering.
+
+      D. ANTI-PATTERNS (gating) - for each anti-pattern listed in the rubric,
+         mark ABSENT or PRESENT. PRESENT = the response actually exhibits it.
+
+      Decision table (C and D gate; A/B only fail when it is not a real
+      evidence-led diff-anchored review):
+         | C MIRROR | Any anti-pattern PRESENT? | A/B genuine review? | Verdict |
+         | PASS     | No                        | Yes                 | PASS    |
+         | PASS     | Yes                       | *                   | FAIL    |
+         | FAIL     | *                         | *                   | FAIL    |
+         | *        | *                         | No (not a review)   | FAIL    |
+
+      Return ONLY JSON, no markdown:
+
+      {"pass": <true|false>, "score": <0.0 to 1.0>, "reason": "<grade A/B/C/D then verdict>"}
+prompts:
+  - |
+    You are a senior QA agent in an IDE chat session. You have loaded this
+    sumo-qa skill and MUST follow its discipline exactly as written:
+
+    --- BEGIN SKILL ---
+    {{skill_content}}
+    --- END SKILL ---
+
+    You have also loaded the canonical change classifications:
+
+    --- LOADED CLASSIFICATIONS ---
+    {{loaded_classifications}}
+    --- END LOADED CLASSIFICATIONS ---
+
+    ...and the team's change rules (keyed by classification):
+
+    --- LOADED RULES ---
+    {{loaded_rules}}
+    --- END LOADED RULES ---
+
+    Raw repository diff, the repo search you ran, and fresh verification
+    evidence for this turn. The risks have NOT been named or confirmed for you;
+    you must discover them yourself.
+
+    --- GROUND-TRUTH CONTEXT ---
+    {{ground_truth_context}}
+    --- END GROUND-TRUTH CONTEXT ---
+
+    The developer just said:
+
+    > {{user_prompt}}
+
+    Apply the loaded skill. The developer has WAIVED the section-by-section
+    confirmation gates and asked for a single-pass review: run the discovery
+    pass yourself, name the concrete risks you discover (anchored to
+    file:line), and deliver the verdict in this one turn. Do NOT end with a
+    confirmation or clarifying question of ANY kind. Refer to any
+    classification in plain risk language; do NOT surface the internal
+    taxonomy label itself. Keep the response concise and evidence-led.
+tests:
+  - description: "BLOCKER - manifest raises a parser floor, the pre-push hook's additional_dependencies keeps the old floor"
+    vars:
+      user_prompt: >-
+        Is this safe to merge? The full suite is green.
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:14-18 @@
+         14 dependencies = [
+         15     "mcp>=1.9",
+        -16     "tree-sitter-language-pack>=1.10.0",
+        +16     "tree-sitter-language-pack>=1.12.5",
+         17     "pyyaml>=6",
+         18 ]
+        diff --git a/src/sumo_qa/repo_map/parser.py b/src/sumo_qa/repo_map/parser.py
+        @@ src/sumo_qa/repo_map/parser.py:3-12 @@
+        -3  from tree_sitter_language_pack import get_language
+        +3  from tree_sitter_language_pack import get_binding
+         ...
+         10 def parser_for(lang: str) -> Parser:
+        -11     language = get_language(lang)
+        +11     language = get_binding(lang).language()
+         12     return Parser(language)
+        diff --git a/uv.lock b/uv.lock
+        @@ uv.lock:1440-1441 @@
+         1440 name = "tree-sitter-language-pack"
+        -1441 version = "1.11.2"
+        +1441 version = "1.12.5"
+        ```
+        Context: `get_binding()` exists only from tree-sitter-language-pack
+        1.12.5; releases before 1.12.5 expose only `get_language()`, and the
+        two binding APIs are mutually incompatible, so any environment that
+        resolves a version below 1.12.5 fails to import the parser.
+
+        ## Repo search (hidden files included)
+        ```text
+        $ rg -n --hidden -g '!.git' -i 'tree[-_]sitter[-_]language[-_]pack'
+        pyproject.toml:16:    "tree-sitter-language-pack>=1.12.5",
+        uv.lock:1440:name = "tree-sitter-language-pack"
+        .pre-commit-config.yaml:34:          - tree-sitter-language-pack>=1.10.0
+        src/sumo_qa/repo_map/parser.py:3:from tree_sitter_language_pack import get_binding
+        CHANGELOG.md:212:- repo map: parse with tree-sitter-language-pack 1.10.0 (#301)
+        ```
+
+        ## .pre-commit-config.yaml (unchanged by the diff)
+        ```yaml
+        26   - repo: local
+        27     hooks:
+        28       - id: pytest
+        29         name: pytest (pre-push)
+        30         entry: pytest -q
+        31         language: python
+        32         stages: [pre-push]
+        33         additional_dependencies:
+        34           - tree-sitter-language-pack>=1.10.0
+        ```
+        The pytest hook runs in pre-commit's own isolated virtualenv, built
+        from `additional_dependencies` and reused until the hook's config text
+        changes; the environment already built on developer machines holds
+        tree-sitter-language-pack 1.11.2.
+
+        ## Fresh test run
+        ```text
+        $ uv run pytest -q
+        tests/repo_map/test_parser.py::test_parses_python_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_parses_typescript_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_unknown_language_raises_lookup_error PASSED
+        812 passed, 3 skipped in 41.20s
+        ```
+        The three parser tests call the real `parser_for()`
+        (src/sumo_qa/repo_map/parser.py:10-12) on tree-sitter-language-pack
+        1.12.5 and assert, verbatim:
+        `assert parser_for("python").parse(b"def f(): return 1").root_node.type == "module"`,
+        `assert not parser_for("python").parse(b"def f(): return 1").root_node.has_error`,
+        `assert parser_for("typescript").parse(b"const x: number = 1;").root_node.type == "program"`,
+        and `with pytest.raises(LookupError): parser_for("cobol")`.
+        (This ran in the project's uv environment, which resolves
+        tree-sitter-language-pack 1.12.5 from uv.lock. No pre-commit hook
+        was run this turn.)
+      stale_mirror_path: .pre-commit-config.yaml
+      not_stale_paths: [CHANGELOG.md, uv.lock]
+      expected_shape: >-
+        Evidence-led verdict that independently finds the stale mirror: the
+        pre-push pytest hook's `additional_dependencies` at
+        `.pre-commit-config.yaml:33-34` still admits
+        `tree-sitter-language-pack>=1.10.0`, a range that includes the
+        incompatible pre-1.12.5 releases (and whose built environment holds
+        1.11.2), while the diff requires `>=1.12.5`. Names it as its own
+        anchored row with the old and required constraints inline (for
+        example `(>=1.10.0 → >=1.12.5)`), marks it UNCOVERED / a SAFE-blocker
+        because the diff does not update that file, and requires the hook's
+        own run (for example `pre-commit run pytest --hook-stage pre-push
+        --all-files` after the hook environment is rebuilt) because the green
+        `uv run pytest` ran in a different environment. Recognises uv.lock as
+        the generated resolution already at 1.12.5 and CHANGELOG.md:212 as
+        history, and flags neither. The parser's binding switch
+        (src/sumo_qa/repo_map/parser.py:3,11) is a runtime risk COVERED by the
+        fresh parser tests and their quoted assertions, so the blocker is the
+        stale hook environment. Delivers NOT SAFE TO MERGE. Ends without a
+        confirmation question.
+      mirror_expectation: >-
+        A STALE MIRROR SHOULD BE FLAGGED. `.pre-commit-config.yaml:33-34` is a
+        copy of the changed constraint in an isolated hook environment,
+        and its `>=1.10.0` range admits the versions the diff
+        declares incompatible. The review must name it by path and line with
+        old and required constraints, keep it a SAFE-blocker despite the green
+        812-passed run, require the hook environment's own run, and deliver
+        NOT SAFE TO MERGE.
+      anti_patterns:
+        - Declares SAFE TO MERGE because `uv run pytest` is green while the hook environment keeps the old floor.
+        - >-
+          Names the stale hook constraint only as a residual concern, a
+          follow-up, or a generic "keep dependency pins in sync" note instead
+          of a named, anchored SAFE-blocker at `.pre-commit-config.yaml`.
+        - >-
+          Treats the green `uv run pytest` run as verifying the hook
+          environment, or omits the hook's own run from what clears the
+          blocker.
+        - >-
+          Flags `CHANGELOG.md:212` as stale or asks to rewrite it (it records
+          history), or flags `uv.lock` as stale (it already resolves 1.12.5).
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as config_change or docs_change.
+  - description: "CONTROL - manifest, hook and CI install carry semantically compatible constraints in different syntax, and their smoke checks ran"
+    vars:
+      # parser.py imports the bumped package, so this is a runtime review
+      # (runtime-scope's dependency-constraints rule). The hook and CI runs
+      # discharge their verification lines, so routing also loads
+      # discharged-check.
+      review_modules: [runtime-scope, discovery-probes, coverage-ledger, inventory-drift, mirrored-constraints, surface-verifier, discharged-check]
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:14-18 @@
+         14 dependencies = [
+         15     "mcp>=1.9",
+        -16     "tree-sitter-language-pack>=1.10.0",
+        +16     "tree-sitter-language-pack>=1.12.5",
+         17     "pyyaml>=6",
+         18 ]
+        diff --git a/src/sumo_qa/repo_map/parser.py b/src/sumo_qa/repo_map/parser.py
+        @@ src/sumo_qa/repo_map/parser.py:3-12 @@
+        -3  from tree_sitter_language_pack import get_language
+        +3  from tree_sitter_language_pack import get_binding
+         ...
+         10 def parser_for(lang: str) -> Parser:
+        -11     language = get_language(lang)
+        +11     language = get_binding(lang).language()
+         12     return Parser(language)
+        diff --git a/.pre-commit-config.yaml b/.pre-commit-config.yaml
+        @@ .pre-commit-config.yaml:33-34 @@
+         33         additional_dependencies:
+        -34           - tree-sitter-language-pack>=1.10.0
+        +34           - tree-sitter-language-pack<2,>=1.12.5
+        diff --git a/.github/workflows/test.yml b/.github/workflows/test.yml
+        @@ .github/workflows/test.yml:41 @@
+        -41         run: pip install "tree_sitter_language_pack>=1.10"
+        +41         run: pip install "tree_sitter_language_pack~=1.12.5"
+        diff --git a/uv.lock b/uv.lock
+        @@ uv.lock:1440-1441 @@
+         1440 name = "tree-sitter-language-pack"
+        -1441 version = "1.11.2"
+        +1441 version = "1.12.5"
+        ```
+        Context: `get_binding()` exists only from tree-sitter-language-pack
+        1.12.5; earlier releases are incompatible with it. No 2.x release
+        exists yet.
+
+        ## Repo search (hidden files included)
+        ```text
+        $ rg -n --hidden -g '!.git' -i 'tree[-_]sitter[-_]language[-_]pack'
+        pyproject.toml:16:    "tree-sitter-language-pack>=1.12.5",
+        uv.lock:1440:name = "tree-sitter-language-pack"
+        .pre-commit-config.yaml:34:          - tree-sitter-language-pack<2,>=1.12.5
+        .github/workflows/test.yml:41:        run: pip install "tree_sitter_language_pack~=1.12.5"
+        src/sumo_qa/repo_map/parser.py:3:from tree_sitter_language_pack import get_binding
+        CHANGELOG.md:212:- repo map: parse with tree-sitter-language-pack 1.10.0 (#301)
+        ```
+
+        ## Fresh verification this turn
+        ```text
+        $ uv run pytest -q
+        tests/repo_map/test_parser.py::test_parses_python_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_parses_typescript_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_unknown_language_raises_lookup_error PASSED
+        812 passed, 3 skipped in 40.87s
+
+        $ pre-commit run pytest --hook-stage pre-push --all-files
+        [INFO] Installing environment for local.
+        pytest (pre-push)........................................................Passed
+
+        CI run on this head commit, job `test (3.12)` (.github/workflows/test.yml):
+        Successfully installed tree_sitter_language_pack-1.12.5
+        812 passed, 3 skipped
+        ```
+        The three parser tests call the real `parser_for()`
+        (src/sumo_qa/repo_map/parser.py:10-12) on tree-sitter-language-pack
+        1.12.5 and assert, verbatim:
+        `assert parser_for("python").parse(b"def f(): return 1").root_node.type == "module"`,
+        `assert not parser_for("python").parse(b"def f(): return 1").root_node.has_error`,
+        `assert parser_for("typescript").parse(b"const x: number = 1;").root_node.type == "program"`,
+        and `with pytest.raises(LookupError): parser_for("cobol")`.
+      # The hook and CI files are mirrors the diff updated, so a COVERED row
+      # or DISCHARGED verifier line may name them; the rubric judges them.
+      not_stale_paths: [CHANGELOG.md, uv.lock]
+      expected_shape: >-
+        Concise evidence-led runtime review. Names the parser's binding
+        switch (src/sumo_qa/repo_map/parser.py:3,11) as a runtime risk with a
+        coverage-ledger row citing the fresh parser tests and their quoted
+        assertions, so it is COVERED. Classifies each occurrence: the hook's
+        `<2,>=1.12.5` and CI's `~=1.12.5` (underscore spelling) both exclude
+        every pre-1.12.5 release and admit 1.12.5, so they are compatible with
+        the manifest's `>=1.12.5` despite different syntax and order; uv.lock
+        is the generated resolution at 1.12.5; CHANGELOG.md:212 is history.
+        Cites the fresh pytest run, the pre-push hook run and the CI install
+        as the environments' own evidence. Raises no mirror or sync blocker
+        and delivers SAFE TO MERGE. Ends without a confirmation question.
+      mirror_expectation: >-
+        NO MIRROR FINDING SHOULD BE RAISED. Every mirror was updated in the
+        diff to a semantically compatible constraint and each isolated
+        environment's own run is supplied fresh. Demanding textually identical
+        strings, flagging the history line, or asking for a further hook or CI
+        run FAILS this axis.
+      anti_patterns:
+        - >-
+          Flags the hook's `<2,>=1.12.5` or CI's `~=1.12.5` as stale or
+          inconsistent because the text differs from `>=1.12.5`, or demands
+          byte-identical constraint strings.
+        - Flags `CHANGELOG.md:212` as stale or asks to rewrite historical prose.
+        - >-
+          Treats the hook or CI environment as unverified although the fresh
+          `pre-commit run pytest --hook-stage pre-push --all-files` and the CI
+          install are supplied.
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as config_change or docs_change.
+  - description: "TRUE NEGATIVE - a runtime dependency floor bump whose only other occurrences of the old version are historical prose"
+    vars:
+      # The bumped runtime dependency is imported by src/sumo_qa/fetch.py, so
+      # this is a runtime review: the defaultTest module set (discovery sweep
+      # and coverage ledger included) applies.
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:14-19 @@
+         14 dependencies = [
+        -15     "httpx>=0.24",
+        +15     "httpx>=0.28",
+         16     "mcp>=1.9",
+         17     "pyyaml>=6",
+         18 ]
+        diff --git a/uv.lock b/uv.lock
+        @@ uv.lock:612-613 @@
+         612 name = "httpx"
+        -613 version = "0.27.2"
+        +613 version = "0.28.1"
+        ```
+        Context: the floor moves to 0.28 so installs pick up 0.28's
+        connection-pool fix; no source file changes.
+
+        ## src/sumo_qa/fetch.py (unchanged by the diff; the only httpx consumer)
+        ```python
+        1 from __future__ import annotations
+        2 import httpx
+        3
+        4 _CLIENT = httpx.Client(timeout=10.0, limits=httpx.Limits(max_keepalive_connections=4))
+        5
+        6 def fetch(url: str) -> str:
+        7     response = _CLIENT.get(url)
+        8     response.raise_for_status()
+        9     return response.text
+        ```
+
+        ## Repo search (hidden files included)
+        ```text
+        $ rg -n --hidden -g '!.git' -i '\bhttpx\b'
+        pyproject.toml:15:    "httpx>=0.28",
+        uv.lock:612:name = "httpx"
+        CHANGELOG.md:388:- adopt httpx 0.24 for the fetch client (#122)
+        docs/adr/0004-http-client.md:9:In 2026-02 we chose httpx 0.24 over requests for async support.
+        src/sumo_qa/fetch.py:2:import httpx
+        src/sumo_qa/fetch.py:4:_CLIENT = httpx.Client(timeout=10.0, limits=httpx.Limits(max_keepalive_connections=4))
+        tests/test_fetch.py:3:import httpx
+        ```
+        No pre-commit hook, workflow, Dockerfile, devcontainer or script
+        names httpx; CI installs with `uv sync --locked`
+        (.github/workflows/test.yml:38).
+
+        ## Fresh verification this turn
+        ```text
+        $ uv sync --locked && uv run pytest -q
+        tests/test_fetch.py::test_fetch_returns_body PASSED
+        tests/test_fetch.py::test_fetch_raises_on_http_error PASSED
+        tests/test_fetch.py::test_fetch_reuses_pooled_connection PASSED
+        tests/test_fetch.py::test_client_timeout_and_pool_limits PASSED
+        812 passed, 3 skipped in 40.02s
+        ```
+        The four fetch tests run the real `fetch()` against an
+        `httpx.MockTransport` on httpx 0.28.1 (the locked version), asserting
+        `fetch(url) == "ok"`, `pytest.raises(httpx.HTTPStatusError)` on a 500,
+        `transport.connections_opened == 1` after two calls, and
+        `_CLIENT.timeout.read == 10.0` with
+        `_CLIENT._transport._pool._max_keepalive_connections == 4`.
+      not_stale_paths: [CHANGELOG.md, docs/adr/0004-http-client.md, uv.lock]
+      expected_shape: >-
+        Concise evidence-led runtime review. Names the risk the bump carries
+        on the runtime consumer, the fetch client at src/sumo_qa/fetch.py
+        running on httpx 0.28 (body, error, pooling, timeout/limits), anchored
+        to file:line with a coverage-ledger row citing the fresh
+        tests/test_fetch.py tests and their assertions, so it is COVERED.
+        Records that the identity search found no other constraint location:
+        CHANGELOG.md:388 and docs/adr/0004-http-client.md:9 are historical
+        records of an earlier decision, not constraints, and stay as written;
+        uv.lock is the generated resolution already at 0.28.1 and CI installs
+        from it. Cites the fresh locked sync and test run and delivers SAFE
+        TO MERGE. Ends without a confirmation question.
+      mirror_expectation: >-
+        NO MIRROR FINDING SHOULD BE RAISED. The old version text appears only
+        in historical prose, and the lock already resolves the new floor.
+        Flagging CHANGELOG.md or the ADR as stale, asking to rewrite either,
+        or treating uv.lock as a stale mirror FAILS this axis.
+      anti_patterns:
+        - >-
+          Flags `CHANGELOG.md:388` or `docs/adr/0004-http-client.md:9` as a
+          stale constraint, an inventory-drift anchor, or asks to update either
+          to 0.28.
+        - Invents a hook, CI or image mirror the supplied search does not show.
+        - >-
+          Treats the change as trivial and skips the runtime review of the
+          fetch client that consumes the bumped dependency.
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as config_change or docs_change.
+  - description: "TRUE NEGATIVE - a runtime-imported dev pin moves while a separate compatibility environment pins the older major on purpose, with a documented reason"
+    vars:
+      # The published pytest plugin (src/sumo_qa/pytest_plugin.py) imports
+      # pytest, so this constraint change is runtime (runtime-scope's
+      # dependency-constraints rule): the defaultTest module set, discovery
+      # sweep and coverage ledger included, applies.
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:52-56 @@
+         52 [dependency-groups]
+         53 test = [
+        -54     "pytest>=8.0",
+        +54     "pytest>=8.3",
+         55     "pytest-cov>=5",
+         56 ]
+        diff --git a/uv.lock b/uv.lock
+        @@ uv.lock:980-981 @@
+         980 name = "pytest"
+        -981 version = "8.2.2"
+        +981 version = "8.3.4"
+        ```
+        Context: the dev test group moves to pytest 8.3 for its
+        `--force-short-summary` option; no source file changes.
+
+        ## src/sumo_qa/pytest_plugin.py (unchanged by the diff; the only runtime importer of pytest)
+        ```python
+        1 import pytest
+        2
+        3 def pytest_addoption(parser: pytest.Parser) -> None:
+        4     parser.addoption("--sumo-qa-risks", action="store", default=None, help="risk ledger path")
+        5
+        6 @pytest.fixture
+        7 def risk_ledger(request: pytest.FixtureRequest) -> str | None:
+        8     return request.config.getoption("--sumo-qa-risks")
+        ```
+        Published as a pytest plugin through
+        `[project.entry-points.pytest11] sumo_qa = "sumo_qa.pytest_plugin"`
+        (pyproject.toml:40).
+
+        ## Repo search (hidden files included)
+        ```text
+        $ rg -n --hidden -g '!.git' -g '!tests/**' -i 'pytest'
+        .github/workflows/compat.yml:22:        run: pip install -c constraints/pytest7-compat.txt -e ".[plugin]"
+        .github/workflows/compat.yml:23:      - run: pytest tests/test_pytest_plugin.py
+        .github/workflows/test.yml:40:      - run: uv run pytest -q
+        constraints/pytest7-compat.txt:1:# Deliberately independent of the dev test group: the published pytest
+        constraints/pytest7-compat.txt:2:# plugin still supports pytest 7.x, and this environment proves it (docs/compat.md#pytest-7).
+        constraints/pytest7-compat.txt:3:pytest>=7.4,<8
+        docs/compat.md:12:## pytest 7
+        pyproject.toml:31:plugin = ["pytest>=7.4"]
+        pyproject.toml:40:sumo_qa = "sumo_qa.pytest_plugin"
+        pyproject.toml:54:    "pytest>=8.3",
+        pyproject.toml:55:    "pytest-cov>=5",
+        pyproject.toml:61:[tool.pytest.ini_options]
+        src/sumo_qa/pytest_plugin.py:1:import pytest
+        uv.lock:980:name = "pytest"
+        uv.lock:1002:name = "pytest-cov"
+        uv.lock:1008:    { name = "pytest" },
+        ```
+        Test modules under tests/ are left out of the listing: they import
+        pytest, they do not constrain it. No pre-commit hook, Dockerfile or
+        devcontainer names pytest.
+
+        ## constraints/pytest7-compat.txt (unchanged by the diff)
+        ```text
+        1 # Deliberately independent of the dev test group: the published pytest
+        2 # plugin still supports pytest 7.x, and this environment proves it (docs/compat.md#pytest-7).
+        3 pytest>=7.4,<8
+        ```
+        `[project.optional-dependencies] plugin` (pyproject.toml:31) is the
+        plugin's published support range for its users, unchanged by the diff.
+
+        ## Fresh verification this turn
+        ```text
+        $ uv sync --locked && uv run pytest -q
+        tests/test_pytest_plugin.py::test_option_value_reaches_the_fixture PASSED
+        tests/test_pytest_plugin.py::test_fixture_defaults_to_none_without_the_option PASSED
+        812 passed, 3 skipped in 39.55s
+
+        CI run on this head commit, job `compat-pytest7` (.github/workflows/compat.yml):
+        Successfully installed pytest-7.4.4
+        tests/test_pytest_plugin.py: 2 passed
+        ```
+        The two plugin tests load the real plugin through `pytester` on
+        pytest 8.3.4 (the locked version) and assert, verbatim:
+        `result = pytester.runpytest("--sumo-qa-risks=ledger.json")` then
+        `result.assert_outcomes(passed=1)` for an inner test asserting
+        `risk_ledger == "ledger.json"`; and, with no option,
+        `result.assert_outcomes(passed=1)` for an inner test asserting
+        `risk_ledger is None`.
+      not_stale_paths: [constraints/pytest7-compat.txt, .github/workflows/compat.yml, pyproject.toml:31]
+      expected_shape: >-
+        Concise evidence-led runtime review. Names the risk the bump carries
+        on the runtime importer, the published plugin at
+        src/sumo_qa/pytest_plugin.py:3-8 (option registration and the fixture
+        reading it) running on pytest 8.3, with a coverage-ledger row citing
+        the fresh tests/test_pytest_plugin.py pytester tests and their quoted assertions, so
+        it is COVERED. Classifies constraints/pytest7-compat.txt:3 (and the
+        compat.yml install that uses it) as a deliberately independent
+        environment with its documented reason on lines 1-2, verified by the
+        fresh compat job, and pyproject.toml:31 as the plugin's published
+        support range for a different audience: `pytest>=7.4` shares versions
+        with the dev group's `>=8.3` (every 8.3+ release satisfies both), is
+        not declared to be kept in sync, and its environment does not run the
+        dev-only option the new floor exists for, so it is a compatible range,
+        not a stale mirror. Neither must follow the dev group's floor. Cites
+        the fresh test run and the compat job and delivers SAFE TO MERGE.
+        Ends without a confirmation question.
+      mirror_expectation: >-
+        NO MIRROR FINDING SHOULD BE RAISED. The pytest 7 constraint is an
+        intentionally separate environment with a documented compatibility
+        reason, and the plugin extra is an undeclared range for another
+        audience that shares versions with the diff's range. Demanding either
+        move to `>=8.3` FAILS this axis.
+      anti_patterns:
+        - >-
+          Flags `constraints/pytest7-compat.txt:3` or `pyproject.toml:31` as a
+          stale mirror, or demands they move to `pytest>=8.3`, despite the
+          documented independent purpose.
+        - Treats the `<8` ceiling as conflicting with the dev group's floor as though both governed one environment.
+        - >-
+          Treats the change as trivial and skips the runtime review of the
+          plugin that imports the bumped dependency.
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as config_change or docs_change.
+  - description: "BLOCKER - a hook mirror declared by a CI guard script keeps the old floor the manifest lowered, while an undeclared devcontainer install carrying the same old floor stays compatible"
+    vars:
+      # Manifest only, and ruff is a lint tool nothing at runtime imports:
+      # routing loads the trivial-change modules plus mirrored-constraints
+      # (root step 4).
+      review_modules: [runtime-scope, inventory-drift, mirrored-constraints, surface-verifier]
+      user_prompt: >-
+        Is this safe to merge? It only relaxes the ruff floor so the
+        conda-forge build can install the dev group.
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:60-64 @@
+         60 [dependency-groups]
+         61 dev = [
+        -62     "ruff>=0.6.0",
+        +62     "ruff>=0.5.0",
+         63     "mypy>=1.11",
+         64 ]
+        ```
+        Context: conda-forge's current build ships ruff 0.5.7, so the dev
+        floor drops to 0.5.0. uv.lock is unchanged and still resolves ruff
+        0.6.9. Nothing at runtime imports ruff; it is only invoked as a lint
+        tool.
+
+        ## Repo search (hidden files included)
+        ```text
+        $ rg -n --hidden -g '!.git' -i '\bruff\b'
+        .devcontainer/Dockerfile:14:RUN pip install --no-cache-dir "ruff>=0.6.0" pre-commit
+        .github/workflows/lint.yml:21:      - run: python scripts/check_hook_pins.py
+        .pre-commit-config.yaml:41:      - id: ruff
+        .pre-commit-config.yaml:46:          - ruff>=0.6.0
+        pyproject.toml:62:    "ruff>=0.5.0",
+        scripts/check_hook_pins.py:9:    ("ruff", "ruff"),
+        uv.lock:1502:name = "ruff"
+        ```
+
+        ## .pre-commit-config.yaml (unchanged by the diff)
+        ```yaml
+        39   - repo: local
+        40     hooks:
+        41       - id: ruff
+        42         name: ruff (pre-commit)
+        43         entry: ruff check --fix
+        44         language: python
+        45         additional_dependencies:
+        46           - ruff>=0.6.0
+        ```
+        The hook runs in pre-commit's own isolated virtualenv, built from
+        `additional_dependencies`.
+
+        ## scripts/check_hook_pins.py (unchanged by the diff; run by the CI `lint` job at .github/workflows/lint.yml:21)
+        ```python
+        1  """Fail when a hook's additional_dependencies requirement differs from the dev group's."""
+        ...
+        8  PAIRS = [  # (hook id, package): the hook requirement must equal the dev group entry
+        9      ("ruff", "ruff"),
+        10 ]
+        ...
+        21     if hook_req != dev_req:
+        22         sys.exit(f"{hook_id}: {hook_req!r} != dev group {dev_req!r}")
+        ```
+
+        ## .devcontainer/Dockerfile (unchanged by the diff)
+        ```dockerfile
+        12 FROM mcr.microsoft.com/devcontainers/python:3.12
+        13 # editor tooling for the container shell
+        14 RUN pip install --no-cache-dir "ruff>=0.6.0" pre-commit
+        ```
+        No script, test or policy names the devcontainer's ruff line.
+
+        ## Fresh verification this turn
+        ```text
+        $ uv sync --locked && uv run ruff check . && uv run pytest -q
+        All checks passed!
+        812 passed, 3 skipped in 40.11s
+        ```
+        (Neither scripts/check_hook_pins.py nor any pre-commit hook was run
+        this turn.)
+      stale_mirror_path: .pre-commit-config.yaml
+      not_stale_paths: [.devcontainer/Dockerfile, uv.lock]
+      expected_shape: >-
+        Evidence-led verdict. Classifies `.pre-commit-config.yaml:46` as a
+        declared mirror because `scripts/check_hook_pins.py:8-9` enforces
+        equality between the ruff hook's requirement and the dev group entry,
+        so it is held to both ends: its `>=0.6.0` floor no longer matches the
+        manifest's `>=0.5.0` (the CI guard will fail on it), which makes it
+        stale even though both ranges admit ruff 0.6.x. Names it as its own
+        anchored row with the old and required constraints inline (for
+        example `(>=0.6.0 → >=0.5.0)`), UNCOVERED / a SAFE-blocker because
+        the diff does not update that file, and names what clears it as
+        commands still to run: the guard (`python scripts/check_hook_pins.py`)
+        and the hook's own run (for example `pre-commit run ruff --all-files`
+        after the hook environment is rebuilt). Classifies
+        `.devcontainer/Dockerfile:14` as an undeclared range in another
+        environment that shares versions with the diff's range and admits
+        nothing the diff excludes, so it raises no finding there (no drift
+        row, no risk, no verifier line, no residual), and treats uv.lock as
+        the generated resolution still inside the new range. Delivers NOT
+        SAFE TO MERGE. Ends without a confirmation question.
+      mirror_expectation: >-
+        A STALE MIRROR SHOULD BE FLAGGED, AND ONLY ONE.
+        `.pre-commit-config.yaml:46` is declared a mirror by the guard script
+        that enforces its equality with the dev group, so its unlowered
+        `>=0.6.0` floor is stale: the review must name it by path and line
+        with old and required constraints, keep it a SAFE-blocker despite the
+        green run, name the guard and the hook's own run as what clears it,
+        and deliver NOT SAFE TO MERGE. `.devcontainer/Dockerfile:14` carries
+        the same old `>=0.6.0` floor with no declaration: it is compatible,
+        and demanding it be lowered, aligned, rebuilt or verified FAILS this
+        axis.
+      anti_patterns:
+        - >-
+          Declares SAFE TO MERGE or treats the hook as compatible because
+          `>=0.6.0` still admits the locked 0.6.9, ignoring the guard script
+          that enforces equality for that pair.
+        - >-
+          Names the stale hook floor only as a residual concern, a follow-up,
+          or a generic "keep pins in sync" note instead of a named, anchored
+          SAFE-blocker at `.pre-commit-config.yaml`.
+        - >-
+          Treats the green `uv run ruff check` or `uv run pytest` run as
+          verifying the hook environment or the guard, or omits both from
+          what clears the blocker.
+        - >-
+          Flags `.devcontainer/Dockerfile:14` as stale, demands its floor be
+          lowered to `>=0.5.0`, asks to align it with the manifest, or
+          requires an image rebuild to verify it.
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as config_change or docs_change.
+  - description: "TRUE NEGATIVE - the manifest adds a cap that an unchanged keep-in-sync hook already carries, written in a different order"
+    vars:
+      # parser.py imports the capped package, so this is a runtime review:
+      # the defaultTest module set applies. The hook is a declared mirror the
+      # diff leaves unchanged; its bounds equal the manifest's new ones.
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:14-18 @@
+         14 dependencies = [
+         15     "mcp>=1.9",
+        -16     "tree-sitter-language-pack>=1.12.5",
+        +16     "tree-sitter-language-pack>=1.12.5,<2",
+         17     "pyyaml>=6",
+         18 ]
+        ```
+        Context: the cap records that the parser adapter
+        (src/sumo_qa/repo_map/parser.py) targets the 1.x binding API. No 2.x
+        release exists yet; uv.lock is unchanged at 1.12.5.
+
+        ## Repo search (hidden files included)
+        ```text
+        $ rg -n --hidden -g '!.git' -i 'tree[-_]sitter[-_]language[-_]pack'
+        pyproject.toml:16:    "tree-sitter-language-pack>=1.12.5,<2",
+        uv.lock:1440:name = "tree-sitter-language-pack"
+        uv.lock:1441:version = "1.12.5"
+        .pre-commit-config.yaml:31:        # Keep in sync with pyproject.toml's tree-sitter-language-pack pin.
+        .pre-commit-config.yaml:34:          - tree-sitter-language-pack<2,>=1.12.5
+        src/sumo_qa/repo_map/parser.py:3:from tree_sitter_language_pack import get_binding
+        CHANGELOG.md:212:- repo map: parse with tree-sitter-language-pack 1.10.0 (#301)
+        ```
+        CI installs with `uv sync --locked` (.github/workflows/test.yml:38).
+
+        ## Fresh verification this turn
+        ```text
+        $ uv sync --locked && uv run pytest -q
+        tests/repo_map/test_parser.py::test_parses_python_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_parses_typescript_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_unknown_language_raises_lookup_error PASSED
+        812 passed, 3 skipped in 40.87s
+        ```
+        The three parser tests call the real `parser_for()`
+        (src/sumo_qa/repo_map/parser.py:10-12) on tree-sitter-language-pack
+        1.12.5 and assert, verbatim:
+        `assert parser_for("python").parse(b"def f(): return 1").root_node.type == "module"`,
+        `assert not parser_for("python").parse(b"def f(): return 1").root_node.has_error`,
+        `assert parser_for("typescript").parse(b"const x: number = 1;").root_node.type == "program"`,
+        and `with pytest.raises(LookupError): parser_for("cobol")`.
+      not_stale_paths: [.pre-commit-config.yaml, .github/workflows/test.yml, CHANGELOG.md, uv.lock]
+      expected_shape: >-
+        Concise evidence-led runtime review. Names the cap's risk on the
+        runtime consumer, the parser adapter at
+        src/sumo_qa/repo_map/parser.py:3,10-12 resolving 1.12.5 under the new
+        range, with a coverage-ledger row citing the fresh parser tests and
+        their quoted assertions, so it is COVERED. Classifies the hook at
+        .pre-commit-config.yaml:34 as a declared mirror (the keep-in-sync
+        comment at :31) whose `<2,>=1.12.5` holds exactly the manifest's new
+        bounds in a different order, so it is not stale and needs no update
+        or run; uv.lock is the generated resolution at 1.12.5, inside the
+        range; CHANGELOG.md:212 is history. Delivers SAFE TO MERGE. Ends
+        without a confirmation question.
+      mirror_expectation: >-
+        NO MIRROR FINDING SHOULD BE RAISED. The unchanged declared hook mirror
+        carries the same floor and ceiling as the manifest's new constraint,
+        only in a different order. Flagging it as stale or inconsistent,
+        giving it an inventory-drift row, demanding its text be reordered to
+        match, or requiring a pre-commit run for it FAILS this axis.
+      anti_patterns:
+        - >-
+          Flags the hook's `<2,>=1.12.5` as stale, drifted or inconsistent
+          with the manifest's `>=1.12.5,<2`, or demands byte-identical
+          constraint strings.
+        - >-
+          Requires a `pre-commit run` for the unchanged hook environment as a
+          blocker although its constraint already equals the manifest's.
+        - Flags `CHANGELOG.md:212` as stale or asks to rewrite historical prose.
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as config_change or docs_change.
