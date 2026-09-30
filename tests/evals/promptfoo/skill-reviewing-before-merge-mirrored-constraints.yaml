@@ -6,7 +6,7 @@ description: >
   occurrence (declared mirror, range in another environment, deliberately
   independent environment, generated resolution, prose only) before judging
   it, and names each stale mirror as its own inventory-drift anchor plus the
-  install/smoke run its isolated environment needs. Five seeds: (1) BLOCKER,
+  install/smoke run its isolated environment needs. Six seeds: (1) BLOCKER,
   the manifest raises a parser package floor while a pre-push hook's
   `additional_dependencies`, which runs the changed code, keeps the old
   floor: the stale hook copy is a named, anchored SAFE-blocker even on a
@@ -23,7 +23,9 @@ description: >
   a CI guard script holds equal to the manifest keeps the old floor the diff
   lowered: stale although its range still admits the locked version, while
   an undeclared devcontainer install with the same old floor stays
-  compatible.
+  compatible; (6) TRUE NEGATIVE, the manifest adds a cap that an unchanged
+  keep-in-sync hook already carries in a different order: equal bounds, no
+  finding and no hook run demanded.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -803,5 +805,86 @@ tests:
           Flags `.devcontainer/Dockerfile:14` as stale, demands its floor be
           lowered to `>=0.5.0`, asks to align it with the manifest, or
           requires an image rebuild to verify it.
+        - Asking another confirmation question instead of delivering the verdict.
+        - Surfacing literal taxonomy labels such as config_change or docs_change.
+  - description: "TRUE NEGATIVE - the manifest adds a cap that an unchanged keep-in-sync hook already carries, written in a different order"
+    vars:
+      # parser.py imports the capped package, so this is a runtime review:
+      # the defaultTest module set applies. The hook is a declared mirror the
+      # diff leaves unchanged; its bounds equal the manifest's new ones.
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/pyproject.toml b/pyproject.toml
+        @@ pyproject.toml:14-18 @@
+         14 dependencies = [
+         15     "mcp>=1.9",
+        -16     "tree-sitter-language-pack>=1.12.5",
+        +16     "tree-sitter-language-pack>=1.12.5,<2",
+         17     "pyyaml>=6",
+         18 ]
+        ```
+        Context: the cap records that the parser adapter
+        (src/sumo_qa/repo_map/parser.py) targets the 1.x binding API. No 2.x
+        release exists yet; uv.lock is unchanged at 1.12.5.
+
+        ## Repo search (hidden files included)
+        ```text
+        $ rg -n --hidden -g '!.git' -i 'tree[-_]sitter[-_]language[-_]pack'
+        pyproject.toml:16:    "tree-sitter-language-pack>=1.12.5,<2",
+        uv.lock:1440:name = "tree-sitter-language-pack"
+        uv.lock:1441:version = "1.12.5"
+        .pre-commit-config.yaml:31:        # Keep in sync with pyproject.toml's tree-sitter-language-pack pin.
+        .pre-commit-config.yaml:34:          - tree-sitter-language-pack<2,>=1.12.5
+        src/sumo_qa/repo_map/parser.py:3:from tree_sitter_language_pack import get_binding
+        CHANGELOG.md:212:- repo map: parse with tree-sitter-language-pack 1.10.0 (#301)
+        ```
+        CI installs with `uv sync --locked` (.github/workflows/test.yml:38).
+
+        ## Fresh verification this turn
+        ```text
+        $ uv sync --locked && uv run pytest -q
+        tests/repo_map/test_parser.py::test_parses_python_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_parses_typescript_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_unknown_language_raises_lookup_error PASSED
+        812 passed, 3 skipped in 40.87s
+        ```
+        The three parser tests call the real `parser_for()`
+        (src/sumo_qa/repo_map/parser.py:10-12) on tree-sitter-language-pack
+        1.12.5 and assert, verbatim:
+        `assert parser_for("python").parse(b"def f(): return 1").root_node.type == "module"`,
+        `assert not parser_for("python").parse(b"def f(): return 1").root_node.has_error`,
+        `assert parser_for("typescript").parse(b"const x: number = 1;").root_node.type == "program"`,
+        and `with pytest.raises(LookupError): parser_for("cobol")`.
+      not_stale_paths: [.pre-commit-config.yaml, CHANGELOG.md, uv.lock]
+      expected_shape: >-
+        Concise evidence-led runtime review. Names the cap's risk on the
+        runtime consumer, the parser adapter at
+        src/sumo_qa/repo_map/parser.py:3,10-12 resolving 1.12.5 under the new
+        range, with a coverage-ledger row citing the fresh parser tests and
+        their quoted assertions, so it is COVERED. Classifies the hook at
+        .pre-commit-config.yaml:34 as a declared mirror (the keep-in-sync
+        comment at :31) whose `<2,>=1.12.5` holds exactly the manifest's new
+        bounds in a different order, so it is not stale and needs no update
+        or run; uv.lock is the generated resolution at 1.12.5, inside the
+        range; CHANGELOG.md:212 is history. Delivers SAFE TO MERGE. Ends
+        without a confirmation question.
+      mirror_expectation: >-
+        NO MIRROR FINDING SHOULD BE RAISED. The unchanged declared hook mirror
+        carries the same floor and ceiling as the manifest's new constraint,
+        only in a different order. Flagging it as stale or inconsistent,
+        giving it an inventory-drift row, demanding its text be reordered to
+        match, or requiring a pre-commit run for it FAILS this axis.
+      anti_patterns:
+        - >-
+          Flags the hook's `<2,>=1.12.5` as stale, drifted or inconsistent
+          with the manifest's `>=1.12.5,<2`, or demands byte-identical
+          constraint strings.
+        - >-
+          Requires a `pre-commit run` for the unchanged hook environment as a
+          blocker although its constraint already equals the manifest's.
+        - Flags `CHANGELOG.md:212` as stale or asks to rewrite historical prose.
         - Asking another confirmation question instead of delivering the verdict.
         - Surfacing literal taxonomy labels such as config_change or docs_change.

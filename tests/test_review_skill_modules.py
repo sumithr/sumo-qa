@@ -225,7 +225,8 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
         "**Command/input-classifier probe (pinned):**",
         "**Location claim (pinned):**",
-        "a manifest or lock change to a dependency whose package runtime code in the repo imports is a runtime change",
+        "directly, transitively (a lock entry beneath an imported package) or by dynamic load",
+        "or to the interpreter or base image that code runs on, is a runtime change",
         "**Trivial-change exemption (pinned):**",
         "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
     ],
@@ -421,7 +422,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**No mirror to fix (pinned).**": PinnedClauses(
-        defining="When the search finds no second occurrence, or only compatible, independent, generated or prose ones",
+        defining="When the search finds no second occurrence, or only compatible, independent, prose, or generated ones resolving inside the range",
         operative=(
             "record each relationship in one line and raise no synchronisation requirement",
             "no 2a row, no named risk, no residual asking to align or refresh them",

@@ -11,8 +11,10 @@
 //
 //   * a seed with `stale_mirror_path` must name that path in a drift row whose
 //     Coverage is UNCOVERED and in a verifier line whose Status is UNVERIFIED;
-//   * no seed may name a `not_stale_paths` entry in either shape, whatever
-//     its label.
+//   * no seed may name a `not_stale_paths` entry in a drift row, whatever its
+//     label, or in an UNVERIFIED verifier line (a DISCHARGED line citing that
+//     environment's own fresh run is evidence, not a sync demand);
+//   * `not_stale_paths` must be a list, so a mistyped seed fails loudly.
 //
 // Markdown tables, `Risk N:` lines and free text (relationship lines, the
 // verdict, the clearing command's wording) never pass or fail this gate; the
@@ -50,12 +52,17 @@ function pinnedRows(output) {
 }
 
 // True when `head` names `path` as a whole path token: bounded before by the
-// start, whitespace, a backtick, a quote or `(`, and after by the end, a
-// `:<line>` suffix, whitespace, a backtick, a quote, `)`, `,` or `|`. So
-// `.pre-commit-config.yaml.bak:34` does not name `.pre-commit-config.yaml`.
+// start, whitespace, a backtick, a quote or `(` (an optional `./` prefix
+// allowed), then an optional `:<line>` or `:<line>-<line>` suffix consumed in
+// full (a `-<line>` range end too, for a configured `path:<line>`), and after
+// by the end, whitespace, a backtick, a quote, `)`, `,`, `;` or `|`. So
+// `.pre-commit-config.yaml.bak:34` and `.pre-commit-config.yaml:34.bak` do not
+// name `.pre-commit-config.yaml`, while `./uv.lock` names `uv.lock` and
+// `pyproject.toml:31-33` names `pyproject.toml:31`.
 function namesPath(head, path) {
   const escaped = String(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:^|[\\s\`'"(])${escaped}(?=$|:\\d|[\\s\`'"),|])`).test(head);
+  const suffix = '(?::\\d+)?(?:-\\d+)?';
+  return new RegExp(`(?:^|[\\s\`'"(])(?:\\./)?${escaped}${suffix}(?=$|[\\s\`'"),;|])`).test(head);
 }
 
 function hasLabel(row, label) {
@@ -75,8 +82,12 @@ module.exports = function mirrorGate(output, context) {
       fails.push(`stale mirror ${stale} has no UNVERIFIED \`Surface verifier:\` line`);
     }
   }
-  for (const p of vars.not_stale_paths || []) {
-    const bad = rows.find((r) => namesPath(r.head, p));
+  const notStale = vars.not_stale_paths == null ? [] : vars.not_stale_paths;
+  if (!Array.isArray(notStale)) fails.push('not_stale_paths must be a list of paths');
+  for (const p of Array.isArray(notStale) ? notStale : []) {
+    const bad = rows.find(
+      (r) => namesPath(r.head, p) && (r.kind === 'drift' || hasLabel(r, 'UNVERIFIED')),
+    );
     if (bad) fails.push(`non-mirror occurrence ${p} named in a ${bad.kind} row (${bad.label || 'no label'})`);
   }
   return fails.length

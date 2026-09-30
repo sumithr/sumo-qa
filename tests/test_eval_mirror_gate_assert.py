@@ -148,20 +148,38 @@ def test_blocker_without_a_pinned_unverified_verifier_line_fails(verifier_line):
         "Inventory drift anchor: CHANGELOG.md:212 (1.10.0 → 1.12.5) | Diff updated it: NO | Coverage: N/A",
         "**Inventory drift anchor: `CHANGELOG.md:212` (1.10.0 → 1.12.5) | Coverage: COVERED**",
         "Surface verifier: git log CHANGELOG.md | Ran: NO | Status: UNVERIFIED (surface verifier), SAFE-blocker",
-        "Surface verifier: review CHANGELOG.md | Ran: YES | Status: DISCHARGED",
     ],
     ids=[
         "drift-uncovered",
         "drift-na",
         "drift-covered-markdown",
         "verifier-unverified",
-        "verifier-discharged",
     ],
 )
-def test_a_pinned_row_naming_a_non_mirror_path_fails_whatever_its_label(row):
+def test_a_drift_row_or_unverified_line_naming_a_non_mirror_path_fails(row):
     result = _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)
     assert result["pass"] is False
     assert "CHANGELOG.md named in a" in result["reason"]
+
+
+def test_a_discharged_verifier_line_citing_a_non_mirror_environment_passes():
+    """Seed 4's independent compat job, verified by its own fresh run, is
+    evidence: the gate leaves a DISCHARGED line naming it to the rubric."""
+    variables = {
+        "not_stale_paths": [".github/workflows/compat.yml", "constraints/pytest7-compat.txt"]
+    }
+    row = (
+        "Surface verifier: CI job compat-pytest7 (.github/workflows/compat.yml) | Ran: YES | "
+        "Status: DISCHARGED"
+    )
+    assert _one(row, variables)["pass"] is True
+    assert _one(f"{BLOCKER}\n{row}", {**BLOCKER_VARS, **variables})["pass"] is True
+
+
+def test_a_not_stale_paths_string_fails_loudly():
+    result = _one(BLOCKER, {**BLOCKER_VARS, "not_stale_paths": "uv.lock"})
+    assert result["pass"] is False
+    assert "not_stale_paths must be a list" in result["reason"]
 
 
 def test_a_non_blocker_pinned_row_naming_a_non_mirror_path_fails():
@@ -252,6 +270,35 @@ def test_a_backticked_path_names_the_path():
     result = _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)
     assert result["pass"] is False
     assert "uv.lock named in a verifier row" in result["reason"]
+
+
+@pytest.mark.parametrize("junk", [".bak", "junk", "/x"])
+def test_a_line_suffix_with_trailing_junk_does_not_satisfy_the_stale_anchor(junk):
+    output = BLOCKER.replace(".pre-commit-config.yaml:34", f".pre-commit-config.yaml:34{junk}")
+    output = output.replace(
+        "(.pre-commit-config.yaml hook", f"(.pre-commit-config.yaml:9{junk} hook"
+    )
+    result = _one(output, BLOCKER_VARS)
+    assert result["pass"] is False
+    assert "has no UNCOVERED `Inventory drift anchor:` row" in result["reason"]
+    assert "has no UNVERIFIED `Surface verifier:` line" in result["reason"]
+
+
+def test_a_line_range_names_a_configured_path_with_a_line():
+    row = "Inventory drift anchor: pyproject.toml:31-33 (>=1.10 → >=1.12.5) | Coverage: UNCOVERED"
+    variables = {**BLOCKER_VARS, "not_stale_paths": ["pyproject.toml:31"]}
+    result = _one(f"{BLOCKER}\n{row}", variables)
+    assert result["pass"] is False
+    assert "pyproject.toml:31 named in a drift row" in result["reason"]
+    other = row.replace("pyproject.toml:31-33", "pyproject.toml:310")
+    assert _one(f"{BLOCKER}\n{other}", variables)["pass"] is True
+
+
+def test_a_dot_slash_prefix_names_the_path():
+    row = "Inventory drift anchor: ./uv.lock:3 (1.10.0 → 1.12.5) | Coverage: UNCOVERED"
+    result = _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)
+    assert result["pass"] is False
+    assert "uv.lock named in a drift row" in result["reason"]
 
 
 # --- A0/A1 differ only by the #493 change --------------------------------------
