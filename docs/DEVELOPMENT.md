@@ -127,7 +127,7 @@ The pytest hook runs in pre-commit's own isolated venv, built from the explicit 
 
 ```bash
 pre-commit run --all-files                          # ruff + hygiene
-pre-commit run --all-files --hook-stage pre-push    # the push-stage hooks; mutmut keeps its origin/main...HEAD scope
+pre-commit run --all-files --hook-stage pre-push    # the push-stage hooks (mutmut's scope: see Mutation testing)
 ```
 
 **Skipping hooks** (rare): `git commit --no-verify` or `git push --no-verify`. CI will still catch anything you skipped, use this only for genuine emergencies.
@@ -189,7 +189,9 @@ mutates the parser/decision modules listed under `source_paths` in
 scheduled-run failure files a `mutation-gate` issue (deduped against any open
 one) so a red nightly lands in the backlog instead of going unnoticed. A
 pre-push hook re-runs the gate locally when a diff touches one of the mutated
-modules or any test file. Always invoke it via the `mutmut run` console
+modules, any test file, `conftest.py` or `pyproject.toml` (the last two force the
+full pass). It scopes to the committed `origin/main...HEAD` diff, so on `main`, or
+for uncommitted edits, it selects nothing. Always invoke it via the `mutmut run` console
 script, never `python -m mutmut` (the `-m` form re-runs `set_start_method('fork')`
 and crashes the trampoline). On macOS the fork-based runner can segfault, the
 faithful run is the Linux CI one; the local hook uses `--max-children 1` to reduce

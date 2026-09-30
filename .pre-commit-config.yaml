@@ -14,7 +14,8 @@
 # `default_install_hook_types` below makes a plain `pre-commit install`
 # install both the pre-commit and the pre-push hook scripts. Passing
 # `--hook-type` overrides that list, so don't add one. A clone without the
-# push hook (docs/DEVELOPMENT.md has the check) needs the install re-run once.
+# push hook (docs/DEVELOPMENT.md, Setup, has the check) needs the install
+# re-run once.
 #
 # After that:
 #   git commit  → ruff + format + hygiene on staged files (~1s)
@@ -25,6 +26,7 @@
 #
 # To run all hooks on demand:    pre-commit run --all-files
 # To run pre-push hooks:         pre-commit run --all-files --hook-stage pre-push
+#                                (mutmut's scope: docs/DEVELOPMENT.md, Mutation testing)
 # To bypass a single commit:     git commit --no-verify   (rare; CI catches anyway)
 #
 # The pytest hook uses `language: python` with explicit
