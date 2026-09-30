@@ -127,7 +127,7 @@ The pytest hook runs in pre-commit's own isolated venv, built from the explicit 
 
 ```bash
 pre-commit run --all-files                          # ruff + hygiene
-pre-commit run --all-files --hook-stage pre-push    # the push-stage hooks (mutmut keeps its diff scope; see Mutation testing)
+pre-commit run --all-files --hook-stage pre-push    # the push-stage hooks
 ```
 
 **Skipping hooks** (rare): `git commit --no-verify` or `git push --no-verify`. CI will still catch anything you skipped, use this only for genuine emergencies.

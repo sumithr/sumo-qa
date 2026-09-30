@@ -26,7 +26,6 @@
 #
 # To run all hooks on demand:    pre-commit run --all-files
 # To run pre-push hooks:         pre-commit run --all-files --hook-stage pre-push
-#                                (mutmut keeps its diff scope; see the mutmut hook)
 # To bypass a single commit:     git commit --no-verify   (rare; CI catches anyway)
 #
 # The pytest hook uses `language: python` with explicit
