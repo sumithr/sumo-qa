@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.67.0](https://github.com/sumithr/sumo-qa/compare/v0.66.1...v0.67.0) (2026-09-30)
+
+
+### Features
+
+* **review:** probe mirrored dependency constraints across manifests, hooks, CI, and images ([#493](https://github.com/sumithr/sumo-qa/issues/493)) ([#772](https://github.com/sumithr/sumo-qa/issues/772)) ([dd04c23](https://github.com/sumithr/sumo-qa/commit/dd04c230369d88f5b3548b83800881a8da8ff56f))
+
+
+### Documentation
+
+* **contributing:** define the QA tool preflight and source-tree degraded mode ([#745](https://github.com/sumithr/sumo-qa/issues/745)) ([2eb9de0](https://github.com/sumithr/sumo-qa/commit/2eb9de08315539b31a6c606a2ac9f231ac44816b))
+
+
+### Miscellaneous Chores
+
+* **pre-commit:** install the pre-push hooks by default and always run pytest ([#775](https://github.com/sumithr/sumo-qa/issues/775)) ([135cbf6](https://github.com/sumithr/sumo-qa/commit/135cbf6f6641b7d5d4b52ee6123f8b6bf7289583))
+
+
+### Continuous Integration
+
+* **toolchain:** guard pre-commit hook dependency pins against pyproject ([#714](https://github.com/sumithr/sumo-qa/issues/714)) ([#751](https://github.com/sumithr/sumo-qa/issues/751)) ([121dc0e](https://github.com/sumithr/sumo-qa/commit/121dc0e17f7c4275963467de7319a6f3b7fd33cb))
+
 ## [0.66.1](https://github.com/sumithr/sumo-qa/compare/v0.66.0...v0.66.1) (2026-09-29)
 
 
