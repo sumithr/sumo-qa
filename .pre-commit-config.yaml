@@ -13,15 +13,18 @@
 #
 # `default_install_hook_types` below makes a plain `pre-commit install`
 # install both the pre-commit and the pre-push hook scripts. Passing
-# `--hook-type` overrides that list, so don't add one. A clone set up
-# before that key existed has no pre-push hook: re-run the install once.
+# `--hook-type` overrides that list, so don't add one. A clone that only
+# ever ran the plain install before that key existed has no pre-push hook:
+# re-run the install once.
 #
 # After that:
 #   git commit  → ruff + format + hygiene on staged files (~1s)
 #   git push    → full pytest suite at 100% coverage (minutes; the first
 #                 push is slower because pre-commit installs the project
 #                 deps into its own isolated venv), plus the scoped mutmut
-#                 gate when the push touches a mutated module or a test.
+#                 gate when the push touches a mutated module, a test,
+#                 conftest.py or pyproject.toml (the last two force the
+#                 full mutation pass).
 #
 # To run all hooks on demand:    pre-commit run --all-files
 # To run pre-push hooks:         pre-commit run --all-files --hook-stage pre-push

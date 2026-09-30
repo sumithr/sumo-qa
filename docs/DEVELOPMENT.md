@@ -22,7 +22,7 @@ python -m pip install -e ".[dev,treesitter]"        # package + pytest, ruff, my
 pre-commit install --install-hooks                  # ruff + hygiene on every commit; pytest suite + scoped mutmut gate on every push
 ```
 
-The config's `default_install_hook_types` makes that one install add both the commit and the push hooks. A clone set up before it only has the commit hook; re-run `pre-commit install --install-hooks` once (`ls .git/hooks/pre-push` confirms it).
+The config's `default_install_hook_types` makes that one install add both the commit and the push hooks. A clone that only ever ran the plain install, without the old `--hook-type pre-push` step, has no push hook yet; re-run `pre-commit install --install-hooks` once (`ls "$(git rev-parse --git-path hooks/pre-push)"` confirms it, in a worktree too).
 
 The `treesitter` extra installs the tree-sitter parser that backs the repo-map
 `imports` edge layer. It is optional at runtime (the scan degrades gracefully

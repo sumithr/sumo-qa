@@ -321,10 +321,13 @@ def lockstep_mismatches(
     )
 
 
+def _repo_precommit() -> dict[str, Any]:
+    return yaml.safe_load((REPO_ROOT / PRECOMMIT).read_text(encoding="utf-8"))
+
+
 def test_repo_hook_pins_mirror_pyproject() -> None:
     pyproject = tomllib.loads((REPO_ROOT / PYPROJECT).read_text(encoding="utf-8"))
-    precommit = yaml.safe_load((REPO_ROOT / PRECOMMIT).read_text(encoding="utf-8"))
-    messages = lockstep_mismatches(pyproject, precommit)
+    messages = lockstep_mismatches(pyproject, _repo_precommit())
     if messages:
         pytest.fail(
             f"{len(messages)} pin mismatch(es) between {PYPROJECT} and {PRECOMMIT}; "
@@ -645,17 +648,15 @@ def test_ruff_and_hook_mismatches_are_reported_together() -> None:
 # run it even when the pushed range changes no files (#773).
 
 
-def _repo_precommit() -> dict[str, Any]:
-    return yaml.safe_load((REPO_ROOT / PRECOMMIT).read_text(encoding="utf-8"))
-
-
 def test_plain_install_adds_the_pre_push_hook() -> None:
     precommit = _repo_precommit()
     assert "pre-push" in precommit.get("default_install_hook_types", [])
 
 
 def test_pre_push_pytest_hook_runs_on_every_push() -> None:
-    hooks = [hook for repo in _repo_precommit()["repos"] for hook in repo["hooks"]]
-    pytest_hook = next(hook for hook in hooks if hook["id"] == "pytest")
-    assert pytest_hook["stages"] == ["pre-push"]
+    pytest_hook = next(
+        (hook for hook_id, _, hook in _hooks(_repo_precommit()) if hook_id == "pytest"), None
+    )
+    assert pytest_hook is not None, f"{PRECOMMIT} has no hook with id 'pytest'"
+    assert pytest_hook.get("stages") == ["pre-push"]
     assert pytest_hook.get("always_run") is True
