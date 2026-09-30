@@ -660,3 +660,15 @@ def test_pre_push_pytest_hook_runs_on_every_push() -> None:
     assert pytest_hook is not None, f"{PRECOMMIT} has no hook with id 'pytest'"
     assert pytest_hook.get("stages") == ["pre-push"]
     assert pytest_hook.get("always_run") is True
+
+
+def test_pre_push_pytest_hook_prints_its_counts() -> None:
+    # pre-commit hides a passing hook's output unless `verbose` is set, and an
+    # extra `-q` on top of addopts' `-q` drops pytest's "N passed" line, so
+    # either would leave the push log without the counts the skills quote.
+    pytest_hook = next(
+        (hook for hook_id, _, hook in _hooks(_repo_precommit()) if hook_id == "pytest"), None
+    )
+    assert pytest_hook is not None, f"{PRECOMMIT} has no hook with id 'pytest'"
+    assert pytest_hook.get("verbose") is True
+    assert "-q" not in pytest_hook["entry"].split()

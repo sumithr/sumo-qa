@@ -291,7 +291,12 @@ repos:
         # pytest picks up `pythonpath = ["src"]` from pyproject.toml's
         # `[tool.pytest.ini_options]`, so `import sumo_qa.*` resolves
         # without the project itself needing to be pip-installed.
-        entry: pytest -q
+        #
+        # `verbose: true` and no `-q` beyond addopts' own keep pytest's
+        # "N passed" and coverage lines in the push output; the delivery
+        # skills quote them as the full local suite's evidence.
+        entry: pytest
+        verbose: true
         language: python
         additional_dependencies:
           - "hypothesis>=6,<7"
