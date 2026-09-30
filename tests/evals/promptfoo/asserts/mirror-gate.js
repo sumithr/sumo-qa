@@ -7,7 +7,8 @@
 //   * `Surface verifier: <verifier> | ... | Status: <label>`
 //
 // A line counts only when it starts with one of those prefixes (after list
-// markers and markdown emphasis) and carries `|`-separated fields. Rules:
+// markers, markdown emphasis and an optional item label such as `2a.`) and
+// carries `|`-separated fields. Rules:
 //
 //   * a seed with `stale_mirror_path` must name that path in a drift row whose
 //     Coverage is UNCOVERED and in a verifier line whose Status is UNVERIFIED;
@@ -24,7 +25,10 @@
 //
 // Referenced as `value: file://asserts/mirror-gate.js` from both configs.
 
-const PREFIX = /^[\s>\-*+\d.)]*(inventory drift anchor|surface verifier):\s*/i;
+// List markers, then an optional Verdict-format item label (`2a.`, `8)`,
+// `Item 8:`), then the pinned prefix.
+const PREFIX =
+  /^[\s>\-*+]*(?:(?:item\s*)?[\d.]+[a-z]?[.):]?\s*)?[\s>\-*+]*(inventory drift anchor|surface verifier):\s*/i;
 
 function strip(line) {
   return String(line).replace(/\*\*|__|[*`]/g, '');

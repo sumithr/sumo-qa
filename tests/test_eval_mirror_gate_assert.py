@@ -101,6 +101,18 @@ def test_blocker_rows_in_markdown_emphasis_and_list_markers_pass():
     assert _one(output, BLOCKER_VARS)["pass"] is True
 
 
+@pytest.mark.parametrize(
+    ("drift_label", "verifier_label"),
+    [("2a. ", "8. "), ("Item 2a: ", "Item 8: "), ("- 2a) ", "- 8) "), ("**2a.** ", "**8.** ")],
+    ids=["dotted", "item-colon", "list-paren", "bold"],
+)
+def test_rows_labelled_with_their_verdict_format_item_pass(drift_label, verifier_label):
+    output = f"{drift_label}{STALE_ROW}\n{verifier_label}{STALE_VERIFIER}"
+    assert _one(output, BLOCKER_VARS)["pass"] is True
+    row = "2a. Inventory drift anchor: CHANGELOG.md:212 (1.10.0 → 1.12.5) | Coverage: UNCOVERED"
+    assert _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)["pass"] is False
+
+
 def test_blocker_labels_match_case_insensitively():
     output = BLOCKER.replace("UNCOVERED", "Uncovered").replace("UNVERIFIED", "unverified")
     assert _one(output, BLOCKER_VARS)["pass"] is True
