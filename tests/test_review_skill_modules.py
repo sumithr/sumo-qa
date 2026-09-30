@@ -225,6 +225,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**What counts as a runtime change (pinned — behaviour, not path prefix):**",
         "**Command/input-classifier probe (pinned):**",
         "**Location claim (pinned):**",
+        "a manifest or lock change to a dependency whose package runtime code in the repo imports is a runtime change",
         "**Trivial-change exemption (pinned):**",
         "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
     ],
@@ -431,9 +432,10 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         operative=("is not a drift anchor: no 2a row, no item-8 line, no residual",),
     ),
     "**Residual concerns on a constraint diff (pinned).**": PinnedClauses(
-        defining="Stale mirror or not, the root's one concrete `Residual concerns:` item comes from an unexercised code path or input of the changed code",
+        defining="Stale mirror or not, the root's one concrete `Residual concerns:` item is an unexercised code path or input",
         operative=(
-            "never from history, a lock, or differing caps, syntax or bounds among compatible occurrences",
+            "on a manifest/lock-only diff, of the consumer of the dependency whose constraint moved",
+            "never drawn from history, a lock, or differing caps, syntax or bounds among compatible occurrences",
         ),
     ),
     "**Module-match rule (pinned):**": PinnedClauses(

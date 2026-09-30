@@ -185,6 +185,3 @@ module.exports = function ledgerRowLabels(output) {
 module.exports.ledgerRows = ledgerRows;
 module.exports.isNone = isNone;
 module.exports.coverageLabel = coverageLabel;
-// Shared with asserts/mirror-gate.js, which reads the same row shapes.
-module.exports.stripMarkdown = stripMarkdown;
-module.exports.tableCells = tableCells;

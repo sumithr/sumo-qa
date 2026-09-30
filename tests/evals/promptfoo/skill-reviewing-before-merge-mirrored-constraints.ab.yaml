@@ -29,11 +29,11 @@ defaultTest:
     # agree with its own Fresh matching tests field. Grades every seed.
     - type: javascript
       value: file://asserts/ledger-row-labels.js
-    # Decisive mirror gate, isolated from SHAPE/GROUNDING wobble (shared by
-    # the base corpus and its .ab.yaml): a stale-mirror seed must name the
-    # stale file, deliver NOT SAFE and require the environment's own run; no
-    # seed may anchor a non-mirror occurrence as UNCOVERED. Strengthens,
-    # never loosens, the llm-rubric below.
+    # Structural mirror gate (shared by the base corpus and its .ab.yaml):
+    # a stale-mirror seed must carry the stale path in an UNCOVERED
+    # inventory-drift row and an UNVERIFIED surface-verifier line; no seed may
+    # put a non-mirror path in either pinned shape. Verdict and command
+    # wording are judged by the llm-rubric below, which this never loosens.
     - type: javascript
       value: file://asserts/mirror-gate.js
     - type: llm-rubric
@@ -116,16 +116,25 @@ defaultTest:
          - If a stale mirror SHOULD be flagged: the review must name the exact
            stale location (file:line) with the old constraint and the required
            one, treat it as a SAFE-blocker that the green application suite
-           does not clear, require that isolated environment's own
-           install/smoke run, and deliver NOT SAFE TO MERGE. Folding the stale
-           mirror into a generic "update dependencies" note, or naming it only
-           as a residual concern, FAILS this axis.
+           does not clear, and name, as what clears the blocker, the exact
+           command that runs that isolated environment's own install/smoke
+           check (a `pre-commit run ...` invocation, the guard script, the
+           image build, the CI job) as a run still required. The FINAL
+           verdict line must be NOT SAFE TO MERGE; a verdict phrase quoted
+           conditionally earlier does not count. Folding the stale mirror
+           into a generic "update dependencies" note, naming it only as a
+           residual concern, describing the environment instead of naming
+           its command, mentioning the command only as not run or as having
+           no evidence without requiring it, offering `pre-commit install`
+           (which runs nothing) as the clearing step, or dismissing the
+           environment's own run as unnecessary because the application
+           suite passed, FAILS this axis.
          - If NO mirror finding should be raised: each other occurrence is
            compatible, deliberately independent with a documented reason,
            generated, or prose only. The review must not demand byte-identical
            strings, must not demand rewriting history, and must not demand
-           synchronising the independent environment. The expected verdict is
-           SAFE TO MERGE; a NOT SAFE or NEEDS WORK verdict driven by a mirror,
+           synchronising the independent environment. The FINAL verdict
+           line must be SAFE TO MERGE; a NOT SAFE or NEEDS WORK verdict driven by a mirror,
            sync, stale-constraint or unverified-environment finding FAILS this
            axis. Recording each occurrence's relationship in a line is correct,
            not over-triggering.
@@ -246,6 +255,7 @@ tests:
         -3  from tree_sitter_language_pack import get_language
         +3  from tree_sitter_language_pack import get_binding
          ...
+         10 def parser_for(lang: str) -> Parser:
         -11     language = get_language(lang)
         +11     language = get_binding(lang).language()
          12     return Parser(language)
@@ -291,8 +301,17 @@ tests:
         ```text
         $ uv run pytest -q
         tests/repo_map/test_parser.py::test_parses_python_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_parses_typescript_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_unknown_language_raises_lookup_error PASSED
         812 passed, 3 skipped in 41.20s
         ```
+        The three parser tests call the real `parser_for()`
+        (src/sumo_qa/repo_map/parser.py:10-12) on tree-sitter-language-pack
+        1.12.5 and assert, verbatim:
+        `assert parser_for("python").parse(b"def f(): return 1").root_node.type == "module"`,
+        `assert not parser_for("python").parse(b"def f(): return 1").root_node.has_error`,
+        `assert parser_for("typescript").parse(b"const x: number = 1;").root_node.type == "program"`,
+        and `with pytest.raises(LookupError): parser_for("cobol")`.
         (This ran in the project's uv environment, which resolves
         tree-sitter-language-pack 1.12.5 from uv.lock. No pre-commit hook
         was run this turn.)
@@ -312,7 +331,10 @@ tests:
         --all-files` after the hook environment is rebuilt) because the green
         `uv run pytest` ran in a different environment. Recognises uv.lock as
         the generated resolution already at 1.12.5 and CHANGELOG.md:212 as
-        history, and flags neither. Delivers NOT SAFE TO MERGE. Ends without a
+        history, and flags neither. The parser's binding switch
+        (src/sumo_qa/repo_map/parser.py:3,11) is a runtime risk COVERED by the
+        fresh parser tests and their quoted assertions, so the blocker is the
+        stale hook environment. Delivers NOT SAFE TO MERGE. Ends without a
         confirmation question.
       mirror_expectation: >-
         A STALE MIRROR SHOULD BE FLAGGED. `.pre-commit-config.yaml:33-34` is a
@@ -339,8 +361,10 @@ tests:
         - Surfacing literal taxonomy labels such as config_change or docs_change.
   - description: "CONTROL - manifest, hook and CI install carry semantically compatible constraints in different syntax, and their smoke checks ran"
     vars:
-      # The hook and CI runs discharge their verification lines, so routing
-      # also loads discharged-check, on both arms.
+      # parser.py imports the bumped package, so this is a runtime review
+      # (runtime-scope's dependency-constraints rule). The hook and CI runs
+      # discharge their verification lines, so routing also loads
+      # discharged-check, on both arms.
       review_modules: [runtime-scope, discovery-probes, coverage-ledger, inventory-drift, mirrored-constraints, surface-verifier, discharged-check]
       skill_content_old: file://fixtures/reviewing-before-merge-PRE-493-discharged.SKILL.md
       user_prompt: >-
@@ -361,6 +385,7 @@ tests:
         -3  from tree_sitter_language_pack import get_language
         +3  from tree_sitter_language_pack import get_binding
          ...
+         10 def parser_for(lang: str) -> Parser:
         -11     language = get_language(lang)
         +11     language = get_binding(lang).language()
          12     return Parser(language)
@@ -398,6 +423,8 @@ tests:
         ```text
         $ uv run pytest -q
         tests/repo_map/test_parser.py::test_parses_python_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_parses_typescript_module_with_binding_api PASSED
+        tests/repo_map/test_parser.py::test_unknown_language_raises_lookup_error PASSED
         812 passed, 3 skipped in 40.87s
 
         $ pre-commit run pytest --hook-stage pre-push --all-files
@@ -408,9 +435,21 @@ tests:
         Successfully installed tree_sitter_language_pack-1.12.5
         812 passed, 3 skipped
         ```
-      not_stale_paths: [CHANGELOG.md, .pre-commit-config.yaml, .github/workflows/test.yml, uv.lock]
+        The three parser tests call the real `parser_for()`
+        (src/sumo_qa/repo_map/parser.py:10-12) on tree-sitter-language-pack
+        1.12.5 and assert, verbatim:
+        `assert parser_for("python").parse(b"def f(): return 1").root_node.type == "module"`,
+        `assert not parser_for("python").parse(b"def f(): return 1").root_node.has_error`,
+        `assert parser_for("typescript").parse(b"const x: number = 1;").root_node.type == "program"`,
+        and `with pytest.raises(LookupError): parser_for("cobol")`.
+      # The hook and CI files are mirrors the diff updated, so a COVERED row
+      # or DISCHARGED verifier line may name them; the rubric judges them.
+      not_stale_paths: [CHANGELOG.md, uv.lock]
       expected_shape: >-
-        Concise evidence-led verdict. Classifies each occurrence: the hook's
+        Concise evidence-led runtime review. Names the parser's binding
+        switch (src/sumo_qa/repo_map/parser.py:3,11) as a runtime risk with a
+        coverage-ledger row citing the fresh parser tests and their quoted
+        assertions, so it is COVERED. Classifies each occurrence: the hook's
         `<2,>=1.12.5` and CI's `~=1.12.5` (underscore spelling) both exclude
         every pre-1.12.5 release and admit 1.12.5, so they are compatible with
         the manifest's `>=1.12.5` despite different syntax and order; uv.lock
