@@ -57,7 +57,7 @@ sites agree, and it reports every mismatch in one failure.
 
 from __future__ import annotations
 
-import re
+import shlex
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -665,8 +665,8 @@ def test_plain_install_adds_the_pre_push_hook() -> None:
     # Older pre-commit ignores `default_install_hook_types`; the minimum makes
     # it fail loudly instead of installing the commit hook alone.
     minimum = precommit.get("minimum_pre_commit_version")
-    assert isinstance(minimum, str), "quote minimum_pre_commit_version in the config"
-    assert Version(minimum) >= Version("2.18")
+    assert minimum is not None, f"{PRECOMMIT} has no minimum_pre_commit_version"
+    assert Version(str(minimum)) >= Version("2.18")
 
 
 def test_pre_push_pytest_hook_always_runs() -> None:
@@ -675,20 +675,13 @@ def test_pre_push_pytest_hook_always_runs() -> None:
     assert pytest_hook.get("always_run") is True
 
 
-def _lowers_verbosity(arg: str) -> bool:
-    # The plain spellings only: `-q`, `-qq`, `--quiet`, `--verbosity=<negative>`.
-    if re.fullmatch(r"-q+|--quiet", arg):
-        return True
-    match = re.fullmatch(r"--verbosity=(-?\d+)", arg)
-    return match is not None and int(match.group(1)) < 0
-
-
 def test_pre_push_pytest_hook_prints_its_counts() -> None:
-    # pre-commit hides a passing hook's output unless `verbose` is set, and
-    # lowering pytest's verbosity below addopts' `-q` drops the "N passed"
-    # line, so either would leave the push log without the counts the skills
-    # quote. pre-commit appends `args` to `entry`, so both are checked.
+    # pre-commit hides a passing hook's output unless `verbose` is set, and any
+    # option that takes pytest's verbosity below addopts' `-q` drops the
+    # "N passed" line, so either would leave the push log without the counts
+    # the skills quote. The hook takes its options from addopts alone: an
+    # option added here is a deliberate change that updates this guard too.
     pytest_hook = _pytest_hook()
     assert pytest_hook.get("verbose") is True
-    argv = pytest_hook["entry"].split() + [str(arg) for arg in pytest_hook.get("args", [])]
-    assert [arg for arg in argv if _lowers_verbosity(arg)] == []
+    argv = shlex.split(pytest_hook["entry"]) + [str(arg) for arg in pytest_hook.get("args", [])]
+    assert argv == ["pytest"]
