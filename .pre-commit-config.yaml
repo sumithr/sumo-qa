@@ -38,8 +38,10 @@
 # specifier disagrees). This decouples the hook from whatever `python`
 # happens to be on the user's PATH (pyenv / multiple Pythons / system vs
 # venv).
-# `default_install_hook_types` needs pre-commit 2.18+; an older binary would
-# warn about the unknown key and install the pre-commit hook only.
+#
+# `default_install_hook_types` needs pre-commit 2.18+. Without the minimum
+# below, an older binary would only warn about the unknown key and install
+# the pre-commit hook alone; with it, that binary refuses the config.
 minimum_pre_commit_version: "2.18.0"
 default_install_hook_types: [pre-commit, pre-push]
 
@@ -331,10 +333,10 @@ repos:
           # system tz database, so stdlib `zoneinfo` falls through to `tzdata`.
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
-        # Run on every push, even when the pushed range changes no files
-        # (a message-only amend): the delivery skills treat this hook's
-        # output as the full local suite's evidence, so `Skipped` would
-        # leave a push unverified.
+        # Run on every push, even when the pushed range has no net file
+        # changes (an `--allow-empty` commit, or a commit plus its revert):
+        # the delivery skills treat this hook's output as the full local
+        # suite's evidence, so `Skipped` would leave a push unverified.
         always_run: true
         stages: [pre-push]
 
