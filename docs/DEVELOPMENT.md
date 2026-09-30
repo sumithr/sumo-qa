@@ -19,8 +19,7 @@ cd sumo-qa
 python -m venv .venv                                # any venv tool works; uv users: `uv venv`
 source .venv/bin/activate                           # Windows: .venv\Scripts\activate
 python -m pip install -e ".[dev,treesitter]"        # package + pytest, ruff, mypy, pre-commit; treesitter enables the repo-map import-edge tests
-pre-commit install --install-hooks                  # ruff + hygiene hooks on every commit
-pre-commit install --hook-type pre-push             # full pytest suite on every push
+pre-commit install --install-hooks                  # ruff + hygiene on every commit, full pytest suite on every push
 ```
 
 The `treesitter` extra installs the tree-sitter parser that backs the repo-map
@@ -35,7 +34,6 @@ If you already use [uv](https://docs.astral.sh/uv/), the equivalent setup is:
 ```bash
 uv sync --all-extras
 uv run pre-commit install --install-hooks
-uv run pre-commit install --hook-type pre-push
 ```
 
 ### Markdown drift gate

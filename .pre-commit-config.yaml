@@ -6,12 +6,14 @@
 #   # pip path:
 #   python -m pip install -e ".[dev]"
 #   pre-commit install --install-hooks
-#   pre-commit install --hook-type pre-push
 #
 #   # or uv path (if you already use uv):
 #   uv sync --all-extras
 #   uv run pre-commit install --install-hooks
-#   uv run pre-commit install --hook-type pre-push
+#
+# `default_install_hook_types` below makes a plain `pre-commit install`
+# install both the pre-commit and the pre-push hook scripts. Passing
+# `--hook-type` overrides that list, so don't add one.
 #
 # After that:
 #   git commit  → ruff + format + hygiene on staged files (~1s)
@@ -31,6 +33,8 @@
 # specifier disagrees). This decouples the hook from whatever `python`
 # happens to be on the user's PATH (pyenv / multiple Pythons / system vs
 # venv).
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Keep in lockstep with the `ruff==` pin in pyproject.toml's dev extras
@@ -314,6 +318,11 @@ repos:
           # system tz database, so stdlib `zoneinfo` falls through to `tzdata`.
           - "tzdata; platform_system == 'Windows'"
         pass_filenames: false
+        # Run on every push, even when the pushed range changes no files
+        # (a message-only amend): the delivery skills treat this hook's
+        # output as the full local suite's evidence, so `Skipped` would
+        # leave a push unverified.
+        always_run: true
         stages: [pre-push]
 
   - repo: local

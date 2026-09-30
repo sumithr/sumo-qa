@@ -21,8 +21,7 @@ git clone https://github.com/sumithr/sumo-qa
 cd sumo-qa
 python -m venv .venv && source .venv/bin/activate   # or: uv sync --all-extras
 python -m pip install -e ".[dev]"
-pre-commit install --install-hooks                  # lint + hygiene on every commit
-pre-commit install --hook-type pre-push             # full pytest suite on every push
+pre-commit install --install-hooks                  # lint + hygiene on every commit, full pytest suite on every push
 ```
 
 ## Before you push
