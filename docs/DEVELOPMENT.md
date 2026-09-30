@@ -119,15 +119,15 @@ Once installed (above), you get them for free on every `git commit` / `git push`
 | Trigger | What runs | Speed | Why |
 |---|---|---|---|
 | `git commit` | `ruff check --fix`, `ruff format`, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | ~1s | Auto-fixes 95% of CI lint failures before the commit lands. |
-| `git push` | full `pytest -q` suite | ~2s after first run | Stops broken commits reaching the remote. |
+| `git push` | full `pytest` suite at 100% coverage, printing its counts; the scoped mutmut gate when the push touches a mutated module, a test, `conftest.py` or `pyproject.toml` | minutes | Stops broken or under-tested commits reaching the remote. |
 
-The pytest hook runs in pre-commit's own isolated venv (managed by the framework via `additional_dependencies: [".[dev]"]`), so it's not coupled to whichever `python` happens to be on your PATH. The first `git push` after install will be slower (~30s) while pre-commit builds the venv; subsequent pushes reuse it.
+The pytest hook runs in pre-commit's own isolated venv, built from the explicit `additional_dependencies` pins in `.pre-commit-config.yaml` (kept in lockstep with `pyproject.toml` by `tests/test_toolchain_pin_lockstep.py`), so it's not coupled to whichever `python` happens to be on your PATH. The first `git push` after install is slower while pre-commit builds that venv; later pushes reuse it.
 
 **On-demand runs** (without committing/pushing):
 
 ```bash
 pre-commit run --all-files                          # ruff + hygiene
-pre-commit run --all-files --hook-stage pre-push    # pytest
+pre-commit run --all-files --hook-stage pre-push    # pytest + scoped mutmut gate
 ```
 
 **Skipping hooks** (rare): `git commit --no-verify` or `git push --no-verify`. CI will still catch anything you skipped, use this only for genuine emergencies.
