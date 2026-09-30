@@ -47,8 +47,10 @@ defaultTest:
     # Structural mirror gate (shared by the base corpus and its .ab.yaml):
     # a stale-mirror seed must carry the stale path in an UNCOVERED
     # inventory-drift row and an UNVERIFIED surface-verifier line; no seed may
-    # put a non-mirror path in either pinned shape. Verdict and command
-    # wording are judged by the llm-rubric below, which this never loosens.
+    # put a non-mirror path in either pinned shape, except a `Ran: YES`,
+    # DISCHARGED verifier line for an environment the seed lists in
+    # `verifiable_paths`. Verdict and command wording are judged by the
+    # llm-rubric below, which this never loosens.
     - type: javascript
       value: file://asserts/mirror-gate.js
     - type: llm-rubric
@@ -642,6 +644,9 @@ tests:
         `result.assert_outcomes(passed=1)` for an inner test asserting
         `risk_ledger is None`.
       not_stale_paths: [constraints/pytest7-compat.txt, .github/workflows/compat.yml, pyproject.toml:31]
+      # The compat job's own fresh run is supplied, so a DISCHARGED verifier
+      # line citing it is evidence; a drift row or an UNVERIFIED line is not.
+      verifiable_paths: [constraints/pytest7-compat.txt, .github/workflows/compat.yml]
       expected_shape: >-
         Concise evidence-led runtime review. Names the risk the bump carries
         on the runtime importer, the published plugin at
@@ -858,7 +863,7 @@ tests:
         `assert not parser_for("python").parse(b"def f(): return 1").root_node.has_error`,
         `assert parser_for("typescript").parse(b"const x: number = 1;").root_node.type == "program"`,
         and `with pytest.raises(LookupError): parser_for("cobol")`.
-      not_stale_paths: [.pre-commit-config.yaml, CHANGELOG.md, uv.lock]
+      not_stale_paths: [.pre-commit-config.yaml, .github/workflows/test.yml, CHANGELOG.md, uv.lock]
       expected_shape: >-
         Concise evidence-led runtime review. Names the cap's risk on the
         runtime consumer, the parser adapter at

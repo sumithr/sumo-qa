@@ -6,7 +6,9 @@ The gate is structural. It reads only the two pinned row shapes the review
 module emits, `Inventory drift anchor: ... | Coverage: ...` and
 `Surface verifier: ... | Status: ...`: a stale-mirror seed must name the stale
 path in an UNCOVERED drift row and an UNVERIFIED verifier line, and no seed may
-name a non-mirror path in either shape, whatever its label. Markdown tables,
+name a non-mirror path in either shape, whatever its label, except a
+`Ran: YES`, DISCHARGED verifier line for a path the seed lists in
+`verifiable_paths` (an environment with a fresh run of its own). Markdown tables,
 `Risk N:` lines and free text never pass or fail it; the verdict and the
 clearing command's wording are the llm-rubric's to judge. It runs under node,
 the promptfoo runtime, so these tests execute the real file both configs load.
@@ -148,32 +150,63 @@ def test_blocker_without_a_pinned_unverified_verifier_line_fails(verifier_line):
         "Inventory drift anchor: CHANGELOG.md:212 (1.10.0 → 1.12.5) | Diff updated it: NO | Coverage: N/A",
         "**Inventory drift anchor: `CHANGELOG.md:212` (1.10.0 → 1.12.5) | Coverage: COVERED**",
         "Surface verifier: git log CHANGELOG.md | Ran: NO | Status: UNVERIFIED (surface verifier), SAFE-blocker",
+        "Surface verifier: review CHANGELOG.md | Ran: YES | Status: DISCHARGED",
     ],
     ids=[
         "drift-uncovered",
         "drift-na",
         "drift-covered-markdown",
         "verifier-unverified",
+        "verifier-discharged",
     ],
 )
-def test_a_drift_row_or_unverified_line_naming_a_non_mirror_path_fails(row):
+def test_a_pinned_row_naming_a_non_mirror_path_fails_whatever_its_label(row):
     result = _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)
     assert result["pass"] is False
     assert "CHANGELOG.md named in a" in result["reason"]
 
 
-def test_a_discharged_verifier_line_citing_a_non_mirror_environment_passes():
+COMPAT_VARS = {
+    "not_stale_paths": [".github/workflows/compat.yml", "constraints/pytest7-compat.txt"],
+    "verifiable_paths": [".github/workflows/compat.yml"],
+}
+COMPAT_HEAD = "Surface verifier: CI job compat-pytest7 (.github/workflows/compat.yml)"
+
+
+def test_a_discharged_line_citing_a_verifiable_environment_passes():
     """Seed 4's independent compat job, verified by its own fresh run, is
-    evidence: the gate leaves a DISCHARGED line naming it to the rubric."""
-    variables = {
-        "not_stale_paths": [".github/workflows/compat.yml", "constraints/pytest7-compat.txt"]
-    }
-    row = (
-        "Surface verifier: CI job compat-pytest7 (.github/workflows/compat.yml) | Ran: YES | "
-        "Status: DISCHARGED"
-    )
-    assert _one(row, variables)["pass"] is True
-    assert _one(f"{BLOCKER}\n{row}", {**BLOCKER_VARS, **variables})["pass"] is True
+    evidence: a `Ran: YES`, DISCHARGED line naming it is the rubric's."""
+    row = f"{COMPAT_HEAD} | Ran: YES | Status: DISCHARGED"
+    assert _one(row, COMPAT_VARS)["pass"] is True
+    assert _one(f"{BLOCKER}\n{row}", {**BLOCKER_VARS, **COMPAT_VARS})["pass"] is True
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "| Ran: NO | Status: DISCHARGED",
+        "| Ran: NO | Status: PENDING",
+        "| Ran: NO | Status: SAFE-blocker, UNVERIFIED",
+        "| Ran: NO | Status: N/A",
+        "| Ran: NO",
+    ],
+    ids=["discharged-not-ran", "pending", "blocker-first", "na", "no-status"],
+)
+def test_any_other_line_citing_a_verifiable_environment_fails(tail):
+    result = _one(f"{COMPAT_HEAD} {tail}", COMPAT_VARS)
+    assert result["pass"] is False
+    assert ".github/workflows/compat.yml named in a verifier row" in result["reason"]
+
+
+def test_a_verifiable_environment_in_a_drift_row_fails():
+    row = "Inventory drift anchor: .github/workflows/compat.yml:3 (a → b) | Coverage: COVERED"
+    assert _one(row, COMPAT_VARS)["pass"] is False
+
+
+def test_a_verifiable_paths_string_fails_loudly():
+    result = _one(BLOCKER, {**BLOCKER_VARS, "verifiable_paths": "uv.lock"})
+    assert result["pass"] is False
+    assert "verifiable_paths must be a list" in result["reason"]
 
 
 def test_a_not_stale_paths_string_fails_loudly():
@@ -282,6 +315,22 @@ def test_a_line_suffix_with_trailing_junk_does_not_satisfy_the_stale_anchor(junk
     assert result["pass"] is False
     assert "has no UNCOVERED `Inventory drift anchor:` row" in result["reason"]
     assert "has no UNVERIFIED `Surface verifier:` line" in result["reason"]
+
+
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        ".pre-commit-config.yaml:34–36",
+        ".pre-commit-config.yaml:34:5",
+        ".pre-commit-config.yaml#L34",
+        ".pre-commit-config.yaml:34.",
+    ],
+    ids=["en-dash-range", "column", "github-anchor", "sentence-end"],
+)
+def test_a_location_suffix_names_the_path(anchor):
+    output = BLOCKER.replace(".pre-commit-config.yaml:34 ", f"{anchor} ")
+    assert anchor in output
+    assert _one(output, BLOCKER_VARS)["pass"] is True
 
 
 def test_a_numeric_filename_suffix_is_another_file():

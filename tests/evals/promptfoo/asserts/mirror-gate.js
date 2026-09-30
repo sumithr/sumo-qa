@@ -11,10 +11,14 @@
 //
 //   * a seed with `stale_mirror_path` must name that path in a drift row whose
 //     Coverage is UNCOVERED and in a verifier line whose Status is UNVERIFIED;
-//   * no seed may name a `not_stale_paths` entry in a drift row, whatever its
-//     label, or in an UNVERIFIED verifier line (a DISCHARGED line citing that
-//     environment's own fresh run is evidence, not a sync demand);
-//   * `not_stale_paths` must be a list, so a mistyped seed fails loudly.
+//   * no seed may name a `not_stale_paths` entry in either shape, whatever its
+//     label, with one exception: a `verifiable_paths` entry (an independent or
+//     compatible environment with a run of its own) may appear in a verifier
+//     line that reads `Ran: YES` and `Status: DISCHARGED`, because that line
+//     cites the environment's own fresh run as evidence, not a sync demand.
+//     Prose and generated locks have no environment, so they are never listed;
+//   * `not_stale_paths` and `verifiable_paths` must be lists, so a mistyped
+//     seed fails loudly.
 //
 // Markdown tables, `Risk N:` lines and free text (relationship lines, the
 // verdict, the clearing command's wording) never pass or fail this gate; the
@@ -28,10 +32,11 @@ function strip(line) {
   return String(line).replace(/\*\*|__|[*`]/g, '');
 }
 
-// Each pinned-shape row as { kind: 'drift' | 'verifier', head, label }.
+// Each pinned-shape row as { kind: 'drift' | 'verifier', head, label, ran }.
 // `head` is the first field (the drift anchor, or the verifier command with
-// the environment it runs), `label` the Coverage / Status field's value (''
-// when absent). Paths are matched in `head` only.
+// the environment it runs), `label` the Coverage / Status field's value and
+// `ran` the Ran field's value ('' when absent). Paths are matched in `head`
+// only.
 function pinnedRows(output) {
   const rows = [];
   for (const raw of String(output == null ? '' : output).split(/\r?\n/)) {
@@ -42,10 +47,12 @@ function pinnedRows(output) {
     const kind = /^inventory/i.test(m[1]) ? 'drift' : 'verifier';
     const labelKey = kind === 'drift' ? /^coverage:\s*/i : /^status:\s*/i;
     const labelField = fields.find((f) => labelKey.test(f));
+    const ranField = fields.find((f) => /^ran:\s*/i.test(f));
     rows.push({
       kind,
       head: fields[0],
       label: labelField ? labelField.replace(labelKey, '') : '',
+      ran: ranField ? ranField.replace(/^ran:\s*/i, '') : '',
     });
   }
   return rows;
@@ -53,22 +60,39 @@ function pinnedRows(output) {
 
 // True when `head` names `path` as a whole path token: bounded before by the
 // start, whitespace, a backtick, a quote or `(` (an optional `./` prefix
-// allowed), then an optional `:<line>` or `:<line>-<line>` suffix consumed in
-// full (only a `-<line>` range end for a configured `path:<line>`), and after
-// by the end, whitespace, a backtick, a quote, `)`, `,`, `;` or `|`. So
-// `.pre-commit-config.yaml.bak:34` and `.pre-commit-config.yaml:34.bak` do not
-// name `.pre-commit-config.yaml`, while `./uv.lock` names `uv.lock` and
+// allowed), then an optional location suffix consumed in full (`:<line>`, a
+// `-` or `–` range end, a `:<column>`, or a GitHub `#L<line>` anchor; only the
+// range end and column for a configured `path:<line>`), and after by the end,
+// whitespace, a backtick, a quote, `)`, `,`, `;`, `|`, or a sentence-ending
+// `.` or `:`. So `.pre-commit-config.yaml.bak:34` and
+// `.pre-commit-config.yaml:34.bak` do not name `.pre-commit-config.yaml`, while
+// `./uv.lock`, `uv.lock:1441.` and `uv.lock#L1441` name `uv.lock` and
 // `pyproject.toml:31-33` names `pyproject.toml:31`.
 function namesPath(head, path) {
   const escaped = String(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // A range end only follows a line number: the configured path's own, or
   // the `:<line>` just consumed. `uv.lock-2026` is another file.
-  const suffix = /:\d+$/.test(String(path)) ? '(?:-\\d+)?' : '(?::\\d+(?:-\\d+)?)?';
-  return new RegExp(`(?:^|[\\s\`'"(])(?:\\./)?${escaped}${suffix}(?=$|[\\s\`'"),;|])`).test(head);
+  const rangeAndColumn = '(?:[-\u2013]\\d+)?(?::\\d+)?';
+  const suffix = /:\d+$/.test(String(path))
+    ? rangeAndColumn
+    : `(?::\\d+${rangeAndColumn}|#L\\d+(?:-L?\\d+)?)?`;
+  const end = '(?=$|[\\s\`\'"),;|]|[.:](?=$|\\s))';
+  return new RegExp(`(?:^|[\\s\`'"(])(?:\\./)?${escaped}${suffix}${end}`).test(head);
 }
 
 function hasLabel(row, label) {
   return new RegExp(`^${label}\\b`, 'i').test(row.label);
+}
+
+// A verifier line that cites an independent or compatible environment's own
+// fresh run: listed in `verifiable_paths`, `Ran: YES`, `Status: DISCHARGED`.
+function citesOwnRun(row, path, verifiable) {
+  return (
+    row.kind === 'verifier' &&
+    verifiable.includes(path) &&
+    /^yes\b/i.test(row.ran) &&
+    hasLabel(row, 'DISCHARGED')
+  );
 }
 
 module.exports = function mirrorGate(output, context) {
@@ -85,11 +109,12 @@ module.exports = function mirrorGate(output, context) {
     }
   }
   const notStale = vars.not_stale_paths == null ? [] : vars.not_stale_paths;
+  const verifiable = vars.verifiable_paths == null ? [] : vars.verifiable_paths;
   if (!Array.isArray(notStale)) fails.push('not_stale_paths must be a list of paths');
+  if (!Array.isArray(verifiable)) fails.push('verifiable_paths must be a list of paths');
+  const allowed = Array.isArray(verifiable) ? verifiable : [];
   for (const p of Array.isArray(notStale) ? notStale : []) {
-    const bad = rows.find(
-      (r) => namesPath(r.head, p) && (r.kind === 'drift' || hasLabel(r, 'UNVERIFIED')),
-    );
+    const bad = rows.find((r) => namesPath(r.head, p) && !citesOwnRun(r, p, allowed));
     if (bad) fails.push(`non-mirror occurrence ${p} named in a ${bad.kind} row (${bad.label || 'no label'})`);
   }
   return fails.length
