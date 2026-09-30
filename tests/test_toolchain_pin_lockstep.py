@@ -644,13 +644,17 @@ def test_ruff_and_hook_mismatches_are_reported_together() -> None:
 
 
 # The delivery skills treat the pre-push pytest hook's output as the full local
-# suite's evidence, so a clone must install that hook by default and a push must
-# run it even when the pushed range changes no files (#773).
+# suite's evidence, so a clone must install that hook by default and a push of
+# new commits must run it even when the pushed range has no net file changes
+# (an `--allow-empty` commit, or a commit plus its revert) (#773).
 
 
 def test_plain_install_adds_the_pre_push_hook() -> None:
     precommit = _repo_precommit()
-    assert "pre-push" in precommit.get("default_install_hook_types", [])
+    assert {"pre-commit", "pre-push"} <= set(precommit.get("default_install_hook_types", []))
+    # Older pre-commit ignores `default_install_hook_types`; the minimum makes
+    # it fail loudly instead of installing the commit hook alone.
+    assert precommit.get("minimum_pre_commit_version") == "2.18.0"
 
 
 def test_pre_push_pytest_hook_runs_on_every_push() -> None:
@@ -671,4 +675,9 @@ def test_pre_push_pytest_hook_prints_its_counts() -> None:
     )
     assert pytest_hook is not None, f"{PRECOMMIT} has no hook with id 'pytest'"
     assert pytest_hook.get("verbose") is True
-    assert "-q" not in pytest_hook["entry"].split()
+    quiet = [
+        arg
+        for arg in pytest_hook["entry"].split()
+        if arg == "--quiet" or (arg.startswith("-") and not arg.startswith("--") and "q" in arg)
+    ]
+    assert quiet == []
