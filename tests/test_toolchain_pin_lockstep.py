@@ -652,11 +652,9 @@ def test_ruff_and_hook_mismatches_are_reported_together() -> None:
 
 
 def _pytest_hook() -> dict[str, Any]:
-    pytest_hook = next(
-        (hook for hook_id, _, hook in _hooks(_repo_precommit()) if hook_id == "pytest"), None
-    )
-    assert pytest_hook is not None, f"{PRECOMMIT} has no hook with id 'pytest'"
-    return pytest_hook
+    hooks = [hook for hook_id, _, hook in _hooks(_repo_precommit()) if hook_id == "pytest"]
+    assert len(hooks) == 1, f"{PRECOMMIT}: expected one hook with id 'pytest', found {len(hooks)}"
+    return hooks[0]
 
 
 def test_plain_install_adds_the_pre_push_hook() -> None:
@@ -665,14 +663,22 @@ def test_plain_install_adds_the_pre_push_hook() -> None:
     # Older pre-commit ignores `default_install_hook_types`; the minimum makes
     # it fail loudly instead of installing the commit hook alone.
     minimum = precommit.get("minimum_pre_commit_version")
-    assert minimum is not None, f"{PRECOMMIT} has no minimum_pre_commit_version"
-    assert Version(str(minimum)) >= Version("2.18")
+    site = f"{PRECOMMIT} minimum_pre_commit_version"
+    assert isinstance(minimum, str), f"{site}: expected a quoted version string, got {minimum!r}"
+    try:
+        version = Version(minimum)
+    except InvalidVersion:
+        pytest.fail(f"{site}: {minimum!r} is not a version")
+    assert version >= Version("2.18"), f"{site}: {minimum} is below 2.18"
 
 
 def test_pre_push_pytest_hook_always_runs() -> None:
     pytest_hook = _pytest_hook()
     assert pytest_hook.get("stages") == ["pre-push"]
     assert pytest_hook.get("always_run") is True
+    # With filenames passed, `always_run` would run `pytest <changed files>`,
+    # not the full suite.
+    assert pytest_hook.get("pass_filenames") is False
 
 
 def test_pre_push_pytest_hook_prints_its_counts() -> None:
@@ -684,4 +690,12 @@ def test_pre_push_pytest_hook_prints_its_counts() -> None:
     pytest_hook = _pytest_hook()
     assert pytest_hook.get("verbose") is True
     argv = shlex.split(pytest_hook["entry"]) + [str(arg) for arg in pytest_hook.get("args", [])]
-    assert argv == ["pytest"]
+    assert argv == ["pytest"], (
+        f"{PRECOMMIT} pytest hook argv {argv}: options belong in {PYPROJECT} addopts; "
+        "change this guard deliberately if the hook needs its own"
+    )
+    pyproject = tomllib.loads((REPO_ROOT / PYPROJECT).read_text(encoding="utf-8"))
+    addopts = shlex.split(pyproject["tool"]["pytest"]["ini_options"]["addopts"])
+    assert addopts.count("-q") == 1, f"{PYPROJECT} addopts {addopts}: expected exactly one -q"
+    assert not any(opt.startswith(("-qq", "--quiet", "--verbosity", "-p")) for opt in addopts)
+    assert any(opt.startswith("--cov-fail-under=") for opt in addopts)
