@@ -19,17 +19,16 @@
 #
 # After that:
 #   git commit  → ruff + format + hygiene on staged files (~1s)
-#   git push    → the hooks not limited to the commit stage, on the
-#                 pushed files; the full pytest suite at 100% coverage
-#                 (minutes; the first push is slower because pre-commit
-#                 installs the project deps into its own isolated venv);
-#                 and the scoped mutmut
-#                 gate when the push touches a mutated module, a test,
-#                 conftest.py or pyproject.toml (the last two force the
-#                 full mutation pass).
+#   git push    → the full pytest suite at 100% coverage (minutes; the
+#                 first push is slower because pre-commit installs the
+#                 project deps into its own isolated venv), the scoped
+#                 mutmut gate (see the mutmut hook's comments), and the
+#                 lint/hygiene hooks not limited to the commit stage, on
+#                 the pushed files.
 #
 # To run all hooks on demand:    pre-commit run --all-files
 # To run pre-push hooks:         pre-commit run --all-files --hook-stage pre-push
+#                                (mutmut stays scoped to the branch's changes)
 # To bypass a single commit:     git commit --no-verify   (rare; CI catches anyway)
 #
 # The pytest hook uses `language: python` with explicit
