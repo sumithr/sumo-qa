@@ -284,7 +284,7 @@ def test_sumo_qa_validate_is_discoverable_on_path() -> None:
     in tests/test_doctor.py (commit 4d4a19a).
 
     Technique: checklist-based testing — verify the dependency contract from
-    `.pre-commit-config.yaml:133` (sumo-qa-validate must be installed) and
+    the `sumo-qa-validate` hook in `.pre-commit-config.yaml` (it must be installed) and
     `AGENTS.md` (`pip install sumo-qa` must produce a callable binary).
     """
     import importlib.metadata as _imd

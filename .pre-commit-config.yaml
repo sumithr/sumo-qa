@@ -13,13 +13,15 @@
 #
 # `default_install_hook_types` below makes a plain `pre-commit install`
 # install both the pre-commit and the pre-push hook scripts. Passing
-# `--hook-type` overrides that list, so don't add one.
+# `--hook-type` overrides that list, so don't add one. A clone set up
+# before that key existed has no pre-push hook: re-run the install once.
 #
 # After that:
 #   git commit  → ruff + format + hygiene on staged files (~1s)
-#   git push    → full pytest suite (~2s after the first run; the first
-#                 push will be slower because pre-commit installs the
-#                 project deps into its own isolated venv).
+#   git push    → full pytest suite at 100% coverage (minutes; the first
+#                 push is slower because pre-commit installs the project
+#                 deps into its own isolated venv), plus the scoped mutmut
+#                 gate when the push touches a mutated module or a test.
 #
 # To run all hooks on demand:    pre-commit run --all-files
 # To run pre-push hooks:         pre-commit run --all-files --hook-stage pre-push
@@ -33,6 +35,9 @@
 # specifier disagrees). This decouples the hook from whatever `python`
 # happens to be on the user's PATH (pyenv / multiple Pythons / system vs
 # venv).
+# `default_install_hook_types` needs pre-commit 2.18+; an older binary would
+# warn about the unknown key and install the pre-commit hook only.
+minimum_pre_commit_version: "2.18.0"
 default_install_hook_types: [pre-commit, pre-push]
 
 repos:

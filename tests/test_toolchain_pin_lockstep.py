@@ -638,3 +638,24 @@ def test_ruff_and_hook_mismatches_are_reported_together() -> None:
         "ruff pins disagree:",
         "pytest-cov pins disagree:",
     ]
+
+
+# The delivery skills treat the pre-push pytest hook's output as the full local
+# suite's evidence, so a clone must install that hook by default and a push must
+# run it even when the pushed range changes no files (#773).
+
+
+def _repo_precommit() -> dict[str, Any]:
+    return yaml.safe_load((REPO_ROOT / PRECOMMIT).read_text(encoding="utf-8"))
+
+
+def test_plain_install_adds_the_pre_push_hook() -> None:
+    precommit = _repo_precommit()
+    assert "pre-push" in precommit.get("default_install_hook_types", [])
+
+
+def test_pre_push_pytest_hook_runs_on_every_push() -> None:
+    hooks = [hook for repo in _repo_precommit()["repos"] for hook in repo["hooks"]]
+    pytest_hook = next(hook for hook in hooks if hook["id"] == "pytest")
+    assert pytest_hook["stages"] == ["pre-push"]
+    assert pytest_hook.get("always_run") is True

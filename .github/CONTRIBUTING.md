@@ -21,8 +21,10 @@ git clone https://github.com/sumithr/sumo-qa
 cd sumo-qa
 python -m venv .venv && source .venv/bin/activate   # or: uv sync --all-extras
 python -m pip install -e ".[dev]"
-pre-commit install --install-hooks                  # lint + hygiene on every commit, full pytest suite on every push
+pre-commit install --install-hooks                  # lint + hygiene on every commit; pytest suite + scoped mutmut gate on every push
 ```
+
+That one install adds both the commit and the push hooks. A clone set up before this only has the commit hook; re-run the install once.
 
 ## Before you push
 
