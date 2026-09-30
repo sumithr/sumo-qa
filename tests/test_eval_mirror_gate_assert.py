@@ -208,6 +208,52 @@ def test_a_non_blocker_with_no_pinned_rows_passes():
     assert _one("", NON_BLOCKER_VARS)["pass"] is True
 
 
+# --- Paths match as whole tokens in the pinned first field ---------------------
+
+
+def test_a_backup_file_does_not_satisfy_the_required_stale_anchor():
+    output = (
+        "Inventory drift anchor: .pre-commit-config.yaml.bak:34 (>=1.10.0 → >=1.12.5) | "
+        "Diff updated it: NO | Coverage: UNCOVERED\n"
+        "Surface verifier: pre-commit run pytest --all-files (.pre-commit-config.yaml.bak) "
+        "| Ran: NO | Status: UNVERIFIED (surface verifier), SAFE-blocker"
+    )
+    result = _one(output, BLOCKER_VARS)
+    assert result["pass"] is False
+    assert "has no UNCOVERED `Inventory drift anchor:` row" in result["reason"]
+    assert "has no UNVERIFIED `Surface verifier:` line" in result["reason"]
+
+
+def test_a_backup_of_a_non_mirror_path_does_not_trip_it():
+    row = (
+        "Inventory drift anchor: uv.lock.backup:3 (1.10.0 → 1.12.5) | "
+        "Diff updated it: NO | Coverage: UNCOVERED"
+    )
+    assert _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)["pass"] is True
+
+
+def test_a_path_line_anchor_names_the_path():
+    assert _one(BLOCKER, BLOCKER_VARS)["pass"] is True
+    row = "Inventory drift anchor: uv.lock:3 (1.10.0 → 1.12.5) | Coverage: UNCOVERED"
+    result = _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)
+    assert result["pass"] is False
+    assert "uv.lock named in a drift row" in result["reason"]
+
+
+def test_a_backticked_path_names_the_path():
+    backticked = (
+        "Inventory drift anchor: `.pre-commit-config.yaml` line 34 (>=1.10.0 → >=1.12.5) | "
+        "Coverage: UNCOVERED\n"
+        "Surface verifier: `pre-commit run --all-files` on `.pre-commit-config.yaml` | Ran: NO | "
+        "Status: UNVERIFIED (surface verifier), SAFE-blocker"
+    )
+    assert _one(backticked, BLOCKER_VARS)["pass"] is True
+    row = "Surface verifier: `uv lock --check` against `uv.lock` | Ran: NO | Status: UNVERIFIED"
+    result = _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)
+    assert result["pass"] is False
+    assert "uv.lock named in a verifier row" in result["reason"]
+
+
 # --- A0/A1 differ only by the #493 change --------------------------------------
 
 AB_CONFIG = PROMPTFOO_DIR / "skill-reviewing-before-merge-mirrored-constraints.ab.yaml"

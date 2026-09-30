@@ -49,6 +49,15 @@ function pinnedRows(output) {
   return rows;
 }
 
+// True when `head` names `path` as a whole path token: bounded before by the
+// start, whitespace, a backtick, a quote or `(`, and after by the end, a
+// `:<line>` suffix, whitespace, a backtick, a quote, `)`, `,` or `|`. So
+// `.pre-commit-config.yaml.bak:34` does not name `.pre-commit-config.yaml`.
+function namesPath(head, path) {
+  const escaped = String(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[\\s\`'"(])${escaped}(?=$|:\\d|[\\s\`'"),|])`).test(head);
+}
+
 function hasLabel(row, label) {
   return new RegExp(`^${label}\\b`, 'i').test(row.label);
 }
@@ -59,15 +68,15 @@ module.exports = function mirrorGate(output, context) {
   const fails = [];
   const stale = vars.stale_mirror_path;
   if (stale) {
-    if (!rows.some((r) => r.kind === 'drift' && r.head.includes(stale) && hasLabel(r, 'UNCOVERED'))) {
+    if (!rows.some((r) => r.kind === 'drift' && namesPath(r.head, stale) && hasLabel(r, 'UNCOVERED'))) {
       fails.push(`stale mirror ${stale} has no UNCOVERED \`Inventory drift anchor:\` row`);
     }
-    if (!rows.some((r) => r.kind === 'verifier' && r.head.includes(stale) && hasLabel(r, 'UNVERIFIED'))) {
+    if (!rows.some((r) => r.kind === 'verifier' && namesPath(r.head, stale) && hasLabel(r, 'UNVERIFIED'))) {
       fails.push(`stale mirror ${stale} has no UNVERIFIED \`Surface verifier:\` line`);
     }
   }
   for (const p of vars.not_stale_paths || []) {
-    const bad = rows.find((r) => r.head.includes(p));
+    const bad = rows.find((r) => namesPath(r.head, p));
     if (bad) fails.push(`non-mirror occurrence ${p} named in a ${bad.kind} row (${bad.label || 'no label'})`);
   }
   return fails.length
@@ -77,3 +86,4 @@ module.exports = function mirrorGate(output, context) {
 
 // Exposed for offline verification.
 module.exports.pinnedRows = pinnedRows;
+module.exports.namesPath = namesPath;

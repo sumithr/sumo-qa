@@ -592,7 +592,7 @@ tests:
         ```text
         $ rg -n --hidden -g '!.git' -g '!tests/**' -i 'pytest'
         .github/workflows/compat.yml:22:        run: pip install -c constraints/pytest7-compat.txt -e ".[plugin]"
-        .github/workflows/compat.yml:23:      - run: pytest tests/plugin
+        .github/workflows/compat.yml:23:      - run: pytest tests/test_pytest_plugin.py
         .github/workflows/test.yml:40:      - run: uv run pytest -q
         constraints/pytest7-compat.txt:1:# Deliberately independent of the dev test group: the published pytest
         constraints/pytest7-compat.txt:2:# plugin still supports pytest 7.x, and this environment proves it (docs/compat.md#pytest-7).
@@ -624,13 +624,13 @@ tests:
         ## Fresh verification this turn
         ```text
         $ uv sync --locked && uv run pytest -q
-        tests/plugin/test_plugin.py::test_option_value_reaches_the_fixture PASSED
-        tests/plugin/test_plugin.py::test_fixture_defaults_to_none_without_the_option PASSED
+        tests/test_pytest_plugin.py::test_option_value_reaches_the_fixture PASSED
+        tests/test_pytest_plugin.py::test_fixture_defaults_to_none_without_the_option PASSED
         812 passed, 3 skipped in 39.55s
 
         CI run on this head commit, job `compat-pytest7` (.github/workflows/compat.yml):
         Successfully installed pytest-7.4.4
-        tests/plugin: 41 passed
+        tests/test_pytest_plugin.py: 2 passed
         ```
         The two plugin tests load the real plugin through `pytester` on
         pytest 8.3.4 (the locked version) and assert, verbatim:
@@ -645,7 +645,7 @@ tests:
         on the runtime importer, the published plugin at
         src/sumo_qa/pytest_plugin.py:3-8 (option registration and the fixture
         reading it) running on pytest 8.3, with a coverage-ledger row citing
-        the fresh tests/plugin pytester tests and their quoted assertions, so
+        the fresh tests/test_pytest_plugin.py pytester tests and their quoted assertions, so
         it is COVERED. Classifies constraints/pytest7-compat.txt:3 (and the
         compat.yml install that uses it) as a deliberately independent
         environment with its documented reason on lines 1-2, verified by the
