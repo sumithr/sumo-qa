@@ -57,6 +57,7 @@ sites agree, and it reports every mismatch in one failure.
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -644,9 +645,10 @@ def test_ruff_and_hook_mismatches_are_reported_together() -> None:
 
 
 # The delivery skills treat the pre-push pytest hook's output as the full local
-# suite's evidence, so a clone must install that hook by default and a push must
-# run it even when the pushed range has no net file changes (an `--allow-empty`
-# commit, or a commit plus its revert) (#773).
+# suite's evidence, so a clone must install that hook by default, and whenever
+# pre-commit runs the pre-push stage the hook must run too, even when the pushed
+# range has no net file changes (an `--allow-empty` commit, or a commit plus its
+# revert) (#773).
 
 
 def _pytest_hook() -> dict[str, Any]:
@@ -662,7 +664,9 @@ def test_plain_install_adds_the_pre_push_hook() -> None:
     assert {"pre-commit", "pre-push"} <= set(precommit.get("default_install_hook_types", []))
     # Older pre-commit ignores `default_install_hook_types`; the minimum makes
     # it fail loudly instead of installing the commit hook alone.
-    assert Version(str(precommit.get("minimum_pre_commit_version", "0"))) >= Version("2.18")
+    minimum = precommit.get("minimum_pre_commit_version")
+    assert isinstance(minimum, str), "quote minimum_pre_commit_version in the config"
+    assert Version(minimum) >= Version("2.18")
 
 
 def test_pre_push_pytest_hook_always_runs() -> None:
@@ -672,9 +676,11 @@ def test_pre_push_pytest_hook_always_runs() -> None:
 
 
 def _lowers_verbosity(arg: str) -> bool:
-    if arg == "--quiet" or arg.startswith("--verbosity"):
+    # The plain spellings only: `-q`, `-qq`, `--quiet`, `--verbosity=<negative>`.
+    if re.fullmatch(r"-q+|--quiet", arg):
         return True
-    return arg.startswith("-") and not arg.startswith("--") and "q" in arg
+    match = re.fullmatch(r"--verbosity=(-?\d+)", arg)
+    return match is not None and int(match.group(1)) < 0
 
 
 def test_pre_push_pytest_hook_prints_its_counts() -> None:

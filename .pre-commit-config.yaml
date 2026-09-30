@@ -338,10 +338,9 @@ repos:
         # Run even when the pushed range has no net file changes (an
         # `--allow-empty` commit, or a commit plus its revert): the delivery
         # skills treat this hook's output as the full local suite's
-        # evidence, so `Skipped` would leave a push unverified. pre-commit
-        # itself still runs no pre-push hook for a branch deletion, or for a
-        # new remote branch whose commits are all in the local
-        # remote-tracking refs.
+        # evidence, so `Skipped` would leave a push unverified. Whether the
+        # pre-push stage runs at all stays pre-commit's call (it runs none
+        # for a branch deletion, for example).
         always_run: true
         stages: [pre-push]
 

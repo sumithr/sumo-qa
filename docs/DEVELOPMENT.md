@@ -19,7 +19,7 @@ cd sumo-qa
 python -m venv .venv                                # any venv tool works; uv users: `uv venv`
 source .venv/bin/activate                           # Windows: .venv\Scripts\activate
 python -m pip install -e ".[dev,treesitter]"        # package + pytest, ruff, mypy, pre-commit; treesitter enables the repo-map import-edge tests
-pre-commit install --install-hooks                  # ruff + hygiene on every commit; pytest suite + scoped mutmut gate on every push
+pre-commit install --install-hooks                  # ruff + hygiene on every commit; pytest suite + scoped mutmut gate on push
 ```
 
 The config's `default_install_hook_types` makes that one install add both the commit and the push hooks. A clone that only ever ran the plain install, without the old `--hook-type pre-push` step, has no push hook yet; re-run `pre-commit install --install-hooks` once (`ls "$(git rev-parse --git-path hooks/pre-push)"` confirms it, in a worktree too).
