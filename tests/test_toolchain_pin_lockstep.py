@@ -3,7 +3,8 @@
 
 The end of the module also guards the pre-push pytest hook the delivery skills
 rely on as the full local suite: installed by default, run on every pre-push
-stage, and printing its counts (#773).
+stage, verbose, and with a bare ``pytest`` argv so addopts alone sets its
+options (#773).
 
 pre-commit hook venvs install from PyPI, so a hook that needs project
 dependencies repeats them in its ``additional_dependencies``. Those copies
@@ -55,8 +56,8 @@ repo's ``rev: v<version>`` (exactly one such repo entry must exist), not an
 ``additional_dependencies`` entry, and it must equal the ``ruff==<version>``
 pin in pyproject.
 
-The check is version-agnostic: it hard-codes no version, only asserts that the
-sites agree, and it reports every mismatch in one failure.
+The pin check is version-agnostic: it hard-codes no version, only asserts that
+the sites agree, and it reports every mismatch in one failure.
 """
 
 from __future__ import annotations
@@ -687,11 +688,11 @@ def test_pre_push_pytest_hook_always_runs() -> None:
 
 
 def test_pre_push_pytest_hook_prints_its_counts() -> None:
-    # pre-commit hides a passing hook's output unless `verbose` is set, and any
-    # option that takes pytest's verbosity below addopts' `-q` drops the
-    # "N passed" line, so either would leave the push log without the counts
-    # the skills quote. The hook takes its options from addopts alone: an
-    # option added here is a deliberate change that updates this guard too.
+    # pre-commit hides a passing hook's output unless `verbose` is set, and a
+    # hook option that lowers pytest's verbosity drops the "N passed" line, so
+    # either would leave the push log without the counts the skills quote. The
+    # hook takes its options from addopts alone: an option added here is a
+    # deliberate change that updates this guard too.
     pytest_hook = _pytest_hook()
     assert pytest_hook.get("verbose") is True
     argv = shlex.split(pytest_hook["entry"]) + [str(arg) for arg in pytest_hook.get("args", [])]

@@ -119,15 +119,15 @@ Once installed (above), you get them for free on every `git commit` / `git push`
 | Trigger | What runs | Speed | Why |
 |---|---|---|---|
 | `git commit` | `ruff check --fix`, `ruff format`, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | ~1s | Auto-fixes 95% of CI lint failures before the commit lands. |
-| `git push` | full `pytest` suite at 100% coverage, printing its counts; the scoped mutmut gate when the push touches a mutated module, a test, `conftest.py` or `pyproject.toml` | minutes | Stops broken or under-tested commits reaching the remote. |
+| `git push` | the lint and hygiene hooks above on the pushed files; the full `pytest` suite at 100% coverage, printing its counts; the mutmut gate when the push touches a mutated module or a test (scoped to those files; a `conftest.py` or `pyproject.toml` change forces the full pass) | minutes | Stops broken or under-tested commits reaching the remote. |
 
-The pytest hook runs in pre-commit's own isolated venv, built from the explicit `additional_dependencies` pins in `.pre-commit-config.yaml` (kept in lockstep with `pyproject.toml` by `tests/test_toolchain_pin_lockstep.py`), so it's not coupled to whichever `python` happens to be on your PATH. The first `git push` after install is slower while pre-commit builds that venv; later pushes reuse it.
+The pytest hook runs in pre-commit's own isolated venv, built from the explicit `additional_dependencies` pins in `.pre-commit-config.yaml` (where a hook and `pyproject.toml` pin the same package, `tests/test_toolchain_pin_lockstep.py` keeps the two in lockstep), so it's not coupled to whichever `python` happens to be on your PATH. The first `git push` after install is slower while pre-commit builds that venv; later pushes reuse it.
 
 **On-demand runs** (without committing/pushing):
 
 ```bash
 pre-commit run --all-files                          # ruff + hygiene
-pre-commit run --all-files --hook-stage pre-push    # pytest + scoped mutmut gate
+pre-commit run --all-files --hook-stage pre-push    # every push-stage hook over all files, pytest and the full mutmut pass included
 ```
 
 **Skipping hooks** (rare): `git commit --no-verify` or `git push --no-verify`. CI will still catch anything you skipped, use this only for genuine emergencies.

@@ -39,12 +39,12 @@
 # happens to be on the user's PATH (pyenv / multiple Pythons / system vs
 # venv).
 #
-# This config needs pre-commit 3.2+ for the `pre-commit`/`pre-push` stage
-# names (`default_install_hook_types` itself arrived in 2.18; a binary older
-# than that ignores it and installs the pre-commit hook alone). The minimum
-# below makes an older binary fail with a version error on `pre-commit
-# install --install-hooks` (the documented setup) and on every hook run,
-# instead of leaving the push unguarded without a word.
+# This config needs pre-commit 3.2+: the `pre-commit`/`pre-push` stage names
+# need it, and so do the pinned pre-commit-hooks. The minimum below makes an
+# older binary fail with a version error on `pre-commit install
+# --install-hooks` (the documented setup) and on every hook run, rather than
+# misreading the config (a binary before 2.18 would also ignore
+# `default_install_hook_types` and leave the push hook uninstalled).
 minimum_pre_commit_version: "3.2.0"
 default_install_hook_types: [pre-commit, pre-push]
 
