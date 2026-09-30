@@ -47,10 +47,10 @@ defaultTest:
     # Structural mirror gate (shared by the base corpus and its .ab.yaml):
     # a stale-mirror seed must carry the stale path in an UNCOVERED
     # inventory-drift row and an UNVERIFIED surface-verifier line; no seed may
-    # put a non-mirror path in either pinned shape, except a `Ran: YES`,
-    # DISCHARGED verifier line for an environment the seed lists in
-    # `verifiable_paths`. Verdict and command wording are judged by the
-    # llm-rubric below, which this never loosens.
+    # put a non-mirror path in a drift row or in any verifier line other than
+    # a `Ran: YES`, DISCHARGED one (a run already done is never a sync
+    # demand). Verdict and command wording are judged by the llm-rubric
+    # below, which this never loosens.
     - type: javascript
       value: file://asserts/mirror-gate.js
     - type: llm-rubric
@@ -644,9 +644,6 @@ tests:
         `result.assert_outcomes(passed=1)` for an inner test asserting
         `risk_ledger is None`.
       not_stale_paths: [constraints/pytest7-compat.txt, .github/workflows/compat.yml, pyproject.toml:31]
-      # The compat job's own fresh run is supplied, so a DISCHARGED verifier
-      # line citing it is evidence; a drift row or an UNVERIFIED line is not.
-      verifiable_paths: [constraints/pytest7-compat.txt, .github/workflows/compat.yml]
       expected_shape: >-
         Concise evidence-led runtime review. Names the risk the bump carries
         on the runtime importer, the published plugin at

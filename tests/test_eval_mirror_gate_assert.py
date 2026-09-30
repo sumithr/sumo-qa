@@ -6,9 +6,9 @@ The gate is structural. It reads only the two pinned row shapes the review
 module emits, `Inventory drift anchor: ... | Coverage: ...` and
 `Surface verifier: ... | Status: ...`: a stale-mirror seed must name the stale
 path in an UNCOVERED drift row and an UNVERIFIED verifier line, and no seed may
-name a non-mirror path in either shape, whatever its label, except a
-`Ran: YES`, DISCHARGED verifier line for a path the seed lists in
-`verifiable_paths` (an environment with a fresh run of its own). Markdown tables,
+name a non-mirror path in a drift row, whatever its label, or in any verifier
+line except one that reads `Ran: YES` and `Status: DISCHARGED` (a run already
+done is never a sync demand). Markdown tables,
 `Risk N:` lines and free text never pass or fail it; the verdict and the
 clearing command's wording are the llm-rubric's to judge. It runs under node,
 the promptfoo runtime, so these tests execute the real file both configs load.
@@ -150,33 +150,37 @@ def test_blocker_without_a_pinned_unverified_verifier_line_fails(verifier_line):
         "Inventory drift anchor: CHANGELOG.md:212 (1.10.0 → 1.12.5) | Diff updated it: NO | Coverage: N/A",
         "**Inventory drift anchor: `CHANGELOG.md:212` (1.10.0 → 1.12.5) | Coverage: COVERED**",
         "Surface verifier: git log CHANGELOG.md | Ran: NO | Status: UNVERIFIED (surface verifier), SAFE-blocker",
-        "Surface verifier: review CHANGELOG.md | Ran: YES | Status: DISCHARGED",
     ],
     ids=[
         "drift-uncovered",
         "drift-na",
         "drift-covered-markdown",
         "verifier-unverified",
-        "verifier-discharged",
     ],
 )
-def test_a_pinned_row_naming_a_non_mirror_path_fails_whatever_its_label(row):
+def test_a_drift_row_or_an_undischarged_line_naming_a_non_mirror_path_fails(row):
     result = _one(f"{BLOCKER}\n{row}", BLOCKER_VARS)
     assert result["pass"] is False
     assert "CHANGELOG.md named in a" in result["reason"]
 
 
-COMPAT_VARS = {
-    "not_stale_paths": [".github/workflows/compat.yml", "constraints/pytest7-compat.txt"],
-    "verifiable_paths": [".github/workflows/compat.yml"],
-}
+COMPAT_VARS = {"not_stale_paths": [".github/workflows/compat.yml", "pyproject.toml:31", "uv.lock"]}
 COMPAT_HEAD = "Surface verifier: CI job compat-pytest7 (.github/workflows/compat.yml)"
 
 
-def test_a_discharged_line_citing_a_verifiable_environment_passes():
-    """Seed 4's independent compat job, verified by its own fresh run, is
-    evidence: a `Ran: YES`, DISCHARGED line naming it is the rubric's."""
-    row = f"{COMPAT_HEAD} | Ran: YES | Status: DISCHARGED"
+@pytest.mark.parametrize(
+    "row",
+    [
+        f"{COMPAT_HEAD} | Ran: YES | Status: DISCHARGED",
+        "Surface verifier: uv sync --locked && uv run pytest -q (uv.lock) | Ran: YES | Status: DISCHARGED",
+        "Surface verifier: compat job (.github/workflows/compat.yml installs the pyproject.toml:31 "
+        "plugin extra) | Ran: YES | Status: DISCHARGED",
+    ],
+    ids=["independent-env", "locked-sync", "mixed-head"],
+)
+def test_a_line_citing_a_run_already_done_passes(row):
+    """A `Ran: YES`, DISCHARGED verifier line cites evidence, never a sync
+    demand, whatever non-mirror paths its head names."""
     assert _one(row, COMPAT_VARS)["pass"] is True
     assert _one(f"{BLOCKER}\n{row}", {**BLOCKER_VARS, **COMPAT_VARS})["pass"] is True
 
@@ -185,28 +189,23 @@ def test_a_discharged_line_citing_a_verifiable_environment_passes():
     "tail",
     [
         "| Ran: NO | Status: DISCHARGED",
+        "| Ran: YES | Status: UNVERIFIED (surface verifier), SAFE-blocker",
         "| Ran: NO | Status: PENDING",
         "| Ran: NO | Status: SAFE-blocker, UNVERIFIED",
         "| Ran: NO | Status: N/A",
         "| Ran: NO",
     ],
-    ids=["discharged-not-ran", "pending", "blocker-first", "na", "no-status"],
+    ids=["discharged-not-ran", "ran-unverified", "pending", "blocker-first", "na", "no-status"],
 )
-def test_any_other_line_citing_a_verifiable_environment_fails(tail):
+def test_any_other_verifier_line_naming_a_non_mirror_path_fails(tail):
     result = _one(f"{COMPAT_HEAD} {tail}", COMPAT_VARS)
     assert result["pass"] is False
     assert ".github/workflows/compat.yml named in a verifier row" in result["reason"]
 
 
-def test_a_verifiable_environment_in_a_drift_row_fails():
+def test_a_non_mirror_environment_in_a_drift_row_fails():
     row = "Inventory drift anchor: .github/workflows/compat.yml:3 (a → b) | Coverage: COVERED"
     assert _one(row, COMPAT_VARS)["pass"] is False
-
-
-def test_a_verifiable_paths_string_fails_loudly():
-    result = _one(BLOCKER, {**BLOCKER_VARS, "verifiable_paths": "uv.lock"})
-    assert result["pass"] is False
-    assert "verifiable_paths must be a list" in result["reason"]
 
 
 def test_a_not_stale_paths_string_fails_loudly():
@@ -331,6 +330,88 @@ def test_a_location_suffix_names_the_path(anchor):
     output = BLOCKER.replace(".pre-commit-config.yaml:34 ", f"{anchor} ")
     assert anchor in output
     assert _one(output, BLOCKER_VARS)["pass"] is True
+
+
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        ".pre-commit-config.yaml:34-36",
+        ".pre-commit-config.yaml#L34-L36",
+        ".pre-commit-config.yaml:",
+    ],
+    ids=["hyphen-range", "github-anchor-range", "sentence-colon"],
+)
+def test_a_location_suffix_names_the_path_in_a_verifier_head(anchor):
+    output = BLOCKER.replace("(.pre-commit-config.yaml hook", f"({anchor} hook")
+    assert anchor in output
+    assert _one(output, BLOCKER_VARS)["pass"] is True
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        ".pre-commit-config.yaml.bak.",
+        ".pre-commit-config.yaml:34.bak",
+        ".pre-commit-config.yaml..",
+        ".pre-commit-config.yaml#L34.bak",
+    ],
+)
+def test_a_sentence_end_never_admits_another_file(head):
+    output = BLOCKER.replace(".pre-commit-config.yaml:34 ", f"{head} ").replace(
+        "(.pre-commit-config.yaml hook", f"({head} hook"
+    )
+    assert _one(output, BLOCKER_VARS)["pass"] is False
+
+
+@pytest.mark.parametrize(
+    ("named", "expected"),
+    [
+        ("pyproject.toml#L31", False),
+        ("pyproject.toml#L31–L33", False),
+        ("pyproject.toml:31–33.", False),
+        ("pyproject.toml:31:4", False),
+        ("pyproject.toml#L310", True),
+        ("pyproject.toml:310", True),
+    ],
+)
+def test_a_configured_path_line_matches_its_own_location_forms(named, expected):
+    row = f"Inventory drift anchor: {named} (>=7 → >=8) | Coverage: UNCOVERED"
+    assert _one(row, {"not_stale_paths": ["pyproject.toml:31"]})["pass"] is expected
+
+
+def _seeds():
+    for config in CONFIGS:
+        data = yaml.safe_load(config.read_text(encoding="utf-8"))
+        for test in data["tests"]:
+            yield pytest.param(test["vars"], id=f"{config.stem}:{test['description'][:40]}")
+
+
+def _correct_rows(variables: dict) -> str:
+    rows = []
+    stale = variables.get("stale_mirror_path")
+    if stale:
+        rows.append(
+            f"Inventory drift anchor: {stale}:9 (>=1 → >=2) | Diff updated it: NO | Coverage: UNCOVERED"
+        )
+        rows.append(
+            f"Surface verifier: pre-commit run --all-files ({stale}) | Ran: NO | Status: UNVERIFIED (surface verifier), SAFE-blocker"
+        )
+    for path in variables.get("not_stale_paths", []):
+        rows.append(f"Surface verifier: its own run ({path}) | Ran: YES | Status: DISCHARGED")
+    return "\n".join(rows)
+
+
+@pytest.mark.parametrize("variables", list(_seeds()))
+def test_each_real_seed_passes_its_correct_rows(variables):
+    assert _one(_correct_rows(variables), variables)["pass"] is True
+
+
+@pytest.mark.parametrize("variables", list(_seeds()))
+def test_each_real_seed_fails_a_drift_row_for_every_non_mirror_path(variables):
+    for path in variables.get("not_stale_paths", []):
+        row = f"Inventory drift anchor: {path} (a → b) | Coverage: UNCOVERED"
+        result = _one(f"{_correct_rows(variables)}\n{row}", variables)
+        assert result["pass"] is False, path
 
 
 def test_a_numeric_filename_suffix_is_another_file():

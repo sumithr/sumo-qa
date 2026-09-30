@@ -32,10 +32,10 @@ defaultTest:
     # Structural mirror gate (shared by the base corpus and its .ab.yaml):
     # a stale-mirror seed must carry the stale path in an UNCOVERED
     # inventory-drift row and an UNVERIFIED surface-verifier line; no seed may
-    # put a non-mirror path in either pinned shape, except a `Ran: YES`,
-    # DISCHARGED verifier line for an environment the seed lists in
-    # `verifiable_paths`. Verdict and command wording are judged by the
-    # llm-rubric below, which this never loosens.
+    # put a non-mirror path in a drift row or in any verifier line other than
+    # a `Ran: YES`, DISCHARGED one (a run already done is never a sync
+    # demand). Verdict and command wording are judged by the llm-rubric
+    # below, which this never loosens.
     - type: javascript
       value: file://asserts/mirror-gate.js
     - type: llm-rubric
