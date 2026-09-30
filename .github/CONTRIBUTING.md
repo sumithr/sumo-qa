@@ -24,7 +24,7 @@ python -m pip install -e ".[dev]"
 pre-commit install --install-hooks                  # lint + hygiene on every commit; pytest suite + scoped mutmut gate on push
 ```
 
-That one install adds both the commit and the push hooks. A clone that only ever ran the plain install, without the old `--hook-type pre-push` step, has no push hook yet; re-run the install once.
+That one install adds both the commit and the push hooks. If `ls "$(git rev-parse --git-path hooks/pre-push)"` finds no push hook, re-run the install once.
 
 ## Before you push
 
