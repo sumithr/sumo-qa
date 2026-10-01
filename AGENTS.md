@@ -115,4 +115,4 @@ The host needs to re-read its MCP config:
 
 ## Review guidelines
 
-- On release-please PRs (`chore(main): release X.Y.Z`), do not flag `.claude-plugin/marketplace.json`, `assets/preview-doctor.txt`, `assets/preview-doctor.svg` or `plugin_packaging/generated/manifest.json` as stale against the new version. `.github/workflows/release-please.yml` regenerates and commits them after the version bump.
+- On release-please PRs (`chore(main): release X.Y.Z`), do not flag version-bearing files as stale against the new version (for example `.claude-plugin/marketplace.json`, `assets/preview-doctor.*`, `plugin_packaging/generated/manifest.json`). The "Regenerate version-bearing assets" step in `.github/workflows/release-please.yml` regenerates every file in its `git add` list and commits them to the release PR branch after the version bump.
