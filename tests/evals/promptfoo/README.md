@@ -517,7 +517,7 @@ The JS var concatenates the root and the declared modules verbatim (each under a
 
 ### One-time setup
 
-**Node 20.20+ or 22.22+** is required (`promptfoo` ships ESM). If you use nvm:
+**Node 22.22+** is required (`promptfoo` ships ESM). If you use nvm:
 `nvm use 24` (or any supported version).
 
 Install promptfoo as a local dev dependency (pinned in `package.json`):

@@ -66,7 +66,7 @@ dependencies = [
   # pyjwt < 2.13.0: GHSA-xgmm-8j9v-c9wx, GHSA-993g-76c3-p5m4,
   #   GHSA-jq35-7prp-9v3f, GHSA-w7vc-732c-9m39, GHSA-fhv5-28vv-h8m8.
   # pyjwt < 2.14.0: CVE-2026-101917, CVE-2026-102265 through CVE-2026-102274.
-  #   pyjwt < 2.15.0: CVE-2026-101918.
+  # pyjwt < 2.15.0: CVE-2026-101918.
   "pyjwt>=2.15.0",
   # python-multipart < 0.0.31: GHSA-5rvq-cxj2-64vf, GHSA-vffw-93wf-4j4q,
   #   GHSA-6jv3-5f52-599m, GHSA-v9pg-7xvm-68hf.
@@ -133,8 +133,9 @@ dev = [
   # resolution drags in vulnerable bleach/tornado, so the pip-audit hook fails
   # until they are floored here. Drop once a maintained link-checker replaces
   # pytest-check-links (see the pytest<9 cap note above).
-  # tornado < 6.5.9: GHSA-chx6-46f5-w4vp, GHSA-c2m8-h5v5-343r,
-  #   GHSA-3hv7-mjh2-fv65. tornado < 6.5.8: CVE-2026-82397. tornado < 6.5.7: GHSA-pw6j-qg29-8w7f,
+  # tornado < 6.5.9: GHSA-chx6-46f5-w4vp, GHSA-c2m8-h5v5-343r, GHSA-3hv7-mjh2-fv65.
+  # tornado < 6.5.8: CVE-2026-82397.
+  # tornado < 6.5.7: GHSA-pw6j-qg29-8w7f,
   #   CVE-2026-49853, CVE-2026-49854, CVE-2026-49855.
   "tornado>=6.5.9",
   # bleach < 6.4.0: GHSA-gj48-438w-jh9v, GHSA-8rfp-98v4-mmr6, and
@@ -166,6 +167,10 @@ dev = [
   # Security floor for pre-commit's transitive virtualenv.
   # virtualenv < 21.7.13: PYSEC-2026-4011 through PYSEC-2026-4014.
   "virtualenv>=21.7.13",
+  # Security floor for pytest-check-links -> requests -> urllib3 (the vertex
+  # extra carries the same floor for its own requests path).
+  # urllib3 < 2.8.0: CVE-2026-97687, CVE-2026-97688, CVE-2026-97689.
+  "urllib3>=2.8.0",
   # Windows ships no system tz database; Hypothesis `st.timezones()` strategy
   # needs `tzdata` to enumerate IANA zones via stdlib `zoneinfo`.
   "tzdata; platform_system == 'Windows'",
