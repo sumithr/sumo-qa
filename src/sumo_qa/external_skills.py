@@ -207,31 +207,28 @@ def install_external_skill(
         _check_checkout_links(checkout)
         # One guard around snapshot, CLI run, digest, and record: concurrent
         # installs can neither interleave their writes nor lose records.
+        args = ["add", str(checkout), "--skill", skill, "-a", agent, "-y"]
+        if scope == "global":
+            args.append("-g")
+        # Every check that can refuse the run happens before the snapshot, so a
+        # refusal never rolls back folders the CLI did not write.
+        command = build_skills_cli_command(_pinned_npx(timeout), args)
         with _lock_guard(lock_base):
             before = _folder_identities(skill, scope, cwd, home)
             before_entries = {folder: _entry_identity(folder) for folder in before}
-            args = ["add", str(checkout), "--skill", skill, "-a", agent, "-y"]
-            if scope == "global":
-                args.append("-g")
-            written: list[InstalledSkill] = []
-            recording = False
             try:
-                command, stdout, stderr = _run_skills_cli(args, timeout=timeout, cwd=cwd)
-                after = _folder_identities(skill, scope, cwd, home)
-                written = _written_folders(skill, scope, before, after)
-                recording = True
+                stdout, stderr = _run_cli_process(command, timeout, cwd)
+            except BaseException as exc:
+                _roll_back_failed_cli(exc, skill, scope, cwd, home, before, before_entries)
+                raise
+            after = _folder_identities(skill, scope, cwd, home)
+            written = _written_folders(skill, scope, before, after)
+            try:
                 records = _provenance_records(
                     written, remote_url, requested_ref, resolved_ref, skill, agent, scope, lock_base
                 )
                 _merge_into_lock(lock_base, records)
             except BaseException as exc:
-                if not written:
-                    # The CLI failed (or was interrupted) after writing: roll back
-                    # whatever it wrote, so nothing is left to run unrecorded.
-                    with suppress(OSError):
-                        written = _changed_folders(
-                            before, _folder_identities(skill, scope, cwd, home)
-                        )
                 remaining = _roll_back(written, before_entries)
                 paths = ", ".join(f.as_posix() for f in remaining)
                 if not isinstance(exc, Exception):
@@ -242,13 +239,10 @@ def install_external_skill(
                         )
                     raise  # an interrupt is never turned into an ordinary error
                 if remaining:
-                    failed = "provenance could not be recorded" if recording else "install failed"
                     raise ExternalSkillProvenanceError(
-                        f"{failed} ({exc}) and these unrecorded "
+                        f"provenance could not be recorded ({exc}) and these unrecorded "
                         f"install folders remain: {paths}; remove them before executing"
                     ) from exc
-                if not recording:
-                    raise  # nothing was left behind: keep the CLI's own typed error
                 raise ExternalSkillProvenanceError(
                     f"provenance could not be recorded, so the install was rolled back: {exc}"
                 ) from exc
@@ -529,13 +523,18 @@ def _cli_spec() -> str:
 def _run_skills_cli(
     args: list[str], timeout: int, cwd: Path | None = None
 ) -> tuple[list[str], str, str]:
+    command = build_skills_cli_command(_pinned_npx(timeout), args)
+    stdout, stderr = _run_cli_process(command, timeout, cwd)
+    return command, stdout, stderr
+
+
+def _pinned_npx(timeout: int) -> str:
+    """The npx on PATH, once it has proven it runs exactly the pinned CLI."""
     npx = shutil.which("npx")
     if not npx:
         raise NodeNotFoundError("npx not found on PATH")
     _ensure_pinned_cli(npx, timeout)
-    command = build_skills_cli_command(npx, args)
-    stdout, stderr = _run_cli_process(command, timeout, cwd)
-    return command, stdout, stderr
+    return npx
 
 
 def _ensure_pinned_cli(npx: str, timeout: int) -> None:
@@ -731,6 +730,39 @@ def _roll_back(
         if _entry_identity(folder) is not None:
             remaining.append(folder)
     return remaining
+
+
+def _roll_back_failed_cli(
+    exc: BaseException,
+    skill: str,
+    scope: str,
+    cwd: Path,
+    home: Path,
+    before: dict[Path, tuple[InstalledSkill, tuple[int, int]]],
+    before_entries: dict[Path, tuple[int, int] | _Uninspectable | None],
+) -> None:
+    """Remove what a failed or interrupted CLI run wrote before it stopped.
+
+    Returns when nothing is left behind (the caller re-raises the CLI's own
+    error); otherwise names what may remain rather than leave it to run
+    unrecorded. An interrupt is only announced, never replaced.
+    """
+    try:
+        after = _folder_identities(skill, scope, cwd, home)
+    except OSError as scan_error:
+        leftover = f"sumo-qa could not check what it left behind ({scan_error})"
+    else:
+        remaining = _roll_back(_changed_folders(before, after), before_entries)
+        if not remaining:
+            return
+        paths = ", ".join(f.as_posix() for f in remaining)
+        leftover = f"these unrecorded install folders remain: {paths}"
+    if not isinstance(exc, Exception):
+        _announce(f"sumo-qa: interrupted install: {leftover}; remove them before executing\n")
+        return
+    raise ExternalSkillProvenanceError(
+        f"install failed ({exc}) and {leftover}; remove them before executing"
+    ) from exc
 
 
 def _remove_install(folder: Path) -> None:

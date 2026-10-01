@@ -98,6 +98,8 @@ class FakeToolchain:
                 link.symlink_to(skill_dir, target_is_directory=True)
             if self.add_fails == "timeout":
                 raise subprocess.TimeoutExpired(command, 1)
+            if self.add_fails == "interrupt":
+                raise KeyboardInterrupt
             if self.add_fails == "exit":
                 return _completed(command, stderr="write failed", returncode=1)
             return _completed(command, stdout="installed")
@@ -797,11 +799,77 @@ def test_a_cli_failure_whose_rollback_leaves_folders_names_them(monkeypatch, too
     toolchain.add_fails = "exit"
     monkeypatch.setattr(ext, "_remove_install", lambda folder: None)
 
-    with pytest.raises(ext.ExternalSkillProvenanceError, match="remain") as excinfo:
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="^install failed") as excinfo:
         _install(toolchain)
 
     assert isinstance(excinfo.value.__cause__, ext.ExternalSkillCLIError)
     assert ".agents/skills/find-skills" in str(excinfo.value).replace(os.sep, "/")
+
+
+def test_a_cli_failure_whose_leftovers_cannot_be_checked_says_so(monkeypatch, toolchain) -> None:
+    toolchain.add_fails = "exit"
+    real_identities = ext._folder_identities
+    scans = []
+
+    def second_scan_fails(*args):
+        scans.append(args)
+        if len(scans) > 1:
+            raise PermissionError("denied")
+        return real_identities(*args)
+
+    monkeypatch.setattr(ext, "_folder_identities", second_scan_fails)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="could not check") as excinfo:
+        _install(toolchain)
+
+    assert isinstance(excinfo.value.__cause__, ext.ExternalSkillCLIError)
+
+
+def test_an_interrupted_cli_rolls_back_and_propagates_unwrapped(toolchain, capsys) -> None:
+    toolchain.add_fails = "interrupt"
+
+    with pytest.raises(KeyboardInterrupt):
+        _install(toolchain)
+
+    assert not (toolchain.cwd / ".agents" / "skills" / "find-skills").exists()
+    assert capsys.readouterr().err == ""
+
+
+def test_an_interrupted_cli_that_leaves_folders_announces_them(
+    monkeypatch, toolchain, capsys
+) -> None:
+    toolchain.add_fails = "interrupt"
+    monkeypatch.setattr(ext, "_remove_install", lambda folder: None)
+
+    with pytest.raises(KeyboardInterrupt):
+        _install(toolchain)
+
+    captured = capsys.readouterr()
+    assert ".agents/skills/find-skills" in captured.err.replace(os.sep, "/")
+    assert captured.out == ""
+
+
+def test_a_refused_cli_run_never_rolls_back_a_folder_it_did_not_write(
+    monkeypatch, toolchain
+) -> None:
+    """A version refusal happens before the snapshot: a user's concurrent edit
+    to an existing skill folder is never mistaken for an install to undo."""
+    user_copy = toolchain.cwd / ".agents" / "skills" / "find-skills"
+    user_copy.mkdir(parents=True)
+    (user_copy / "SKILL.md").write_text("---\nname: find-skills\n---\nmine\n", "utf-8")
+
+    def user_rewrites_folder_then_probe_fails(npx, timeout):
+        shutil.rmtree(user_copy)
+        user_copy.mkdir()
+        (user_copy / "SKILL.md").write_text("---\nname: find-skills\n---\nedited\n", "utf-8")
+        raise ext.SkillsCLIVersionError("expected the pin")
+
+    monkeypatch.setattr(ext, "_ensure_pinned_cli", user_rewrites_folder_then_probe_fails)
+
+    with pytest.raises(ext.SkillsCLIVersionError):
+        _install(toolchain)
+
+    assert "edited" in (user_copy / "SKILL.md").read_text("utf-8")
 
 
 def test_rollback_survives_a_written_folder_that_already_vanished(monkeypatch, toolchain) -> None:
