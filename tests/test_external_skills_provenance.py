@@ -946,11 +946,14 @@ def test_an_entry_uninspectable_before_the_install_is_never_removed(monkeypatch,
     removed = []
     monkeypatch.setattr(ext, "_remove_install", removed.append)
     real_identity = ext._entry_identity
-    calls = {"n": 0}
+    folder = toolchain.cwd / ".agents" / "skills" / "find-skills"
+    seen = []
 
     def uninspectable_first_time(path):
-        calls["n"] += 1
-        return ext._Uninspectable() if calls["n"] == 1 else real_identity(path)
+        if path == folder and not seen:
+            seen.append(path)
+            return ext._Uninspectable()
+        return real_identity(path)
 
     _install(toolchain)  # a pre-existing copy the next install rewrites
     monkeypatch.setattr(ext, "_entry_identity", uninspectable_first_time)
@@ -1499,6 +1502,31 @@ def test_rollback_keeps_a_pre_existing_alias_the_cli_never_touched(monkeypatch, 
 
     assert alias.is_symlink()  # the user's alias survives
     assert not canonical.exists()  # the folder the CLI rewrote is removed
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+@pytest.mark.parametrize("failure", ["cli", "record"])
+def test_rollback_keeps_a_dangling_alias_the_cli_never_touched(
+    monkeypatch, toolchain, failure
+) -> None:
+    """An alias that pointed at a not-yet-installed canonical folder had no
+    SKILL.md before the run; it is still the user's entry, not the CLI's."""
+    canonical = toolchain.cwd / ".agents" / "skills" / "find-skills"
+    alias = toolchain.cwd / ".codex" / "skills" / "find-skills"
+    alias.parent.mkdir(parents=True)
+    alias.symlink_to(canonical, target_is_directory=True)
+    if failure == "cli":
+        toolchain.add_fails = "exit"
+    else:
+        monkeypatch.setattr(
+            ext, "_write_atomic", lambda *a, **k: (_ for _ in ()).throw(OSError("full"))
+        )
+
+    with pytest.raises(ext.ExternalSkillError):
+        _install(toolchain, agent="codex")
+
+    assert alias.is_symlink()  # the user's alias survives
+    assert not canonical.exists()  # the folder the CLI wrote is removed
 
 
 def test_temporary_checkouts_with_read_only_files_are_removed(tmp_path) -> None:

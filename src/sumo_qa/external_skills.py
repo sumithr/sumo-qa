@@ -215,7 +215,12 @@ def install_external_skill(
         # installs can neither interleave their writes nor lose records.
         with _lock_guard(lock_base):
             before = _folder_identities(skill, scope, cwd, home)
-            before_entries = {folder: _entry_identity(folder) for folder in before}
+            # Every entry that could be written, with or without a SKILL.md: a
+            # dangling alias is the user's, and rollback must keep it.
+            before_entries = {
+                candidate.path.parent: _entry_identity(candidate.path.parent)
+                for candidate in _iter_installed_skill_candidates(skill, scope, cwd, home)
+            }
             try:
                 stdout, stderr = _run_cli_process(command, timeout, cwd)
             except BaseException as exc:
