@@ -418,9 +418,14 @@ def test_scan_committed_java_multimodule_fixture_exact_edge_set():
     repo_map = scan_repo(fixture, generator_version="t")
     app = "file:app/src/main/java/com/acme/app"
     core = "file:core/src/main/java/com/acme/core"
-    edges = {(e.source, e.target): e.confidence for e in repo_map.edges if e.type == "imports"}
-    assert edges == {
-        (f"{app}/App.java", f"{core}/Money.java"): "high",
-        (f"{app}/App.java", f"{core}/util/Strings.java"): "high",
-        (f"{app}/service/OrderService.java", f"{core}/Money.java"): "high",
-    }
+    # A sorted list, not a dict, so a duplicated Strings edge fails the comparison.
+    edges = sorted(
+        (e.source, e.target, e.confidence) for e in repo_map.edges if e.type == "imports"
+    )
+    assert edges == sorted(
+        [
+            (f"{app}/App.java", f"{core}/Money.java", "high"),
+            (f"{app}/App.java", f"{core}/util/Strings.java", "high"),
+            (f"{app}/service/OrderService.java", f"{core}/Money.java", "high"),
+        ]
+    )
