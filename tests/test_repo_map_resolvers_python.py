@@ -11,10 +11,12 @@ regular-package-over-module precedence (#461).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from sumo_qa.repo_map_resolvers import get_resolver, registered_languages
-from sumo_qa.repo_map_resolvers.base import RawImport
+from sumo_qa.repo_map_resolvers.base import PreparableResolver, RawImport, ScanContext
 from sumo_qa.repo_map_resolvers.python import PythonResolver
 from sumo_qa.repo_map_treesitter import TREESITTER_AVAILABLE
 
@@ -568,3 +570,73 @@ def test_resolve_relative_import_regular_package_at_anchor_ignores_a_root_level_
         "app/pkg/sub/__init__.py",
         "app/pkg/sub/x.py",
     ]
+
+
+# ---------- src layout (repository context, prepare) ----------
+
+
+def _prepared(files: set[str]) -> PythonResolver:
+    return resolver.prepare(ScanContext(Path("."), frozenset(files)))
+
+
+_CART = RawImport(module="shop.cart", level=0, names=("total",), function_local=False)
+
+
+def test_python_resolver_is_preparable():
+    assert isinstance(resolver, PreparableResolver)
+
+
+def test_prepare_src_layout_resolves_an_import_from_outside_src():
+    # A project marker beside src/ holding a regular package is the PyPA src
+    # layout: the installed package is importable from tests/ and scripts/.
+    for marker in ("pyproject.toml", "setup.py", "setup.cfg"):
+        files = {marker, "src/shop/__init__.py", "src/shop/cart.py", "tests/test_cart.py"}
+        assert _prepared(files).resolve("tests/test_cart.py", _CART, files) == [
+            "src/shop/cart.py"
+        ], marker
+
+
+def test_prepare_src_root_is_scoped_to_its_project():
+    # Monorepo: pkgs/a is a src-layout project, pkgs/b is not inside it, so
+    # only files under pkgs/a gain pkgs/a/src as a root.
+    files = {
+        "pkgs/a/pyproject.toml",
+        "pkgs/a/src/shop/__init__.py",
+        "pkgs/a/src/shop/cart.py",
+        "pkgs/a/tests/test_cart.py",
+        "pkgs/b/main.py",
+    }
+    prepared = _prepared(files)
+    assert prepared.resolve("pkgs/a/tests/test_cart.py", _CART, files) == [
+        "pkgs/a/src/shop/cart.py"
+    ]
+    assert prepared.resolve("pkgs/b/main.py", _CART, files) == []
+
+
+def test_prepare_needs_a_project_marker_and_a_regular_package():
+    # No marker: nothing proves src/ is installed. Marker but src/shop is a
+    # namespace dir: the convention is not met either. Both under-edge.
+    no_marker = {"src/shop/__init__.py", "src/shop/cart.py", "tests/test_cart.py"}
+    namespace = {"pyproject.toml", "src/shop/cart.py", "tests/test_cart.py"}
+    for files in (no_marker, namespace):
+        assert _prepared(files).resolve("tests/test_cart.py", _CART, files) == []
+
+
+def test_prepare_ancestor_roots_still_win_over_the_src_root():
+    # The importer's own directory comes first on sys.path, so a same-named
+    # package beside the importer shadows the installed one.
+    files = {
+        "pyproject.toml",
+        "src/shop/__init__.py",
+        "src/shop/cart.py",
+        "scripts/shop/__init__.py",
+        "scripts/shop/cart.py",
+        "scripts/run.py",
+    }
+    assert _prepared(files).resolve("scripts/run.py", _CART, files) == ["scripts/shop/cart.py"]
+
+
+def test_prepare_does_not_mutate_the_registered_resolver():
+    files = {"pyproject.toml", "src/shop/__init__.py", "src/shop/cart.py", "tests/test_cart.py"}
+    _prepared(files)
+    assert get_resolver("python").resolve("tests/test_cart.py", _CART, files) == []

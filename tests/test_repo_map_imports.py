@@ -108,10 +108,10 @@ def test_scan_committed_python_fixture_exact_edge_set():
     # anchors to the package (its __init__) plus the submodule; `from .models
     # import Item` stops at the models package because Item is a name, not a
     # submodule; the function-local `from shop.tax import RATE` is medium.
-    # True negatives: `requests`, `decimal` and `dataclasses` are external.
-    # Accepted under-edge: scripts/report.py's `from shop.cart import total`
-    # loads cart.py once the package is installed, but src/ is not an ancestor
-    # of scripts/, so nothing in the file set proves it is on sys.path.
+    # scripts/report.py sits outside src/ but inside the src-layout project
+    # (pyproject.toml beside src/shop/), so its `from shop.cart import total`
+    # resolves through the installed-package root. True negatives: `requests`,
+    # `decimal` and `dataclasses` are external.
     repo_map = scan_repo(_FIXTURES / "python_project", generator_version="t")
     # A sorted list, not a dict, so a duplicated edge fails the comparison.
     edges = sorted((e.source, e.target, e.confidence) for e in _import_edges(repo_map))
@@ -123,6 +123,7 @@ def test_scan_committed_python_fixture_exact_edge_set():
             ("file:src/shop/cart.py", "file:src/shop/tax.py", "medium"),
             ("file:src/shop/pricing.py", "file:src/shop/models/__init__.py", "high"),
             ("file:src/shop/models/__init__.py", "file:src/shop/models/item.py", "high"),
+            ("file:scripts/report.py", "file:src/shop/cart.py", "high"),
         ]
     )
 

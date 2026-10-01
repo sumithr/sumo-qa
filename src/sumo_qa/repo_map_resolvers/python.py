@@ -21,6 +21,13 @@ Resolution rules (ported from UA, then aligned with the import system):
   **deepest first** (the effective ``sys.path`` order), so a monorepo /
   multi-root layout resolves against the nearest source root before a
   shallower one.
+- **src layout** (repository context, ``prepare``): a ``src/`` directory
+  holding a regular package, beside a project marker (``pyproject.toml``,
+  ``setup.py`` or ``setup.cfg``), is where the installed package is imported
+  from. Every file under that project gains ``src/`` as a root after its own
+  ancestors, so ``tests/`` and ``scripts/`` importing the package resolve.
+  Without the marker or the package nothing proves ``src/`` is on
+  ``sys.path``, so it stays an under-edge.
 - **One component walk for both forms**: each dotted component is owned by
   the first search prefix holding a regular package (``comp/__init__.py``)
   or a module (``comp.py``). A regular package confines the rest of the
@@ -57,7 +64,7 @@ from __future__ import annotations
 
 import types
 
-from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, register
+from sumo_qa.repo_map_resolvers.base import LanguageConfig, RawImport, ScanContext, register
 from sumo_qa.repo_map_treesitter import TSNode, parse
 
 PYTHON_CONFIG = LanguageConfig(
@@ -76,6 +83,12 @@ _IMPORT_PREFIX = "import_prefix"  # the leading dots of a relative import
 _ALIASED_IMPORT = "aliased_import"  # `c as d`
 _WILDCARD_IMPORT = "wildcard_import"  # `*`
 _FUNCTION_DEF = "function_definition"
+
+# Files that make their directory a Python project whose `src/` is installed.
+# ponytail: the src-layout convention only; an explicit `package-dir` /
+# `packages.find.where` pointing elsewhere is not read, add a TOML/cfg parse
+# when a real repo needs it.
+_PROJECT_MARKERS = frozenset({"pyproject.toml", "setup.py", "setup.cfg"})
 
 # A module INSTANCE (not the ``ModuleType`` class, whose ``hasattr`` would also
 # answer for ``type``'s attributes such as ``mro``): the names it carries are
@@ -97,6 +110,33 @@ class PythonResolver:
     """Approach-C resolver for Python (the framework's reference resolver)."""
 
     config = PYTHON_CONFIG
+
+    def __init__(self, src_roots: tuple[tuple[str, list[str]], ...] = ()) -> None:
+        # (project directory, its src/ root as path components), deepest
+        # project first. Empty on the registered singleton; set by `prepare`.
+        self._src_roots = src_roots
+
+    def prepare(self, context: ScanContext) -> PythonResolver:
+        """A scan-local resolver carrying this repository's src-layout roots.
+
+        A project directory qualifies when it holds a project marker and its
+        ``src/`` holds a regular package (``src/<pkg>/__init__.py``). Only file
+        names are inspected, so nothing is read. The registered singleton is
+        never mutated.
+        """
+        # Directories whose src/ holds a regular package: `<dir>/src/<pkg>/__init__.py`.
+        with_src_package = {
+            parts[0] if len(parts) == 4 else ""
+            for parts in (f.rsplit("/", 3) for f in context.files if f.endswith("/__init__.py"))
+            if len(parts) >= 3 and parts[-3] == "src"
+        }
+        projects = {
+            directory
+            for directory, _, name in (f.rpartition("/") for f in context.files)
+            if name in _PROJECT_MARKERS and directory in with_src_package
+        }
+        ordered = sorted(projects, key=lambda d: (-d.count("/") - bool(d), d))
+        return PythonResolver(tuple((d, [*d.split("/"), "src"] if d else ["src"]) for d in ordered))
 
     def extract(self, src: bytes) -> list[RawImport]:
         """Return the imports in ``src`` as :class:`RawImport` records.
@@ -315,15 +355,19 @@ class PythonResolver:
         root = base[:top]
         return root, [*base[top:], *tail]
 
-    @staticmethod
-    def _ancestor_roots(importer: str) -> list[list[str]]:
+    def _ancestor_roots(self, importer: str) -> list[list[str]]:
         """Candidate source roots: the importer's directory and every ancestor
         down to the repo root, **deepest first** (the effective ``sys.path``
-        order for an absolute import)."""
+        order for an absolute import), then the src/ root of each enclosing
+        src-layout project (the installed package comes after the script's
+        own directory on ``sys.path``)."""
         parts = importer.split("/")[:-1]  # drop the filename
         roots: list[list[str]] = []
         for i in range(len(parts), -1, -1):
             roots.append(parts[:i])
+        for project, src in self._src_roots:
+            if (not project or importer.startswith(f"{project}/")) and src not in roots:
+                roots.append(src)
         return roots
 
     def _walk(
