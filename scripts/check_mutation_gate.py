@@ -208,12 +208,16 @@ def _pyproject_gate(text: str) -> dict:
     return {table: tool.get(table) for table in ("mutmut", "pytest")}
 
 
-def _hook_gate(text: str) -> list:
+def _hook_gate(text: str) -> dict:
     # The mutmut hook's own block: its entry and additional_dependencies are
     # the toolchain the pass runs on (a mutmut or pytest-cov bump lands here
-    # in lockstep with pyproject.toml). Other hooks' revs never reach it.
-    repos = (yaml.safe_load(text) or {}).get("repos", [])
-    return [h for r in repos for h in r.get("hooks", []) if h.get("id") == "mutmut"]
+    # in lockstep with pyproject.toml), and default_language_version picks the
+    # interpreter its venv is built on. Other hooks' revs never reach it.
+    config = yaml.safe_load(text) or {}
+    hooks = [
+        h for r in config.get("repos", []) for h in r.get("hooks", []) if h.get("id") == "mutmut"
+    ]
+    return {"hooks": hooks, "python": config.get("default_language_version")}
 
 
 # Config files that force the full pass only when their gate-relevant part
@@ -255,7 +259,16 @@ def changed_files_since(from_ref: str | None, to_ref: str) -> list[str] | None:
         files = set(_diff_names_for_gate(f"origin/main...{to_ref}"))
         if from_ref is not None:
             files |= set(_diff_names_for_gate(f"{to_ref}...{from_ref}"))
-    except (OSError, subprocess.CalledProcessError, ValueError, yaml.YAMLError):
+    # TypeError/AttributeError: a config that parses but has the wrong shape
+    # (`repos:` with no value, a non-table `tool`).
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        ValueError,
+        TypeError,
+        AttributeError,
+        yaml.YAMLError,
+    ):
         return None
     return sorted(files)
 

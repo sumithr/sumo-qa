@@ -762,12 +762,23 @@ def test_changed_files_since_keeps_a_mutmut_hook_toolchain_bump(gate_repo):
     assert gate.select_scope([".pre-commit-config.yaml"], ["rules"], _STATS).full_run is True
 
 
+def test_changed_files_since_keeps_a_hook_interpreter_change(gate_repo):
+    to = gate_repo(
+        "default_language_version:\n  python: python3.14\n" + _BASE_HOOKS,
+        path=".pre-commit-config.yaml",
+    )
+    assert gate.changed_files_since(None, to) == [".pre-commit-config.yaml"]
+
+
 @pytest.mark.parametrize(
     "path, broken",
     [
         ("pyproject.toml", _BASE_PYPROJECT + "[tool.mutmut\n"),
         (".pre-commit-config.yaml", "repos: [\n"),
+        (".pre-commit-config.yaml", "repos:\n"),
+        (".pre-commit-config.yaml", "repos: [foo]\n"),
     ],
+    ids=["bad-toml", "bad-yaml", "empty-repos", "repo-not-a-mapping"],
 )
 def test_changed_files_since_returns_none_when_a_pushed_gate_config_is_unparsable(
     gate_repo, path, broken
