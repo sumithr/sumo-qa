@@ -17,7 +17,7 @@
     "eval:view": "promptfoo view"
   },
   "devDependencies": {
-    "promptfoo": "0.121.20"
+    "promptfoo": "0.123.1"
   },
   "overrides": {
     "@opentelemetry/otlp-transformer": {

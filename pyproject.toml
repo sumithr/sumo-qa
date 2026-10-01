@@ -65,7 +65,9 @@ dependencies = [
   "starlette>=1.3.1",
   # pyjwt < 2.13.0: GHSA-xgmm-8j9v-c9wx, GHSA-993g-76c3-p5m4,
   #   GHSA-jq35-7prp-9v3f, GHSA-w7vc-732c-9m39, GHSA-fhv5-28vv-h8m8.
-  "pyjwt>=2.13.0",
+  # pyjwt < 2.14.0: CVE-2026-101917, CVE-2026-102265 through CVE-2026-102274.
+  #   pyjwt < 2.15.0: CVE-2026-101918.
+  "pyjwt>=2.15.0",
   # python-multipart < 0.0.31: GHSA-5rvq-cxj2-64vf, GHSA-vffw-93wf-4j4q,
   #   GHSA-6jv3-5f52-599m, GHSA-v9pg-7xvm-68hf.
   "python-multipart>=0.0.31",
@@ -131,9 +133,10 @@ dev = [
   # resolution drags in vulnerable bleach/tornado, so the pip-audit hook fails
   # until they are floored here. Drop once a maintained link-checker replaces
   # pytest-check-links (see the pytest<9 cap note above).
-  # tornado < 6.5.8: CVE-2026-82397. tornado < 6.5.7: GHSA-pw6j-qg29-8w7f,
+  # tornado < 6.5.9: GHSA-chx6-46f5-w4vp, GHSA-c2m8-h5v5-343r,
+  #   GHSA-3hv7-mjh2-fv65. tornado < 6.5.8: CVE-2026-82397. tornado < 6.5.7: GHSA-pw6j-qg29-8w7f,
   #   CVE-2026-49853, CVE-2026-49854, CVE-2026-49855.
-  "tornado>=6.5.8",
+  "tornado>=6.5.9",
   # bleach < 6.4.0: GHSA-gj48-438w-jh9v, GHSA-8rfp-98v4-mmr6, and
   #   GHSA-g75f-g53v-794x (the last affects exactly 6.3.0; 6.4.0 exits its range).
   "bleach>=6.4.0",
@@ -150,7 +153,7 @@ dev = [
   # and a synced venv all running different ruff versions at once. Bump this and
   # `rev:` in .pre-commit-config.yaml together, in one commit, reformatting in
   # the same change; tests/test_toolchain_pin_lockstep.py fails CI otherwise.
-  "ruff==0.16.8",
+  "ruff==0.16.9",
   # Static type checking — see [tool.mypy]. mypy is pure-Python (no Node
   # toolchain), matching the project's Python-only CI. types-PyYAML supplies
   # the stubs PyYAML doesn't ship inline. hatchling (the build backend) lets
@@ -160,6 +163,9 @@ dev = [
   "types-PyYAML>=6,<7",
   "hatchling>=1.25",
   "pre-commit>=3.7,<5",
+  # Security floor for pre-commit's transitive virtualenv.
+  # virtualenv < 21.7.13: PYSEC-2026-4011 through PYSEC-2026-4014.
+  "virtualenv>=21.7.13",
   # Windows ships no system tz database; Hypothesis `st.timezones()` strategy
   # needs `tzdata` to enumerate IANA zones via stdlib `zoneinfo`.
   "tzdata; platform_system == 'Windows'",
@@ -170,6 +176,9 @@ vertex = [
   # the pip-audit gate installs this extra, so the floor has to live here.
   # pyasn1 < 0.6.4: PYSEC-2026-3455, PYSEC-2026-3456, PYSEC-2026-3457.
   "pyasn1>=0.6.4",
+  # Security floor for requests -> urllib3 (via google-api-core).
+  # urllib3 < 2.8.0: CVE-2026-97687, CVE-2026-97688, CVE-2026-97689.
+  "urllib3>=2.8.0",
 ]
 # Optional import-graph parser for the repo-map scanner's `imports` edge layer
 # (#354). The core install stays pure-Python; this extra adds the tree-sitter
