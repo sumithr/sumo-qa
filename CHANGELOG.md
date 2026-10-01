@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.68.0](https://github.com/sumithr/sumo-qa/compare/v0.67.1...v0.68.0) (2026-10-01)
+
+
+### Features
+
+* **external-skills:** pin the Skills CLI and record immutable install provenance ([#766](https://github.com/sumithr/sumo-qa/issues/766)) ([44d0c7f](https://github.com/sumithr/sumo-qa/commit/44d0c7f246e6fc4a0c0761a10ef8b9b53209009c))
+
 ## [0.67.1](https://github.com/sumithr/sumo-qa/compare/v0.67.0...v0.67.1) (2026-10-01)
 
 
