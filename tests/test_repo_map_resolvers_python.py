@@ -613,6 +613,26 @@ def test_prepare_src_root_is_scoped_to_its_project():
     assert prepared.resolve("pkgs/b/main.py", _CART, files) == []
 
 
+def test_prepare_nested_project_src_wins_over_the_enclosing_project_src():
+    # The repo root and plugin/ are both src-layout projects shipping a `shop`
+    # package. A file in plugin/ resolves against its own project's src/ first
+    # (the nearest install); a root-project file never sees it. A one-segment
+    # project dir has the root's slash count, so depth alone cannot order them.
+    files = {
+        "pyproject.toml",
+        "src/shop/__init__.py",
+        "src/shop/cart.py",
+        "scripts/run.py",
+        "plugin/pyproject.toml",
+        "plugin/src/shop/__init__.py",
+        "plugin/src/shop/cart.py",
+        "plugin/scripts/run.py",
+    }
+    prepared = _prepared(files)
+    assert prepared.resolve("plugin/scripts/run.py", _CART, files) == ["plugin/src/shop/cart.py"]
+    assert prepared.resolve("scripts/run.py", _CART, files) == ["src/shop/cart.py"]
+
+
 def test_prepare_needs_a_project_marker_and_a_regular_package():
     # No marker: nothing proves src/ is installed. Marker but src/shop is a
     # namespace dir: the convention is not met either. All three under-edge.

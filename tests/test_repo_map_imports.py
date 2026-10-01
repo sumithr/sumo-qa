@@ -109,8 +109,8 @@ def test_scan_committed_python_fixture_exact_edge_set():
     # import Item` stops at the models package because Item is a name, not a
     # submodule; the function-local `from shop.tax import RATE` is medium.
     # scripts/report.py sits outside src/ but inside the src-layout project
-    # (pyproject.toml beside src/shop/), so its `from shop.cart import total`
-    # resolves through the installed-package root. True negatives: `requests`,
+    # (pyproject.toml beside a src/ holding the regular package shop), so its
+    # `from shop.cart import total` resolves through the installed-package root. True negatives: `requests`,
     # `decimal` and `dataclasses` are external.
     repo_map = scan_repo(_FIXTURES / "python_project", generator_version="t")
     # A sorted list, not a dict, so a duplicated edge fails the comparison.

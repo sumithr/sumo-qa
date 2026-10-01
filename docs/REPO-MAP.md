@@ -244,8 +244,9 @@ What the slice-2 scanner produces:
   that project (a script or tool outside `src/`) resolves absolute imports of the
   package after its own ancestor roots. A file outside the project, a `src/`
   holding only namespace directories, or a `src/` with no marker beside it
-  gains no root. An explicit `package-dir` or `packages.find.where` pointing
-  elsewhere is not read.
+  gains no root, and neither does a `src/` that is itself a package (a flat
+  layout imported as `src.x`). An explicit `package-dir` or
+  `packages.find.where` pointing elsewhere is not read.
 
   **TypeScript/JavaScript** is additionally repository context activated
   (#484): each scan derives a scan-local index of the repository's own
