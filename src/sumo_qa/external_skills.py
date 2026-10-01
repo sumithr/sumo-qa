@@ -205,14 +205,14 @@ def install_external_skill(
     workdir, checkout, resolved_ref = _checkout_commit(remote_url, requested_ref, timeout)
     try:
         _check_checkout_links(checkout)
-        # One guard around snapshot, CLI run, digest, and record: concurrent
-        # installs can neither interleave their writes nor lose records.
         args = ["add", str(checkout), "--skill", skill, "-a", agent, "-y"]
         if scope == "global":
             args.append("-g")
         # Every check that can refuse the run happens before the snapshot, so a
         # refusal never rolls back folders the CLI did not write.
         command = build_skills_cli_command(_pinned_npx(timeout), args)
+        # One guard around snapshot, CLI run, digest, and record: concurrent
+        # installs can neither interleave their writes nor lose records.
         with _lock_guard(lock_base):
             before = _folder_identities(skill, scope, cwd, home)
             before_entries = {folder: _entry_identity(folder) for folder in before}
@@ -520,11 +520,9 @@ def _cli_spec() -> str:
     return f"{SKILLS_CLI_PACKAGE}@{SKILLS_CLI_VERSION}"
 
 
-def _run_skills_cli(
-    args: list[str], timeout: int, cwd: Path | None = None
-) -> tuple[list[str], str, str]:
+def _run_skills_cli(args: list[str], timeout: int) -> tuple[list[str], str, str]:
     command = build_skills_cli_command(_pinned_npx(timeout), args)
-    stdout, stderr = _run_cli_process(command, timeout, cwd)
+    stdout, stderr = _run_cli_process(command, timeout, None)
     return command, stdout, stderr
 
 
@@ -743,9 +741,11 @@ def _roll_back_failed_cli(
 ) -> None:
     """Remove what a failed or interrupted CLI run wrote before it stopped.
 
-    Returns when nothing is left behind (the caller re-raises the CLI's own
-    error); otherwise names what may remain rather than leave it to run
-    unrecorded. An interrupt is only announced, never replaced.
+    Returns when nothing is left behind, so the caller re-raises the CLI's
+    own error. Otherwise it names what may remain rather than leave it to run
+    unrecorded: an ordinary error is replaced by a provenance error, while an
+    interrupt is only announced and the function returns so the caller
+    re-raises it.
     """
     try:
         after = _folder_identities(skill, scope, cwd, home)
