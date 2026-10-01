@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys as _sys
 from pathlib import Path
@@ -793,6 +794,16 @@ def test_check_invalid_repo_map_names_the_refresh_command(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["artifacts"]["repo_map"] == "invalid"
     assert payload["corrective_commands"] == [f"sumo-qa analyze {tmp_path.resolve().as_posix()}"]
+
+
+def test_check_corrective_command_quotes_a_path_with_shell_metacharacters(tmp_path, capsys):
+    """Copied into a shell, the command still targets the one repository path."""
+    root = tmp_path / "my repo $HOME"
+    root.mkdir()
+    _write_stale_repo_map(root)
+    assert cli.main(["check", str(root), "--json"]) == 1
+    [command] = json.loads(capsys.readouterr().out)["corrective_commands"]
+    assert shlex.split(command) == ["sumo-qa", "analyze", root.resolve().as_posix()]
 
 
 def test_check_passing_policy_suggests_no_command_even_with_a_stale_repo_map(tmp_path, capsys):

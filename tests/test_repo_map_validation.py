@@ -240,3 +240,15 @@ def test_recorded_root_symlink_loop_does_not_match(tmp_path):
     loop = tmp_path / "loop"
     loop.symlink_to(loop)
     assert recorded_root_matches(str(loop), tmp_path) is False
+
+
+@pytest.mark.parametrize("error", [OSError, RuntimeError, ValueError])
+def test_recorded_root_that_fails_to_resolve_does_not_match(error, tmp_path, monkeypatch):
+    """Whether resolve() raises for a NUL or a loop varies by OS and Python
+    version (Windows on 3.13+ raises neither), so force each guarded error."""
+
+    def unresolvable(self, strict=False):
+        raise error("cannot resolve")
+
+    monkeypatch.setattr(Path, "resolve", unresolvable)
+    assert recorded_root_matches(str(tmp_path), tmp_path) is False

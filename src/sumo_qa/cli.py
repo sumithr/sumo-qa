@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json as _json
+import shlex
 import sys as _sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -374,7 +375,7 @@ def _cmd_check(root: Path, *, policy: CheckPolicy, as_json: bool) -> int:
     # Only commands this repository can actually supply: a stale or unreadable
     # repo-map is refreshed by analyze. Nothing is invented for missing evidence.
     corrective = (
-        [f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"]
+        [f"{_NEXT_RUN_ANALYZE} {shlex.quote(root.as_posix())}"]
         if not result.passed and statuses["repo_map"] in ("stale", "invalid")
         else []
     )
