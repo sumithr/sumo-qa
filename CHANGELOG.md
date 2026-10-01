@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.67.1](https://github.com/sumithr/sumo-qa/compare/v0.67.0...v0.67.1) (2026-10-01)
+
+
+### Tests
+
+* **evals:** add a review-recall corpus of real past misses and a recall reporter ([#770](https://github.com/sumithr/sumo-qa/issues/770)) ([bd6c8e7](https://github.com/sumithr/sumo-qa/commit/bd6c8e781be0900b3b1eda75daa6494cc893959d))
+
 ## [0.67.0](https://github.com/sumithr/sumo-qa/compare/v0.66.1...v0.67.0) (2026-09-30)
 
 
