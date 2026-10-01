@@ -226,9 +226,10 @@ repos:
         # remote. The full pass still runs when the scope cannot be trusted:
         # a test change on a cold cache (no mutants/mutmut-stats.json, e.g. a
         # fresh worktree), a changed test file the stats have never seen (new
-        # or renamed), a change to pyproject.toml, conftest.py, or non-test
-        # support code under tests/ (never in the map, yet able to weaken
-        # many tests), or git failing to diff. Out-of-scope modules are
+        # or renamed), a change to pyproject.toml's [tool.mutmut] or
+        # [tool.pytest] table (a dependency-only edit stays scoped), to
+        # conftest.py, or to non-test support code under tests/ (never in the
+        # map, yet able to weaken many tests), or git failing to diff. Out-of-scope modules are
         # reported SKIPPED and the pass is reported as scoped, not total.
         # The nightly Linux mutation.yml stays a full pass and is the
         # authoritative verdict.

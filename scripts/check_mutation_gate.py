@@ -91,7 +91,8 @@ test-file edit (a cold full pass is 15+ minutes at --max-children 1):
     mutmut's clean-test pass to the mapped tests;
   - nothing selected -> exit 0 without running mutmut; a test change with no
     stats file -> the full run (the map cannot be inverted safely);
-  - pyproject.toml, conftest.py, or any tests/ .py that is not a test module
+  - pyproject.toml (only when its [tool.mutmut] or [tool.pytest] table
+    changed), conftest.py, or any tests/ .py that is not a test module
     (helpers, fixtures) -> the full run: those never appear in the map yet can
     weaken many tests; git failing to diff -> the full run too;
   - only in-scope modules are judged; the rest are listed SKIPPED, never
@@ -192,6 +193,33 @@ def _git_diff_names(spec: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
+def _git_out(*args: str) -> str:
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
+
+
+# The only pyproject.toml tables that steer the gate. The hook pins its own
+# runtime deps (additional_dependencies), so a [project] dependency change
+# never reaches the mutmut pass; the nightly full pass still covers it.
+_GATE_TABLES = ("mutmut", "pytest")
+
+
+def _gate_config(rev: str) -> dict:
+    tool = tomllib.loads(_git_out("show", f"{rev}:pyproject.toml")).get("tool", {})
+    return {table: tool.get(table) for table in _GATE_TABLES}
+
+
+def _diff_names_for_gate(spec: str) -> list[str]:
+    """`git diff` names for `A...B`, minus a pyproject.toml whose gate tables
+    are the same on both sides of the diff (merge-base(A, B) vs B)."""
+    names = _git_diff_names(spec)
+    if "pyproject.toml" in names:
+        left, right = spec.split("...")
+        base = _git_out("merge-base", left, right).strip()
+        if _gate_config(base) == _gate_config(right):
+            names.remove("pyproject.toml")
+    return names
+
+
 def changed_files_since(from_ref: str | None, to_ref: str) -> list[str] | None:
     """Files the push can affect, as the union of two diffs:
 
@@ -203,13 +231,15 @@ def changed_files_since(from_ref: str | None, to_ref: str) -> list[str] | None:
       strengthened a test is invisible to a merge-base diff of the new side.
 
     ``--no-renames`` so a renamed test shows as delete + add: the deleted (old)
-    path is the one the stats map knows. Returns None when git cannot answer
-    (unknown ref, not a repo); the caller then runs the full gate."""
+    path is the one the stats map knows. A pyproject.toml change that leaves
+    the gate tables alone is dropped (see _GATE_TABLES). Returns None when git
+    cannot answer (unknown ref, not a repo) or a pyproject.toml does not parse;
+    the caller then runs the full gate."""
     try:
-        files = set(_git_diff_names(f"origin/main...{to_ref}"))
+        files = set(_diff_names_for_gate(f"origin/main...{to_ref}"))
         if from_ref is not None:
-            files |= set(_git_diff_names(f"{to_ref}...{from_ref}"))
-    except (OSError, subprocess.CalledProcessError):
+            files |= set(_diff_names_for_gate(f"{to_ref}...{from_ref}"))
+    except (OSError, subprocess.CalledProcessError, ValueError):
         return None
     return sorted(files)
 

@@ -650,6 +650,82 @@ def test_changed_files_since_without_a_remote_ref_diffs_only_against_main(monkey
     assert calls == [["git", "diff", "--name-only", "--no-renames", "origin/main...HEAD"]]
 
 
+_BASE_PYPROJECT = (
+    '[project]\nname = "x"\ndependencies = ["ruff==0.1"]\n\n'
+    '[tool.pytest.ini_options]\naddopts = "-q"\n\n'
+    '[tool.mutmut]\nsource_paths = ["src/sumo_qa/rules.py"]\n'
+)
+
+
+@pytest.fixture
+def pyproject_repo(tmp_path, monkeypatch):
+    """A real repo whose origin/main holds _BASE_PYPROJECT; returns a function
+    that commits a new pyproject.toml on top of HEAD (or of ``parent``) and
+    returns that commit's sha."""
+    import subprocess
+
+    for key in [k for k in gate.os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(key)
+    monkeypatch.chdir(tmp_path)
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+
+    def commit(text, parent=None):
+        if parent:
+            git("checkout", "-q", "--detach", parent)
+        (tmp_path / "pyproject.toml").write_text(text)
+        git("add", "pyproject.toml")
+        git("commit", "-q", "--no-gpg-sign", "-m", "c")
+        return git("rev-parse", "HEAD")
+
+    git("update-ref", "refs/remotes/origin/main", commit(_BASE_PYPROJECT))
+    return commit
+
+
+def test_changed_files_since_drops_a_pyproject_change_outside_the_gate_tables(pyproject_repo):
+    """A dependency bump cannot move the gate: the hook env pins its own deps,
+    and only [tool.mutmut] and [tool.pytest.ini_options] steer the pass."""
+    to = pyproject_repo(_BASE_PYPROJECT.replace("ruff==0.1", "ruff==0.2"))
+    assert gate.changed_files_since(None, to) == []
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        ('addopts = "-q"', 'addopts = "-q -x"'),
+        ('"src/sumo_qa/rules.py"]', '"src/sumo_qa/rules.py", "src/sumo_qa/standards.py"]'),
+    ],
+    ids=["pytest-table", "mutmut-table"],
+)
+def test_changed_files_since_keeps_a_pyproject_change_to_a_gate_table(pyproject_repo, edit):
+    to = pyproject_repo(_BASE_PYPROJECT.replace(*edit))
+    assert gate.changed_files_since(None, to) == ["pyproject.toml"]
+
+
+def test_changed_files_since_keeps_a_gate_table_change_a_force_push_removes(pyproject_repo):
+    """The remote branch had widened [tool.mutmut]; the push drops it again."""
+    remote = pyproject_repo(_BASE_PYPROJECT.replace('"]', '", "src/sumo_qa/standards.py"]'))
+    to = pyproject_repo(_BASE_PYPROJECT.replace("ruff==0.1", "ruff==0.2"), parent="origin/main")
+    assert gate.changed_files_since(remote, to) == ["pyproject.toml"]
+
+
+def test_changed_files_since_returns_none_when_the_pushed_pyproject_is_unparsable(
+    pyproject_repo,
+):
+    to = pyproject_repo(_BASE_PYPROJECT + "[tool.mutmut\n")
+    assert gate.changed_files_since(None, to) is None
+
+
 def test_mutated_modules_from_pyproject_keeps_the_real_paths(tmp_path):
     (tmp_path / "pyproject.toml").write_text(
         '[tool.mutmut]\nsource_paths = ["src/sumo_qa/rules.py", "src/sumo_qa/sub/deep.py"]\n',
