@@ -182,7 +182,9 @@ if [ "$BACKEND" = "claude" ]; then
       const graderErrors = r.results
         .flatMap((x) => (x.gradingResult && x.gradingResult.componentResults) || [])
         .filter((c) => c.metadata && c.metadata.graderError).length;
-      console.log((Number(r.stats.errors) || 0) + graderErrors);' "$out_json" 2>/dev/null || echo unreadable)
+      // A string, not a number: under FORCE_COLOR node colours a logged number,
+      // and the coloured count would never equal 0 below.
+      console.log(String((Number(r.stats.errors) || 0) + graderErrors));' "$out_json" 2>/dev/null || echo unreadable)
     if [ "$errors" = unreadable ]; then
       echo "[eval] ERROR: $f produced no readable report (promptfoo exit $pf_rc); harness or config error, not a skill verdict and not a provider error. Check the config path and its YAML in the promptfoo output above." >&2
       exit 4
