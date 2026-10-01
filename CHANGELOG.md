@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.68.3](https://github.com/sumithr/sumo-qa/compare/v0.68.2...v0.68.3) (2026-10-01)
+
+
+### Bug Fixes
+
+* **deps:** roll up Dependabot bumps, clear security alerts, and scope the mutation gate ([#784](https://github.com/sumithr/sumo-qa/issues/784)) ([abfd545](https://github.com/sumithr/sumo-qa/commit/abfd54542e05bb36e73b8289af21ae28a1268b97))
+
 ## [0.68.2](https://github.com/sumithr/sumo-qa/compare/v0.68.1...v0.68.2) (2026-10-01)
 
 
