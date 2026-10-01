@@ -63,6 +63,7 @@ class FakeToolchain:
         self.links_claude_dir = False  # True: also symlink .claude/skills/<skill>
         self.during_add = None  # optional callback run while the CLI "installs"
         self.on_clone = None  # optional callback(checkout) populating the clone
+        self.add_fails = None  # "exit" / "timeout": the CLI fails after writing
         self.add_sources: list[tuple[str, bool]] = []  # (path given, was a dir)
         self.calls: list[tuple[list[str], dict]] = []
         self._lock = threading.Lock()
@@ -95,6 +96,10 @@ class FakeToolchain:
                 if link.is_symlink():
                     link.unlink()
                 link.symlink_to(skill_dir, target_is_directory=True)
+            if self.add_fails == "timeout":
+                raise subprocess.TimeoutExpired(command, 1)
+            if self.add_fails == "exit":
+                return _completed(command, stderr="write failed", returncode=1)
             return _completed(command, stdout="installed")
         if "add" in command:
             return _completed(command, stdout="installed")
@@ -772,6 +777,31 @@ def test_an_install_that_cannot_be_recorded_is_rolled_back(monkeypatch, toolchai
     assert not (toolchain.cwd / ".agents" / "skills" / "find-skills").exists()
     with pytest.raises(ext.ExternalSkillError, match="not installed"):
         _execute(toolchain)
+
+
+@pytest.mark.parametrize("failure", ["exit", "timeout"])
+def test_a_cli_failure_after_writing_rolls_the_install_back(toolchain, failure) -> None:
+    """A CLI that writes the skill and then fails must not leave an unrecorded
+    folder that executes as 'unrecorded'; the CLI's own error still surfaces."""
+    toolchain.add_fails = failure
+
+    with pytest.raises(ext.ExternalSkillCLIError):
+        _install(toolchain)
+
+    assert not (toolchain.cwd / ".agents" / "skills" / "find-skills").exists()
+    with pytest.raises(ext.ExternalSkillError, match="not installed"):
+        _execute(toolchain)
+
+
+def test_a_cli_failure_whose_rollback_leaves_folders_names_them(monkeypatch, toolchain) -> None:
+    toolchain.add_fails = "exit"
+    monkeypatch.setattr(ext, "_remove_install", lambda folder: None)
+
+    with pytest.raises(ext.ExternalSkillProvenanceError, match="remain") as excinfo:
+        _install(toolchain)
+
+    assert isinstance(excinfo.value.__cause__, ext.ExternalSkillCLIError)
+    assert ".agents/skills/find-skills" in str(excinfo.value).replace(os.sep, "/")
 
 
 def test_rollback_survives_a_written_folder_that_already_vanished(monkeypatch, toolchain) -> None:

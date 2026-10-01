@@ -213,15 +213,25 @@ def install_external_skill(
             args = ["add", str(checkout), "--skill", skill, "-a", agent, "-y"]
             if scope == "global":
                 args.append("-g")
-            command, stdout, stderr = _run_skills_cli(args, timeout=timeout, cwd=cwd)
-            after = _folder_identities(skill, scope, cwd, home)
-            written = _written_folders(skill, scope, before, after)
+            written: list[InstalledSkill] = []
+            recording = False
             try:
+                command, stdout, stderr = _run_skills_cli(args, timeout=timeout, cwd=cwd)
+                after = _folder_identities(skill, scope, cwd, home)
+                written = _written_folders(skill, scope, before, after)
+                recording = True
                 records = _provenance_records(
                     written, remote_url, requested_ref, resolved_ref, skill, agent, scope, lock_base
                 )
                 _merge_into_lock(lock_base, records)
             except BaseException as exc:
+                if not written:
+                    # The CLI failed (or was interrupted) after writing: roll back
+                    # whatever it wrote, so nothing is left to run unrecorded.
+                    with suppress(OSError):
+                        written = _changed_folders(
+                            before, _folder_identities(skill, scope, cwd, home)
+                        )
                 remaining = _roll_back(written, before_entries)
                 paths = ", ".join(f.as_posix() for f in remaining)
                 if not isinstance(exc, Exception):
@@ -232,10 +242,13 @@ def install_external_skill(
                         )
                     raise  # an interrupt is never turned into an ordinary error
                 if remaining:
+                    failed = "provenance could not be recorded" if recording else "install failed"
                     raise ExternalSkillProvenanceError(
-                        f"provenance could not be recorded ({exc}) and these unrecorded "
+                        f"{failed} ({exc}) and these unrecorded "
                         f"install folders remain: {paths}; remove them before executing"
                     ) from exc
+                if not recording:
+                    raise  # nothing was left behind: keep the CLI's own typed error
                 raise ExternalSkillProvenanceError(
                     f"provenance could not be recorded, so the install was rolled back: {exc}"
                 ) from exc
@@ -805,17 +818,24 @@ def _written_folders(
     A copy it did not touch is never returned, even when it is the only one
     found: recording it would vouch for bytes this install never wrote.
     """
-    written = [
-        location
-        for folder, (location, identity) in after.items()
-        if before.get(folder, (None, None))[1] != identity
-    ]
+    written = _changed_folders(before, after)
     if not written:
         raise ExternalSkillProvenanceError(
             f"installed skill {skill!r} not found among the {scope} skill folders this "
             "install wrote; provenance was not recorded"
         )
     return written
+
+
+def _changed_folders(
+    before: dict[Path, tuple[InstalledSkill, tuple[int, int]]],
+    after: dict[Path, tuple[InstalledSkill, tuple[int, int]]],
+) -> list[InstalledSkill]:
+    return [
+        location
+        for folder, (location, identity) in after.items()
+        if before.get(folder, (None, None))[1] != identity
+    ]
 
 
 def _read_lock(base: Path) -> dict[str, Any]:
