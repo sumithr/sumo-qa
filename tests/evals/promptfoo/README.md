@@ -104,6 +104,86 @@ the `.ab` does not discriminate: the no-skill `claude-haiku-4-5` finds the seede
 defects (A0 3/7 and 7/7 over two single passes, B 7/7 both times), so the `.ab`
 is a regression guard on B there.
 
+## Review-recall corpus (issue #754)
+
+`skill-reviewing-before-merge-recall.yaml` measures how many real past review
+misses `sumo-qa-reviewing-before-merge` now catches. Each case is a diff copied
+from the commit that carried a defect the per-file review let through, the green
+test run that shipped with it, and the finding a reviewer should have raised.
+Sources: the review-miss ledger (#752) entries that reproduce as a bounded diff,
+and fixed findings from codex review comments on merged PRs. Ledger entries that
+record a catalogue or skill-prose gap, or whose defective commit no longer
+exists, are not cases.
+
+- **Score.** A case is caught when the review names the defect file
+  (`asserts/recall-expected-file.js`, path or file name) AND the judge finds the
+  same failure mechanism treated as a merge blocker. Wording, format and ledger
+  discipline are not scored; other configs grade those. The file check is a
+  floor, not the discriminator: the skill's verdict lists every touched file, so
+  it rarely fails, and the judge's requirement of the same file and code path
+  is what separates a catch from a nearby risk.
+- **Metadata.** `category` is the ledger category; `split` is `train` or
+  `held-out`. Tune a category fix (#755 to #759) on `train`; judge it on
+  `held-out`. Every promoted category has at least one held-out case.
+  `expected_file` feeds the file check; `ledger_issue` or `source_comment` names
+  the source.
+- **Controls.** Cases with `category: control` are merged PRs with no known
+  defect: two config-only diffs and two runtime changes with tests that codex
+  and CI passed and nothing later fixed. The judge fails a control only on a
+  false alarm, a blocker that is not a real defect in the diff shown, so a
+  genuine flaw nobody recorded does not count against the review. `recall.py`
+  reports controls apart from recall, so a review that blocks every code change
+  shows up as failed controls, not as higher recall.
+
+Run it with separate report paths, then score every report together. Parallel
+promptfoo processes each need their own `PROMPTFOO_CONFIG_DIR`: they otherwise
+share one results database and crash with `SQLITE_BUSY: database is locked`.
+
+```bash
+P=tests/evals/promptfoo
+for i in 1 2 3; do
+  PROMPTFOO_CONFIG_DIR=/tmp/recall/pf$i \
+  ./node_modules/.bin/promptfoo eval -c $P/skill-reviewing-before-merge-recall.yaml --no-cache \
+    --providers file://$PWD/$P/providers/claude-candidate.yaml \
+    --grader file://$PWD/$P/providers/claude-judge.yaml -j 4 --output /tmp/recall/run$i.json &
+done; wait
+python $P/recall.py /tmp/recall/run*.json
+# only the held-out split
+./node_modules/.bin/promptfoo eval -c $P/skill-reviewing-before-merge-recall.yaml ... --filter-metadata split=held-out
+```
+
+`recall.py` prints recall overall, per split and per category for each run, the
+mean and spread of overall recall across runs, and how many runs caught each
+case (controls included). Every run it scores together must cover the same
+cases, so score a filtered run, like the held-out one above, on its own. It
+exits 2 on anything it cannot score as recall: a file that is not a promptfoo
+report, no results, only controls, runs over different case sets, a case missing
+`category` or `split`, or an errored result. A provider or judge error is not a
+skill verdict, so it is never scored as a miss.
+
+Baseline on main at `1db14e3` (claude-haiku-4-5 candidate, claude-opus-5 judge,
+three runs):
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| overall | 7/33 | 6/33 | 7/33 |
+| held-out | 3/11 | 3/11 | 3/11 |
+| train | 4/22 | 3/22 | 4/22 |
+| controls passed | 4/4 | 4/4 | 3/4 |
+
+Mean overall recall is 20% with a spread of 3 points (one case). The runtime
+control from PR #341 drew one false alarm in three runs: a blocker on a missing
+cross-module test, not on a defect in the diff. Six cases
+flicker between runs, so a single-run comparison needs a move of more than two
+cases (6 points) overall before it is a change, not variance; compare means over
+three runs for anything smaller. The candidate is the eval gate's, not the model
+a real review runs on, so the number measures what the skill adds to a weak
+model, not the review's absolute recall.
+
+The config matches `skill-*.yaml`, so `npm run eval:all` runs it too and reports
+every missed case as a failure. Those failures are the recall measurement, not
+a regression: read this config through `recall.py`, not the sweep's pass count.
+
 ## Repo-pinned tool-setup corpus (issue #216)
 
 `skill-using-sumo-qa-tool-setup.yaml` measures a different `using-sumo-qa`
@@ -933,6 +1013,9 @@ renders.
 |---|---|
 | `skill-<name>.yaml` | One base config per skill under `skills/` |
 | `skill-reviewing-before-merge-adversarial.yaml` + `.ab.yaml` | Issue #236 discovery corpus + A0/A1/B lift (see "Adversarial discovery corpus" above) |
+| `skill-reviewing-before-merge-recall.yaml` | Issue #754 review-recall corpus: real past misses tagged by ledger category and train/held-out split, plus four clean controls (see "Review-recall corpus" above) |
+| `recall.py` | Recall reporter for the review-recall corpus: overall, per split, per category, per run, with mean and spread |
+| `asserts/recall-expected-file.js` | File half of the recall score: the review must name the defect file |
 | `skill-reviewing-before-merge-unproven-escalation.yaml` + `.ab.yaml` | Issue #187 UNPROVEN-escalation corpus + A0(pre-edit)/A1(post-edit) control, kept as a regression guard on the A1 leg (see "UNPROVEN-escalation corpus" above) |
 | `skill-reviewing-before-merge-external-contract.yaml` | Issue #263 external-contract corpus, three seeds: (1) a matcher/parser over external CLI/API/tool output validated only by a hand-authored fixture → external-contract risk UNPROVEN, withhold SAFE; (2) a fixture traceable to a real run → external-contract risk discharged, SAFE-eligible (over-trigger guard); (3) a matcher over an INTERNAL/self-produced value the same module emits → external-contract axis must NOT fire at all (true-negative over-trigger guard) |
 | `skill-reviewing-before-merge-ac-coverage.yaml` | Issue #264 acceptance-criteria coverage: three seeds — UNMET AC → NOT SAFE, all-MET → SAFE-eligible, and plausibly-implemented-but-no-end-to-end-evidence → UNVERIFIED (not UNMET) → NOT SAFE — exercising the three-state MET/UNMET/UNVERIFIED discriminator |
@@ -962,7 +1045,7 @@ renders.
 | `aggregate.py` | Variance aggregator for multi-sample runs |
 | `fixtures/assemble-review-skill.js` | Shared dynamic var for every `skill-reviewing-before-merge*` config: assembles the compact root + the seed's declared `review_modules` from the canonical `skills/sumo-qa-reviewing-before-merge/` files (issue #451); no mirrored prose lives here |
 | `asserts/cites-catalogue-technique.js` | Shared `javascript` grounding assertion for the three `skill-implementing-with-tdd*` configs; passes when the candidate cites a technique whose name is a `###` heading in `knowledge/techniques.md`, derived from the catalogue (single source of truth) instead of a hardcoded six-technique allowlist (issue #350) |
-| `asserts/ledger-row-labels.js` | Shared `javascript` ledger-consistency assertion in `defaultTest.assert` of every `skill-reviewing-before-merge*` config that loads the `coverage-ledger` module (every seed, every `.ab` leg); fails any ledger row whose label contradicts its own `Fresh matching tests` field (a listed test labelled UNCOVERED, or NONE labelled UNPROVEN or COVERED), naming each offending row; output with no ledger rows passes (issue #689) |
+| `asserts/ledger-row-labels.js` | Shared `javascript` ledger-consistency assertion in `defaultTest.assert` of every `skill-reviewing-before-merge*` config that loads the `coverage-ledger` module (every seed, every `.ab` leg) except the review-recall corpus, which grades substance only; fails any ledger row whose label contradicts its own `Fresh matching tests` field (a listed test labelled UNCOVERED, or NONE labelled UNPROVEN or COVERED), naming each offending row; output with no ledger rows passes (issue #689) |
 | `README.md` | This file |
 
 ## What's intentionally NOT here
@@ -978,7 +1061,7 @@ renders.
 
 ## Ledger-row consistency check
 
-`asserts/ledger-row-labels.js` fails a coverage-ledger row whose label contradicts its own `Fresh matching tests` field: tests listed and the row labelled UNCOVERED, or `NONE` and the row labelled UNPROVEN or COVERED. It runs on every seed and every `.ab` leg of the reviewing-before-merge configs that load `coverage-ledger`.
+`asserts/ledger-row-labels.js` fails a coverage-ledger row whose label contradicts its own `Fresh matching tests` field: tests listed and the row labelled UNCOVERED, or `NONE` and the row labelled UNPROVEN or COVERED. It runs on every seed and every `.ab` leg of the reviewing-before-merge configs that load `coverage-ledger`, except `skill-reviewing-before-merge-recall.yaml`: recall scores only whether the review found the defect, so a ledger-format slip there would count as a miss.
 
 On the Claude pair the current skill still produces a contradicting row on a few current-skill legs per pass over those configs, almost always a listed test labelled UNCOVERED, and the slip moves between seeds from pass to pass: 4 of 53 row-checked current-skill legs on the `49e175d` pass, 1 of 53 on the final #689 pass (`26ddd94`, the `adversarial` `rollback-data-loss` seed, clean on its rerun), each on a different row, none of 13 on the final `adversarial` pass and 1 of 5 on its `rollback-data-loss` seed at `--repeat 5`, against 2 of 26 `adversarial` legs for the tree before the #689 consistency fixes at `--repeat 2`. The skill states the rule in the row template's Coverage slot, the label definition, a BAD/GOOD row, and the discovery, feature-flow, declared-contract and acceptance-criteria modules, so treat a single failing leg as candidate variance: rerun that config once, and treat the same row failing twice as a regression. The mirror slip, a row writing `NONE` beside a path-matching test and labelling it UNCOVERED, agrees with itself, so this check passes it and the rubric fails it: once each on those two passes (`security-relevance`, then `coverage-artifact`), both clean on the next run.
 
