@@ -120,6 +120,50 @@ delta line. The output names the readiness
 state, per-artifact statuses, and the next command (`sumo-qa analyze` when
 the repo-map is missing or stale, `sumo-qa status` otherwise).
 
+## Gate CI on readiness
+
+`report` never fails a build. `check` is the gate: it derives the same
+readiness verdict from the same artifacts, writes nothing (no page, no run
+summary, no scorecard), and turns the verdict into an exit code.
+
+```bash
+sumo-qa check [path]                                     # strict: pass only when ready
+sumo-qa check [path] --policy allow-accepted-residuals   # also pass ready_with_accepted_residuals
+sumo-qa check [path] --json                              # versioned result document
+```
+
+| Readiness | `strict` (default) | `allow-accepted-residuals` |
+|---|---|---|
+| `ready` | pass | pass |
+| `ready_with_accepted_residuals` | fail | pass |
+| `blocked` | fail | fail |
+| `insufficient_evidence` | fail | fail |
+
+Exit codes: `0` the policy passed, `1` the policy failed, `2` a usage or
+input error (a missing directory, an unknown policy). Missing, stale, or
+unverifiable readiness evidence stays `insufficient_evidence`, so it can never
+pass. Coverage and mutation are reported, never gated: their absence or
+staleness does not fail `check`.
+
+The `--json` document is printed in full on exit 1 too. It carries
+`schema_version`, `command`, `root`, `policy`, `passed`, `readiness_state`,
+`readiness_reasons`, `failed_clauses` (each a stable `code` plus a `message`),
+`artifacts` (per-artifact status), `uncovered_blocker_count`,
+`accepted_residual_count`, `warnings`, and `corrective_commands` (only a
+command the repo can actually run, such as `sumo-qa analyze` for a stale
+repo-map; empty otherwise). The human output is one `PASS`/`FAIL` line naming
+the policy and readiness, then each failed clause and reason.
+
+A minimal GitHub Actions step, with the policy decided by `check` itself:
+
+```yaml
+- uses: actions/setup-python@v5
+  with:
+    python-version: "3.12"
+- run: python -m pip install sumo-qa
+- run: sumo-qa check
+```
+
 From a host, via MCP:
 
 ```text

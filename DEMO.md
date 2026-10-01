@@ -66,7 +66,7 @@ Audit our test coverage and design a QA strategy.
 
 sumo-qa walks the repo area by area, names risks tied to file paths, and builds a risk-prioritised, phased plan with you (written to `docs/qa-strategy.md`). No changes required.
 
-Prefer the terminal? The map-and-report half of the loop is also wired as CLI commands (`sumo-qa analyze`, `sumo-qa status`, `sumo-qa report`); see [Run it from the terminal](README.md#run-it-from-the-terminal).
+Prefer the terminal? The map-and-report half of the loop is also wired as CLI commands (`sumo-qa analyze`, `sumo-qa status`, `sumo-qa report`, and the CI gate `sumo-qa check`); see [Run it from the terminal](README.md#run-it-from-the-terminal).
 
 ---
 

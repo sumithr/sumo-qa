@@ -1,7 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """sumo-qa — the product-grade command surface (issue #160, first slice).
 
-Three subcommands wrap the same deterministic services the MCP tools use,
+Four subcommands wrap the same deterministic services the MCP tools use,
 so a user can run the QA-native repo-understanding loop from a terminal:
 
 - ``sumo-qa analyze [path]`` — walk the repo via
@@ -14,6 +14,9 @@ so a user can run the QA-native repo-understanding loop from a terminal:
 - ``sumo-qa report [path]`` — compose the persisted ``.sumo-qa`` artifacts
   into the static ``.sumo-qa/qa-report.html`` page via the #157 report
   builder/renderer, with honest not-available states for anything missing.
+- ``sumo-qa check [path] [--policy ...]`` — the CI readiness gate (#407):
+  derive the same readiness verdict as ``report`` without writing anything,
+  and exit 0/1 on whether the selected policy passed.
 
 All take ``--json`` for automation; the JSON shape is INTERNAL until
 sumo-qa 1.0 but its keys are kept stable within the 1.x line so scripts can
@@ -34,8 +37,9 @@ from __future__ import annotations
 import argparse
 import json as _json
 import sys as _sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 # Shared #155/#157 service layer — the SAME functions the MCP tools call. The
 # CLI adds no parsing/scanning logic of its own; it composes these.
@@ -43,6 +47,7 @@ from sumo_qa.repo_map_scanner import _detect_git_commit, scan_repo
 from sumo_qa.repo_map_validation import RepoMapValidationError, load_repo_map
 from sumo_qa.report_builder import generate_report, write_run_summary
 from sumo_qa.report_html import render_report_html
+from sumo_qa.report_models import ReadinessState
 from sumo_qa.server import _build_scan_summary, _package_version
 
 # The conventional artifact location under a scanned repo. Mirrors the
@@ -55,6 +60,57 @@ QA_REPORT_RELPATH = ".sumo-qa/qa-report.html"
 # Memorable next-step commands surfaced in human + JSON output.
 _NEXT_AFTER_ANALYZE = "sumo-qa status"
 _NEXT_RUN_ANALYZE = "sumo-qa analyze"
+
+
+#: Version of the ``sumo-qa check --json`` document. Unlike the other commands'
+#: JSON, this one is an automation contract from its first release (#407).
+CHECK_SCHEMA_VERSION = "1.0"
+
+CheckPolicy = Literal["strict", "allow-accepted-residuals"]
+
+#: The readiness states each policy accepts. Deliberately no policy that lets
+#: blocked or insufficient evidence pass (#407).
+_POLICY_PASSES: dict[str, frozenset[str]] = {
+    "strict": frozenset({"ready"}),
+    "allow-accepted-residuals": frozenset({"ready", "ready_with_accepted_residuals"}),
+}
+
+#: The failed clause each non-passing state produces: (stable code, message).
+_FAILED_CLAUSES: dict[str, tuple[str, str]] = {
+    "ready_with_accepted_residuals": (
+        "accepted_residuals_not_allowed",
+        "accepted residual risks are present; pass --policy allow-accepted-residuals "
+        "to accept them",
+    ),
+    "blocked": ("readiness_blocked", "readiness is blocked"),
+    "insufficient_evidence": (
+        "readiness_insufficient_evidence",
+        "readiness evidence is missing, stale or unverifiable",
+    ),
+}
+
+
+@dataclass(frozen=True)
+class FailedClause:
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
+class PolicyResult:
+    """The typed policy verdict both the human and JSON output project."""
+
+    policy: CheckPolicy
+    readiness_state: ReadinessState
+    passed: bool
+    failed_clauses: tuple[FailedClause, ...]
+
+
+def evaluate_policy(state: ReadinessState, policy: CheckPolicy) -> PolicyResult:
+    """Pure: map the derived readiness state onto the selected policy."""
+    passed = state in _POLICY_PASSES[policy]
+    clauses = () if passed else (FailedClause(*_FAILED_CLAUSES[state]),)
+    return PolicyResult(policy=policy, readiness_state=state, passed=passed, failed_clauses=clauses)
 
 
 def _resolve_root(path: str | None) -> Path:
@@ -298,6 +354,59 @@ def _cmd_report(root: Path, *, as_json: bool) -> int:
     return 0
 
 
+def _cmd_check(root: Path, *, policy: CheckPolicy, as_json: bool) -> int:
+    """Evaluate ``policy`` against the current derived readiness, writing nothing.
+
+    Composes the same ``generate_report`` as ``report`` (so the verdict is the
+    scorecard's), but never renders the page or persists the run summary.
+    Exit 0 when the policy passed, 1 when it failed, 2 on a missing directory.
+    """
+    if not root.is_dir():
+        _sys.stderr.write(
+            f"sumo-qa check: {root} is not a directory. "
+            f"Pass an existing repository path (or omit it to use the current directory).\n"
+        )
+        return 2
+
+    report = generate_report(root, generator_version=_package_version())
+    result = evaluate_policy(report.readiness.state, policy)
+    statuses = {a.kind: a.status for a in report.artifacts}
+    # Only commands this repository can actually supply: a stale or unreadable
+    # repo-map is refreshed by analyze. Nothing is invented for missing evidence.
+    corrective = (
+        [f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"]
+        if not result.passed and statuses["repo_map"] in ("stale", "invalid")
+        else []
+    )
+
+    payload: dict[str, Any] = {
+        "schema_version": CHECK_SCHEMA_VERSION,
+        "command": "check",
+        "root": str(root),
+        "policy": result.policy,
+        "passed": result.passed,
+        "readiness_state": result.readiness_state,
+        "readiness_reasons": list(report.readiness.reasons),
+        "failed_clauses": [{"code": c.code, "message": c.message} for c in result.failed_clauses],
+        "artifacts": statuses,
+        "uncovered_blocker_count": report.uncovered_blocker_count,
+        "accepted_residual_count": sum(
+            1 for r in report.risks if r.evidence_status == "accepted_residual"
+        ),
+        "warnings": list(report.warnings),
+        "corrective_commands": corrective,
+    }
+
+    verdict = "PASS" if result.passed else "FAIL"
+    state_label = result.readiness_state.replace("_", " ")
+    lines = [f"{verdict} sumo-qa check (policy: {result.policy}, readiness: {state_label})"]
+    lines += [f"  {c.code}: {c.message}" for c in result.failed_clauses]
+    lines += [f"  - {reason}" for reason in report.readiness.reasons]
+    lines += [f"  next: {command}" for command in corrective]
+    _emit(payload, as_json=as_json, human="\n".join(lines))
+    return 0 if result.passed else 1
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sumo-qa",
@@ -307,7 +416,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "for install diagnostics."
         ),
     )
-    sub = parser.add_subparsers(dest="command", metavar="{analyze,status,report}")
+    sub = parser.add_subparsers(dest="command", metavar="{analyze,status,report,check}")
 
     p_analyze = sub.add_parser(
         "analyze",
@@ -369,6 +478,37 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit a JSON document instead of human-readable text.",
     )
+
+    p_check = sub.add_parser(
+        "check",
+        help="CI readiness gate: exit 0 if the policy passes, 1 if not. Writes nothing.",
+        description=(
+            "Derive the current readiness verdict from the .sumo-qa artifacts "
+            "(the same verdict `sumo-qa report` shows) and evaluate it against a "
+            "policy, without writing any file. Exit 0: policy passed; 1: policy "
+            "failed; 2: usage or input error."
+        ),
+    )
+    p_check.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Repository path to check (defaults to the current directory).",
+    )
+    p_check.add_argument(
+        "--policy",
+        choices=sorted(_POLICY_PASSES),
+        default="strict",
+        help=(
+            "strict (default): pass only when ready. allow-accepted-residuals: "
+            "also pass when ready with accepted residual risks."
+        ),
+    )
+    p_check.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the versioned JSON result document instead of human-readable text.",
+    )
     return parser
 
 
@@ -378,6 +518,7 @@ def main(argv: list[str] | None = None) -> int:
     Exit codes: 0 on success, 2 on a usage error (no subcommand) or a missing
     target directory. ``status`` treats a missing artifact as a reportable
     state (exit 0), not an error — the message points at ``sumo-qa analyze``.
+    ``check`` alone returns 1, when its policy fails.
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -391,6 +532,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_analyze(root, as_json=args.json)
     if args.command == "status":
         return _cmd_status(root, as_json=args.json)
+    if args.command == "check":
+        return _cmd_check(root, policy=args.policy, as_json=args.json)
     # argparse restricts ``command`` to the registered subparsers, so the only
     # remaining value here is "report".
     return _cmd_report(root, as_json=args.json)

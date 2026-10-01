@@ -98,9 +98,10 @@ Beyond the host integration, sumo-qa ships terminal commands for the QA-native r
 sumo-qa analyze            # map the current repo into .sumo-qa/repo-map.json
 sumo-qa status             # is the map present and current against HEAD? what next?
 sumo-qa report             # compose the .sumo-qa artifacts into qa-report.html
+sumo-qa check              # CI gate: exit 1 unless readiness passes the policy; writes nothing
 ```
 
-All take an optional `[path]` and `--json`; `report` renders honest not-available states for anything missing. (Bare `sumo-qa` launches the MCP server; `sumo-qa-doctor` runs diagnostics.)
+All take an optional `[path]` and `--json`; `report` renders honest not-available states for anything missing, and `check` is described in [Gate CI on readiness](docs/QA-REPORT.md#gate-ci-on-readiness). (Bare `sumo-qa` launches the MCP server; `sumo-qa-doctor` runs diagnostics.)
 
 ## When sumo-qa doesn't fit
 
