@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.68.2](https://github.com/sumithr/sumo-qa/compare/v0.68.1...v0.68.2) (2026-10-01)
+
+
+### Bug Fixes
+
+* **evals:** keep the provider error count uncoloured under FORCE_COLOR ([#785](https://github.com/sumithr/sumo-qa/issues/785)) ([6853c87](https://github.com/sumithr/sumo-qa/commit/6853c874eba2ff98545cc796843080f01a930872))
+
 ## [0.68.1](https://github.com/sumithr/sumo-qa/compare/v0.68.0...v0.68.1) (2026-10-01)
 
 
