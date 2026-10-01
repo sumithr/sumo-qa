@@ -241,7 +241,7 @@ What the slice-2 scanner produces:
   **Python** is additionally repository context activated (#353): a `src/`
   directory holding a regular package, beside a `pyproject.toml`, `setup.py`
   or `setup.cfg`, is the src layout's installed-package root, so every file in
-  that project (its `tests/`, `scripts/`) resolves absolute imports of the
+  that project (a script or tool outside `src/`) resolves absolute imports of the
   package after its own ancestor roots. A file outside the project, a `src/`
   holding only namespace directories, or a `src/` with no marker beside it
   gains no root. An explicit `package-dir` or `packages.find.where` pointing

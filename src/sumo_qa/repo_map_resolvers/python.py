@@ -25,7 +25,7 @@ Resolution rules (ported from UA, then aligned with the import system):
   holding a regular package, beside a project marker (``pyproject.toml``,
   ``setup.py`` or ``setup.cfg``), is where the installed package is imported
   from. Every file under that project gains ``src/`` as a root after its own
-  ancestors, so ``tests/`` and ``scripts/`` importing the package resolve.
+  ancestors, so a script or tool outside ``src/`` importing the package resolves.
   Without the marker or the package nothing proves ``src/`` is on
   ``sys.path``, so it stays an under-edge.
 - **One component walk for both forms**: each dotted component is owned by
@@ -133,7 +133,10 @@ class PythonResolver:
         projects = {
             directory
             for directory, _, name in (f.rpartition("/") for f in context.files)
-            if name in _PROJECT_MARKERS and directory in with_src_package
+            if name in _PROJECT_MARKERS
+            and directory in with_src_package
+            # a src/ that is itself a package is a flat layout imported as `src.x`
+            and f"{directory}/src/__init__.py".lstrip("/") not in context.files
         }
         ordered = sorted(projects, key=lambda d: (-d.count("/") - bool(d), d))
         return PythonResolver(tuple((d, [*d.split("/"), "src"] if d else ["src"]) for d in ordered))

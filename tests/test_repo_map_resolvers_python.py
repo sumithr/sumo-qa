@@ -615,10 +615,18 @@ def test_prepare_src_root_is_scoped_to_its_project():
 
 def test_prepare_needs_a_project_marker_and_a_regular_package():
     # No marker: nothing proves src/ is installed. Marker but src/shop is a
-    # namespace dir: the convention is not met either. Both under-edge.
+    # namespace dir: the convention is not met either. All three under-edge.
     no_marker = {"src/shop/__init__.py", "src/shop/cart.py", "tests/test_cart.py"}
     namespace = {"pyproject.toml", "src/shop/cart.py", "tests/test_cart.py"}
-    for files in (no_marker, namespace):
+    # src/ itself a package: a flat layout imported as `src.shop`, never `shop`.
+    flat = {
+        "pyproject.toml",
+        "src/__init__.py",
+        "src/shop/__init__.py",
+        "src/shop/cart.py",
+        "tests/test_cart.py",
+    }
+    for files in (no_marker, namespace, flat):
         assert _prepared(files).resolve("tests/test_cart.py", _CART, files) == []
 
 
