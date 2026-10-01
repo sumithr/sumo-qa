@@ -50,7 +50,7 @@ from sumo_qa.ledger_models import RiskLedger
 from sumo_qa.ledger_validation import load_ledger
 from sumo_qa.repo_map_models import DiffImpact, RepoMap
 from sumo_qa.repo_map_scanner import _git_env
-from sumo_qa.repo_map_validation import load_repo_map
+from sumo_qa.repo_map_validation import load_repo_map, recorded_root_matches
 from sumo_qa.report_models import (
     PRESENT_STATUSES,
     REPORT_SCHEMA_VERSION,
@@ -217,7 +217,7 @@ def load_report_inputs(
     # mutmut_12 (False→None) is equivalent: both are falsy and this flag is only
     # ever read in a boolean context.
     repo_map_foreign = False  # pragma: no mutate
-    if repo_map is not None and not _is_same_root(repo_map.project.root, root_path):
+    if repo_map is not None and not recorded_root_matches(repo_map.project.root, root_path):
         # A repo-map copied from ANOTHER repository measures a different tree —
         # composing it would present foreign evidence as local. Mirror the
         # `_load_map_with_fallback` rejection precedent (server.py); here the
@@ -342,15 +342,6 @@ def _artifact_from_source(
     # `path` omitted (defaults to None): a missing artifact has no source path. The
     # missing detail is pinned by the per-artifact missing-detail assertions in tests.
     return ReportArtifact(kind=kind, status="missing", detail=missing_detail)
-
-
-def _is_same_root(recorded: str, root_path: Path) -> bool:
-    """A recorded root that cannot even be resolved (an embedded NUL in a
-    corrupt artifact) is not this root, so it reads as foreign, never a crash."""
-    try:
-        return Path(recorded).resolve() == root_path
-    except (OSError, ValueError):
-        return False
 
 
 def _repo_map_is_stale(inputs: ReportInputs) -> bool:

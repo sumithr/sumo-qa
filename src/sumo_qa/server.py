@@ -374,7 +374,7 @@ def _load_map_with_fallback(
     """
     from sumo_qa.repo_map_models import RepoMapWarning
     from sumo_qa.repo_map_scanner import scan_repo
-    from sumo_qa.repo_map_validation import load_repo_map
+    from sumo_qa.repo_map_validation import load_repo_map, recorded_root_matches
 
     repo_map = None
     artifact_used: str | None = None
@@ -385,7 +385,7 @@ def _load_map_with_fallback(
             cand = root_path / cand
         if cand.is_file():
             loaded = load_repo_map(cand)
-            if Path(loaded.project.root).resolve() == root_path.resolve():
+            if recorded_root_matches(loaded.project.root, root_path):
                 repo_map = loaded
                 artifact_used = str(cand.resolve())
             else:

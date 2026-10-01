@@ -9,7 +9,11 @@ from pathlib import Path
 import pytest
 
 from sumo_qa.repo_map_models import RepoMap
-from sumo_qa.repo_map_validation import RepoMapValidationError, load_repo_map
+from sumo_qa.repo_map_validation import (
+    RepoMapValidationError,
+    load_repo_map,
+    recorded_root_matches,
+)
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "repo_map" / "repo-map.example.json"
 
@@ -203,3 +207,36 @@ def test_repo_map_validation_error_str_without_path_omits_at_clause():
     s = str(err)
     assert "[io_error]" in s
     assert " at " not in s
+
+
+# --- recorded_root_matches: equivalence classes of a recorded project.root ---
+
+
+def test_recorded_root_matches_same_absolute_root(tmp_path):
+    assert recorded_root_matches(str(tmp_path), tmp_path) is True
+
+
+def test_recorded_root_relative_dot_is_taken_against_the_root_not_cwd(tmp_path, monkeypatch):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(elsewhere)
+    assert recorded_root_matches(".", repo) is True
+
+
+def test_recorded_root_naming_another_directory_does_not_match(tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    assert recorded_root_matches(str(other), tmp_path) is False
+
+
+def test_recorded_root_with_embedded_nul_does_not_match(tmp_path):
+    assert recorded_root_matches("a\x00b", tmp_path) is False
+
+
+def test_recorded_root_symlink_loop_does_not_match(tmp_path):
+    """Before Python 3.13, resolving a symlink loop raises RuntimeError."""
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    assert recorded_root_matches(str(loop), tmp_path) is False

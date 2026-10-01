@@ -60,6 +60,20 @@ class RepoMapValidationError(ValueError):
         super().__init__(f"{prefix}{location}: {message}")
 
 
+def recorded_root_matches(recorded: str, root: Path) -> bool:
+    """Whether a repo-map's recorded ``project.root`` names ``root``.
+
+    A relative recorded root is taken against ``root``, never the process cwd.
+    A root that cannot be resolved (an embedded NUL, a symlink loop, which
+    raises RuntimeError before Python 3.13) is not ``root``: callers treat the
+    map as foreign instead of crashing.
+    """
+    try:
+        return (root / recorded).resolve() == root.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def load_repo_map(source: Path | str | dict) -> RepoMap:
     """Load and validate a repo-map artifact.
 

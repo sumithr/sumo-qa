@@ -172,14 +172,17 @@ The `--json` document is printed in full on exit 1 too. It carries
 `accepted_residual_count`, `warnings`, and `corrective_commands` (only a
 command the repo can actually run, such as `sumo-qa analyze` for a stale
 repo-map; empty otherwise). The human output is one `PASS`/`FAIL` line naming
-the policy and readiness, then each failed clause, reason, and warning.
+the policy and readiness, then each failed clause, reason, and warning, and
+a `next:` line for each corrective command.
 
 `check` reads the risk ledger and context bundle from `.sumo-qa/` in the
 checked-out workspace, so CI must have them there: committed with the change,
-or produced by an earlier step in the same job. A bundle that names a
-`head_sha` must name the commit CI checks out. On `pull_request` events,
-`actions/checkout` defaults to the synthetic merge commit, so check out the PR
-head instead. A minimal job step list:
+or produced by an earlier step in the same job. A committed bundle cannot name
+the commit that contains it, so leave its `head_sha` out; a bundle that does
+carry a `head_sha` must name the commit CI checks out, which in practice means
+producing it in the same job. On `pull_request` events, `actions/checkout`
+defaults to the synthetic merge commit, so check out the PR head instead. A
+minimal job step list:
 
 ```yaml
 - uses: actions/checkout@v4
