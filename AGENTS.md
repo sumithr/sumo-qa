@@ -112,3 +112,7 @@ The host needs to re-read its MCP config:
 | Run the verification call | Anything that requires admin / sudo elevation |
 | Re-run `python -m sumo_qa.installer` to refresh | The JetBrains AI Assistant Settings UI add (it's a clicks-only flow; can't be scripted) |
 | Verify Junie's `~/.junie/mcp/sumo-qa.json` file content | |
+
+## Review guidelines
+
+- On release-please PRs (`chore(main): release X.Y.Z`), do not flag `.claude-plugin/marketplace.json`, `assets/preview-doctor.txt`, `assets/preview-doctor.svg` or `plugin_packaging/generated/manifest.json` as stale against the new version. `.github/workflows/release-please.yml` regenerates and commits them after the version bump.
