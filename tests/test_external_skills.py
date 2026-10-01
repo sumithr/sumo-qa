@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,9 +12,16 @@ from sumo_qa import external_skills as ext
 from sumo_qa import server as sumo_server
 
 
+@pytest.fixture(autouse=True)
+def _pinned_cli_already_verified(monkeypatch):
+    """These tests drive the `find` call itself; the version probe that runs
+    before it is covered in test_external_skills_provenance.py."""
+    monkeypatch.setattr(ext, "_VERIFIED_CLI_PATHS", {f"/bin/npx|{ext._cli_spec()}"})
+
+
 def _completed(stdout: str = "", stderr: str = "", returncode: int = 0):
     return subprocess.CompletedProcess(
-        args=["npx", "--yes", "skills"],
+        args=["npx", "--yes", "skills@1.7.0"],
         returncode=returncode,
         stdout=stdout,
         stderr=stderr,
@@ -35,7 +43,13 @@ def test_search_external_skills_strips_ansi_and_returns_raw_output(monkeypatch) 
 
     result = ext.search_external_skills("python type checking")
 
-    assert result["command"] == ["/bin/npx", "--yes", "skills", "find", "python type checking"]
+    assert result["command"] == [
+        "/bin/npx",
+        "--yes",
+        "skills@1.7.0",
+        "find",
+        "python type checking",
+    ]
     assert result["raw_output"] == "owner/repo@my-skill  42 installs\n"
     assert result["stderr"] == "warning: thing\n"
     assert "raw_output" in result["hint"]
@@ -116,75 +130,6 @@ def test_install_external_skill_requires_confirmation() -> None:
 def test_install_external_skill_validates_inputs(kwargs, message) -> None:
     with pytest.raises(ValueError, match=message):
         ext.install_external_skill(**kwargs)
-
-
-def test_install_external_skill_runs_project_install(monkeypatch) -> None:
-    commands = []
-
-    def fake_run(command, **kwargs):
-        commands.append(command)
-        return _completed(stdout="installed")
-
-    monkeypatch.setattr(ext.shutil, "which", lambda name: f"/bin/{name}")
-    monkeypatch.setattr(ext.subprocess, "run", fake_run)
-    monkeypatch.setattr(
-        ext,
-        "check_external_skill_installed",
-        lambda skill, scope: {"name": skill, "path": "/tmp/SKILL.md"},
-    )
-
-    result = ext.install_external_skill(
-        skill="find-skills",
-        source="vercel-labs/skills",
-        scope="project",
-        agent="codex",
-        confirmed=True,
-    )
-
-    assert commands == [
-        [
-            "/bin/npx",
-            "--yes",
-            "skills",
-            "add",
-            "vercel-labs/skills",
-            "--skill",
-            "find-skills",
-            "-a",
-            "codex",
-            "-y",
-        ]
-    ]
-    assert result["installed"]["path"] == "/tmp/SKILL.md"
-
-
-def test_install_external_skill_runs_global_install(monkeypatch) -> None:
-    commands = []
-    monkeypatch.setattr(ext.shutil, "which", lambda name: f"/bin/{name}")
-    monkeypatch.setattr(
-        ext.subprocess,
-        "run",
-        lambda command, **kwargs: commands.append(command) or _completed(stdout="installed"),
-    )
-    monkeypatch.setattr(ext, "check_external_skill_installed", lambda skill, scope: None)
-
-    result = ext.install_external_skill(skill="find-skills", scope="global", confirmed=True)
-
-    assert commands[0][-1] == "-g"
-    assert result["installed"] is None
-
-
-def test_install_external_skill_defaults_agent_when_blank(monkeypatch) -> None:
-    monkeypatch.setattr(ext.shutil, "which", lambda name: f"/bin/{name}")
-    monkeypatch.setattr(
-        ext.subprocess, "run", lambda *args, **kwargs: _completed(stdout="installed")
-    )
-    monkeypatch.setattr(ext, "check_external_skill_installed", lambda skill, scope: None)
-
-    result = ext.install_external_skill(
-        skill="find-skills", confirmed=True, agent="   ", scope="project"
-    )
-    assert result["agent"] == "codex"
 
 
 def test_check_external_skill_installed_finds_project_and_global_paths(tmp_path: Path) -> None:
@@ -389,7 +334,78 @@ def test_search_external_skills_real_cli_smoke() -> None:
         result = ext.search_external_skills("mypy", timeout=60)
     except (ext.NodeNotFoundError, ext.ExternalSkillCLIError) as exc:
         pytest.skip(f"Skills CLI unavailable in this environment: {exc}")
-    assert set(result) >= {"query", "command", "raw_output", "stderr", "hint"}
+    assert set(result) >= {"query", "cli", "command", "raw_output", "stderr", "hint"}
+    assert result["cli"] == ext.skills_cli_identity()
+    assert result["command"][1:3] == ["--yes", ext.skills_cli_identity()["spec"]]
     assert isinstance(result["raw_output"], str) and result["raw_output"]
     assert "\x1b" not in result["raw_output"]
     assert "\x1b" not in result["stderr"]
+
+
+def _clean_git(*args: str, cwd: Path) -> str:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", *args],
+        cwd=cwd,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+@pytest.mark.skipif(
+    os.environ.get("SUMO_QA_REAL_CLI_SMOKE") != "1"
+    or shutil.which("npx") is None
+    or shutil.which("git") is None,
+    reason="real Skills CLI install smoke runs only in external-skills-smoke.yml",
+)
+def test_install_external_skill_real_cli_smoke(monkeypatch, tmp_path: Path) -> None:
+    """End-to-end install through the REAL pinned Skills CLI.
+
+    Proves the contracts sumo-qa relies on but cannot fake: the pinned
+    package reports its version, `skills add <absolute path>` installs a
+    local checkout by copying it into the agent folder, and the recorded
+    commit and digest then verify at execution. The source is a local git
+    repository served as an https:// remote through git's own `insteadOf`,
+    so only the npm package download touches the network.
+    """
+    repo = tmp_path / "repo"
+    skill = repo / "skills" / "smoke-demo"
+    skill.mkdir(parents=True)
+    body = "---\nname: smoke-demo\ndescription: sumo-qa install smoke\n---\n# Smoke\n"
+    (skill / "SKILL.md").write_text(body, encoding="utf-8")
+    _clean_git("init", "-q", cwd=repo)
+    _clean_git("add", ".", cwd=repo)
+    _clean_git(
+        "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--no-verify", "-qm", "v1", cwd=repo
+    )
+    commit = _clean_git("rev-parse", "HEAD", cwd=repo)
+    remote = "https://example.invalid/smoke.git"
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{repo.as_uri()}.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", remote)
+    project = tmp_path / "project"
+    project.mkdir()
+
+    try:
+        result = ext.install_external_skill(
+            skill="smoke-demo",
+            source=remote,
+            confirmed=True,
+            cwd=project,
+            home=tmp_path / "home",
+            timeout=180,
+        )
+    except (ext.NodeNotFoundError, ext.ExternalSkillCLIError) as exc:
+        pytest.skip(f"Skills CLI unavailable in this environment: {exc}")
+
+    assert result["cli"] == ext.skills_cli_identity()
+    assert result["provenance"]["resolved_ref"] == commit
+    installed = Path(result["installed"]["path"])
+    assert installed.read_text(encoding="utf-8") == body
+    executed = ext.execute_external_skill(
+        "smoke-demo", scope="project", cwd=project, home=tmp_path / "home"
+    )
+    assert executed["provenance"]["status"] == "verified"
+    assert executed["skill_body"] == body

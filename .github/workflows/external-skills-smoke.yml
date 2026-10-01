@@ -4,7 +4,8 @@ name: external-skills-smoke
 #
 # Why this lives OUTSIDE required PR CI:
 #   The production code path (sumo_qa.external_skills.search_external_skills)
-#   shells out to `npx skills find` — a real Node CLI subprocess that hits
+#   shells out to `npx --yes skills@<pinned version> find` (after a
+#   `--version` probe that must report the pin) — a real Node CLI subprocess that hits
 #   a remote registry. Wiring that into required PR CI would couple every
 #   PR to npm availability, network reachability, and upstream Skills CLI
 #   uptime. The mocked coverage in tests/test_external_skills.py runs in
@@ -17,7 +18,8 @@ name: external-skills-smoke
 # PR check.
 #
 # Interpreting the run (also in docs/DEVELOPMENT.md):
-#   - GREEN with `1 passed`         → CLI reachable, MCP shape contract held.
+#   - GREEN with `2 passed`         → CLI reachable at the pin, search shape
+#                                     held, pinned install verified.
 #   - RED in `Fail if smoke was     → the test self-skipped. With npx verified
 #     skipped`                        present (see step below), the only path
 #                                     to a skip is ExternalSkillCLIError —
@@ -84,10 +86,11 @@ jobs:
         # Required: without Node/npx on PATH the smoke test self-skips
         # (the test guard is `shutil.which("npx") is None`) and the
         # workflow would produce no signal at all — the opposite of
-        # what scheduling this is for. Node 20 is the current LTS.
+        # what scheduling this is for. The pinned skills@1.7.0 declares
+        # engines.node >= 22.20.0, so run it on Node 24 (LTS).
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install dependencies
         # Mirrors test.yml / tdm-freshness.yml install line. `-e` so the
@@ -104,6 +107,9 @@ jobs:
         run: command -v npx
 
       - name: Run external Skills CLI smoke
+        env:
+          # Opts in the real install smoke, which PR CI never runs.
+          SUMO_QA_REAL_CLI_SMOKE: "1"
         # --no-cov:        bypasses --cov-fail-under=100 (single-test run).
         # -rs:             surface skip reasons in the log so the next step's
         #                  failure is interpretable without re-reading source.
@@ -115,7 +121,8 @@ jobs:
             --no-cov \
             -rs \
             --junit-xml=smoke-results.xml \
-            tests/test_external_skills.py::test_search_external_skills_real_cli_smoke
+            tests/test_external_skills.py::test_search_external_skills_real_cli_smoke \
+            tests/test_external_skills.py::test_install_external_skill_real_cli_smoke
 
       - name: Fail if smoke was skipped
         # The whole point of this scheduled workflow is to surface upstream

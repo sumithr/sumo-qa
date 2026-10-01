@@ -288,12 +288,65 @@ class TestDataRegisterOutput(_StrictBase):
 # ---------------------------------------------------------------------------
 
 
+class SkillsCLIIdentity(_StrictBase):
+    """The exact pinned Skills CLI package a call ran."""
+
+    package: str = Field(description="npm package name of the Skills CLI.")
+    version: str = Field(description="Exact pinned version; never a range or dist-tag.")
+    spec: str = Field(description="The package@version spec passed to npx.")
+
+
+class ExternalSkillProvenanceRecord(_StrictBase):
+    """Immutable provenance recorded for one installed external skill."""
+
+    skill: str = Field(description="Skill name requested at install time.")
+    source: str = Field(description="Git URL sumo-qa cloned the commit from.")
+    requested_ref: str | None = Field(
+        description="The #ref the caller asked for, or null when the remote HEAD was used."
+    )
+    resolved_ref: str = Field(description="Full commit SHA the Skills CLI installed.")
+    content_digest: str = Field(
+        description="sha256:<hex> over every file path and content in the installed folder."
+    )
+    agent: str = Field(description="Agent flavour the skill was installed for.")
+    scope: Literal["project", "global"] = Field(description="Install scope.")
+    path: str = Field(
+        description="Installed skill folder, POSIX, relative to the project or home directory."
+    )
+    installed_at: str = Field(description="UTC ISO-8601 time the record was written.")
+    installer: SkillsCLIIdentity = Field(description="The pinned Skills CLI that installed it.")
+
+
+class ExternalSkillProvenanceCheck(_StrictBase):
+    """Execution-time provenance check of an installed external skill.
+
+    ``verified`` carries the matching record; ``unrecorded`` (a skill installed
+    outside sumo-qa) carries only the status. A mismatch never reaches this
+    shape: it blocks execution with an error envelope.
+    """
+
+    status: Literal["verified", "unrecorded"] = Field(
+        description="verified: commit + digest match the record; unrecorded: no record exists."
+    )
+    skill: str | None = None
+    source: str | None = None
+    requested_ref: str | None = None
+    resolved_ref: str | None = None
+    content_digest: str | None = None
+    agent: str | None = None
+    scope: Literal["project", "global"] | None = None
+    path: str | None = None
+    installed_at: str | None = None
+    installer: SkillsCLIIdentity | None = None
+
+
 class SearchExternalSkillsOutput(_StrictBase):
     """Output of ``sumo_qa_search_external_skills``."""
 
     query: str = Field(description="Echo of the search query the caller supplied.")
+    cli: SkillsCLIIdentity = Field(description="The exact pinned Skills CLI that ran.")
     command: list[str] = Field(
-        description="The argv list executed (npx + skills CLI args) for traceability."
+        description="The argv list executed (npx + pinned skills CLI args) for traceability."
     )
     raw_output: str = Field(
         description="ANSI-stripped stdout from the Skills CLI; one candidate per line."
@@ -336,14 +389,15 @@ class InstallExternalSkillOutput(_StrictBase):
         description="Install scope: project (cwd-relative) or global (home-relative)."
     )
     agent: str = Field(description="Agent flavour the skill was installed for.")
+    cli: SkillsCLIIdentity = Field(description="The exact pinned Skills CLI that ran.")
     command: list[str] = Field(
-        description="The argv list executed (npx + skills CLI args) for traceability."
+        description="The argv list executed (npx + pinned skills CLI args) for traceability."
     )
-    installed: CheckExternalSkillInstalledOutput | None = Field(
-        description=(
-            "Discovered on-disk location after install, or null when the post-install "
-            "check could not find a SKILL.md."
-        )
+    installed: CheckExternalSkillInstalledOutput = Field(
+        description="Discovered on-disk location of the installed SKILL.md."
+    )
+    provenance: ExternalSkillProvenanceRecord = Field(
+        description="The provenance record written to the scope's .sumo-qa lock file."
     )
     raw_output: str = Field(description="ANSI-stripped stdout from the Skills CLI install run.")
     stderr: str = Field(description="ANSI-stripped stderr from the Skills CLI install run.")
@@ -360,6 +414,9 @@ class ExecuteExternalSkillOutput(_StrictBase):
     )
     intent: str = Field(
         description="Echo of the intent the caller passed; empty string when none supplied."
+    )
+    provenance: ExternalSkillProvenanceCheck = Field(
+        description="Result of checking the installed skill against its provenance record."
     )
     skill_body: str = Field(
         description="Verbatim contents of SKILL.md, ready to hand to the host LLM."

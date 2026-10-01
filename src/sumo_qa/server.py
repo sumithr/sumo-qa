@@ -1825,8 +1825,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     def sumo_qa_search_external_skills(query: str) -> SearchExternalSkillsOutput | ErrorEnvelope:
         """Search the Skills CLI registry for external agent skills.
 
-        Returns the ANSI-stripped CLI output verbatim plus a one-line hint on
-        how to read it. No structured parsing — the host LLM interprets the
+        Runs one exact pinned Skills CLI version and returns its identity, the
+        ANSI-stripped CLI output verbatim, and a one-line hint on how to read
+        it. No structured parsing — the host LLM interprets the
         raw text so format drift in the Skills CLI doesn't break the flow.
         """
         try:
@@ -1867,10 +1868,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         agent: str = "codex",
         confirmed: bool = False,
     ) -> InstallExternalSkillOutput | ErrorEnvelope:
-        """Install an external agent skill through the Skills CLI.
+        """Install an external agent skill through the pinned Skills CLI.
 
         The confirmed flag records that the host received explicit user
-        approval before invoking the install operation.
+        approval before invoking the install operation. sumo-qa clones the
+        source (a git URL or owner/repo, optionally with #ref), checks out the
+        resolved commit, installs that checkout, and records its provenance
+        (resolved commit and content digest) in the scope's .sumo-qa lock file.
         """
         try:
             output = _install_external_skill(
@@ -1902,7 +1906,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     ) -> ExecuteExternalSkillOutput | ErrorEnvelope:
         """Load an installed external SKILL.md and return the execution handoff.
 
-        The payload contains the skill body plus the original intent so the
+        A skill installed through sumo-qa must still match its recorded commit
+        and content digest, or an error blocks execution. The payload contains
+        the provenance check, the skill body, and the original intent so the
         host can follow the external workflow in the current conversation.
         """
         try:

@@ -498,21 +498,46 @@ Three workflows run on a weekly schedule (Monday mornings UTC) and on
 exercise external surfaces without becoming required PR checks:
 
 - [`.github/workflows/tdm-freshness.yml`](../.github/workflows/tdm-freshness.yml): checks every known-good test-data URL still returns 2xx. Opens a `tdm-freshness` issue on failure. (06:00 UTC.)
-- [`.github/workflows/external-skills-smoke.yml`](../.github/workflows/external-skills-smoke.yml): runs `tests/test_external_skills.py::test_search_external_skills_real_cli_smoke` against the real upstream Skills CLI (`npx skills find`). The mocked coverage in `tests/test_external_skills.py` runs on every PR via `test.yml`; this workflow exists so format drift in the upstream Skills CLI surfaces on a low cadence without coupling required CI to npm / network / upstream uptime. (06:00 UTC.)
+- [`.github/workflows/external-skills-smoke.yml`](../.github/workflows/external-skills-smoke.yml): runs `tests/test_external_skills.py::test_search_external_skills_real_cli_smoke` and `::test_install_external_skill_real_cli_smoke` against the real upstream Skills CLI at its pinned version (on Node 24, per the package's `engines`). Together they prove the pinned version still resolves and reports itself, `find` still returns output, and `skills add <absolute path>` still installs sumo-qa's local checkout so the recorded commit and digest verify at execution. The install smoke only runs when `SUMO_QA_REAL_CLI_SMOKE=1`, which this workflow sets and PR CI does not. The mocked coverage in `tests/test_external_skills.py` runs on every PR via `test.yml`; this workflow exists so format drift in the upstream Skills CLI surfaces on a low cadence without coupling required CI to npm / network / upstream uptime. (06:00 UTC.)
 - [`.github/workflows/upgrade-smoke.yml`](../.github/workflows/upgrade-smoke.yml): installs **whatever sumo-qa is currently published on PyPI** into a temp HOME, configures Claude Code + VS Code, then upgrades to **this checkout's source** and re-runs the installer against the **same** HOME. This rehearses the real deployment path, *current live release → the build we're about to ship*, so that when this source is eventually published, upgrading onto an existing install is proven not to break. Asserts the re-install-over-existing-state stayed clean: exactly one `sumo-qa` MCP entry per host, no dangling skill symlinks, all five console-script entry points present, and `tools/list` (from the upgraded host config) is still a superset of the committed snapshot. This is the upgrade transition [`install-smoke.yml`](../.github/workflows/install-smoke.yml) can't see, that workflow always starts from a fresh, empty HOME. The baseline defaults to the current latest PyPI release (resolved at runtime); a `workflow_dispatch` input can override it with a specific published version to rehearse a particular upgrade path. There is **no** version-ordering check, the local checkout has no real version until release-please assigns one, so the delta under test is the code, not a version number. First matrix is Linux + macOS (the upgrade-cleanup logic in `installer.py` is OS-independent; Windows clean-install paths are already covered by `install-smoke.yml`). (06:30 UTC.)
 
 ### Interpreting an external-skills-smoke run
 
 | Outcome | Meaning | Action |
 |---|---|---|
-| GREEN, pytest reports `1 passed` | Upstream CLI reachable; the MCP-owned shape contract (keys present, non-empty `raw_output`, ANSI stripped) still holds. | None. |
+| GREEN, pytest reports `2 passed` | Upstream CLI reachable at the pinned version; the MCP-owned search shape contract (keys present, non-empty `raw_output`, ANSI stripped) still holds, and a pinned install from a local checkout records provenance that verifies at execution. | None. |
 | RED in the `Verify npx is on PATH` step | `actions/setup-node` regressed or its cache is corrupt. | Bump the action version or pin a different `node-version`. Not an `external_skills.py` bug. |
 | RED in the `Run external Skills CLI smoke` step | Genuine MCP-shape regression: the CLI returned, but the wrapper in `sumo_qa.external_skills` dropped a key, leaked an ANSI sequence into `raw_output`, or returned empty text. | Fix in `src/sumo_qa/external_skills.py`; the failing assertions in the test name the broken contract. Do **not** loosen the assertions, they're the only thing standing between us and silent upstream-format coupling. |
-| RED in the `Fail if smoke was skipped` step | The test self-skipped via `pytest.skip(...)`. Because the workflow's earlier `Verify npx is on PATH` step rules out `NodeNotFoundError`, the only paths to a skip here are the CLI timing out or the CLI exiting nonzero, both surfaced as `ExternalSkillCLIError`. Skips are deliberately elevated to failures so a permanent silent skip (e.g. the upstream `skills find` command renamed) cannot defeat the workflow's purpose. | Read the `SKIPPED` line in the pytest log (the `-rs` flag prints the reason). A `timed out after Ns` reason is likely transient, re-run the workflow. A `skills CLI exited N` reason is real upstream drift, inspect `npx skills find mypy` locally and adjust `src/sumo_qa/external_skills.py` if the CLI's contract changed. |
+| RED in the `Fail if smoke was skipped` step | The test self-skipped via `pytest.skip(...)`. Because the workflow's earlier `Verify npx is on PATH` step rules out `NodeNotFoundError`, the only paths to a skip here are the CLI timing out or the CLI exiting nonzero, both surfaced as `ExternalSkillCLIError`. Skips are deliberately elevated to failures so a permanent silent skip (e.g. the upstream `skills find` command renamed) cannot defeat the workflow's purpose. | Read the `SKIPPED` line in the pytest log (the `-rs` flag prints the reason). A `timed out after Ns` reason is likely transient, re-run the workflow. A `skills CLI exited N` reason is real upstream drift, inspect `npx --yes skills@<version> find mypy` locally and adjust `src/sumo_qa/external_skills.py` if the CLI's contract changed. |
 
 To trigger the workflow on demand (e.g. before bumping the
 `sumo_qa.external_skills` wrapper): GitHub → Actions →
 `external-skills-smoke` → **Run workflow**.
+
+### Skills CLI pin
+
+The external-skill tools run one exact Skills CLI version,
+`SKILLS_CLI_VERSION` in `src/sumo_qa/external_skills.py`. The command
+builder refuses anything that is not an exact `X.Y.Z` version, so npx can
+never resolve a range or dist-tag such as `latest`, and each process checks
+that the CLI reports the pinned version before running it. Moving the pin is a
+reviewed dependency change, made in its own PR:
+
+1. Read the new release's changes in the published package
+   (`npm pack skills@<version>`) before trusting it. Confirm `add <absolute
+   path>` still installs a local source by copying it (sumo-qa hands the CLI
+   only its own checkout and deletes it afterwards) and that `--version`
+   still prints the bare version.
+2. Update `SKILLS_CLI_VERSION` and the literal in
+   `tests/test_external_skills_provenance.py::test_pin_is_an_exact_reviewed_version`
+   together, plus the pinned argv in the schema fixtures.
+3. Run `external-skills-smoke` on the branch (**Run workflow**) so the real
+   CLI proves the new version resolves, reports itself, and still returns
+   search output.
+
+A `SkillsCLIVersionError` (the CLI reported another version) points at an npx
+shim or an npm config override, not a sumo-qa bug; never work around it by
+unpinning.
 
 ### Interpreting an upgrade-smoke run
 

@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 """Tests for sumo_qa.ingest — runtime ingestion of native QA knowledge packs."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -297,6 +298,57 @@ def test_atomic_write_fallback_cleans_up_on_replace_failure(tmp_path, monkeypatc
     assert not dest.exists()
 
 
+def test_atomic_write_fallback_closes_the_temp_fd_when_fdopen_fails(tmp_path, monkeypatch):
+    # Windows cannot unlink a file that still has an open handle, so a leaked
+    # mkstemp fd leaves the temp file behind and replaces the real error with
+    # "being used by another process".
+    dest = tmp_path / "knowledge" / "principles.md"
+    dest.parent.mkdir(parents=True)
+    opened = []
+    real_mkstemp = ingest.tempfile.mkstemp
+
+    def tracking_mkstemp(*args, **kwargs):
+        fd, name = real_mkstemp(*args, **kwargs)
+        opened.append(fd)
+        return fd, name
+
+    def full_disk(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(ingest.tempfile, "mkstemp", tracking_mkstemp)
+    monkeypatch.setattr(ingest.os, "fdopen", full_disk)
+    with pytest.raises(OSError, match="No space"):
+        ingest._atomic_write_fallback(dest, "body\n")
+    with pytest.raises(OSError):
+        os.fstat(opened[0])
+    assert list(dest.parent.glob(".*tmp*")) == []
+
+
+@pytest.mark.skipif(not ingest._SUPPORTS_DIR_FD_WRITE, reason="POSIX dir-fd write path")
+def test_atomic_write_via_dir_fd_closes_the_temp_fd_when_fdopen_fails(tmp_path, monkeypatch):
+    dest = tmp_path / "knowledge" / "principles.md"
+    dest.parent.mkdir(parents=True)
+    opened = []
+    real_open = ingest.os.open
+
+    def tracking_open(path, flags, *args, **kwargs):
+        fd = real_open(path, flags, *args, **kwargs)
+        if flags & os.O_CREAT:
+            opened.append(fd)
+        return fd
+
+    def full_disk(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(ingest.os, "open", tracking_open)
+    monkeypatch.setattr(ingest.os, "fdopen", full_disk)
+    with pytest.raises(OSError, match="No space"):
+        ingest._atomic_write_via_dir_fd(dest, "body\n")
+    with pytest.raises(OSError):
+        os.fstat(opened[0])
+    assert list(dest.parent.glob(".*tmp*")) == []
+
+
 def test_write_atomic_uses_fallback_when_no_at_syscalls(tmp_path, monkeypatch):
     # When the platform lacks *at syscalls, _write_atomic must route through the
     # mkstemp fallback (and still mkdir the parent + write the bytes).
@@ -464,3 +516,19 @@ def test_conflicting_destinations_rejected_before_write(tmp_path, monkeypatch):
         ingest.ingest_pack(str(d), scope="project")
     assert "conflicting sources" in str(exc.value) and "principles.md" in str(exc.value)
     assert not (tmp_path / ".sumo-qa").exists()
+
+
+def test_atomic_write_keeps_the_real_error_when_fdopen_already_closed_the_fd(tmp_path, monkeypatch):
+    # io.open closes the fd itself when it fails after building the raw file,
+    # so the helper's own close hits EBADF; the original error must still win.
+    dest = tmp_path / "knowledge" / "principles.md"
+    dest.parent.mkdir(parents=True)
+
+    def late_failure(fd, *args, **kwargs):
+        os.close(fd)
+        raise LookupError("late wrapper failure")
+
+    monkeypatch.setattr(ingest.os, "fdopen", late_failure)
+    with pytest.raises(LookupError, match="late wrapper failure"):
+        ingest._atomic_write_fallback(dest, "body\n")
+    assert list(dest.parent.glob(".*tmp*")) == []

@@ -26,7 +26,9 @@ import errno
 import os
 import sys
 import tempfile
+from contextlib import suppress
 from pathlib import Path
+from typing import TextIO
 
 import yaml
 
@@ -154,6 +156,21 @@ def _dest_path(kind: str, dest_name: str, scope: str) -> Path:
     return paths.standards_packs_dir(scope) / dest_name
 
 
+def _fdopen_or_close(fd: int) -> TextIO:
+    """Wrap a freshly created temp fd, closing it if the wrap itself fails.
+
+    A leaked fd would keep the temp file open, and Windows cannot unlink an
+    open file, so the caller's cleanup would fail and mask the real error.
+    io.open closes the fd itself when it fails late, so that close may find the
+    fd already gone; its error must not replace the original one."""
+    try:
+        return os.fdopen(fd, "w", encoding="utf-8")
+    except BaseException:
+        with suppress(OSError):
+            os.close(fd)
+        raise
+
+
 def _atomic_write_via_dir_fd(
     dest: Path, text: str
 ) -> None:  # pragma: no cover -- platform-conditional (POSIX only)
@@ -180,7 +197,7 @@ def _atomic_write_via_dir_fd(
         file_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
         fd = os.open(tmp_name, file_flags, 0o600, dir_fd=dir_fd)
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with _fdopen_or_close(fd) as handle:
                 handle.write(text)
             # Rename relative to the same verified directory fd so the final
             # swap likewise can't be redirected through a swapped-in parent
@@ -205,7 +222,7 @@ def _atomic_write_fallback(dest: Path, text: str) -> None:
     fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=f".{dest.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with _fdopen_or_close(fd) as handle:
             handle.write(text)
         os.replace(tmp, dest)
     except BaseException:
