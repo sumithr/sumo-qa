@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.0](https://github.com/sumithr/sumo-qa/compare/v0.68.4...v0.69.0) (2026-10-01)
+
+
+### Features
+
+* **cli:** add a side-effect-free sumo-qa check readiness gate with explicit policies ([#792](https://github.com/sumithr/sumo-qa/issues/792)) ([8c160fd](https://github.com/sumithr/sumo-qa/commit/8c160fd1178fbb74e9b1886872e80c25931d2dcb))
+
 ## [0.68.4](https://github.com/sumithr/sumo-qa/compare/v0.68.3...v0.68.4) (2026-10-01)
 
 
