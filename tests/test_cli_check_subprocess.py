@@ -18,8 +18,15 @@ from pathlib import Path
 # imports trampoline-injected modules without MUTANT_UNDER_TEST and crashes.
 
 
+_SRC = str(Path(__file__).resolve().parents[1] / "src")
+
+
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # The pre-commit hook venv imports sumo_qa from the source tree, not an
+    # install, so the child interpreter needs src/ on its path too.
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{_SRC}{os.pathsep}{existing}" if existing else _SRC
     return subprocess.run(
         [sys.executable, "-m", "sumo_qa.cli", *args],
         capture_output=True,
