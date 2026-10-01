@@ -171,7 +171,7 @@ The `--json` document is printed in full on exit 1 too. It carries
 `artifacts` (per-artifact status), `uncovered_blocker_count`,
 `accepted_residual_count`, `warnings`, and `corrective_commands` (only a
 command the repo can actually run, such as `sumo-qa analyze` for a stale
-repo-map; empty otherwise). The human output is one `PASS`/`FAIL` line naming
+repo-map, with the path POSIX-shell quoted; empty otherwise). The human output is one `PASS`/`FAIL` line naming
 the policy and readiness, then each failed clause, reason, and warning, and
 a `next:` line for each corrective command.
 

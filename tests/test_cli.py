@@ -806,6 +806,20 @@ def test_check_corrective_command_quotes_a_path_with_shell_metacharacters(tmp_pa
     assert shlex.split(command) == ["sumo-qa", "analyze", root.resolve().as_posix()]
 
 
+def test_every_next_command_quotes_a_path_with_shell_metacharacters(tmp_path, capsys):
+    """status, analyze and report suggest follow-ups the same way check does."""
+    root = tmp_path / "my repo $HOME"
+    root.mkdir()
+    path = root.resolve().as_posix()
+    for argv, expected in (
+        (["status"], ["sumo-qa", "analyze", path]),
+        (["analyze"], ["sumo-qa", "status", path]),
+        (["report"], ["sumo-qa", "status", path]),
+    ):
+        assert cli.main([*argv, str(root), "--json"]) == 0
+        assert shlex.split(json.loads(capsys.readouterr().out)["next_command"]) == expected
+
+
 def test_check_passing_policy_suggests_no_command_even_with_a_stale_repo_map(tmp_path, capsys):
     """The repo-map is inventory, not a gate: a stale map neither fails a ready
     repo nor attaches a corrective command to a pass."""

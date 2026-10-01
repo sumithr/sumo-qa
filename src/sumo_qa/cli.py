@@ -63,6 +63,12 @@ _NEXT_AFTER_ANALYZE = "sumo-qa status"
 _NEXT_RUN_ANALYZE = "sumo-qa analyze"
 
 
+def _next_command(command: str, root: Path) -> str:
+    """A suggested follow-up command, its path shell-quoted so a root with spaces
+    or metacharacters stays one argument when copied or run."""
+    return f"{command} {shlex.quote(root.as_posix())}"
+
+
 #: Version of the ``sumo-qa check --json`` document. Unlike the other commands'
 #: JSON, this one is an automation contract from its first release (#407).
 CHECK_SCHEMA_VERSION = "1.0"
@@ -162,7 +168,7 @@ def _cmd_analyze(root: Path, *, as_json: bool) -> int:
     # normalised to posix (``as_posix()``) so the suggestion is OS-stable just
     # like ``artifact_path``; forward slashes are valid paths on Windows for
     # pathlib/argparse, so the command stays runnable there.
-    next_command = f"{_NEXT_AFTER_ANALYZE} {root.as_posix()}"
+    next_command = _next_command(_NEXT_AFTER_ANALYZE, root)
 
     payload: dict[str, Any] = {"command": "analyze", **summary.model_dump(mode="json")}
     payload["next_command"] = next_command
@@ -201,7 +207,7 @@ def _status_payload(root: Path) -> dict[str, Any]:
         "current_commit": _detect_git_commit(root),
         "is_stale": False,
         "validation_error": None,
-        "next_command": f"{_NEXT_RUN_ANALYZE} {root.as_posix()}",
+        "next_command": _next_command(_NEXT_RUN_ANALYZE, root),
         "summary": (
             f"No repo-map artifact at {REPO_MAP_RELPATH}. Run `{_NEXT_RUN_ANALYZE}` to generate it."
         ),
@@ -220,7 +226,7 @@ def _status_payload(root: Path) -> dict[str, Any]:
             f"Found {REPO_MAP_RELPATH} but could not read it ({exc.kind}). "
             f"Run `{_NEXT_RUN_ANALYZE}` to regenerate it."
         )
-        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"
+        base["next_command"] = _next_command(_NEXT_RUN_ANALYZE, root)
         return base
 
     current = base["current_commit"]
@@ -238,7 +244,7 @@ def _status_payload(root: Path) -> dict[str, Any]:
         # but mypy cannot narrow ``recorded``/``current`` through the bool, so
         # assert it explicitly before slicing.
         assert recorded is not None and current is not None
-        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"
+        base["next_command"] = _next_command(_NEXT_RUN_ANALYZE, root)
         base["summary"] = (
             f"Repo-map is STALE: recorded commit {recorded[:8]} differs from "
             f"current HEAD {current[:8]}. Run `{_NEXT_RUN_ANALYZE}` to refresh it."
@@ -247,7 +253,7 @@ def _status_payload(root: Path) -> dict[str, Any]:
         # Fresh, or freshness unknown (no git on either side) — either way the
         # artifact is usable; the natural next step is impact analysis, but that
         # lands in a later slice, so we simply confirm freshness here.
-        base["next_command"] = f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"
+        base["next_command"] = _next_command(_NEXT_RUN_ANALYZE, root)
         base["summary"] = (
             f"Repo-map present and fresh (schema {repo_map.schema_version}, "
             f"generated {base['generated_at']})."
@@ -315,9 +321,9 @@ def _cmd_report(root: Path, *, as_json: bool) -> int:
     # A usable repo-map points forward to status; anything else (missing,
     # invalid, stale) points back at analyze to (re)generate it.
     next_command = (
-        f"{_NEXT_AFTER_ANALYZE} {root.as_posix()}"
+        _next_command(_NEXT_AFTER_ANALYZE, root)
         if statuses["repo_map"] == "available"
-        else f"{_NEXT_RUN_ANALYZE} {root.as_posix()}"
+        else _next_command(_NEXT_RUN_ANALYZE, root)
     )
     state = report.readiness.state
     state_label = state.replace("_", " ")
@@ -375,7 +381,7 @@ def _cmd_check(root: Path, *, policy: CheckPolicy, as_json: bool) -> int:
     # Only commands this repository can actually supply: a stale or unreadable
     # repo-map is refreshed by analyze. Nothing is invented for missing evidence.
     corrective = (
-        [f"{_NEXT_RUN_ANALYZE} {shlex.quote(root.as_posix())}"]
+        [_next_command(_NEXT_RUN_ANALYZE, root)]
         if not result.passed and statuses["repo_map"] in ("stale", "invalid")
         else []
     )
