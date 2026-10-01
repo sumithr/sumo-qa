@@ -24,6 +24,12 @@ pre-commit install --install-hooks                  # ruff + hygiene on every co
 
 The config's `default_install_hook_types` makes that one install add both the commit and the push hooks. If `ls "$(git rev-parse --git-path hooks/pre-push)"` finds no push hook (the check works in a worktree too), re-run `pre-commit install --install-hooks` once.
 
+Pushing over SSH also needs keepalives, once per clone (worktrees share it). git opens the connection to GitHub before the push hooks run, and GitHub closes an idle connection long before a full mutmut pass ends:
+
+```bash
+git config core.sshCommand "ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=120"
+```
+
 The `treesitter` extra installs the tree-sitter parser that backs the repo-map
 `imports` edge layer. It is optional at runtime (the scan degrades gracefully
 without it), but the full pytest suite's 100% coverage gate exercises the
