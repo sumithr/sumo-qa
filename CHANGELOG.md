@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.68.4](https://github.com/sumithr/sumo-qa/compare/v0.68.3...v0.68.4) (2026-10-01)
+
+
+### Bug Fixes
+
+* **repo-map:** resolve src-layout Python imports and add Python/Java import-edge fixtures ([#790](https://github.com/sumithr/sumo-qa/issues/790)) ([7b69cff](https://github.com/sumithr/sumo-qa/commit/7b69cffbf02d8a9a3406c7da1da9cf470a3e63a1))
+
 ## [0.68.3](https://github.com/sumithr/sumo-qa/compare/v0.68.2...v0.68.3) (2026-10-01)
 
 
