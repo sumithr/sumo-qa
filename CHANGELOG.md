@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.68.1](https://github.com/sumithr/sumo-qa/compare/v0.68.0...v0.68.1) (2026-10-01)
+
+
+### Documentation
+
+* **agents:** tell Codex review not to flag release-regenerated assets ([#783](https://github.com/sumithr/sumo-qa/issues/783)) ([df17ba4](https://github.com/sumithr/sumo-qa/commit/df17ba4563e698b336411384e30af95e4c83bef2))
+
 ## [0.68.0](https://github.com/sumithr/sumo-qa/compare/v0.67.1...v0.68.0) (2026-10-01)
 
 
