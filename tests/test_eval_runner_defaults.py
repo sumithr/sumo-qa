@@ -292,11 +292,11 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
     off and the stand-in `claude` on PATH; promptfoo stops before any provider call.
     """
 
-    def _real_run(self, tmp_path: Path, config: Path) -> subprocess.CompletedProcess:
+    def _real_run(self, tmp_path: Path, config: Path, **env: str) -> subprocess.CompletedProcess:
         report = _report_path(config)
         report.unlink(missing_ok=True)
         try:
-            return _run_eval(tmp_path, str(config), env_overrides={"SUMO_EVAL_DRY_RUN": ""})
+            return _run_eval(tmp_path, str(config), env_overrides={"SUMO_EVAL_DRY_RUN": "", **env})
         finally:
             report.unlink(missing_ok=True)
 
@@ -320,8 +320,9 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         config.write_text('description: bad\nprompts: [\n  - "x\ntests: : :\n', encoding="utf-8")
         self._assert_harness_error(self._real_run(tmp_path, config))
 
+    @pytest.mark.parametrize("force_color", ["0", "3"])
     def test_a_readable_report_with_provider_errors_still_aborts_with_3(
-        self, tmp_path: Path
+        self, tmp_path: Path, force_color: str
     ) -> None:
         """The other side of the boundary: a report that exists and carries
         `stats.errors > 0` is the provider abort. The stand-in `claude` exits
@@ -331,9 +332,11 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         (tmp_path / "providers").symlink_to(EVAL_DIR / "providers")
         config = tmp_path / "zz-pytest-provider-error-config.yaml"
         config.write_text('description: one case\nprompts: ["Say hi"]\ntests:\n  - vars: {}\n')
-        result = self._real_run(tmp_path, config)
+        # FORCE_COLOR=3 makes node colour a printed number; the count the runner
+        # compares and prints must stay a plain digit either way.
+        result = self._real_run(tmp_path, config, FORCE_COLOR=force_color)
         assert result.returncode == 3, (result.returncode, result.stdout, result.stderr)
-        assert "[eval] ABORT:" in result.stderr and "errors=1" in result.stderr, result.stderr
+        assert "[eval] ABORT:" in result.stderr and "(errors=1)" in result.stderr, result.stderr
         assert "produced no readable report" not in result.stderr, result.stderr
 
 
