@@ -405,3 +405,22 @@ def test_scan_drops_external_java_imports_end_to_end(tmp_path: Path):
     )
     repo_map = scan_repo(tmp_path, generator_version="t")
     assert [e for e in repo_map.edges if e.type == "imports"] == []
+
+
+@_needs_ts
+def test_scan_committed_java_multimodule_fixture_exact_edge_set():
+    # The committed two-module Maven mini-repo end to end: app/ imports types
+    # that live under core/'s own src/main/java root. App's single-type,
+    # wildcard and static imports all land on core files, the wildcard and the
+    # static import of Strings dedupe to one edge, and `java.util.List` plus
+    # `org.slf4j.Logger` are dropped as external.
+    fixture = Path(__file__).parent / "fixtures" / "repo_map" / "java_project"
+    repo_map = scan_repo(fixture, generator_version="t")
+    app = "file:app/src/main/java/com/acme/app"
+    core = "file:core/src/main/java/com/acme/core"
+    edges = {(e.source, e.target): e.confidence for e in repo_map.edges if e.type == "imports"}
+    assert edges == {
+        (f"{app}/App.java", f"{core}/Money.java"): "high",
+        (f"{app}/App.java", f"{core}/util/Strings.java"): "high",
+        (f"{app}/service/OrderService.java", f"{core}/Money.java"): "high",
+    }

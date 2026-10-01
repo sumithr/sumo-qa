@@ -29,6 +29,9 @@ _needs_ts = pytest.mark.skipif(
 )
 
 
+_FIXTURES = Path(__file__).parent / "fixtures" / "repo_map"
+
+
 def _write(root: Path, rel: str, content: str) -> None:
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -97,6 +100,27 @@ def test_scan_edges_are_globally_sorted_across_both_edge_types(tmp_path: Path):
     assert "imports" in types and "likely_tests" in types  # fixture sanity
     keys = [(e.source, e.target) for e in repo_map.edges]
     assert keys == sorted(keys)  # the WHOLE edge list is globally ascending
+
+
+@_needs_ts
+def test_scan_committed_python_fixture_exact_edge_set():
+    # The committed src-layout mini-repo end to end. `from . import pricing`
+    # anchors to the package (its __init__) plus the submodule; `from .models
+    # import Item` stops at the models package because Item is a name, not a
+    # submodule; the function-local `from shop.tax import RATE` is medium.
+    # True negatives: `requests`, `decimal` and `dataclasses` are external, and
+    # scripts/report.py's `from shop.cart import total` emits no edge because
+    # src/ is not an ancestor of scripts/, so nothing proves it is on sys.path.
+    repo_map = scan_repo(_FIXTURES / "python_project", generator_version="t")
+    edges = {(e.source, e.target): e.confidence for e in _import_edges(repo_map)}
+    assert edges == {
+        ("file:src/shop/cart.py", "file:src/shop/__init__.py"): "high",
+        ("file:src/shop/cart.py", "file:src/shop/pricing.py"): "high",
+        ("file:src/shop/cart.py", "file:src/shop/models/__init__.py"): "high",
+        ("file:src/shop/cart.py", "file:src/shop/tax.py"): "medium",
+        ("file:src/shop/pricing.py", "file:src/shop/models/__init__.py"): "high",
+        ("file:src/shop/models/__init__.py", "file:src/shop/models/item.py"): "high",
+    }
 
 
 # ---------- node-only edges (no dangling) ----------
