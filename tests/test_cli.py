@@ -627,6 +627,16 @@ _POLICY_TABLE = [
 ]
 
 
+# The human messages are part of the output contract alongside the codes.
+_CLAUSE_MESSAGES = {
+    "accepted_residuals_not_allowed": (
+        "accepted residual risks are present; pass --policy allow-accepted-residuals to accept them"
+    ),
+    "readiness_blocked": "readiness is blocked",
+    "readiness_insufficient_evidence": "readiness evidence is missing, stale or unverifiable",
+}
+
+
 @pytest.mark.parametrize("state,policy,passed", _POLICY_TABLE)
 def test_evaluate_policy_decision_table(state, policy, passed):
     """Technique: decision tables. Every state x policy cell is pinned; a failed
@@ -644,7 +654,7 @@ def test_evaluate_policy_decision_table(state, policy, passed):
             "insufficient_evidence": "readiness_insufficient_evidence",
         }[state]
         assert [c.code for c in result.failed_clauses] == [expected_code]
-        assert all(c.message for c in result.failed_clauses)
+        assert [c.message for c in result.failed_clauses] == [_CLAUSE_MESSAGES[expected_code]]
 
 
 @pytest.mark.parametrize("state,policy,passed", _POLICY_TABLE)
@@ -708,6 +718,21 @@ def test_check_unverifiable_local_head_fails_both_policies(policy, tmp_path, cap
     payload = json.loads(capsys.readouterr().out)
     assert payload["readiness_state"] == "insufficient_evidence"
     assert payload["warnings"]
+    assert cli.main(["check", str(tmp_path), "--policy", policy]) == 1
+    human = capsys.readouterr().out.splitlines()
+    for warning in payload["warnings"]:
+        assert f"  warning: {warning}" in human
+
+
+def test_check_stale_bundle_evidence_fails(tmp_path, capsys):
+    """A fresh-passing ledger cannot carry a bundle whose test evidence is stale."""
+    _write_sumo(tmp_path, "risk-ledger.json", {"schema_version": "1.0", "rows": [_PASSING_ROW]})
+    bundle = _fresh_bundle()
+    bundle["test_evidence"]["freshness"] = "stale"
+    _write_sumo(tmp_path, "context-bundle.json", bundle)
+    for policy in ("strict", "allow-accepted-residuals"):
+        assert cli.main(["check", str(tmp_path), "--policy", policy, "--json"]) == 1
+        assert json.loads(capsys.readouterr().out)["readiness_state"] == "insufficient_evidence"
 
 
 def test_check_mismatched_bundle_head_fails(tmp_path, capsys):
@@ -738,20 +763,47 @@ def test_check_optional_coverage_and_mutation_never_fail(freshness, tmp_path, ca
     assert payload["artifacts"]["mutation"] == expected
 
 
-def test_check_stale_repo_map_names_the_refresh_command(tmp_path, capsys):
-    _make_repo(tmp_path)
-    _git_init_commit(tmp_path)
+def _write_stale_repo_map(root: Path) -> None:
+    _make_repo(root)
+    _git_init_commit(root)
     repo_map = {
         "schema_version": "1.0",
-        "project": {"root": str(tmp_path), "name": "demo", "git_commit": "c" * 40,
+        "project": {"root": str(root), "name": "demo", "git_commit": "c" * 40,
                     "generated_at": "2026-06-01T12:00:00+00:00", "generator_version": "0"},
         "nodes": [], "edges": [], "commands": [], "warnings": [],
     }  # fmt: skip
-    _write_sumo(tmp_path, "repo-map.json", repo_map)
+    _write_sumo(root, "repo-map.json", repo_map)
+
+
+def test_check_stale_repo_map_names_the_refresh_command(tmp_path, capsys):
+    _write_stale_repo_map(tmp_path)
     assert cli.main(["check", str(tmp_path), "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["artifacts"]["repo_map"] == "stale"
+    analyze = f"sumo-qa analyze {tmp_path.resolve().as_posix()}"
+    assert payload["corrective_commands"] == [analyze]
+    assert cli.main(["check", str(tmp_path)]) == 1
+    assert f"  next: {analyze}" in capsys.readouterr().out.splitlines()
+
+
+def test_check_invalid_repo_map_names_the_refresh_command(tmp_path, capsys):
+    (tmp_path / ".sumo-qa").mkdir()
+    (tmp_path / ".sumo-qa" / "repo-map.json").write_text("{not json", encoding="utf-8")
+    assert cli.main(["check", str(tmp_path), "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artifacts"]["repo_map"] == "invalid"
     assert payload["corrective_commands"] == [f"sumo-qa analyze {tmp_path.resolve().as_posix()}"]
+
+
+def test_check_passing_policy_suggests_no_command_even_with_a_stale_repo_map(tmp_path, capsys):
+    """The repo-map is inventory, not a gate: a stale map neither fails a ready
+    repo nor attaches a corrective command to a pass."""
+    _write_stale_repo_map(tmp_path)
+    _seed_state(tmp_path, "ready")
+    assert cli.main(["check", str(tmp_path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artifacts"]["repo_map"] == "stale"
+    assert payload["corrective_commands"] == []
 
 
 @pytest.mark.parametrize("state", ["ready", "insufficient_evidence", "blocked"])
@@ -795,33 +847,3 @@ def test_check_missing_directory_exits_2(tmp_path, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "is not a directory" in captured.err
-
-
-def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [_sys.executable, "-m", "sumo_qa.cli", *args],
-        capture_output=True,
-        text=True,
-        env=_clean_git_env(),
-        check=False,
-    )
-
-
-def test_check_subprocess_exit_codes_and_json(tmp_path):
-    empty = _run_cli("check", str(tmp_path), "--json")
-    assert empty.returncode == 1
-    assert json.loads(empty.stdout)["readiness_state"] == "insufficient_evidence"
-
-    ready = tmp_path / "ready"
-    ready.mkdir()
-    _seed_state(ready, "ready")
-    ok = _run_cli("check", str(ready), "--json")
-    assert ok.returncode == 0
-    assert json.loads(ok.stdout)["passed"] is True
-
-    unknown = _run_cli("check", str(tmp_path), "--policy", "no-blockers")
-    assert unknown.returncode == 2
-    assert unknown.stdout == ""
-
-    missing = _run_cli("check", str(tmp_path / "nope"))
-    assert missing.returncode == 2

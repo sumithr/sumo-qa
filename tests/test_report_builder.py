@@ -292,6 +292,16 @@ def test_foreign_root_repo_map_is_invalid_not_evidence(tmp_path):
     assert report.readiness.state == "insufficient_evidence"
 
 
+def test_unresolvable_repo_map_root_reads_as_foreign_not_a_crash(tmp_path):
+    """A corrupt repo-map whose recorded root holds a NUL byte cannot be
+    resolved; it is foreign to this root (invalid), never a ValueError."""
+    _write_artifact(tmp_path, "repo-map.json", _repo_map_payload(Path("a\x00b")))
+    report = generate_report(tmp_path, generator_version=_VERSION, now=_NOW)
+    entry = next(a for a in report.artifacts if a.kind == "repo_map")
+    assert entry.status == "invalid"
+    assert entry.detail is not None and "foreign_root" in entry.detail
+
+
 def test_foreign_root_repo_map_also_rejects_its_diff_impact_overlay(tmp_path):
     """The diff-impact overlay's nodes are repo-map node ids — when the map is
     rejected as foreign, the overlay describes the same foreign tree. It must

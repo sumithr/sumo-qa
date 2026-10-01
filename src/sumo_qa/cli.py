@@ -402,6 +402,7 @@ def _cmd_check(root: Path, *, policy: CheckPolicy, as_json: bool) -> int:
     lines = [f"{verdict} sumo-qa check (policy: {result.policy}, readiness: {state_label})"]
     lines += [f"  {c.code}: {c.message}" for c in result.failed_clauses]
     lines += [f"  - {reason}" for reason in report.readiness.reasons]
+    lines += [f"  warning: {warning}" for warning in report.warnings]
     lines += [f"  next: {command}" for command in corrective]
     _emit(payload, as_json=as_json, human="\n".join(lines))
     return 0 if result.passed else 1

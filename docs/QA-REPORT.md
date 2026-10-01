@@ -120,6 +120,26 @@ delta line. The output names the readiness
 state, per-artifact statuses, and the next command (`sumo-qa analyze` when
 the repo-map is missing or stale, `sumo-qa status` otherwise).
 
+From a host, via MCP:
+
+```text
+sumo_qa_generate_qa_report(root, write_to=None, risk_ledger_rows=None, context_bundle=None)
+```
+
+The response is a compact readiness summary (`GenerateQAReportOutput`): the
+HTML body never rides back to the host. Pass
+`write_to=".sumo-qa/qa-report.html"` to persist the page; a relative path
+resolves against the **target root**, not the MCP server's cwd, and is
+confined to it, `..` traversal that escapes the root is refused. An absolute
+path is caller-explicit and taken as-is. Without `write_to` the tool is
+side-effect free.
+
+`risk_ledger_rows` / `context_bundle` are **inline overrides** for the chat
+flow: when the ledger or bundle was built in-conversation (via
+`sumo_qa_format_risk_ledger` / `sumo_qa_format_context_bundle`) and never
+persisted, pass the same shapes directly. They take precedence over any
+on-disk file and are validated before anything is written.
+
 ## Gate CI on readiness
 
 `report` never fails a build. `check` is the gate: it derives the same
@@ -152,37 +172,25 @@ The `--json` document is printed in full on exit 1 too. It carries
 `accepted_residual_count`, `warnings`, and `corrective_commands` (only a
 command the repo can actually run, such as `sumo-qa analyze` for a stale
 repo-map; empty otherwise). The human output is one `PASS`/`FAIL` line naming
-the policy and readiness, then each failed clause and reason.
+the policy and readiness, then each failed clause, reason, and warning.
 
-A minimal GitHub Actions step, with the policy decided by `check` itself:
+`check` reads the risk ledger and context bundle from `.sumo-qa/` in the
+checked-out workspace, so CI must have them there: committed with the change,
+or produced by an earlier step in the same job. A bundle that names a
+`head_sha` must name the commit CI checks out. On `pull_request` events,
+`actions/checkout` defaults to the synthetic merge commit, so check out the PR
+head instead. A minimal job step list:
 
 ```yaml
+- uses: actions/checkout@v4
+  with:
+    ref: ${{ github.event.pull_request.head.sha || github.sha }}
 - uses: actions/setup-python@v5
   with:
     python-version: "3.12"
 - run: python -m pip install sumo-qa
 - run: sumo-qa check
 ```
-
-From a host, via MCP:
-
-```text
-sumo_qa_generate_qa_report(root, write_to=None, risk_ledger_rows=None, context_bundle=None)
-```
-
-The response is a compact readiness summary (`GenerateQAReportOutput`): the
-HTML body never rides back to the host. Pass
-`write_to=".sumo-qa/qa-report.html"` to persist the page; a relative path
-resolves against the **target root**, not the MCP server's cwd, and is
-confined to it, `..` traversal that escapes the root is refused. An absolute
-path is caller-explicit and taken as-is. Without `write_to` the tool is
-side-effect free.
-
-`risk_ledger_rows` / `context_bundle` are **inline overrides** for the chat
-flow: when the ledger or bundle was built in-conversation (via
-`sumo_qa_format_risk_ledger` / `sumo_qa_format_context_bundle`) and never
-persisted, pass the same shapes directly. They take precedence over any
-on-disk file and are validated before anything is written.
 
 ## Determinism and snapshots
 
