@@ -5,7 +5,7 @@ Local dev guide for sumo-qa.
 ## Prerequisites
 
 - **Python 3.10 or newer** (no upper cap; see `pyproject.toml`'s `requires-python`)
-- **Node.js 22.22+**: only needed if you run the LLM eval harness (`tests/evals/promptfoo/`). Promptfoo is a Node CLI; we pin it as a local devDependency in `package.json`. Skip this if you don't touch evals.
+- **Node.js 22.22+** (minimum; we use 24, the current LTS): only needed if you run the LLM eval harness (`tests/evals/promptfoo/`). Promptfoo is a Node CLI; we pin it as a local devDependency in `package.json`. Skip this if you don't touch evals.
 
 Python tooling: pick whichever installer you already use, `pip`, `uv`, `pipx`, conda. Examples below use `pip` because it ships with every Python install; `uv` users can swap in equivalent commands.
 
@@ -59,7 +59,7 @@ To run the whole gate manually from the repo root, invoke `scripts/check_markdow
 ### Eval harness (Node-only, skip if you don't touch evals)
 
 ```bash
-nvm use 24             # or any Node 22.22+ install
+nvm use 24             # current LTS; any Node 22.22+ also works
 npm install            # installs promptfoo from package.json
 npm run eval           # the TDD skill eval on the Claude pair via `claude -p` (no API key)
 npm run eval:all       # every skill config on the Claude pair (the full matrix)
