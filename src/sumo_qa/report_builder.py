@@ -50,7 +50,7 @@ from sumo_qa.ledger_models import RiskLedger
 from sumo_qa.ledger_validation import load_ledger
 from sumo_qa.repo_map_models import DiffImpact, RepoMap
 from sumo_qa.repo_map_scanner import _git_env
-from sumo_qa.repo_map_validation import load_repo_map
+from sumo_qa.repo_map_validation import load_repo_map, recorded_root_matches
 from sumo_qa.report_models import (
     PRESENT_STATUSES,
     REPORT_SCHEMA_VERSION,
@@ -217,7 +217,7 @@ def load_report_inputs(
     # mutmut_12 (False→None) is equivalent: both are falsy and this flag is only
     # ever read in a boolean context.
     repo_map_foreign = False  # pragma: no mutate
-    if repo_map is not None and Path(repo_map.project.root).resolve() != root_path:
+    if repo_map is not None and not recorded_root_matches(repo_map.project.root, root_path):
         # A repo-map copied from ANOTHER repository measures a different tree —
         # composing it would present foreign evidence as local. Mirror the
         # `_load_map_with_fallback` rejection precedent (server.py); here the

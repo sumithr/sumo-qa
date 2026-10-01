@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys as _sys
 from pathlib import Path
@@ -559,3 +560,315 @@ def test_report_unverifiable_bundle_reads_the_same_in_cli_json_and_html(tmp_path
     human = capsys.readouterr().out
     assert "readiness: insufficient evidence" in human
     assert "not verified against the local tree" in human
+
+
+# ---------------------------------------------------------------------------
+# check (#407) — side-effect-free CI readiness gate
+# ---------------------------------------------------------------------------
+
+_PASSING_ROW = {
+    "risk_id": "R1",
+    "risk": "demo regression",
+    "source_anchor": "src/demo.py:1",
+    "test": "tests/test_demo.py::test_demo",
+    "evidence_status": "passing",
+    "residual": "mitigated",
+}
+_ACCEPTED_ROW = {**_PASSING_ROW, "risk_id": "R2", "evidence_status": "accepted_residual",
+                 "residual": "accepted"}  # fmt: skip
+_BLOCKER_ROW = {**_PASSING_ROW, "risk_id": "R3", "evidence_status": "planned",
+                "residual": "blocker", "test": "planned: boundary sweep"}  # fmt: skip
+
+
+def _write_sumo(root: Path, name: str, payload: dict) -> None:
+    target = root / ".sumo-qa" / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _fresh_bundle(head_sha: str | None = None) -> dict:
+    bundle: dict = {
+        "schema_version": "1.0",
+        "test_evidence": {"result": "passing", "freshness": "fresh", "source": "local_git"},
+        "ci_status": {"result": "passing", "freshness": "fresh", "source": "ci_provider"},
+    }
+    if head_sha is not None:
+        bundle["head_sha"] = head_sha
+    return bundle
+
+
+def _seed_state(root: Path, state: str) -> None:
+    """Seed ``.sumo-qa`` so the scorecard derives ``state`` on a non-git root.
+    A bundle with no head_sha has nothing to verify, so a fresh pass is usable."""
+    rows = {
+        "ready": [_PASSING_ROW],
+        "ready_with_accepted_residuals": [_PASSING_ROW, _ACCEPTED_ROW],
+        "blocked": [_BLOCKER_ROW],
+    }
+    if state == "insufficient_evidence":
+        return  # an empty repository: nothing to derive readiness from
+    _write_sumo(root, "risk-ledger.json", {"schema_version": "1.0", "rows": rows[state]})
+    _write_sumo(root, "context-bundle.json", _fresh_bundle())
+
+
+def _snapshot(root: Path) -> dict[str, bytes]:
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+
+# Decision table: readiness state x policy -> passed (issue #407 Policies).
+_POLICY_TABLE = [
+    ("ready", "strict", True),
+    ("ready_with_accepted_residuals", "strict", False),
+    ("blocked", "strict", False),
+    ("insufficient_evidence", "strict", False),
+    ("ready", "allow-accepted-residuals", True),
+    ("ready_with_accepted_residuals", "allow-accepted-residuals", True),
+    ("blocked", "allow-accepted-residuals", False),
+    ("insufficient_evidence", "allow-accepted-residuals", False),
+]
+
+
+# The human messages are part of the output contract alongside the codes.
+_CLAUSE_MESSAGES = {
+    "accepted_residuals_not_allowed": (
+        "accepted residual risks are present; pass --policy allow-accepted-residuals to accept them"
+    ),
+    "readiness_blocked": "readiness is blocked",
+    "readiness_insufficient_evidence": "readiness evidence is missing, stale or unverifiable",
+}
+
+
+@pytest.mark.parametrize("state,policy,passed", _POLICY_TABLE)
+def test_evaluate_policy_decision_table(state, policy, passed):
+    """Technique: decision tables. Every state x policy cell is pinned; a failed
+    result names exactly one stable clause code, a passed one names none."""
+    result = cli.evaluate_policy(state, policy)
+    assert result.passed is passed
+    assert result.policy == policy
+    assert result.readiness_state == state
+    if passed:
+        assert result.failed_clauses == ()
+    else:
+        expected_code = {
+            "ready_with_accepted_residuals": "accepted_residuals_not_allowed",
+            "blocked": "readiness_blocked",
+            "insufficient_evidence": "readiness_insufficient_evidence",
+        }[state]
+        assert [c.code for c in result.failed_clauses] == [expected_code]
+        assert [c.message for c in result.failed_clauses] == [_CLAUSE_MESSAGES[expected_code]]
+
+
+@pytest.mark.parametrize("state,policy,passed", _POLICY_TABLE)
+def test_check_end_to_end_exit_code_per_state_and_policy(state, policy, passed, tmp_path, capsys):
+    _seed_state(tmp_path, state)
+    code = cli.main(["check", str(tmp_path), "--policy", policy, "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert code == (0 if passed else 1)
+    assert payload["passed"] is passed
+    assert payload["readiness_state"] == state
+    assert payload["policy"] == policy
+
+
+def test_check_default_policy_is_strict(tmp_path, capsys):
+    _seed_state(tmp_path, "ready_with_accepted_residuals")
+    assert cli.main(["check", str(tmp_path), "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["policy"] == "strict"
+    assert payload["accepted_residual_count"] == 1
+    assert [c["code"] for c in payload["failed_clauses"]] == ["accepted_residuals_not_allowed"]
+
+
+def test_check_empty_repository_fails_with_complete_versioned_json(tmp_path, capsys):
+    assert cli.main(["check", str(tmp_path), "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == cli.CHECK_SCHEMA_VERSION
+    assert payload["command"] == "check"
+    assert payload["root"] == str(tmp_path.resolve())
+    assert payload["passed"] is False
+    assert payload["readiness_state"] == "insufficient_evidence"
+    assert payload["readiness_reasons"]
+    assert payload["failed_clauses"] == [
+        {
+            "code": "readiness_insufficient_evidence",
+            "message": payload["failed_clauses"][0]["message"],
+        }
+    ]
+    assert payload["artifacts"]["risk_ledger"] == "missing"
+    assert payload["uncovered_blocker_count"] == 0
+    assert payload["accepted_residual_count"] == 0
+    assert payload["warnings"] == []
+    # Nothing on disk to refresh: no command is invented for missing risk analysis.
+    assert payload["corrective_commands"] == []
+
+
+def test_check_blocked_counts_uncovered_blockers(tmp_path, capsys):
+    _seed_state(tmp_path, "blocked")
+    assert cli.main(["check", str(tmp_path), "--json", "--policy", "allow-accepted-residuals"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["uncovered_blocker_count"] == 1
+    assert [c["code"] for c in payload["failed_clauses"]] == ["readiness_blocked"]
+
+
+@pytest.mark.parametrize("policy", ["strict", "allow-accepted-residuals"])
+def test_check_unverifiable_local_head_fails_both_policies(policy, tmp_path, capsys):
+    """#401: a fresh-passing bundle naming a head_sha on a non-git root cannot
+    be verified against the local tree, so it cannot pass either policy."""
+    _write_sumo(tmp_path, "risk-ledger.json", {"schema_version": "1.0", "rows": [_PASSING_ROW]})
+    _write_sumo(tmp_path, "context-bundle.json", _fresh_bundle("a" * 40))
+    assert cli.main(["check", str(tmp_path), "--policy", policy, "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["readiness_state"] == "insufficient_evidence"
+    assert payload["warnings"]
+    assert cli.main(["check", str(tmp_path), "--policy", policy]) == 1
+    human = capsys.readouterr().out.splitlines()
+    for warning in payload["warnings"]:
+        assert f"  warning: {warning}" in human
+
+
+def test_check_stale_bundle_evidence_fails(tmp_path, capsys):
+    """A fresh-passing ledger cannot carry a bundle whose test evidence is stale."""
+    _write_sumo(tmp_path, "risk-ledger.json", {"schema_version": "1.0", "rows": [_PASSING_ROW]})
+    bundle = _fresh_bundle()
+    bundle["test_evidence"]["freshness"] = "stale"
+    _write_sumo(tmp_path, "context-bundle.json", bundle)
+    for policy in ("strict", "allow-accepted-residuals"):
+        assert cli.main(["check", str(tmp_path), "--policy", policy, "--json"]) == 1
+        assert json.loads(capsys.readouterr().out)["readiness_state"] == "insufficient_evidence"
+
+
+def test_check_mismatched_bundle_head_fails(tmp_path, capsys):
+    _make_repo(tmp_path)
+    _git_init_commit(tmp_path)
+    _write_sumo(tmp_path, "risk-ledger.json", {"schema_version": "1.0", "rows": [_PASSING_ROW]})
+    _write_sumo(tmp_path, "context-bundle.json", _fresh_bundle("b" * 40))
+    assert cli.main(["check", str(tmp_path), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["readiness_state"] == "insufficient_evidence"
+
+
+@pytest.mark.parametrize("freshness", [None, "stale"])
+def test_check_optional_coverage_and_mutation_never_fail(freshness, tmp_path, capsys):
+    """Coverage/mutation are reported, never gated: absent or stale, a ready
+    repo still passes."""
+    _seed_state(tmp_path, "ready")
+    if freshness is not None:
+        base = {"schema_version": "1.0", "generated_at": "2026-06-08T00:00:00Z",
+                "freshness": freshness}  # fmt: skip
+        _write_sumo(tmp_path, "coverage.json",
+                    {**base, "source_tool": "pytest-cov", "line_percent": 40.0})  # fmt: skip
+        _write_sumo(tmp_path, "mutation.json",
+                    {**base, "source_tool": "mutmut", "survivors": 9, "killed": 1})  # fmt: skip
+    assert cli.main(["check", str(tmp_path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    expected = "missing" if freshness is None else "stale"
+    assert payload["artifacts"]["coverage"] == expected
+    assert payload["artifacts"]["mutation"] == expected
+
+
+def _write_stale_repo_map(root: Path) -> None:
+    _make_repo(root)
+    _git_init_commit(root)
+    repo_map = {
+        "schema_version": "1.0",
+        "project": {"root": str(root), "name": "demo", "git_commit": "c" * 40,
+                    "generated_at": "2026-06-01T12:00:00+00:00", "generator_version": "0"},
+        "nodes": [], "edges": [], "commands": [], "warnings": [],
+    }  # fmt: skip
+    _write_sumo(root, "repo-map.json", repo_map)
+
+
+def test_check_stale_repo_map_names_the_refresh_command(tmp_path, capsys):
+    _write_stale_repo_map(tmp_path)
+    assert cli.main(["check", str(tmp_path), "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artifacts"]["repo_map"] == "stale"
+    analyze = f"sumo-qa analyze {tmp_path.resolve().as_posix()}"
+    assert payload["corrective_commands"] == [analyze]
+    assert cli.main(["check", str(tmp_path)]) == 1
+    assert f"  next: {analyze}" in capsys.readouterr().out.splitlines()
+
+
+def test_check_invalid_repo_map_names_the_refresh_command(tmp_path, capsys):
+    (tmp_path / ".sumo-qa").mkdir()
+    (tmp_path / ".sumo-qa" / "repo-map.json").write_text("{not json", encoding="utf-8")
+    assert cli.main(["check", str(tmp_path), "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artifacts"]["repo_map"] == "invalid"
+    assert payload["corrective_commands"] == [f"sumo-qa analyze {tmp_path.resolve().as_posix()}"]
+
+
+def test_check_corrective_command_quotes_a_path_with_shell_metacharacters(tmp_path, capsys):
+    """Copied into a shell, the command still targets the one repository path."""
+    root = tmp_path / "my repo $HOME"
+    root.mkdir()
+    _write_stale_repo_map(root)
+    assert cli.main(["check", str(root), "--json"]) == 1
+    [command] = json.loads(capsys.readouterr().out)["corrective_commands"]
+    assert shlex.split(command) == ["sumo-qa", "analyze", root.resolve().as_posix()]
+
+
+def test_every_next_command_quotes_a_path_with_shell_metacharacters(tmp_path, capsys):
+    """status, analyze and report suggest follow-ups the same way check does."""
+    root = tmp_path / "my repo $HOME"
+    root.mkdir()
+    path = root.resolve().as_posix()
+    for argv, expected in (
+        (["status"], ["sumo-qa", "analyze", path]),
+        (["analyze"], ["sumo-qa", "status", path]),
+        (["report"], ["sumo-qa", "status", path]),
+    ):
+        assert cli.main([*argv, str(root), "--json"]) == 0
+        assert shlex.split(json.loads(capsys.readouterr().out)["next_command"]) == expected
+
+
+def test_check_passing_policy_suggests_no_command_even_with_a_stale_repo_map(tmp_path, capsys):
+    """The repo-map is inventory, not a gate: a stale map neither fails a ready
+    repo nor attaches a corrective command to a pass."""
+    _write_stale_repo_map(tmp_path)
+    _seed_state(tmp_path, "ready")
+    assert cli.main(["check", str(tmp_path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artifacts"]["repo_map"] == "stale"
+    assert payload["corrective_commands"] == []
+
+
+@pytest.mark.parametrize("state", ["ready", "insufficient_evidence", "blocked"])
+def test_check_performs_no_writes(state, tmp_path):
+    _seed_state(tmp_path, state)
+    before = _snapshot(tmp_path)
+    cli.main(["check", str(tmp_path)])
+    cli.main(["check", str(tmp_path), "--json"])
+    assert _snapshot(tmp_path) == before
+    if state == "insufficient_evidence":
+        assert not (tmp_path / ".sumo-qa").exists()
+
+
+def test_check_human_output_projects_the_same_result_as_json(tmp_path, capsys):
+    _seed_state(tmp_path, "blocked")
+    assert cli.main(["check", str(tmp_path), "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert cli.main(["check", str(tmp_path)]) == 1
+    human = capsys.readouterr().out
+    first = human.splitlines()[0]
+    assert first.startswith("FAIL")
+    assert "policy: strict" in first
+    assert "readiness: blocked" in first
+    for clause in payload["failed_clauses"]:
+        assert clause["message"] in human
+    for reason in payload["readiness_reasons"]:
+        assert reason in human
+    assert "next:" not in human  # no corrective command is known here
+
+
+def test_check_human_pass_line(tmp_path, capsys):
+    _seed_state(tmp_path, "ready")
+    assert cli.main(["check", str(tmp_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == (
+        "PASS sumo-qa check (policy: strict, readiness: ready)"
+    )
+
+
+def test_check_missing_directory_exits_2(tmp_path, capsys):
+    assert cli.main(["check", str(tmp_path / "nope"), "--json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "is not a directory" in captured.err

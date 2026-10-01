@@ -97,13 +97,15 @@ def test_query_loads_persisted_artifact_when_present(tool, tmp_path):
     assert out.artifact_path == str(artifact.resolve())
 
 
-def test_query_ignores_foreign_artifact_and_scans_live(tool, tmp_path):
+@pytest.mark.parametrize("foreign_root", ["/some/other/repo", "a\x00b"])
+def test_query_ignores_foreign_artifact_and_scans_live(tool, tmp_path, foreign_root):
+    """An unresolvable recorded root (embedded NUL) is foreign too, not a crash."""
     _seed_repo(tmp_path)
     from sumo_qa.repo_map_scanner import scan_repo
 
     rm = scan_repo(tmp_path, generator_version="t")
     data = rm.model_dump(mode="json")
-    data["project"]["root"] = "/some/other/repo"
+    data["project"]["root"] = foreign_root
     artifact = tmp_path / ".sumo-qa" / "repo-map.json"
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(json.dumps(data), encoding="utf-8")

@@ -339,6 +339,9 @@ pytest_add_cli_args = [
   # trampoline-injected modules without MUTANT_UNDER_TEST. Marker:
   # `mutmut-subprocess-spawning`.
   "--ignore=tests/test_doctor.py",
+  # Spawns `python -m sumo_qa.cli` to pin `sumo-qa check`'s exact exit codes.
+  # Marker: `mutmut-subprocess-spawning`.
+  "--ignore=tests/test_cli_check_subprocess.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/"]
 # mutmut only copies source_paths modules into mutants/src/sumo_qa/, leaving the

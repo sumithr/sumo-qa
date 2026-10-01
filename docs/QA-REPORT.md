@@ -140,6 +140,61 @@ flow: when the ledger or bundle was built in-conversation (via
 persisted, pass the same shapes directly. They take precedence over any
 on-disk file and are validated before anything is written.
 
+## Gate CI on readiness
+
+`report` never fails a build. `check` is the gate: it derives the same
+readiness verdict from the same artifacts, writes nothing (no page, no run
+summary, no scorecard), and turns the verdict into an exit code.
+
+```bash
+sumo-qa check [path]                                     # strict: pass only when ready
+sumo-qa check [path] --policy allow-accepted-residuals   # also pass ready_with_accepted_residuals
+sumo-qa check [path] --json                              # versioned result document
+```
+
+| Readiness | `strict` (default) | `allow-accepted-residuals` |
+|---|---|---|
+| `ready` | pass | pass |
+| `ready_with_accepted_residuals` | fail | pass |
+| `blocked` | fail | fail |
+| `insufficient_evidence` | fail | fail |
+
+Exit codes: `0` the policy passed, `1` the policy failed, `2` a usage or
+input error (a missing directory, an unknown policy). Missing, stale, or
+unverifiable readiness evidence stays `insufficient_evidence`, so it can never
+pass. Coverage and mutation are reported, never gated: their absence or
+staleness does not fail `check`.
+
+The `--json` document is printed in full on exit 1 too. It carries
+`schema_version`, `command`, `root`, `policy`, `passed`, `readiness_state`,
+`readiness_reasons`, `failed_clauses` (each a stable `code` plus a `message`),
+`artifacts` (per-artifact status), `uncovered_blocker_count`,
+`accepted_residual_count`, `warnings`, and `corrective_commands` (only a
+command the repo can actually run, such as `sumo-qa analyze` for a stale
+repo-map, with the path POSIX-shell quoted; empty otherwise). The human output is one `PASS`/`FAIL` line naming
+the policy and readiness, then each failed clause, reason, and warning, and
+a `next:` line for each corrective command.
+
+`check` reads the risk ledger and context bundle from `.sumo-qa/` in the
+checked-out workspace, so CI must have them there: committed with the change,
+or produced by an earlier step in the same job. A committed bundle cannot name
+the commit that contains it, so leave its `head_sha` out; a bundle that does
+carry a `head_sha` must name the commit CI checks out, which in practice means
+producing it in the same job. On `pull_request` events, `actions/checkout`
+defaults to the synthetic merge commit, so check out the PR head instead. A
+minimal job step list:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    ref: ${{ github.event.pull_request.head.sha || github.sha }}
+- uses: actions/setup-python@v5
+  with:
+    python-version: "3.12"
+- run: python -m pip install sumo-qa
+- run: sumo-qa check
+```
+
 ## Determinism and snapshots
 
 The builder is split into a pure core and an IO shell:
