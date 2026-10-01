@@ -91,7 +91,9 @@ test-file edit (a cold full pass is 15+ minutes at --max-children 1):
     mutmut's clean-test pass to the mapped tests;
   - nothing selected -> exit 0 without running mutmut; a test change with no
     stats file -> the full run (the map cannot be inverted safely);
-  - pyproject.toml, conftest.py, or any tests/ .py that is not a test module
+  - pyproject.toml (only when its [tool.mutmut] or [tool.pytest] table
+    changed), .pre-commit-config.yaml (only when the mutmut hook's block
+    changed), conftest.py, or any tests/ .py that is not a test module
     (helpers, fixtures) -> the full run: those never appear in the map yet can
     weaken many tests; git failing to diff -> the full run too;
   - only in-scope modules are judged; the rest are listed SKIPPED, never
@@ -106,6 +108,8 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+import yaml
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -192,6 +196,50 @@ def _git_diff_names(spec: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
+def _git_out(*args: str) -> str:
+    return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
+
+
+def _pyproject_gate(text: str) -> dict:
+    # The pyproject.toml tables that steer the pass. The hook env holds only its
+    # own additional_dependencies, so a [project] dependency change never
+    # reaches it; the nightly full pass still covers that.
+    tool = tomllib.loads(text).get("tool", {})
+    return {table: tool.get(table) for table in ("mutmut", "pytest")}
+
+
+def _hook_gate(text: str) -> dict:
+    # The mutmut hook's own block: its entry and additional_dependencies are
+    # the toolchain the pass runs on (a mutmut or pytest-cov bump lands here
+    # in lockstep with pyproject.toml), and default_language_version picks the
+    # interpreter its venv is built on. Other hooks' revs never reach it.
+    config = yaml.safe_load(text) or {}
+    hooks = [
+        h for r in config.get("repos", []) for h in r.get("hooks", []) if h.get("id") == "mutmut"
+    ]
+    return {"hooks": hooks, "python": config.get("default_language_version")}
+
+
+# Config files that force the full pass only when their gate-relevant part
+# changed; any other edit to them stays scoped.
+_GATE_CONFIGS = {"pyproject.toml": _pyproject_gate, ".pre-commit-config.yaml": _hook_gate}
+
+
+def _diff_names_for_gate(spec: str) -> list[str]:
+    """`git diff` names for `A...B`, minus each _GATE_CONFIGS file whose gate
+    part is the same on both sides of the diff (merge-base(A, B) vs B)."""
+    names = _git_diff_names(spec)
+    left, right = spec.split("...")
+    for path, gate_part in _GATE_CONFIGS.items():
+        if path in names:
+            base = _git_out("merge-base", left, right).strip()
+            if gate_part(_git_out("show", f"{base}:{path}")) == gate_part(
+                _git_out("show", f"{right}:{path}")
+            ):
+                names.remove(path)
+    return names
+
+
 def changed_files_since(from_ref: str | None, to_ref: str) -> list[str] | None:
     """Files the push can affect, as the union of two diffs:
 
@@ -203,13 +251,24 @@ def changed_files_since(from_ref: str | None, to_ref: str) -> list[str] | None:
       strengthened a test is invisible to a merge-base diff of the new side.
 
     ``--no-renames`` so a renamed test shows as delete + add: the deleted (old)
-    path is the one the stats map knows. Returns None when git cannot answer
-    (unknown ref, not a repo); the caller then runs the full gate."""
+    path is the one the stats map knows. A _GATE_CONFIGS file whose gate part
+    is unchanged is dropped. Returns None when git cannot answer (unknown ref,
+    not a repo) or a gate config does not parse; the caller then runs the full
+    gate."""
     try:
-        files = set(_git_diff_names(f"origin/main...{to_ref}"))
+        files = set(_diff_names_for_gate(f"origin/main...{to_ref}"))
         if from_ref is not None:
-            files |= set(_git_diff_names(f"{to_ref}...{from_ref}"))
-    except (OSError, subprocess.CalledProcessError):
+            files |= set(_diff_names_for_gate(f"{to_ref}...{from_ref}"))
+    # TypeError/AttributeError: a config that parses but has the wrong shape
+    # (`repos:` with no value, a non-table `tool`).
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        ValueError,
+        TypeError,
+        AttributeError,
+        yaml.YAMLError,
+    ):
         return None
     return sorted(files)
 
@@ -286,7 +345,7 @@ class Scope:
 # Files whose change can move the gate without ever appearing in mutmut's
 # test-to-function map: the mutmut config itself, and pytest support code
 # (conftest, helpers, fixtures) that pytest never reports as a test node id.
-_FULL_RUN_PATHS = {"pyproject.toml", "conftest.py"}
+_FULL_RUN_PATHS = {"pyproject.toml", ".pre-commit-config.yaml", "conftest.py"}
 
 
 def _is_test_module(path: str) -> bool:
@@ -318,7 +377,7 @@ def select_scope(
         return Scope(
             modules=set(mutated_modules),
             full_run=True,
-            reason="git could not diff against the base ref; running the full gate",
+            reason="git could not diff against the base ref, or a gate config did not parse; running the full gate",
         )
     changed = set(changed_files)
     forcing = sorted(f for f in changed if _forces_full_run(f))

@@ -650,6 +650,143 @@ def test_changed_files_since_without_a_remote_ref_diffs_only_against_main(monkey
     assert calls == [["git", "diff", "--name-only", "--no-renames", "origin/main...HEAD"]]
 
 
+_BASE_PYPROJECT = (
+    '[project]\nname = "x"\ndependencies = ["ruff==0.1"]\n\n'
+    '[tool.pytest.ini_options]\naddopts = "-q"\n\n'
+    '[tool.mutmut]\nsource_paths = ["src/sumo_qa/rules.py"]\n'
+)
+_BASE_HOOKS = (
+    "repos:\n"
+    "  - repo: https://github.com/astral-sh/ruff-pre-commit\n"
+    "    rev: v0.1\n"
+    "    hooks:\n"
+    "      - id: ruff-check\n"
+    "  - repo: local\n"
+    "    hooks:\n"
+    "      - id: mutmut\n"
+    "        entry: python scripts/check_mutation_gate.py --run-mutmut\n"
+    "        additional_dependencies: ['mutmut>=3.8,<3.9']\n"
+)
+_WIDER_MUTMUT = ('"src/sumo_qa/rules.py"]', '"src/sumo_qa/rules.py", "src/sumo_qa/standards.py"]')
+
+
+@pytest.fixture
+def gate_repo(tmp_path, monkeypatch):
+    """A real repo whose origin/main holds _BASE_PYPROJECT and _BASE_HOOKS;
+    returns a function that commits new content for one config file on top of
+    HEAD (or of ``parent``) and returns that commit's sha."""
+    import subprocess
+
+    for key in [k for k in gate.os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(key)
+    monkeypatch.chdir(tmp_path)
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+
+    def commit(text, parent=None, path="pyproject.toml"):
+        if parent:
+            git("checkout", "-q", "--detach", parent)
+        (tmp_path / path).write_text(text)
+        git("add", path)
+        git("commit", "-q", "--no-gpg-sign", "-m", "c")
+        return git("rev-parse", "HEAD")
+
+    (tmp_path / ".pre-commit-config.yaml").write_text(_BASE_HOOKS)
+    git("add", ".pre-commit-config.yaml")
+    git("update-ref", "refs/remotes/origin/main", commit(_BASE_PYPROJECT))
+    commit.git = git
+    return commit
+
+
+def test_changed_files_since_drops_a_pyproject_change_outside_the_gate_tables(gate_repo):
+    """A dependency bump cannot move the gate: the hook env holds only its own
+    additional_dependencies, and only [tool.mutmut] and [tool.pytest] steer
+    the pass."""
+    to = gate_repo(_BASE_PYPROJECT.replace("ruff==0.1", "ruff==0.2"))
+    assert gate.changed_files_since(None, to) == []
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [('addopts = "-q"', 'addopts = "-q -x"'), _WIDER_MUTMUT],
+    ids=["pytest-table", "mutmut-table"],
+)
+def test_changed_files_since_keeps_a_pyproject_change_to_a_gate_table(gate_repo, edit):
+    to = gate_repo(_BASE_PYPROJECT.replace(*edit))
+    assert gate.changed_files_since(None, to) == ["pyproject.toml"]
+
+
+def test_changed_files_since_compares_against_the_merge_base_not_main(gate_repo):
+    """The branch widened [tool.mutmut]; main then landed the same table. The
+    branch's change is still a gate change relative to where it forked."""
+    fork = gate_repo.git("rev-parse", "HEAD")
+    to = gate_repo(_BASE_PYPROJECT.replace(*_WIDER_MUTMUT))
+    main = gate_repo(_BASE_PYPROJECT.replace(*_WIDER_MUTMUT).replace("x", "y"), parent=fork)
+    gate_repo.git("update-ref", "refs/remotes/origin/main", main)
+    assert gate.changed_files_since(None, to) == ["pyproject.toml"]
+
+
+def test_changed_files_since_keeps_a_gate_table_change_a_force_push_removes(gate_repo):
+    """The remote branch had widened [tool.mutmut]; the push drops it again."""
+    remote = gate_repo(_BASE_PYPROJECT.replace(*_WIDER_MUTMUT))
+    to = gate_repo(_BASE_PYPROJECT.replace("ruff==0.1", "ruff==0.2"), parent="origin/main")
+    assert gate.changed_files_since(remote, to) == ["pyproject.toml"]
+
+
+def test_changed_files_since_drops_a_hook_config_change_outside_the_mutmut_hook(gate_repo):
+    """Another hook's rev and its own fields are not the mutmut toolchain."""
+    other = _BASE_HOOKS.replace("rev: v0.1", "rev: v0.2").replace(
+        "      - id: ruff-check\n", "      - id: ruff-check\n        args: [--fix]\n"
+    )
+    to = gate_repo(other, path=".pre-commit-config.yaml")
+    assert gate.changed_files_since(None, to) == []
+
+
+def test_changed_files_since_keeps_a_mutmut_hook_toolchain_bump(gate_repo):
+    """A lockstep mutmut bump edits both files; the hook block keeps it in."""
+    gate_repo(_BASE_PYPROJECT.replace("ruff==0.1", "mutmut>=3.9,<3.10"))
+    to = gate_repo(
+        _BASE_HOOKS.replace("mutmut>=3.8,<3.9", "mutmut>=3.9,<3.10"), path=".pre-commit-config.yaml"
+    )
+    assert gate.changed_files_since(None, to) == [".pre-commit-config.yaml"]
+    assert gate.select_scope([".pre-commit-config.yaml"], ["rules"], _STATS).full_run is True
+
+
+def test_changed_files_since_keeps_a_hook_interpreter_change(gate_repo):
+    to = gate_repo(
+        "default_language_version:\n  python: python3.14\n" + _BASE_HOOKS,
+        path=".pre-commit-config.yaml",
+    )
+    assert gate.changed_files_since(None, to) == [".pre-commit-config.yaml"]
+
+
+@pytest.mark.parametrize(
+    "path, broken",
+    [
+        ("pyproject.toml", _BASE_PYPROJECT + "[tool.mutmut\n"),
+        (".pre-commit-config.yaml", "repos: [\n"),
+        (".pre-commit-config.yaml", "repos:\n"),
+        (".pre-commit-config.yaml", "repos: [foo]\n"),
+    ],
+    ids=["bad-toml", "bad-yaml", "empty-repos", "repo-not-a-mapping"],
+)
+def test_changed_files_since_returns_none_when_a_pushed_gate_config_is_unparsable(
+    gate_repo, path, broken
+):
+    to = gate_repo(broken, path=path)
+    assert gate.changed_files_since(None, to) is None
+
+
 def test_mutated_modules_from_pyproject_keeps_the_real_paths(tmp_path):
     (tmp_path / "pyproject.toml").write_text(
         '[tool.mutmut]\nsource_paths = ["src/sumo_qa/rules.py", "src/sumo_qa/sub/deep.py"]\n',

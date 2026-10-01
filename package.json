@@ -4,7 +4,7 @@
   "description": "Node dev tooling for the sumo-qa promptfoo eval harness. Not published; the Python package is in pyproject.toml.",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=20.20.0 <21 || >=22.22.0"
+    "node": ">=22.22.0"
   },
   "scripts": {
     "eval": "bash tests/evals/promptfoo/run-eval.sh",
@@ -17,7 +17,7 @@
     "eval:view": "promptfoo view"
   },
   "devDependencies": {
-    "promptfoo": "0.121.20"
+    "promptfoo": "0.123.1"
   },
   "overrides": {
     "@opentelemetry/otlp-transformer": {
