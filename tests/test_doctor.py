@@ -888,11 +888,15 @@ def test_check_claude_desktop_config_malformed(tmp_path) -> None:
     assert str(cfg_path) in result.summary
 
 
-def test_check_claude_desktop_config_stale_binary(tmp_path) -> None:
+@pytest.mark.parametrize("command", ["no_such", 42])
+def test_check_claude_desktop_config_stale_binary(tmp_path, command) -> None:
+    """A missing binary, or a hand-edited non-string command, is stale."""
     cfg_dir = tmp_path / ".config" / "Claude"
     cfg_dir.mkdir(parents=True)
+    if command == "no_such":
+        command = str(tmp_path / "no_such")
     (cfg_dir / "claude_desktop_config.json").write_text(
-        json.dumps({"mcpServers": {"sumo-qa": {"command": str(tmp_path / "no_such")}}})
+        json.dumps({"mcpServers": {"sumo-qa": {"command": command}}})
     )
 
     result = doctor.check_claude_desktop_config(home=tmp_path, system="Linux")
