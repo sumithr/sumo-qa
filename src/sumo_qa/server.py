@@ -471,7 +471,7 @@ def build_service() -> QAShiftLeftService:
 # identifiers (a property may legitimately be called ``title``); only the
 # schemas they map to are walked.
 _SCHEMA_NAME_MAPS = frozenset(
-    {"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"}
+    {"properties", "patternProperties", "$defs", "definitions", "dependentSchemas", "dependencies"}
 )
 # Keywords whose value is a schema or a list of schemas.
 _SCHEMA_VALUED = frozenset(
@@ -483,6 +483,7 @@ _SCHEMA_VALUED = frozenset(
         "unevaluatedItems",
         "unevaluatedProperties",
         "contains",
+        "contentSchema",
         "propertyNames",
         "not",
         "if",
@@ -496,7 +497,8 @@ _SCHEMA_VALUED = frozenset(
 
 
 def _strip_schema_titles(node: Any) -> Any:
-    """Drop the ``title`` annotation from every schema object in a JSON schema.
+    """Drop the ``title`` annotation from the schema objects a JSON schema reaches
+    through the recognised schema keywords.
 
     Pydantic emits a Title-Cased echo of every field name ("Base Ref",
     "Artifact Path") plus a ``<model>Arguments`` title per input model. Those
@@ -1564,8 +1566,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
         ``export_title`` (optional) names the export as a whole — rendered in the
         markdown header and the JSON top-level ``title``. (It is named
-        ``export_title``, not ``title``, so it is distinct from each case's own
-        ``title`` and survives the served-schema title-slimming pass.)
+        ``export_title``, not ``title``, so it stays distinct from each case's own
+        ``title``.)
 
         ``output_path`` (optional) is the EXPLICIT file-write carve-out. When
         omitted (the default) nothing is written. When given, the SAME rendered

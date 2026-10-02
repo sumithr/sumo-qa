@@ -37,7 +37,7 @@ Each case carries these fields:
 The whole export carries a `schema_version` (`"1.0"`, **versioned from the
 start**) and an optional export-level title, supplied via the **`export_title`**
 tool argument (named `export_title`, not `title`, so it stays distinct from each
-case's `title` and survives the served-schema title-slimming pass) and rendered
+case's `title`) and rendered
 as the top-level `title` in the JSON and in the markdown header. A producer that
 forgets to stamp the version, or stamps a version this build doesn't recognise,
 is rejected with a clear `schema_version_mismatch` message.
