@@ -218,14 +218,20 @@ def test_dedupe_removes_duplicates_preserving_first_seen_order() -> None:
 # CI/config/deploy surfaces up to the same bar without overfitting to a vendor.
 # ---------------------------------------------------------------------------
 
-# surface rule -> concrete probe markers that MUST appear in the rule's
-# ENRICHED fields (must_consider + risk_templates only — NOT test_design_techniques,
-# so a marker can't be satisfied by pre-existing technique text). Each marker is a
-# tech-agnostic phrase absent from the pre-#98 generic entries, so the guard fails
-# (red) until the rule carries the concrete probe itself.
+# surface rule -> lowercase probe markers that must appear in the rule's must_consider
+# and risk_templates (not techniques); each additive probe has its own marker, and
+# "collides" is anchored to one risk template.
 SURFACE_PROBE_MARKERS = {
     # schema/model validation + request/response/IPC protocol surface
-    "api_contract_change": ("removed", "omits", "old-shaped", "additive surface", "collides"),
+    "api_contract_change": (
+        "removed",
+        "omits",
+        "old-shaped",
+        "discoverable",
+        "serialize stably",
+        "round-trips",
+        "collides",
+    ),
     # CI / config / deployment surface
     "configuration_change": ("missing or empty", "precedence", "in flight"),
     # async / retry / idempotency surface
