@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.71.0](https://github.com/sumithr/sumo-qa/compare/v0.70.1...v0.71.0) (2026-10-02)
+
+
+### Features
+
+* **knowledge:** make additive MCP and serialization contracts explicit under api_contract_change ([#804](https://github.com/sumithr/sumo-qa/issues/804)) ([f428f2c](https://github.com/sumithr/sumo-qa/commit/f428f2ce323dc703e722acc73c7f599e4822b060))
+* **server:** add MCP tool registry with core and full profiles ([#811](https://github.com/sumithr/sumo-qa/issues/811)) ([c5c801e](https://github.com/sumithr/sumo-qa/commit/c5c801e372c561e41b052c73dcd8474f00e25bb9))
+
 ## [0.70.1](https://github.com/sumithr/sumo-qa/compare/v0.70.0...v0.70.1) (2026-10-02)
 
 
