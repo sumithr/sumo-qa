@@ -9,7 +9,7 @@ All optional. Defaults work out of the box after `pip install sumo-qa && sumo-qa
 | `QA_TEST_DATA_PATH` | `knowledge/test_data` (cwd) | Override the known-good test data catalogue. **No samples ship in the wheel**, the catalogue is empty on a fresh install; populate it per your team's domains. |
 | `QA_KNOWLEDGE_PATH` | bundled `_data/knowledge` / repo `knowledge` | Override the canonical knowledge catalogues (classifications, approaches, principles, techniques) |
 | `SUMO_QA_DEBUG_DIR` | unset | Directory to capture per-tool-call args + output as JSON for debugging / grading |
-| `SUMO_QA_MCP_PROFILE` | `full` | MCP tool profile: `full` (every tool) or `core` (the native QA workflow tools; no specialist or external-skill tools). See [Tool profiles](#tool-profiles) |
+| `SUMO_QA_MCP_PROFILE` | `full` | MCP tool profile: `full` (every tool) or `core` (the native QA workflow tools; no specialist tools or external-skill search/install/execute tools). See [Tool profiles](#tool-profiles) |
 
 These env vars are the lowest-level override and always win. For a no-clone way
 to add custom content, see [Adding custom knowledge without cloning the
@@ -23,12 +23,13 @@ bundled defaults.
 
 - `full` (default; also when unset or empty): every tool, unchanged.
 - `core`: the tools the native QA workflows use: the entry router, every
-  workflow skill except `sumo-qa-suggesting-external-skill`, the knowledge
-  loaders, the test-data, repo-map, evidence and report tools, and
-  `sumo_qa_capabilities`. It leaves out the specialist tools
+  workflow skill, the knowledge loaders, the test-data, repo-map, evidence and
+  report tools, and `sumo_qa_capabilities`. It leaves out the specialist tools
   (`sumo_qa_load_catalogue_entry`, `sumo_qa_list_skill_manifests`,
-  `sumo_qa_export_test_cases`, `sumo_qa_ingest_knowledge_pack`) and every
-  external-skill tool.
+  `sumo_qa_export_test_cases`, `sumo_qa_ingest_knowledge_pack`) and the
+  external-skill tools. The `sumo-qa-suggesting-external-skill` workflow is
+  listed, but the search, check, install and execute tools it drives are
+  absent, so it cannot run under `core`; set `full` to use it.
 
 Any other value stops the server at launch with an error naming the valid
 profiles. Each tool's capability group and profile membership live in

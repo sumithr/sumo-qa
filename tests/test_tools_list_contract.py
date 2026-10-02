@@ -58,12 +58,10 @@ from sumo_qa.installer import (
     _terminate,
     _VerifyTimeout,
 )
+from sumo_qa.tool_registry import PROFILE_ENV
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mcp_tools_list_snapshot.json"
-
-
-PROFILE_ENV = "SUMO_QA_MCP_PROFILE"
 
 
 def _server_env(profile: str | None) -> dict[str, str]:
@@ -225,9 +223,9 @@ def test_core_snapshot_tool_set_matches_live_core(snapshot, live_core_tools) -> 
     _assert_tool_set_matches(core_snapshot, {t["name"] for t in live_core_tools})
 
 
-def test_explicit_full_profile_is_identical_to_the_default() -> None:
+def test_explicit_full_profile_is_identical_to_the_default(live_tools) -> None:
     """``full`` is the default: setting it changes nothing in tools/list."""
-    assert _live_tools_list("full") == _live_tools_list()
+    assert _live_tools_list("full") == live_tools
 
 
 def test_core_tools_are_the_full_tools_unchanged_in_full_order(live_tools, live_core_tools) -> None:

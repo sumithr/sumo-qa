@@ -32,8 +32,7 @@ def _live_names(server_obj) -> list[str]:
 
 
 @pytest.fixture
-def full_server(monkeypatch):
-    monkeypatch.delenv(PROFILE_ENV, raising=False)
+def full_server():
     return server.build_mcp_server()
 
 
@@ -134,19 +133,28 @@ def test_main_exits_with_a_clear_message_on_unknown_profile(monkeypatch) -> None
     )
 
 
-def test_every_advertised_workflow_entry_is_core_unless_external() -> None:
+def test_every_advertised_workflow_entry_is_core() -> None:
     for _workflow, _prompt, skill, _outcome in _CORE_WORKFLOWS:
-        meta = _BY_NAME[skill.replace("-", "_")]
-        assert meta.core or meta.group == "external", skill
+        assert _BY_NAME[skill.replace("-", "_")].core, skill
+
+
+# The external-skill workflow may name the external-group tools it drives:
+# activating them under ``core`` is #807's acceptance criterion.
+_NAMED_TOOL_EXEMPTIONS = {
+    "sumo-qa-suggesting-external-skill": {t.name for t in TOOLS if t.group == "external"},
+}
 
 
 def test_core_skills_only_name_core_tools() -> None:
-    """A core skill must not send the host to a tool the core profile lacks."""
+    """A core skill must not send the host to a tool the core profile lacks,
+    whether it names the tool (``sumo_qa_x``) or the skill (``sumo-qa-x``)."""
     skills_dir = skill_prompts._skills_dir()
     core = profile_tool_names("core")
     for skill_dir in sorted(p for p in skills_dir.iterdir() if (p / "SKILL.md").is_file()):
         if skill_dir.name.replace("-", "_") not in core:
             continue
         text = "\n".join(p.read_text(encoding="utf-8") for p in skill_dir.rglob("*.md"))
-        named = set(re.findall(r"\b(?:sumo_qa_[a-z_]+|using_sumo_qa)\b", text)) & set(_BY_NAME)
-        assert named <= core, f"{skill_dir.name} names non-core tools: {sorted(named - core)}"
+        refs = re.findall(r"\b(?:sumo[_-]qa[_-][a-z_-]+|using[_-]sumo[_-]qa)\b", text)
+        named = {r.replace("-", "_") for r in refs} & set(_BY_NAME)
+        missing = named - core - _NAMED_TOOL_EXEMPTIONS.get(skill_dir.name, set())
+        assert not missing, f"{skill_dir.name} names non-core tools: {sorted(missing)}"

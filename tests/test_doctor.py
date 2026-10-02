@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from sumo_qa import doctor
+from sumo_qa.tool_registry import PROFILE_ENV
 
 # mutmut-subprocess-spawning: spawns ``python -m sumo_qa.doctor`` from a fresh
 # interpreter, so it MUST be excluded from the mutmut gate via
@@ -1698,3 +1699,24 @@ def test_check_uvx_available_runs_before_mcp_handshake(monkeypatch) -> None:
     assert "uvx_available" in check_ids
     assert "mcp_handshake" in check_ids
     assert check_ids.index("uvx_available") < check_ids.index("mcp_handshake")
+
+
+@pytest.mark.parametrize("module", ["sumo_qa.installer", "sumo_qa.doctor"])
+def test_installer_and_doctor_exit_cleanly_on_unknown_profile(module) -> None:
+    """Both derive the tool surface at import time; a bad profile must stop
+    them with the server's one-line message, not a traceback."""
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    env = {**os.environ, PROFILE_ENV: "Core", "PYTHONPATH": src}
+    proc = subprocess.run(
+        [sys.executable, "-m", module, "--help"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    assert proc.stderr.strip() == (
+        f"sumo-qa: {PROFILE_ENV}='Core' is not a valid MCP tool profile; "
+        "expected one of: core, full"
+    )

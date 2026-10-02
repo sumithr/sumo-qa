@@ -99,7 +99,7 @@ from sumo_qa.skill_manifest import (
 )
 from sumo_qa.skill_prompts import register_skills_as_prompts
 from sumo_qa.skill_resources import register_skill_resources
-from sumo_qa.tool_registry import profile_tool_names, resolve_profile
+from sumo_qa.tool_registry import profile_tool_names, resolve_profile, resolve_profile_or_exit
 from sumo_qa.tools import QAShiftLeftService
 
 # Reusable actionable hints for isError envelopes. Hosts surface these to the
@@ -2065,8 +2065,5 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
 
 def main() -> None:
-    try:
-        resolve_profile()
-    except ValueError as exc:
-        raise SystemExit(f"sumo-qa: {exc}") from None
+    resolve_profile_or_exit()
     build_mcp_server().run()

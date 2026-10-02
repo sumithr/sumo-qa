@@ -9,10 +9,12 @@ the entries marked ``core``. ``server.build_mcp_server`` resolves the profile
 from ``SUMO_QA_MCP_PROFILE`` before registering anything, then removes the tools
 outside it; a registered tool with no entry here fails the build.
 
-Core covers every advertised native workflow: the entry router and every
-workflow skill except the external-skill one, plus each tool a core skill names
-(pinned by tests/test_tool_registry.py) and ``sumo_qa_capabilities`` for
-discovery. Open-world and external-skill tools are never core.
+Core covers every advertised workflow: the entry router and every workflow
+skill, plus each tool a core skill names (pinned by tests/test_tool_registry.py)
+and ``sumo_qa_capabilities`` for discovery. The external-skill workflow body is
+core so the router never points at a missing tool, but the open-world and
+external-skill tools it drives (search, check, install, execute) are not: under
+``core`` that workflow is listed but cannot run them.
 """
 
 from __future__ import annotations
@@ -59,6 +61,7 @@ TOOLS: tuple[ToolMeta, ...] = (
         "sumo_qa_strategising",
         "sumo_qa_strengthening_tests",
         "sumo_qa_triaging_test_failures",
+        "sumo_qa_suggesting_external_skill",
         "sumo_qa_capabilities",
         "sumo_qa_load_skill_context",
     ),
@@ -95,7 +98,6 @@ TOOLS: tuple[ToolMeta, ...] = (
     ToolMeta("sumo_qa_list_skill_manifests", "specialist", core=False),
     ToolMeta("sumo_qa_export_test_cases", "specialist", core=False),
     ToolMeta("sumo_qa_ingest_knowledge_pack", "specialist", core=False),
-    ToolMeta("sumo_qa_suggesting_external_skill", "external", core=False),
     ToolMeta(
         "sumo_qa_search_external_skills",
         "external",
@@ -129,6 +131,15 @@ def resolve_profile() -> str:
     if value not in PROFILES:
         raise _invalid(value)
     return value
+
+
+def resolve_profile_or_exit() -> str:
+    """``resolve_profile`` for an entry point: a bad value exits with one line,
+    never a traceback."""
+    try:
+        return resolve_profile()
+    except ValueError as exc:
+        raise SystemExit(f"sumo-qa: {exc}") from None
 
 
 def profile_tool_names(profile: str) -> frozenset[str]:

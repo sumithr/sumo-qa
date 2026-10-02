@@ -114,7 +114,9 @@ def _derive_required_tool_names() -> tuple[str, ...]:
     ``mcp`` is a hard dependency of this package."""
     from sumo_qa import skill_prompts
     from sumo_qa.server import build_mcp_server
+    from sumo_qa.tool_registry import resolve_profile_or_exit
 
+    resolve_profile_or_exit()
     mcp = build_mcp_server()
     live_tool_names = set(mcp._tool_manager._tools.keys())
 
