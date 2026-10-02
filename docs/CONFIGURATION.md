@@ -41,24 +41,45 @@ Set the profile in the host's `sumo-qa` entry `env`. Re-running
 `claude_desktop_config.json` (Claude Desktop, and the copy written for
 Claude Code), `.vscode/mcp.json`, and Claude Code's own MCP registry
 (user scope in `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`), which
-it re-registers through `claude mcp add-json` with the old entry's `env`.
-Any other key you added to an entry is replaced.
+it re-registers through `claude mcp add-json` with the old entry's `env`
+(string values only; a CLI without `add-json` gets `claude mcp add -e`). If
+that registration fails, the installer re-adds the entry it removed. Any other
+key you added to an entry is removed.
 
 `sumo-qa-doctor --host <host>` probes the entry that host launches, with that
 entry's `env`:
 
-| `--host` | Entry probed |
-|---|---|
-| `claude-code` | Claude Code's user-scope registry (`~/.claude.json`) |
-| `claude-desktop` | `claude_desktop_config.json` |
-| `vscode` | `<workspace>/.vscode/mcp.json` `servers` |
+| `--host` | Entry probed | Shell `SUMO_QA_MCP_PROFILE` |
+|---|---|---|
+| `claude-code` | Claude Code's user-scope registry (`$CLAUDE_CONFIG_DIR/.claude.json` when set, else `~/.claude.json`) | kept |
+| `claude-desktop` | `claude_desktop_config.json` | dropped |
+| `vscode` | `<workspace>/.vscode/mcp.json` `servers` (VS Code ignores `mcpServers`) | kept |
+| `codex`, `jetbrains` | none: the `sumo-qa` on `PATH` | kept |
 
-The probe drops `SUMO_QA_MCP_PROFILE` from the doctor's own shell env, so
-only the entry picks the profile, as when a GUI host launches it. An invalid
-profile in the entry is a FAIL; otherwise the probe requires every tool that
-entry's profile serves. The doctor does not read `envFile`. With no `--host`,
-or when the host has no `sumo-qa` entry, the doctor probes the `sumo-qa` on
-`PATH` with its own shell env.
+The entry's `env` always wins over the shell. Where the shell's value is
+kept, it follows the host:
+
+- Claude Code passes its own process env to stdio servers, so a profile
+  exported in the shell that starts `claude` applies when the entry sets none.
+  Verified with Claude Code 2.1.287 in a temp HOME: a server registered with
+  `claude mcp add -e ENTRY_VAR=...` and started by `claude mcp list` saw both
+  `ENTRY_VAR` and the shell's `SUMO_QA_MCP_PROFILE`; with the entry setting
+  `SUMO_QA_MCP_PROFILE=full`, the entry's value won over the shell's `core`.
+- Claude Desktop is a GUI app and does not see the doctor shell's env, so the
+  probe drops the shell's value and only the entry picks the profile.
+- VS Code: not verified. Whether its servers see a shell's env depends on
+  how VS Code was started (with `code` from that terminal, or from the Dock or
+  Start menu), so the probe keeps the shell's value. It expands
+  `${workspaceFolder}`, `${userHome}` and `${env:NAME}` in the entry as VS
+  Code does. An entry that still holds another `${...}` (such as
+  `${input:...}`, which VS Code prompts for) is a WARN: the doctor cannot
+  know the value, so it does not launch it.
+
+An invalid profile is a FAIL; otherwise the probe requires every tool the
+launch profile serves. An entry whose command cannot be started (a moved
+venv) is a FAIL naming the command and the config file. The doctor does not
+read `envFile`. With no `--host`, or when the host has no `sumo-qa` entry,
+the doctor probes the `sumo-qa` on `PATH` with its own shell env.
 
 ```json
 {

@@ -12,6 +12,9 @@ import pytest
 
 from sumo_qa import installer
 
+# Registration reads Claude Code's registry from HOME; never the real one.
+pytestmark = pytest.mark.usefixtures("_empty_claude_home")
+
 # No ``select`` fixture needed — the production reader uses a daemon thread +
 # ``queue.Queue.get(timeout=...)``, which works identically on POSIX and
 # Windows. Tests drive the verifier purely through ``_FakeProc.stdout`` lines.
@@ -114,21 +117,12 @@ def _handshake_proc() -> _FakeProc:
     return _FakeProc(_handshake_lines())
 
 
-@pytest.fixture
-def _empty_claude_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A temp HOME with no Claude Code registry, so nothing is read from the real one."""
-    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
-    return tmp_path
-
-
 def _add_json_entry(add_args: list[str]) -> dict:
     assert add_args[:6] == ["/usr/local/bin/claude", "mcp", "add-json", "-s", "user", "sumo-qa"]
     assert len(add_args) == 7
     return json.loads(add_args[6])
 
 
-@pytest.mark.usefixtures("_empty_claude_home")
 def test_register_runs_remove_then_add_with_user_scope() -> None:
     mcp_cmd = installer.McpCommand(command="/abs/path/to/sumo-qa", args=[])
     with (
@@ -146,7 +140,6 @@ def test_register_runs_remove_then_add_with_user_scope() -> None:
     assert mcp_cmd.command in msg
 
 
-@pytest.mark.usefixtures("_empty_claude_home")
 def test_register_includes_module_args() -> None:
     """Module-fallback invocation must register `-m sumo_qa` as the entry's args."""
     import sys
@@ -211,6 +204,107 @@ def test_register_keeps_env_through_the_real_claude_cli(
     entry = registry["mcpServers"]["sumo-qa"]
     assert entry["command"] == "/new/sumo-qa"
     assert entry["env"] == env
+
+
+def _seed_registry(home: Path, entry: dict) -> None:
+    (home / ".claude.json").write_text(
+        json.dumps({"mcpServers": {"sumo-qa": entry}}), encoding="utf-8"
+    )
+
+
+def _cli_error(cmd: list[str], stderr: bytes) -> subprocess.CalledProcessError:
+    return subprocess.CalledProcessError(returncode=1, cmd=cmd, stderr=stderr)
+
+
+def test_register_drops_non_string_env_values_before_removing(_empty_claude_home: Path) -> None:
+    """``add-json`` rejects a non-string env value (e.g. a hand-edited
+    ``"PORT": 8080``); it must never reach the add that follows the remove."""
+    _seed_registry(_empty_claude_home, {"command": "/old", "env": {"P": "core", "PORT": 8080}})
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()) as run,
+    ):
+        msg = installer._register_claude_code_mcp(installer.McpCommand(command="/new"))
+
+    assert "registered" in msg
+    assert _add_json_entry(run.call_args_list[1].args[0])["env"] == {"P": "core"}
+
+
+def test_register_falls_back_to_add_when_the_cli_has_no_add_json(
+    _empty_claude_home: Path,
+) -> None:
+    """An older ``claude`` without ``add-json`` gets ``add`` with ``-e`` per env value."""
+    _seed_registry(_empty_claude_home, {"command": "/old", "env": {"A": "1", "B": "x=y"}})
+
+    def run_side_effect(cmd, **kwargs):
+        if "add-json" in cmd:
+            raise _cli_error(cmd, b"error: unknown command 'add-json'")
+        return _ok()
+
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", side_effect=run_side_effect) as run,
+    ):
+        msg = installer._register_claude_code_mcp(
+            installer.McpCommand(command="/new", args=["-m", "sumo_qa"])
+        )
+
+    assert "registered" in msg, msg
+    assert run.call_args_list[-1].args[0] == [
+        "/usr/local/bin/claude", "mcp", "add", "-s", "user", "sumo-qa",
+        "-e", "A=1", "-e", "B=x=y", "--", "/new", "-m", "sumo_qa",
+    ]  # fmt: skip
+
+
+@pytest.mark.parametrize("restore_ok", [True, False])
+def test_register_restores_the_previous_entry_when_the_add_fails(
+    _empty_claude_home: Path, restore_ok: bool
+) -> None:
+    """A failed add after the remove must re-add the entry it removed."""
+    previous = {"type": "stdio", "command": "/old", "env": {"P": "core"}}
+    _seed_registry(_empty_claude_home, previous)
+    added: list[dict] = []
+
+    def run_side_effect(cmd, **kwargs):
+        if "add-json" in cmd:
+            added.append(json.loads(cmd[-1]))
+            if len(added) == 1 or not restore_ok:
+                raise _cli_error(cmd, b"boom")
+        return _ok()
+
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", side_effect=run_side_effect),
+    ):
+        msg = installer._register_claude_code_mcp(installer.McpCommand(command="/new"))
+
+    assert added[0]["command"] == "/new"
+    assert added[1] == previous
+    assert "claude mcp add-json failed (1): boom" in msg
+    if restore_ok:
+        assert msg.endswith("; restored the previous sumo-qa entry")
+    else:
+        assert msg.endswith("; the previous sumo-qa entry could not be restored")
+
+
+@pytest.mark.skipif(shutil.which("claude") is None, reason="the claude CLI is not installed")
+def test_register_through_the_real_cli_survives_a_non_string_env_value(
+    _empty_claude_home: Path,
+) -> None:
+    """Real ``claude`` in a temp HOME: a hand-edited non-string env value must
+    not cost the registration."""
+    _seed_registry(
+        _empty_claude_home,
+        {"type": "stdio", "command": "/old", "env": {"SUMO_QA_MCP_PROFILE": "core", "PORT": 8080}},
+    )
+
+    msg = installer._register_claude_code_mcp(installer.McpCommand(command="/new/sumo-qa"))
+
+    assert "registered" in msg, msg
+    registry = json.loads((_empty_claude_home / ".claude.json").read_text(encoding="utf-8"))
+    entry = registry["mcpServers"]["sumo-qa"]
+    assert entry["command"] == "/new/sumo-qa"
+    assert entry["env"] == {"SUMO_QA_MCP_PROFILE": "core"}
 
 
 def test_register_skips_when_claude_cli_not_on_path() -> None:

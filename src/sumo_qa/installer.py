@@ -47,6 +47,7 @@ if sys.version_info < (
     sys.exit(1)
 
 import collections
+import functools
 import json
 import os
 import platform
@@ -58,6 +59,7 @@ import time
 from pathlib import Path
 
 from sumo_qa.plugin_metadata import PluginMetadata
+from sumo_qa.tool_registry import resolve_profile_or_exit
 
 # Canonical plugin metadata — loaded once at import time from the bundled
 # snapshot at sumo_qa/_data/plugin_metadata.json. Every host-config write
@@ -103,6 +105,7 @@ _BUNDLED_SKILLS = _MODULE_DIR / "_data" / "skills"
 # constant out of sync.
 
 
+@functools.cache
 def _derive_required_tool_names() -> tuple[str, ...]:
     """Compute the canonical atomic tool surface from the live MCP registry.
 
@@ -114,7 +117,6 @@ def _derive_required_tool_names() -> tuple[str, ...]:
     ``mcp`` is a hard dependency of this package."""
     from sumo_qa import skill_prompts
     from sumo_qa.server import build_mcp_server
-    from sumo_qa.tool_registry import resolve_profile_or_exit
 
     resolve_profile_or_exit()
     mcp = build_mcp_server()
@@ -130,7 +132,14 @@ def _derive_required_tool_names() -> tuple[str, ...]:
     return tuple(sorted(live_tool_names - skill_tool_names))
 
 
-REQUIRED_TOOL_NAMES: tuple[str, ...] = _derive_required_tool_names()
+def __getattr__(name: str) -> tuple[str, ...]:
+    """``REQUIRED_TOOL_NAMES`` is derived on first access, not at import:
+    deriving it resolves the tool profile, and importing the installer (or the
+    doctor, which diagnoses a bad profile) must never exit."""
+    if name == "REQUIRED_TOOL_NAMES":
+        return _derive_required_tool_names()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Truncate stdout/stderr to keep installer output readable when the MCP
 # verification fails. 300 chars is enough to surface a Python traceback header
@@ -192,6 +201,8 @@ class McpCommand:
     # when the command does not come from a host entry. Doctor's probe launches
     # with it. Never written by ``to_config_entry``.
     env: dict[str, str] | None = None
+    # The config file the entry was read from, for doctor's messages.
+    source: str | None = None
 
     def to_config_entry(self, *, include_empty_args: bool = False) -> dict:
         """Return the dict shape MCP host configs expect.
@@ -353,6 +364,9 @@ def main() -> int:
         print("`pip uninstall sumo-qa` separately to remove the package itself.")
         return 0
 
+    # The verify step derives the tool surface from the profile; stop on a bad
+    # one before any host config is written.
+    resolve_profile_or_exit()
     print(f"sumo-qa installer  (OS: {system})")
     hosts_str = ", ".join(
         h
@@ -606,19 +620,22 @@ def _claude_code_registry_path(home: Path) -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or home) / ".claude.json"
 
 
-def _read_server_entry(config_path: Path, *keys: str) -> dict | None:
-    """The ``sumo-qa`` entry under the first of ``keys`` that holds one, or
-    ``None`` when the file is missing, unreadable, corrupt, or has no entry."""
+def _read_server_entry(config_path: Path, key: str) -> dict | None:
+    """The ``sumo-qa`` entry under ``key``, or ``None`` when the file is
+    missing, unreadable, corrupt, or has no entry."""
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    for key in keys:
-        servers = config.get(key) if isinstance(config, dict) else None
-        entry = servers.get(PLUGIN_METADATA.mcp_server_name) if isinstance(servers, dict) else None
-        if isinstance(entry, dict):
-            return entry
-    return None
+    servers = config.get(key) if isinstance(config, dict) else None
+    entry = servers.get(PLUGIN_METADATA.mcp_server_name) if isinstance(servers, dict) else None
+    return entry if isinstance(entry, dict) else None
+
+
+def _string_env(raw: object) -> dict[str, str]:
+    """An entry's ``env`` with only its string values: a host can only pass
+    strings to a process, and ``claude mcp add-json`` rejects any other."""
+    return {k: v for k, v in raw.items() if isinstance(v, str)} if isinstance(raw, dict) else {}
 
 
 def _setup_claude_code(mcp_cmd: McpCommand, system: str) -> HostResult:
@@ -696,7 +713,9 @@ def _register_claude_code_mcp(mcp_cmd: McpCommand) -> str:
     Removes any existing ``sumo-qa`` entry first (covers the case where a
     previous install registered a stale invocation — e.g. a binary path that
     no longer exists after a venv move), then re-adds it with the removed
-    entry's ``env`` kept. Returns a one-line summary for the install output.
+    entry's string ``env`` values kept. If the add fails, re-adds the removed
+    entry so a failed run never loses the registration. Returns a one-line
+    summary for the install output.
 
     No-ops gracefully when the ``claude`` CLI isn't on PATH — users running
     sumo-qa-install on a machine without Claude Code installed only get the
@@ -705,26 +724,71 @@ def _register_claude_code_mcp(mcp_cmd: McpCommand) -> str:
     claude = shutil.which("claude")
     if claude is None:
         return "claude CLI not on PATH — skipped MCP-registry registration"
-    # Remove first; ignore failure (entry may not exist). Idempotent re-add.
     server_name = PLUGIN_METADATA.mcp_server_name
     existing = _read_server_entry(_claude_code_registry_path(Path.home()), "mcpServers")
+    # Build the whole entry before removing anything, keeping the existing
+    # entry's env (e.g. SUMO_QA_MCP_PROFILE); a hand-edited non-string value
+    # would make `add-json` reject the entry, so only strings are kept.
+    entry = _refreshed_entry(existing, {"type": "stdio", **mcp_cmd.to_config_entry()})
+    if "env" in entry:
+        entry["env"] = _string_env(entry["env"])
+    # Remove first; ignore failure (entry may not exist). Idempotent re-add.
     subprocess.run(
         [claude, "mcp", "remove", server_name, "-s", "user"],
         capture_output=True,
         check=False,
     )
-    # `add-json` re-registers the whole entry, so the existing entry's env
-    # (e.g. SUMO_QA_MCP_PROFILE) survives the remove. The CLI takes the JSON
-    # only as an argument (not stdin or a file), so env values are briefly
-    # visible in the process list, as they would be with `add -e`.
-    entry = _refreshed_entry(existing, {"type": "stdio", **mcp_cmd.to_config_entry()})
-    add_argv = [claude, "mcp", "add-json", "-s", "user", server_name, json.dumps(entry)]
+    error = _claude_mcp_add(claude, server_name, entry)
+    if error is None:
+        return f"registered with claude mcp as `{mcp_cmd.display()}`"
+    if existing is None:
+        return error
+    restored = {**existing, "env": _string_env(existing.get("env"))}
+    if _claude_mcp_add(claude, server_name, restored) is None:
+        return f"{error}; restored the previous sumo-qa entry"
+    return f"{error}; the previous sumo-qa entry could not be restored"
+
+
+def _claude_mcp_add(claude: str, server_name: str, entry: dict) -> str | None:
+    """Register ``entry`` at user scope; ``None`` on success, else the error.
+
+    ``add-json`` takes the whole entry. A CLI without it gets ``add`` with one
+    ``-e`` per env value instead. The CLI takes the entry only as an argument
+    (not stdin or a file), so env values are briefly visible in the process
+    list either way.
+    """
+    error = _run_claude_mcp(
+        [claude, "mcp", "add-json", "-s", "user", server_name, json.dumps(entry)]
+    )
+    if error is None or "unknown command" not in error.lower():
+        return error
+    # `--` ends option parsing (and `-e`'s variadic list) so server args such
+    # as `-m sumo_qa` reach the server, not the CLI.
+    env_flags = [f for k, v in entry.get("env", {}).items() for f in ("-e", f"{k}={v}")]
+    return _run_claude_mcp(
+        [
+            claude,
+            "mcp",
+            "add",
+            "-s",
+            "user",
+            server_name,
+            *env_flags,
+            "--",
+            entry.get("command", ""),
+            *entry.get("args", []),
+        ]
+    )
+
+
+def _run_claude_mcp(argv: list[str]) -> str | None:
+    """Run a ``claude mcp`` subcommand; ``None`` on success, else the error."""
     try:
-        subprocess.run(add_argv, capture_output=True, check=True)
+        subprocess.run(argv, capture_output=True, check=True)
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode("utf-8", errors="replace").strip() if exc.stderr else ""
-        return f"claude mcp add-json failed ({exc.returncode}): {stderr or 'no stderr'}"
-    return f"registered with claude mcp as `{mcp_cmd.display()}`"
+        return f"claude mcp {argv[2]} failed ({exc.returncode}): {stderr or 'no stderr'}"
+    return None
 
 
 def _install_claude_code_skills_per_dir(skills_dir: Path, system: str) -> str:
@@ -1467,7 +1531,7 @@ def _verify_mcp_responds(mcp_cmd: McpCommand) -> bool:
         _terminate(proc)
         return False
     advertised = {t.get("name") for t in tools if isinstance(t, dict)}
-    missing = [n for n in REQUIRED_TOOL_NAMES if n not in advertised]
+    missing = [n for n in _derive_required_tool_names() if n not in advertised]
     if missing:
         print(f"  WARNING: tools/list is missing required tools: {missing}")
         _dump_proc_streams(proc, extra_lines=extra_stdout)

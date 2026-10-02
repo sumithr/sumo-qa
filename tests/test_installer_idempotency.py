@@ -23,6 +23,9 @@ import pytest
 
 from sumo_qa import installer
 
+# Registration reads Claude Code's registry from HOME; never the real one.
+pytestmark = pytest.mark.usefixtures("_empty_claude_home")
+
 
 def _ok(stdout: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr=b"")
