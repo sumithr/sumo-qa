@@ -240,8 +240,11 @@ tests:
   - description: SEED - low-evidence prompt asks one scope question instead of fabricating risk
     assert:
       - type: javascript
-        # Checklist 1: no anchor means note it, ask for the scope, no brief.
-        value: '/\bno (?:source )?anchor\b/i.test(output) && /\?/.test(output) && !/grounded risk|first action|residual risk/i.test(output)'
+        # Checklist 1, the deterministic part: a scope question and no brief
+        # (none of the brief's field labels, plain or bold; "No source anchor:"
+        # notes the gap, it is not a label). One question, the no-anchor note
+        # and no hypothetical risks are graded by the judge.
+        value: '/\?/.test(output) && !/(?<!\bno\s)\b(?:grounded risk|source anchor|evidence choice|first action|residual risk)(?:\*\*|__)?\s*:/i.test(output)'
     vars:
       user_prompt: "Do security testing on the app."
       expected_shape: >-

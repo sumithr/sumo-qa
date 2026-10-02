@@ -249,9 +249,9 @@ function qualifiedLabelRegExp(names) {
         `^[ \\t]*(?:(?:[-+*]|>+|#{1,6}|\\d{1,3}[.)])[ \\t]+)*${deco}` +
           `(?:${LABEL_QUALIFIER}[ \\t]+${label}|${label}[ \\t]+${LABEL_QUALIFIER})` +
           `${deco}[ \\t]*:[ \\t${decoChars}]*(?:${alternatives}|n/a)` +
-          // An underscore closing italic emphasis ends the value; one glued
-          // to a further word character continues it.
-          '(?![A-Za-z0-9/-]|_[A-Za-z0-9])',
+          // An underscore closing italic emphasis ends the value; a run of
+          // underscores glued to a further word character or hyphen continues it.
+          '(?![A-Za-z0-9/-]|_+[A-Za-z0-9-])',
         'im',
       ),
     );

@@ -86,6 +86,9 @@ _EXTRA = [
     "Approach restated: _regression-first_",
     "Chosen approach: regression-first_ish spikes are not a catalogue entry.",
     "Chosen approach: _regression-first__x",
+    "Chosen approach: regression-first__ish spikes are not a catalogue entry.",
+    "Chosen approach: regression-first_-ish spikes are not a catalogue entry.",
+    "Chosen approach: __regression-first__ for the payments change.",
     "Chosen approach: verify-existing" + " " * 2_000 + "x",
     "I'm routing this QA intent to the review.",
     "Classification: docs_change so no tests.",
@@ -194,6 +197,7 @@ def test_js_blank_string_values_does_not_backtrack_exponentially() -> None:
     "config_name",
     [
         "skill-closing-qa-gaps.yaml",
+        "skill-implementing-with-tdd.yaml",
         "skill-triaging-test-failures.yaml",
         "skill-security-testing.yaml",
     ],

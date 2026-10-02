@@ -793,6 +793,7 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
         # An underscore-emphasis-wrapped value still leaks (#735).
         ("> **Chosen approach:** _regression-first_ for the payments change.", "taxonomy_label"),
         ("Approach restated: _regression-first_", "taxonomy_label"),
+        ("Chosen approach: __regression-first__ for the payments change.", "taxonomy_label"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:

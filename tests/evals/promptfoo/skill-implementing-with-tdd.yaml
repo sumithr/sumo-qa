@@ -57,6 +57,11 @@ defaultTest:
         Hedging language — 'would write...', 'likely named...', 'probably
         check...' — instead of producing the concrete test code.
   assert:
+    - type: javascript
+      # No internal routing state (#735): no approach label, route
+      # announcement, routing payload or checklist bookkeeping reaches the user.
+      value: file://asserts/no-routing-leak.js
+      threshold: 1
     - type: llm-rubric
       value: |
         **Expected QA shape:** {{expected_shape}}

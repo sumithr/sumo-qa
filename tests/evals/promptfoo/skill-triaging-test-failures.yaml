@@ -242,10 +242,9 @@ tests:
         against the changed code to reproduce the deterministic failure;
         optionally bisect to the implicated commit). Because this IS a concrete
         product-behaviour gap, it routes the specific wrong behaviour to the
-        regression-first / closed-loop fixing workflow (e.g.
-        sumo-qa-implementing-with-tdd / sumo-qa-closing-qa-gaps) — naming the
-        wrong behaviour being handed over — rather than patching inline in this
-        triage turn.
+        regression-first / closed-loop fixing workflow, described as the next
+        step and never by skill name, naming the wrong behaviour being handed
+        over, rather than patching inline in this triage turn.
       anti_patterns:
         - Patches the production code in THIS turn instead of handing the confirmed regression to the fixing workflow.
         - Classifies it as a flaky / test / environment issue despite a deterministic failure tied to a recent product-code change.
