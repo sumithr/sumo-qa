@@ -1,15 +1,14 @@
 # Canonical change classifications
 
-Ten canonical classifications used to shape testing strategy. The host LLM picks
-which apply to a given change by reasoning over the user's intent and what each
-changed file does. The catalogue below is authoritative — do not invent
-classifications not in this list.
+Ten canonical classifications that shape testing strategy. The host LLM picks
+which apply by reasoning over the user's intent and what each changed file does.
+The catalogue is authoritative: never invent a classification outside it.
 
-**The executable-behaviour rule** (routing and review both apply it): a file is
-runtime when something executes, imports, or follows it as instructions (an
-agent, installer, CI job, test runner helper), whatever its path or extension.
-Ordinary test functions, fixtures and genuinely inert prose keep their lighter
-handling.
+**The executable-behaviour rule:** a file is runtime when something executes,
+imports, or follows it as instructions (an agent or operator, installer, CI job,
+test runner helper), whatever its path or extension. The diff then decides: a
+changed command, value, sentinel, branch or step hand-off is runtime; a
+prose-only edit (typo, wording changing no step) keeps the lighter handling.
 
 ## api_contract_change
 A change that adds, removes, or modifies a public API surface (HTTP endpoint,
@@ -42,21 +41,23 @@ regressions.
 ## infrastructure_change
 A change to deployment, IaC, runtime configuration, networking, or platform-
 level concerns (Kubernetes manifests, Terraform, Docker, CI), and the tooling
-they run: scripts, hooks, test runners, agent procedures. Risk:
+they run: scripts, hooks, test runners, followed procedures. Risk:
 environment-only failures invisible in unit tests.
 
 ## test_change
 A change exclusively to test code or test fixtures, with no production code
 movement. Includes mutation-testing follow-up, raise-coverage tasks,
 strengthening weak assertions, and refactoring tests. Risk: false confidence
-if tests become tautological. Executable test infrastructure (a runner,
-matcher, parser or grader) is `infrastructure_change` by the rule above.
+if tests become tautological. Executable test infrastructure (runner, matcher,
+parser, grader, reporter, transform, fixture generator) is
+`infrastructure_change` by the executable-behaviour rule; tests and fixtures
+that only declare data or call the code under test stay here.
 
 ## docs_change
 A change to documentation, comments, README, or any non-executable artefact.
-Risk: minimal — typically no QA test work needed beyond build/lint. A
-procedure an agent or operator follows step by step is runtime by the rule
-above, not `docs_change`.
+Risk: minimal — typically no QA test work needed beyond build/lint. A changed
+command, value or step in a procedure an agent or operator follows is runtime
+by the executable-behaviour rule; a prose-only edit stays here.
 
 ## config_change
 A change to configuration files (YAML, JSON, env files, feature flags) where

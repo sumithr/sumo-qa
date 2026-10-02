@@ -372,7 +372,7 @@ whatever its path or extension). Two configs pin it:
   and a markdown procedure an agent executes routes `verify-existing`, not
   `no-tests-recommended`.
 - `skill-reviewing-before-merge-executable-scope.yaml` carries two review
-  seeds and three controls. Seeds: a boolean fence toggle in an eval assertion
+  seeds and four controls. Seeds: a boolean fence toggle in an eval assertion
   helper under `tests/evals/promptfoo/asserts/` must get the stateful-scanner
   probe and the 4-backtick-wrapping-3-backtick discriminator despite the
   test-only path, and changed commands in an agent-executable procedure doc
@@ -380,14 +380,21 @@ whatever its path or extension). Two configs pin it:
   unhandled `none` payload) instead of the trivial-change exemption. Controls:
   the same helper written length-aware with a red-on-pre-fix regression test is
   SAFE, an ordinary test file holding fenced Markdown fixtures gets the
-  test-only probe and no runtime probes, and an inert prose doc keeps the
-  trivial-change exemption.
+  test-only probe and no runtime probes, an inert prose doc keeps the
+  trivial-change exemption, and a prose-only typo fix in an install procedure
+  people follow keeps it too (the diff changes no command, value or step).
 
-The fence seed declares the module set the new routing loads for executable
-test infrastructure (`test-only-diff` plus the runtime probes). With every
-module preloaded the pre-change skill text already finds the fence defect; the
-miss it guards against was dispatch, so on the pre-change routing set
-(`runtime-scope` and `test-only-diff` only) it fails.
+The fence seed preloads every module a review of that diff can reach,
+`discovery-probes` and `contract-and-fence-probes` included, so it guards the
+skill TEXT: given those modules, the candidate must treat the helper as runtime
+and produce the nested-fence discriminator. It does NOT guard dispatch, that
+is, whether a host's root routing loads those modules for a test-code-only
+diff, and it passes on the pre-change text too. Gap: the assembler preloads a
+seed's declared `review_modules` and cannot model a host fetching a further
+module mid-review, so dispatch for executable test infrastructure is pinned
+only structurally (the routing-table and module wording checked by
+`tests/test_review_skill_modules.py` and
+`tests/test_executable_behaviour_rule.py`), not by an eval.
 
 ```bash
 ./node_modules/.bin/promptfoo eval -c tests/evals/promptfoo/skill-reviewing-before-merge-executable-scope.yaml --no-cache
