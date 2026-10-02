@@ -117,7 +117,7 @@ def _spawns_subprocess_importing_mutated_code(path: Path) -> bool:
     """
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
-    mutated = _mutated_module_names()
+    mutated = frozenset(_mutated_module_names())
     enclosing = _enclosing_functions(tree)
 
     for node in ast.walk(tree):
@@ -185,7 +185,7 @@ def _is_python_interpreter_spawn(cmd_strings: list[str]) -> bool:
     return False
 
 
-def _command_imports_mutated_code(strings: list[str], mutated: set[str]) -> bool:
+def _command_imports_mutated_code(strings: list[str], mutated: frozenset[str]) -> bool:
     """True if the gathered command/source strings import the sumo_qa package or
     any submodule that transitively pulls a mutated module."""
     for s in strings:
@@ -196,13 +196,11 @@ def _command_imports_mutated_code(strings: list[str], mutated: set[str]) -> bool
         # An inline `-c` body importing a sumo_qa module that transitively
         # imports a mutated one (`from sumo_qa.conformance import ...` reaches
         # knowledge_loaders).
-        for module in re.findall(r"\b(?:from|import) (sumo_qa(?:\.\w+)*)", s):
-            if _reaches_mutated(module, frozenset(mutated)):
-                return True
-        # An inline `-c` body (or a module arg) that references a mutated module.
-        for m in mutated:
-            if f"sumo_qa.{m}" in s or f"import {m}" in s:
-                return True
+        if any(_reaches_mutated(module, mutated) for module in _body_imports(s)):
+            return True
+        # A bare `import <mutated>` (the child put src/sumo_qa itself on sys.path).
+        if any(f"import {m}" in s for m in mutated):
+            return True
         # `-m sumo_qa.<sub>`: a `-m` module token for ANY sumo_qa submodule that
         # transitively pulls the package (and thus a mutated module) — e.g.
         # `sumo_qa.server` (imports knowledge_loaders at top level) or
@@ -216,17 +214,12 @@ def _command_imports_mutated_code(strings: list[str], mutated: set[str]) -> bool
     return False
 
 
-@functools.cache
-def _sumo_qa_imports(module: str) -> frozenset[str]:
-    """Every sumo_qa module named by an import anywhere in ``module``'s source,
-    lazy (function-level) imports included, so the closure over-approximates."""
-    path = SRC_DIR.joinpath(*module.split("."))
-    path = path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
-    if not path.is_file():
-        return frozenset()
-    package = module.split(".") if path.name == "__init__.py" else module.split(".")[:-1]
+def _imported_sumo_qa_names(tree: ast.AST, package: list[str]) -> frozenset[str]:
+    """Every sumo_qa module named by an import anywhere in ``tree``, lazy
+    (function-level) imports included, so the closure over-approximates.
+    ``package`` resolves relative imports."""
     names: set[str] = set()
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
@@ -236,6 +229,29 @@ def _sumo_qa_imports(module: str) -> frozenset[str]:
             names.add(name)
             names.update(f"{name}.{alias.name}" for alias in node.names)
     return frozenset(n for n in names if n.split(".")[0] == "sumo_qa")
+
+
+@functools.cache
+def _sumo_qa_imports(module: str) -> frozenset[str]:
+    """Every sumo_qa module named by an import in ``module``'s source."""
+    path = SRC_DIR.joinpath(*module.split("."))
+    path = path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
+    if not path.is_file():
+        return frozenset()
+    package = module.split(".") if path.name == "__init__.py" else module.split(".")[:-1]
+    return _imported_sumo_qa_names(ast.parse(path.read_text(encoding="utf-8")), package)
+
+
+@functools.cache
+def _body_imports(body: str) -> frozenset[str]:
+    """The sumo_qa modules an inline ``-c`` body imports. A body that does not
+    parse (an f-string fragment) falls back to a regex over its text, which
+    sees only the module after ``from``/``import``."""
+    try:
+        tree = ast.parse(body)
+    except (SyntaxError, ValueError):  # ValueError: a NUL byte before 3.12
+        return frozenset(re.findall(r"\b(?:from|import)\s+(sumo_qa(?:\.\w+)*)", body))
+    return _imported_sumo_qa_names(tree, [])
 
 
 def _reaches_mutated(module: str, mutated: frozenset[str]) -> bool:
@@ -454,3 +470,32 @@ def test_safe_sumo_qa_entry_points_are_actually_non_mutating() -> None:
             f"{entry} is on the safe-entry allow-list but names a mutated module "
             f"— that would suppress a real hazard."
         )
+
+
+# Direct pins on the ``-c`` body classifier: each positive is a body that imports
+# ``sumo_qa.conformance`` (which reaches the mutated knowledge_loaders) in a
+# spelling a regex over ``from|import sumo_qa...`` misses.
+_DASH_C_HAZARDS = [
+    "from sumo_qa import conformance",
+    "import os, sumo_qa.conformance",
+    "from  sumo_qa.conformance import x",
+]
+
+
+@pytest.mark.parametrize("body", _DASH_C_HAZARDS)
+def test_dash_c_body_importing_a_mutated_chain_is_flagged(body: str) -> None:
+    assert _command_imports_mutated_code([body], frozenset(_mutated_module_names()))
+
+
+# Negatives: the java resolver probe's import chain reaches no mutated module,
+# and naming a mutated module in a string the child never imports is not an import.
+_DASH_C_NON_HAZARDS = [
+    "import sumo_qa.repo_map_resolvers as pkg\n"
+    "from sumo_qa.repo_map_treesitter import TREESITTER_AVAILABLE\n",
+    "import sys\nassert 'sumo_qa.rules' not in sys.modules\n",
+]
+
+
+@pytest.mark.parametrize("body", _DASH_C_NON_HAZARDS)
+def test_dash_c_body_not_importing_a_mutated_chain_is_not_flagged(body: str) -> None:
+    assert not _command_imports_mutated_code([body], frozenset(_mutated_module_names()))

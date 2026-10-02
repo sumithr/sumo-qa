@@ -362,9 +362,12 @@ literal or built in a separate variable (`code = textwrap.dedent("...import
 sumo_qa.knowledge_loaders..."); subprocess.run([sys.executable, "-c", code])`),
 and whether `-m` targets the full package or any `sumo_qa.<sub>` submodule that
 transitively imports a mutated module (e.g. `sumo_qa.server`, `sumo_qa.ingest`).
-A `-c` body that imports a `sumo_qa` module is flagged when a static walk of
-`src/`'s imports reaches a mutated module from it (`from sumo_qa.conformance
-import ...` reaches `knowledge_loaders`). It also handles the `shell=True` single-string form
+A `-c` body is parsed as Python, and each `sumo_qa` module it imports (`from
+sumo_qa import conformance` counts as `sumo_qa.conformance`) is flagged when a
+static walk of `src/`'s imports reaches a mutated module from it
+(`sumo_qa.conformance` reaches `knowledge_loaders`); a body that does not parse,
+such as an f-string fragment, falls back to matching the module named right
+after `from` or `import`. It also handles the `shell=True` single-string form
 (`subprocess.run("python -m sumo_qa", shell=True)`): a one-string command is
 shlex-tokenised so it is classified like the equivalent argv list, rather than
 slipping past as one un-split token. The provably non-mutating CLI entry points
