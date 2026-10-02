@@ -154,6 +154,9 @@ class TestNpmScripts:
 # --------------------------------------------------------------------------- #
 
 
+_COLOUR_ENV = ("FORCE_COLOR", "NO_COLOR", "CLICOLOR_FORCE")
+
+
 def _run_eval(
     tmp_path: Path, *args: str, env_overrides: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess:
@@ -162,10 +165,12 @@ def _run_eval(
     claude = fakebin / "claude"
     claude.write_text("#!/bin/sh\necho 'stand-in claude must not be called' >&2\nexit 97\n")
     claude.chmod(0o755)
+    # The caller's colour settings are dropped too, so a test's colour case is the
+    # one it sets, not whatever the terminal running pytest happens to export.
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_")) and k != "TIER"
+        if not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_")) and k not in ("TIER", *_COLOUR_ENV)
     }
     env["PATH"] = f"{fakebin}{os.pathsep}{env.get('PATH', '')}"
     env["SUMO_EVAL_DRY_RUN"] = "1"
@@ -320,9 +325,15 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         config.write_text('description: bad\nprompts: [\n  - "x\ntests: : :\n', encoding="utf-8")
         self._assert_harness_error(self._real_run(tmp_path, config))
 
-    @pytest.mark.parametrize("force_color", ["0", "3"])
+    # Equivalence partitioning over the colour environment: colour forced off,
+    # forced on at the 16-colour and truecolor depths, and the NO_COLOR opt-out.
+    @pytest.mark.parametrize(
+        "colour_env",
+        [{"FORCE_COLOR": "0"}, {"FORCE_COLOR": "1"}, {"FORCE_COLOR": "3"}, {"NO_COLOR": "1"}],
+        ids=["force-color-0", "force-color-1", "force-color-3", "no-color-1"],
+    )
     def test_a_readable_report_with_provider_errors_still_aborts_with_3(
-        self, tmp_path: Path, force_color: str
+        self, tmp_path: Path, colour_env: dict[str, str]
     ) -> None:
         """The other side of the boundary: a report that exists and carries
         `stats.errors > 0` is the provider abort. The stand-in `claude` exits
@@ -332,9 +343,9 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         (tmp_path / "providers").symlink_to(EVAL_DIR / "providers")
         config = tmp_path / "zz-pytest-provider-error-config.yaml"
         config.write_text('description: one case\nprompts: ["Say hi"]\ntests:\n  - vars: {}\n')
-        # FORCE_COLOR=3 makes node colour a printed number; the count the runner
-        # compares and prints must stay a plain digit either way.
-        result = self._real_run(tmp_path, config, FORCE_COLOR=force_color)
+        # Forced colour makes node colour a printed number; the count the runner
+        # compares and prints must stay a plain digit in every colour case.
+        result = self._real_run(tmp_path, config, **colour_env)
         assert result.returncode == 3, (result.returncode, result.stdout, result.stderr)
         assert "[eval] ABORT:" in result.stderr and "(errors=1)" in result.stderr, result.stderr
         assert "produced no readable report" not in result.stderr, result.stderr
