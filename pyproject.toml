@@ -122,6 +122,9 @@ dev = [
   # -compatible link-checker ships. See .pre-commit-config.yaml.
   "pytest>=8.4,<10",
   "pytest-cov>=6,<8",
+  # Runs the suite across cores: `-n auto` in the test.yml CI jobs and
+  # `-n 4` in the pre-push pytest hook, which mirrors this pin (#787).
+  "pytest-xdist==3.8.0",
   # Markdown link-existence gate: pre-commit + CI invoke
   # `scripts/check_markdown_links.sh`, which wraps pytest-check-links.
   # Catches the class of bug where a doc references a file that was

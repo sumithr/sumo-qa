@@ -125,7 +125,7 @@ Once installed (above), you get them for free on every `git commit` / `git push`
 | Trigger | What runs | Speed | Why |
 |---|---|---|---|
 | `git commit` | `ruff check --fix`, `ruff format`, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | ~1s | Auto-fixes 95% of CI lint failures before the commit lands. |
-| `git push` | the full `pytest` suite at 100% coverage, printing its counts; the mutmut gate (see [Mutation testing](#mutation-testing) for its triggers and scope); and every other hook without a commit-only stage, on the pushed files (the fixers among them can rewrite a file and stop the push) | minutes | Stops broken or under-tested commits reaching the remote. |
+| `git push` | the full `pytest` suite at 100% coverage on 4 pytest-xdist workers, printing its counts; the mutmut gate (see [Mutation testing](#mutation-testing) for its triggers and scope); and every other hook without a commit-only stage, on the pushed files (the fixers among them can rewrite a file and stop the push) | minutes | Stops broken or under-tested commits reaching the remote. |
 
 The pytest hook runs in pre-commit's own isolated venv, built from the explicit `additional_dependencies` pins in `.pre-commit-config.yaml` (where a hook and `pyproject.toml` pin the same package, `tests/test_toolchain_pin_lockstep.py` keeps the two in lockstep), so it's not coupled to whichever `python` happens to be on your PATH. The first `git push` after install is slower while pre-commit builds that venv; later pushes reuse it.
 

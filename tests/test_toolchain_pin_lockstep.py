@@ -3,8 +3,8 @@
 
 The end of the module also guards the pre-push pytest hook the delivery skills
 rely on as the full local suite: installed by default, run on every pre-push
-stage, verbose, and with a bare ``pytest`` argv so addopts alone sets its
-options (#773).
+stage, verbose, and with a ``pytest -n 4`` argv so addopts sets every other
+option (#773, #787).
 
 pre-commit hook venvs install from PyPI, so a hook that needs project
 dependencies repeats them in its ``additional_dependencies``. Those copies
@@ -695,7 +695,9 @@ def test_pre_push_pytest_hook_prints_its_counts() -> None:
     pytest_hook = _pytest_hook()
     assert pytest_hook.get("verbose") is True
     argv = shlex.split(pytest_hook["entry"]) + [str(arg) for arg in pytest_hook.get("args", [])]
-    assert argv == ["pytest"], (
+    # `-n 4` is the hook's one option of its own (#787): addopts also drives
+    # mutmut's in-process pytest, which must stay single-worker.
+    assert argv == ["pytest", "-n", "4"], (
         f"{PRECOMMIT} pytest hook argv {argv}: options belong in {PYPROJECT} addopts; "
         "change this guard deliberately if the hook needs its own"
     )

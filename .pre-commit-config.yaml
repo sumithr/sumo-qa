@@ -294,11 +294,19 @@ repos:
         # `[tool.pytest.ini_options]`, so `import sumo_qa.*` resolves
         # without the project itself needing to be pip-installed.
         #
-        # `verbose: true` and a bare `pytest` (options come from addopts
-        # alone) keep pytest's "N passed" and coverage lines in the push
+        # `verbose: true` and `pytest -n 4` (every other option comes from
+        # addopts) keep pytest's "N passed" and coverage lines in the push
         # output; the delivery skills quote them as the full local suite's
         # evidence. tests/test_toolchain_pin_lockstep.py pins this argv.
-        entry: pytest
+        #
+        # Why the full suite still runs on every push (#787): the delivery
+        # skills use this hook as the one full local run with the 100%
+        # coverage gate, and CI cannot stand in for it before the push, so
+        # the hook keeps the full run and is made faster instead of scoped
+        # or dropped. `-n 4` (pytest-xdist) took a local run from 157s to
+        # 87s on a 10-core Mac; `-n 2` and `-n 6` were no faster, and
+        # `-n auto` (10 workers) timed out two 10s subprocess tests.
+        entry: pytest -n 4
         verbose: true
         language: python
         additional_dependencies:
@@ -308,6 +316,7 @@ repos:
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
           - "pytest-cov>=6,<8"
+          - "pytest-xdist==3.8.0"
           # Build backend — tests/test_wheel_packaging.py builds the wheel via
           # `pip wheel --no-build-isolation` to assert it ships py.typed.
           - "hatchling>=1.25"
