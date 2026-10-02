@@ -228,9 +228,6 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Test-only-diff probe (pinned).**",
         "`Test probe: <test name> | Discriminates broken→fixed?",
         "**Test-only-diff (test_change) discipline (pinned):**",
-        # An edge-case guard green on the pre-fix code still discriminates.
-        "Only a regression or contract test also needs red-on-pre-fix evidence",
-        "and passing on the pre-fix code is not a NO for it",
     ],
     "runtime-scope": [
         "**What counts as a runtime change (pinned):**",
@@ -271,8 +268,6 @@ ROOT_ALWAYS_ON_RULES = (
     "Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line.",
     "no observable run: `Evidence (command): unverified, <the run that clears it>`",
     "none without an observable run.",
-    "None applies → emit nothing for item 8.",
-    "A runtime verdict missing an applicable item is a discipline violation.",
     '"I\'ll ask which test framework / where tests live"',
     "## Checklist",
     "## Process Flow",
@@ -485,14 +480,14 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Test-only-diff (test_change) discipline (pinned):**": PinnedClauses(
-        defining="for every ordinary test or fixture in a test-code-only diff, the runtime coverage-ledger (item 2) does NOT apply",
+        defining="if the diff touches ONLY test files (no `app`/`src`/`lib` runtime file), the runtime coverage-ledger (item 2) does NOT apply",
         operative=(
             "Any `NO` line is a SAFE-blocker",
             "`Test probe: <test name> | Discriminates broken→fixed?",
         ),
     ),
     "**Test-only-diff probe (pinned).**": PinnedClauses(
-        defining="For every ordinary test or fixture in a test-code-only diff, even beside an executable helper, the runtime coverage ledger (`coverage-ledger`) has no anchor",
+        defining="When the diff is test files ONLY (no `app/`/`src/`/`lib/` runtime file — a `test_change`), the runtime coverage ledger (`coverage-ledger`) has no anchor",
         operative=(
             "A new test whose assertion restates the production code or passes against a broken impl",
             "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
@@ -508,7 +503,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Trivial-change exemption (pinned):**": PinnedClauses(
-        defining="A diff qualifies only when each change is prose-only by the executable-behaviour rule (docs or comments, in a procedure doc too), static/inert config (YAML/TOML/JSON read as data, not executed — formatter/linter ignore lists, editor config), or in other files with **no executable behavioural surface**",
+        defining="A diff qualifies only when it touches solely docs (`docs/`, markdown; a followed procedure only for a prose-only edit, per the executable-behaviour rule), static/inert config (YAML/TOML/JSON read as data, not executed — formatter/linter ignore lists, editor config), or other files with **no executable behavioural surface**",
         operative=(
             "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
         ),

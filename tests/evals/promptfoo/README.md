@@ -372,7 +372,7 @@ whatever its path or extension). Two configs pin it:
   and a markdown procedure an agent executes routes `verify-existing`, not
   `no-tests-recommended`.
 - `skill-reviewing-before-merge-executable-scope.yaml` carries two review seeds
-  and four controls. Seeds: a boolean fence toggle in an eval assertion helper
+  and three controls. Seeds: a boolean fence toggle in an eval assertion helper
   under `tests/evals/promptfoo/asserts/` must get the stateful-scanner probe
   and the 4-backtick-wrapping-3-backtick discriminator despite the test-only
   path, and changed commands in an agent-executable procedure doc must get at
@@ -382,9 +382,7 @@ whatever its path or extension). Two configs pin it:
   procedure named as the missing evidence. Controls: the same helper written
   length-aware with a red-on-pre-fix regression test is SAFE, an ordinary test
   file holding fenced Markdown fixtures gets the test-only probe and no runtime
-  probes, an inert prose doc keeps the trivial-change exemption, and a
-  prose-only typo fix in an install procedure people follow keeps it too (the
-  diff is prose-only by the executable-behaviour rule).
+  probes, and an inert prose doc keeps the trivial-change exemption.
 
 The fence seed preloads the config's default review modules, `discovery-probes`
 and `contract-and-fence-probes` included (not `external-contract`), so it
@@ -1069,7 +1067,7 @@ renders.
 | `fixtures/reviewing-before-merge-PRE-187.SKILL.md` | Snapshot of the pre-#187 SKILL.md body, the A0 control leg for the unproven-escalation `.ab.yaml` |
 | `skill-reviewing-before-merge-fence-parser.yaml` + `.ab.yaml` | Issue #296 discriminating-input fence probe + A0(pre-edit)/A1(post-edit) load-bearing control (see "Discriminating-input fence probe" above) |
 | `fixtures/reviewing-before-merge-PRE-296.SKILL.md` | Snapshot of the pre-#296 SKILL.md body, the A0 control leg for the fence-parser `.ab.yaml` |
-| `skill-reviewing-before-merge-executable-scope.yaml` | Issue #761 executable-behaviour review corpus (2 seeds: fence toggle in an eval assertion helper under `tests/` → structural probe + NOT SAFE; agent-executable procedure doc → at least one named procedure risk + NOT SAFE or a named dry run; 4 controls: length-aware helper with red-on-pre-fix regression → SAFE, ordinary fenced-fixture test → test-only probe only, inert prose → trivial exemption, prose-only typo in a followed install procedure → trivial exemption) (see "Executable-behaviour corpus" above) |
+| `skill-reviewing-before-merge-executable-scope.yaml` | Issue #761 executable-behaviour review corpus (2 seeds: fence toggle in an eval assertion helper under `tests/` → structural probe + NOT SAFE; agent-executable procedure doc → at least one named procedure risk + NOT SAFE or a named dry run; 3 controls: length-aware helper with red-on-pre-fix regression → SAFE, ordinary fenced-fixture test → test-only probe only, inert prose → trivial exemption) (see "Executable-behaviour corpus" above) |
 | `skill-reviewing-before-merge-runtime-scope.ab.yaml` | Issue #300 A0(pre-edit)/A1(post-edit) load-bearing control for the behaviour-not-path runtime-scope rule (see "Runtime-scope corpus" above) |
 | `fixtures/reviewing-before-merge-PRE-300.SKILL.md` | Snapshot of the pre-#300 SKILL.md body, the A0 control leg for the runtime-scope `.ab.yaml` |
 | `skill-reviewing-before-merge-verifier-evidence.yaml` + `.ab.yaml` | Issue #332 surface-specific verifier-evidence corpus (3 seeds: unrun eval with a CLOSED risk gate, the unrun eval NOT pre-named → NOT SAFE, no combined-tree run → NOT SAFE, discharged combined-tree run → SAFE-eligible) + A0(pre-edit)/A1(post-edit) load-bearing control (see "Verification-evidence corpus" above) |

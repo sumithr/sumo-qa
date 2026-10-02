@@ -5,7 +5,7 @@ description: Use after sumo-qa-deciding-approach routes here, when the user asks
 
 # Reviewing before merge
 
-Help the user decide whether a change is safe to ship, one Checklist section at a time; ask for product context the diff cannot reveal, never assume it.
+Help the user decide whether a change is safe to ship, one Checklist section at a time; ask for the product context the diff cannot reveal, never assume it.
 
 ## Output discipline (mandatory)
 
@@ -29,13 +29,13 @@ Triggers in the description; `sumo-qa-deciding-approach` routes here for `verify
 
 ## Checklist
 
-Steps 1-4 are AI-only homework (no user questions); the user's confirmation gates steps 5 onward.
+Work through these in order. Steps 1-4 are AI-only homework (no user questions); the user's confirmation gates steps 5 onward. Load a step's modules (routing table below) first.
 
-1. **Read the diff via the host's git tools** — `git diff` (`--staged`, `<base>...HEAD`). Capture files + line counts. Supplied repo-map / bundle / coverage artifacts go through `context-inputs`; if none, say `no coverage/mutation artifact this turn — not measured`.
+1. **Read the diff via the host's git tools** — `git diff`, `git diff --staged`, or `git diff <base>...HEAD`. Capture files + line counts. Supplied repo-map / bundle / coverage artifacts go through `context-inputs`; if none, say `no coverage/mutation artifact this turn — not measured`.
 
 2. **Read the actual changed files** — not just the diff hunks. For each, identify the public surface that moved.
 
-3. **Classify and load applicable standards** — call `sumo_qa_load_classifications()`, infer the classification(s), then `sumo_qa_load_standards` and `sumo_qa_load_rules`. Note which loaded rules apply.
+3. **Classify and load applicable standards** — call `sumo_qa_load_classifications()`, infer the classification(s), then `sumo_qa_load_standards(...)` and `sumo_qa_load_rules(...)`. Note which loaded rules apply.
 
 4. **Adversarial discovery pass** — `runtime-scope` settles the diff shape (test-only → `test-only-diff`; non-executable → trivial-change exemption). For every runtime file run `discovery-probes`, adding `security-relevance`, `external-contract`, or `contract-and-fence-probes` when the diff shows that shape, and `feedback-memory` when saved feedback is supplied (absent: say `no saved review feedback supplied — advisory-hint check skipped`). A moved constraint loads `mirrored-constraints`, trivial diffs included. Each hit is a named risk anchored to file:line; an uncovered one is a SAFE-blocker labelled per `coverage-ledger`, never a residual note.
 
@@ -45,7 +45,7 @@ Steps 1-4 are AI-only homework (no user questions); the user's confirmation gate
 
 7. **Run the test suite — show the actual output** — use the host's runner. Surface: total / passed / failed / skipped / duration. Name any failures. Do NOT proceed to verdict on partial output.
 
-8. **Run targeted tests around the changed files** — e.g. `pytest tests/test_<changed_module>.py -v`; closest neighbours stay green; surface the count.
+8. **Run targeted tests around the changed files** — e.g. `pytest tests/test_<changed_module>.py -v`; confirm closest neighbours stay green; surface the count.
 
 9. **Map risk coverage** — for each named risk, cite the fresh test that demonstrably exercises that exact failure path (file + fully-qualified test + the verbatim assertion/condition), else label it from its row's tests field: tests listed is UNPROVEN, even for missing behaviour; `NONE` is UNCOVERED. Never infer coverage from a shared name or domain.
 
@@ -59,8 +59,8 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 
 | Module | Load when |
 |---|---|
-| `runtime-scope` | is a diff runtime or trivial, by the executable-behaviour rule |
-| `discovery-probes` | every runtime review (step 4); a command/string classifier also takes `runtime-scope`'s probe |
+| `runtime-scope` | settling whether a diff is runtime (executable-behaviour rule) or trivial |
+| `discovery-probes` | every runtime review (step 4): code-shape probes, discovery-to-verdict; a command/string classifier also takes `runtime-scope`'s probe |
 | `security-relevance` | auth, secrets, input sanitisation, rate limiting, audit logging, security config/dependency |
 | `external-contract` | any matcher/parser over output the diff may not control (tool/CLI/API text, a fixture) |
 | `contract-and-fence-probes` | a docstring/contract invariant (`Never raises`), or a stateful marker/fence parser |
@@ -70,7 +70,7 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 | `inventory-drift` | a documented count, name, inventory, version, schema field, or generated artifact changed (2a) |
 | `mirrored-constraints` | a dependency/tool/runtime constraint changed |
 | `unproven-escalation` | any risk is UNPROVEN, or maps to a catalogued technique's failure mode (2b; step-6 hints) |
-| `test-only-diff` | only test code changed (tests, fixtures, or executable test helpers), by the executable-behaviour rule |
+| `test-only-diff` | only test code changed, by the executable-behaviour rule |
 | `acceptance-criteria` | the host supplies acceptance criteria |
 | `ac-evidence-views` | with `acceptance-criteria`: a close MET/UNVERIFIED call, or the AC map as a table |
 | `surface-verifier` | a repo-specific verifier exists; ALWAYS for a skill or eval change; sibling PRs co-edit |
@@ -94,7 +94,7 @@ Output order: these items, the Verdict close, the verdict line, then only an app
 
 A runtime verdict missing an applicable item is a discipline violation. Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 and a stale mirror's 2a row where they apply.
 
-**Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete gap in what the diff changes or affects, outside every named risk's failure path, anchored to file:line or a named input (never `none` but a trivial-change-exempt diff's `none (exempt: <reason>)`; never re-verification of unaffected content). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim, so invent no line for it. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
+**Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete item outside every named risk's failure path, anchored to file:line or a named input (never `none`). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim, so invent no line for it. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
 
 ## Process Flow
 
@@ -112,4 +112,4 @@ The Checklist is the flow.
 
 ## Next skill in the chain
 
-After the verdict → `sumo-qa-finishing-qa-work` (evidence capture, PR-ready summary).
+After the verdict → `sumo-qa-finishing-qa-work` to capture the evidence and produce the PR-ready summary.

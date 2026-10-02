@@ -1,7 +1,8 @@
 # Canonical QA approaches
 
-Twelve canonical approaches the host LLM picks from to shape QA work; invent
-a new one only when none fit, saying why.
+Twelve canonical approaches the host LLM picks from when deciding the shape
+of QA work. The LLM may invent a new approach if the situation genuinely
+needs one, but it must explain why none of these twelve fit.
 
 ## strategy-orchestration
 Repo-wide / policy-shaped ask: "design a test strategy", "audit our coverage",
@@ -33,14 +34,14 @@ chased with tautological tests.
 
 ## verify-existing
 Config-only or trivial tweak that doesn't merit new tests. Run the existing
-suite plus a smoke test. Also fits a runtime change to a followed procedure
-(executable-behaviour rule), evidenced by a dry run of its branches; an
-executable script or hook keeps the full sweep and tested ledger.
+suite plus a smoke test. Fits when a config bump or mechanical edit needs
+confirmation, not new coverage. Also fits a runtime change to a followed
+procedure (executable-behaviour rule), evidenced by a dry run of its branches.
 
 ## no-tests-recommended
 Pure docs / typos / comments. Build + lint, no QA test work. The honest
-senior-QA answer when the change has no behavioural surface; a runtime change
-to a followed procedure, by the executable-behaviour rule, has one.
+senior-QA answer when the change has no behavioural surface; a followed
+procedure's runtime change (executable-behaviour rule) has one.
 
 ## spike-first-then-tests
 Exploratory prototype. Defer test discipline until the design settles. The

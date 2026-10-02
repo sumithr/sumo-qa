@@ -110,51 +110,24 @@ def test_the_name_check_rejects_a_mere_substring(text):
 @pytest.mark.parametrize(
     ("rel", "clause"),
     [
-        # Ordinary fixtures stay light; one that changes the environment every
-        # test runs under is executable, and test_change agrees.
+        # Ordinary tests and inert prose keep the lighter handling (#761).
         (
             HOME,
-            "Ordinary tests and fixtures (static data, or setup that only builds inputs "
-            "for the code under test) and inert prose keep lighter handling",
+            "Ordinary test functions, fixtures and genuinely inert prose keep their "
+            "current lighter handling",
         ),
+        # A changed command or step in a followed procedure is runtime; prose is not (#746).
         (
             HOME,
-            "a fixture changing the environment or process every test runs under "
-            "(autouse env/subprocess patching) is runtime",
+            "In a followed procedure, a changed command or step is runtime; a prose-only "
+            "edit is not.",
         ),
-        (HOME, "fixture generator, environment-changing fixture) is `infrastructure_change`"),
-        (
-            "skills/sumo-qa-reviewing-before-merge/modules/test-only-diff.md",
-            "a fixture that changes the environment or process every test runs under",
-        ),
-        # Prose-only is defined, so a rewording that drops a STOP gate is not.
-        (HOME, "a prose-only edit (changing none of these, nor what an instruction means) is not"),
-        (HOME, "parser, grader, reporter, transform, fixture generator"),
-        # Any trivial-change-exempt diff has a sanctioned residual, not an invented one.
+        # Executable test infrastructure is not test_change (#447, #667).
+        (HOME, "parser, grader, reporter, transform) is `infrastructure_change`"),
+        # A helper-only test diff still loads test-only-diff, by behaviour not path.
         (
             "skills/sumo-qa-reviewing-before-merge/SKILL.md",
-            "(never `none` but a trivial-change-exempt diff's `none (exempt: <reason>)`;",
-        ),
-        (
-            "skills/sumo-qa-reviewing-before-merge/SKILL.md",
-            "makes no claim, so invent no line for it",
-        ),
-        # A helper-only test diff still loads test-only-diff, by behaviour not path,
-        # so inert prose under tests/ stays docs.
-        (
-            "skills/sumo-qa-reviewing-before-merge/SKILL.md",
-            "| `test-only-diff` | only test code changed (tests, fixtures, or executable test helpers), "
-            "by the executable-behaviour rule |",
-        ),
-        (
-            "skills/sumo-qa-reviewing-before-merge/modules/test-only-diff.md",
-            "by the executable-behaviour rule; inert prose under `tests/` stays docs.",
-        ),
-        # The stale mirror stays the explicit exception to "no risk in unaffected content".
-        (
-            "skills/sumo-qa-reviewing-before-merge/modules/runtime-scope.md",
-            'name no risk in unaffected content (no residual "re-verify" of untouched commands). '
-            "The one exception is a stale mirror",
+            "| `test-only-diff` | only test code changed, by the executable-behaviour rule |",
         ),
     ],
 )
