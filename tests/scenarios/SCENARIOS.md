@@ -38,7 +38,7 @@ For each scenario, an agent role-play of the expected interaction is captured un
 **Expected interaction shape:**
 1. Runs `git diff` / `git diff --staged` / `git diff <base>...HEAD` via the host's git tools to read the actual diff.
 2. Reads each changed file (not just the diff hunks).
-3. Calls `sumo_qa_load_classifications()` + `sumo_qa_load_standards(classification=...)` + `sumo_qa_load_rules(...)` to know which team rules apply.
+3. Calls `sumo_qa_load_skill_context(mode="bundle", classification=..., modules=...)` once: the classification entries, standards, rules and the modules the diff needs, to know which team rules apply.
 4. Names 3–7 risks anchored to **file + line**, not generic.
 5. Presents scope + classification in one paragraph, asks ONE focused question for anything ambiguous.
 6. **HARD GATE:** runs the test suite in *this turn*. Shows actual pass/fail counts. "CI was green earlier" is NOT acceptable.

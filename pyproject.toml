@@ -517,3 +517,38 @@ PYTHONUNBUFFERED = "1"
 event = "SessionStart"
 script = "session-start"
 trigger = "startup|clear|compact"
+
+# ---------------------------------------------------------------------------
+# Context-cost budgets (#512), enforced by scripts/audit_context_budget.py in
+# CI. Estimated tokens = (chars + 3) // 4, the repo's canonical estimator. A
+# budget that is absent is report-only.
+# ---------------------------------------------------------------------------
+[tool.sumo-qa.context-budget]
+# SessionStart additionalContext on a healthy session (epic #508 target).
+# Each workflow's `bundle` caps its one-call sumo_qa_load_skill_context
+# result (include_body=false, as the review skill calls it).
+bootstrap = 1000
+# Compact JSON tools/list: measured 11,618 at #512; #515 (core profile) lowers it.
+tools_list = 11900
+# root_skill: report-only until #798 compacts the over-budget roots.
+
+[[tool.sumo-qa.context-budget.workflow]]
+name = "review: business logic change"
+skill = "sumo-qa-reviewing-before-merge"
+classification = "business_logic_change"
+modules = "runtime-scope,discovery-probes,coverage-ledger"
+bundle = 5800
+
+[[tool.sumo-qa.context-budget.workflow]]
+name = "review: security change"
+skill = "sumo-qa-reviewing-before-merge"
+classification = "business_logic_change,security_change"
+modules = "runtime-scope,discovery-probes,security-relevance,coverage-ledger"
+bundle = 7000
+
+[[tool.sumo-qa.context-budget.workflow]]
+name = "review: test-only diff"
+skill = "sumo-qa-reviewing-before-merge"
+classification = "test_change"
+modules = "test-only-diff"
+bundle = 2250

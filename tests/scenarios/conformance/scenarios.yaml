@@ -63,7 +63,7 @@ scenarios:
     expected_entry_skill: sumo_qa_reviewing_before_merge
     required_tool_calls:
       - sumo_qa_load_classifications
-      - sumo_qa_load_rules
+      - sumo_qa_load_skill_context
     forbidden_output_markers:
       - "Classification: business_logic_change"
 

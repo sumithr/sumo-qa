@@ -187,7 +187,10 @@ def test_router_prefixed_transcript_still_routes_cleanly(scenarios) -> None:
             ToolCall("sumo_qa_deciding_approach"),
             ToolCall("sumo_qa_reviewing_before_merge"),
             ToolCall("sumo_qa_load_classifications"),
-            ToolCall("sumo_qa_load_rules"),
+            ToolCall(
+                "sumo_qa_load_skill_context",
+                {"mode": "bundle", "classification": "business_logic_change"},
+            ),
         ),
         output_text="scope + verdict, no leaked taxonomy",
     )

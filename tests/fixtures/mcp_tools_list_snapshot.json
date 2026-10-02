@@ -755,6 +755,21 @@
     "sumo_qa_load_skill_context": {
       "inputSchema": {
         "properties": {
+          "classification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "include_body": {
+            "default": true,
+            "type": "boolean"
+          },
           "known_hash": {
             "anyOf": [
               {
@@ -778,6 +793,17 @@
             "default": null
           },
           "module": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "modules": {
             "anyOf": [
               {
                 "type": "string"

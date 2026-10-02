@@ -2029,6 +2029,9 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         section: str | None = None,
         module: str | None = None,
         known_hash: str | None = None,
+        classification: str | None = None,
+        modules: str | None = None,
+        include_body: bool = True,
     ) -> str:
         """Load just one slice of a skill's context as a JSON string, instead of
         the whole SKILL.md body.
@@ -2042,7 +2045,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
           - "full"     — the entire SKILL.md body, byte-for-byte identical to the
             existing zero-argument skill tool for `skill_name`; a body over the
             host's per-response token cap is returned as an `oversize` pointer
-            to the manifest/section/module slices instead of failing (#393).
+            to the manifest/section/module slices instead of failing (#393);
+          - "bundle"   — a routed skill's working context in ONE call: the
+            body (omit with `include_body=false` when you already hold it),
+            the `modules` named (comma-separated ids), and for
+            `classification` (comma-separated canonical ids) its catalogue
+            entries plus the filtered standards and rules. Each part is
+            identical to its single loader, which stays for deeper reads.
 
         The section/module/full slices each return `content_hash` (sha256 of the
         returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this
@@ -2056,7 +2065,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
         listing the valid choices. Read-only and local-only."""
         return json.dumps(
             _load_skill_context(
-                skill_name, mode, section=section, module=module, known_hash=known_hash
+                skill_name,
+                mode,
+                section=section,
+                module=module,
+                known_hash=known_hash,
+                classification=classification,
+                modules=modules,
+                include_body=include_body,
             ),
             ensure_ascii=False,
             indent=2,

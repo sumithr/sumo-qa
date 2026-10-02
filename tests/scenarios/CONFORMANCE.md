@@ -38,7 +38,7 @@ against the registered MCP tool surface.
   expected_entry_skill: sumo_qa_reviewing_before_merge
   required_tool_calls:
     - sumo_qa_load_classifications
-    - sumo_qa_load_rules
+    - sumo_qa_load_skill_context   # the one-call bundle: entries, standards, rules, modules
   forbidden_output_markers:
     - "Classification: business_logic_change"   # internal taxonomy leak
 ```
@@ -171,8 +171,8 @@ eval loads), while the validator resolves ingested project/global packs too.
 which records the tool exchanges of a live run. The capture holds tool calls
 only, so the final assistant text is supplied by the reviewer running the
 manual check. It records MCP tool calls only: a host that loads the router through
-a native skill (Claude Code's Skill tool, or the SessionStart hook injecting the
-router body) leaves no `using_sumo_qa` call in the capture, so score such a run
+a native skill (Claude Code's Skill tool, or the SessionStart hook's full-router
+fallback) leaves no `using_sumo_qa` call in the capture, so score such a run
 from the host's own transcript instead.
 
 ## Running it

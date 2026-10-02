@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # SessionStart hook for sumo-qa plugin.
 #
-# Injects the `using-sumo-qa` skill into every conversation so the host LLM
-# reliably runs sumo-qa's senior-QA workflow (qa-deciding-approach →
-# qa-preparing-for-work / qa-implementing-with-tdd / qa-reviewing-before-merge
-# / etc.) rather than free-styling generic testing advice.
+# Injects a compact bootstrap (hooks/compact-bootstrap.md: the first-hop rule
+# plus a pointer to the `using_sumo_qa` router) into every conversation, so a
+# QA-shaped request enters sumo-qa's workflow rather than free-styling generic
+# testing advice, while a non-QA session does not carry the ~4k-token router
+# body (#512).
+#
+# Capability fallback: the compact pointer needs a launchable MCP server (or a
+# host Skill tool). When `uvx` is missing the plugin MCP server cannot start,
+# so the full `using-sumo-qa` body is injected instead. SUMO_QA_BOOTSTRAP=full
+# or =compact overrides the detection.
 
 set -euo pipefail
 
@@ -12,8 +18,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Read using-sumo-qa content
-using_sumo_qa_content=$(cat "${PLUGIN_ROOT}/skills/using-sumo-qa/SKILL.md" 2>&1 || echo "Error reading using-sumo-qa skill")
+bootstrap_mode="${SUMO_QA_BOOTSTRAP:-auto}"
+if [ "$bootstrap_mode" != "full" ] && [ "$bootstrap_mode" != "compact" ]; then
+    if command -v uvx >/dev/null 2>&1; then
+        bootstrap_mode="compact"
+    else
+        bootstrap_mode="full"
+    fi
+fi
+
+if [ "$bootstrap_mode" = "compact" ]; then
+    bootstrap_content=$(cat "${PLUGIN_ROOT}/hooks/compact-bootstrap.md" 2>&1 || echo "Error reading sumo-qa compact bootstrap")
+else
+    using_sumo_qa_content=$(cat "${PLUGIN_ROOT}/skills/using-sumo-qa/SKILL.md" 2>&1 || echo "Error reading using-sumo-qa skill")
+    bootstrap_content=$(printf '%s\n\n%s\n\n%s' \
+        'You have sumo-qa: a senior-QA skills library + MCP server.' \
+        "**Below is the full content of your 'sumo-qa:using-sumo-qa' skill - your entry router for every QA-shaped task. For all other sumo-qa skills, use the 'Skill' tool:**" \
+        "$using_sumo_qa_content")
+fi
 
 # Escape string for JSON embedding using bash parameter substitution.
 # Each ${s//old/new} is a single C-level pass - orders of magnitude
@@ -28,7 +50,7 @@ escape_for_json() {
     printf '%s' "$s"
 }
 
-using_sumo_qa_escaped=$(escape_for_json "$using_sumo_qa_content")
+bootstrap_escaped=$(escape_for_json "$bootstrap_content")
 
 # Detect uvx — if missing, the plugin's MCP server can't launch. Surface
 # a high-priority warning so Claude tells the user proactively instead of
@@ -72,7 +94,7 @@ fi
 # docs/PERSONA.md and adopt the Sumo-sensei voice"). No skill currently
 # auto-recognises persona toggle phrases. See docs/PERSONA.md.
 
-session_context="${uvx_warning_escaped}<EXTREMELY_IMPORTANT>\nYou have sumo-qa: a senior-QA skills library + MCP server.\n\n**Below is the full content of your 'sumo-qa:using-sumo-qa' skill - your entry router for every QA-shaped task. For all other sumo-qa skills, use the 'Skill' tool:**\n\n${using_sumo_qa_escaped}\n</EXTREMELY_IMPORTANT>"
+session_context="${uvx_warning_escaped}<EXTREMELY_IMPORTANT>\n${bootstrap_escaped}\n</EXTREMELY_IMPORTANT>"
 
 # Output context injection as JSON.
 # Cursor hooks expect additional_context (snake_case).

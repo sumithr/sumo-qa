@@ -324,6 +324,32 @@ def test_filtered_knowledge_loader_args_are_forwarded_via_server_call_tool() -> 
     assert "configuration_change:" not in rules_text
 
 
+def test_bundle_args_are_forwarded_via_server_call_tool() -> None:
+    """The MCP wrapper must pass the #512 bundle arguments through, so one
+    call returns the modules and the classification's rules without the body."""
+    import asyncio
+    import json
+
+    server = build_mcp_server()
+    result = asyncio.run(
+        server.call_tool(
+            "sumo_qa_load_skill_context",
+            {
+                "skill_name": "sumo-qa-reviewing-before-merge",
+                "mode": "bundle",
+                "classification": "test_change",
+                "modules": "test-only-diff",
+                "include_body": False,
+            },
+        )
+    )
+    out = json.loads(_tool_text(result))
+    assert out["classification"] == ["test_change"]
+    assert [m["id"] for m in out["modules"]] == ["test-only-diff"]
+    assert "body" not in out
+    assert out["rules"]
+
+
 def test_skill_loading_tools_return_json_via_call_tool() -> None:
     """The #285 MCP wrappers must JSON-serialise the manifest + loader output."""
     import asyncio

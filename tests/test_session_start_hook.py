@@ -2,10 +2,13 @@
 """Smoke tests for the SessionStart hook.
 
 The hook ships in `hooks/session-start` and is registered by
-`hooks/hooks.json` (Claude Code) and `hooks/hooks-cursor.json` (Cursor).
-Its job: read `skills/using-sumo-qa/SKILL.md` and emit a host-appropriate
-JSON envelope so the agent reliably loads the QA workflow router on every
-conversation start.
+`hooks/hooks.json` (Claude Code) and `hooks/hooks-codex.json` (Codex).
+Its job: emit a host-appropriate JSON envelope carrying the compact
+bootstrap (`hooks/compact-bootstrap.md`, the first-hop rule and a pointer
+to the `using_sumo_qa` router) so a QA-shaped request reliably enters
+sumo-qa, while a non-QA session never pays for the full router body (#512).
+The full `skills/using-sumo-qa/SKILL.md` body is the fallback: injected
+when the MCP server cannot launch (no `uvx`) or `SUMO_QA_BOOTSTRAP=full`.
 
 These tests don't exercise the host runtime — they verify that the script
 itself produces well-formed JSON containing the skill body, and that the
@@ -46,6 +49,10 @@ def _repo_root() -> Path:
 ROOT = _repo_root()
 HOOK_SCRIPT = ROOT / "hooks" / "session-start"
 USING_SKILL = ROOT / "skills" / "using-sumo-qa" / "SKILL.md"
+COMPACT_BOOTSTRAP = ROOT / "hooks" / "compact-bootstrap.md"
+# Present only in the full router body, never in the compact bootstrap.
+FULL_BODY_MARKER = "NO QA WORK WITHOUT FIRST DECIDING THE APPROACH"
+BOOTSTRAP_TOKEN_BUDGET = 1000
 
 
 @pytest.mark.skipif(
@@ -58,24 +65,11 @@ def test_session_start_emits_valid_json_with_skill_content() -> None:
     The agent's first turn relies on the hook embedding the full
     using-sumo-qa skill body — without it the Iron Law enforcement is gone.
     """
-    result = subprocess.run(
-        ["bash", str(HOOK_SCRIPT)],
-        capture_output=True,
-        text=True,
-        env={
-            k: v
-            for k, v in os.environ.items()
-            if k not in {"CLAUDE_PLUGIN_ROOT", "CURSOR_PLUGIN_ROOT", "COPILOT_CLI"}
-        },
-        timeout=60,
-    )
-
-    assert result.returncode == 0, f"hook exited non-zero: {result.stderr}"
-    payload = json.loads(result.stdout)
+    payload = _run_hook({})
     assert "additionalContext" in payload
     context = payload["additionalContext"]
-    # The Iron Law must be present — that's the whole reason for the hook.
-    assert "NO QA WORK WITHOUT FIRST DECIDING THE APPROACH" in context
+    # The first-hop pointer must be present: that's the whole reason for the hook.
+    assert "using_sumo_qa" in context
     # And the EXTREMELY_IMPORTANT wrapper that makes the agent take it seriously.
     assert "<EXTREMELY_IMPORTANT>" in context
 
@@ -86,24 +80,10 @@ def test_session_start_emits_valid_json_with_skill_content() -> None:
 )
 def test_session_start_uses_claude_code_envelope_when_plugin_root_set() -> None:
     """Claude Code sets `CLAUDE_PLUGIN_ROOT` → nested `hookSpecificOutput`."""
-    env = {k: v for k, v in os.environ.items() if k not in {"CURSOR_PLUGIN_ROOT", "COPILOT_CLI"}}
-    env["CLAUDE_PLUGIN_ROOT"] = str(ROOT)
-    result = subprocess.run(
-        ["bash", str(HOOK_SCRIPT)],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=60,
-    )
-
-    assert result.returncode == 0, f"hook exited non-zero: {result.stderr}"
-    payload = json.loads(result.stdout)
-    assert "hookSpecificOutput" in payload
+    payload = _run_hook({"CLAUDE_PLUGIN_ROOT": str(ROOT)})
+    assert set(payload) == {"hookSpecificOutput"}
     assert payload["hookSpecificOutput"]["hookEventName"] == "SessionStart"
-    assert (
-        "NO QA WORK WITHOUT FIRST DECIDING THE APPROACH"
-        in payload["hookSpecificOutput"]["additionalContext"]
-    )
+    assert "using_sumo_qa" in payload["hookSpecificOutput"]["additionalContext"]
 
 
 @pytest.mark.skipif(
@@ -112,20 +92,9 @@ def test_session_start_uses_claude_code_envelope_when_plugin_root_set() -> None:
 )
 def test_session_start_uses_cursor_envelope_when_cursor_root_set() -> None:
     """Cursor sets `CURSOR_PLUGIN_ROOT` → snake_case `additional_context`."""
-    env = {k: v for k, v in os.environ.items() if k not in {"COPILOT_CLI"}}
-    env["CURSOR_PLUGIN_ROOT"] = str(ROOT)
-    result = subprocess.run(
-        ["bash", str(HOOK_SCRIPT)],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=60,
-    )
-
-    assert result.returncode == 0, f"hook exited non-zero: {result.stderr}"
-    payload = json.loads(result.stdout)
-    assert "additional_context" in payload
-    assert "NO QA WORK WITHOUT FIRST DECIDING THE APPROACH" in payload["additional_context"]
+    payload = _run_hook({"CURSOR_PLUGIN_ROOT": str(ROOT)})
+    assert set(payload) == {"additional_context"}
+    assert "using_sumo_qa" in payload["additional_context"]
 
 
 def test_using_sumo_qa_skill_file_exists() -> None:
@@ -149,14 +118,11 @@ def test_hook_registrations_reference_existing_script() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _run_hook_with_env(uvx_present: bool) -> dict:
-    """Invoke the hook with a doctored PATH controlling uvx visibility."""
+def _run_hook(extra_env: dict[str, str], uvx_present: bool = True) -> dict:
+    """Invoke the hook with a clean env plus *extra_env*, and a doctored PATH
+    controlling uvx visibility (the compact-vs-full capability signal)."""
     with tempfile.TemporaryDirectory() as bindir:
-        env = {
-            "HOME": os.environ["HOME"],
-            "CLAUDE_PLUGIN_ROOT": str(ROOT),
-            "PATH": "/usr/bin:/bin",
-        }
+        env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", **extra_env}
         if uvx_present:
             stub = pathlib.Path(bindir) / "uvx"
             stub.write_text("#!/bin/sh\necho 0.5.0\n")
@@ -171,6 +137,10 @@ def _run_hook_with_env(uvx_present: bool) -> dict:
         )
         assert proc.returncode == 0, proc.stderr
         return json.loads(proc.stdout)
+
+
+def _run_hook_with_env(uvx_present: bool) -> dict:
+    return _run_hook({"CLAUDE_PLUGIN_ROOT": str(ROOT)}, uvx_present=uvx_present)
 
 
 def _extract_additional_context(payload: dict) -> str:
@@ -189,7 +159,7 @@ def _extract_additional_context(payload: dict) -> str:
 def test_session_start_no_warning_when_uvx_present():
     ctx = _extract_additional_context(_run_hook_with_env(uvx_present=True))
     assert "UVX_WARNING" not in ctx
-    assert "using-sumo-qa" in ctx  # existing behavior preserved
+    assert "using_sumo_qa" in ctx
 
 
 @pytest.mark.skipif(
@@ -248,3 +218,65 @@ def test_session_start_no_systemMessage_when_uvx_present():
         "systemMessage is for the uvx-missing failure mode only; "
         "emitting it on every healthy session would be noise."
     )
+
+
+_BASH = pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="Bash hook test not applicable on Windows",
+)
+
+
+def _approx_tokens(text: str) -> int:
+    return (len(text) + 3) // 4
+
+
+@_BASH
+@pytest.mark.parametrize(
+    "host_env",
+    [{}, {"CLAUDE_PLUGIN_ROOT": str(ROOT)}, {"CURSOR_PLUGIN_ROOT": str(ROOT)}],
+    ids=["sdk-default", "claude-code", "cursor"],
+)
+def test_default_bootstrap_is_compact_and_omits_the_router_body(host_env):
+    """#512: a session where the MCP server can launch gets the compact
+    bootstrap (at most 1,000 est. tokens), never the full router body, so a
+    non-QA session does not pay ~4k tokens for QA rules it never uses."""
+    ctx = _extract_additional_context(_run_hook(host_env))
+    assert _approx_tokens(ctx) <= BOOTSTRAP_TOKEN_BUDGET
+    assert FULL_BODY_MARKER not in ctx
+    assert COMPACT_BOOTSTRAP.read_text(encoding="utf-8").strip()[:60] in ctx
+
+
+@_BASH
+def test_compact_bootstrap_carries_the_canonical_first_hop_rule():
+    """The compact payload is an entry surface: it must state the same
+    first-hop and clarify-after-routing rules as the server instructions."""
+    from sumo_qa.first_hop import CLARIFY_AFTER_ROUTING, FIRST_HOP_RULE
+
+    ctx = " ".join(_extract_additional_context(_run_hook({})).split())
+    assert FIRST_HOP_RULE in ctx
+    assert CLARIFY_AFTER_ROUTING in ctx
+
+
+@_BASH
+def test_full_bootstrap_override_injects_the_router_body():
+    """`SUMO_QA_BOOTSTRAP=full` restores the pre-#512 full-body injection for
+    a host whose model does not follow the compact pointer."""
+    ctx = _extract_additional_context(_run_hook({"SUMO_QA_BOOTSTRAP": "full"}))
+    assert FULL_BODY_MARKER in ctx
+
+
+@_BASH
+def test_missing_uvx_falls_back_to_the_full_router_body():
+    """No uvx means no MCP server, so the compact pointer to the
+    `using_sumo_qa` tool would dangle: the hook injects the full body."""
+    ctx = _extract_additional_context(_run_hook_with_env(uvx_present=False))
+    assert FULL_BODY_MARKER in ctx
+
+
+@_BASH
+def test_compact_override_wins_even_without_uvx():
+    ctx = _extract_additional_context(
+        _run_hook({"SUMO_QA_BOOTSTRAP": "compact"}, uvx_present=False)
+    )
+    assert FULL_BODY_MARKER not in ctx
+    assert "UVX_WARNING" in ctx
