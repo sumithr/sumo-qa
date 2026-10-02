@@ -124,6 +124,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "No hit only if it reads none of them, its own namespace included",
         "`-I` strips only `PYTHON*`, `sys.executable` only `PATH`",
         "**The two-pass split (pinned).**",
+        "A line/character loop storing or toggling open/close marker state (`inFence = !inFence`) always takes `contract-and-fence-probes`, in runtime code, test helper or eval assertion alike",
     ],
     "security-relevance": [
         "run the grounded security-relevance pass from `using-sumo-qa`",
@@ -228,6 +229,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Test-only-diff probe (pinned).**",
         "`Test probe: <test name> | Discriminates broken→fixed?",
         "**Test-only-diff (test_change) discipline (pinned):**",
+        "including an executable test helper under `tests/` (assertion/matcher, parser, grader, runner), which takes the structural probes with coverage-ledger rows anchored at it",
     ],
     "runtime-scope": [
         "**What counts as a runtime change (pinned):**",
@@ -487,7 +489,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Test-only-diff probe (pinned).**": PinnedClauses(
-        defining="When only test code changed, by the executable-behaviour rule (a `test_change`), the runtime coverage ledger (`coverage-ledger`) has no anchor outside an executable helper",
+        defining="When only test code changed, by the executable-behaviour rule, the runtime coverage ledger (`coverage-ledger`) has no anchor outside an executable helper",
         operative=(
             "A new test whose assertion restates the production code or passes against a broken impl",
             "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
