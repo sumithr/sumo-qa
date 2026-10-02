@@ -95,7 +95,7 @@ When **no canonical approach fits**, decide whether the intent involves a tool, 
 | "This is obviously TDD" | Maybe. Read the user's words and inferred classification first. "Refactor" implies behaviour-preserving — that's `coverage-first-then-refactor`, not `tdd-scaffold`. |
 | "I'll skip loading the catalogues this once" | Catalogue is the source of truth. Inventing approaches from training data is the failure mode this skill exists to prevent. |
 | "User said 'design our strategy' — I'll still scaffold tests" | Strategy asks route to `strategy-orchestration`. Don't force per-change output. |
-| "Description says docs-only change but I'll add tests anyway" | Inert prose: `no-tests-recommended` is honest senior-QA; tests waste signal. A changed step an agent or operator follows is not inert. |
+| "Description says docs-only change but I'll add tests anyway" | Inert prose: `no-tests-recommended` is honest senior-QA; tests waste signal. Runtime by the executable-behaviour rule is not inert. |
 | "Mutation testing follow-up needs new prod code" | No — that's `strengthen-test-coverage`. Production code stays unchanged. |
 | "A test is failing — that's a bug, route to `regression-first`" | Only if the CAUSE is already known to be a product defect. An unknown-cause or flaky failure routes to `triage-test-failure` first — it may be a test bug, fixture, environment, or order/timing issue, none of which fix production. |
 | "I'll show the routing object / checklist so the user sees my reasoning" | Never. The payload, taxonomy labels, "Picking the QA approach…", `[DONE]` steps, and ANY sentence that names or previews the handoff ("Routing to…", "I'm routing you to…", "the next step will…") are internal state. Route silently; on STOP, answer in plain English. |

@@ -487,7 +487,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Test-only-diff probe (pinned).**": PinnedClauses(
-        defining="For every ordinary test or fixture in a test-code-only diff (a `test_change`, even beside an executable helper), the runtime coverage ledger (`coverage-ledger`) has no anchor",
+        defining="For every ordinary test or fixture in a test-code-only diff, even beside an executable helper, the runtime coverage ledger (`coverage-ledger`) has no anchor",
         operative=(
             "A new test whose assertion restates the production code or passes against a broken impl",
             "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
@@ -503,7 +503,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Trivial-change exemption (pinned):**": PinnedClauses(
-        defining="A diff qualifies only when each change is prose-only by the executable-behaviour rule (docs or comments, even a procedure doc's typo or rewording that changes no command, value or step), static/inert config (YAML/TOML/JSON read as data, not executed — formatter/linter ignore lists, editor config), or in other files with **no executable behavioural surface**",
+        defining="A diff qualifies only when each change is prose-only by the executable-behaviour rule (docs or comments, in a procedure doc too), static/inert config (YAML/TOML/JSON read as data, not executed — formatter/linter ignore lists, editor config), or in other files with **no executable behavioural surface**",
         operative=(
             "SKIP item 2; the verification command (linter/formatter/build) IS the coverage",
         ),
@@ -518,7 +518,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         defining="the classifications catalogue's executable-behaviour rule (loaded at step 3) decides it per changed file, never path or file type",
         operative=(
             "executable test infrastructure under `tests/` (per `test-only-diff`)",
-            "the changed commands or steps of a procedure an agent or operator follows",
+            "a procedure an agent or operator follows, for each change that rule makes runtime",
         ),
     ),
     "**Procedure probe (pinned):**": PinnedClauses(
@@ -1233,7 +1233,7 @@ def test_representative_paths_name_only_shipped_modules():
 PATH_CONDITIONAL_OBLIGATIONS: dict[str, dict[str, str]] = {
     "ordinary-runtime-change": {"unproven-escalation": "any risk is UNPROVEN"},
     "test-eval-only-change": {
-        "test-only-diff": "only test code changed",
+        "test-only-diff": "only tests/fixtures changed",
         "surface-verifier": "ALWAYS for a skill or eval change",
     },
     "docs-config-change": {"inventory-drift": "generated artifact changed"},

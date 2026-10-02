@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 HOME = "knowledge/classifications.md"
 
 # Distinctive fragments of the rule's wording (and of the path-keyed wording it
-# replaced). Any of them outside the catalogue is a restatement or a paraphrase.
+# replaced). Any of them outside the catalogue is a near-verbatim restatement;
+# a true paraphrase in new words is not caught here.
 RULE_FRAGMENTS = (
     "whatever its path",
     "follows it as instructions",
@@ -29,9 +30,9 @@ RULE_FRAGMENTS = (
     "behaviour, not path",
     "regardless of path",
 )
-# The rule's name as a reference: not a fragment of a longer hyphenated word,
-# not pluralised.
-NAME_RE = re.compile(r"(?<![\w-])executable-behaviour rule(?![\w-])", re.IGNORECASE)
+# The rule's name as a reference, across a line wrap: not a fragment of a
+# longer hyphenated word, not pluralised.
+NAME_RE = re.compile(r"(?<![\w-])executable-behaviour\s+rule(?![\w-])", re.IGNORECASE)
 
 
 def _normalised(text: str) -> str:
@@ -75,7 +76,9 @@ def test_rule_is_not_restated_outside_the_catalogue():
         "Decide by executable behaviour, not path prefix.",
     ],
 )
-def test_a_recased_or_paraphrased_copy_is_caught(copy):
+def test_a_recased_or_rewrapped_copy_of_a_fragment_is_caught(copy):
+    """A near-verbatim copy carrying a rule fragment is caught whatever its case
+    or line wrapping. A paraphrase in new words is out of scope."""
     assert restatements({"skills/x/SKILL.md": copy})
 
 
@@ -91,6 +94,10 @@ def test_a_recased_or_paraphrased_copy_is_caught(copy):
 )
 def test_routing_and_review_reference_the_rule_by_name(rel):
     assert NAME_RE.search((ROOT / rel).read_text(encoding="utf-8"))
+
+
+def test_the_name_check_survives_a_line_wrap():
+    assert NAME_RE.search("by the executable-behaviour\n   rule, never path")
 
 
 @pytest.mark.parametrize(

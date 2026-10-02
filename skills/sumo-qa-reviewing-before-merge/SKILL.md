@@ -59,7 +59,7 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 
 | Module | Load when |
 |---|---|
-| `runtime-scope` | deciding if a diff is runtime or trivial, by the executable-behaviour rule |
+| `runtime-scope` | is a diff runtime or trivial, by the executable-behaviour rule |
 | `discovery-probes` | every runtime review (step 4): code-shape probes, discovery-to-verdict; a command/string classifier also takes `runtime-scope`'s probe |
 | `security-relevance` | auth, secrets, input sanitisation, rate limiting, audit logging, security config/dependency |
 | `external-contract` | any matcher/parser over output the diff may not control (tool/CLI/API text, a fixture) |
@@ -70,7 +70,7 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 | `inventory-drift` | a documented count, name, inventory, version, schema field, or generated artifact changed (2a) |
 | `mirrored-constraints` | a dependency/tool/runtime constraint changed |
 | `unproven-escalation` | any risk is UNPROVEN, or maps to a catalogued technique's failure mode (2b; step-6 hints) |
-| `test-only-diff` | only test code changed, by the executable-behaviour rule |
+| `test-only-diff` | only tests/fixtures changed, with or without executable test helpers |
 | `acceptance-criteria` | the host supplies acceptance criteria |
 | `ac-evidence-views` | with `acceptance-criteria`: a close MET/UNVERIFIED call, or the AC map as a table |
 | `surface-verifier` | a repo-specific verifier exists; ALWAYS for a skill or eval change; sibling PRs co-edit |

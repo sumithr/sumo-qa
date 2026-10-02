@@ -6,9 +6,10 @@ The catalogue is authoritative: never invent a classification outside it.
 
 **The executable-behaviour rule:** a file is runtime when something executes,
 imports, or follows it as instructions (an agent or operator, installer, CI job,
-test runner helper), whatever its path or extension. The diff then decides: a
-changed command, value, sentinel, branch or step hand-off is runtime; a
-prose-only edit (typo, wording changing no step) keeps the lighter handling.
+test runner helper), whatever its path or extension; ordinary test functions,
+fixtures and inert prose keep lighter handling. In such a file, a changed
+command (even a typo in a command token), value, sentinel, branch, step or step
+hand-off is runtime; a prose-only edit is not.
 
 ## api_contract_change
 A change that adds, removes, or modifies a public API surface (HTTP endpoint,
@@ -49,15 +50,13 @@ A change exclusively to test code or test fixtures, with no production code
 movement. Includes mutation-testing follow-up, raise-coverage tasks,
 strengthening weak assertions, and refactoring tests. Risk: false confidence
 if tests become tautological. Executable test infrastructure (runner, matcher,
-parser, grader, reporter, transform, fixture generator) is
-`infrastructure_change` by the executable-behaviour rule; tests and fixtures
-that only declare data or call the code under test stay here.
+parser, grader, reporter, fixture generator) is `infrastructure_change` by the
+executable-behaviour rule.
 
 ## docs_change
 A change to documentation, comments, README, or any non-executable artefact.
-Risk: minimal — typically no QA test work needed beyond build/lint. A changed
-command, value or step in a procedure an agent or operator follows is runtime
-by the executable-behaviour rule; a prose-only edit stays here.
+Risk: minimal — typically no QA test work needed beyond build/lint. In a
+followed procedure, only a prose-only edit (executable-behaviour rule) stays.
 
 ## config_change
 A change to configuration files (YAML, JSON, env files, feature flags) where

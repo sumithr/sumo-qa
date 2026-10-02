@@ -5,14 +5,18 @@ description: >
   in an eval assertion helper under `tests/evals/promptfoo/asserts/` (the diff
   touches test-tree paths only), and changed commands in a markdown procedure
   an agent executes (the diff touches markdown only). Each must be reviewed as
-  runtime: named risks anchored to file:line and NOT SAFE TO MERGE. Four
-  controls keep the lighter handling where it belongs: the same helper written
-  length-aware with a red-on-pre-fix nested-fence regression test is SAFE, an
-  ordinary test file holding fenced Markdown fixtures gets the test-only probe
-  and no runtime probes, an inert prose doc edit keeps the trivial-change
-  exemption, and a prose-only typo fix in an install procedure people follow
-  keeps it too, because the diff changes no command, value or step. The seeds carry facts only: nothing candidate-visible names the
-  defect, the discriminating input or the verdict.
+  runtime with a named risk anchored to file:line. The fence seed must reach
+  NOT SAFE TO MERGE; the procedure seed must reach NOT SAFE TO MERGE or name a
+  dry run of the procedure as the missing evidence (the #746 acceptance
+  criterion). Four controls keep the lighter handling where it belongs: the
+  same helper written length-aware with a red-on-pre-fix nested-fence
+  regression test is SAFE, an ordinary test file holding fenced Markdown
+  fixtures gets the test-only probe and no runtime probes, an inert prose doc
+  edit keeps the trivial-change exemption, and a prose-only typo fix in an
+  install procedure people follow keeps it too, because the diff is
+  prose-only by the executable-behaviour rule. The seeds carry facts only:
+  nothing candidate-visible names the defect, the discriminating input or the
+  verdict.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -538,9 +542,8 @@ tests:
         @@ README.md:30-41 @@
          30 ## Install
          31
-        -32 Run these in order from the repository root. The first command creates the
+         32 Run these in order from the repository root. The first command creates the
         -33 virtual enviroment; the second installs the git hooks.
-        +32 Run these in order from the repository root. The first command creates the
         +33 virtual environment; the second installs the git hooks.
          34
          35 ~~~bash

@@ -32,14 +32,15 @@ stays still. Equivalent mutants get suppressed in tool config rather than
 chased with tautological tests.
 
 ## verify-existing
-Config-only or trivial tweak that doesn't merit new tests, or a procedure or
-tooling change runtime by the executable-behaviour rule, evidenced by a dry run
-of its branches. Run the existing suite plus a smoke test.
+Config-only or trivial tweak that doesn't merit new tests. Run the existing
+suite plus a smoke test. Also fits a runtime change to a followed procedure
+(executable-behaviour rule), evidenced by a dry run of its branches; an
+executable script or hook keeps the full sweep and tested ledger.
 
 ## no-tests-recommended
 Pure docs / typos / comments. Build + lint, no QA test work. The honest
-senior-QA answer when the change has no behavioural surface; a changed step in
-a procedure an agent or operator follows has one.
+senior-QA answer when the change has no behavioural surface; a runtime change
+to a followed procedure, by the executable-behaviour rule, has one.
 
 ## spike-first-then-tests
 Exploratory prototype. Defer test discipline until the design settles. The
