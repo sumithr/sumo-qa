@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.69.1](https://github.com/sumithr/sumo-qa/compare/v0.69.0...v0.69.1) (2026-10-02)
+
+
+### Tests
+
+* **contract:** make the tools-list snapshot guard an exact-set check ([#799](https://github.com/sumithr/sumo-qa/issues/799)) ([e0203ef](https://github.com/sumithr/sumo-qa/commit/e0203ef5e1f170944447dbee1ca56f2834f789bc))
+* **evals:** make the eval-runner report tests independent of the caller's colour and promptfoo environment ([#795](https://github.com/sumithr/sumo-qa/issues/795)) ([97bb756](https://github.com/sumithr/sumo-qa/commit/97bb75641705dbb8685670c0666ba9254637cce0))
+
 ## [0.69.0](https://github.com/sumithr/sumo-qa/compare/v0.68.4...v0.69.0) (2026-10-01)
 
 
