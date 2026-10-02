@@ -209,9 +209,13 @@ def install_external_skill(
     # concurrent install's os.replace onto it fail. With no lock file there is
     # nothing to read, so nothing is created or waited on before the fetch.
     lock_path = lock_base / _LOCK_RELPATH
+    # os.stat, not Path.exists: from Python 3.14 Path.exists returns False for
+    # a lock inside an unsearchable folder instead of raising.
     try:
-        # Raises on an unsearchable folder before Python 3.14.
-        lock_exists = lock_path.exists()
+        os.stat(lock_path)
+        lock_exists = True
+    except (FileNotFoundError, NotADirectoryError):
+        lock_exists = False
     except OSError as exc:
         raise ExternalSkillReadError(f"could not lock {lock_path}: {exc}") from exc
     if lock_exists:

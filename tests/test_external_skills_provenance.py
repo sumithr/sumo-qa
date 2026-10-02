@@ -739,21 +739,22 @@ def test_an_uncreatable_lock_folder_is_a_typed_error(toolchain) -> None:
         _install(toolchain)
 
 
-def test_an_unsearchable_lock_folder_is_a_typed_error(monkeypatch, toolchain) -> None:
-    """Path.exists on a lock inside an unsearchable folder raises
-    PermissionError before Python 3.14 (which returns False)."""
-    real_exists = Path.exists
-
-    def unsearchable(self, *args, **kwargs):
-        if self.name == "external-skills.lock.json":
-            raise PermissionError(13, "Permission denied", str(self))
-        return real_exists(self, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "exists", unsearchable)
-
-    with pytest.raises(ext.ExternalSkillReadError, match="could not lock"):
-        _install(toolchain)
-    assert toolchain.add_sources == []
+@pytest.mark.skipif(
+    os.name == "nt" or os.geteuid() == 0, reason="needs POSIX permissions that bind the user"
+)
+def test_an_unsearchable_lock_folder_is_refused_before_the_fetch(toolchain) -> None:
+    """Path.exists raises on an unsearchable folder before Python 3.14 and
+    returns False from 3.14, so the probe must not depend on it."""
+    folder = toolchain.cwd / ".sumo-qa"
+    folder.mkdir()
+    (folder / "external-skills.lock.json").write_text("{}", "utf-8")
+    folder.chmod(0o600)  # listable, not searchable
+    try:
+        with pytest.raises(ext.ExternalSkillReadError, match="could not lock"):
+            _install(toolchain)
+    finally:
+        folder.chmod(0o700)
+    assert [command for command, _ in toolchain.calls] == []  # refused before the git fetch
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
