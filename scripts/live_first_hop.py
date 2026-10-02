@@ -25,11 +25,12 @@ forbid calling one) but a call to one is refused. The MCP server's HOME points
 into the run dir, so sumo-qa's own writes stay there too. Before any scenario
 runs, a write-guard control prompt per build asks the host to create a file
 outside its scratch dir with any tool it has. The run stops (exit 3) if the
-file appears. It also stops (exit 4) if the guard run has no init event, unless
-that build's MCP server connected and the guard's host tool pool (every init
-event's, as a union) holds the router (see `missing_tools`) and nothing but the
-allowlisted host tools and that build's sumo-qa tools (see `unexpected_tools`).
-That proves no host write tool was in the pool. It does not prove a sumo-qa writer refused:
+file appears. It stops (exit 4) if the guard run has no init event, hit a usage
+limit, or its build's MCP server did not connect, or if the guard's host tool
+pool (every init event's, as a union) lacks the router (see `missing_tools`) or
+holds anything but the allowlisted host tools and that build's sumo-qa tools
+(see `unexpected_tools`). A guard that clears all of these proves no host write
+tool was in the pool. It does not prove a sumo-qa writer refused:
 those are in the pool, unapproved, and only the permission mode refuses them.
 The guard's own tool calls are reported, not judged.
 """
@@ -141,6 +142,20 @@ CHILD_ENV_PASSTHROUGH = (
     "AWS_BEARER_TOKEN_BEDROCK",
     "AWS_SHARED_CREDENTIALS_FILE",
     "AWS_CONFIG_FILE",
+    # The rest of the AWS SDK credential chain: web identity (EKS IRSA), the
+    # container provider (ECS, EKS Pod Identity) and IMDS (EC2),
+    # docs.aws.amazon.com/sdkref/latest/guide/settings-reference.html.
+    "AWS_ROLE_ARN",
+    "AWS_WEB_IDENTITY_TOKEN_FILE",
+    "AWS_ROLE_SESSION_NAME",
+    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+    "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+    "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+    "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+    "AWS_EC2_METADATA_DISABLED",
+    "AWS_EC2_METADATA_SERVICE_ENDPOINT",
+    "AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE",
+    "AWS_EC2_METADATA_V1_DISABLED",
     "ANTHROPIC_BEDROCK_BASE_URL",
     # Google Vertex AI, code.claude.com/docs/en/google-vertex-ai.
     "CLAUDE_CODE_USE_VERTEX",
@@ -250,7 +265,7 @@ def parse_stream(text: str, scenario_id: str) -> HostRun:
             run.started = True
             run.host_version = event.get("claude_code_version", "unknown")
             run.model = event.get("model", "unknown")
-            run.tool_pool += tuple(t for t in event.get("tools", ()) if t not in run.tool_pool)
+            run.tool_pool = tuple(dict.fromkeys((*run.tool_pool, *event.get("tools", ()))))
             servers = {s.get("name"): s.get("status") for s in event.get("mcp_servers", [])}
             if SERVER in servers:
                 run.mcp_status = servers[SERVER] or "absent"
@@ -312,10 +327,14 @@ def _status(run: HostRun) -> str:
     return f"[mcp {run.mcp_status}, {run.outcome}, {code}{skipped}]"
 
 
-def score(scenarios: list[ConformanceScenario], runs: list[HostRun]) -> list[ScenarioResult]:
+def score(
+    scenarios: list[ConformanceScenario], runs: list[HostRun], skill_tools: frozenset[str]
+) -> list[ScenarioResult]:
     """validate_all over the valid runs only; an invalid run's scenario has no
-    transcript and so reads as SKIP, never as a routing PASS or FAIL."""
-    return validate_all(scenarios, [r.transcript for r in runs if r.valid])
+    transcript and so reads as SKIP, never as a routing PASS or FAIL. A
+    mis-route is judged against the scored build's own skill tools
+    (`build_skill_tools`), not this checkout's."""
+    return validate_all(scenarios, [r.transcript for r in runs if r.valid], skill_tools)
 
 
 def approved_tools(tools: list[dict], skill_tools: frozenset[str]) -> list[str]:
@@ -437,16 +456,17 @@ def select_scenarios(path: Path, only: str | None) -> list[ConformanceScenario]:
 
 
 # --------------------------------------------------------------------------- #
-# Live side: builds and host runs (not unit-tested; this is the billed part)  #
+# Live side: builds and host runs, the billed part (tests stub uv and claude) #
 # --------------------------------------------------------------------------- #
 def install_build(spec: str, workdir: Path) -> tuple[Path, str]:
     """Clean-install a build (a `.whl` path or a git ref) into its own venv.
-    Returns the `sumo-qa` binary and a label naming the build."""
+    Returns the `sumo-qa` binary and a label naming the build: a wheel by its
+    path relative to the cwd, so two same-named wheels stay apart."""
     workdir.mkdir(parents=True)
     if spec.endswith(".whl"):
-        wheel, label = Path(spec).resolve(), Path(spec).name
+        wheel, label = Path(spec).resolve(), os.path.relpath(spec)
     else:
-        sha = _run(["git", "-C", str(REPO_ROOT), "rev-parse", "--short", spec]).strip()
+        sha = commit_sha(spec)
         src = workdir / "src"
         src.mkdir()
         archive = subprocess.run(
@@ -468,6 +488,12 @@ def install_build(spec: str, workdir: Path) -> tuple[Path, str]:
         ]
     )
     return workdir / "venv" / "bin" / "sumo-qa", label
+
+
+def commit_sha(spec: str) -> str:
+    """The short sha of the commit a ref names; `^{commit}` peels an annotated
+    tag, whose own `rev-parse` is the tag object's."""
+    return _run(["git", "-C", str(REPO_ROOT), "rev-parse", "--short", f"{spec}^{{commit}}"]).strip()
 
 
 def server_tools(command: list[str], home: Path, timeout: float = 30) -> list[dict]:
@@ -609,6 +635,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-turns", type=int, default=15)
     parser.add_argument("--timeout", type=int, default=600, help="seconds per host run")
     args = parser.parse_args(argv)
+    if args.only is not None:
+        try:
+            re.compile(args.only)
+        except re.error as exc:
+            parser.error(f"--only {args.only!r} is not a valid regex: {exc}")
 
     scenarios = select_scenarios(SCENARIOS, args.only)
     if not scenarios:
@@ -626,8 +657,9 @@ def main(argv: list[str] | None = None) -> int:
         build_dir = out / f"build-{i}"
         binary, label = install_build(spec, build_dir)
         tools = server_tools([str(binary)], build_dir / "tools-list-home")
-        approved = approved_tools(tools, build_skill_tools(build_dir / "venv"))
-        builds.append((binary, label, build_dir, approved, tools))
+        skills = build_skill_tools(build_dir / "venv")
+        approved = approved_tools(tools, skills)
+        builds.append((binary, label, build_dir, approved, tools, skills))
     sections: list[str] = []
 
     def finish(code: int, problem: str = "") -> int:
@@ -639,7 +671,7 @@ def main(argv: list[str] | None = None) -> int:
             print(problem, file=sys.stderr)
         return code
 
-    for binary, label, build_dir, approved, tools in builds:
+    for binary, label, build_dir, approved, tools, _skills in builds:
         guard_dir = build_dir / WRITE_GUARD_ID
         sentinel = build_dir / GUARD_SENTINEL
         sentinel.parent.mkdir(parents=True)
@@ -679,6 +711,11 @@ def main(argv: list[str] | None = None) -> int:
                 f"guard run ended before the host started (no init event): {guard.outcome}; "
                 "no scenario was run",
             )
+        if guard.outcome == "usage limit":
+            limit = USAGE_LIMIT.search(guard.transcript.output_text).group(0)
+            return finish(
+                EXIT_INVALID, f"guard run hit a usage limit ({limit}); no scenario was run"
+            )
         if not connected:
             return finish(
                 EXIT_INVALID,
@@ -699,7 +736,7 @@ def main(argv: list[str] | None = None) -> int:
 
     environment_ok = True
     all_results: list[list[ScenarioResult]] = []
-    for binary, label, build_dir, approved, _tools in builds:
+    for binary, label, build_dir, approved, _tools, skills in builds:
         runs = [
             run_host(
                 binary, approved, s.id, s.user_prompt, args.model, build_dir,
@@ -708,7 +745,7 @@ def main(argv: list[str] | None = None) -> int:
             for s in scenarios
         ]  # fmt: skip
         environment_ok &= all(r.valid for r in runs)
-        results = score(scenarios, runs)
+        results = score(scenarios, runs, skills)
         all_results.append(results)
         sections.append(render_build(label, runs, results))
     if len(all_results) == 2:

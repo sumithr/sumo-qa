@@ -6,8 +6,12 @@ transcript and assembles the report. The fixtures are real captures from the
 harness's own run (claude-code 2.1.287, claude-haiku-4-5, D0x/DC0x set), never
 invented ones: an invented stream validates the parser against an assumption
 of the host's output, not the real contract. Where a test cuts or edits a
-capture it says so and why. No test here runs the host: the billed side is
-replaced by stand-ins for `install_build` and `subprocess.run`.
+capture it says so and why. The captures' local paths and UUIDs (session,
+message and task ids) are anonymised: user-identifying path prefixes become
+`/tmp/live-first-hop/run/` and `/tmp/claude/`, and every UUID a placeholder
+mapped one-to-one across the files; the event structure is unedited. No test
+here runs the host: the billed side is replaced by stand-ins for
+`install_build` and `subprocess.run`.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -208,6 +213,18 @@ def test_the_pool_is_the_union_of_every_init_event():
     assert harness.unexpected_tools(run, _guard_build_tools()) == ["Bash"]
 
 
+def test_a_name_repeated_inside_one_init_event_is_pooled_once():
+    run = harness.parse_stream(_with_pools(["Read", "Read", "Grep"]), harness.WRITE_GUARD_ID)
+
+    assert run.tool_pool == ("Read", "Grep")
+
+
+def test_the_captures_carry_no_local_user_paths():
+    for capture in FIXTURES.glob("*.jsonl"):
+        text = capture.read_text(encoding="utf-8")
+        assert not re.search(r"/Users/|/private/|/var/folders/|claude-\d+/", text), capture.name
+
+
 def test_agent_named_as_itself_is_inside_the_sandbox():
     full = _run("write-guard", harness.WRITE_GUARD_ID).tool_pool
     pool = ["Agent" if t == "Task" else t for t in full]
@@ -322,7 +339,7 @@ def test_selection_keeps_deterministic_prompts_narrowed_by_id_regex():
 def test_a_run_that_did_not_end_in_success_is_invalid_and_never_scored(changes, outcome):
     run = harness.parse_stream(_with_result("main-DC03-no-tool-calls", **changes), DC03)
 
-    [result] = harness.score([SCENARIOS[DC03]], [run])
+    [result] = harness.score([SCENARIOS[DC03]], [run], frozenset())
 
     assert (run.outcome, run.valid) == (outcome, False)
     assert result.skipped
@@ -371,6 +388,31 @@ def test_two_successful_results_are_a_success():
     run.returncode = 0
 
     assert (run.outcome, run.valid) == ("success", True)
+
+
+def test_a_mis_route_is_judged_by_the_scored_builds_own_skills():
+    # A route to a skill this checkout bundles but the scored build does not is
+    # not a mis-route for that build, and the other way round.
+    s01 = SCENARIOS["S01-preparing-for-work"]
+    calls = ("using_sumo_qa", "sumo_qa_measuring_coverage", "sumo_qa_preparing_for_work")
+    run = harness.HostRun(
+        harness.Transcript(s01.id, tuple(harness.ToolCall(c, {}) for c in calls)),
+        mcp_status="connected",
+        outcome="success",
+        returncode=0,
+    )
+
+    def routing(skills):
+        [result] = harness.score([s01], [run], skills)
+        return [v.detail for v in result.violations if v.kind.value == "wrong_skill_routing"]
+
+    [checkout] = validate_all([s01], [run.transcript])
+    assert "sumo_qa_measuring_coverage" in str(checkout.violations)
+    assert routing(frozenset({"using_sumo_qa"})) == []
+    assert routing(frozenset({"sumo_qa_measuring_coverage"})) == [
+        "routed to 'sumo_qa_measuring_coverage' before the expected entry skill "
+        "'sumo_qa_preparing_for_work'"
+    ]
 
 
 def test_a_non_json_line_mid_stream_is_counted_not_fatal():
@@ -686,6 +728,18 @@ def test_network_and_backend_variables_reach_the_child():
         "CLOUD_ML_REGION": "global",
         "ANTHROPIC_BEDROCK_BASE_URL": "https://bedrock",
         "ANTHROPIC_VERTEX_BASE_URL": "https://vertex",
+        # The AWS credential chain on EKS (web identity, Pod Identity), ECS and EC2.
+        "AWS_ROLE_ARN": "arn:aws:iam::1:role/r",
+        "AWS_WEB_IDENTITY_TOKEN_FILE": "/var/run/secrets/token",
+        "AWS_ROLE_SESSION_NAME": "s",
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI": "/v2/credentials/x",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI": "http://169.254.170.23/v1/credentials",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN": "t",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE": "/var/run/secrets/pod-identity/token",
+        "AWS_EC2_METADATA_DISABLED": "false",
+        "AWS_EC2_METADATA_SERVICE_ENDPOINT": "http://169.254.169.254",
+        "AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE": "IPv4",
+        "AWS_EC2_METADATA_V1_DISABLED": "true",
         # The backend's alias mapping and gcloud config, passed only with a backend set.
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": "us.anthropic.claude-haiku-4-5",
         "ANTHROPIC_DEFAULT_SONNET_MODEL": "s",
@@ -742,7 +796,7 @@ def test_a_host_run_keeps_stderr_and_reports_its_exit_code(tmp_path, monkeypatch
     assert (tmp_path / f"{DC03}.jsonl").read_bytes() == stdout
     assert (run.returncode, run.valid) == (1, False)
     assert f"{DC03} [mcp connected, success, exit 1]: (no tool calls)" in harness.render_build(
-        "b", [run], harness.score([SCENARIOS[DC03]], [run])
+        "b", [run], harness.score([SCENARIOS[DC03]], [run], frozenset())
     )
 
 
@@ -755,6 +809,41 @@ def test_a_timed_out_host_run_returns_its_partial_stream_as_invalid(tmp_path, mo
 
     assert (run.returncode, run.outcome, run.valid) == (None, "timeout", False)
     assert "[mcp connected, timeout, no exit code]" in harness._status(run)
+
+
+def test_same_named_wheels_get_labels_that_tell_them_apart(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(harness, "_run", lambda argv: "")
+
+    labels = [
+        harness.install_build(str(Path(d, "sumo_qa-1-py3-none-any.whl")), tmp_path / d / "w")[1]
+        for d in ("before", "after")
+    ]
+
+    assert labels == [
+        str(Path("before", "sumo_qa-1-py3-none-any.whl")),
+        str(Path("after", "sumo_qa-1-py3-none-any.whl")),
+    ]
+
+
+def test_an_annotated_tag_resolves_to_its_commit_not_the_tag_object(tmp_path, monkeypatch):
+    # A git hook exports GIT_DIR; inherited, it would point git at the real repo.
+    for name in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(name)
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()  # fmt: skip
+
+    git("init", "-q")
+    git("commit", "-q", "--allow-empty", "-m", "c")
+    git("tag", "-a", "v1", "-m", "annotated")
+    monkeypatch.setattr(harness, "REPO_ROOT", tmp_path)
+
+    assert harness.commit_sha("v1") == git("rev-parse", "--short", "HEAD")
+    assert harness.commit_sha("v1") != git("rev-parse", "--short", "v1")
 
 
 # --------------------------------------------------------------------------- #
@@ -859,6 +948,22 @@ def test_a_guard_stopped_before_its_init_event_stops_before_any_scenario(
     assert (
         "guard run ended before the host started (no init event): usage limit; no scenario was run"
     ) in captured.err
+
+
+def test_a_guard_that_hit_a_usage_limit_stops_before_any_scenario(tmp_path, monkeypatch, capsys):
+    # Edited: the real guard capture, started and connected, with a quota stop
+    # as its result.
+    guard = _guard(result="Claude AI usage limit reached|1789400000")
+    assert (guard.started, guard.mcp_status, guard.outcome) == (True, "connected", "usage limit")
+    host = _Host(monkeypatch, {harness.WRITE_GUARD_ID: guard})
+
+    code = harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])
+
+    assert code == harness.EXIT_INVALID == 4
+    assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
+    assert (
+        "guard run hit a usage limit (usage limit reached|1789400000); no scenario was run"
+    ) in capsys.readouterr().err
 
 
 def test_a_guard_whose_pool_lacks_the_router_stops(tmp_path, monkeypatch, capsys):
@@ -972,6 +1077,19 @@ def test_only_matching_no_scenario_errors_before_anything_is_built(tmp_path, mon
         harness.main(["a.whl", "--only", "NOPE", "--out", str(tmp_path / "o")])
 
     assert exc.value.code == 2
+    assert host.log == []
+
+
+def test_an_invalid_only_regex_is_a_usage_error_before_anything_is_built(
+    tmp_path, monkeypatch, capsys
+):
+    host = _Host(monkeypatch, {})
+
+    with pytest.raises(SystemExit) as exc:
+        harness.main(["a.whl", "--only", "D(0", "--out", str(tmp_path / "o")])
+
+    assert exc.value.code == 2
+    assert "--only 'D(0' is not a valid regex" in capsys.readouterr().err
     assert host.log == []
 
 

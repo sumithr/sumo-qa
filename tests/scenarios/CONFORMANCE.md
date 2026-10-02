@@ -262,7 +262,9 @@ The child's environment takes from the parent only `PATH`, `HOME`, `USER`,
 `NO_PROXY` and their lowercase forms, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
 `REQUESTS_CA_BUNDLE`), a gateway (`ANTHROPIC_BASE_URL`,
 `ANTHROPIC_AUTH_TOKEN`), and the Bedrock and Vertex switches with their
-credential, region and base-URL variables, each only when set (the full list is
+credential, region and base-URL variables (for Bedrock, the whole AWS SDK
+credential chain: static keys, profile, web identity, container credentials
+and IMDS, so it authenticates on EKS, ECS and EC2), each only when set (the full list is
 `CHILD_ENV_PASSTHROUGH` in the script); nothing else from the parent. With
 `CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_USE_VERTEX` on (`1`, `true`, `yes` or
 `on`, any case, as the CLI reads them; `0` or `false` is off), the backend's model
@@ -281,7 +283,9 @@ every host cwd) using any tool it has. The harness stops there if the file
 appears (exit 3). It also stops (exit 4) unless all of these hold: the guard
 run has a `system/init` event (one stopped before it, by a usage limit say,
 fails with `guard run ended before the host started (no init event):
-<outcome>`); that build's MCP server connected (its status in the last init
+<outcome>`); the guard run did not hit a usage limit (else `guard run hit a
+usage limit (usage limit reached|<epoch>)`, so an exhausted quota is not run
+into by every scenario); that build's MCP server connected (its status in the last init
 event that lists `sumo-qa`); the guard run's host tool pool, the union of the
 `tools` lists of its init events, holds the router
 `mcp__sumo-qa__using_sumo_qa` (else `sandbox not proven: host tool pool missing
@@ -316,16 +320,20 @@ connection status, the outcome, the CLI exit code and the ordered tool calls
 (host-namespaced `mcp__sumo-qa__<tool>` names are normalised to the bare names
 the validator expects; a call a subagent made is shown as `sub:<tool>` but
 scored like any other), then the `format_report` table per build and a before
--> after line per scenario. The raw stream-json and stderr of every run stay in
+-> after line per scenario. A mis-route is judged against the scored build's
+own skill tools (the skills its wheel bundles), not the harness checkout's. A
+build is labelled by its wheel's path relative to the cwd, or by its git ref
+and the short sha of the commit it names (an annotated tag is peeled to its
+commit). The raw stream-json and stderr of every run stay in
 the run dir (`--out`, a new or empty dir, default a temp dir).
 
 | Exit code | Meaning |
 |---|---|
 | 0 | every run was valid |
 | 1 | the harness itself failed (a build, install or other error; the traceback says which) |
-| 2 | bad arguments, including an `--only` that matches no scenario or an `--out` that is a file or a non-empty dir |
+| 2 | bad arguments, including an `--only` that is not a valid regex or matches no scenario or an `--out` that is a file or a non-empty dir |
 | 3 | the write guard was breached |
-| 4 | a billed run was not valid, so the scores are not valid: a guard run with no init event, a guard run whose MCP server did not connect, a guard pool without the router, a guard pool holding a tool outside the sandbox, or a scenario run that was not valid (MCP server not connected, or a usage limit, turn limit, execution error, timeout, cut-off stream or non-zero exit code) |
+| 4 | a billed run was not valid, so the scores are not valid: a guard run with no init event, a guard run that hit a usage limit, a guard run whose MCP server did not connect, a guard pool without the router, a guard pool holding a tool outside the sandbox, or a scenario run that was not valid (MCP server not connected, or a usage limit, turn limit, execution error, timeout, cut-off stream or non-zero exit code) |
 
 ## The provider-backed half
 
