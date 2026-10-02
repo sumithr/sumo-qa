@@ -467,8 +467,38 @@ def build_service() -> QAShiftLeftService:
     return QAShiftLeftService.from_standards_path(standards_path, rules_path, test_data_path)
 
 
+# JSON Schema keywords whose value is a name -> schema map. The keys are
+# identifiers (a property may legitimately be called ``title``); only the
+# schemas they map to are walked.
+_SCHEMA_NAME_MAPS = frozenset(
+    {"properties", "patternProperties", "$defs", "definitions", "dependentSchemas", "dependencies"}
+)
+# Keywords whose value is a schema or a list of schemas.
+_SCHEMA_VALUED = frozenset(
+    {
+        "items",
+        "prefixItems",
+        "additionalItems",
+        "additionalProperties",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+        "contains",
+        "contentSchema",
+        "propertyNames",
+        "not",
+        "if",
+        "then",
+        "else",
+        "allOf",
+        "anyOf",
+        "oneOf",
+    }
+)
+
+
 def _strip_schema_titles(node: Any) -> Any:
-    """Recursively drop auto-generated ``title`` keys from a JSON schema.
+    """Drop the ``title`` annotation from the schema objects a JSON schema reaches
+    through the recognised schema keywords.
 
     Pydantic emits a Title-Cased echo of every field name ("Base Ref",
     "Artifact Path") plus a ``<model>Arguments`` title per input model. Those
@@ -477,12 +507,27 @@ def _strip_schema_titles(node: Any) -> Any:
     structured-output validators key on ``properties``/``required`` — yet
     measured across the full always-on ``tools/list`` they cost ~3.3k approx
     tokens, paid on every turn the server is connected. Stripping them is
-    lossless for routing, argument filling, and output validation."""
-    if isinstance(node, dict):
-        return {k: _strip_schema_titles(v) for k, v in node.items() if k != "title"}
+    lossless for routing, argument filling, and output validation.
+
+    Position-aware: ``title`` is removed only where it is the annotation
+    keyword of a schema object. A property / definition / pattern named
+    ``title`` and any key inside ``default``/``const``/``enum``/``examples``
+    data are preserved, as is every keyword this walk does not recognise."""
     if isinstance(node, list):
         return [_strip_schema_titles(v) for v in node]
-    return node
+    if not isinstance(node, dict):
+        return node
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key == "title":
+            continue
+        if key in _SCHEMA_NAME_MAPS and isinstance(value, dict):
+            out[key] = {name: _strip_schema_titles(sub) for name, sub in value.items()}
+        elif key in _SCHEMA_VALUED:
+            out[key] = _strip_schema_titles(value)
+        else:
+            out[key] = value
+    return out
 
 
 def _slim_tool_schemas(mcp: Any) -> None:
@@ -1521,8 +1566,8 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
         ``export_title`` (optional) names the export as a whole — rendered in the
         markdown header and the JSON top-level ``title``. (It is named
-        ``export_title``, not ``title``, so it is distinct from each case's own
-        ``title`` and survives the served-schema title-slimming pass.)
+        ``export_title``, not ``title``, so it stays distinct from each case's own
+        ``title``.)
 
         ``output_path`` (optional) is the EXPLICIT file-write carve-out. When
         omitted (the default) nothing is written. When given, the SAME rendered
