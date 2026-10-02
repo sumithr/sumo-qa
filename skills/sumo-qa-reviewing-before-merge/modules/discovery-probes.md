@@ -10,7 +10,7 @@ Code-shape signal → defect class to suspect:
 - **A removed, loosened, or inverted guard/conditional** → the path it blocked is now reachable; name what that exposes.
 - **A rollback / cleanup / undo path** → does it RESTORE overwritten or pre-existing state, or does it `unlink`/clobber it? Deleting a destination that pre-existed is data loss, not rollback. Probe the whole path the diff touches, not the delta: an equivalent or tidier rewrite of a path that loses data still ships the loss.
 - **A documented count/name/inventory, a version bump or dependency/tool/runtime constraint, or a generated artifact (manifest, lockfile, sidecar)** → search all supplied repo state, hidden config too, for stale copies (a constraint: `mirrored-constraints`, else `inventory-drift`); for generated files, was the generator re-run and the output committed?
-- **A spawned external tool** → `hermetic subprocess environment`: without an explicitly constructed env it inherits redirecting vars (`GIT_DIR`/`GIT_INDEX_FILE` in hooks, `VIRTUAL_ENV`, `NODE_OPTIONS`), acting on the caller's repo or venv. Only a test run with them set to a throwaway value covers it.
+- **A spawned tool that reads repo- or runtime-redirecting vars (git, uv/pip/poetry, npm, a bare `python` via `PATH`) where they are set (hooks, CI, an active venv)** → `hermetic subprocess environment`: without an explicitly constructed env it acts on the caller's repo or venv (`GIT_DIR`/`GIT_INDEX_FILE` in hooks, `VIRTUAL_ENV` for uv/pip). Only a test run with them set to a throwaway value covers it. A tool reading none (a formatter) is no hit.
 - **A file/path enumeration (`git ls-files`, glob, walk)** → does it include entries it must not — tracked-but-deleted, ignored, suffix-variant, hidden?
 - **A path check compared against `cwd` or a relative root** → should it anchor to the repo/project root? cwd-relative checks are bypassable from a subdirectory (security boundary).
 - **A platform/OS branch (`sys.platform`, symlink-vs-copy, path separators, spaces in paths)** → is every branch's inverse/cleanup symmetric, and is each branch actually exercised?
@@ -27,11 +27,11 @@ The sweep produces 3–7 named risks, each citing a specific file + line + the d
 
 ## The two-pass split (steps 4 and 9)
 
-**The two-pass split (pinned).** In the `/work-issue` pipeline this review is pass 1; an adversarial codex pass runs after it. The catch this skill must NOT outsource: when it can name a precision/recall risk and the technique has a catalogued failure mode, it prescribes the discriminating input ITSELF (step 9 / 2b) — it does not defer that to codex. That keeps the review whole when codex is unavailable; codex is a second independent check, never the only source of an UNPROVEN risk's discriminating input.
+**The two-pass split (pinned).** In the `/work-issue` pipeline this review is pass 1; an adversarial codex pass runs after it. The catch this skill must NOT outsource: when it can name a precision/recall risk and the technique has a catalogued failure mode, it prescribes the discriminating input ITSELF (step 9 / 2b) — it does not defer that to codex. Codex is a second check, never the only source of that input.
 
 ## Red Flags
 
 | Thought | Reality |
 |---|---|
-| "I spotted a latent issue but tests are green — SAFE, with a residual note" | Sweep hits are NAMED RISKS, never residual notes: UNPROVEN (path-matching tests ran) or UNCOVERED (none ran) per `coverage-ledger`; either is NOT SAFE. |
-| "Pre-existing, or clean refactor: skip" | The sweep is mandatory for any runtime diff; a changed-path hit is a named risk even if the old code had it. |
+| "Latent issue, tests green, pre-existing and not worsened: SAFE with a residual note" | Sweep hits are NAMED RISKS, even if the old code had them: UNPROVEN (path-matching tests ran) or UNCOVERED (none ran) per `coverage-ledger`; either is NOT SAFE. |
+| "Clean refactor: skip the sweep" | Mandatory for any runtime diff. |

@@ -574,8 +574,14 @@ tests:
         `GIT_DIR` (and `GIT_INDEX_FILE`) to a throwaway decoy repository, e.g.
         with `monkeypatch.setenv`, because git exports them to hooks and a
         spawned git inherits them. The assertion distinguishes broken from
-        fixed: the returned commit is the cloned source's ref commit (and the
-        decoy is untouched), where the broken code acts on the decoy. Cites
+        fixed: fixed returns the cloned source's `HEAD~1` commit and leaves
+        the decoy intact. The observed broken behaviour is a raise, not a
+        wrong commit: the inherited variables send the spawned git to the
+        one-commit decoy, so `clone` writes dest's index into the decoy's
+        index file (corrupting it; `git status` there then fails) and
+        `checkout HEAD~1` exits non-zero, raising `CalledProcessError`. Any
+        test that fails on that raise or on the decoy damage discriminates.
+        Cites
         the catalogue technique `hermetic subprocess environment` verbatim. May
         name an explicitly constructed environment as the green-phase fix but
         writes no production code. Writes the complete failing test inline and

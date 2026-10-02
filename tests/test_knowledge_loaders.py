@@ -6,6 +6,8 @@ no filtering beyond optional metadata-based subset selection. The tests
 assert that known canonical entries are present in the returned text.
 """
 
+from pathlib import Path
+
 import pytest
 
 from sumo_qa import knowledge_loaders
@@ -85,10 +87,11 @@ def test_load_techniques_contains_canonical_techniques():
         assert entry in text, f"Missing canonical technique: {entry}"
 
 
-# Issue #769: a spawned external tool inherits the parent environment, so under
-# a git hook GIT_DIR / GIT_INDEX_FILE point it at the caller's repository. Both
-# the TDD and the review guidance must cite the catalogue technique verbatim and
-# name the redirecting variables, the explicit env and the variables-set test.
+# Issue #769: a spawned tool inherits the parent environment, so under a git hook
+# GIT_DIR / GIT_INDEX_FILE point git at the caller's repository, VIRTUAL_ENV
+# redirects uv/pip and PATH picks the interpreter. Both the TDD and the review
+# guidance must cite the catalogue technique verbatim and name the redirecting
+# variables, the explicit env and the variables-set test.
 # Technique: equivalence partitioning (one representative per guidance surface).
 @pytest.mark.parametrize(
     "guidance",
@@ -98,18 +101,13 @@ def test_load_techniques_contains_canonical_techniques():
     ],
 )
 def test_subprocess_env_guidance_cites_the_hermetic_technique(guidance):
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    assert "### hermetic subprocess environment\n" in (
-        root / "knowledge" / "techniques.md"
-    ).read_text(encoding="utf-8")
-    text = (root / guidance).read_text(encoding="utf-8")
+    text = (Path(__file__).resolve().parents[1] / guidance).read_text(encoding="utf-8")
     for phrase in [
         "`hermetic subprocess environment`",
         "`GIT_DIR`",
         "`GIT_INDEX_FILE`",
         "`VIRTUAL_ENV`",
+        "`PATH`",
         "explicitly constructed",
         "set to a throwaway value",
     ]:

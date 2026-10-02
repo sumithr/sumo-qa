@@ -70,7 +70,7 @@ PER_CALL_BUDGET = 1500
 # budget moves to 3500. #769 then added the `hermetic subprocess environment`
 # technique (a spawned tool inherits redirecting variables such as GIT_DIR under a
 # hook; build its env explicitly and test with them set), raising techniques to
-# ~1465 approx-tokens (under PER_CALL_BUDGET) and the flow baseline to ~3643, so
+# ~1485 approx-tokens (under PER_CALL_BUDGET) and the flow baseline to ~3663, so
 # the budget moves to 3700. Budget gives a small regression cushion above the
 # current catalogue.
 # For comparison the old heavy single-shot path emitted >10k tokens for one call,

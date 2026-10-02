@@ -132,7 +132,7 @@ def test_typical_flow_stays_under_token_budget():
     approach (`closed-loop-gap-fix`) raised the measured flow to ~2513, so
     the budget moved to 2600; #150's eleventh approach (`triage-test-failure`)
     raised it to ~2655, so the budget moved to 2700; #769's `hermetic
-    subprocess environment` technique raised it to ~2859, so the budget moved
+    subprocess environment` technique raised it to ~2879, so the budget moved
     to 2900, still a fraction of the >10k single-shot path this guard exists
     to keep out."""
     PER_FLOW_BUDGET = 2900
