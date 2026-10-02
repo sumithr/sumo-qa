@@ -1720,3 +1720,46 @@ def test_installer_and_doctor_exit_cleanly_on_unknown_profile(module) -> None:
         f"sumo-qa: {PROFILE_ENV}='Core' is not a valid MCP tool profile; "
         "expected one of: core, full"
     )
+
+
+def _probe_claude_desktop_entry(tmp_path: Path, env: dict) -> tuple:
+    """Probe the server the way ``--host claude-desktop`` does, against a temp
+    HOME whose config entry launches this interpreter with ``env``."""
+    import platform
+
+    from sumo_qa.installer import _claude_desktop_config_path
+
+    system = platform.system()
+    config_path = _claude_desktop_config_path(tmp_path, system)
+    config_path.parent.mkdir(parents=True)
+    # PYTHONPATH: the pre-push hook venv imports sumo_qa from src/, not an install.
+    env = {**env, "PYTHONPATH": str(_REPO_ROOT / "src")}
+    entry = {"command": sys.executable, "args": ["-m", "sumo_qa"], "env": env}
+    config_path.write_text(json.dumps({"mcpServers": {"sumo-qa": entry}}), encoding="utf-8")
+    cmd = doctor._resolve_mcp_command(host="claude-desktop", system=system, home=tmp_path)
+    return doctor.run_mcp_probe(cmd)
+
+
+def test_probe_fails_on_an_invalid_profile_in_the_host_entry_env(tmp_path: Path) -> None:
+    """The host launches with the entry's env, so a bogus profile there must
+    fail the probe with the server's one-line message, not report healthy."""
+    handshake, tools = _probe_claude_desktop_entry(tmp_path, {PROFILE_ENV: "bogus"})
+    assert handshake.status == "FAIL"
+    assert handshake.summary == (
+        f"sumo-qa: {PROFILE_ENV}='bogus' is not a valid MCP tool profile; "
+        "expected one of: core, full"
+    )
+    assert tools.status == "FAIL"
+
+
+def test_probe_launches_with_the_host_entry_profile_and_checks_its_tools(
+    tmp_path: Path,
+) -> None:
+    """A ``core`` entry must be probed as core (its env reaches the launch) and
+    pass against core's required tools, not full's."""
+    from sumo_qa.tool_registry import profile_tool_names
+
+    handshake, tools = _probe_claude_desktop_entry(tmp_path, {PROFILE_ENV: "core"})
+    assert handshake.status == "OK", handshake
+    assert tools.status == "OK", tools
+    assert tools.details["advertised_count"] == len(profile_tool_names("core"))

@@ -364,3 +364,20 @@ def test_schema_drift_warns(snapshot, live_tools) -> None:
             warnings.warn(f"{name}: inputSchema changed since snapshot", UserWarning, stacklevel=1)
         if pinned.get("outputSchema") != live.get("outputSchema"):
             warnings.warn(f"{name}: outputSchema changed since snapshot", UserWarning, stacklevel=1)
+
+
+def test_regen_script_surfaces_the_server_stderr_when_the_server_fails_to_start() -> None:
+    """A server that dies at launch must stop the regen script with a clear
+    message and the server's own stderr, not a BrokenPipe/JSON traceback."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "regen_tools_list_snapshot", REPO_ROOT / "scripts" / "regen_tools_list_snapshot.py"
+    )
+    regen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(regen)
+    with pytest.raises(SystemExit) as exc:
+        regen._tools_list("bogus")
+    message = str(exc.value)
+    assert "did not answer tools/list" in message
+    assert f"{PROFILE_ENV}='bogus' is not a valid MCP tool profile" in message

@@ -7,7 +7,8 @@ is open-world, and the optional integration it needs. The public profiles are
 derived from this tuple, never hand-listed: ``full`` is every entry, ``core`` is
 the entries marked ``core``. ``server.build_mcp_server`` resolves the profile
 from ``SUMO_QA_MCP_PROFILE`` before registering anything, then removes the tools
-outside it; a registered tool with no entry here fails the build.
+outside it; a registered tool with no entry here warns on stderr and is
+served under ``full`` only, and tests/test_tool_registry.py fails on it.
 
 Core covers every advertised workflow: the entry router and every workflow
 skill, plus each tool a core skill names (pinned by tests/test_tool_registry.py)
@@ -20,6 +21,7 @@ external-skill tools it drives (search, check, install, execute) are not: under
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 PROFILE_ENV = "SUMO_QA_MCP_PROFILE"
@@ -124,10 +126,11 @@ def _invalid(value: str) -> ValueError:
     )
 
 
-def resolve_profile() -> str:
-    """Return the profile named by ``SUMO_QA_MCP_PROFILE``; unset or empty means
-    ``full``. Any other value raises: it is never coerced."""
-    value = os.environ.get(PROFILE_ENV) or DEFAULT_PROFILE
+def resolve_profile(env: Mapping[str, str] | None = None) -> str:
+    """Return the profile named by ``SUMO_QA_MCP_PROFILE`` in ``env`` (default:
+    the process env); unset or empty means ``full``. Any other value raises: it
+    is never coerced."""
+    value = (os.environ if env is None else env).get(PROFILE_ENV) or DEFAULT_PROFILE
     if value not in PROFILES:
         raise _invalid(value)
     return value

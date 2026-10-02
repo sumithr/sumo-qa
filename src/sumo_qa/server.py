@@ -1,6 +1,7 @@
 # Copyright 2026 Sumith Ramsookbhai. Licensed under Apache-2.0 (see LICENSE).
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -585,20 +586,25 @@ def _drop_structured_output(mcp: Any) -> None:
 def _apply_profile(mcp: Any, profile: str) -> None:
     """Remove every registered tool outside ``profile``, once at build time.
 
-    The profile's names come from ``sumo_qa.tool_registry``; a registered tool
-    with no registry entry raises, so a new tool cannot ship without capability
-    metadata. Removal keeps the registration order, so ``tools/list`` order is
+    The profile's names come from ``sumo_qa.tool_registry``. A registered tool
+    with no registry entry (e.g. from a stale ``_data/skills`` copy) warns on
+    stderr and is treated as full-only, so launch, install and doctor never
+    crash on it; tests/test_tool_registry.py is what fails on missing metadata.
+    Removal keeps the registration order, so ``tools/list`` order is
     deterministic per profile and ``full`` is byte-identical to the unfiltered
     list."""
     allowed = profile_tool_names(profile)
     known = profile_tool_names("full")
     for tool in mcp._tool_manager.list_tools():
         if tool.name not in known:
-            raise ValueError(
-                f"tool {tool.name!r} has no capability metadata; add it to "
-                "sumo_qa.tool_registry.TOOLS"
+            print(
+                f"sumo-qa: warning: tool {tool.name!r} has no capability metadata "
+                "in sumo_qa.tool_registry.TOOLS; serving it under the full profile only",
+                file=sys.stderr,
             )
-        if tool.name not in allowed:
+            if profile != "full":
+                mcp.remove_tool(tool.name)
+        elif tool.name not in allowed:
             mcp.remove_tool(tool.name)
 
 

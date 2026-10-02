@@ -87,6 +87,13 @@ def _tools_list(profile: str | None) -> list[dict]:
         )
         proc.stdin.flush()
         response = json.loads(proc.stdout.readline())
+    except (OSError, ValueError) as exc:  # BrokenPipeError, JSONDecodeError
+        proc.kill()
+        proc.wait(timeout=2)
+        raise SystemExit(
+            f"regen: the sumo-qa server (profile {profile or 'default'}) did not answer "
+            f"tools/list ({type(exc).__name__}). Server stderr:\n{proc.stderr.read()}"
+        ) from None
     finally:
         try:
             proc.stdin.close()

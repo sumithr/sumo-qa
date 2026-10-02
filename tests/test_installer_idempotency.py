@@ -456,3 +456,53 @@ def test_setup_vscode_strips_legacy_mcp_servers_key(tmp_path: Path) -> None:
     config = json.loads((vscode_dir / "mcp.json").read_text(encoding="utf-8"))
     assert "mcpServers" not in config, "Legacy mcpServers key should be stripped"
     assert config["servers"]["sumo-qa"]["command"] == mcp_cmd.command
+
+
+# ---------------------------------------------------------------------------
+# T_ENV: a refresh keeps the entry's env block (the documented profile switch)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("host", ["claude-code", "claude-desktop", "vscode"])
+def test_rerun_keeps_an_existing_entry_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str
+) -> None:
+    """A re-run refreshes command/args but must not drop a configured ``env``
+    such as ``SUMO_QA_MCP_PROFILE=core`` (docs/CONFIGURATION.md)."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    env = {"SUMO_QA_MCP_PROFILE": "core", "OTHER": "1"}
+    mcp_cmd = installer.McpCommand(command="/new/sumo-qa", args=[])
+
+    if host == "vscode":
+        (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+        config_path = tmp_path / ".vscode" / "mcp.json"
+        key = "servers"
+    elif host == "claude-desktop":
+        config_path = installer._claude_desktop_config_path(home, "Darwin")
+        key = "mcpServers"
+    else:
+        (home / ".claude").mkdir()
+        config_path = home / ".config" / "claude" / "claude_desktop_config.json"
+        key = "mcpServers"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({key: {"sumo-qa": {"command": "/old/sumo-qa", "env": env}}}),
+        encoding="utf-8",
+    )
+
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", return_value=_ok()),
+    ):
+        if host == "vscode":
+            installer._setup_vscode_copilot(mcp_cmd, tmp_path)
+        elif host == "claude-desktop":
+            installer._setup_claude_desktop(mcp_cmd, "Darwin")
+        else:
+            installer._setup_claude_code(mcp_cmd, "Darwin")
+
+    entry = json.loads(config_path.read_text(encoding="utf-8"))[key]["sumo-qa"]
+    assert entry["command"] == "/new/sumo-qa"
+    assert entry["env"] == env

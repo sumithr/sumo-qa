@@ -72,7 +72,7 @@ import subprocess
 import sys as _sys
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path as _Path
@@ -87,6 +87,7 @@ from sumo_qa.installer import (
     _terminate,
     _VerifyTimeout,
 )
+from sumo_qa.tool_registry import PROFILE_ENV, PROFILES, profile_tool_names, resolve_profile
 
 # Re-export the names doctor's surface relies on so callers (and tests)
 # can reach them via ``sumo_qa.doctor`` without importing installer.
@@ -215,8 +216,12 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     - ``malformed_jsonrpc``: a response arrived but failed shape validation
       (missing id, wrong ``jsonrpc`` version, error envelope, non-dict
       ``result``).
-    - ``missing_tools``: ``tools/list`` returned a strict subset of
-      ``REQUIRED_TOOL_NAMES``; names listed in ``details["missing"]``.
+    - ``missing_tools``: ``tools/list`` lacks some of the
+      ``REQUIRED_TOOL_NAMES`` the launch profile serves; names listed in
+      ``details["missing"]``.
+    - ``invalid_profile``: ``mcp_cmd.env`` (merged over the process env, as
+      the host launches it) names an unknown ``SUMO_QA_MCP_PROFILE``; the
+      server would refuse to start, so nothing is launched.
 
     On success both records carry status ``OK``.
     """
@@ -235,12 +240,24 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     initialized_note = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"})
     tools_req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
 
+    # Launch as the host would: its entry's env over ours, and require only
+    # the static tools of the profile that env selects.
+    env = {**os.environ, **mcp_cmd.env}
+    try:
+        profile = resolve_profile(env)
+    except ValueError as exc:
+        handshake, tools = _handshake_fail(summary=f"sumo-qa: {exc}", kind="invalid_profile")
+        fix = f"Set {PROFILE_ENV} in the host's sumo-qa entry to one of: {', '.join(PROFILES)}."
+        return replace(handshake, fix=fix), tools
+    required = [n for n in REQUIRED_TOOL_NAMES if n in profile_tool_names(profile)]
+
     proc = subprocess.Popen(  # noqa: S603 -- argv comes from a trusted McpCommand
         mcp_cmd.as_subprocess_argv(),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=env,
     )
     # ``stdin=subprocess.PIPE`` guarantees ``proc.stdin`` is a real stream, but
     # typeshed types it as ``IO[str] | None``. Bind + assert once so the writes
@@ -393,7 +410,7 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
             summary="tools/list 'result.tools' is not a list",
         )
     advertised = {t.get("name") for t in tools if isinstance(t, dict)}
-    missing = [n for n in REQUIRED_TOOL_NAMES if n not in advertised]
+    missing = [n for n in required if n not in advertised]
     if missing:
         return handshake_ok, CheckResult(
             check_id="tools_list_complete",
@@ -408,7 +425,7 @@ def run_mcp_probe(mcp_cmd: McpCommand) -> tuple[CheckResult, CheckResult]:
     return handshake_ok, CheckResult(
         check_id="tools_list_complete",
         status="OK",
-        summary=f"all {len(REQUIRED_TOOL_NAMES)} required tools advertised",
+        summary=f"all {len(required)} required tools advertised",
         details={"advertised_count": len(advertised)},
     )
 
@@ -1201,7 +1218,13 @@ def _read_configured_claude_desktop_command(home: _Path, system: str) -> McpComm
         return None
     raw_args = entry.get("args") or []
     args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
-    return McpCommand(command=command, args=args)
+    raw_env = entry.get("env")
+    env = (
+        {k: v for k, v in raw_env.items() if isinstance(v, str)}
+        if isinstance(raw_env, dict)
+        else {}
+    )
+    return McpCommand(command=command, args=args, env=env)
 
 
 def _collect_checks(

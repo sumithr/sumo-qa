@@ -188,6 +188,9 @@ class McpCommand:
 
     command: str
     args: list[str] = field(default_factory=list)
+    # Env the host sets on launch (a config entry's ``env``); doctor's probe
+    # launches with it. Never written by ``to_config_entry``.
+    env: dict[str, str] = field(default_factory=dict)
 
     def to_config_entry(self, *, include_empty_args: bool = False) -> dict:
         """Return the dict shape MCP host configs expect.
@@ -585,6 +588,13 @@ def _install_mcp_binary() -> McpCommand:
 # ----------------------------------------------------------------------
 
 
+def _refreshed_entry(existing: object, fresh: dict) -> dict:
+    """``fresh`` plus ``existing``'s ``env`` block, so a refresh keeps the
+    user's server env (e.g. ``SUMO_QA_MCP_PROFILE``)."""
+    env = existing.get("env") if isinstance(existing, dict) else None
+    return {**fresh, "env": env} if isinstance(env, dict) else fresh
+
+
 def _setup_claude_code(mcp_cmd: McpCommand, system: str) -> HostResult:
     r = HostResult("Claude Code")
     home = Path.home()
@@ -636,8 +646,9 @@ def _setup_claude_code(mcp_cmd: McpCommand, system: str) -> HostResult:
                 f"{json.dumps(mcp_cmd.to_config_entry())}"
             )
             return r
-    config.setdefault("mcpServers", {})
-    config["mcpServers"][PLUGIN_METADATA.mcp_server_name] = mcp_cmd.to_config_entry()
+    servers = config.setdefault("mcpServers", {})
+    name = PLUGIN_METADATA.mcp_server_name
+    servers[name] = _refreshed_entry(servers.get(name), mcp_cmd.to_config_entry())
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     # 3. Register with Claude Code's own MCP registry via `claude mcp add`.
@@ -1089,11 +1100,12 @@ def _setup_vscode_copilot(mcp_cmd: McpCommand, workspace: Path) -> HostResult:
     # it isn't).
     config.pop("mcpServers", None)
 
-    config.setdefault("servers", {})
-    config["servers"][PLUGIN_METADATA.mcp_server_name] = {
-        "type": "stdio",
-        **mcp_cmd.to_config_entry(include_empty_args=True),
-    }
+    servers = config.setdefault("servers", {})
+    name = PLUGIN_METADATA.mcp_server_name
+    servers[name] = _refreshed_entry(
+        servers.get(name),
+        {"type": "stdio", **mcp_cmd.to_config_entry(include_empty_args=True)},
+    )
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     r.configured = True
@@ -1249,8 +1261,8 @@ def _setup_claude_desktop(mcp_cmd: McpCommand, system: str) -> HostResult:
     existing_servers = config.get("mcpServers") or {}
     other_servers_count = sum(1 for k in existing_servers if k != server_name)
 
-    config.setdefault("mcpServers", {})
-    config["mcpServers"][server_name] = mcp_cmd.to_config_entry()
+    servers = config.setdefault("mcpServers", {})
+    servers[server_name] = _refreshed_entry(servers.get(server_name), mcp_cmd.to_config_entry())
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     r.configured = True

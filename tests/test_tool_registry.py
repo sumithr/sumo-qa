@@ -77,13 +77,18 @@ def test_every_registered_tool_has_metadata_and_no_metadata_is_stale(full_server
     assert set(_live_names(full_server)) == set(_BY_NAME)
 
 
-def test_tool_registered_without_metadata_fails_the_build() -> None:
+@pytest.mark.parametrize(("profile", "kept"), [("full", True), ("core", False)])
+def test_tool_without_metadata_warns_and_is_full_only(capsys, profile, kept) -> None:
+    """A tool missing from the registry (e.g. a stale ``_data/skills`` copy)
+    must not crash launch, install or doctor: it warns and stays out of core.
+    The metadata test above is what fails the suite."""
     from mcp.server.mcpserver import MCPServer
 
     mcp = MCPServer("t")
     mcp.tool(name="sumo_qa_unlisted")(lambda: "x")
-    with pytest.raises(ValueError, match="sumo_qa_unlisted"):
-        server._apply_profile(mcp, "full")
+    server._apply_profile(mcp, profile)
+    assert ("sumo_qa_unlisted" in _live_names(mcp)) is kept
+    assert "sumo_qa_unlisted" in capsys.readouterr().err
 
 
 def test_full_profile_is_every_registry_tool_and_core_is_a_strict_subset() -> None:
@@ -138,11 +143,27 @@ def test_every_advertised_workflow_entry_is_core() -> None:
         assert _BY_NAME[skill.replace("-", "_")].core, skill
 
 
+# A tool or skill name, optionally host-qualified (``mcp__sumo-qa__``).
+_TOOL_REF = r"(?:\bmcp__sumo[_-]qa__|\b)(sumo[_-]qa[_-][a-z_-]+|using[_-]sumo[_-]qa)\b"
+
 # The external-skill workflow may name the external-group tools it drives:
 # until #807 gives a missing external tool an actionable activation path.
 _NAMED_TOOL_EXEMPTIONS = {
     "sumo-qa-suggesting-external-skill": {t.name for t in TOOLS if t.group == "external"},
 }
+
+
+def _tool_refs(text: str) -> set[str]:
+    """Tool names ``text`` refers to, as ``sumo_qa_x``/``sumo-qa-x`` or
+    host-qualified ``mcp__sumo-qa__sumo_qa_x``."""
+    refs = re.findall(_TOOL_REF, text)
+    return {r.replace("-", "_") for r in refs}
+
+
+def test_tool_refs_include_host_qualified_names() -> None:
+    assert _tool_refs("call mcp__sumo-qa__sumo_qa_list_skill_manifests now") == {
+        "sumo_qa_list_skill_manifests"
+    }
 
 
 def test_core_skills_only_name_core_tools() -> None:
@@ -154,7 +175,23 @@ def test_core_skills_only_name_core_tools() -> None:
         if skill_dir.name.replace("-", "_") not in core:
             continue
         text = "\n".join(p.read_text(encoding="utf-8") for p in skill_dir.rglob("*.md"))
-        refs = re.findall(r"\b(?:sumo[_-]qa[_-][a-z_-]+|using[_-]sumo[_-]qa)\b", text)
-        named = {r.replace("-", "_") for r in refs} & set(_BY_NAME)
+        named = _tool_refs(text) & set(_BY_NAME)
         missing = named - core - _NAMED_TOOL_EXEMPTIONS.get(skill_dir.name, set())
         assert not missing, f"{skill_dir.name} names non-core tools: {sorted(missing)}"
+
+
+def test_core_server_descriptions_only_name_core_tools(monkeypatch) -> None:
+    """What the core server itself serves (tool, resource and resource-template
+    descriptions) must not point the host at a tool core lacks."""
+    monkeypatch.setenv(PROFILE_ENV, "core")
+    mcp = server.build_mcp_server()
+    core = profile_tool_names("core")
+    served = [
+        *((t.name, t.description) for t in mcp._tool_manager.list_tools()),
+        *((r.uri, r.description) for r in mcp._resource_manager.list_resources()),
+        *((r.uri_template, r.description) for r in mcp._resource_manager.list_templates()),
+    ]
+    for name, description in served:
+        exempt = _NAMED_TOOL_EXEMPTIONS.get(str(name).replace("_", "-"), set())
+        missing = (_tool_refs(description or "") & set(_BY_NAME)) - core - exempt
+        assert not missing, f"{name} names non-core tools: {sorted(missing)}"
