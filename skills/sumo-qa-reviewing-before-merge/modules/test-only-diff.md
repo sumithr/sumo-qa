@@ -1,6 +1,6 @@
 # Reviewing before merge: test-only diff (test_change) probe
 
-Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_context` with `mode="module"`). **Load when:** only tests/fixtures changed, with or without executable test helpers. Ordinary tests and fixtures take the step-9 probe; each executable helper takes the structural probes and ledger rows only. **Extends:** checklist step 4 (diff-shape branch), step 9 (test-only-diff probe), and the test_change verdict-format discipline. The root's Iron Law, verdict gate, and output discipline apply unchanged.
+Lazy module of `sumo-qa-reviewing-before-merge` (load via `sumo_qa_load_skill_context` with `mode="module"`). **Load when:** any test-tree-only diff (tests, fixtures, or executable test helpers). Ordinary tests and fixtures take the step-9 probe; each executable helper takes the structural probes and ledger rows only. **Extends:** checklist step 4 (diff-shape branch), step 9 (test-only-diff probe), and the test_change verdict-format discipline. The root's Iron Law, verdict gate, and output discipline apply unchanged.
 
 ## Branch on the diff shape (step 4)
 

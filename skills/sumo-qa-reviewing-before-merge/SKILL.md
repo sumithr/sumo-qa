@@ -70,7 +70,7 @@ Conditional rules live in `modules/<id>.md`, each the ONLY copy of what it carri
 | `inventory-drift` | a documented count, name, inventory, version, schema field, or generated artifact changed (2a) |
 | `mirrored-constraints` | a dependency/tool/runtime constraint changed |
 | `unproven-escalation` | any risk is UNPROVEN, or maps to a catalogued technique's failure mode (2b; step-6 hints) |
-| `test-only-diff` | only tests/fixtures changed, with or without executable test helpers |
+| `test-only-diff` | any test-tree-only diff (tests, fixtures, or executable test helpers) |
 | `acceptance-criteria` | the host supplies acceptance criteria |
 | `ac-evidence-views` | with `acceptance-criteria`: a close MET/UNVERIFIED call, or the AC map as a table |
 | `surface-verifier` | a repo-specific verifier exists; ALWAYS for a skill or eval change; sibling PRs co-edit |
@@ -90,11 +90,11 @@ Output order: these items, the Verdict close, the verdict line, then only an app
 5. The verification command verbatim as a LABELED evidence line: `Evidence (command): $ <verification command> → <counts>`; no observable run: `Evidence (command): unverified, <the run that clears it>`.
 6. The test counts verbatim (`X passed, Y skipped, Z failed`); none without an observable run.
 7. **AC lines** when criteria were supplied, one per criterion as pinned in `acceptance-criteria` (MET ones too); else exactly `No acceptance criteria supplied — AC-coverage check skipped; verdict rests on risk coverage.`
-8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`, `mirrored-constraints`: one per skill/eval change, new guard or `.ab.yaml`, changed or stale-mirror isolated env, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged. None applies → emit nothing for item 8.
+8. **Verification-evidence lines** as pinned in `surface-verifier`, `feature-flow`, `eval-validity`, `mirrored-constraints`: one per skill/eval change, new guard or `.ab.yaml`, changed or stale-mirror isolated env, and UI/API/CLI/worker/artifact flow served, named as a risk or not; each a SAFE-blocker until discharged.
 
-A runtime verdict missing an applicable item is a discipline violation. Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 and a stale mirror's 2a row where they apply.
+Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 and a stale mirror's 2a row where they apply.
 
-**Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete gap in what the diff changes or affects, outside every named risk's failure path, anchored to file:line or a named input (never `none`, never re-verification of unaffected content). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
+**Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete gap in what the diff changes or affects, outside every named risk's failure path, anchored to file:line or a named input (never `none` but an exempt prose-only diff's `none (prose-only)`; never re-verification of unaffected content). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim, so invent no line for it. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
 
 ## Process Flow
 

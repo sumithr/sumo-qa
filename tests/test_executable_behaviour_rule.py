@@ -105,3 +105,38 @@ def test_the_name_check_survives_a_line_wrap():
 )
 def test_the_name_check_rejects_a_mere_substring(text):
     assert not NAME_RE.search(text)
+
+
+@pytest.mark.parametrize(
+    ("rel", "clause"),
+    [
+        # Only data-only fixtures stay light; an autouse fixture that patches
+        # env/subprocess is executable.
+        (HOME, "static fixtures (data only) and inert prose keep lighter handling"),
+        # Prose-only is defined, so a rewording that drops a STOP gate is not.
+        (HOME, "a prose-only edit (changing none of these, nor what an instruction means) is not"),
+        (HOME, "parser, grader, reporter, transform, fixture generator"),
+        # An exempt prose-only diff has a sanctioned residual, not an invented one.
+        (
+            "skills/sumo-qa-reviewing-before-merge/SKILL.md",
+            "(never `none` but an exempt prose-only diff's `none (prose-only)`;",
+        ),
+        (
+            "skills/sumo-qa-reviewing-before-merge/SKILL.md",
+            "makes no claim, so invent no line for it",
+        ),
+        # A helper-only test-tree diff still loads test-only-diff.
+        (
+            "skills/sumo-qa-reviewing-before-merge/SKILL.md",
+            "| `test-only-diff` | any test-tree-only diff (tests, fixtures, or executable test helpers) |",
+        ),
+        # The stale mirror stays the explicit exception to "no risk in unaffected content".
+        (
+            "skills/sumo-qa-reviewing-before-merge/modules/runtime-scope.md",
+            'name no risk in unaffected content (no residual "re-verify" of untouched commands). '
+            "The one exception is a stale mirror",
+        ),
+    ],
+)
+def test_the_rule_edges_are_pinned(rel, clause):
+    assert _normalised(clause) in _normalised((ROOT / rel).read_text(encoding="utf-8"))

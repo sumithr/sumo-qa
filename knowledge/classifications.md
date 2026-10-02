@@ -1,15 +1,16 @@
 # Canonical change classifications
 
-Ten canonical classifications that shape testing strategy. The host LLM picks
-which apply by reasoning over the user's intent and what each changed file does.
+Ten canonical classifications that shape testing strategy; the host LLM picks
+which apply from the user's intent and what each changed file does.
 The catalogue is authoritative: never invent a classification outside it.
 
 **The executable-behaviour rule:** a file is runtime when something executes,
 imports, or follows it as instructions (an agent or operator, installer, CI job,
 test runner helper), whatever its path or extension; ordinary test functions,
-fixtures and inert prose keep lighter handling. In such a file, a changed
-command (even a typo in a command token), value, sentinel, branch, step or step
-hand-off is runtime; a prose-only edit is not.
+static fixtures (data only) and inert prose keep lighter handling. In such a
+file, a changed command (even a typo in a command token), value, sentinel,
+branch, step or hand-off is runtime; a prose-only edit (changing none of these,
+nor what an instruction means) is not.
 
 ## api_contract_change
 A change that adds, removes, or modifies a public API surface (HTTP endpoint,
@@ -48,10 +49,10 @@ environment-only failures invisible in unit tests.
 ## test_change
 A change exclusively to test code or test fixtures, with no production code
 movement. Includes mutation-testing follow-up, raise-coverage tasks,
-strengthening weak assertions, and refactoring tests. Risk: false confidence
-if tests become tautological. Executable test infrastructure (runner, matcher,
-parser, grader, reporter, fixture generator) is `infrastructure_change` by the
-executable-behaviour rule.
+strengthening weak assertions, and refactoring tests. Risk: false confidence if
+tests become tautological. Executable test infrastructure (runner, matcher,
+parser, grader, reporter, transform, fixture generator) is
+`infrastructure_change`.
 
 ## docs_change
 A change to documentation, comments, README, or any non-executable artefact.

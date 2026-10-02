@@ -1233,7 +1233,7 @@ def test_representative_paths_name_only_shipped_modules():
 PATH_CONDITIONAL_OBLIGATIONS: dict[str, dict[str, str]] = {
     "ordinary-runtime-change": {"unproven-escalation": "any risk is UNPROVEN"},
     "test-eval-only-change": {
-        "test-only-diff": "only tests/fixtures changed",
+        "test-only-diff": "any test-tree-only diff",
         "surface-verifier": "ALWAYS for a skill or eval change",
     },
     "docs-config-change": {"inventory-drift": "generated artifact changed"},
