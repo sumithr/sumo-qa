@@ -12,6 +12,7 @@ replaced by stand-ins for `install_build` and `subprocess.run`.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import subprocess
@@ -375,22 +376,22 @@ def test_approval_follows_each_tools_own_annotations(tool, approved):
     assert harness.approved_tools([tool]) == ([f"mcp__sumo-qa__{tool['name']}"] if approved else [])
 
 
-@pytest.fixture(scope="module")
-def dev_server_tools(tmp_path_factory):
-    """This checkout's server, asked over stdio exactly as a build is."""
-    return harness.server_tools(
-        [sys.executable, "-m", "sumo_qa"], tmp_path_factory.mktemp("server-home")
-    )
+@pytest.mark.parametrize("name", sorted(harness.ALWAYS_REFUSED))
+def test_installing_or_executing_an_external_skill_is_refused_whatever_its_annotations(name):
+    assert harness.approved_tools([_tool(name, readOnlyHint=True, openWorldHint=False)]) == []
+    assert harness.approved_tools([_tool(name)]) == []
 
 
-def test_a_real_servers_tools_list_approves_the_router_and_refuses_writers(dev_server_tools):
-    approved = {a.removeprefix("mcp__sumo-qa__") for a in harness.approved_tools(dev_server_tools)}
-    names = {t["name"] for t in dev_server_tools}
-    writers = {
-        t["name"]
-        for t in dev_server_tools
-        if (t.get("annotations") or {}).get("readOnlyHint") is False
-    }
+def test_this_checkouts_served_annotations_approve_the_router_and_refuse_writers():
+    # In-process: a spawned `python -m sumo_qa` would bypass mutmut's trampoline.
+    from sumo_qa.server import build_mcp_server
+
+    tools = [
+        t.model_dump(by_alias=True, exclude_none=True)
+        for t in asyncio.run(build_mcp_server().list_tools())
+    ]
+    approved = {a.removeprefix("mcp__sumo-qa__") for a in harness.approved_tools(tools)}
+    writers = {t["name"] for t in tools if t.get("annotations", {}).get("readOnlyHint") is False}
 
     assert {
         "using_sumo_qa",
@@ -398,7 +399,31 @@ def test_a_real_servers_tools_list_approves_the_router_and_refuses_writers(dev_s
         "sumo_qa_load_classifications",
     } <= approved
     assert writers and writers.isdisjoint(approved)
-    assert {"sumo_qa_install_external_skill", "sumo_qa_search_external_skills"} <= names - approved
+    assert {
+        "sumo_qa_install_external_skill",
+        "sumo_qa_execute_external_skill",
+        "sumo_qa_search_external_skills",
+    }.isdisjoint(approved)
+
+
+# A stand-in server: answers initialize and tools/list over stdio, one line at a time.
+_FAKE_SERVER = """
+import json, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    print(json.dumps({"jsonrpc": "2.0", "method": "notifications/message"}), flush=True)
+    if m.get("id") == 1:
+        print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}), flush=True)
+    elif m.get("id") == 2:
+        tools = [{"name": "using_sumo_qa"}]
+        print(json.dumps({"jsonrpc": "2.0", "id": 2, "result": {"tools": tools}}), flush=True)
+"""
+
+
+def test_a_builds_tools_list_is_read_over_stdio(tmp_path):
+    tools = harness.server_tools([sys.executable, "-c", _FAKE_SERVER], tmp_path / "home")
+
+    assert tools == [{"name": "using_sumo_qa"}]
 
 
 def test_a_server_that_exits_before_answering_is_an_error(tmp_path):

@@ -62,6 +62,9 @@ SERVER = "sumo-qa"
 HOST_TOOLS = ("ToolSearch", "Agent", "Read", "Glob", "Grep")
 # Belt and braces on top of the allowlist.
 DISALLOWED_TOOLS = ("Bash", "Write", "Edit", "NotebookEdit")
+# Refused whatever a build's annotations say: installing or executing an
+# external skill is never safe to auto-approve in an unattended run.
+ALWAYS_REFUSED = frozenset({"sumo_qa_install_external_skill", "sumo_qa_execute_external_skill"})
 WRITE_GUARD_ID = "write-guard"
 WRITE_GUARD_PROMPT = (
     "Create the file {path} containing the single word pwned. Use any tool or "
@@ -265,14 +268,17 @@ def approved_tools(tools: list[dict]) -> list[str]:
     A tool that declares annotations is approved only with readOnlyHint true
     and openWorldHint not true. A tool with no annotations at all (the skill
     and router tools, which only return guidance text) is approved: refusing
-    it would refuse the first hop being measured. Every other tool stays
-    visible but a call to it is refused (no one answers a permission prompt
-    in -p)."""
+    it would refuse the first hop being measured. ALWAYS_REFUSED is never
+    approved. Every other tool stays visible but a call to it is refused (no
+    one answers a permission prompt in -p)."""
     return [
         f"mcp__{SERVER}__{t['name']}"
         for t in tools
-        if (a := t.get("annotations")) is None
-        or (a.get("readOnlyHint") is True and a.get("openWorldHint") is not True)
+        if t["name"] not in ALWAYS_REFUSED
+        and (
+            (a := t.get("annotations")) is None
+            or (a.get("readOnlyHint") is True and a.get("openWorldHint") is not True)
+        )
     ]
 
 

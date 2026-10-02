@@ -240,10 +240,12 @@ own server: the harness runs the installed binary once (`initialize` then
 annotations is pre-approved only with `readOnlyHint` true and `openWorldHint`
 not true; a tool with no annotations (the skill and router tools, which only
 return guidance text) is pre-approved, since refusing it would refuse the first
-hop being measured. Every other tool, such as `sumo_qa_install_external_skill`
-or the npm-backed `sumo_qa_search_external_skills`, stays in the tool list, so
-a scenario that forbids one still sees the host reach for it, but a call to one
-is refused. The guard section of the report lists the refused tools per build.
+hop being measured. On top of that, `sumo_qa_install_external_skill` and
+`sumo_qa_execute_external_skill` are refused by name whatever their
+annotations say: installing or executing an external skill is never safe to
+auto-approve in an unattended run. Every other tool, such as the npm-backed
+`sumo_qa_search_external_skills`, stays in the tool list, so a scenario that
+forbids one still sees the host reach for it, but a call to one is refused. The guard section of the report lists the refused tools per build.
 
 The child's environment takes from the parent only `PATH`, `HOME`, `USER`,
 `LANG`, `TMPDIR`, the login (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
