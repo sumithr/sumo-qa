@@ -35,6 +35,7 @@ import re
 import subprocess
 import sys
 import warnings
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -103,9 +104,25 @@ def _live_tools_list() -> list[dict]:
             proc.wait(timeout=2)
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
+    counts = Counter(key for key, _ in pairs)
+    duplicates = sorted(key for key, n in counts.items() if n > 1)
+    if duplicates:
+        raise ValueError(
+            f"Duplicate key {duplicates[0]!r} in the tools/list snapshot (all repeats: "
+            f"{duplicates}). json.loads would silently keep only the last copy; this "
+            "usually means a bad merge. Re-run `uv run python scripts/regen_tools_list_snapshot.py`."
+        )
+    return dict(pairs)
+
+
+def _load_snapshot(text: str) -> dict:
+    return json.loads(text, object_pairs_hook=_reject_duplicate_keys)
+
+
 @pytest.fixture(scope="module")
 def snapshot() -> dict:
-    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+    return _load_snapshot(FIXTURE.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -126,7 +143,7 @@ def _assert_tool_set_matches(snapshot: dict, live_names: set[str]) -> None:
     schema_names = set(snapshot["schemas"])
     stale_schemas = sorted(schema_names - live_names)
     missing_schemas = sorted(live_names - schema_names)
-    duplicates = sorted(n for n in pinned if snapshot["required_tools"].count(n) > 1)
+    duplicates = sorted(n for n, c in Counter(snapshot["required_tools"]).items() if c > 1)
     problems = []
     if duplicates:
         problems.append(f"Duplicate names in required_tools: {duplicates}.")
@@ -168,6 +185,12 @@ def _listed_under(message: str, label: str, name: str) -> bool:
     assert label in message, f"label {label!r} not in message: {message}"
     pattern = rf"{re.escape(label)} \[[^\]]*'{re.escape(name)}'[^\]]*\]"
     return re.search(pattern, message) is not None
+
+
+def test_duplicate_schema_key_in_snapshot_json_fails_the_load() -> None:
+    text = '{"schemas": {"load": {}, "load_more": {}, "load_more": {}}}'
+    with pytest.raises(ValueError, match="Duplicate key 'load_more'"):
+        _load_snapshot(text)
 
 
 def test_guard_passes_when_names_and_schemas_match_live() -> None:

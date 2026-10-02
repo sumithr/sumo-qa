@@ -634,6 +634,8 @@ python -m sumo_qa.installer --claude-code   # only needed to create the new ~/.c
 
 The MCP server picks up `skills/*/SKILL.md` automatically on its next startup (host restart).
 
+That is all a local team skill needs. Contributing a skill upstream to sumo-qa itself takes more (a trigger fixture row, `_SKILL_TOOL_NAMES` in `tests/test_server.py`, and a regenerated `tools/list` snapshot), so follow [DEVELOPMENT.md § Adding a new skill](DEVELOPMENT.md#adding-a-new-skill) instead.
+
 ### Updating from upstream
 
 ```bash
