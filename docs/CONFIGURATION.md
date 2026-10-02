@@ -37,17 +37,19 @@ profiles. Each tool's capability group and profile membership live in
 
 Set the profile in the host's `sumo-qa` entry `env`. Re-running
 `sumo-qa-install` refreshes the entry's `command` and `args` and keeps its
-`env` and `envFile` as they are, in every host it writes:
-`claude_desktop_config.json` (Claude Desktop, and the copy written for
-Claude Code), `.vscode/mcp.json`, and Claude Code's own MCP registry
-(user scope in `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`), which
-it re-registers through `claude mcp add-json` with the old entry's `env`
-(string values only; a CLI without `add-json` gets `claude mcp add -e`, which
-cannot pass `envFile` or any key other than `command`, `args` and `env`, so
-the installer warns naming the keys it drops). If that registration fails, the
-installer re-adds the entry it removed; when the remove itself failed, the old
-entry is still registered and it says so. Any other key you added to an entry
-is removed.
+`env` in every host it writes: `claude_desktop_config.json` (Claude Desktop,
+and the copy written for Claude Code), `.vscode/mcp.json`, and Claude Code's
+own MCP registry (user scope in `~/.claude.json`, or
+`$CLAUDE_CONFIG_DIR/.claude.json`). It also keeps `envFile` in
+`claude_desktop_config.json` and `.vscode/mcp.json`, but not in Claude Code's
+registry: the installer re-registers that entry through `claude mcp add-json`
+with the old entry's `env` (string values only), and Claude Code entries
+cannot use `envFile`, so the claude CLI drops it. A CLI without `add-json`
+gets `claude mcp add -e`, which cannot pass `envFile` or any key other than
+`command`, `args` and `env`, so the installer warns naming the keys it drops.
+If that registration fails, the installer re-adds the entry it removed; when
+the remove itself failed, the old entry is still registered and it says so.
+Any other key you added to an entry is removed.
 
 `sumo-qa-doctor --host <host>` probes the entry that host launches, with that
 entry's `env`:
