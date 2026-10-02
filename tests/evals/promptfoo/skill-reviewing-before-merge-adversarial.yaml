@@ -6,8 +6,10 @@ description: >
   the candidate must INDEPENDENTLY discover the concrete defect class, anchor
   it to the changed file:line, and deliver the correct unsafe/needs-work
   verdict. Proves the skill's adversarial discovery pass finds the subtle
-  defects Codex Review catches from raw diff context, while the docs-only /
-  config-only negative controls prove it does not invent runtime risk.
+  defects Codex Review catches from raw diff context, while the negative
+  controls (docs-only, config-only, an already-hermetic tested git call and a
+  harmless spawn that reads no redirecting variable) prove it does not invent
+  risk.
 # local-tier: reasoning (SUMO_EVAL_BACKEND=local TIER=reasoning runs this config;
 # it needs a reasoning-capable local candidate)
 providers:
@@ -773,9 +775,9 @@ tests:
          10     return _git(["-C", str(dest), "rev-parse", "HEAD"])
          11
          12
-        +13 # git's own rule for a command run in another repository: drop every
-        +14 # `git rev-parse --local-env-vars` entry but the `-c` overrides. A linked-
-        +15 # worktree hook exports an absolute GIT_DIR, pointing a spawned git at it.
+        +13 # git's rule for another repository: drop every `git rev-parse
+        +14 # --local-env-vars` entry but GIT_CONFIG_PARAMETERS (`-c`) and GIT_CONFIG_COUNT
+        +15 # (env config). A linked-worktree hook exports an absolute GIT_DIR.
         +16 _REPO_LOCATION = frozenset({
         +17     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_DIR",
         +18     "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE",
@@ -867,7 +869,8 @@ tests:
         Evidence-led verdict that recognises the git subprocess environment is
         now explicitly constructed: `_REPO_LOCATION` follows git's own
         other-repository rule (every `git rev-parse --local-env-vars` entry
-        but the `-c` overrides `GIT_CONFIG_PARAMETERS` / `GIT_CONFIG_COUNT`,
+        but `GIT_CONFIG_PARAMETERS` (the `-c` config) and `GIT_CONFIG_COUNT`
+        (the `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` env config),
         pinned by the fresh passing `test_repo_location_is_gits_canonical_list`),
         other git config passes through, and `env=env` is passed. The inherited-environment risk is
         COVERED by the fresh passing
@@ -880,88 +883,95 @@ tests:
         question.
       anti_patterns:
         - Labels the inherited-environment risk UNCOVERED or UNPROVEN although the fresh passing tests pin the drop list to git's canonical list and run snapshot_source with the repo-location variables pointed at a throwaway decoy.
-        - Claims the drop list is incomplete or hand-built, though it equals `git rev-parse --local-env-vars` minus the `-c` overrides (git's own other-repository rule) and a fresh test pins that.
+        - Claims the drop list is incomplete or hand-built, though it equals `git rev-parse --local-env-vars` minus `GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_COUNT` (git's own other-repository rule) and a fresh test pins that.
         - Demands a universal allow-list of every environment variable, or a change to every other subprocess call in the repository, before SAFE.
         - Declares NOT SAFE / NEEDS WORK solely for inherited environment on this explicitly constructed git call.
         - Asking another confirmation question instead of delivering the verdict.
-  - description: "NEGATIVE CONTROL harmless-spawn: a formatter subprocess that reads no repo- or runtime-redirecting variable must not trigger the inherited-env probe (#769)"
+  - description: "NEGATIVE CONTROL harmless-spawn: an isolated-mode interpreter spawn that reads no redirecting variable must not trigger the inherited-env probe (#769)"
     vars:
       user_prompt: >-
         Is this safe to merge?
       ground_truth_context: |
         ## git diff
         ```diff
-        diff --git a/src/toolkit/codegen.py b/src/toolkit/codegen.py
-        @@ src/toolkit/codegen.py:1-19 @@
-          1 import subprocess
+        diff --git a/src/toolkit/canon.py b/src/toolkit/canon.py
+        new file mode 100644
+        @@ src/toolkit/canon.py:1-19 @@
+        + 1 import subprocess
         + 2 import sys
-          3 from pathlib import Path
-          4
-          5
-          6 def write_models(dest: Path, source: str) -> Path:
-          7     """Format generated model source, then write it to dest."""
-        - 8     dest.write_text(source, encoding="utf-8")
-        + 8     dest.write_text(_format(source), encoding="utf-8")
-          9     return dest
-         10
-         11
-        +12 def _format(source: str) -> str:
-        +13     """Return source formatted by black; raise if black cannot parse it."""
-        +14     completed = subprocess.run(
-        +15         [sys.executable, "-m", "black", "--quiet", "-"],
-        +16         input=source, capture_output=True, text=True, check=True,
-        +17     )
-        +18     return completed.stdout
+        + 3 from pathlib import Path
+        + 4
+        + 5 _CANON = "import json,sys; json.dump(json.load(sys.stdin.buffer), sys.stdout, indent=2, sort_keys=True)"
+        + 6
+        + 7
+        + 8 def write_canonical(dest: Path, payload: bytes) -> Path:
+        + 9     """Canonicalise a JSON payload in an isolated child interpreter, then write it."""
+        +10     dest.write_text(_canonical(payload), encoding="utf-8")
+        +11     return dest
+        +12
+        +13
+        +14 def _canonical(payload: bytes) -> str:
+        +15     completed = subprocess.run(
+        +16         [sys.executable, "-I", "-c", _CANON],
+        +17         input=payload, capture_output=True, check=True,
+        +18     )
+        +19     return completed.stdout.decode("ascii")
 
-        diff --git a/tests/test_codegen.py b/tests/test_codegen.py
-        @@ tests/test_codegen.py:1-17 @@
+        diff --git a/tests/test_canon.py b/tests/test_canon.py
+        new file mode 100644
+        @@ tests/test_canon.py:1-17 @@
         + 1 import subprocess
         + 2
         + 3 import pytest
         + 4
-        + 5 from toolkit.codegen import write_models
+        + 5 from toolkit.canon import write_canonical
         + 6
         + 7
-        + 8 def test_write_models_formats_the_source(tmp_path):
-        + 9     dest = write_models(tmp_path / "models.py", "x=1\ndef f( a ):\n  return a\n")
-        +10     assert dest.read_text(encoding="utf-8") == "x = 1\n\n\ndef f(a):\n    return a\n"
+        + 8 def test_write_canonical_sorts_and_indents(tmp_path):
+        + 9     dest = write_canonical(tmp_path / "out.json", b'{"b": 1, "a": ["\xc3\xa9"]}')
+        +10     assert dest.read_text(encoding="utf-8") == '{\n  "a": [\n    "\\u00e9"\n  ],\n  "b": 1\n}'
         +11
         +12
-        +13 def test_write_models_writes_nothing_for_unparseable_source(tmp_path):
-        +14     dest = tmp_path / "models.py"
+        +13 def test_write_canonical_writes_nothing_for_invalid_json(tmp_path):
+        +14     dest = tmp_path / "out.json"
         +15     with pytest.raises(subprocess.CalledProcessError):
-        +16         write_models(dest, "def f(:\n")
+        +16         write_canonical(dest, b'{"a": ')
         +17     assert not dest.exists()
         ```
-        Context: `write_models` backs the `toolkit generate` command, which
-        writes generated model source into a path the caller passes. `black`
-        is a pinned runtime dependency of the package, so it is installed
-        next to the running interpreter. `_format` is the only
-        subprocess call in `src/toolkit/codegen.py`; black reads the source
-        from stdin and writes the result to stdout, so it never touches a
-        repository or a file.
+        Context: `write_canonical` backs the `toolkit canon` command, which
+        writes a canonical copy of a JSON payload to a path the caller passes.
+        `_canonical` is the only subprocess call in `src/toolkit/canon.py`. The
+        child is the running interpreter by absolute path (`sys.executable`,
+        no `PATH` lookup) in isolated mode (`-I`: it ignores every `PYTHON*`
+        variable and the user site directory, and keeps the cwd off
+        `sys.path`). Its program imports only the standard-library `json` and
+        `sys`, reads the payload from stdin and writes the result to stdout;
+        it opens no file and spawns nothing.
 
         ## Fresh test run
         ```text
-        $ pytest tests/test_codegen.py -q
-        tests/test_codegen.py::test_write_models_formats_the_source PASSED
-        tests/test_codegen.py::test_write_models_writes_nothing_for_unparseable_source PASSED
-        2 passed, 0 skipped in 0.34s
+        $ pytest tests/test_canon.py -v
+        tests/test_canon.py::test_write_canonical_sorts_and_indents PASSED       [ 50%]
+        tests/test_canon.py::test_write_canonical_writes_nothing_for_invalid_json PASSED [100%]
+        ============================== 2 passed in 0.16s ===============================
         ```
       expected_shape: >-
-        Evidence-led verdict that recognises the black call is a formatter
-        that reads the source from stdin and returns it on stdout, spawned
-        through `sys.executable -m black` rather than a `PATH` lookup: it reads
-        no repository-, virtualenv- or runtime-redirecting variable (no git, no
-        uv/pip/poetry, no bare `python`), so the inherited-environment probe
-        (`hermetic subprocess environment`) does not apply and needs no
-        explicit `env=`. Cites the 2 passed run as covering both the formatted
-        output and the nothing-written-on-parse-error path. Delivers SAFE TO
-        MERGE. Ends without a confirmation question.
+        Evidence-led verdict that recognises the `_canonical` spawn reads no
+        redirecting variable: the child is `sys.executable` (an absolute path,
+        so `PATH` cannot redirect it) in isolated mode `-I` (so `PYTHONPATH`,
+        `PYTHONHOME` and the other `PYTHON*` variables, the user site and a
+        module shadowed in the cwd cannot change its imports), running a
+        standard-library-only program over stdin and stdout with no git,
+        uv/pip or virtualenv involvement. The inherited-environment probe
+        (`hermetic subprocess environment`) therefore does not apply and the
+        call needs no explicit `env=`. Cites the 2 passed run as covering the
+        canonical output and the nothing-written-on-invalid-JSON path.
+        Delivers SAFE TO MERGE. Ends without a confirmation question.
       anti_patterns:
-        - Names an inherited-environment / hermetic-subprocess-environment risk for the black call, or demands an explicitly constructed `env=` for it.
-        - Labels an inherited-environment risk UNCOVERED or UNPROVEN, or asks for a test that sets GIT_DIR, VIRTUAL_ENV or PATH to a throwaway value for this formatter call.
-        - Declares NOT SAFE / NEEDS WORK solely because the code spawns an external tool.
+        - Names an inherited-environment / hermetic-subprocess-environment risk for the `_canonical` call, or demands an explicitly constructed `env=` for it.
+        - Claims `PYTHONPATH`, `PYTHONHOME`, a user site or a module in the cwd can redirect the `-I` child's imports.
+        - Labels an inherited-environment risk UNCOVERED or UNPROVEN, or asks for a test that sets GIT_DIR, VIRTUAL_ENV, PYTHONPATH or PATH to a throwaway value for this call.
+        - Declares NOT SAFE / NEEDS WORK solely because the code spawns a child process.
         - Asking another confirmation question instead of delivering the verdict.
   - description: NEGATIVE CONTROL docs-only typo — must stay lightweight, no invented runtime risk
     vars:

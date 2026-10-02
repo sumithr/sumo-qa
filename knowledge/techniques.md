@@ -93,11 +93,13 @@ version moves); capturing only the happy path, not the real error/empty output.
 
 ### hermetic subprocess environment
 A spawned tool inherits variables that redirect it: absolute git repo-location
-values (`GIT_DIR` in a linked-worktree hook, `GIT_INDEX_FILE` in a `commit -a`
+values (`GIT_DIR`/`GIT_INDEX_FILE` in any linked-worktree commit hook,
+`GIT_INDEX_FILE` in a main-worktree `commit -a`/`commit <path>` pre-commit
 hook, or a caller exporting them), `VIRTUAL_ENV` (uv/pip), `PATH` (bare
 `python`). Build its env explicitly (git's other-repo rule: drop every
-`git rev-parse --local-env-vars` entry but the `-c` overrides) and test with
-each set to a decoy: real target used, decoy intact.
+`git rev-parse --local-env-vars` entry but `GIT_CONFIG_PARAMETERS` (`-c`) and
+`GIT_CONFIG_COUNT` (env config)) and test with each set to a decoy: real
+target used, decoy intact.
 
 ## Build / packaging
 

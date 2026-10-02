@@ -103,13 +103,15 @@ _SHORTHAND_SOURCE_RE = re.compile(r"([A-Za-z0-9][\w.-]*)/([\w.-]+?)(?:\.git)?(?:
 _REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
 _DOT_SEGMENT_RE = re.compile(r"(?:^|[/:])\.{1,2}(?:/|$)")
 _GIT_ALLOWED_PROTOCOLS = "https:ssh:file"
-# Repository-location variables (from `git rev-parse --local-env-vars`, minus
-# the user's own config ones). A caller such as a git hook exports these, and
-# they would point sumo-qa's git at the caller's repository, not the clone.
+# git's rule for a command in another repository: every `git rev-parse
+# --local-env-vars` entry but GIT_CONFIG_PARAMETERS and GIT_CONFIG_COUNT (the
+# user's `-c` and env config). A caller such as a git hook exports these, and
+# they would point sumo-qa's git at the caller's repository or config file.
 _GIT_REPO_LOCATION_VARIABLES = frozenset(
     {
         "GIT_ALTERNATE_OBJECT_DIRECTORIES",
         "GIT_COMMON_DIR",
+        "GIT_CONFIG",
         "GIT_DIR",
         "GIT_GRAFT_FILE",
         "GIT_IMPLICIT_WORK_TREE",

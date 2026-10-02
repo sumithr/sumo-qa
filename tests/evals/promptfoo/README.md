@@ -73,7 +73,7 @@ concrete defect class, anchor it to the changed file:line, and reach the correct
 unsafe/needs-work verdict. **Negative controls** verify the workflow does not
 invent risk: a docs-only typo and a config-only ignore entry (no runtime risk),
 a git call whose environment is already hermetic and tested, and a harmless
-formatter spawn that reads no redirecting variable (the inherited-environment
+isolated-interpreter spawn that reads no redirecting variable (the inherited-environment
 probe must not over-trigger).
 
 **History: the corpus was built on a reasoning candidate.** On the retired OpenAI
