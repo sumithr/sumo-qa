@@ -1951,7 +1951,10 @@ def test_vscode_config_check_judges_the_expanded_command_the_probe_launches(
     probed = doctor._resolve_mcp_command(host="vscode", workspace=tmp_path)
 
     assert result.status == "OK", result
-    assert result.details["command"] == probed.command == str(binary)
+    # The literal ``/`` VS Code keeps after the expansion stays in the string,
+    # so compare as paths: the same file on Windows too.
+    assert result.details["command"] == probed.command
+    assert Path(probed.command) == binary
 
 
 def test_vscode_config_check_treats_a_legacy_mcp_servers_entry_as_not_registered(
