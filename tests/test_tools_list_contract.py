@@ -8,7 +8,8 @@ renaming a tool fails this test until the snapshot is regenerated in the same
 PR, so a tool-name change is a deliberate, reviewable contract change.
 
 Only the names are pinned. Schema drift (a tool's inputSchema or outputSchema
-changing) is warn-only today, so the pinned schema bodies can still go stale.
+changing) is warn-only: it raises a UserWarning, not a failure, so the pinned
+schema bodies can still go stale.
 
 The exact set includes the skill tools registered from ``skills/*/SKILL.md``
 (unlike ``installer.REQUIRED_TOOL_NAMES``, which excludes them). Adding or
@@ -144,8 +145,9 @@ def test_snapshot_tool_set_matches_live(snapshot, live_tools) -> None:
     _assert_tool_set_matches(snapshot, {t["name"] for t in live_tools})
 
 
-# Pure-logic regression tests (#500): one per equivalence partition of the guard
-# (match, missing-from-snapshot, missing-from-live, stale-schema, missing-schema).
+# Pure-logic regression tests: one per equivalence partition of the guard
+# (match, missing-from-snapshot, missing-from-live, stale-schema, missing-schema,
+# name-plus-schema drift together).
 # Names share a prefix so a substring match cannot satisfy the positional check.
 _LIVE = {"load", "load_more"}
 
@@ -155,7 +157,12 @@ def _snap(required: set[str], schemas: set[str]) -> dict:
 
 
 def _listed_under(message: str, label: str, name: str) -> bool:
-    """True when ``name`` is an element of the list printed right after ``label``."""
+    """True when ``name`` is an element of the list printed right after ``label``.
+
+    Raises when ``label`` is absent, so a reworded label cannot make a negative
+    check pass vacuously.
+    """
+    assert label in message, f"label {label!r} not in message: {message}"
     pattern = rf"{re.escape(label)} \[[^\]]*'{re.escape(name)}'[^\]]*\]"
     return re.search(pattern, message) is not None
 
@@ -188,6 +195,7 @@ def test_schema_for_tool_not_live_fails_the_guard() -> None:
     msg = str(exc.value)
     assert _listed_under(msg, "Schemas for tools not live:", "loader")
     assert not _listed_under(msg, "Schemas for tools not live:", "load")
+    assert "Removed or renamed:" not in msg
 
 
 def test_live_tool_without_schema_entry_fails_the_guard() -> None:
@@ -196,6 +204,7 @@ def test_live_tool_without_schema_entry_fails_the_guard() -> None:
     msg = str(exc.value)
     assert _listed_under(msg, "Live tools with no schema entry:", "load_more")
     assert not _listed_under(msg, "Live tools with no schema entry:", "load")
+    assert "Removed or renamed:" not in msg
 
 
 def test_unregenerated_snapshot_reports_name_and_schema_drift_together() -> None:
