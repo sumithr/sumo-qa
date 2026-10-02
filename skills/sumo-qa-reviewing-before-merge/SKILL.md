@@ -29,7 +29,7 @@ Triggers in the description; `sumo-qa-deciding-approach` routes here for `verify
 
 ## Checklist
 
-Work through these in order. Steps 1-4 are AI-only homework (no user questions); the user's confirmation gates steps 5 onward. Load a step's modules (routing table below) first.
+Work through these in order. Steps 1-4 are AI-only homework (no user questions); the user's confirmation gates steps 5 onward.
 
 1. **Read the diff via the host's git tools** — `git diff`, `git diff --staged`, or `git diff <base>...HEAD`. Capture files + line counts. Supplied repo-map / bundle / coverage artifacts go through `context-inputs`; if none, say `no coverage/mutation artifact this turn — not measured`.
 
@@ -94,7 +94,7 @@ Output order: these items, the Verdict close, the verdict line, then only an app
 
 A runtime verdict missing an applicable item is a discipline violation. Trivial and test-only diffs follow their modules; items 1, 3, 4, 5, 6 stay mandatory in every mode, item 8 and a stale mirror's 2a row where they apply.
 
-**Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete item outside every named risk's failure path, anchored to file:line or a named input (never `none`). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim, so invent no line for it. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
+**Verdict close (every mode).** Just before the verdict line emit `Why:`, 2-4 plain sentences tying the risks, the fresh run and each criterion to the call, then `Residual concerns:`, at least one concrete gap in what the diff changes or affects, outside every named risk's failure path, anchored to file:line or a named input (never `none`, never re-verification of unaffected content). A defect the changed path can hit, even a pre-existing one, is a named risk, never a residual. Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line. Emit only status or skip lines the root or a loaded module pins; a gate that did not apply makes no claim. BAD: `No UI/API/CLI changes: verification-evidence check skipped`. GOOD: `Why: <each risk and criterion tied to its fresh passing test>` then `Residual concerns: <unexercised path> (<file:line>)`.
 
 ## Process Flow
 
