@@ -4,7 +4,7 @@
 The bundle hands a routed skill its working context in ONE call: the body,
 the requested modules, the classification entries, and the standards and
 rules for the change type. Every part must be byte-identical to what the
-separate loaders return, so a host that switches to the bundle cites exactly
+separate loaders return for the same argument, so a host that switches to the bundle cites exactly
 the same catalogue text it would have loaded one call at a time.
 """
 
@@ -62,8 +62,9 @@ def test_multiple_classifications_are_split_and_each_entry_included():
     assert out["classification"] == ["business_logic_change", "security_change"]
     assert "## business_logic_change" in out["classifications"]
     assert "## security_change" in out["classifications"]
+    assert out["unmatched_classifications"] == []
     assert out["rules"] == sumo_qa_load_rules(
-        classification="business_logic_change,security_change"
+        classification="`business_logic_change`, security_change"
     )
 
 
@@ -80,10 +81,23 @@ def test_bundle_without_classification_has_no_rules_or_standards():
     assert "rules" not in out and "standards" not in out and "classifications" not in out
 
 
-def test_unknown_classification_returns_envelope_listing_valid_ids():
-    out = _bundle(classification="business_logic_change,made_up_change")
-    assert "made_up_change" in out["error"]
+def test_classification_matching_nothing_returns_envelope_listing_catalogue_ids():
+    out = _bundle(classification="made_up_change")
+    assert out["error"] == "Unknown classification(s) ['made_up_change']."
     assert "business_logic_change" in out["available_classifications"]
+    assert out["available_classifications"] == sorted(out["available_classifications"])
+
+
+def test_a_partially_unmatched_list_reports_the_unmatched_ids():
+    value = "made_up_change, business_logic_change"
+    out = _bundle(classification=value)
+    assert "error" not in out, out
+    assert out["classification"] == ["business_logic_change", "made_up_change"]
+    assert out["unmatched_classifications"] == ["made_up_change"]
+    assert out["rules"] == sumo_qa_load_rules(classification=value)
+    assert out["standards"] == sumo_qa_load_standards(classification=value)
+    entry = load_catalogue_entry("classifications", name="business_logic_change")
+    assert out["classifications"] == entry["text"]
 
 
 def test_unknown_module_returns_envelope_listing_available():
@@ -123,14 +137,10 @@ def test_rules_only_classification_is_accepted():
     out = _bundle(classification="ui_only_change")
     assert "error" not in out, out
     assert out["classification"] == ["ui_only_change"]
+    assert out["unmatched_classifications"] == ["ui_only_change"]
     assert out["rules"] == sumo_qa_load_rules(classification="ui_only_change")
+    assert out["rules"].strip() != "{}"
     assert out["classifications"] == ""
-
-
-def test_classification_resolves_case_insensitively():
-    out = _bundle(classification="Business_Logic_Change")
-    assert out["classification"] == ["business_logic_change"]
-    assert out["rules"] == sumo_qa_load_rules(classification="business_logic_change")
 
 
 def test_missing_rules_path_returns_envelope_not_raise(monkeypatch, tmp_path):
@@ -177,73 +187,6 @@ def test_unreadable_classification_catalogue_returns_envelope_not_raise(monkeypa
     assert "unreadable" in out["error"]
 
 
-def test_mixed_case_id_selects_what_the_loaders_select_for_its_canonical_spelling():
-    """The single loaders match case-sensitively, as they always have; the
-    bundle maps a mixed-case id to its canonical spelling first."""
-    out = _bundle(classification="Business_Logic_Change")
-    assert sumo_qa_load_rules(classification="Business_Logic_Change").strip() == "{}"
-    assert out["rules"] == sumo_qa_load_rules(classification="business_logic_change")
-    assert out["rules"].strip() != "{}"
-    assert out["standards"] == sumo_qa_load_standards(classification="business_logic_change")
-
-
-def _rules_file(monkeypatch, tmp_path, body: str) -> None:
-    rules = tmp_path / "change_rules.yaml"
-    rules.write_text(body, encoding="utf-8")
-    monkeypatch.setenv("QA_RULES_PATH", str(rules))
-
-
-def test_a_mixed_case_rules_key_wins_over_its_alias_without_a_duplicate(monkeypatch, tmp_path):
-    _rules_file(
-        monkeypatch,
-        tmp_path,
-        "Frontend_Change:\n  must_consider: [own]\nui_only_change:\n  must_consider: [alias]\n",
-    )
-    out = _bundle(classification="frontend_change")
-    assert out["classification"] == ["frontend_change"]
-    assert out["rules"] == "Frontend_Change:\n  must_consider:\n  - own\n"
-    assert out["rules"] == sumo_qa_load_rules(classification="Frontend_Change")
-
-
-def test_an_alias_resolves_to_a_target_key_spelt_in_another_case(monkeypatch, tmp_path):
-    _rules_file(monkeypatch, tmp_path, "UI_Only_Change:\n  must_consider: [ui]\n")
-    out = _bundle(classification="frontend_change")
-    assert "error" not in out, out
-    assert out["rules"] == "UI_Only_Change:\n  must_consider:\n  - ui\n"
-    assert out["rules"] == sumo_qa_load_rules(classification="UI_Only_Change")
-    assert _bundle(classification="ui_only_change")["rules"] == out["rules"]
-
-
-def test_an_alias_with_an_exact_target_stays_the_alias_spelling(monkeypatch, tmp_path):
-    _rules_file(monkeypatch, tmp_path, "ui_only_change:\n  must_consider: [ui]\n")
-    out = _bundle(classification="Frontend_Change")
-    assert out["rules"] == "frontend_change:\n  must_consider:\n  - ui\n"
-    assert out["rules"] == sumo_qa_load_rules(classification="frontend_change")
-
-
-def test_an_alias_without_any_target_key_is_unknown(monkeypatch, tmp_path):
-    _rules_file(monkeypatch, tmp_path, "other_change:\n  must_consider: [x]\n")
-    out = _bundle(classification="caching_change")
-    assert "caching_change" in out["error"]
-    assert "other_change" in out["available_classifications"]
-    assert _bundle(classification="performance_change")["rules"] == "{}\n"
-
-
-def test_standards_ids_resolve_to_every_declared_spelling(monkeypatch, tmp_path):
-    packs = tmp_path / "packs"
-    packs.mkdir()
-    (packs / "a.yaml").write_text("applies_to_classifications: [Pack_Change]\n", "utf-8")
-    (packs / "b.yml").write_text("classifications: pack_change\n", "utf-8")
-    (packs / "c.yaml").write_text("classifications: other_change\n", "utf-8")
-    (packs / "d.yaml").write_text("classifications: [unclosed\n", "utf-8")
-    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
-    out = _bundle(classification="PACK_CHANGE")
-    assert out["classification"] == ["Pack_Change"]
-    assert out["standards"] == sumo_qa_load_standards(classification="Pack_Change,pack_change")
-    assert "# a.yaml" in out["standards"] and "# b.yml" in out["standards"]
-    assert "# c.yaml" not in out["standards"] and "# d.yaml" not in out["standards"]
-
-
 @pytest.mark.parametrize(
     ("source", "body"),
     [
@@ -262,6 +205,47 @@ def test_a_source_the_loaders_cannot_parse_returns_an_envelope(monkeypatch, tmp_
         monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
     out = _bundle(classification="business_logic_change")
     assert "unreadable" in out["error"]
+
+
+def _rules_file(monkeypatch, tmp_path, body: str) -> None:
+    rules = tmp_path / "change_rules.yaml"
+    rules.write_text(body, encoding="utf-8")
+    monkeypatch.setenv("QA_RULES_PATH", str(rules))
+
+
+def test_mixed_case_ids_get_exactly_what_the_single_loaders_return():
+    """Ids match exactly, as in the single loaders: a mixed-case id selects
+    nothing on its own, and alongside a known id it is reported unmatched."""
+    assert sumo_qa_load_rules(classification="Business_Logic_Change") == "{}\n"
+    assert sumo_qa_load_standards(classification="Business_Logic_Change") == ""
+    assert "Business_Logic_Change" in _bundle(classification="Business_Logic_Change")["error"]
+    value = "Business_Logic_Change,security_change"
+    out = _bundle(classification=value)
+    assert out["unmatched_classifications"] == ["Business_Logic_Change"]
+    assert out["rules"] == sumo_qa_load_rules(classification=value)
+    assert out["standards"] == sumo_qa_load_standards(classification=value)
+
+
+def test_a_standards_only_id_is_accepted(monkeypatch, tmp_path):
+    (tmp_path / "packs").mkdir()
+    (tmp_path / "packs" / "p.yaml").write_text(
+        "applies_to_classifications: [pack_only_change]\n", "utf-8"
+    )
+    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
+    out = _bundle(classification="pack_only_change")
+    assert "error" not in out, out
+    assert out["unmatched_classifications"] == ["pack_only_change"]
+    assert out["rules"] == "{}\n"
+    assert out["standards"] == sumo_qa_load_standards(classification="pack_only_change")
+    assert out["standards"].startswith("# p.yaml")
+
+
+def test_a_rules_file_the_loader_returns_raw_counts_as_a_match(monkeypatch, tmp_path):
+    """A rules file that is not a mapping comes back from the loader whole."""
+    _rules_file(monkeypatch, tmp_path, "- just\n- a list\n")
+    out = _bundle(classification="made_up_change")
+    assert out["rules"] == "- just\n- a list\n"
+    assert out["unmatched_classifications"] == ["made_up_change"]
 
 
 def test_module_ids_are_matched_exactly_as_in_module_mode(monkeypatch):
@@ -287,30 +271,12 @@ def test_unknown_module_error_echoes_the_id_as_sent():
     assert out == sm.load_skill_context(REVIEW, "module", module="Runtime-Scope")
 
 
-def test_malformed_rules_file_does_not_accept_a_misspelt_id(monkeypatch, tmp_path):
-    """Acceptance is membership in the parsed rules keys: a rules file that
-    does not parse to a mapping declares no ids, so a typo stays unknown."""
-    for body in ("business_logic_change: [unclosed\n", "- just\n- a list\n"):
-        rules = tmp_path / "change_rules.yaml"
-        rules.write_text(body, encoding="utf-8")
-        monkeypatch.setenv("QA_RULES_PATH", str(rules))
-        out = _bundle(classification="busines_logic_change")
-        assert "busines_logic_change" in out["error"]
+def test_module_ids_are_not_unquoted():
+    out = _bundle(modules=" `runtime-scope` ")
+    assert out == sm.load_skill_context(REVIEW, "module", module="`runtime-scope`")
+    assert "`runtime-scope`" in out["error"]
 
 
-def test_unknown_classification_lists_every_accepted_id(monkeypatch, tmp_path):
-    rules = tmp_path / "change_rules.yaml"
-    rules.write_text("rules_only_change:\n  must_consider: [x]\n", encoding="utf-8")
-    packs = tmp_path / "packs"
-    packs.mkdir()
-    (packs / "p.yaml").write_text(
-        "applies_to_classifications: [pack_only_change]\n", encoding="utf-8"
-    )
-    monkeypatch.setenv("QA_RULES_PATH", str(rules))
-    monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
-    available = _bundle(classification="made_up_change")["available_classifications"]
-    assert {"rules_only_change", "pack_only_change", "business_logic_change"} <= set(available)
-    assert available == sorted(available)
-    accepted = _bundle(classification="Pack_Only_Change")
-    assert accepted["classification"] == ["pack_only_change"]
-    assert accepted["standards"] == sumo_qa_load_standards(classification="pack_only_change")
+def test_module_ids_split_on_commas_and_strip_whitespace():
+    out = _bundle(modules=" runtime-scope ,, coverage-ledger ")
+    assert [m["id"] for m in out["modules"]] == ["runtime-scope", "coverage-ledger"]

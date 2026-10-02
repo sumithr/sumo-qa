@@ -30,16 +30,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from sumo_qa.knowledge_loaders import (
-    _RULE_CLASSIFICATION_ALIASES,
-    _metadata_terms,
-    _rules_path,
-    _standards_dir,
-    find_catalogue_entry,
+    _classification_filter_terms,
     list_catalogue_entries,
-    split_classification_terms,
     sumo_qa_load_rules,
     sumo_qa_load_standards,
 )
@@ -436,7 +429,7 @@ def load_skill_context(
         the manifest/section/module route is returned instead (#393).
       * ``"bundle"``: the skill's working context in ONE call: the body
         (unless ``include_body=False``), the ``modules`` named (comma-separated
-        ids), and for ``classification`` (one or more ids, case-insensitive)
+        ids), and for ``classification`` (one or more ids, matched exactly)
         its catalogue entries plus the filtered standards and rules. See
         ``_bundle``.
 
@@ -575,105 +568,33 @@ def _served(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
-Spellings = dict[str, list[str]]
+def _classification_parts(classification: str, ids: list[str]) -> dict[str, Any]:
+    """The classification parts of a bundle: the classifications catalogue
+    entries whose id is exactly one of *ids*, and ``sumo_qa_load_standards``
+    and ``sumo_qa_load_rules`` each called once with *classification* as
+    given, so every part equals its single loader by construction.
 
-
-def _add_spelling(spellings: Spellings, spelling: str) -> None:
-    found = spellings.setdefault(spelling.lower(), [])
-    if spelling not in found:
-        found.append(spelling)
-
-
-def _classification_spellings() -> tuple[Spellings, Spellings]:
-    """The ids ``sumo_qa_load_rules`` and ``sumo_qa_load_standards`` select by,
-    each as ``{lowercased id: [spellings the loader matches exactly]}``.
-
-    Rules: every key, and each alias with no key of its own whose target is a
-    key, as the alias itself when the target matches exactly (the loader
-    resolves it) or as the target key when only its case differs. A rules file
-    that is not a YAML mapping selects nothing, as in the loader. Standards:
-    every id a parseable pack declares (the filtered loader skips a pack whose
-    YAML does not parse). Raises ``OSError`` when a source is unreadable, and
-    ``ValueError``, ``RecursionError`` or ``TypeError`` when one cannot be
-    parsed the way the filtered loaders parse it, where they would raise."""
-    rules_doc: Any
+    Ids with no catalogue entry are listed in ``unmatched_classifications``
+    (their rules and standards, if any, are still included). When nothing
+    matches at all (no catalogue entry, rules ``{}`` and no standards), or a
+    source cannot be read or parsed, returns an error envelope."""
     try:
-        rules_doc = yaml.safe_load(_rules_path().read_text(encoding="utf-8"))
-    except yaml.YAMLError:
-        rules_doc = None
-    rules: Spellings = {}
-    keys = [str(k) for k in rules_doc] if isinstance(rules_doc, dict) else []
-    for key in keys:
-        _add_spelling(rules, key)
-    for alias, targets in _RULE_CLASSIFICATION_ALIASES.items():
-        if alias in rules:
-            continue
-        if any(t in keys for t in targets):
-            rules[alias] = [alias]
-            continue
-        target = next((t for t in targets if t in rules), None)
-        if target is not None:
-            rules[alias] = rules[target]
-
-    standards: Spellings = {}
-    root = _standards_dir()
-    for path in sorted(list(root.glob("*.yaml")) + list(root.glob("*.yml"))):
-        try:
-            doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        except yaml.YAMLError:
-            continue
-        if not isinstance(doc, dict):
-            raise TypeError(f"standards pack {path.name} is not a mapping")
-        declared = doc.get("applies_to_classifications") or doc.get("classifications")
-        for term in sorted(_metadata_terms(declared)):
-            _add_spelling(standards, term)
-    return rules, standards
-
-
-def _resolve_classifications(requested: list[str]) -> dict[str, Any]:
-    """Map each requested id (case-insensitively) to its canonical spellings.
-
-    An id is accepted when the classifications catalogue names it (by id or
-    heading, as ``load_catalogue_entry`` matches), when it is a rules key or
-    alias, or when a standards pack declares it. Returns ``ids`` (one display
-    id per term: the catalogue id, else the first rules or standards
-    spelling), ``entries`` (catalogue text by id), and the ``rules`` and
-    ``standards`` text: each single loader called with the spellings it
-    selects by. An unknown id, or a source the loaders cannot read, returns
-    an error envelope."""
-    try:
-        rules, standards = _classification_spellings()
-        catalogue = list_catalogue_entries("classifications")
-    except (OSError, ValueError, RecursionError, TypeError) as exc:
+        catalogue = {e["id"]: e["text"] for e in list_catalogue_entries("classifications")}
+        standards = sumo_qa_load_standards(classification)
+        rules = sumo_qa_load_rules(classification)
+    except Exception as exc:  # noqa: BLE001 -- load_skill_context never raises
         return _error(f"classification context unreadable: {exc}")
-    ids: list[str] = []
-    entries: dict[str, str] = {}
-    rule_terms: list[str] = []
-    standard_terms: list[str] = []
-    unknown: list[str] = []
-    for term in requested:
-        entry = find_catalogue_entry(catalogue, term)
-        rule = rules.get(term.lower(), [])
-        standard = standards.get(term.lower(), [])
-        if entry is None and not rule and not standard:
-            unknown.append(term)
-            continue
-        if entry is not None:
-            entries[entry["id"]] = entry["text"]
-        ids.append(entry["id"] if entry is not None else (rule or standard)[0])
-        rule_terms += rule
-        standard_terms += standard
-    if unknown:
-        known = {e["id"] for e in catalogue}.union(*rules.values(), *standards.values())
+    unmatched = [c for c in ids if c not in catalogue]
+    if len(unmatched) == len(ids) and rules.strip() == "{}" and not standards:
         return _error(
-            f"Unknown classification(s) {unknown}.",
-            {"available_classifications": sorted(known)},
+            f"Unknown classification(s) {unmatched}.",
+            {"available_classifications": sorted(catalogue)},
         )
     return {
-        "ids": list(dict.fromkeys(ids)),
-        "entries": entries,
-        "rules": sumo_qa_load_rules(",".join(dict.fromkeys(rule_terms))),
-        "standards": sumo_qa_load_standards(",".join(dict.fromkeys(standard_terms))),
+        "unmatched_classifications": unmatched,
+        "classifications": "".join(catalogue[c] for c in ids if c in catalogue),
+        "standards": standards,
+        "rules": rules,
     }
 
 
@@ -688,30 +609,29 @@ def _bundle(
 ) -> dict[str, Any]:
     """mode='bundle': a routed skill's working context in one call.
 
-    Every part is byte-identical to its separate loader (the full body, the
-    module slice, ``load_catalogue_entry``, and ``sumo_qa_load_standards`` and
-    ``sumo_qa_load_rules`` called with the canonical spellings of the
-    requested ids, see ``_resolve_classifications``), so the bundle saves
-    turns, never content. Module ids are matched exactly, as in
-    mode='module'. An unknown classification or module, or an unreadable
-    catalogue, standards or rules source, returns an error envelope.
+    Every part equals its separate loader: the full body, the module slice
+    (ids split on commas and matched exactly, as in mode='module'), and the
+    classification parts (see ``_classification_parts``: ids split as the
+    loaders split them and matched exactly, case-sensitively). An unknown
+    module or classification, or an unreadable source, returns an error
+    envelope.
 
     ``content_hash`` and ``estimated_tokens`` describe the served JSON of the
     content fields, and ``known_hash`` works as for the other slices. A payload
     over the per-response token cap returns its per-part sizes instead of the
     content, so the host can drop a module or pass ``include_body=False``."""
-    matches = [_find_module(skill_name, record, m) for m in split_classification_terms(modules)]
+    module_ids = [m.strip() for m in (modules or "").split(",") if m.strip()]
+    matches = [_find_module(skill_name, record, m) for m in module_ids]
     failed = next((m for m in matches if "error" in m), None)
     if failed is not None:
         return failed
 
-    requested = split_classification_terms(classification)
-    resolved: dict[str, Any] = {"ids": []}
-    if requested:
-        resolved = _resolve_classifications(requested)
-        if "error" in resolved:
-            return resolved
-    ids = resolved["ids"]
+    ids = sorted(_classification_filter_terms(classification) or ())
+    parts: dict[str, Any] = {}
+    if ids:
+        parts = _classification_parts(str(classification), ids)
+        if "error" in parts:
+            return parts
 
     payload: dict[str, Any] = {"skill_name": skill_name, "mode": "bundle", "classification": ids}
     if include_body:
@@ -719,23 +639,20 @@ def _bundle(
     payload["modules"] = [
         {"id": m["id"], "path": m["path"], "content": m["_text"]} for m in matches
     ]
-    if ids:
-        payload["classifications"] = "".join(resolved["entries"].get(c, "") for c in ids)
-        payload["standards"] = resolved["standards"]
-        payload["rules"] = resolved["rules"]
+    payload.update(parts)
 
     text = _served(payload)
     tokens = _approx_tokens(text)
     cap = _response_token_cap(token_cap)
     if tokens > cap:
-        parts = ("body", "modules", "classifications", "standards", "rules")
+        names = ("body", "modules", "classifications", "standards", "rules")
         return {
             "skill_name": skill_name,
             "mode": "bundle",
             "oversize": True,
             "estimated_tokens": tokens,
             "token_cap": cap,
-            "part_tokens": {k: _approx_tokens(_served(payload[k])) for k in parts if k in payload},
+            "part_tokens": {k: _approx_tokens(_served(payload[k])) for k in names if k in payload},
             "error": (
                 f"bundle (~{tokens} est. tokens) exceeds the ~{cap}-token "
                 f"per-response cap; request fewer modules or pass include_body=False."

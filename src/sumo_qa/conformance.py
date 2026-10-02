@@ -43,7 +43,7 @@ import yaml
 
 from sumo_qa.first_hop import ENTRY_ROUTER, ROUTER_CHAIN
 from sumo_qa.knowledge_loaders import (
-    split_classification_terms,
+    _classification_filter_terms,
     sumo_qa_load_approaches,
     sumo_qa_load_classifications,
 )
@@ -96,7 +96,7 @@ class Violation:
 class ToolRequirement:
     """One alternative of ``required_one_of``: a tool name plus argument values
     the call must carry (``"*"`` accepts any value holding at least one id
-    after ``split_classification_terms``)."""
+    after ``_classification_filter_terms``)."""
 
     tool: str
     args: tuple[tuple[str, str], ...] = ()
@@ -107,7 +107,7 @@ class ToolRequirement:
         for key, want in self.args:
             got = call.args.get(key)
             if want == "*":
-                ok = bool(got) and bool(split_classification_terms(str(got)))
+                ok = bool(got) and bool(_classification_filter_terms(str(got)))
             else:
                 ok = got is not None and str(got) == want
             if not ok:

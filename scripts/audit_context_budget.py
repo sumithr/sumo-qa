@@ -88,7 +88,9 @@ def measure_bootstrap(repo: Path, mode: str) -> str:
             timeout=30,
         ).stdout
     context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-    return context.replace(str(repo), STAND_IN_ROOT)
+    # The hook may print the root as given or, on Windows, in its `cygpath -m`
+    # (forward-slash) form; both stand in for the same root.
+    return context.replace(str(repo), STAND_IN_ROOT).replace(repo.as_posix(), STAND_IN_ROOT)
 
 
 def _text(result: Any) -> str:

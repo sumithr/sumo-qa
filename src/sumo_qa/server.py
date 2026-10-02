@@ -2048,10 +2048,13 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
             to the manifest/section/module slices instead of failing;
           - "bundle": a routed skill's working context in ONE call: the
             body (omit with `include_body=false` when you already hold it),
-            the `modules` named (comma-separated ids), and for
-            `classification` (comma-separated ids) its catalogue entries plus
-            the filtered standards and rules. Each part is identical to its
-            single loader, which stays for deeper reads.
+            the `modules` named (comma-separated ids, matched exactly), and
+            for `classification` (comma-separated ids, matched exactly and
+            case-sensitively) its catalogue entries plus the filtered
+            standards and rules. Each part equals its single loader called
+            with the same argument; ids with no catalogue entry are listed in
+            `unmatched_classifications`, and ids matching nothing at all
+            return an error envelope.
 
         The section/module/full/bundle slices each return `content_hash` (sha256 of the
         returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this

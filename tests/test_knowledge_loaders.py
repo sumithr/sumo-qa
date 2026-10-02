@@ -780,59 +780,6 @@ def test_load_rules_multi_filter_all_four_in_one_call(tmp_path, monkeypatch):
     assert result["infrastructure_change"] == {"must_consider": ["env override"]}
 
 
-def test_split_classification_terms_strips_quotes_and_keeps_order():
-    from sumo_qa.knowledge_loaders import split_classification_terms
-
-    value = "`b_change`, 'a_change'; \"b_change\"  c_change"
-    assert split_classification_terms(value) == ["b_change", "a_change", "c_change"]
-    assert split_classification_terms(None) == []
-    assert split_classification_terms(" , ;") == []
-
-
-def test_split_classification_terms_strips_only_quote_chars():
-    from sumo_qa.knowledge_loaders import split_classification_terms
-
-    assert split_classification_terms("XaX,X") == ["XaX", "X"]
-
-
-def test_metadata_terms_parses_every_container_and_keeps_case():
-    from sumo_qa.knowledge_loaders import _metadata_terms
-
-    assert _metadata_terms({"A_Change"}) == {"A_Change"}
-    assert _metadata_terms(["B_change", None]) == {"B_change", "None"}
-    assert _metadata_terms("c_change d_change") == {"c_change", "d_change"}
-    assert _metadata_terms(None) == set()
-
-
-@pytest.mark.parametrize(
-    "value", [{"api_contract_change": True}, {"api_contract_change": ["security_change"]}]
-)
-def test_metadata_terms_declares_no_ids_for_a_mapping(value):
-    from sumo_qa.knowledge_loaders import _metadata_terms
-
-    assert _metadata_terms(value) == set()
-
-
-def test_split_classification_terms_keeps_case():
-    from sumo_qa.knowledge_loaders import _classification_filter_terms, split_classification_terms
-
-    assert split_classification_terms("Business_Logic_Change, api_change") == [
-        "Business_Logic_Change",
-        "api_change",
-    ]
-    assert _classification_filter_terms("Business_Logic_Change") == {"Business_Logic_Change"}
-
-
-def test_find_catalogue_entry_matches_id_or_padded_heading_case_insensitively():
-    from sumo_qa.knowledge_loaders import find_catalogue_entry
-
-    entries = [{"id": "x-entry", "heading": "Some Heading"}, {"id": "y", "heading": "Other"}]
-    assert find_catalogue_entry(entries, "x-entry") is entries[0]
-    assert find_catalogue_entry(entries, "  some HEADING ") is entries[0]
-    assert find_catalogue_entry(entries, "Other") is entries[1]
-    assert find_catalogue_entry(entries, "missing") is None
-
-
 def test_filters_stay_case_sensitive(tmp_path, monkeypatch):
     from sumo_qa.knowledge_loaders import sumo_qa_load_rules, sumo_qa_load_standards
 

@@ -52,33 +52,33 @@ def _classification_filter_terms(classification: str | None) -> set[str] | None:
     """
     if classification is None:
         return None
-    return set(split_classification_terms(classification))
-
-
-def split_classification_terms(value: str | None) -> list[str]:
-    """Split a comma/semicolon/whitespace separated id list into its terms, in
-    the order given, without duplicates and with case preserved. ``None`` or
-    blank yields ``[]``. The loader filters, the standards metadata and the
-    context bundle all parse ids through here."""
     # Only backtick/quote chars are stripped; any other edge character is kept.
-    # Pinned by test_split_classification_terms_* (strip and split-regex mutants).
-    parts = (
-        part.strip("`'\"") for part in re.split(r"[\s,;]+", "" if value is None else str(value))
-    )
-    return list(dict.fromkeys(part for part in parts if part))
+    # Both strip calls are pinned by test_classification_filter_strips_backticks_and_quotes
+    # (strip→None) and test_filter_terms_strip_only_quote_chars (XX-quoted variants).
+    return {
+        part.strip("`'\"")
+        for part in re.split(r"[\s,;]+", str(classification))
+        if part.strip("`'\"")
+    }
 
 
 def _metadata_terms(value: Any) -> set[str]:
-    """Classification ids a pack's metadata declares: a string or a list of
-    items, each parsed by ``split_classification_terms``, or another scalar
-    as its text. A mapping or ``None`` declares none."""
-    if value is None or isinstance(value, dict):
+    if value is None:
         return set()
     if isinstance(value, str):
-        value = [value]
-    if not isinstance(value, (list, tuple, set)):
-        return {str(value)}
-    return {term for item in value for term in split_classification_terms(str(item))}
+        return _classification_filter_terms(value) or set()
+    if isinstance(value, (list, tuple, set)):
+        # Same contract as _classification_filter_terms, applied per list item.
+        # Pinned by test_metadata_terms_strips_backticks_in_list_inputs
+        # (strip→None) and test_metadata_terms_strip_only_quote_chars_and_split
+        # (XX-quoted strip / XX-wrapped split-regex variants).
+        return {
+            part.strip("`'\"")
+            for item in value
+            for part in re.split(r"[\s,;]+", str(item))
+            if part.strip("`'\"")
+        }
+    return {str(value)}
 
 
 def _knowledge_dir() -> Path:
@@ -333,12 +333,6 @@ def _missing_catalogue_error(catalogue: str, exc: OSError) -> dict[str, Any]:
     )
 
 
-def find_catalogue_entry(entries: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
-    """The entry whose stable id or heading text (case-insensitive) is *name*."""
-    needle = name.strip().lower()
-    return next((e for e in entries if e["id"] == needle or e["heading"].lower() == needle), None)
-
-
 def load_catalogue_entry(
     catalogue: str,
     name: str | None = None,
@@ -378,7 +372,11 @@ def load_catalogue_entry(
             "name is required.",
             available_entries=available,
         )
-    match = find_catalogue_entry(entries, name)
+    needle = name.strip().lower()
+    match = next(
+        (e for e in entries if e["id"] == needle or e["heading"].lower() == needle),
+        None,
+    )
     if match is None:
         return _catalogue_error(
             f"Unknown entry {name!r} in catalogue {catalogue!r}.",
