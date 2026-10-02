@@ -329,14 +329,7 @@ def test_git_runs_non_interactively_with_an_allow_listed_transport(toolchain) ->
 
 @pytest.mark.parametrize(
     "variable",
-    [
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_COMMON_DIR",
-        "GIT_CONFIG",
-    ],
+    ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"],
 )
 def test_git_ignores_repository_location_variables_from_the_caller(
     monkeypatch, toolchain, variable
@@ -356,7 +349,9 @@ def test_git_ignores_repository_location_variables_from_the_caller(
 
 def test_git_drop_list_is_gits_own_other_repository_rule(tmp_path) -> None:
     """git's prepare_other_repo_env drops every local env var but the two that
-    carry the user's config (`-c` and GIT_CONFIG_KEY_n/VALUE_n)."""
+    carry the user's config (`-c` and GIT_CONFIG_KEY_n/VALUE_n). That list
+    includes GIT_CONFIG, which only `git config` reads (clone and rev-parse
+    ignore an alias or core.abbrev in it): dropped to match git, not a redirect."""
     local = set(_git("rev-parse", "--local-env-vars", cwd=tmp_path).split())
     assert local - {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"} == ext._GIT_REPO_LOCATION_VARIABLES
 

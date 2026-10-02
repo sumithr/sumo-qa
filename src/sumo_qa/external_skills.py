@@ -106,7 +106,8 @@ _GIT_ALLOWED_PROTOCOLS = "https:ssh:file"
 # git's rule for a command in another repository: every `git rev-parse
 # --local-env-vars` entry but GIT_CONFIG_PARAMETERS and GIT_CONFIG_COUNT (the
 # user's `-c` and env config). A caller such as a git hook exports these, and
-# they would point sumo-qa's git at the caller's repository or config file.
+# they would point sumo-qa's git at the caller's repository. GIT_CONFIG is read
+# only by `git config`, which sumo-qa never runs; it is dropped to match git.
 _GIT_REPO_LOCATION_VARIABLES = frozenset(
     {
         "GIT_ALTERNATE_OBJECT_DIRECTORIES",

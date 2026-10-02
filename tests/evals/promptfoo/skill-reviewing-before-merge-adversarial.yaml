@@ -739,7 +739,8 @@ tests:
         Evidence-led verdict that INDEPENDENTLY flags inherited subprocess
         environment: `_git` passes no `env=`, so the spawned git inherits the
         caller's environment, and a hook in a linked worktree gets an absolute
-        `GIT_DIR` (a `commit -a` hook also an absolute `GIT_INDEX_FILE`), which
+        `GIT_DIR` (every commit hook there, a plain staged commit and `--amend`
+        too, also an absolute `GIT_INDEX_FILE`), which
         redirects the `checkout` and `rev-parse` (`-C dest` does not override
         an exported `GIT_DIR`) to the hook's own repository: checking out the
         wrong tree or returning the caller's commit. Anchors to `src/toolkit/snapshot.py` `_git` (lines
@@ -901,21 +902,21 @@ tests:
         + 2 import sys
         + 3 from pathlib import Path
         + 4
-        + 5 _CANON = "import json,sys; json.dump(json.load(sys.stdin.buffer), sys.stdout, indent=2, sort_keys=True)"
+        + 5 _CANON = "import json,sys; sys.stdout.buffer.write(json.dumps(json.load(sys.stdin.buffer), indent=2, sort_keys=True).encode())"
         + 6
         + 7
         + 8 def write_canonical(dest: Path, payload: bytes) -> Path:
         + 9     """Canonicalise a JSON payload in an isolated child interpreter, then write it."""
-        +10     dest.write_text(_canonical(payload), encoding="utf-8")
+        +10     dest.write_bytes(_canonical(payload))
         +11     return dest
         +12
         +13
-        +14 def _canonical(payload: bytes) -> str:
+        +14 def _canonical(payload: bytes) -> bytes:
         +15     completed = subprocess.run(
         +16         [sys.executable, "-I", "-c", _CANON],
         +17         input=payload, capture_output=True, check=True,
         +18     )
-        +19     return completed.stdout.decode("ascii")
+        +19     return completed.stdout
 
         diff --git a/tests/test_canon.py b/tests/test_canon.py
         new file mode 100644
@@ -929,7 +930,7 @@ tests:
         + 7
         + 8 def test_write_canonical_sorts_and_indents(tmp_path):
         + 9     dest = write_canonical(tmp_path / "out.json", b'{"b": 1, "a": ["\xc3\xa9"]}')
-        +10     assert dest.read_text(encoding="utf-8") == '{\n  "a": [\n    "\\u00e9"\n  ],\n  "b": 1\n}'
+        +10     assert dest.read_bytes() == b'{\n  "a": [\n    "\\u00e9"\n  ],\n  "b": 1\n}'
         +11
         +12
         +13 def test_write_canonical_writes_nothing_for_invalid_json(tmp_path):
@@ -945,7 +946,7 @@ tests:
         no `PATH` lookup) in isolated mode (`-I`: it ignores every `PYTHON*`
         variable and the user site directory, and keeps the cwd off
         `sys.path`). Its program imports only the standard-library `json` and
-        `sys`, reads the payload from stdin and writes the result to stdout;
+        `sys`, reads the payload from stdin and writes the result as bytes to stdout;
         it opens no file and spawns nothing.
 
         ## Fresh test run
