@@ -12,6 +12,7 @@ change to that module.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,16 @@ _needs_ts = pytest.mark.skipif(
     not TREESITTER_AVAILABLE,
     reason="tree-sitter not installed (the [treesitter] extra is absent)",
 )
+
+
+@pytest.mark.skipif(
+    os.environ.get("SUMO_QA_REQUIRE_TREESITTER") != "1",
+    reason="set SUMO_QA_REQUIRE_TREESITTER=1 where the [treesitter] extra must load",
+)
+def test_treesitter_extra_loads_where_ci_requires_it() -> None:
+    # CI installs the extra on every job; without this, a broken wheel on one
+    # OS/Python would silently skip every tree-sitter test there and stay green.
+    assert TREESITTER_AVAILABLE, "the [treesitter] extra is installed but did not import"
 
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "repo_map"

@@ -80,7 +80,7 @@ def _plan(*args: str) -> subprocess.CompletedProcess:
         [BASH, str(INSTALL_SH), "--print-plan", *args],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
         check=False,
     )
 
@@ -141,7 +141,7 @@ def test_print_plan_survives_a_consumer_that_closes_the_pipe_early():
             [BASH, "-o", "pipefail", "-c", pipeline],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
             check=False,
         )
         assert result.returncode == 0, (
@@ -262,7 +262,7 @@ def test_failing_delegated_command_propagates_nonzero_exit(tmp_path):
         [BASH, str(INSTALL_SH)],  # real exec path, NOT --print-plan
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
         check=False,
         env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(stub)},
     )
@@ -287,7 +287,7 @@ def test_space_containing_interpreter_path_is_one_token_in_plan(tmp_path):
         [BASH, str(INSTALL_SH), "--print-plan"],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
         check=False,
         env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(interp)},
     )
@@ -316,7 +316,7 @@ def test_space_containing_interpreter_path_execs_as_one_token(tmp_path):
         [BASH, str(INSTALL_SH)],  # real exec path, install mode
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
         check=False,
         env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(interp)},
     )
@@ -351,7 +351,7 @@ def test_install_doctor_failure_is_advisory_not_install_failure(tmp_path):
         [BASH, str(INSTALL_SH)],  # real exec path, NOT --print-plan
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
         check=False,
         env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(_doctor_failing_stub(tmp_path))},
     )
@@ -370,7 +370,7 @@ def test_doctor_only_mode_propagates_the_doctor_exit(tmp_path):
         [BASH, str(INSTALL_SH), "--doctor"],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
         check=False,
         env={"PATH": "/usr/bin:/bin", "SUMO_QA_PYTHON": str(_doctor_failing_stub(tmp_path))},
     )

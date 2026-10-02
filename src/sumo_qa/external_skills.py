@@ -204,7 +204,23 @@ def install_external_skill(
     cwd = cwd or Path.cwd()
     home = home or Path.home()
     lock_base = cwd if scope == "project" else home
-    _read_lock(lock_base)  # fail fast on an unreadable lock, before any fetch
+    # Fail fast on an unreadable lock, before any fetch. An existing lock is
+    # read only under its guard: on Windows an open read handle makes a
+    # concurrent install's os.replace onto it fail. With no lock file there is
+    # nothing to read, so nothing is created or waited on before the fetch.
+    lock_path = lock_base / _LOCK_RELPATH
+    # os.stat, not Path.exists: from Python 3.14 Path.exists returns False for
+    # a lock inside an unsearchable folder instead of raising.
+    try:
+        os.stat(lock_path)
+        lock_exists = True
+    except (FileNotFoundError, NotADirectoryError):
+        lock_exists = False
+    except OSError as exc:
+        raise ExternalSkillReadError(f"could not lock {lock_path}: {exc}") from exc
+    if lock_exists:
+        with _lock_guard(lock_base):
+            _read_lock(lock_base)
     workdir, checkout, resolved_ref = _checkout_commit(remote_url, requested_ref, timeout)
     try:
         _check_checkout_links(checkout)
@@ -357,7 +373,11 @@ def _locate_verified(
                 if installed is not None:
                     path = Path(installed["path"])
                     body = _read_skill_body(path)
-                    found = installed, path, body, _verify_provenance(path, lock_base, body)
+                    # The lock is read only under its guard (see install).
+                    # Unlocked there was no lock folder, so no lock; one that
+                    # appears meanwhile discards this attempt for a locked one.
+                    skills = _read_lock(lock_base)["skills"] if locked else {}
+                    found = installed, path, body, _verify_provenance(path, lock_base, body, skills)
         except (ExternalSkillError, OSError) as exc:
             # An unlocked result, or its failure, raced an install: retry locked.
             if locked or not lock_folder.is_dir():
@@ -971,9 +991,11 @@ def _merge_into_lock(base: Path, records: list[dict[str, Any]]) -> None:
         ) from exc
 
 
-def _verify_provenance(skill_md: Path, lock_base: Path, body: bytes) -> dict[str, Any]:
+def _verify_provenance(
+    skill_md: Path, lock_base: Path, body: bytes, skills: dict[str, Any]
+) -> dict[str, Any]:
     folder = skill_md.parent
-    key, record = _find_record(folder, lock_base)
+    key, record = _find_record(folder, lock_base, skills)
     if record is _NO_RECORD:
         return {"status": "unrecorded"}
     resolved_ref = record.get("resolved_ref") if isinstance(record, dict) else None
@@ -1008,13 +1030,12 @@ def _verify_provenance(skill_md: Path, lock_base: Path, body: bytes) -> dict[str
     return {"status": "verified", **record}
 
 
-def _find_record(folder: Path, lock_base: Path) -> tuple[str, Any]:
-    """The lock record for ``folder``, matched by the folder on disk.
+def _find_record(folder: Path, lock_base: Path, skills: dict[str, Any]) -> tuple[str, Any]:
+    """The lock record for ``folder`` in ``skills``, matched by the folder on disk.
 
     Matching by path spelling alone would let a case or symlink variant of the
     name miss the record and run the skill as unrecorded.
     """
-    skills = _read_lock(lock_base)["skills"]
     key = os.path.relpath(folder, lock_base).replace(os.sep, "/")
     if key in skills:
         return key, skills[key]

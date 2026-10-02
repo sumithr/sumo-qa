@@ -1581,8 +1581,7 @@ def _read_json_rpc_response(
 def _terminate(proc: subprocess.Popen) -> None:
     """Best-effort process teardown.
 
-    Mirrors the cleanup in ``tests/test_e2e_mcp_initialize.py``: close stdin,
-    ``terminate()``, wait briefly, ``kill()`` on stragglers. Tolerant of
+    Close stdin, ``terminate()``, wait briefly, ``kill()`` on stragglers. Tolerant of
     already-exited processes and missing pipe handles.
     """
     try:

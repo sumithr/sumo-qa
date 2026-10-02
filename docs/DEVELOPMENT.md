@@ -125,7 +125,7 @@ Once installed (above), you get them for free on every `git commit` / `git push`
 | Trigger | What runs | Speed | Why |
 |---|---|---|---|
 | `git commit` | `ruff check --fix`, `ruff format`, trailing-whitespace / EOL / YAML / TOML / JSON / merge-conflict / large-file hooks | ~1s | Auto-fixes 95% of CI lint failures before the commit lands. |
-| `git push` | the full `pytest` suite at 100% coverage, printing its counts; the mutmut gate (see [Mutation testing](#mutation-testing) for its triggers and scope); and every other hook without a commit-only stage, on the pushed files (the fixers among them can rewrite a file and stop the push) | minutes | Stops broken or under-tested commits reaching the remote. |
+| `git push` | the full `pytest` suite at 100% coverage across pytest-xdist workers, printing its counts; the mutmut gate (see [Mutation testing](#mutation-testing) for its triggers and scope); and every other hook without a commit-only stage, on the pushed files (the fixers among them can rewrite a file and stop the push) | minutes | Stops broken or under-tested commits reaching the remote. |
 
 The pytest hook runs in pre-commit's own isolated venv, built from the explicit `additional_dependencies` pins in `.pre-commit-config.yaml` (where a hook and `pyproject.toml` pin the same package, `tests/test_toolchain_pin_lockstep.py` keeps the two in lockstep), so it's not coupled to whichever `python` happens to be on your PATH. The first `git push` after install is slower while pre-commit builds that venv; later pushes reuse it.
 
@@ -138,7 +138,7 @@ pre-commit run --all-files --hook-stage pre-push    # the push-stage hooks
 
 **Skipping hooks** (rare): `git commit --no-verify` or `git push --no-verify`. CI will still catch anything you skipped, use this only for genuine emergencies.
 
-Hooks are pinned in `.pre-commit-config.yaml` and mirror `.github/workflows/lint.yml` + `.github/workflows/test.yml`, so passing the hooks locally clears the ruff and pytest gates. One CI lint gate is intentionally not a hook, `mypy` (see [Type checking](#type-checking)): to keep `git push` fast; run `python -m mypy` before pushing to clear it too.
+Hooks are pinned in `.pre-commit-config.yaml` and mirror `.github/workflows/lint.yml`, so passing them locally clears the ruff gates. The pytest hook runs the full suite with the 100% coverage gate on your one Python and OS; `.github/workflows/test.yml` runs it across the OS and Python matrix (with the coverage gate on one job), so CI can still fail on a platform the hook did not cover. One CI lint gate is intentionally not a hook, `mypy` (see [Type checking](#type-checking)): to keep `git push` fast; run `python -m mypy` before pushing to clear it too.
 
 ## Test suite
 
@@ -362,14 +362,23 @@ literal or built in a separate variable (`code = textwrap.dedent("...import
 sumo_qa.knowledge_loaders..."); subprocess.run([sys.executable, "-c", code])`),
 and whether `-m` targets the full package or any `sumo_qa.<sub>` submodule that
 transitively imports a mutated module (e.g. `sumo_qa.server`, `sumo_qa.ingest`).
-It also handles the `shell=True` single-string form
+A `-c` body is dedented and parsed as Python, and each `sumo_qa` module it
+imports (`from sumo_qa import conformance` counts as `sumo_qa.conformance`) is
+flagged when a static walk of `src/`'s imports reaches a mutated module from it
+(`sumo_qa.conformance` reaches `knowledge_loaders`); a body that does not parse,
+such as an f-string fragment, falls back to matching the module named right
+after `from` or `import`. Any string naming `sumo_qa.<mutated>` or containing
+`import <mutated>` is also flagged outright, so dynamic imports
+(`importlib.import_module("sumo_qa.rules")`, `__import__`, `exec`) are caught;
+the price is that a body merely mentioning such a name is flagged too. It also
+handles the `shell=True` single-string form
 (`subprocess.run("python -m sumo_qa", shell=True)`): a one-string command is
 shlex-tokenised so it is classified like the equivalent argv list, rather than
-slipping past as one un-split token. The provably non-mutating CLI entry points
-`sumo_qa.installer` / `sumo_qa.doctor` are exempt (across both the argv and
-shell-string forms), so `-m sumo_qa.installer --help` style spawns stay
-unflagged. Its classifications are pinned by real fixture meta-tests in
-`tests/fixtures/mutmut_guard/`.
+slipping past as one un-split token. No `sumo_qa.<sub>` entry point is exempt:
+every one, `sumo_qa.installer` and `sumo_qa.doctor` included, reaches a mutated
+module, so `-m sumo_qa.installer --help` style spawns are flagged in both the
+argv and shell-string forms. Its classifications are pinned by real fixture
+meta-tests in `tests/fixtures/mutmut_guard/`.
 
 ## Toolchain pin lockstep
 

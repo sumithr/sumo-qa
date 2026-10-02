@@ -122,6 +122,9 @@ dev = [
   # -compatible link-checker ships. See .pre-commit-config.yaml.
   "pytest>=8.4,<10",
   "pytest-cov>=6,<8",
+  # Runs the suite across cores in the test.yml CI jobs and the pre-push
+  # pytest hook, which mirrors this pin (#787).
+  "pytest-xdist==3.8.0",
   # Markdown link-existence gate: pre-commit + CI invoke
   # `scripts/check_markdown_links.sh`, which wraps pytest-check-links.
   # Catches the class of bug where a doc references a file that was
@@ -342,6 +345,9 @@ pytest_add_cli_args = [
   # Spawns `python -m sumo_qa.cli` to pin `sumo-qa check`'s exact exit codes.
   # Marker: `mutmut-subprocess-spawning`.
   "--ignore=tests/test_cli_check_subprocess.py",
+  # Spawns `python -c` importing sumo_qa.conformance, which imports the mutated
+  # knowledge_loaders.py. Marker: `mutmut-subprocess-spawning`.
+  "--ignore=tests/test_conformance_redos_subprocess.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/"]
 # mutmut only copies source_paths modules into mutants/src/sumo_qa/, leaving the

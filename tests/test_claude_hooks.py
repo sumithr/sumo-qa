@@ -65,7 +65,7 @@ def _run_subprocess_hook(
         input=json.dumps(payload),
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
         env=env,
     )
 

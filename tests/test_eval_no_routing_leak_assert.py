@@ -136,7 +136,7 @@ _EXTRA = [
 ]
 
 
-def _node(outputs: list[str], expr: str) -> list:
+def _node(outputs: list[str], expr: str, timeout: float | None = None) -> list:
     script = (
         "const check = require(process.argv[1]);"
         "const outputs = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
@@ -148,6 +148,7 @@ def _node(outputs: list[str], expr: str) -> list:
         capture_output=True,
         encoding="utf-8",
         check=True,
+        timeout=timeout,
     )
     return json.loads(proc.stdout)
 
@@ -170,10 +171,17 @@ def test_js_assert_verdicts_follow_the_fixture_labels() -> None:
 def test_js_blank_string_values_does_not_backtrack_exponentially() -> None:
     """Same CodeQL py/redos shape as the Python matcher: an unterminated
     string of escapes must not backtrack exponentially."""
-    span = '{"a' + "\\a" * 28
+    span = '{"a' + "\\a" * 34
     start = time.perf_counter()
-    assert _node([span], "check.blankStringValues(o)") == [span]
-    assert time.perf_counter() - start < 2
+    # ReDoS guard: 2**34 backtracking steps take minutes, so the node child is
+    # killed at 30s and a vulnerable pattern fails fast on any machine, while
+    # the linear matcher plus node's startup fits the 10s budget on a loaded
+    # pytest-xdist worker.
+    try:
+        assert _node([span], "check.blankStringValues(o)", timeout=30) == [span]
+    except subprocess.TimeoutExpired:
+        pytest.fail("ReDoS: node did not finish in 30s")
+    assert time.perf_counter() - start < 10
 
 
 def test_deciding_approach_user_facing_eval_wires_the_assert() -> None:

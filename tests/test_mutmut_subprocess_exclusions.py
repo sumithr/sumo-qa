@@ -50,8 +50,11 @@ platform (mutmut's fork-based runner segfaults on macOS) and at PR time.
 from __future__ import annotations
 
 import ast
+import functools
+import re
 import shlex
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -63,6 +66,7 @@ else:  # pragma: no cover -- 3.10 backport path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = REPO_ROOT / "tests"
+SRC_DIR = REPO_ROOT / "src"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 # ``sumo_qa`` submodule CLI entry points that provably DO NOT pull a mutated
@@ -101,10 +105,12 @@ def _spawns_subprocess_importing_mutated_code(path: Path) -> bool:
     """True if this test file spawns a fresh Python interpreter that imports the
     sumo_qa package or a mutated module — the trampoline-crash hazard class.
 
-    Sound over-approximation that avoids the substring/token-confusion failure
-    mode (equivalence partitioning): a test that merely *names* ``sumo_qa`` in a
-    string arg, asserts on ``["-m", "sumo_qa"]`` without spawning, or mocks
-    ``subprocess.run`` is NOT flagged. The hazard is a
+    Deliberately conservative over-approximation: a false positive costs a
+    marker, a false negative crashes mutmut later. Any string in a spawning call
+    that contains ``sumo_qa.<mutated module>`` or ``import <mutated module>`` is
+    flagged, even if it only names the module in a message. A test that mocks
+    ``subprocess.run`` or asserts on ``["-m", "sumo_qa"]`` without a real spawn
+    is not flagged. The hazard is a
     REAL spawn whose command imports the full package (``-m sumo_qa``, which
     transitively imports all four mutated modules via the server) or any
     ``sumo_qa.<sub>`` submodule that transitively pulls a mutated module
@@ -114,7 +120,7 @@ def _spawns_subprocess_importing_mutated_code(path: Path) -> bool:
     """
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
-    mutated = _mutated_module_names()
+    mutated = frozenset(_mutated_module_names())
     enclosing = _enclosing_functions(tree)
 
     for node in ast.walk(tree):
@@ -133,7 +139,8 @@ def _spawns_subprocess_importing_mutated_code(path: Path) -> bool:
         # "sumo_qa") — would miss it. Tokenise a single-string command so a
         # shell-string spawn is classified like the equivalent argv list (#195
         # follow-up: the shell-string blind spot). The original string is kept too,
-        # so the substring import checks (`sumo_qa.<m>` / `import <m>`) still apply.
+        # so the `-c` body import walk and the `sumo_qa.<m>` / `import <m>`
+        # substring checks still apply to it.
         if isinstance(first, ast.Constant) and isinstance(first.value, str):
             cmd = cmd + _shell_tokens(first.value)
         # The spawn must actually launch a Python interpreter.
@@ -182,7 +189,7 @@ def _is_python_interpreter_spawn(cmd_strings: list[str]) -> bool:
     return False
 
 
-def _command_imports_mutated_code(strings: list[str], mutated: set[str]) -> bool:
+def _command_imports_mutated_code(strings: list[str], mutated: frozenset[str]) -> bool:
     """True if the gathered command/source strings import the sumo_qa package or
     any submodule that transitively pulls a mutated module."""
     for s in strings:
@@ -190,20 +197,86 @@ def _command_imports_mutated_code(strings: list[str], mutated: set[str]) -> bool
         # — bare `sumo_qa` token from a `-m` arg.
         if s == "sumo_qa":
             return True
-        # An inline `-c` body (or a module arg) that references a mutated module.
-        for m in mutated:
-            if f"sumo_qa.{m}" in s or f"import {m}" in s:
-                return True
+        # An inline `-c` body importing a sumo_qa module that transitively
+        # imports a mutated one (`from sumo_qa.conformance import ...` reaches
+        # knowledge_loaders).
+        if any(_reaches_mutated(module, mutated) for module in _body_imports(s)):
+            return True
+        # Conservative substring checks: `sumo_qa.<m>` also catches dynamic
+        # imports (`importlib.import_module("sumo_qa.rules")`, `__import__`,
+        # `exec`) the AST walk cannot see; a bare `import <m>` covers a child
+        # that put src/sumo_qa itself on sys.path. A false positive costs a
+        # marker; a false negative crashes mutmut later.
+        if any(f"sumo_qa.{m}" in s or f"import {m}" in s for m in mutated):
+            return True
         # `-m sumo_qa.<sub>`: a `-m` module token for ANY sumo_qa submodule that
         # transitively pulls the package (and thus a mutated module) — e.g.
         # `sumo_qa.server` (imports knowledge_loaders at top level) or
-        # `sumo_qa.ingest` (imports rules at CLI runtime). Generalised from the
-        # old `.ingest`-only allow-list, which let `-m sumo_qa.server` and other
-        # mutated-importing entry points escape detection. The provably
-        # Future non-mutating CLI entry points may be exempted only after
-        # runtime import evidence shows they do not reach mutated modules.
+        # `sumo_qa.ingest` (imports rules at CLI runtime). No entry point is
+        # exempt (``SAFE_SUMO_QA_ENTRY_POINTS`` is empty); one could be exempted
+        # later only with runtime import evidence that it never reaches a
+        # mutated module.
         if _is_sumo_qa_submodule_token(s) and s not in SAFE_SUMO_QA_ENTRY_POINTS:
             return True
+    return False
+
+
+def _imported_sumo_qa_names(tree: ast.AST, package: list[str]) -> frozenset[str]:
+    """Every sumo_qa module named by an import anywhere in ``tree``, lazy
+    (function-level) imports included, so the closure over-approximates.
+    ``package`` resolves relative imports."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = package[: len(package) - node.level + 1] if node.level else []
+            name = ".".join(base + ([node.module] if node.module else []))
+            # `from pkg import sub` may import a submodule: keep both readings.
+            names.add(name)
+            names.update(f"{name}.{alias.name}" for alias in node.names)
+    return frozenset(n for n in names if n.split(".")[0] == "sumo_qa")
+
+
+@functools.cache
+def _sumo_qa_imports(module: str) -> frozenset[str]:
+    """Every sumo_qa module named by an import in ``module``'s source."""
+    path = SRC_DIR.joinpath(*module.split("."))
+    path = path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
+    if not path.is_file():
+        return frozenset()
+    package = module.split(".") if path.name == "__init__.py" else module.split(".")[:-1]
+    return _imported_sumo_qa_names(ast.parse(path.read_text(encoding="utf-8")), package)
+
+
+@functools.cache
+def _body_imports(body: str) -> frozenset[str]:
+    """The sumo_qa modules an inline ``-c`` body imports. A body that does not
+    parse (an f-string fragment) falls back to a regex over its text, which
+    sees only the module after ``from``/``import``. The body is dedented first
+    so an indented ``textwrap.dedent``-style literal still parses."""
+    try:
+        tree = ast.parse(textwrap.dedent(body))
+    except (SyntaxError, ValueError):  # ValueError: a NUL byte before 3.12
+        return frozenset(re.findall(r"\b(?:from|import)\s+(sumo_qa(?:\.\w+)*)", body))
+    return _imported_sumo_qa_names(tree, [])
+
+
+def _reaches_mutated(module: str, mutated: frozenset[str]) -> bool:
+    """True if importing ``module`` (with its parent packages) can import a
+    mutated module, by a static walk of the source tree's imports."""
+    seen: set[str] = set()
+    todo = [module]
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        if name.rsplit(".", 1)[-1] in mutated:
+            return True
+        parts = name.split(".")
+        todo.extend(".".join(parts[:i]) for i in range(1, len(parts)))
+        todo.extend(_sumo_qa_imports(name))
     return False
 
 
@@ -405,3 +478,38 @@ def test_safe_sumo_qa_entry_points_are_actually_non_mutating() -> None:
             f"{entry} is on the safe-entry allow-list but names a mutated module "
             f"— that would suppress a real hazard."
         )
+
+
+# Direct pins on the ``-c`` body classifier: each positive is a body that imports
+# ``sumo_qa.conformance`` (which reaches the mutated knowledge_loaders) in a
+# spelling a regex over ``from|import sumo_qa...`` misses.
+_DASH_C_HAZARDS = [
+    "from sumo_qa import conformance",
+    "import os, sumo_qa.conformance",
+    "from  sumo_qa.conformance import x",
+    # An indented body (the ``textwrap.dedent`` pattern) still parses.
+    "\n    from sumo_qa import conformance\n",
+    "\n    import os, sumo_qa.conformance\n",
+    # Dynamic imports: no import statement, so only the conservative
+    # ``sumo_qa.<mutated>`` substring check sees them.
+    "import importlib; importlib.import_module('sumo_qa.knowledge_loaders')",
+    "__import__('sumo_qa.rules')",
+    "exec('import sumo_qa.rules')",
+]
+
+
+@pytest.mark.parametrize("body", _DASH_C_HAZARDS)
+def test_dash_c_body_importing_a_mutated_chain_is_flagged(body: str) -> None:
+    assert _command_imports_mutated_code([body], frozenset(_mutated_module_names()))
+
+
+# Negative: the java resolver probe's import chain reaches no mutated module.
+_DASH_C_NON_HAZARDS = [
+    "import sumo_qa.repo_map_resolvers as pkg\n"
+    "from sumo_qa.repo_map_treesitter import TREESITTER_AVAILABLE\n",
+]
+
+
+@pytest.mark.parametrize("body", _DASH_C_NON_HAZARDS)
+def test_dash_c_body_not_importing_a_mutated_chain_is_not_flagged(body: str) -> None:
+    assert not _command_imports_mutated_code([body], frozenset(_mutated_module_names()))

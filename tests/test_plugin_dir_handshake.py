@@ -69,7 +69,7 @@ def test_plugin_dir_handshake_passes_against_slow_mock(tmp_path: pathlib.Path) -
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=60,
     )
 
     assert result.returncode == 0, (
@@ -116,7 +116,7 @@ def test_auto_discovers_every_adapter_with_plugin_json(tmp_path: pathlib.Path) -
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
     )
 
     assert result.returncode == 0, (
@@ -153,7 +153,7 @@ def test_auto_discover_ignores_non_plugin_dirs(tmp_path: pathlib.Path) -> None:
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
     )
 
     assert result.returncode == 0, (
@@ -179,7 +179,7 @@ def test_auto_discover_fails_clearly_when_no_adapters_present(tmp_path: pathlib.
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
     )
     assert result.returncode == 2
     assert "no `.*-plugin/` directories" in result.stderr
@@ -218,7 +218,7 @@ def test_plugin_dir_handshake_substitutes_claude_plugin_root(tmp_path: pathlib.P
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=60,
     )
 
     assert result.returncode == 0, (

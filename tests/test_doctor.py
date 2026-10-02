@@ -1240,7 +1240,7 @@ def test_doctor_module_form_help_is_path_independent() -> None:
         env={**os.environ, "PYTHONPATH": pythonpath},
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
     )
 
     assert proc.returncode == 0

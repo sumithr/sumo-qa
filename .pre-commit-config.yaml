@@ -294,11 +294,19 @@ repos:
         # `[tool.pytest.ini_options]`, so `import sumo_qa.*` resolves
         # without the project itself needing to be pip-installed.
         #
-        # `verbose: true` and a bare `pytest` (options come from addopts
-        # alone) keep pytest's "N passed" and coverage lines in the push
-        # output; the delivery skills quote them as the full local suite's
-        # evidence. tests/test_toolchain_pin_lockstep.py pins this argv.
-        entry: pytest
+        # `verbose: true` keeps pytest's "N passed" and coverage lines in the
+        # push output; the delivery skills quote them as the full local
+        # suite's evidence. Every option except the pytest-xdist ones comes
+        # from addopts. tests/test_toolchain_pin_lockstep.py pins this argv.
+        #
+        # The full suite runs on every push because the delivery skills use
+        # this hook as the one full local run with the 100% coverage gate,
+        # and CI cannot stand in for it before the push. pytest-xdist spreads
+        # it over one worker per core, capped at 4 (more workers are no
+        # faster here); `--dist loadfile` keeps each module on one worker so
+        # module-scoped fixtures (the wheel build, the MCP server spawns) run
+        # once per module, not once per worker.
+        entry: pytest -n auto --maxprocesses 4 --dist loadfile
         verbose: true
         language: python
         additional_dependencies:
@@ -308,6 +316,7 @@ repos:
           - "PyYAML>=6,<7"
           - "pytest>=8.4,<10"
           - "pytest-cov>=6,<8"
+          - "pytest-xdist==3.8.0"
           # Build backend — tests/test_wheel_packaging.py builds the wheel via
           # `pip wheel --no-build-isolation` to assert it ships py.typed.
           - "hatchling>=1.25"

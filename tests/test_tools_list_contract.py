@@ -42,11 +42,19 @@ import os
 import re
 import subprocess
 import sys
+import time
 import warnings
-from collections import Counter
+from collections import Counter, deque
 from pathlib import Path
 
 import pytest
+
+from sumo_qa.installer import (
+    _read_json_rpc_response,
+    _start_stdout_reader,
+    _terminate,
+    _VerifyTimeout,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mcp_tools_list_snapshot.json"
@@ -60,11 +68,35 @@ def _live_tools_list() -> list[dict]:
         [sys.executable, "-m", "sumo_qa"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        # Inherited, not piped: an undrained pipe can deadlock the server, and
+        # pytest's fd capture shows a crashing server's traceback on failure.
+        stderr=None,
         cwd=str(REPO_ROOT),
         env={**os.environ, "PYTHONPATH": pythonpath},
         text=True,
     )
+    lines = _start_stdout_reader(proc)
+    # A stalled server fails the module's tests after 60s instead of hanging
+    # the worker.
+    deadline = time.monotonic() + 60
+    pending: deque[dict] = deque()
+
+    def response(expected_id: int) -> dict:
+        extra_lines: list[str] = []
+        try:
+            found = _read_json_rpc_response(
+                line_queue=lines,
+                expected_id=expected_id,
+                deadline=deadline,
+                extra_lines=extra_lines,
+                pending_responses=pending,
+            )
+        except _VerifyTimeout:
+            pytest.fail(f"the MCP server did not answer request id={expected_id} within 60s")
+        assert found is not None, "the MCP server exited before responding"
+        assert extra_lines == [], f"non-protocol lines on the server's stdout: {extra_lines!r}"
+        return found
+
     try:
         proc.stdin.write(
             json.dumps(
@@ -82,7 +114,7 @@ def _live_tools_list() -> list[dict]:
             + "\n"
         )
         proc.stdin.flush()
-        proc.stdout.readline()
+        response(1)
         proc.stdin.write(
             json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
         )
@@ -98,18 +130,9 @@ def _live_tools_list() -> list[dict]:
             + "\n"
         )
         proc.stdin.flush()
-        return json.loads(proc.stdout.readline())["result"]["tools"]
+        return response(2)["result"]["tools"]
     finally:
-        try:
-            proc.stdin.close()
-        except Exception:  # noqa: BLE001
-            pass
-        proc.terminate()
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=2)
+        _terminate(proc)
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
