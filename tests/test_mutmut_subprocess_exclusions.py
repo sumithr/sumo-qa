@@ -105,10 +105,12 @@ def _spawns_subprocess_importing_mutated_code(path: Path) -> bool:
     """True if this test file spawns a fresh Python interpreter that imports the
     sumo_qa package or a mutated module — the trampoline-crash hazard class.
 
-    Sound over-approximation that avoids the substring/token-confusion failure
-    mode (equivalence partitioning): a test that merely *names* ``sumo_qa`` in a
-    string arg, asserts on ``["-m", "sumo_qa"]`` without spawning, or mocks
-    ``subprocess.run`` is NOT flagged. The hazard is a
+    Deliberately conservative over-approximation: a false positive costs a
+    marker, a false negative crashes mutmut later. Any string in a spawning call
+    that contains ``sumo_qa.<mutated module>`` or ``import <mutated module>`` is
+    flagged, even if it only names the module in a message. A test that mocks
+    ``subprocess.run`` or asserts on ``["-m", "sumo_qa"]`` without a real spawn
+    is not flagged. The hazard is a
     REAL spawn whose command imports the full package (``-m sumo_qa``, which
     transitively imports all four mutated modules via the server) or any
     ``sumo_qa.<sub>`` submodule that transitively pulls a mutated module
@@ -212,9 +214,10 @@ def _command_imports_mutated_code(strings: list[str], mutated: frozenset[str]) -
         # `sumo_qa.server` (imports knowledge_loaders at top level) or
         # `sumo_qa.ingest` (imports rules at CLI runtime). Generalised from the
         # old `.ingest`-only allow-list, which let `-m sumo_qa.server` and other
-        # mutated-importing entry points escape detection. The provably
-        # Future non-mutating CLI entry points may be exempted only after
-        # runtime import evidence shows they do not reach mutated modules.
+        # mutated-importing entry points escape detection. No entry point is
+        # exempt (``SAFE_SUMO_QA_ENTRY_POINTS`` is empty); one could be exempted
+        # later only with runtime import evidence that it never reaches a
+        # mutated module.
         if _is_sumo_qa_submodule_token(s) and s not in SAFE_SUMO_QA_ENTRY_POINTS:
             return True
     return False
