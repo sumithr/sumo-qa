@@ -91,6 +91,17 @@ and dead in production). Common failure modes: assuming wording/format instead
 of capturing it; a stale capture after the tool's output changes (re-capture on
 version moves); capturing only the happy path, not the real error/empty output.
 
+### hermetic subprocess environment
+A spawned external tool inherits the parent's environment, and some variables
+redirect what it acts on: `GIT_DIR` / `GIT_WORK_TREE` / `GIT_INDEX_FILE` (git
+exports them to hooks), `VIRTUAL_ENV` / `PYTHONPATH` (an activated venv),
+`NODE_OPTIONS` / `npm_config_*` (CI, npm scripts); representative, not
+exhaustive. Build the child's env explicitly for that tool (drop the
+redirecting variables, keep config such as `GIT_SSH_COMMAND`), and test with
+those variables set to a throwaway value: the real target is used, the decoy
+untouched. Failure mode: green from a clean shell, wrong repo or interpreter
+under a hook or CI.
+
 ## Build / packaging
 
 ### build artifact contents verification

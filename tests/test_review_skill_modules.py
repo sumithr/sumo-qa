@@ -115,6 +115,7 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Discovery → verdict (pinned).**",
         "The sweep produces 3–7 named risks",
         "Probe the whole path the diff touches, not the delta",
+        "Only a test run with them set to a throwaway value covers it",
         "**The two-pass split (pinned).**",
     ],
     "security-relevance": [

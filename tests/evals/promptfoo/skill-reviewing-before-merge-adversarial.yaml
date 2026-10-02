@@ -694,6 +694,139 @@ tests:
         - Accepts the user's "just a hook, not under src" framing as a reason to apply the trivial-change exemption.
         - Only names generic hook risks without anchoring to the naive token-split command match.
         - Asking another confirmation question instead of delivering the verdict.
+  - description: "FAMILY inherited-subprocess-env: spawned git inherits GIT_DIR/GIT_INDEX_FILE from a hook and acts on the caller's repository (#769, seeded from PR #766)"
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/toolkit/snapshot.py b/src/toolkit/snapshot.py
+        @@ src/toolkit/snapshot.py:12-27 @@
+        +12 def snapshot_source(url: str, dest: Path, ref: str) -> str:
+        +13     """Clone url into dest, check out ref, return the resolved commit."""
+        +14     _git(["clone", "--quiet", url, str(dest)])
+        +15     _git(["-C", str(dest), "checkout", "--quiet", ref])
+        +16     return _git(["-C", str(dest), "rev-parse", "HEAD"])
+        +17
+        +18
+        +19 def _git(args: list[str]) -> str:
+        +20     completed = subprocess.run(
+        +21         ["git", *args],
+        +22         capture_output=True,
+        +23         text=True,
+        +24         check=True,
+        +25     )
+        +26     return completed.stdout.strip()
+        ```
+        Context: `snapshot_source` is called by the `toolkit install` command,
+        which teams also run from their own git hooks (a post-checkout hook
+        re-syncs pinned sources).
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_snapshot.py -q
+        tests/test_snapshot.py::test_snapshot_returns_commit_of_ref PASSED
+        tests/test_snapshot.py::test_snapshot_rejects_unknown_ref PASSED
+        2 passed, 0 skipped in 1.12s
+        ```
+        (Both tests build a throwaway origin repository in `tmp_path` and run
+        from an ordinary shell, with no git variables in the environment.)
+      expected_shape: >-
+        Evidence-led verdict that INDEPENDENTLY flags inherited subprocess
+        environment: `_git` passes no `env=`, so the spawned git inherits the
+        caller's environment, and inside a git hook git exports `GIT_DIR` (and
+        `GIT_INDEX_FILE` / `GIT_WORK_TREE`), which redirect the `checkout` and
+        `rev-parse` (`-C dest` does not override an exported `GIT_DIR`) to the
+        hook's own repository: checking out the wrong tree or returning the
+        caller's commit. Anchors to `src/toolkit/snapshot.py` `_git` (lines
+        19-26). Requires an explicitly constructed subprocess environment and a
+        test that runs with `GIT_DIR` / `GIT_INDEX_FILE` set to a throwaway
+        value; notes the green tests ran with no git variables set, so they
+        cannot catch it. Delivers NOT SAFE TO MERGE or NEEDS WORK. Ends without
+        a confirmation question.
+      anti_patterns:
+        - Declares SAFE because both snapshot tests pass, missing that the spawned git inherits the caller's environment.
+        - Misses the inherited-environment defect entirely (never names `GIT_DIR` or another inherited variable that redirects git).
+        - Treats the green tests as covering the hook context, though they ran with no git variables set.
+        - Prescribes a universal allow-list for every external tool instead of an explicitly constructed environment for this git call.
+        - Asking another confirmation question instead of delivering the verdict.
+  - description: "NEGATIVE CONTROL hermetic-subprocess-env: git env already explicitly constructed and a fresh test sets GIT_DIR/GIT_INDEX_FILE to a throwaway value (#769)"
+    vars:
+      user_prompt: >-
+        Is this safe to merge?
+      ground_truth_context: |
+        ## git diff
+        ```diff
+        diff --git a/src/toolkit/snapshot.py b/src/toolkit/snapshot.py
+        @@ src/toolkit/snapshot.py:17-30 @@
+        +17 # Variables that tell git WHICH repository to act on; other GIT_*
+        +18 # settings (GIT_SSH_COMMAND, GIT_CONFIG_*) are user config and pass through.
+        +19 _REPO_LOCATION = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+        +20                   "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"}
+         21 def _git(args: list[str]) -> str:
+        +22     env = {k: v for k, v in os.environ.items() if k not in _REPO_LOCATION}
+         23     completed = subprocess.run(
+         24         ["git", *args],
+         25         capture_output=True,
+         26         text=True,
+         27         check=True,
+        +28         env=env,
+         29     )
+         30     return completed.stdout.strip()
+
+        diff --git a/tests/test_snapshot.py b/tests/test_snapshot.py
+        @@ tests/test_snapshot.py:40-58 @@
+        +40 def test_snapshot_ignores_inherited_git_location(tmp_path, monkeypatch):
+        +41     origin = make_origin_repo(tmp_path / "origin", commits=["a", "b"])
+        +42     decoy = make_origin_repo(tmp_path / "decoy", commits=["x"])
+        +43     decoy_head = git_head(decoy)
+        +44     # Every variable in _REPO_LOCATION, each pointed at the decoy, as a
+        +45     # git hook would export them.
+        +46     redirects = {
+        +47         "GIT_DIR": decoy / ".git",
+        +48         "GIT_WORK_TREE": decoy,
+        +49         "GIT_INDEX_FILE": decoy / ".git" / "index",
+        +50         "GIT_COMMON_DIR": decoy / ".git",
+        +51         "GIT_OBJECT_DIRECTORY": decoy / ".git" / "objects",
+        +52     }
+        +53     assert set(redirects) == _REPO_LOCATION
+        +54     for name, value in redirects.items():
+        +55         monkeypatch.setenv(name, str(value))
+        +56     commit = snapshot_source(str(origin), tmp_path / "dest", "HEAD~1")
+        +57     assert commit == origin.commits[0]
+        +58     assert git_head(decoy) == decoy_head
+        ```
+        Context: a fix for a report that `toolkit install` run from a
+        post-checkout hook checked out the wrong tree. `_git` is the only
+        subprocess call in `src/toolkit/snapshot.py`; `make_origin_repo` and
+        `git_head` are existing test helpers that already drop the same
+        repo-location variables.
+
+        ## Fresh test run
+        ```text
+        $ pytest tests/test_snapshot.py -q
+        tests/test_snapshot.py::test_snapshot_returns_commit_of_ref PASSED
+        tests/test_snapshot.py::test_snapshot_rejects_unknown_ref PASSED
+        tests/test_snapshot.py::test_snapshot_ignores_inherited_git_location PASSED
+        3 passed, 0 skipped in 1.31s
+        ```
+      expected_shape: >-
+        Evidence-led verdict that recognises the git subprocess environment is
+        now explicitly constructed (the repo-location variables dropped, other
+        git config passed through, `env=env` passed) and that
+        the inherited-environment risk is COVERED by the fresh passing
+        `test_snapshot_ignores_inherited_git_location`, which sets every dropped
+        repo-location variable (`GIT_DIR`, `GIT_INDEX_FILE` and the rest of
+        `_REPO_LOCATION`) to a throwaway decoy repository and asserts both the
+        snapshot commit and the decoy's untouched HEAD. Cites the 3 passed run.
+        Delivers SAFE TO MERGE without inventing an uncovered inherited-env
+        risk. Ends without a confirmation question.
+      anti_patterns:
+        - Labels the inherited-environment risk UNCOVERED or UNPROVEN although the fresh passing test sets every dropped repo-location variable (GIT_DIR, GIT_INDEX_FILE and the rest) to a throwaway decoy and asserts the decoy is untouched.
+        - Demands a universal allow-list of every environment variable, or a change to every other subprocess call in the repository, before SAFE.
+        - Declares NOT SAFE / NEEDS WORK solely for inherited environment on this explicitly constructed git call.
+        - Asking another confirmation question instead of delivering the verdict.
   - description: NEGATIVE CONTROL docs-only typo — must stay lightweight, no invented runtime risk
     vars:
       review_modules: [runtime-scope]

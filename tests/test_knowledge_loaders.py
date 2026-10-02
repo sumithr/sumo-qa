@@ -80,8 +80,40 @@ def test_load_techniques_contains_canonical_techniques():
         "property-based testing",
         "mutation testing",
         "build artifact contents verification",
+        "hermetic subprocess environment",
     ]:
         assert entry in text, f"Missing canonical technique: {entry}"
+
+
+# Issue #769: a spawned external tool inherits the parent environment, so under
+# a git hook GIT_DIR / GIT_INDEX_FILE point it at the caller's repository. Both
+# the TDD and the review guidance must cite the catalogue technique verbatim and
+# name the redirecting variables, the explicit env and the variables-set test.
+# Technique: equivalence partitioning (one representative per guidance surface).
+@pytest.mark.parametrize(
+    "guidance",
+    [
+        "skills/sumo-qa-implementing-with-tdd/SKILL.md",
+        "skills/sumo-qa-reviewing-before-merge/modules/discovery-probes.md",
+    ],
+)
+def test_subprocess_env_guidance_cites_the_hermetic_technique(guidance):
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    assert "### hermetic subprocess environment\n" in (
+        root / "knowledge" / "techniques.md"
+    ).read_text(encoding="utf-8")
+    text = (root / guidance).read_text(encoding="utf-8")
+    for phrase in [
+        "`hermetic subprocess environment`",
+        "`GIT_DIR`",
+        "`GIT_INDEX_FILE`",
+        "`VIRTUAL_ENV`",
+        "explicitly constructed",
+        "set to a throwaway value",
+    ]:
+        assert phrase in text, f"{guidance} lacks {phrase!r}"
 
 
 from sumo_qa.knowledge_loaders import sumo_qa_load_standards
