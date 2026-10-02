@@ -669,6 +669,10 @@ def test_instruction_surface_names_only_registered_tools(surface: str) -> None:
     assert "using_sumo_qa" in named, f"{surface} does not name the entry router"
     unregistered = named - set(server._tool_manager._tools)
     assert not unregistered, f"{surface} names unregistered tools: {sorted(unregistered)}"
+    if surface == "copilot-instructions":
+        # The Copilot skill list is hand-maintained; a new skill tool must be added to it.
+        unlisted = _SKILL_TOOL_NAMES - named
+        assert not unlisted, f"{surface} omits registered skill tools: {sorted(unlisted)}"
 
 
 def test_copilot_instructions_do_not_point_at_unregistered_prompts() -> None:

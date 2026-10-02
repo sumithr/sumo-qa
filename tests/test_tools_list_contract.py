@@ -20,7 +20,11 @@ reads the working tree, not commit state: the server lists skills from
 ``skills/``, so a stale ``_data/skills`` copy shadows the working tree for
 everything that resolves skills through ``skill_prompts._skills_dir()``: the
 server and its tests, the regen script, the installer's derived
-``REQUIRED_TOOL_NAMES``, and conformance.
+``REQUIRED_TOOL_NAMES``, and ``registered_entry_skills()`` in
+``src/sumo_qa/conformance.py``. Tests that read repo-root ``skills/`` directly,
+such as ``tests/test_skill_conformance.py`` and
+``tests/test_skill_md_token_budget.py``, see the working tree, so a stale
+``_data/skills`` shows up as server-backed tests failing while those pass.
 """
 
 # mutmut-subprocess-spawning: spawns a fresh Python interpreter that imports the
