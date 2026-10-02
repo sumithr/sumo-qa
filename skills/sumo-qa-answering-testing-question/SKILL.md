@@ -5,8 +5,6 @@ description: Use after sumo-qa-deciding-approach routes here, when the user asks
 
 # Answering a testing question
 
-**Announce at start:** *"Answering with a cited principle and technique."*
-
 ## Before answering — check fit (Redirect discipline)
 
 FIRST step. Redirect — don't answer with catalogue principles — when the question is really:

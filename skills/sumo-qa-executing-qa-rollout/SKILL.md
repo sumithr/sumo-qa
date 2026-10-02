@@ -7,8 +7,6 @@ description: Use after sumo-qa-planning-qa-rollout to dispatch a written QA plan
 
 Take a written plan from `sumo-qa-planning-qa-rollout` (or a hand-written equivalent at `docs/qa/plans/...`) and execute it by dispatching one fresh subagent per task, then walking each subagent's output through a two-stage review.
 
-**Announce at start:** *"Dispatching the plan with subagents."*
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.
@@ -85,7 +83,6 @@ Match the subagent model to the task shape via the host's worker-delegation prim
 ### Good (parallel wave 1, then sequential wave 2)
 
 > **User:** *"Execute the plan."*
-> **AI (announce):** *"Dispatching the plan with subagents."*
 > **AI:** 6 tasks; 1–5 parallel, 6 sequential on task 1's fixture.
 > **Wave 1:** 5 implementers dispatched in one message → spec → quality → done. Task 4 spec-review fails round 1; passes round 2.
 > **Wave 2:** task 6 dispatches after task 1 commits; two-stage review as before.

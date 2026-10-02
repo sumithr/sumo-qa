@@ -7,8 +7,6 @@ description: Use after sumo-qa-deciding-approach routes here, when a test is fai
 
 Separate *why it failed* from *how to fix it*: the same red bar can mean a product regression, a wrong test, stale fixture data, a broken environment, an order/timing race, or a flaky external service, each needing a different response. Patch before naming the cause and a test bug gets "fixed" in the product, or a real regression is buried under a rerun. The output is a **cause classification plus the smallest next verification step**, never a fix first.
 
-**Announce at the start of EVERY turn while this skill is active** — triage, isolation-step, rerun-with-hypothesis, hand-off, and refusal turns all open with: *"Triaging this failure before any fix."* A turn that skips the announce has left the triage discipline.
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: no internal taxonomy labels (say *"the test's own expectation is stale"*, not *"Cause: test_bug"*), findings not framing, one question per turn.
@@ -70,13 +68,13 @@ The Checklist above is the flow.
 
 > User: *"`test_user_cache_hit` keeps failing in the full run but passes when I run it alone."*
 >
-> **AI:** *"Triaging this failure before any fix. Passing alone but failing in the full suite points away from the product, toward shared state or order: likely another test leaves the cache populated. Experiment: run the cache tests in randomised / reversed order, once with `test_user_cache_hit` first. If it fails even when first ⇒ suite-wide setup or shared state, not a predecessor. If it fails only after `test_user_cache_populate` ⇒ an order/state leak, not a cache bug. If it never fails ⇒ widen to parallel runs or another test. Can you run that and paste the result?"*
+> **AI:** *"Passing alone but failing in the full suite points away from the product, toward shared state or order: likely another test leaves the cache populated. Experiment: run the cache tests in randomised / reversed order, once with `test_user_cache_hit` first. If it fails even when first ⇒ suite-wide setup or shared state, not a predecessor. If it fails only after `test_user_cache_populate` ⇒ an order/state leak, not a cache bug. If it never fails ⇒ widen to parallel runs or another test. Can you run that and paste the result?"*
 
 ### Good (fixture/data failure, fix stays out of production)
 
 > User pastes: `KeyError: 'GBP'` in `test_convert_to_gbp`, traceback ending in the test's `rates = load_rates()`.
 >
-> **AI:** *"Triaging this failure before any fix. The `KeyError: 'GBP'` is raised inside the test's fixture load (`load_rates()`), not the conversion code — so `convert()` never ran. That's a fixture/data problem, not a product regression. Experiment: run `test_convert_to_gbp` alone against a freshly built rates fixture, printing what that fixture holds for `GBP`. If it still fails with no usable `GBP` row ⇒ the fixture itself is stale. If it still fails with a correct `GBP` row present ⇒ re-open, the fault is past the fixture. If it passes ⇒ another test is mutating the shared table. On the stale-fixture and shared-state outcomes the fix lives in the fixture setup; `convert()` stays untouched."*
+> **AI:** *"The `KeyError: 'GBP'` is raised inside the test's fixture load (`load_rates()`), not the conversion code — so `convert()` never ran. That's a fixture/data problem, not a product regression. Experiment: run `test_convert_to_gbp` alone against a freshly built rates fixture, printing what that fixture holds for `GBP`. If it still fails with no usable `GBP` row ⇒ the fixture itself is stale. If it still fails with a correct `GBP` row present ⇒ re-open, the fault is past the fixture. If it passes ⇒ another test is mutating the shared table. On the stale-fixture and shared-state outcomes the fix lives in the fixture setup; `convert()` stays untouched."*
 
 ### Bad (rerun-to-green + wrong-layer fix)
 

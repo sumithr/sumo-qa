@@ -5,8 +5,6 @@ description: Use when sumo-qa-deciding-approach routes here (no native sumo-qa s
 
 # Suggesting an external skill
 
-**Announce at start:** *"Checking external skills through sumo-qa — no native sumo-qa capability fits."*
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — including `entry_kind` — say *"this needs a PDF-to-markdown converter first"*, not *"entry_kind: conversion"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.

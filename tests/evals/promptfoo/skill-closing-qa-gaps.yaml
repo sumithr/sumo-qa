@@ -13,12 +13,9 @@ defaultTest:
     skill_content: file://../../../skills/sumo-qa-closing-qa-gaps/SKILL.md
   assert:
     - type: javascript
-      # The skill's announce line — deterministic proof the candidate is
-      # running the loop discipline rather than answering ad hoc. Every turn
-      # of the loop (including a refusal turn) OPENS with it, so the match is
-      # anchored to the start (allowing leading whitespace/markdown emphasis/
-      # quote markers) — a mention buried mid-response does not count.
-      value: '/^[\s>*_"'']{0,8}closing one qa gap at a time/i.test(output)'
+      # No scripted opening line (#735): the reply opens on the work, not a
+      # self-narrating preamble. Loop discipline itself is the judge's axis.
+      value: '!/^[\s>*_"'']{0,8}closing one qa gap at a time/i.test(output)'
       threshold: 1
     - type: llm-rubric
       value: |

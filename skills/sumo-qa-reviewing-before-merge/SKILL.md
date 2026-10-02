@@ -7,8 +7,6 @@ description: Use after sumo-qa-deciding-approach routes here, when the user asks
 
 Help the user decide whether a change is safe to ship, one Checklist section at a time; ask for the product context the diff cannot reveal, never assume it.
 
-**Announce at start:** *"Reviewing the diff against fresh test evidence."*
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: **output discipline** (no internal taxonomy labels or raw change-rule keys; cite rules in plain English), **output economy** (findings not preamble; one question per turn; no pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit.

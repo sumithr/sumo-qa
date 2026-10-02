@@ -101,6 +101,25 @@ transcripts:
       The classification of this change is a behaviour change in pricing, so a
       regression-first approach would be wrong here: nothing is broken yet.
 
+  # The downstream reply seen on a real Claude Code install (#735): a qualified
+  # label ("Approach restated") whose title-cased catalogue value runs on into
+  # prose.
+  - id: taxonomy-qualified-label-with-prose
+    scenario_id: S11-router-invocation
+    family: taxonomy_label
+    leaks: true
+    output_text: |
+      **Approach restated:** Regression-first for infrastructure change to payments service.
+      The named risk is traffic still reaching the old load balancer.
+
+  - id: taxonomy-clean-qualified-prose
+    scenario_id: S11-router-invocation
+    family: taxonomy_label
+    leaks: false
+    output_text: |
+      We take a regression-first approach here: pin the payments path first.
+      Approach chosen with the team: regression-first thinking does not fit yet.
+
   # ---------------------------------------------------------- route_announcement
   - id: announce-picking-approach
     scenario_id: S10-no-tests-needed

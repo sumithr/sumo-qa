@@ -5,8 +5,6 @@ description: Use after sumo-qa-deciding-approach routes here, when the user asks
 
 # Finding test data
 
-**Announce at start:** *"Finding test data — validated fresh."*
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.

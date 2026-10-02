@@ -477,7 +477,8 @@ def find_routing_leaks(text: str) -> tuple[str, ...]:
     prose that says "approach" or "classification", a downstream plan's
     progress markers, or a config snippet is not a leak. A taxonomy label only
     counts when its value is exactly a catalogue entry name (or ``n/a``), read
-    from the live catalogues."""
+    from the live catalogues; a qualified label ("Approach restated:") counts
+    when its value opens with one, whatever prose follows."""
     text = _normalise(text)
     checks = {
         "payload_json": _has_routing_payload,
@@ -596,7 +597,28 @@ def _brace_spans(text: str) -> list[str]:
 
 def _has_taxonomy_label(text: str) -> bool:
     names = _catalogue_names()
-    return bool(names) and bool(_label_re(names).search(text))
+    return bool(names) and bool(
+        _label_re(names).search(text) or _qualified_label_re(names).search(text)
+    )
+
+
+# Words that turn a label into self-narration ("Approach restated:", "Chosen
+# approach:"); such a label leaks its catalogue value even when prose follows.
+_LABEL_QUALIFIER = r"(?:re-?stated|chosen|selected|picked|identified)"
+
+
+@lru_cache(maxsize=4)
+def _qualified_label_re(names: frozenset[str]) -> re.Pattern[str]:
+    """A qualified label at line start whose value opens with a whole catalogue
+    name (or ``n/a``), whatever follows it (#735)."""
+    alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    label = r"(?:classification|approach)"
+    return re.compile(
+        rf"^[ \t]*(?:(?:[-+*]|>+|#{{1,6}}|\d{{1,3}}[.)])[ \t]+)*{_DECO}*"
+        rf"(?:{_LABEL_QUALIFIER}[ \t]+{label}|{label}[ \t]+{_LABEL_QUALIFIER})"
+        rf"{_DECO}*[ \t]*:[ \t{_DECO_SET}]*(?:{alternatives}|n/a)(?![A-Za-z0-9_/-])",
+        re.IGNORECASE | re.MULTILINE | re.ASCII,
+    )
 
 
 @lru_cache(maxsize=4)

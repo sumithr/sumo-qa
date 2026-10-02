@@ -7,8 +7,6 @@ description: Use after sumo-qa-deciding-approach picks strengthen-test-coverage.
 
 Help the user kill weak assertions and surviving mutants, one survivor at a time. The user has judgement context (is this mutant "real" given how the code is consumed in practice?) the AI can't infer from the report alone — surface it through questions, don't assume it.
 
-**Announce at start:** *"Killing the mutation survivors, one at a time."*
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.

@@ -7,8 +7,6 @@ description: Use after sumo-qa-deciding-approach routes here, when explicit secu
 
 Security testing here means turning an already grounded security concern into the smallest evidence that proves the risk is covered.
 
-**Announce at start:** *"Focusing the security test evidence."* It opens every reply, anchored or not.
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: grounded risks only, no internal taxonomy labels, no vulnerability checklist or vendor/tool-name dump, and no external setup without confirmation.
@@ -23,11 +21,11 @@ Grounded risk first, tool second. Do not recommend a scanner, external skill, li
 
 ## When to Use
 
-Use after `sumo-qa-deciding-approach` routes an explicit security-testing request here, or after another sumo-qa workflow has named a material security gap that needs more than a normal regression test / review line. Low-evidence prompt: no brief; announce, ask for the scope, stop.
+Use after `sumo-qa-deciding-approach` routes an explicit security-testing request here, or after another sumo-qa workflow has named a material security gap that needs more than a normal regression test / review line. Low-evidence prompt: no brief; ask for the scope, stop.
 
 ## Checklist
 
-1. Confirm the source anchor: file, flow, config, dependency, data path, or explicit user-stated scope. If none exists, announce, note no anchor, ask one scope question; stop. No hypothetical risks/actions.
+1. Confirm the source anchor: file, flow, config, dependency, data path, or explicit user-stated scope. If none exists, note no anchor, ask one scope question; stop. No hypothetical risks/actions.
 2. Load `sumo_qa_load_standards(classification="security_change")`, `sumo_qa_load_rules(classification="security_change")`, and `sumo_qa_load_techniques()`. Use repo-map or file reads when available to verify the path.
 3. State the grounded failure mode in concrete terms: who/what can do something they should not, which token/secret/input/config can fail, or which security control can regress. For account-recovery or lookup flows, include account enumeration when the request path can reveal user existence.
 4. Choose the smallest evidence type that fits: native test, review, static check, dynamic check, config check, dependency check, fuzz/property check, or external tool/skill.
@@ -67,7 +65,7 @@ Follow the Checklist in order.
 | "Security means list OWASP categories." | No. Name the concrete failure mode the repo or user scope exposes. |
 | "Use ZAP/Burp/Snyk because this is security." | Tool names are earned by stack + risk evidence; otherwise choose native tests or review. |
 | "The prompt says security testing, so broad live DAST is fine." | Live or invasive testing needs explicit scope and confirmation. Prefer safe local checks first. |
-| "No files or flow are visible, but I'll infer likely vulnerabilities." | Announce, then ask one scope question. Ungrounded claims fail the contract. |
+| "No files or flow are visible, but I'll infer likely vulnerabilities." | Ask one scope question. Ungrounded claims fail the contract. |
 | "A scanner found nothing, so risk is covered." | A specific risk is covered only by evidence that exercises or checks that path. |
 
 ## Examples
@@ -90,7 +88,7 @@ Brief: grounded risk is any authenticated user reading another user's document. 
 
 ### No anchor
 
-User: "Pen-test our platform." Good: "Focusing the security test evidence. No source anchor given; which flow, file, or concern should I test?" Bad: leading with a verdict ("Insufficient scope.") instead. With an anchor, never claim one is missing.
+User: "Pen-test our platform." Good: "No source anchor given; which flow, file, or concern should I test?" Bad: leading with a verdict ("Insufficient scope.") instead. With an anchor, never claim one is missing.
 
 ## Next skill in the chain
 

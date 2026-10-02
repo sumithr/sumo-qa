@@ -7,8 +7,6 @@ description: Use at the end of a QA rollout (after sumo-qa-executing-qa-rollout,
 
 Close the loop on a QA rollout. The execution is done; now the user needs evidence they can show their team / their reviewer / their PR.
 
-**Announce at start:** *"Capturing evidence and writing the summary."*
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: **output discipline** (never surface internal taxonomy labels — say *"behaviour change in pricing"*, not *"Classification: business_logic_change"*), **output economy** (spend output on findings not framing; no preamble or self-narration; one question per turn; no closing pleasantries), knowledge authority hierarchy, internal scaffolding stays internal, and specialty-tool fit.

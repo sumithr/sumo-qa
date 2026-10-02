@@ -7,8 +7,6 @@ description: Use after sumo-qa-deciding-approach routes here, when the user want
 
 Turn a repo's coverage/mutation run into evidence the QA report can cite. The report reads `.sumo-qa/coverage.json` and `.sumo-qa/mutation.json`; this skill produces them. The host (you) runs the tool and reads its output; the MCP tools only validate + persist.
 
-**Announce at start:** *"Measuring coverage/mutation and recording it for the report."*
-
 ## Output discipline (mandatory)
 
 Inherits the global discipline from `using-sumo-qa`: never surface internal taxonomy labels; spend output on findings not framing; one question per turn; no preamble or closing pleasantries.

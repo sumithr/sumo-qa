@@ -18,7 +18,9 @@ defaultTest:
     techniques: file://../../../knowledge/techniques.md
   assert:
     - type: javascript
-      value: '/^[\s>*_"'']{0,8}focusing the security test evidence/i.test(output)'
+      # No scripted opening line (#735): the reply opens on the work, not a
+      # self-narrating preamble.
+      value: '!/^[\s>*_"'']{0,8}focusing the security test evidence/i.test(output)'
       threshold: 1
     - type: llm-rubric
       value: |

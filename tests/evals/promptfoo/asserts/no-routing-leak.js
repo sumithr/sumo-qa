@@ -15,7 +15,10 @@
 //   * taxonomy_label     a bare `Classification:` / `Approach:` line whose
 //                        value is exactly a catalogue entry name (read from
 //                        knowledge/) or n/a, optionally followed by a second
-//                        label pair (after . , ; a space, or glued);
+//                        label pair (after . , ; a space, or glued); or a
+//                        qualified label ("Approach restated:", "Chosen
+//                        approach:") whose value opens with a whole catalogue
+//                        name, whatever prose follows;
 //   * route_announcement "Picking the QA approach", "Routing this QA intent",
 //                        "Routing/Routed [this|you|it] to [the] sumo-qa-...",
 //                        or a first-person "I'm routing you to" / "I'll route
@@ -225,9 +228,38 @@ function labelRegExp(names) {
   return labelCache.get(key);
 }
 
+// Words that turn a label into self-narration; such a label leaks its
+// catalogue value even when prose follows (#735).
+const LABEL_QUALIFIER = '(?:re-?stated|chosen|selected|picked|identified)';
+const qualifiedLabelCache = new Map();
+
+// A qualified label at line start whose value opens with a whole catalogue
+// name (or n/a), whatever follows it.
+function qualifiedLabelRegExp(names) {
+  const key = names.join('|');
+  if (!qualifiedLabelCache.has(key)) {
+    const alternatives = names.map(escapeRegExp).join('|');
+    const decoChars = escapeRegExp('*_`"\'\u201c\u201d');
+    const deco = `[${decoChars}]*`;
+    const label = '(?:classification|approach)';
+    qualifiedLabelCache.set(
+      key,
+      new RegExp(
+        `^[ \\t]*(?:(?:[-+*]|>+|#{1,6}|\\d{1,3}[.)])[ \\t]+)*${deco}` +
+          `(?:${LABEL_QUALIFIER}[ \\t]+${label}|${label}[ \\t]+${LABEL_QUALIFIER})` +
+          `${deco}[ \\t]*:[ \\t${decoChars}]*(?:${alternatives}|n/a)(?![A-Za-z0-9_/-])`,
+        'im',
+      ),
+    );
+  }
+  return qualifiedLabelCache.get(key);
+}
+
 function hasTaxonomyLabel(text) {
   const names = catalogueNames().sort((a, b) => b.length - a.length);
-  return names.length > 0 && labelRegExp(names).test(text);
+  return (
+    names.length > 0 && (labelRegExp(names).test(text) || qualifiedLabelRegExp(names).test(text))
+  );
 }
 
 const CHECKS = {
