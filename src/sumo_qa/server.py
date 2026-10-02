@@ -99,6 +99,7 @@ from sumo_qa.skill_manifest import (
 )
 from sumo_qa.skill_prompts import register_skills_as_prompts
 from sumo_qa.skill_resources import register_skill_resources
+from sumo_qa.tool_registry import profile_tool_names, resolve_profile
 from sumo_qa.tools import QAShiftLeftService
 
 # Reusable actionable hints for isError envelopes. Hosts surface these to the
@@ -581,6 +582,26 @@ def _drop_structured_output(mcp: Any) -> None:
         tool.__dict__.pop("output_schema", None)
 
 
+def _apply_profile(mcp: Any, profile: str) -> None:
+    """Remove every registered tool outside ``profile``, once at build time.
+
+    The profile's names come from ``sumo_qa.tool_registry``; a registered tool
+    with no registry entry raises, so a new tool cannot ship without capability
+    metadata. Removal keeps the registration order, so ``tools/list`` order is
+    deterministic per profile and ``full`` is byte-identical to the unfiltered
+    list."""
+    allowed = profile_tool_names(profile)
+    known = profile_tool_names("full")
+    for tool in mcp._tool_manager.list_tools():
+        if tool.name not in known:
+            raise ValueError(
+                f"tool {tool.name!r} has no capability metadata; add it to "
+                "sumo_qa.tool_registry.TOOLS"
+            )
+        if tool.name not in allowed:
+            mcp.remove_tool(tool.name)
+
+
 def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     try:
         from mcp.server.mcpserver import MCPServer
@@ -588,6 +609,7 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
     except ImportError as exc:
         raise RuntimeError("The MCP SDK is not installed. Run `pip install -e .`.") from exc
 
+    profile = resolve_profile()
     qa_service = service or build_service()
     mcp = MCPServer(
         "sumo-qa",
@@ -2036,10 +2058,15 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
 
     register_skills_as_prompts(mcp)
     register_skill_resources(mcp)
+    _apply_profile(mcp, profile)
     _slim_tool_schemas(mcp)
     _drop_structured_output(mcp)
     return mcp
 
 
 def main() -> None:
+    try:
+        resolve_profile()
+    except ValueError as exc:
+        raise SystemExit(f"sumo-qa: {exc}") from None
     build_mcp_server().run()
