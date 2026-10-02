@@ -156,6 +156,9 @@ class TestNpmScripts:
 
 # The variables node reads to decide whether to colour its output.
 _COLOUR_ENV = ("FORCE_COLOR", "NO_COLOR", "NODE_DISABLE_COLORS")
+# promptfoo's info-level output line, coloured yellow when colour is on.
+_PLAIN_LINE = "Writing output to"
+_COLOURED_LINE = f"\x1b[33m{_PLAIN_LINE}"
 _FAILING_CLAUDE = "#!/bin/sh\necho 'stand-in claude must not be called' >&2\nexit 97\n"
 
 
@@ -178,7 +181,7 @@ def _run_eval(
         k: v
         for k, v in os.environ.items()
         if not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_"))
-        and k not in ("TIER", "LOG_LEVEL", *_COLOUR_ENV)
+        and k not in ("TIER", "LOG_LEVEL", "PROMPTFOO_CONFIG_DIR", *_COLOUR_ENV)
     }
     env["PATH"] = f"{fakebin}{os.pathsep}{env.get('PATH', '')}"
     env["SUMO_EVAL_DRY_RUN"] = "1"
@@ -297,16 +300,18 @@ def _report_path(config: Path) -> Path:
 
 @_posix_only
 @_needs_promptfoo
-class TestRunEvalHarnessErrorIsNotAProviderAbort:
-    """When promptfoo fails before writing a readable report (a misspelled config
-    path, malformed YAML), no model answered and nothing was graded. That is a
+class TestRunEvalReportClassification:
+    """How the runner classifies a run by its report. When promptfoo fails before
+    writing a readable report (a misspelled config path, malformed YAML), no model
+    answered and nothing was graded. That is a
     harness or config error: it must not print `[eval] ABORT:` or exit 3, which
     mean a readable report carried provider or judge errors. The boundary cases
     alongside it check the other side: a readable report with provider errors
     exits 3, and a clean report exits 0, in each colour environment. Every case is
     a real run with dry run off and the stand-in `claude` on PATH; the harness
     error cases stop before any provider call, and the report cases call the
-    stand-in once.
+    stand-in once. promptfoo's store points under `tmp_path`, so these runs never
+    write the developer's `~/.promptfoo` database or logs.
     """
 
     def _real_run(
@@ -318,7 +323,12 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
             return _run_eval(
                 tmp_path,
                 str(config),
-                env_overrides={"SUMO_EVAL_DRY_RUN": "", **env},
+                env_overrides={
+                    "SUMO_EVAL_DRY_RUN": "",
+                    "PROMPTFOO_CONFIG_DIR": str(tmp_path / "promptfoo-store"),
+                    "PROMPTFOO_DISABLE_TELEMETRY": "1",
+                    **env,
+                },
                 claude_script=claude_script,
             )
         finally:
@@ -352,26 +362,27 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         config.write_text('description: one case\nprompts: ["Say hi"]\ntests:\n  - vars: {}\n')
         return config
 
-    def _assert_colour_case(self, result: subprocess.CompletedProcess, colour_env: dict) -> None:
+    def _assert_colour_case(self, result: subprocess.CompletedProcess, coloured: bool) -> None:
         # promptfoo colours its "Writing output to" line only when colour is on (its
         # results table borders are grey either way, so a bare escape proves nothing).
-        # Seeing the coloured line proves the forced case really ran with colour on,
-        # so it cannot pass as a colour-off run; its absence proves the opt-out case
-        # really ran with colour off.
-        if colour_env.get("FORCE_COLOR", "0") != "0":
-            assert "\x1b[33mWriting output to" in result.stdout, result.stdout
-        else:
-            assert "\x1b[33mWriting output to" not in result.stdout, result.stdout
+        # The plain line is always printed, so the coloured line's absence means
+        # colour was off rather than that the line was never written.
+        assert _PLAIN_LINE in result.stdout, result.stdout
+        assert (_COLOURED_LINE in result.stdout) is coloured, result.stdout
 
-    # Two classes of colour environment, one case each: colour forced on, and the
-    # NO_COLOR opt-out. Forced colour is what made node print a coloured count.
+    # Two classes of colour environment, one case each. Colour forced on: forced
+    # colour is the case where node colours a logged number. Colour off: stdout is
+    # a pipe and the caller's colour env is scrubbed, so colour is already off;
+    # NO_COLOR=1 is the opt-out the issue names, and both lead to colour off.
     _COLOUR_CASES = pytest.mark.parametrize(
-        "colour_env", [{"FORCE_COLOR": "1"}, {"NO_COLOR": "1"}], ids=["force-color", "no-color"]
+        ("colour_env", "coloured"),
+        [({"FORCE_COLOR": "1"}, True), ({"NO_COLOR": "1"}, False)],
+        ids=["force-color", "no-color"],
     )
 
     @_COLOUR_CASES
     def test_a_readable_report_with_provider_errors_still_aborts_with_3(
-        self, tmp_path: Path, colour_env: dict[str, str]
+        self, tmp_path: Path, colour_env: dict[str, str], coloured: bool
     ) -> None:
         """The other side of the boundary: a report that exists and carries
         `stats.errors > 0` is the provider abort. The stand-in `claude` exits
@@ -384,11 +395,11 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         assert result.returncode == 3, (result.returncode, result.stdout, result.stderr)
         assert "[eval] ABORT:" in result.stderr and "(errors=1)" in result.stderr, result.stderr
         assert "produced no readable report" not in result.stderr, result.stderr
-        self._assert_colour_case(result, colour_env)
+        self._assert_colour_case(result, coloured)
 
     @_COLOUR_CASES
     def test_a_clean_report_exits_0_without_an_abort(
-        self, tmp_path: Path, colour_env: dict[str, str]
+        self, tmp_path: Path, colour_env: dict[str, str], coloured: bool
     ) -> None:
         """A report with `stats.errors == 0` is a clean run and exits 0. The stand-in
         `claude` answers with a success envelope, and the config has no asserts, so
@@ -403,8 +414,11 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         result = self._real_run(tmp_path, config, claude_script=answering_claude, **colour_env)
         assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
         assert "[eval] ABORT:" not in result.stdout + result.stderr, result.stderr
-        assert "[eval] ERROR:" not in result.stderr, result.stderr
-        self._assert_colour_case(result, colour_env)
+        # The stand-in's answer reached promptfoo's results table, so the case was
+        # really run against the stand-in and graded (colour codes stripped, since the
+        # forced case colours the PASS cell).
+        assert "[PASS] hi" in re.sub(r"\x1b\[[0-9;]*m", "", result.stdout), result.stdout
+        self._assert_colour_case(result, coloured)
 
 
 @_posix_only
