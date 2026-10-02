@@ -18,7 +18,8 @@ renaming a skill therefore needs
 reads the working tree, not commit state: the server lists skills from
 ``src/sumo_qa/_data/skills`` when that directory exists, else from repo-root
 ``skills/``, so a stale ``_data/skills`` copy shadows the working tree for
-both this test and the regen script.
+every test that builds the server (this one, ``test_server.py``,
+``test_skill_triggering.py``), the skill manifest, and the regen script.
 """
 
 # mutmut-subprocess-spawning: spawns a fresh Python interpreter that imports the
