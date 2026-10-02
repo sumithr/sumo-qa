@@ -14,9 +14,9 @@ schema bodies can still go stale.
 The exact set includes the skill tools registered from ``skills/*/SKILL.md``
 (unlike ``installer.REQUIRED_TOOL_NAMES``, which excludes them). Adding or
 renaming a skill therefore needs
-``uv run python scripts/regen_tools_list_snapshot.py`` in the same PR, and an
-uncommitted work-in-progress skill directory under ``skills/`` makes this test
-fail locally.
+``uv run python scripts/regen_tools_list_snapshot.py`` in the same PR. The test
+reads the working tree, not commit state: any ``skills/<name>/SKILL.md``
+present in the working tree but absent from the snapshot fails it.
 """
 
 # mutmut-subprocess-spawning: spawns a fresh Python interpreter that imports the
@@ -126,7 +126,10 @@ def _assert_tool_set_matches(snapshot: dict, live_names: set[str]) -> None:
     schema_names = set(snapshot["schemas"])
     stale_schemas = sorted(schema_names - live_names)
     missing_schemas = sorted(live_names - schema_names)
+    duplicates = sorted(n for n in pinned if snapshot["required_tools"].count(n) > 1)
     problems = []
+    if duplicates:
+        problems.append(f"Duplicate names in required_tools: {duplicates}.")
     if removed or unpinned:
         problems.append(
             f"Live tools/list differs from the snapshot. Removed or renamed: {removed}. "
@@ -146,8 +149,8 @@ def test_snapshot_tool_set_matches_live(snapshot, live_tools) -> None:
 
 
 # Pure-logic regression tests: one per equivalence partition of the guard
-# (match, missing-from-snapshot, missing-from-live, stale-schema, missing-schema,
-# name-plus-schema drift together).
+# (match, missing-from-snapshot, missing-from-live, duplicate-pinned-name,
+# stale-schema, missing-schema, name-plus-schema drift together).
 # Names share a prefix so a substring match cannot satisfy the positional check.
 _LIVE = {"load", "load_more"}
 
@@ -189,12 +192,23 @@ def test_pinned_tool_no_longer_live_fails_the_guard() -> None:
     assert not _listed_under(msg, "Removed or renamed:", "load")
 
 
+def test_duplicate_pinned_tool_name_fails_the_guard() -> None:
+    snap = _snap(_LIVE, _LIVE)
+    snap["required_tools"].append("load_more")
+    with pytest.raises(AssertionError) as exc:
+        _assert_tool_set_matches(snap, _LIVE)
+    msg = str(exc.value)
+    assert _listed_under(msg, "Duplicate names in required_tools:", "load_more")
+    assert not _listed_under(msg, "Duplicate names in required_tools:", "load")
+
+
 def test_schema_for_tool_not_live_fails_the_guard() -> None:
     with pytest.raises(AssertionError) as exc:
         _assert_tool_set_matches(_snap(_LIVE, _LIVE | {"loader"}), _LIVE)
     msg = str(exc.value)
     assert _listed_under(msg, "Schemas for tools not live:", "loader")
     assert not _listed_under(msg, "Schemas for tools not live:", "load")
+    assert not _listed_under(msg, "Live tools with no schema entry:", "loader")
     assert "Removed or renamed:" not in msg
 
 
@@ -204,6 +218,7 @@ def test_live_tool_without_schema_entry_fails_the_guard() -> None:
     msg = str(exc.value)
     assert _listed_under(msg, "Live tools with no schema entry:", "load_more")
     assert not _listed_under(msg, "Live tools with no schema entry:", "load")
+    assert not _listed_under(msg, "Schemas for tools not live:", "load_more")
     assert "Removed or renamed:" not in msg
 
 
@@ -213,6 +228,8 @@ def test_unregenerated_snapshot_reports_name_and_schema_drift_together() -> None
     msg = str(exc.value)
     assert _listed_under(msg, "Registered but missing from the snapshot:", "load_more")
     assert _listed_under(msg, "Live tools with no schema entry:", "load_more")
+    assert not _listed_under(msg, "Removed or renamed:", "load_more")
+    assert "'load'" not in msg
 
 
 def test_schema_drift_warns(snapshot, live_tools) -> None:
