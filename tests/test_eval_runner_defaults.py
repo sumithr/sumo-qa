@@ -16,8 +16,8 @@ The run-eval.sh resolution cases use its `SUMO_EVAL_DRY_RUN=1` mode, which
 prints each promptfoo command instead of running it, with a stand-in `claude` on
 PATH for the CLI preflight. The report-classification cases run promptfoo for
 real against a missing or malformed config (it stops before any provider call)
-or a one-case config whose only call reaches the stand-in `claude`, which fails.
-No model is called.
+or a one-case config whose only call reaches the stand-in `claude`, which either
+fails or answers with a canned success envelope. No model is called.
 
 Technique: equivalence partitioning over the backend input (unset / claude /
 local / cloud / garbage) and over the target argument (none / one config /
@@ -154,16 +154,21 @@ class TestNpmScripts:
 # --------------------------------------------------------------------------- #
 
 
-_COLOUR_ENV = ("FORCE_COLOR", "NO_COLOR", "CLICOLOR_FORCE")
+# The variables node reads to decide whether to colour its output.
+_COLOUR_ENV = ("FORCE_COLOR", "NO_COLOR", "NODE_DISABLE_COLORS")
+_FAILING_CLAUDE = "#!/bin/sh\necho 'stand-in claude must not be called' >&2\nexit 97\n"
 
 
 def _run_eval(
-    tmp_path: Path, *args: str, env_overrides: dict[str, str] | None = None
+    tmp_path: Path,
+    *args: str,
+    env_overrides: dict[str, str] | None = None,
+    claude_script: str = _FAILING_CLAUDE,
 ) -> subprocess.CompletedProcess:
     fakebin = tmp_path / "bin"
     fakebin.mkdir(exist_ok=True)
     claude = fakebin / "claude"
-    claude.write_text("#!/bin/sh\necho 'stand-in claude must not be called' >&2\nexit 97\n")
+    claude.write_text(claude_script)
     claude.chmod(0o755)
     # The caller's colour settings are dropped too, so a test's colour case is the
     # one it sets, not whatever the terminal running pytest happens to export.
@@ -297,11 +302,18 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
     off and the stand-in `claude` on PATH; promptfoo stops before any provider call.
     """
 
-    def _real_run(self, tmp_path: Path, config: Path, **env: str) -> subprocess.CompletedProcess:
+    def _real_run(
+        self, tmp_path: Path, config: Path, claude_script: str = _FAILING_CLAUDE, **env: str
+    ) -> subprocess.CompletedProcess:
         report = _report_path(config)
         report.unlink(missing_ok=True)
         try:
-            return _run_eval(tmp_path, str(config), env_overrides={"SUMO_EVAL_DRY_RUN": "", **env})
+            return _run_eval(
+                tmp_path,
+                str(config),
+                env_overrides={"SUMO_EVAL_DRY_RUN": "", **env},
+                claude_script=claude_script,
+            )
         finally:
             report.unlink(missing_ok=True)
 
@@ -325,30 +337,64 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         config.write_text('description: bad\nprompts: [\n  - "x\ntests: : :\n', encoding="utf-8")
         self._assert_harness_error(self._real_run(tmp_path, config))
 
-    # Equivalence partitioning over the colour environment: colour forced off,
-    # forced on at the 16-colour and truecolor depths, and the NO_COLOR opt-out.
-    @pytest.mark.parametrize(
-        "colour_env",
-        [{"FORCE_COLOR": "0"}, {"FORCE_COLOR": "1"}, {"FORCE_COLOR": "3"}, {"NO_COLOR": "1"}],
-        ids=["force-color-0", "force-color-1", "force-color-3", "no-color-1"],
+    def _one_case_config(self, tmp_path: Path, name: str) -> Path:
+        # The provider id is relative to the config's directory, so `providers/` is
+        # linked beside the config.
+        (tmp_path / "providers").symlink_to(EVAL_DIR / "providers")
+        config = tmp_path / name
+        config.write_text('description: one case\nprompts: ["Say hi"]\ntests:\n  - vars: {}\n')
+        return config
+
+    def _assert_colour_case(self, result: subprocess.CompletedProcess, colour_env: dict) -> None:
+        # promptfoo colours its "Writing output to" line only when colour is on (its
+        # results table borders are grey either way, so a bare escape proves nothing).
+        # Seeing the coloured line proves the forced case really ran with colour on,
+        # so it cannot pass as a colour-off run.
+        if "FORCE_COLOR" in colour_env:
+            assert "\x1b[33mWriting output to" in result.stdout, result.stdout
+
+    # Two classes of colour environment, one case each: colour forced on, and the
+    # NO_COLOR opt-out. Forced colour is what made node print a coloured count.
+    _COLOUR_CASES = pytest.mark.parametrize(
+        "colour_env", [{"FORCE_COLOR": "1"}, {"NO_COLOR": "1"}], ids=["force-color", "no-color"]
     )
+
+    @_COLOUR_CASES
     def test_a_readable_report_with_provider_errors_still_aborts_with_3(
         self, tmp_path: Path, colour_env: dict[str, str]
     ) -> None:
         """The other side of the boundary: a report that exists and carries
         `stats.errors > 0` is the provider abort. The stand-in `claude` exits
-        non-zero, so the one candidate call errors. The provider id is relative
-        to the config's directory, so `providers/` is linked beside the config.
+        non-zero, so the one candidate call errors.
         """
-        (tmp_path / "providers").symlink_to(EVAL_DIR / "providers")
-        config = tmp_path / "zz-pytest-provider-error-config.yaml"
-        config.write_text('description: one case\nprompts: ["Say hi"]\ntests:\n  - vars: {}\n')
-        # Forced colour makes node colour a printed number; the count the runner
-        # compares and prints must stay a plain digit in every colour case.
+        config = self._one_case_config(tmp_path, "zz-pytest-provider-error-config.yaml")
+        # The count the runner compares and prints must stay a plain digit in every
+        # colour case.
         result = self._real_run(tmp_path, config, **colour_env)
         assert result.returncode == 3, (result.returncode, result.stdout, result.stderr)
         assert "[eval] ABORT:" in result.stderr and "(errors=1)" in result.stderr, result.stderr
         assert "produced no readable report" not in result.stderr, result.stderr
+        self._assert_colour_case(result, colour_env)
+
+    @_COLOUR_CASES
+    def test_a_clean_report_exits_0_without_an_abort(
+        self, tmp_path: Path, colour_env: dict[str, str]
+    ) -> None:
+        """A report with `stats.errors == 0` is a clean run and exits 0. The stand-in
+        `claude` answers with a success envelope, and the config has no asserts, so
+        no judge is called. Under forced colour a coloured `0` count would never
+        equal `0` and every clean run would abort.
+        """
+        config = self._one_case_config(tmp_path, "zz-pytest-clean-config.yaml")
+        answering_claude = (
+            "#!/bin/sh\ncat >/dev/null\n"
+            'echo \'{"type": "result", "subtype": "success", "result": "hi"}\'\n'
+        )
+        result = self._real_run(tmp_path, config, claude_script=answering_claude, **colour_env)
+        assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+        assert "[eval] ABORT:" not in result.stdout + result.stderr, result.stderr
+        assert "[eval] ERROR:" not in result.stderr, result.stderr
+        self._assert_colour_case(result, colour_env)
 
 
 @_posix_only
