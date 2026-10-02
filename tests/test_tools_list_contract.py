@@ -18,8 +18,9 @@ renaming a skill therefore needs
 reads the working tree, not commit state: the server lists skills from
 ``src/sumo_qa/_data/skills`` when that directory exists, else from repo-root
 ``skills/``, so a stale ``_data/skills`` copy shadows the working tree for
-every test that builds the server (this one, ``test_server.py``,
-``test_skill_triggering.py``), the skill manifest, and the regen script.
+everything that resolves skills through ``skill_prompts._skills_dir()``: the
+server and its tests, the regen script, the installer's derived
+``REQUIRED_TOOL_NAMES``, and conformance.
 """
 
 # mutmut-subprocess-spawning: spawns a fresh Python interpreter that imports the
@@ -112,9 +113,9 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
     duplicates = sorted(key for key, n in counts.items() if n > 1)
     if duplicates:
         raise ValueError(
-            f"Duplicate key {duplicates[0]!r} in the tools/list snapshot (all repeats: "
-            f"{duplicates}). json.loads would silently keep only the last copy; this "
-            "usually means a bad merge. Re-run `uv run python scripts/regen_tools_list_snapshot.py`."
+            f"Duplicate key {duplicates[0]!r} in the tools/list snapshot (keys repeated in "
+            f"the first JSON object hit with any: {duplicates}). json.loads would silently "
+            "keep only the last copy; this usually means a bad merge. Re-run `uv run python scripts/regen_tools_list_snapshot.py`."
         )
     return dict(pairs)
 
@@ -171,8 +172,11 @@ def test_snapshot_tool_set_matches_live(snapshot, live_tools) -> None:
 # Pure-logic regression tests: one per equivalence partition of the guard
 # (match, missing-from-snapshot, missing-from-live, duplicate-pinned-name,
 # stale-schema, missing-schema, name-plus-schema drift together).
+# test_duplicate_schema_key_in_snapshot_json_fails_the_load covers the JSON load
+# hook (_reject_duplicate_keys), not the guard.
 # Names share a prefix so a substring match cannot satisfy the positional check.
 _LIVE = {"load", "load_more"}
+_SCHEMA_DRIFT_HEADER = "Snapshot schemas keys differ from live tools/list."
 
 
 def _snap(required: set[str], schemas: set[str]) -> dict:
@@ -207,15 +211,17 @@ def test_snapshot_missing_a_registered_tool_fails_the_guard() -> None:
     assert _listed_under(msg, "Registered but missing from the snapshot:", "load_more")
     assert not _listed_under(msg, "Removed or renamed:", "load_more")
     assert not _listed_under(msg, "Registered but missing from the snapshot:", "load")
+    assert _SCHEMA_DRIFT_HEADER not in msg
 
 
 def test_pinned_tool_no_longer_live_fails_the_guard() -> None:
     with pytest.raises(AssertionError) as exc:
-        _assert_tool_set_matches(_snap(_LIVE, _LIVE), {"load"})
+        _assert_tool_set_matches(_snap(_LIVE, {"load"}), {"load"})
     msg = str(exc.value)
     assert _listed_under(msg, "Removed or renamed:", "load_more")
     assert not _listed_under(msg, "Registered but missing from the snapshot:", "load_more")
     assert not _listed_under(msg, "Removed or renamed:", "load")
+    assert _SCHEMA_DRIFT_HEADER not in msg
 
 
 def test_duplicate_pinned_tool_name_fails_the_guard() -> None:
@@ -226,6 +232,7 @@ def test_duplicate_pinned_tool_name_fails_the_guard() -> None:
     msg = str(exc.value)
     assert _listed_under(msg, "Duplicate names in required_tools:", "load_more")
     assert not _listed_under(msg, "Duplicate names in required_tools:", "load")
+    assert _SCHEMA_DRIFT_HEADER not in msg
 
 
 def test_schema_for_tool_not_live_fails_the_guard() -> None:
