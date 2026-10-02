@@ -42,9 +42,12 @@ Set the profile in the host's `sumo-qa` entry `env`. Re-running
 Claude Code), `.vscode/mcp.json`, and Claude Code's own MCP registry
 (user scope in `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json`), which
 it re-registers through `claude mcp add-json` with the old entry's `env`
-(string values only; a CLI without `add-json` gets `claude mcp add -e`). If
-that registration fails, the installer re-adds the entry it removed. Any other
-key you added to an entry is removed.
+(string values only; a CLI without `add-json` gets `claude mcp add -e`, which
+cannot pass `envFile` or any key other than `command`, `args` and `env`, so
+the installer warns naming the keys it drops). If that registration fails, the
+installer re-adds the entry it removed; when the remove itself failed, the old
+entry is still registered and it says so. Any other key you added to an entry
+is removed.
 
 `sumo-qa-doctor --host <host>` probes the entry that host launches, with that
 entry's `env`:
@@ -69,17 +72,33 @@ kept, it follows the host:
   probe drops the shell's value and only the entry picks the profile.
 - VS Code: not verified. Whether its servers see a shell's env depends on
   how VS Code was started (with `code` from that terminal, or from the Dock or
-  Start menu), so the probe keeps the shell's value. It expands
-  `${workspaceFolder}`, `${userHome}` and `${env:NAME}` in the entry as VS
-  Code does. An entry that still holds another `${...}` (such as
-  `${input:...}`, which VS Code prompts for) is a WARN: the doctor cannot
-  know the value, so it does not launch it.
+  Start menu), so the probe keeps the shell's value.
+
+A `${...}` in an entry's command, args or env is read the way its host reads
+it:
+
+- VS Code: `${workspaceFolder}`, `${userHome}` and `${env:NAME}` are expanded
+  as VS Code does, by both the probe and the `vscode_workspace_config` check.
+  An entry that still holds another `${...}` (such as `${input:...}`, which VS
+  Code prompts for) is a WARN in both: the doctor cannot know the value, so it
+  does not launch it. This WARN applies only to VS Code entries.
+- Claude Code: `${VAR}` and `${VAR:-default}` are expanded from the doctor's
+  env, as Claude Code expands them from its own. Verified with Claude Code
+  2.1.287 on a user-scope entry: a set `VAR` (even empty) gives its value, an
+  unset one gives the default, and an unset one with no default stays as
+  written (Claude Code warns "Missing environment variables" and launches it).
+- Claude Desktop: nothing is expanded; the entry launches as written, so a
+  `${...}` in its command is a launch FAIL.
 
 An invalid profile is a FAIL; otherwise the probe requires every tool the
 launch profile serves. An entry whose command cannot be started (a moved
-venv) is a FAIL naming the command and the config file. The doctor does not
-read `envFile`. With no `--host`, or when the host has no `sumo-qa` entry,
-the doctor probes the `sumo-qa` on `PATH` with its own shell env.
+venv) is a FAIL naming the command and the config file. An entry `env` key
+containing `=` cannot be passed to a process: the probe launches without it
+and reports a WARN naming it. The doctor does not read `envFile`. With no
+`--host`, or when the host has no `sumo-qa` entry, the doctor probes the
+`sumo-qa` on `PATH` with its own shell env. The `vscode_workspace_config`
+check judges the same `servers` entry as the probe; an entry only under the
+legacy `mcpServers` key is a FAIL, since VS Code does not register it.
 
 ```json
 {

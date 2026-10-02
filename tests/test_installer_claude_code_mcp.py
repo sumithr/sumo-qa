@@ -12,9 +12,6 @@ import pytest
 
 from sumo_qa import installer
 
-# Registration reads Claude Code's registry from HOME; never the real one.
-pytestmark = pytest.mark.usefixtures("_empty_claude_home")
-
 # No ``select`` fixture needed — the production reader uses a daemon thread +
 # ``queue.Queue.get(timeout=...)``, which works identically on POSIX and
 # Windows. Tests drive the verifier purely through ``_FakeProc.stdout`` lines.
@@ -284,7 +281,79 @@ def test_register_restores_the_previous_entry_when_the_add_fails(
     if restore_ok:
         assert msg.endswith("; restored the previous sumo-qa entry")
     else:
-        assert msg.endswith("; the previous sumo-qa entry could not be restored")
+        assert msg.endswith(
+            "; the previous sumo-qa entry could not be restored "
+            "(claude mcp add-json failed (1): boom)"
+        )
+
+
+def test_register_does_not_restore_when_the_remove_failed(_empty_claude_home: Path) -> None:
+    """A failed remove leaves the previous entry registered, so the add fails
+    on it; the message must say it is still there, not that it was lost."""
+    _seed_registry(_empty_claude_home, {"type": "stdio", "command": "/old"})
+    calls: list[list[str]] = []
+
+    def run_side_effect(cmd, **kwargs):
+        calls.append(cmd)
+        if "remove" in cmd:
+            return subprocess.CompletedProcess(args=cmd, returncode=1, stderr=b"locked")
+        raise _cli_error(cmd, b"MCP server sumo-qa already exists in user config")
+
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", side_effect=run_side_effect),
+    ):
+        msg = installer._register_claude_code_mcp(installer.McpCommand(command="/new"))
+
+    assert len(calls) == 2, "no restore is attempted when nothing was removed"
+    assert msg.endswith(
+        "; `claude mcp remove` also failed, so the previous sumo-qa entry is still registered"
+    ), msg
+
+
+def _no_add_json(cmd, **kwargs):
+    if "add-json" in cmd:
+        raise _cli_error(cmd, b"error: unknown command 'add-json'")
+    return _ok()
+
+
+def test_add_fallback_warns_naming_the_keys_it_cannot_pass(
+    _empty_claude_home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``claude mcp add`` takes only a command, args and env: a kept ``envFile``
+    is dropped, and the installer says so."""
+    _seed_registry(_empty_claude_home, {"command": "/old", "envFile": "/w/.env"})
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", side_effect=_no_add_json),
+    ):
+        msg = installer._register_claude_code_mcp(installer.McpCommand(command="/new"))
+
+    assert "registered" in msg, msg
+    out = capsys.readouterr().out
+    assert "WARNING" in out and "envFile" in out and "type" not in out
+
+
+def test_add_fallback_never_restores_an_entry_without_a_command(_empty_claude_home: Path) -> None:
+    """A URL entry cannot be re-added with ``claude mcp add -- COMMAND``; the
+    installer reports that instead of registering an empty command."""
+    _seed_registry(_empty_claude_home, {"type": "http", "url": "https://example.test/mcp"})
+    adds: list[list[str]] = []
+
+    def run_side_effect(cmd, **kwargs):
+        if cmd[2] == "add":
+            adds.append(cmd)
+            raise _cli_error(cmd, b"boom")
+        return _no_add_json(cmd)
+
+    with (
+        patch("sumo_qa.installer.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("sumo_qa.installer.subprocess.run", side_effect=run_side_effect),
+    ):
+        msg = installer._register_claude_code_mcp(installer.McpCommand(command="/new"))
+
+    assert len(adds) == 1 and adds[0][-1] == "/new"
+    assert msg.endswith("; the entry has no command for `claude mcp add`)"), msg
 
 
 @pytest.mark.skipif(shutil.which("claude") is None, reason="the claude CLI is not installed")

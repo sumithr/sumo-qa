@@ -105,8 +105,16 @@ _BUNDLED_SKILLS = _MODULE_DIR / "_data" / "skills"
 # constant out of sync.
 
 
-@functools.cache
 def _derive_required_tool_names() -> tuple[str, ...]:
+    """The canonical atomic tool surface of the current ``SUMO_QA_MCP_PROFILE``
+    (exits on an invalid one)."""
+    return _required_tool_names_for(resolve_profile_or_exit())
+
+
+# Keyed on the profile: ``build_mcp_server`` reads the same env var, so a
+# profile changed later in the process derives its own surface.
+@functools.cache
+def _required_tool_names_for(_profile: str) -> tuple[str, ...]:
     """Compute the canonical atomic tool surface from the live MCP registry.
 
     Builds the server, then subtracts the dynamic skill-prompt tool names
@@ -118,7 +126,6 @@ def _derive_required_tool_names() -> tuple[str, ...]:
     from sumo_qa import skill_prompts
     from sumo_qa.server import build_mcp_server
 
-    resolve_profile_or_exit()
     mcp = build_mcp_server()
     live_tool_names = set(mcp._tool_manager._tools.keys())
 
@@ -203,6 +210,9 @@ class McpCommand:
     env: dict[str, str] | None = None
     # The config file the entry was read from, for doctor's messages.
     source: str | None = None
+    # A ``${...}`` left after the host's expansion that only the host can fill
+    # at launch (VS Code's ``${input:...}``); doctor reports it, not launches.
+    unexpanded: str | None = None
 
     def to_config_entry(self, *, include_empty_args: bool = False) -> dict:
         """Return the dict shape MCP host configs expect.
@@ -714,8 +724,9 @@ def _register_claude_code_mcp(mcp_cmd: McpCommand) -> str:
     previous install registered a stale invocation — e.g. a binary path that
     no longer exists after a venv move), then re-adds it with the removed
     entry's string ``env`` values kept. If the add fails, re-adds the removed
-    entry so a failed run never loses the registration. Returns a one-line
-    summary for the install output.
+    entry so a failed run never loses the registration (when the remove itself
+    failed, the old entry is still registered and nothing is re-added).
+    Returns a one-line summary for the install output.
 
     No-ops gracefully when the ``claude`` CLI isn't on PATH — users running
     sumo-qa-install on a machine without Claude Code installed only get the
@@ -732,28 +743,39 @@ def _register_claude_code_mcp(mcp_cmd: McpCommand) -> str:
     entry = _refreshed_entry(existing, {"type": "stdio", **mcp_cmd.to_config_entry()})
     if "env" in entry:
         entry["env"] = _string_env(entry["env"])
-    # Remove first; ignore failure (entry may not exist). Idempotent re-add.
-    subprocess.run(
-        [claude, "mcp", "remove", server_name, "-s", "user"],
-        capture_output=True,
-        check=False,
+    # Remove first; a failure is fine when no entry exists. Idempotent re-add.
+    removed = (
+        subprocess.run(
+            [claude, "mcp", "remove", server_name, "-s", "user"],
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
     )
     error = _claude_mcp_add(claude, server_name, entry)
     if error is None:
         return f"registered with claude mcp as `{mcp_cmd.display()}`"
     if existing is None:
         return error
+    if not removed:
+        return (
+            f"{error}; `claude mcp remove` also failed, so the previous sumo-qa "
+            "entry is still registered"
+        )
     restored = {**existing, "env": _string_env(existing.get("env"))}
-    if _claude_mcp_add(claude, server_name, restored) is None:
+    restore_error = _claude_mcp_add(claude, server_name, restored)
+    if restore_error is None:
         return f"{error}; restored the previous sumo-qa entry"
-    return f"{error}; the previous sumo-qa entry could not be restored"
+    return f"{error}; the previous sumo-qa entry could not be restored ({restore_error})"
 
 
 def _claude_mcp_add(claude: str, server_name: str, entry: dict) -> str | None:
     """Register ``entry`` at user scope; ``None`` on success, else the error.
 
     ``add-json`` takes the whole entry. A CLI without it gets ``add`` with one
-    ``-e`` per env value instead. The CLI takes the entry only as an argument
+    ``-e`` per env value instead; ``add`` cannot pass any other key (e.g.
+    ``envFile``, ``url``), so it warns naming them, and an entry with no
+    command is reported, never added. The CLI takes the entry only as an argument
     (not stdin or a file), so env values are briefly visible in the process
     list either way.
     """
@@ -762,6 +784,19 @@ def _claude_mcp_add(claude: str, server_name: str, entry: dict) -> str | None:
     )
     if error is None or "unknown command" not in error.lower():
         return error
+    command = entry.get("command")
+    if not isinstance(command, str) or not command:
+        return f"{error}; the entry has no command for `claude mcp add`"
+    dropped = [
+        k
+        for k in entry
+        if k not in ("command", "args", "env") and (k, entry[k]) != ("type", "stdio")
+    ]
+    if dropped:
+        print(
+            "  WARNING: `claude mcp add` (this claude CLI has no `add-json`) cannot "
+            f"pass {', '.join(dropped)}; the sumo-qa entry is registered without them"
+        )
     # `--` ends option parsing (and `-e`'s variadic list) so server args such
     # as `-m sumo_qa` reach the server, not the CLI.
     env_flags = [f for k, v in entry.get("env", {}).items() for f in ("-e", f"{k}={v}")]
@@ -775,7 +810,7 @@ def _claude_mcp_add(claude: str, server_name: str, entry: dict) -> str | None:
             server_name,
             *env_flags,
             "--",
-            entry.get("command", ""),
+            command,
             *entry.get("args", []),
         ]
     )

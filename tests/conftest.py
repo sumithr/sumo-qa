@@ -31,3 +31,11 @@ def _empty_claude_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
     return home
+
+
+@pytest.fixture(autouse=True)
+def _isolate_doctor_and_installer_home(request: pytest.FixtureRequest) -> None:
+    """The doctor and installer read Claude Code's registry and host configs
+    from HOME, so their test modules always run in ``_empty_claude_home``."""
+    if request.module.__name__.rpartition(".")[2].startswith(("test_doctor", "test_installer")):
+        request.getfixturevalue("_empty_claude_home")
