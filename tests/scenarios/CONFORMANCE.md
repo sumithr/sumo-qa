@@ -7,13 +7,14 @@ into machine-readable contracts and scores a captured host/tool-call transcript
 against them, so "does a host/model actually follow the skill chain?" becomes a
 measured question with concrete artifacts, not a prose claim.
 
-It sits between the two existing layers:
+It sits among the other layers like this:
 
 | Layer | Runs in PR CI? | Needs a model? | What it measures |
 |---|---|---|---|
 | Trigger-routing harness ([`test_skill_triggering.py`](../test_skill_triggering.py) + [`fixtures/skill_triggers.yaml`](../fixtures/skill_triggers.yaml)) | yes | no | a skill's MCP description still carries the natural-language phrase the host routes on |
 | **Conformance validator (this layer)** | yes | no | a captured transcript routed to the right skill, called the required tools, avoided the forbidden ones, kept forbidden claims out of the output |
 | Promptfoo evals ([`../evals/promptfoo/`](../evals/promptfoo/README.md)) | no (manual) | yes | response *quality*: grounding, verbosity, residual risks, anti-patterns |
+| Live-host first hop ([`../../scripts/live_first_hop.py`](../../scripts/live_first_hop.py)) | no (manual) | yes | a real host, given only the sumo-qa tool list, takes the first hop; scored by this layer's validator |
 
 The conformance validator does not replace the promptfoo evals; it pins the
 deterministic contract (routing + tool calls + output markers) that does not
@@ -201,6 +202,139 @@ print(format_report(validate_all(scenarios, [transcript])))
 `format_report` emits a compact per-scenario PASS / FAIL / SKIP line with the
 violated contract inline. It identifies the failing scenario and the broken
 clause without reading raw provider logs.
+
+### Live host first hop
+
+The fixtures above score a transcript; they cannot see whether a real host
+picks `using_sumo_qa` from its tool list. The in-prompt evals preload the
+router skill, so they cannot either.
+[`../../scripts/live_first_hop.py`](../../scripts/live_first_hop.py) runs each
+deterministic scenario's `user_prompt` through `claude -p` with only the
+sumo-qa MCP server of a named build attached, and scores the host's own tool
+calls with `validate_all`:
+
+```bash
+# one build: a git ref (archived, built to a wheel) or a .whl path
+uv run --no-sync python scripts/live_first_hop.py origin/main
+# before/after on the same prompts, limited to the D0x/DC0x set
+uv run --no-sync python scripts/live_first_hop.py origin/main path/to/branch.whl --only 'DC?0'
+```
+
+It is manual and never in PR CI: every prompt is a billed host run on the
+subscription, so follow the promptfoo cost guardrails and narrow the set with
+`--only` (a regex on scenario ids). The default model is `haiku`, the weakest
+candidate: stronger models routed every development-framed prompt on both
+builds and so could not tell them apart. Pass `--model` for an extra data point.
+
+The live (billed) mode runs on macOS and Linux only, because it builds POSIX
+venvs (`venv/bin`, `lib/python*/site-packages`) and redirects `HOME`; its
+offline unit tests run on every OS.
+
+Every build is clean-installed into its own venv under the run dir before any
+host runs, so a bad second build fails before anything is billed. The child
+host runs in a throwaway cwd with `--strict-mcp-config`, no settings sources (no
+user hooks or plugins), no skills, no CLAUDE.md or auto-memory, and an allowlist
+of host tools: `--tools ToolSearch,Agent,Read,Glob,Grep`, with `--disallowedTools
+Bash Write Edit NotebookEdit` on top. A subagent inherits the main session's
+tool pool, narrowed and never widened, so `Agent` adds no tool.
+
+Which sumo-qa tools are pre-approved is derived per build, from that build's
+own server: the harness runs the installed binary once (`initialize` then
+`tools/list`) and reads each tool's annotations. A tool that declares
+annotations is pre-approved only with `readOnlyHint` true and `openWorldHint`
+false (a missing `openWorldHint` means open-world, the MCP default). A tool
+with no annotations is pre-approved only if it is the router (`using_sumo_qa`)
+or one of that build's skill tools, which only return guidance text: refusing
+them would refuse the first hop being measured. The skill tools are read from
+the skills the build's installed wheel bundles (`sumo_qa/_data/skills/<dir>/`,
+tool name = directory name with `-` as `_`). Any other unannotated tool is
+refused, so a build that predates tool annotations cannot have its writers
+approved. On top of that, `sumo_qa_install_external_skill` and
+`sumo_qa_execute_external_skill` are refused by name whatever their
+annotations say: installing or executing an external skill is never safe to
+auto-approve in an unattended run. Every other tool, such as the npm-backed
+`sumo_qa_search_external_skills`, stays in the tool list, so a scenario that
+forbids one still sees the host reach for it, but a call to one is refused. The guard section of the report lists the refused tools per build.
+
+The child's environment takes from the parent only `PATH`, `HOME`, `USER`,
+`LANG`, `TMPDIR`, the login (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
+`CLAUDE_CONFIG_DIR`), the proxy and CA variables (`HTTPS_PROXY`, `HTTP_PROXY`,
+`NO_PROXY` and their lowercase forms, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
+`REQUESTS_CA_BUNDLE`), a gateway (`ANTHROPIC_BASE_URL`,
+`ANTHROPIC_AUTH_TOKEN`), and the Bedrock and Vertex switches with their
+credential, region and base-URL variables (for Bedrock, the whole AWS SDK
+credential chain: static keys, profile, web identity, container credentials
+and IMDS, so it authenticates on EKS, ECS and EC2), each only when set (the full list is
+`CHILD_ENV_PASSTHROUGH` in the script); nothing else from the parent. With
+`CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_USE_VERTEX` on (`1`, `true`, `yes` or
+`on`, any case, as the CLI reads them; `0` or `false` is off), the backend's model
+alias mapping (`ANTHROPIC_DEFAULT_HAIKU_MODEL`, `_SONNET_`, `_OPUS_`),
+`VERTEX_REGION_CLAUDE_*` and `CLOUDSDK_CONFIG` pass too; the report records
+the model the host actually ran from its init event. The harness adds its own
+isolation switches. A parent's model override (`ANTHROPIC_MODEL`,
+`CLAUDE_CODE_SUBAGENT_MODEL`, and `ANTHROPIC_DEFAULT_*_MODEL` without a
+backend switch) or `SUMO_QA_DEBUG_DIR` cannot reach the host or its MCP
+server. The MCP
+server's `HOME` points into the run dir.
+
+Before any scenario runs, a write-guard control prompt per build asks the host
+to create a plainly named file (`notes/todo.txt` in the build's run dir, outside
+every host cwd) using any tool it has. The harness stops there if the file
+appears (exit 3). It also stops (exit 4) unless all of these hold: the guard
+run has a `system/init` event (one stopped before it, by a usage limit say,
+fails with `guard run ended before the host started (no init event):
+<outcome>`); the guard run did not hit a usage limit (else `guard run hit a
+usage limit (usage limit reached|<epoch>)`, so an exhausted quota is not run
+into by every scenario); that build's MCP server connected (its status in the last init
+event that lists `sumo-qa`); the guard run's host tool pool, the union of the
+`tools` lists of its init events, holds the router
+`mcp__sumo-qa__using_sumo_qa` (else `sandbox not proven: host tool pool missing
+<tool>`); and the pool holds nothing but the allowlisted host tools (as the CLI
+names them: it may list `Agent` as `Task`) and that build's own
+`mcp__sumo-qa__*` tools (else `sandbox not proven: <tool> in the host tool
+pool`). No allowlisted host tool is required: Claude Code drops `ToolSearch`
+behind a gateway (a non-first-party `ANTHROPIC_BASE_URL`), and a smaller pool
+is still inside the sandbox. For every other stop the report marks the guard
+`NOT PROVEN`. A guard stopped only by a usage limit can still read `PASS`,
+because its pool was proven; that stop shows as the stderr line above and exit 4.
+
+What the guard proves is that no host write tool was in the pool. It does not
+prove the sumo-qa writer tools are refused: they are in the pool, not
+pre-approved, and the non-interactive permission mode refuses a call to one;
+the guard does not test that. The proof is the pool, not the model's
+behaviour: the guard's tool calls are listed in the report for information and
+never decide the verdict. The guard section also lists the pool's host tools
+and the number of sumo-qa tools in it.
+
+A run is valid only when its MCP server connected and it ended in a clean
+`success` with exit code 0. A usage-limit stop (`Claude AI usage limit
+reached|<epoch>`, detected with the promptfoo provider's own pattern), a turn
+limit, an execution error, a timeout or a cut-off stream (a final line that is
+not JSON) is invalid: it is not scored (its scenario reads SKIP), and the report
+lists it under `not scored`. A stream with several `result` events (a background
+agent finishing after the main turn) is a success only if every one is, and its
+output is every result's text in order. A non-JSON line mid-stream is skipped
+and counted in the report.
+
+The report records the host and its version, the model, and per prompt the MCP
+connection status, the outcome, the CLI exit code and the ordered tool calls
+(host-namespaced `mcp__sumo-qa__<tool>` names are normalised to the bare names
+the validator expects; a call a subagent made is shown as `sub:<tool>` but
+scored like any other), then the `format_report` table per build and a before
+-> after line per scenario. A mis-route is judged against the scored build's
+own skill tools (the skills its wheel bundles), not the harness checkout's. A
+build is labelled by its wheel's path relative to the cwd, or by its git ref
+and the short sha of the commit it names (an annotated tag is peeled to its
+commit). The raw stream-json and stderr of every run stay in
+the run dir (`--out`, a new or empty dir, default a temp dir).
+
+| Exit code | Meaning |
+|---|---|
+| 0 | every run was valid |
+| 1 | the harness itself failed (a build, install or other error; the traceback says which) |
+| 2 | bad arguments, including an `--only` that is not a valid regex or matches no scenario or an `--out` that is a file or a non-empty dir |
+| 3 | the write guard was breached |
+| 4 | a billed run was not valid, so the scores are not valid: a guard run with no init event, a guard run that hit a usage limit, a guard run whose MCP server did not connect, a guard pool without the router, a guard pool holding a tool outside the sandbox, or a scenario run that was not valid (MCP server not connected, or a usage limit, turn limit, execution error, timeout, cut-off stream or non-zero exit code) |
 
 ## The provider-backed half
 
