@@ -124,7 +124,7 @@ def mcp_proc():
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proc.kill()
-            proc.wait(timeout=2)
+            proc.wait(timeout=60)
 
 
 # ---------------------------------------------------------------------------

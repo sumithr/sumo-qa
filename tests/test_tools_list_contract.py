@@ -109,7 +109,7 @@ def _live_tools_list() -> list[dict]:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proc.kill()
-            proc.wait(timeout=2)
+            proc.wait(timeout=60)
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:

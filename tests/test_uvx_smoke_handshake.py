@@ -74,7 +74,7 @@ def test_handshake_captures_delayed_response_against_slow_mock() -> None:
     False — exactly the bug observed on PR #141 ubuntu CI.
     """
     cmd = [sys.executable, str(MOCK_SERVER)]
-    result = handshake_mod.run_handshake(cmd, deadline_secs=5.0)
+    result = handshake_mod.run_handshake(cmd, deadline_secs=60.0)
     assert result.success is True, (
         "handshake should keep stdin open until id==2 received; "
         f"got success={result.success!r}, id2={result.id2!r}, "

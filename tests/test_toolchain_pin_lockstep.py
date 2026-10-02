@@ -3,8 +3,8 @@
 
 The end of the module also guards the pre-push pytest hook the delivery skills
 rely on as the full local suite: installed by default, run on every pre-push
-stage, verbose, and with a ``pytest -n 4`` argv so addopts sets every other
-option (#773, #787).
+stage, verbose, and with an argv that adds only the pytest-xdist options, so
+addopts sets every other option (#773, #787).
 
 pre-commit hook venvs install from PyPI, so a hook that needs project
 dependencies repeats them in its ``additional_dependencies``. Those copies
@@ -88,7 +88,10 @@ RUNTIME_SITE = f"{PYPROJECT} [project].dependencies"
 
 # (package, hook id): each package must be declared exactly once in pyproject
 # and exactly once in that Python hook's additional_dependencies.
-REQUIRED_MIRRORS: tuple[tuple[str, str], ...] = (("mutmut", "mutmut"),)
+REQUIRED_MIRRORS: tuple[tuple[str, str], ...] = (
+    ("mutmut", "mutmut"),
+    ("pytest-xdist", "pytest"),
+)
 
 
 @dataclass(frozen=True)
@@ -474,6 +477,10 @@ def test_same_marker_runtime_entries_with_different_specifiers_are_ambiguous() -
     assert "no single source of truth" in message
 
 
+# The synthetic-config tests below check the mutmut row alone.
+_MUTMUT: tuple[tuple[str, str], ...] = (("mutmut", "mutmut"),)
+
+
 def test_dependency_groups_and_uv_dev_dependencies_are_sources() -> None:
     pyproject = {
         "project": {"dependencies": []},
@@ -491,7 +498,7 @@ def test_dependency_groups_and_uv_dev_dependencies_are_sources() -> None:
         f"  {PYPROJECT} [dependency-groups].dev: 'mutmut>=3.8,<3.9'",
         f"  {PYPROJECT} [tool.uv].dev-dependencies: 'pytest-cov>=6,<8'",
     ]
-    assert required_mirror_mismatches(parse_pyproject(pyproject), precommit) == []
+    assert required_mirror_mismatches(parse_pyproject(pyproject), precommit, _MUTMUT) == []
 
 
 def test_hooks_with_an_inline_non_python_language_are_ignored() -> None:
@@ -551,12 +558,12 @@ def test_hook_without_id_fails_clearly() -> None:
 def test_required_mirror_present_on_both_sides_passes() -> None:
     pyproject = _pyproject(dev=["mutmut>=3.8,<3.9"])
     precommit = _precommit(_local(mutmut=["mutmut>=3.8,<3.9"]))
-    assert required_mirror_mismatches(parse_pyproject(pyproject), precommit) == []
+    assert required_mirror_mismatches(parse_pyproject(pyproject), precommit, _MUTMUT) == []
 
 
 def test_required_mirror_missing_from_pyproject_fails() -> None:
     precommit = _precommit(_local(mutmut=["mutmut>=3.8,<3.9"]))
-    assert lockstep_mismatches(_pyproject(dev=["pytest>=8"]), precommit)[1:] == [
+    assert lockstep_mismatches(_pyproject(dev=["pytest>=8"]), precommit, _MUTMUT)[1:] == [
         f"mutmut must be declared exactly once in {PYPROJECT} to anchor its mirror in "
         f"{PRECOMMIT} hook 'mutmut'; found 0"
     ]
@@ -565,10 +572,12 @@ def test_required_mirror_missing_from_pyproject_fails() -> None:
 def test_required_mirror_missing_from_hook_fails() -> None:
     pyproject = parse_pyproject(_pyproject(dev=["mutmut>=3.8,<3.9"]))
     site = f"{PRECOMMIT} hook 'mutmut' additional_dependencies"
-    assert required_mirror_mismatches(pyproject, _precommit(_local(mutmut=["pytest>=8"]))) == [
-        f"{site}: must list mutmut exactly once to mirror {PYPROJECT}, found 0"
-    ]
-    assert required_mirror_mismatches(pyproject, _precommit(_local(pytest=["pytest>=8"]))) == [
+    assert required_mirror_mismatches(
+        pyproject, _precommit(_local(mutmut=["pytest>=8"])), _MUTMUT
+    ) == [f"{site}: must list mutmut exactly once to mirror {PYPROJECT}, found 0"]
+    assert required_mirror_mismatches(
+        pyproject, _precommit(_local(pytest=["pytest>=8"])), _MUTMUT
+    ) == [
         f"{site}: expected exactly one hook with id 'mutmut' to mirror mutmut from "
         f"{PYPROJECT}, found 0"
     ]
@@ -578,7 +587,7 @@ def test_required_mirror_missing_from_hook_fails() -> None:
             "hooks": [{"id": "mutmut", "language": "system", "additional_dependencies": []}],
         }
     )
-    assert required_mirror_mismatches(pyproject, system) == [
+    assert required_mirror_mismatches(pyproject, system, _MUTMUT) == [
         f"{site}: hook 'mutmut' must be a Python hook to mirror mutmut"
     ]
 
@@ -690,14 +699,15 @@ def test_pre_push_pytest_hook_prints_its_counts() -> None:
     # pre-commit hides a passing hook's output unless `verbose` is set, and a
     # hook option that takes pytest below addopts' `-q` drops the "N passed"
     # line, so either would leave the push log without the counts the skills
-    # quote. The hook takes its options from addopts alone: an option added
-    # here is a deliberate change that updates this guard too.
+    # quote. The hook's own options are the pytest-xdist ones below; every
+    # other option comes from addopts, and an option added here is a
+    # deliberate change that updates this guard too.
     pytest_hook = _pytest_hook()
     assert pytest_hook.get("verbose") is True
     argv = shlex.split(pytest_hook["entry"]) + [str(arg) for arg in pytest_hook.get("args", [])]
-    # `-n 4` is the hook's one option of its own (#787): addopts also drives
-    # mutmut's in-process pytest, which must stay single-worker.
-    assert argv == ["pytest", "-n", "4"], (
+    # The xdist options live here, not in addopts, because addopts also
+    # drives mutmut's in-process pytest, which must stay single-worker.
+    assert argv == ["pytest", "-n", "auto", "--maxprocesses", "4", "--dist", "loadfile"], (
         f"{PRECOMMIT} pytest hook argv {argv}: options belong in {PYPROJECT} addopts; "
         "change this guard deliberately if the hook needs its own"
     )

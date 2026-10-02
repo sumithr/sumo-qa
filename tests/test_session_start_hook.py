@@ -67,7 +67,7 @@ def test_session_start_emits_valid_json_with_skill_content() -> None:
             for k, v in os.environ.items()
             if k not in {"CLAUDE_PLUGIN_ROOT", "CURSOR_PLUGIN_ROOT", "COPILOT_CLI"}
         },
-        timeout=10,
+        timeout=60,
     )
 
     assert result.returncode == 0, f"hook exited non-zero: {result.stderr}"
@@ -93,7 +93,7 @@ def test_session_start_uses_claude_code_envelope_when_plugin_root_set() -> None:
         capture_output=True,
         text=True,
         env=env,
-        timeout=10,
+        timeout=60,
     )
 
     assert result.returncode == 0, f"hook exited non-zero: {result.stderr}"
@@ -119,7 +119,7 @@ def test_session_start_uses_cursor_envelope_when_cursor_root_set() -> None:
         capture_output=True,
         text=True,
         env=env,
-        timeout=10,
+        timeout=60,
     )
 
     assert result.returncode == 0, f"hook exited non-zero: {result.stderr}"
@@ -167,7 +167,7 @@ def _run_hook_with_env(uvx_present: bool) -> dict:
             env=env,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=60,
         )
         assert proc.returncode == 0, proc.stderr
         return json.loads(proc.stdout)

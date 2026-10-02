@@ -69,7 +69,7 @@ def _run_hook(payload: dict) -> subprocess.CompletedProcess:
         input=json.dumps(payload),
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
     )
 
 
@@ -919,7 +919,7 @@ class TestHookContract:
             input="not json at all {{{",
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=60,
         )
         assert result.returncode == 0, (
             f"hook must swallow malformed stdin and exit 0; got {result.returncode}, "
@@ -1025,7 +1025,7 @@ def _run_prefilter(payload: dict | str, script: Path | None = None) -> subproces
         input=payload if isinstance(payload, str) else json.dumps(payload),
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
     )
 
 

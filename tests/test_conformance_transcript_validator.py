@@ -601,6 +601,11 @@ def test_same_second_captures_order_by_call_time_not_name(tmp_path, monkeypatch)
 # the same words ("approach", "classification", "routing", numbered steps), the
 # substring/token-confusion failure mode a naive marker match would trip on.
 _LEAK_FIXTURE = Path(__file__).parent / "scenarios" / "conformance" / "leak_transcripts.yaml"
+# ReDoS guards: the linear matchers finish these inputs in about 10ms, while
+# quadratic backtracking on them takes seconds and exponential backtracking
+# takes hours, so the budget tolerates a loaded pytest-xdist worker and still
+# fails a catastrophic regression.
+_REDOS_BUDGET_SECONDS = 2.0
 
 
 def _leak_fixture() -> dict:
@@ -895,7 +900,7 @@ def test_find_routing_leaks_is_linear_on_blank_line_runs() -> None:
     numbered-step matcher (adversarial review, #248)."""
     start = time.perf_counter()
     assert find_routing_leaks("\n" * 40_000) == ()
-    assert time.perf_counter() - start < 0.5
+    assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
 
 
 def test_find_routing_leaks_is_linear_on_a_label_line_with_trailing_space() -> None:
@@ -903,7 +908,7 @@ def test_find_routing_leaks_is_linear_on_a_label_line_with_trailing_space() -> N
     backtrack quadratically in the line-end match (#248 review)."""
     start = time.perf_counter()
     assert find_routing_leaks("Approach: n/a" + " " * 40_000 + "x") == ()
-    assert time.perf_counter() - start < 0.5
+    assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
 
 
 def test_find_routing_leaks_is_linear_on_decoration_after_a_label_value() -> None:
@@ -911,9 +916,9 @@ def test_find_routing_leaks_is_linear_on_decoration_after_a_label_value() -> Non
     backtrack between the value's closing decoration and a second label's
     opening decoration (#248 review)."""
     start = time.perf_counter()
-    assert find_routing_leaks("Classification: docs_change" + "*" * 20_000 + "x") == ()
-    assert find_routing_leaks("Classification: docs_change" + "'" * 20_000 + "x") == ()
-    assert time.perf_counter() - start < 0.5
+    assert find_routing_leaks("Classification: docs_change" + "*" * 40_000 + "x") == ()
+    assert find_routing_leaks("Classification: docs_change" + "'" * 40_000 + "x") == ()
+    assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
 
 
 def test_find_routing_leaks_scans_repeated_next_action_keys_quickly() -> None:
@@ -926,7 +931,7 @@ def test_find_routing_leaks_scans_repeated_next_action_keys_quickly() -> None:
     assert find_routing_leaks(nested) == ()
     quoted = '{"classification":"x","approach":"y",' + '"next_action:{":1,' * 3_000 + '"z":1}'
     assert find_routing_leaks(quoted) == ()
-    assert time.perf_counter() - start < 1.0
+    assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
 
 
 def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
@@ -934,7 +939,7 @@ def test_find_routing_leaks_is_linear_on_repeated_status_markers() -> None:
     marker (second adversarial pass, #248)."""
     start = time.perf_counter()
     assert find_routing_leaks("[DONE] " * 8_000) == ()
-    assert time.perf_counter() - start < 0.5
+    assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
 
 
 def test_blank_string_values_does_not_backtrack_exponentially() -> None:
@@ -945,4 +950,4 @@ def test_blank_string_values_does_not_backtrack_exponentially() -> None:
 
     start = time.perf_counter()
     assert conformance._blank_string_values('{"a' + "\\a" * 26) == '{"a' + "\\a" * 26
-    assert time.perf_counter() - start < 0.5
+    assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
