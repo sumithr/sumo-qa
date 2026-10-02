@@ -16,8 +16,8 @@ The run-eval.sh resolution cases use its `SUMO_EVAL_DRY_RUN=1` mode, which
 prints each promptfoo command instead of running it, with a stand-in `claude` on
 PATH for the CLI preflight. The report-classification cases run promptfoo for
 real against a missing or malformed config (it stops before any provider call)
-or a one-case config whose only call reaches the stand-in `claude`, which fails.
-No model is called.
+or a one-case config whose only call reaches the stand-in `claude`, which either
+fails or answers with a canned success envelope. No model is called.
 
 Technique: equivalence partitioning over the backend input (unset / claude /
 local / cloud / garbage) and over the target argument (none / one config /
@@ -37,6 +37,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from sumo_qa import external_skills as ext
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EVAL_DIR = REPO_ROOT / "tests" / "evals" / "promptfoo"
 RUN_EVAL = EVAL_DIR / "run-eval.sh"
@@ -50,14 +52,14 @@ _posix_only = pytest.mark.skipif(
     reason="run-eval.sh is a bash script",
 )
 # The real-run cases execute promptfoo itself (it stops before any model call, or
-# calls only the stand-in `claude`). CI's test job installs no Node tooling.
+# calls only the stand-in `claude`) and assert on its exact output, so they need the
+# version package.json pins. run-eval.sh prefers that binary over any promptfoo on
+# PATH, so gating on it here means the runs use it. CI's test job installs no Node
+# tooling.
+_PINNED_PROMPTFOO = REPO_ROOT / "node_modules" / ".bin" / "promptfoo"
 _needs_promptfoo = pytest.mark.skipif(
-    not (
-        os.access(REPO_ROOT / "node_modules" / ".bin" / "promptfoo", os.X_OK)
-        or shutil.which("promptfoo")
-    )
-    or shutil.which("node") is None,
-    reason="promptfoo is not installed (npm ci)",
+    not os.access(_PINNED_PROMPTFOO, os.X_OK) or shutil.which("node") is None,
+    reason=f"the repo-pinned promptfoo ({_PINNED_PROMPTFOO}) is not installed: run npm ci",
 )
 
 
@@ -154,18 +156,43 @@ class TestNpmScripts:
 # --------------------------------------------------------------------------- #
 
 
+# The variables node reads to decide whether to colour its output.
+_COLOUR_ENV = ("FORCE_COLOR", "NO_COLOR", "NODE_DISABLE_COLORS")
+# promptfoo's info-level output line, coloured yellow when colour is on.
+_PLAIN_LINE = "Writing output to"
+_COLOURED_LINE = f"\x1b[33m{_PLAIN_LINE}"
+# promptfoo variables that select a provider runtime, kept through the scrub.
+_PROMPTFOO_RUNTIME_ENV = ("PROMPTFOO_PYTHON", "PROMPTFOO_RUBY")
+_FAILING_CLAUDE = "#!/bin/sh\necho 'stand-in claude: failing on purpose' >&2\nexit 97\n"
+
+
 def _run_eval(
-    tmp_path: Path, *args: str, env_overrides: dict[str, str] | None = None
+    tmp_path: Path,
+    *args: str,
+    env_overrides: dict[str, str] | None = None,
+    claude_script: str = _FAILING_CLAUDE,
 ) -> subprocess.CompletedProcess:
     fakebin = tmp_path / "bin"
     fakebin.mkdir(exist_ok=True)
     claude = fakebin / "claude"
-    claude.write_text("#!/bin/sh\necho 'stand-in claude must not be called' >&2\nexit 97\n")
+    claude.write_text(claude_script)
     claude.chmod(0o755)
+    # The caller's colour settings are dropped too, so a test's colour case is the
+    # one it sets, not whatever the terminal running pytest happens to export. So is
+    # LOG_LEVEL: promptfoo prints its info-level "Writing output to" line only at the
+    # default level, and the colour cases look for that line. Every PROMPTFOO_*
+    # variable is dropped as well (PROMPTFOO_LOG_TO_STDERR moves that line to stderr,
+    # PROMPTFOO_LOG_DIR redirects the logs), so a run sets only the ones it needs.
+    # The exceptions pick the interpreter for a `python:` or `ruby:` provider, not
+    # where output or storage goes.
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_")) and k != "TIER"
+        if k in _PROMPTFOO_RUNTIME_ENV
+        or (
+            not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_", "PROMPTFOO_"))
+            and k not in ("TIER", "LOG_LEVEL", *_COLOUR_ENV)
+        )
     }
     env["PATH"] = f"{fakebin}{os.pathsep}{env.get('PATH', '')}"
     env["SUMO_EVAL_DRY_RUN"] = "1"
@@ -284,19 +311,47 @@ def _report_path(config: Path) -> Path:
 
 @_posix_only
 @_needs_promptfoo
-class TestRunEvalHarnessErrorIsNotAProviderAbort:
-    """When promptfoo fails before writing a readable report (a misspelled config
-    path, malformed YAML), no model answered and nothing was graded. That is a
+class TestRunEvalReportClassification:
+    """How the runner classifies a run by its report. When promptfoo fails before
+    writing a readable report (a misspelled config path, malformed YAML), no model
+    answered and nothing was graded. That is a
     harness or config error: it must not print `[eval] ABORT:` or exit 3, which
-    mean a readable report carried provider or judge errors. Real run with dry run
-    off and the stand-in `claude` on PATH; promptfoo stops before any provider call.
+    mean a readable report carried provider or judge errors. The boundary cases
+    alongside it check the other side: a readable report with provider errors
+    exits 3, and a clean report exits 0, in each colour environment. Every case is
+    a real run with dry run off and the stand-in `claude` on PATH; the harness
+    error cases stop before any provider call, and the report cases call the
+    stand-in once. Every inherited `PROMPTFOO_*` variable except the provider
+    runtime ones is dropped and
+    `PROMPTFOO_CONFIG_DIR` points under `tmp_path`, so promptfoo's database and logs
+    land there, never in the developer's `~/.promptfoo` or an exported log directory.
     """
 
-    def _real_run(self, tmp_path: Path, config: Path, **env: str) -> subprocess.CompletedProcess:
+    def _real_run(
+        self, tmp_path: Path, config: Path, claude_script: str = _FAILING_CLAUDE, **env: str
+    ) -> subprocess.CompletedProcess:
         report = _report_path(config)
         report.unlink(missing_ok=True)
         try:
-            return _run_eval(tmp_path, str(config), env_overrides={"SUMO_EVAL_DRY_RUN": "", **env})
+            return _run_eval(
+                tmp_path,
+                str(config),
+                env_overrides={
+                    "SUMO_EVAL_DRY_RUN": "",
+                    "PROMPTFOO_CONFIG_DIR": str(tmp_path / "promptfoo-store"),
+                    "PROMPTFOO_DISABLE_TELEMETRY": "1",
+                    "PROMPTFOO_DISABLE_UPDATE": "1",
+                    # Set, not only scrubbed: promptfoo loads `.env` from its cwd
+                    # (tests/evals/promptfoo, gitignored) without overriding what is
+                    # already set, so these pin what the assertions depend on.
+                    "LOG_LEVEL": "info",
+                    "PROMPTFOO_LOG_TO_STDERR": "false",
+                    "PROMPTFOO_LOG_DIR": str(tmp_path / "promptfoo-store" / "logs"),
+                    "FORCE_COLOR": "0",
+                    **env,
+                },
+                claude_script=claude_script,
+            )
         finally:
             report.unlink(missing_ok=True)
 
@@ -320,24 +375,72 @@ class TestRunEvalHarnessErrorIsNotAProviderAbort:
         config.write_text('description: bad\nprompts: [\n  - "x\ntests: : :\n', encoding="utf-8")
         self._assert_harness_error(self._real_run(tmp_path, config))
 
-    @pytest.mark.parametrize("force_color", ["0", "3"])
+    def _one_case_config(self, tmp_path: Path, name: str) -> Path:
+        # The provider id is relative to the config's directory, so `providers/` is
+        # linked beside the config.
+        (tmp_path / "providers").symlink_to(EVAL_DIR / "providers")
+        config = tmp_path / name
+        config.write_text('description: one case\nprompts: ["Say hi"]\ntests:\n  - vars: {}\n')
+        return config
+
+    def _assert_colour_case(self, result: subprocess.CompletedProcess, coloured: bool) -> None:
+        # promptfoo colours its "Writing output to" line only when colour is on (its
+        # results table borders are grey either way, so a bare escape proves nothing).
+        # The plain line is always printed, so the coloured line's absence means
+        # colour was off rather than that the line was never written.
+        assert _PLAIN_LINE in result.stdout, result.stdout
+        assert (_COLOURED_LINE in result.stdout) is coloured, result.stdout
+
+    # Two classes of colour environment, one case each. Colour forced on: forced
+    # colour is the case where node colours a logged number. Colour off: stdout is
+    # a pipe and the caller's colour env is replaced by FORCE_COLOR=0, so colour is
+    # already off; NO_COLOR=1 is the opt-out the issue names, and both lead to
+    # colour off.
+    _COLOUR_CASES = pytest.mark.parametrize(
+        ("colour_env", "coloured"),
+        [({"FORCE_COLOR": "1"}, True), ({"NO_COLOR": "1"}, False)],
+        ids=["force-color", "no-color"],
+    )
+
+    @_COLOUR_CASES
     def test_a_readable_report_with_provider_errors_still_aborts_with_3(
-        self, tmp_path: Path, force_color: str
+        self, tmp_path: Path, colour_env: dict[str, str], coloured: bool
     ) -> None:
         """The other side of the boundary: a report that exists and carries
         `stats.errors > 0` is the provider abort. The stand-in `claude` exits
-        non-zero, so the one candidate call errors. The provider id is relative
-        to the config's directory, so `providers/` is linked beside the config.
+        non-zero, so the one candidate call errors.
         """
-        (tmp_path / "providers").symlink_to(EVAL_DIR / "providers")
-        config = tmp_path / "zz-pytest-provider-error-config.yaml"
-        config.write_text('description: one case\nprompts: ["Say hi"]\ntests:\n  - vars: {}\n')
-        # FORCE_COLOR=3 makes node colour a printed number; the count the runner
-        # compares and prints must stay a plain digit either way.
-        result = self._real_run(tmp_path, config, FORCE_COLOR=force_color)
+        config = self._one_case_config(tmp_path, "zz-pytest-provider-error-config.yaml")
+        # The count the runner compares and prints must stay a plain digit in every
+        # colour case.
+        result = self._real_run(tmp_path, config, **colour_env)
         assert result.returncode == 3, (result.returncode, result.stdout, result.stderr)
         assert "[eval] ABORT:" in result.stderr and "(errors=1)" in result.stderr, result.stderr
         assert "produced no readable report" not in result.stderr, result.stderr
+        self._assert_colour_case(result, coloured)
+
+    @_COLOUR_CASES
+    def test_a_clean_report_exits_0_without_an_abort(
+        self, tmp_path: Path, colour_env: dict[str, str], coloured: bool
+    ) -> None:
+        """A report with `stats.errors == 0` is a clean run and exits 0. The stand-in
+        `claude` answers with a success envelope, and the config has no asserts, so
+        no judge is called. Under forced colour a coloured `0` count would never
+        equal `0` and every clean run would abort.
+        """
+        config = self._one_case_config(tmp_path, "zz-pytest-clean-config.yaml")
+        answering_claude = (
+            "#!/bin/sh\ncat >/dev/null\n"
+            'echo \'{"type": "result", "subtype": "success", "result": "hi"}\'\n'
+        )
+        result = self._real_run(tmp_path, config, claude_script=answering_claude, **colour_env)
+        assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+        assert "[eval] ABORT:" not in result.stdout + result.stderr, result.stderr
+        # The stand-in's answer reached promptfoo's results table, so the case was
+        # really run against the stand-in and graded (colour codes stripped, since the
+        # forced case colours the PASS cell).
+        assert "[PASS] hi" in ext._strip_ansi(result.stdout), result.stdout
+        self._assert_colour_case(result, coloured)
 
 
 @_posix_only
