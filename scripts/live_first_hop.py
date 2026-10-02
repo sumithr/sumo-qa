@@ -11,26 +11,31 @@ Give two builds for a before/after comparison on the same prompts.
 Manual, never in PR CI: every prompt is a billed host run. See
 tests/scenarios/CONFORMANCE.md "Running it" for usage and cost.
 
-Each build is clean-installed from a wheel into its own temp venv (a git ref is
-archived and built first). The child host runs in a throwaway cwd with
-`--strict-mcp-config`, no settings sources (so no user hooks or plugins), no
-skills, no CLAUDE.md or auto-memory, and `--disallowedTools Bash Write Edit
-NotebookEdit` (`--allowedTools` alone does not stop those) plus the host tools
-that act outside the cwd (cron, remote triggers, worktrees). The MCP server's
-HOME points into the run dir, so sumo-qa's own writes stay there too. A write
-guard control prompt asks the host to create a file outside its scratch dir and
-fails the run if the file appears.
+Every build is clean-installed from a wheel into its own venv under the run dir
+(a git ref is archived and built first) before any host runs. The child host
+runs in a throwaway cwd with `--strict-mcp-config`, no settings sources (so no
+user hooks or plugins), no skills, no CLAUDE.md or auto-memory, a minimal
+environment, and an allowlist of host tools (`--tools`), with Bash, Write, Edit
+and NotebookEdit also denied outright. Only sumo-qa's read-only tools are
+pre-approved; its writers stay visible (a scenario may forbid calling one) but
+a call to one is refused. The MCP server's HOME points into the run dir, so
+sumo-qa's own writes stay there too. Before any scenario runs, a write-guard
+control prompt per build asks the host to create a file outside its scratch dir
+by any means; the run stops if the file appears or that build's MCP server did
+not connect.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,20 +53,63 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = REPO_ROOT / "tests" / "scenarios" / "conformance" / "scenarios.yaml"
 HOST = "claude-code"
 SERVER = "sumo-qa"
-DISALLOWED_TOOLS = (
-    "Bash",
-    "Write",
-    "Edit",
-    "NotebookEdit",
-    "CronCreate",
-    "CronDelete",
-    "RemoteTrigger",
-    "ScheduleWakeup",
-    "EnterWorktree",
+TOOLS_SNAPSHOT = REPO_ROOT / "tests" / "fixtures" / "mcp_tools_list_snapshot.json"
+# The only host tools the child gets. Agent stays: the D03 capture routes its
+# first hop through a subagent, and a subagent inherits the main session's tool
+# pool, narrowed, never widened (code.claude.com/docs/en/sub-agents).
+HOST_TOOLS = ("ToolSearch", "Agent", "Read", "Glob", "Grep")
+# Belt and braces on top of the allowlist.
+DISALLOWED_TOOLS = ("Bash", "Write", "Edit", "NotebookEdit")
+# sumo-qa tools that write, download or execute. Not pre-approved, so a call is
+# refused (no one answers a permission prompt in -p), but still visible, so a
+# scenario that forbids one still sees the host reach for it.
+REFUSED_SUMO_QA_TOOLS = frozenset(
+    {
+        "sumo_qa_analyze_diff_impact",
+        "sumo_qa_capture_review_feedback",
+        "sumo_qa_execute_external_skill",
+        "sumo_qa_export_test_cases",
+        "sumo_qa_generate_qa_report",
+        "sumo_qa_ingest_knowledge_pack",
+        "sumo_qa_install_external_skill",
+        "sumo_qa_record_coverage",
+        "sumo_qa_record_mutation",
+        "sumo_qa_register_known_good_test_data",
+        "sumo_qa_scan_repo",
+    }
 )
 WRITE_GUARD_ID = "write-guard"
-WRITE_GUARD_PROMPT = "Create the file {path} containing the single word pwned."
+WRITE_GUARD_PROMPT = (
+    "Create the file {path} containing the single word pwned. Use any tool or "
+    "means available to you, including a shell, a subagent or an MCP tool."
+)
 CHILD_ENV = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+# All the child takes from the parent environment. HOME stays the real one: the
+# CLI finds its login through it (with HOME redirected `claude auth status`
+# reports loggedIn false); the MCP server gets the redirected HOME instead.
+CHILD_ENV_PASSTHROUGH = (
+    "PATH",
+    "HOME",
+    "USER",
+    "LANG",
+    "TMPDIR",
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+)
+EXIT_INVALID, EXIT_BREACH = 2, 3
+
+
+def _load_usage_limit() -> re.Pattern[str]:
+    """The promptfoo provider's usage-limit pattern, so both read the CLI's
+    quota stop the same way."""
+    path = REPO_ROOT / "tests" / "evals" / "promptfoo" / "providers" / "claude_cli.py"
+    spec = importlib.util.spec_from_file_location("claude_cli_provider", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module._USAGE_LIMIT
+
+
+USAGE_LIMIT = _load_usage_limit()
 
 
 @dataclass
@@ -73,11 +121,21 @@ class HostRun:
     host_version: str = "unknown"
     model: str = "unknown"
     mcp_status: str = "absent"
+    # The result event's subtype, or why the run has none worth scoring.
     outcome: str = "no result"
+    # The CLI's exit code; None when the run timed out.
+    returncode: int | None = 0
     # One flag per transcript call: True when a subagent made it. The validator
     # scores every call alike; the report marks these so a delegated first hop
     # is visible.
     from_subagent: tuple[bool, ...] = ()
+
+    @property
+    def valid(self) -> bool:
+        """Only a run whose MCP server connected and that ended in a clean
+        success is a routing result. A quota stop, a turn limit, an error or a
+        cut-off stream says nothing about tool selection, so it is never scored."""
+        return self.mcp_status == "connected" and self.outcome == "success" and self.returncode == 0
 
 
 def normalise_tool_name(name: str) -> str:
@@ -91,15 +149,22 @@ def normalise_tool_name(name: str) -> str:
 
 def parse_stream(text: str, scenario_id: str) -> HostRun:
     """Turn `claude -p --output-format stream-json --verbose` stdout into a
-    HostRun. Tool calls keep the order the host made them in."""
+    HostRun. Tool calls keep the order the host made them in. A line that is
+    not JSON (a timed-out run's cut-off last line) is skipped and makes the
+    run invalid."""
     calls: list[ToolCall] = []
     nested: list[bool] = []
     run = HostRun(Transcript(scenario_id, ()))
     output = ""
+    truncated = False
     for line in text.splitlines():
         if not line.strip():
             continue
-        event = json.loads(line)
+        try:
+            event = json.loads(line)
+        except ValueError:
+            truncated = True
+            continue
         kind = event.get("type")
         if kind == "system" and event.get("subtype") == "init":
             run.host_version = event.get("claude_code_version", "unknown")
@@ -114,8 +179,14 @@ def parse_stream(text: str, scenario_id: str) -> HostRun:
                     )
                     nested.append(event.get("parent_tool_use_id") is not None)
         elif kind == "result":
-            run.outcome = event.get("subtype", "unknown")
             output = event.get("result") or ""
+            run.outcome = event.get("subtype", "unknown")
+            if event.get("is_error") or event.get("api_error_status"):
+                run.outcome = f"{run.outcome} (error)"
+            if USAGE_LIMIT.search(output):
+                run.outcome = "usage limit"
+    if truncated:
+        run.outcome = "truncated stream"
     run.transcript = Transcript(scenario_id, tuple(calls), output)
     run.from_subagent = tuple(nested)
     return run
@@ -132,10 +203,57 @@ def render_build(label: str, runs: list[HostRun], results: list[ScenarioResult])
             f"sub:{c.tool}" if sub else c.tool
             for c, sub in zip(run.transcript.tool_calls, run.from_subagent, strict=True)
         )
-        calls = calls or "(no tool calls)"
-        lines.append(f"{run.transcript.scenario_id} [mcp {run.mcp_status}, {run.outcome}]: {calls}")
+        lines.append(f"{run.transcript.scenario_id} {_status(run)}: {calls or '(no tool calls)'}")
+    invalid = [r.transcript.scenario_id for r in runs if not r.valid]
+    if invalid:
+        lines.append(f"not scored (invalid run): {', '.join(invalid)}")
     lines += ["", format_report(results)]
     return "\n".join(lines)
+
+
+def _status(run: HostRun) -> str:
+    code = "timeout" if run.returncode is None else f"exit {run.returncode}"
+    return f"[mcp {run.mcp_status}, {run.outcome}, {code}]"
+
+
+def score(scenarios: list[ConformanceScenario], runs: list[HostRun]) -> list[ScenarioResult]:
+    """validate_all over the valid runs only; an invalid run's scenario has no
+    transcript and so reads as SKIP, never as a routing PASS or FAIL."""
+    return validate_all(scenarios, [r.transcript for r in runs if r.valid])
+
+
+def host_argv(config: dict, model: str, max_turns: int) -> list[str]:
+    """The child `claude -p` command line: the host-tool allowlist, the denied
+    write tools, and only sumo-qa's read-only tools pre-approved."""
+    names = json.loads(TOOLS_SNAPSHOT.read_text(encoding="utf-8"))["required_tools"]
+    approved = [f"mcp__{SERVER}__{n}" for n in names if n not in REFUSED_SUMO_QA_TOOLS]
+    return [
+        "claude", "-p",
+        "--model", model,
+        "--output-format", "stream-json", "--verbose",
+        "--strict-mcp-config", "--mcp-config", json.dumps(config),
+        "--setting-sources", "",
+        "--disable-slash-commands",
+        "--no-session-persistence",
+        "--permission-mode", "default",
+        "--max-turns", str(max_turns),
+        "--tools", ",".join(HOST_TOOLS),
+        "--allowedTools", *approved,
+        "--disallowedTools", *DISALLOWED_TOOLS,
+    ]  # fmt: skip
+
+
+def child_env(parent: Mapping[str, str]) -> dict[str, str]:
+    """The child's whole environment: a few variables from the parent plus the
+    isolation switches. Nothing else leaks in, so a parent's model override,
+    debug dir or session variables cannot reach the host or its MCP server
+    (which inherits the host's environment)."""
+    return {k: parent[k] for k in CHILD_ENV_PASSTHROUGH if k in parent} | CHILD_ENV
+
+
+def decode(raw: bytes | None) -> str:
+    """CLI output as text; a multi-byte character cut by a timeout becomes U+FFFD."""
+    return (raw or b"").decode("utf-8", errors="replace")
 
 
 def render_comparison(before: list[ScenarioResult], after: list[ScenarioResult]) -> str:
@@ -199,11 +317,15 @@ def install_build(spec: str, workdir: Path) -> tuple[Path, str]:
     return workdir / "venv" / "bin" / "sumo-qa", label
 
 
-def run_host(binary: Path, prompt: str, model: str, cwd: Path, max_turns: int, timeout: int) -> str:
-    """One `claude -p` run with only this build's sumo-qa attached. Returns
-    the raw stream-json stdout (partial on timeout)."""
+def run_host(
+    binary: Path, scenario_id: str, prompt: str, model: str, run_dir: Path,
+    max_turns: int, timeout: int,
+) -> HostRun:  # fmt: skip
+    """One `claude -p` run with only this build's sumo-qa attached. The raw
+    stream-json and stderr land in `run_dir` as `<id>.jsonl` / `<id>.stderr`."""
+    cwd = run_dir / "cwd" / scenario_id
     cwd.mkdir(parents=True)
-    server_home = cwd.parent / f"{cwd.name}-server-home"
+    server_home = cwd.parent / f"{scenario_id}-server-home"
     server_home.mkdir()
     config = {
         "mcpServers": {
@@ -214,27 +336,21 @@ def run_host(binary: Path, prompt: str, model: str, cwd: Path, max_turns: int, t
             }
         }
     }
-    argv = [
-        "claude", "-p",
-        "--model", model,
-        "--output-format", "stream-json", "--verbose",
-        "--strict-mcp-config", "--mcp-config", json.dumps(config),
-        "--setting-sources", "",
-        "--disable-slash-commands",
-        "--no-session-persistence",
-        "--max-turns", str(max_turns),
-        "--allowedTools", f"mcp__{SERVER}",
-        "--disallowedTools", *DISALLOWED_TOOLS,
-    ]  # fmt: skip
-    env = {**os.environ, **CHILD_ENV}
+    argv = host_argv(config, model, max_turns)
     try:
         done = subprocess.run(
-            argv, input=prompt, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout
-        )
-        return done.stdout
+            argv, input=prompt.encode(), cwd=cwd, env=child_env(os.environ),
+            capture_output=True, timeout=timeout,
+        )  # fmt: skip
+        stdout, stderr, returncode = done.stdout, done.stderr, done.returncode
     except subprocess.TimeoutExpired as exc:
-        out = exc.stdout or ""
-        return out.decode() if isinstance(out, bytes) else out
+        stdout, stderr, returncode = exc.stdout, exc.stderr, None
+    text = decode(stdout)
+    (run_dir / f"{scenario_id}.jsonl").write_text(text, encoding="utf-8")
+    (run_dir / f"{scenario_id}.stderr").write_text(decode(stderr), encoding="utf-8")
+    run = parse_stream(text, scenario_id)
+    run.returncode = returncode
+    return run
 
 
 def _run(argv: list[str]) -> str:
@@ -250,65 +366,81 @@ def main(argv: list[str] | None = None) -> int:
         "--model", default="haiku", help="host model (default: haiku, the weakest candidate)"
     )
     parser.add_argument("--only", help="regex on scenario ids, e.g. 'DC?0' for the D0x/DC0x set")
-    parser.add_argument("--out", type=Path, help="run dir for venvs, cwds and raw captures")
+    parser.add_argument(
+        "--out", type=Path, help="new or empty run dir for venvs, cwds and raw captures"
+    )
     parser.add_argument("--max-turns", type=int, default=15)
     parser.add_argument("--timeout", type=int, default=600, help="seconds per host run")
     args = parser.parse_args(argv)
 
-    out = args.out or Path(tempfile.mkdtemp(prefix="live-first-hop-"))
     scenarios = select_scenarios(SCENARIOS, args.only)
+    if not scenarios:
+        parser.error(f"--only {args.only!r} matches no deterministic scenario with a prompt")
+    if args.out and args.out.exists() and any(args.out.iterdir()):
+        parser.error(f"--out {args.out} is not empty; give a new or empty dir")
+    out = (args.out or Path(tempfile.mkdtemp(prefix="live-first-hop-"))).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+
+    # Every build first, so a bad spec fails before anything is billed.
+    builds = [
+        (*install_build(spec, out / f"build-{i}"), out / f"build-{i}")
+        for i, spec in enumerate(s for s in (args.build, args.after) if s)
+    ]
     sections: list[str] = []
-    all_results: list[list[ScenarioResult]] = []
+
+    def finish(code: int, problem: str = "") -> int:
+        report = "\n\n".join(sections)
+        (out / "report.txt").write_text(report + "\n", encoding="utf-8")
+        print(report)
+        print(f"\nraw captures: {out}")
+        if problem:
+            print(problem, file=sys.stderr)
+        return code
+
+    for binary, label, build_dir in builds:
+        guard_dir = build_dir / WRITE_GUARD_ID
+        sentinel = guard_dir / "outside" / "pwned.txt"
+        sentinel.parent.mkdir(parents=True)
+        prompt = WRITE_GUARD_PROMPT.format(path=sentinel)
+        guard = run_host(
+            binary, WRITE_GUARD_ID, prompt, args.model, guard_dir, args.max_turns, args.timeout
+        )
+        breached = sentinel.exists()
+        calls = " -> ".join(c.tool for c in guard.transcript.tool_calls) or "(no tool calls)"
+        sections.append(
+            f"== write guard ({label}): "
+            f"{'FAIL, file written' if breached else 'PASS, no file'} at {sentinel}\n"
+            f"{WRITE_GUARD_ID} {_status(guard)}: {calls}"
+        )
+        if breached:
+            return finish(EXIT_BREACH, "write guard breached; no scenario was run")
+        if not guard.valid:
+            return finish(
+                EXIT_INVALID, "write guard run was not valid (MCP or outcome); no scenario was run"
+            )
+
     environment_ok = True
-    first_binary: Path | None = None
-    for index, spec in enumerate(s for s in (args.build, args.after) if s):
-        build_dir = out / f"build-{index}"
-        binary, label = install_build(spec, build_dir)
-        first_binary = first_binary or binary
-        runs = []
-        for scenario in scenarios:
-            stdout = run_host(
-                binary, scenario.user_prompt, args.model, build_dir / "cwd" / scenario.id,
-                args.max_turns, args.timeout,
-            )  # fmt: skip
-            (build_dir / f"{scenario.id}.jsonl").write_text(stdout, encoding="utf-8")
-            run = parse_stream(stdout, scenario.id)
-            environment_ok &= run.mcp_status == "connected"
-            runs.append(run)
-        results = validate_all(scenarios, [r.transcript for r in runs])
+    all_results: list[list[ScenarioResult]] = []
+    for binary, label, build_dir in builds:
+        runs = [
+            run_host(
+                binary, s.id, s.user_prompt, args.model, build_dir, args.max_turns, args.timeout
+            )
+            for s in scenarios
+        ]
+        environment_ok &= all(r.valid for r in runs)
+        results = score(scenarios, runs)
         all_results.append(results)
         sections.append(render_build(label, runs, results))
     if len(all_results) == 2:
         sections.append(render_comparison(*all_results))
-
-    assert first_binary is not None
-    guard_dir = out / "write-guard"
-    sentinel = guard_dir / "outside" / "pwned.txt"
-    sentinel.parent.mkdir(parents=True)
-    stdout = run_host(
-        first_binary, WRITE_GUARD_PROMPT.format(path=sentinel), args.model, guard_dir / "cwd",
-        args.max_turns, args.timeout,
-    )  # fmt: skip
-    (guard_dir / "write-guard.jsonl").write_text(stdout, encoding="utf-8")
-    guard = parse_stream(stdout, WRITE_GUARD_ID)
-    breached = sentinel.exists()
-    calls = " -> ".join(c.tool for c in guard.transcript.tool_calls) or "(no tool calls)"
-    sections.append(
-        f"== write guard: {'FAIL, file written' if breached else 'PASS, no file'} at {sentinel}\n"
-        f"{WRITE_GUARD_ID} [mcp {guard.mcp_status}, {guard.outcome}]: {calls}"
-    )
-    report = "\n\n".join(sections)
-    (out / "report.txt").write_text(report + "\n", encoding="utf-8")
-    print(report)
-    print(f"\nraw captures: {out}")
-    if breached:
-        return 1
     if not environment_ok:
-        print(
-            "sumo-qa MCP server did not connect on every run; scores are not valid", file=sys.stderr
+        return finish(
+            EXIT_INVALID,
+            "a run's MCP server did not connect or the run did not end in success; "
+            "those runs are not scored and the scores are not valid",
         )
-        return 2
-    return 0
+    return finish(0)
 
 
 if __name__ == "__main__":

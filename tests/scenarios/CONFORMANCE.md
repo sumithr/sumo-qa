@@ -226,22 +226,44 @@ subscription, so follow the promptfoo cost guardrails and narrow the set with
 candidate: stronger models routed every development-framed prompt on both
 builds and so could not tell them apart. Pass `--model` for an extra data point.
 
-Each build is clean-installed into its own temp venv. The child host runs in a
-throwaway cwd with `--strict-mcp-config`, no settings sources (no user hooks or
-plugins), no skills, no CLAUDE.md or auto-memory, and `--disallowedTools Bash
-Write Edit NotebookEdit` plus the host tools that act outside the cwd;
-`--allowedTools` alone does not stop a write. The MCP server's `HOME` points into
-the run dir. A write-guard control prompt then asks the host to create a file
-outside its scratch dir, and the run fails if that file appears.
+Every build is clean-installed into its own venv under the run dir before any
+host runs, so a bad second build fails before anything is billed. The child
+host runs in a throwaway cwd with `--strict-mcp-config`, no settings sources (no
+user hooks or plugins), no skills, no CLAUDE.md or auto-memory, and an allowlist
+of host tools: `--tools ToolSearch,Agent,Read,Glob,Grep`, with `--disallowedTools
+Bash Write Edit NotebookEdit` on top. A subagent inherits the main session's
+tool pool, narrowed and never widened, so `Agent` adds no tool. Only sumo-qa's
+read-only tools are pre-approved; its writers (including
+`sumo_qa_install_external_skill` and `sumo_qa_execute_external_skill`) stay in
+the tool list, so a scenario that forbids one still sees the host reach for it,
+but a call to one is refused. The child's environment is `PATH`, `HOME`, `USER`,
+`LANG`, `TMPDIR` and any `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN`, nothing
+else, so a parent's model override or `SUMO_QA_DEBUG_DIR` cannot reach the host
+or its MCP server. The MCP server's `HOME` points into the run dir.
 
-The report records the host and its version, the model, the MCP connection
-status, and the ordered tool calls per prompt (host-namespaced
-`mcp__sumo-qa__<tool>` names are normalised to the bare names the validator
-expects; a call a subagent made is shown as `sub:<tool>` but scored like any
-other), then the `format_report` table per build and a before -> after line
-per scenario. The raw stream-json of every run stays in the run dir (`--out`,
-default a temp dir). Exit code 1 means the write guard was breached; 2 means
-the MCP server did not connect on every run, so the scores are not valid.
+Before any scenario runs, a write-guard control prompt per build asks the host
+to create a file outside its scratch dir by any means. The harness stops there
+if the file appears, or if that guard run is not valid (below).
+
+A run is valid only when its MCP server connected and it ended in a clean
+`success` with exit code 0. A usage-limit stop (`Claude AI usage limit
+reached|<epoch>`, detected with the promptfoo provider's own pattern), a turn
+limit, an execution error, a timeout or a cut-off stream is invalid: it is not
+scored (its scenario reads SKIP), and the report lists it under `not scored`.
+
+The report records the host and its version, the model, and per prompt the MCP
+connection status, the outcome, the CLI exit code and the ordered tool calls
+(host-namespaced `mcp__sumo-qa__<tool>` names are normalised to the bare names
+the validator expects; a call a subagent made is shown as `sub:<tool>` but
+scored like any other), then the `format_report` table per build and a before
+-> after line per scenario. The raw stream-json and stderr of every run stay in
+the run dir (`--out`, a new or empty dir, default a temp dir).
+
+Exit codes: 0 every run was valid; 1 the harness itself failed (a build,
+install or other error; the traceback says which); 2 bad arguments (including
+an `--only` that matches no scenario or a non-empty `--out`), or a run was not
+valid, the write-guard runs included, so the scores are not valid; 3 the write
+guard was breached.
 
 ## The provider-backed half
 
