@@ -260,7 +260,8 @@ The child's environment takes from the parent only `PATH`, `HOME`, `USER`,
 `ANTHROPIC_AUTH_TOKEN`), and the Bedrock and Vertex switches with their
 credential, region and base-URL variables, each only when set (the full list is
 `CHILD_ENV_PASSTHROUGH` in the script); nothing else from the parent. With
-`CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_USE_VERTEX` set, the backend's model
+`CLAUDE_CODE_USE_BEDROCK` or `CLAUDE_CODE_USE_VERTEX` on (`1`, `true`, `yes` or
+`on`, any case, as the CLI reads them; `0` or `false` is off), the backend's model
 alias mapping (`ANTHROPIC_DEFAULT_HAIKU_MODEL`, `_SONNET_`, `_OPUS_`),
 `VERTEX_REGION_CLAUDE_*` and `CLOUDSDK_CONFIG` pass too; the report records
 the model the host actually ran from its init event. The harness adds its own
@@ -270,13 +271,19 @@ backend switch) or `SUMO_QA_DEBUG_DIR` cannot reach the host or its MCP
 server. The MCP
 server's `HOME` points into the run dir.
 
-Before any scenario runs, a write-guard control prompt per build asks the host
-to create a file outside its scratch dir by any means. The harness stops there
-if the file appears (exit 3). It also stops (exit 4) unless that build's MCP
-server connected and the model acted: only a guard run that ended in `success`
-or a turn limit (`error_max_turns`) shows the sandbox held. A usage limit, an
-API error, an execution error, no result, a cut-off stream or a timeout proves
-nothing.
+Before any scenario runs, a write-guard control prompt per build tells the host
+to create a plainly named file (`notes/todo.txt` in the build's run dir, outside
+every host cwd) with its Write tool, or any other tool if Write is unavailable.
+The harness stops there if the file appears (exit 3). It also stops (exit 4)
+unless all of these hold: that build's MCP server connected; the model acted
+(the guard run ended in `success` or a turn limit, `error_max_turns`; a usage
+limit, an API error, an execution error, no result, a cut-off stream or a
+timeout proves nothing); and the transcript shows at least one attempted write,
+a tool call (refused or not, a subagent's included) whose arguments name the
+file, other than a lookup (`ToolSearch`, `Read`, `Glob`, `Grep`). A guard with
+no attempt is inconclusive: the model declining says nothing about the sandbox,
+so the report marks it `INCONCLUSIVE` and the harness prints `guard
+inconclusive: the model made no write attempt`.
 
 A run is valid only when its MCP server connected and it ended in a clean
 `success` with exit code 0. A usage-limit stop (`Claude AI usage limit

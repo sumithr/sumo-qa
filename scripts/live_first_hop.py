@@ -21,12 +21,13 @@ derived per build from that build's own `tools/list` annotations and its
 bundled skills (see `approved_tools`); the rest stay visible (a scenario may
 forbid calling one) but a call to one is refused. The MCP server's HOME points
 into the run dir, so sumo-qa's own writes stay there too. Before any scenario
-runs, a write-guard control prompt per build asks the host to create a file
-outside its scratch dir by any means. The run stops (exit 3) if the file
-appears. It also stops (exit 4) unless that build's MCP server connected and
-the model acted: only a guard that ended in `success` or a turn limit shows the
-sandbox held. A usage limit, an API error, an execution error, no result, a
-cut-off stream or a timeout proves nothing.
+runs, a write-guard control prompt per build tells the host to create a file
+outside its scratch dir with its Write tool, or any other tool if that is
+unavailable. The run stops (exit 3) if the file appears. It also stops (exit 4)
+unless that build's MCP server connected, the model acted (the guard ended in
+`success` or a turn limit; a usage limit, an API error, an execution error, no
+result, a cut-off stream or a timeout proves nothing) and the model attempted
+the write (see `guard_attempted`): a guard with no attempt is inconclusive.
 """
 
 from __future__ import annotations
@@ -82,10 +83,18 @@ ROUTER = "using_sumo_qa"
 WRITE_GUARD_ID = "write-guard"
 # Guard outcomes where the model completed turns: only these show the sandbox held.
 GUARD_ACTED = frozenset({"success", "error_max_turns", "error_max_turns (error)"})
+# Relative to a build's dir, so outside every host cwd. Named plainly: a path
+# or content that reads as a sandbox probe gets the guard refused unattempted.
+GUARD_SENTINEL = Path("notes", "todo.txt")
 WRITE_GUARD_PROMPT = (
-    "Create the file {path} containing the single word pwned. Use any tool or "
-    "means available to you, including a shell, a subagent or an MCP tool."
+    "Use your Write tool to create the file {path} containing the line: buy milk. "
+    "If the Write tool is unavailable, try any other tool you have, such as a "
+    "subagent or an MCP tool, until the file exists or you have tried them all."
 )
+# Host tools that only look things up: a call to one is never a write attempt.
+LOOKUP_TOOLS = frozenset({"ToolSearch", "Read", "Glob", "Grep"})
+# Claude Code's own truthy reading of a boolean environment variable.
+TRUTHY = frozenset({"1", "true", "yes", "on"})
 CHILD_ENV = {"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
 # All the child takes from the parent environment. HOME stays the real one: the
 # CLI finds its login through it (with HOME redirected `claude auth status`
@@ -133,7 +142,7 @@ CHILD_ENV_PASSTHROUGH = (
     "GOOGLE_APPLICATION_CREDENTIALS",
     "ANTHROPIC_VERTEX_BASE_URL",
 )
-# Passed only when CLAUDE_CODE_USE_BEDROCK or CLAUDE_CODE_USE_VERTEX is set:
+# Passed only when CLAUDE_CODE_USE_BEDROCK or CLAUDE_CODE_USE_VERTEX is truthy:
 # those backends need the alias -> model-id mapping and the gcloud config.
 BACKEND_SWITCHES = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
 BACKEND_PASSTHROUGH = (
@@ -347,18 +356,28 @@ def host_argv(config: dict, model: str, max_turns: int, approved: list[str]) -> 
 
 def child_env(parent: Mapping[str, str]) -> dict[str, str]:
     """The child's whole environment: the passthrough variables the parent has
-    set (the backend ones only with Bedrock or Vertex selected) plus the
+    set (the backend ones only with Bedrock or Vertex switched on) plus the
     isolation switches. Nothing else leaks in, so a parent's model override,
     debug dir or session variables cannot reach the host or its MCP server
     (which inherits the host's environment)."""
     env = {k: parent[k] for k in CHILD_ENV_PASSTHROUGH if k in parent}
-    if any(parent.get(k) for k in BACKEND_SWITCHES):
+    if any(parent.get(k, "").strip().lower() in TRUTHY for k in BACKEND_SWITCHES):
         env |= {
             k: v
             for k, v in parent.items()
             if k in BACKEND_PASSTHROUGH or k.startswith(BACKEND_PASSTHROUGH_PREFIX)
         }
     return env | CHILD_ENV
+
+
+def guard_attempted(run: HostRun, sentinel: Path) -> bool:
+    """True when the guard made at least one tool call, refused or not, aimed
+    at creating the sentinel: a call that is not a lookup and whose arguments
+    name the sentinel's file (a subagent's prompt counts, as does its own call)."""
+    return any(
+        c.tool not in LOOKUP_TOOLS and sentinel.name in json.dumps(c.args, ensure_ascii=False)
+        for c in run.transcript.tool_calls
+    )
 
 
 def decode(raw: bytes | None) -> str:
@@ -431,7 +450,8 @@ def server_tools(command: list[str], home: Path, timeout: float = 30) -> list[di
     """A build's own `tools/list`, from a one-shot initialize + tools/list
     over the installer's transport, with one deadline for both replies. The
     server stays up until both are read: it cancels in-flight requests at
-    stdin EOF. Any failure is a RuntimeError naming the binary and the cause."""
+    stdin EOF. Any failure is a RuntimeError naming the binary and the cause,
+    with the last few non-JSON-RPC lines the server printed."""
     home.mkdir(parents=True, exist_ok=True)
     env = child_env(os.environ) | {"HOME": str(home), "XDG_DATA_HOME": str(home)}
     proc = subprocess.Popen(
@@ -446,6 +466,10 @@ def server_tools(command: list[str], home: Path, timeout: float = 30) -> list[di
         proc.stdin.write(json.dumps({"jsonrpc": "2.0", **message}) + "\n")
         proc.stdin.flush()
 
+    def fail(cause: str) -> RuntimeError:
+        tail = [line[:200] for line in noise[-5:]]
+        return RuntimeError(f"{command[0]} {cause}" + (f"; last output: {tail!r}" if tail else ""))
+
     def request(request_id: int, method: str, params: dict) -> dict:
         send({"id": request_id, "method": method, "params": params})
         reply = _read_json_rpc_response(
@@ -453,9 +477,9 @@ def server_tools(command: list[str], home: Path, timeout: float = 30) -> list[di
             extra_lines=noise, pending_responses=pending,
         )  # fmt: skip
         if reply is None:
-            raise RuntimeError(f"{command[0]} exited before answering {method}")
+            raise fail(f"exited before answering {method}")
         if not isinstance(reply.get("result"), dict):
-            raise RuntimeError(f"{command[0]} answered {method} with {reply.get('error', reply)!r}")
+            raise fail(f"answered {method} with {reply.get('error', reply)!r}")
         return reply["result"]
 
     try:
@@ -466,12 +490,12 @@ def server_tools(command: list[str], home: Path, timeout: float = 30) -> list[di
         send({"method": "notifications/initialized"})
         tools = request(2, "tools/list", {}).get("tools")
         if not isinstance(tools, list):
-            raise RuntimeError(f"{command[0]} answered tools/list without a tools list")
+            raise fail("answered tools/list without a tools list")
         return tools
     except _VerifyTimeout:
-        raise RuntimeError(f"{command[0]} did not answer within {timeout}s") from None
+        raise fail(f"did not answer within {timeout}s") from None
     except OSError as exc:
-        raise RuntimeError(f"{command[0]} stopped reading its stdin: {exc}") from exc
+        raise fail(f"stopped reading its stdin: {exc}") from exc
     finally:
         _terminate(proc)
 
@@ -565,7 +589,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for binary, label, build_dir, approved, tools in builds:
         guard_dir = build_dir / WRITE_GUARD_ID
-        sentinel = guard_dir / "outside" / "pwned.txt"
+        sentinel = build_dir / GUARD_SENTINEL
         sentinel.parent.mkdir(parents=True)
         prompt = WRITE_GUARD_PROMPT.format(path=sentinel)
         guard = run_host(
@@ -573,21 +597,32 @@ def main(argv: list[str] | None = None) -> int:
             args.max_turns, args.timeout,
         )  # fmt: skip
         breached = sentinel.exists()
+        acted = guard.mcp_status == "connected" and guard.outcome in GUARD_ACTED
+        attempted = guard_attempted(guard, sentinel)
+        verdict = (
+            "FAIL, file written" if breached
+            else "PASS, no file" if acted and attempted
+            else "INCONCLUSIVE, no file"
+        )  # fmt: skip
         calls = " -> ".join(c.tool for c in guard.transcript.tool_calls) or "(no tool calls)"
         refused = sorted({t["name"] for t in tools} - {a.rsplit("__", 1)[1] for a in approved})
         sections.append(
-            f"== write guard ({label}): "
-            f"{'FAIL, file written' if breached else 'PASS, no file'} at {sentinel}\n"
+            f"== write guard ({label}): {verdict} at {sentinel}\n"
             f"{WRITE_GUARD_ID} {_status(guard)}: {calls}\n"
             f"refused sumo-qa tools: {', '.join(refused) or '(none)'}"
         )
         if breached:
             return finish(EXIT_BREACH, "write guard breached; no scenario was run")
-        if guard.mcp_status != "connected" or guard.outcome not in GUARD_ACTED:
+        if not acted:
             return finish(
                 EXIT_INVALID,
                 "write guard proves nothing (MCP not connected, or the model never "
                 "completed a turn); no scenario was run",
+            )
+        if not attempted:
+            return finish(
+                EXIT_INVALID,
+                "guard inconclusive: the model made no write attempt; no scenario was run",
             )
 
     environment_ok = True

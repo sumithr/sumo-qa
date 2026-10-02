@@ -507,6 +507,24 @@ print(json.dumps({"jsonrpc": "2.0", "id": 1, "error": {"code": -32600, "message"
         harness.server_tools([sys.executable, "-c", server], tmp_path)
 
 
+def test_a_failure_names_the_servers_last_output_lines(tmp_path):
+    server = """
+import sys
+sys.stdin.readline()
+for i in range(8):
+    print(f"log {i}", flush=True)
+print("Traceback: ImportError " + "x" * 500, flush=True)
+"""
+    with pytest.raises(RuntimeError) as exc:
+        harness.server_tools([sys.executable, "-c", server], tmp_path)
+
+    message = str(exc.value)
+    assert "exited before answering initialize; last output:" in message
+    assert "log 7" in message and "Traceback: ImportError" in message
+    assert "log 3" not in message
+    assert "x" * 201 not in message
+
+
 def test_a_poisoned_parent_environment_does_not_reach_the_child():
     poison = {
         "CLAUDE_CODE_SUBAGENT_MODEL": "opus",
@@ -553,10 +571,21 @@ def test_network_and_backend_variables_reach_the_child():
 
 
 @pytest.mark.parametrize("switch", ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"])
-def test_either_backend_switch_alone_passes_the_alias_mapping(switch):
-    env = harness.child_env({switch: "1", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "h"})
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "On"])
+def test_either_backend_switch_alone_passes_the_alias_mapping(switch, value):
+    env = harness.child_env({switch: value, "ANTHROPIC_DEFAULT_HAIKU_MODEL": "h"})
 
     assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "h"
+
+
+@pytest.mark.parametrize("switch", ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"])
+@pytest.mark.parametrize("value", ["0", "false", "no", "off", ""])
+def test_a_backend_switch_turned_off_keeps_the_model_override_out(switch, value):
+    # The CLI reads these as off and uses the first-party API, where an
+    # ANTHROPIC_DEFAULT_*_MODEL would override the model under test.
+    env = harness.child_env({switch: value, "ANTHROPIC_DEFAULT_HAIKU_MODEL": "opus"})
+
+    assert "ANTHROPIC_DEFAULT_HAIKU_MODEL" not in env
 
 
 def _fake_cli(monkeypatch, *, stdout=b"", stderr=b"", returncode=0, timeout=False):
@@ -629,12 +658,20 @@ class _Host:
         assert approved == ["mcp__sumo-qa__using_sumo_qa"]
         self.log.append(f"run {scenario_id}")
         if scenario_id == harness.WRITE_GUARD_ID and self.breach:
-            (run_dir / "outside" / "pwned.txt").write_text("pwned")
+            (run_dir.parent / harness.GUARD_SENTINEL).write_text("buy milk")
         return self.runs[scenario_id]
 
 
-def _guard():
-    return _run("write-guard", harness.WRITE_GUARD_ID)
+def _guard(**result):
+    """The real guard capture (a Write the host refused) with its target edited
+    from the earlier prompt's file to the current GUARD_SENTINEL, and optionally
+    its result event edited too."""
+    text = _with_result("write-guard", **result).replace(
+        "outside/pwned.txt", harness.GUARD_SENTINEL.as_posix()
+    )
+    run = harness.parse_stream(text, harness.WRITE_GUARD_ID)
+    run.returncode = 0
+    return run
 
 
 def test_every_build_installs_then_each_guard_runs_before_any_scenario(tmp_path, monkeypatch):
@@ -703,13 +740,12 @@ def test_a_guard_where_the_model_never_acted_stops_before_any_scenario(
     assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
 
 
+@pytest.mark.parametrize("is_error", [True, False])
 def test_a_guard_that_hit_its_turn_limit_with_the_sandbox_held_still_passes(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, capsys, is_error
 ):
-    guard = harness.parse_stream(
-        _with_result("write-guard", subtype="error_max_turns", is_error=True),
-        harness.WRITE_GUARD_ID,
-    )
+    guard = _guard(subtype="error_max_turns", is_error=is_error)
+    assert guard.outcome == ("error_max_turns (error)" if is_error else "error_max_turns")
     guard.returncode = 1
     host = _Host(
         monkeypatch, {harness.WRITE_GUARD_ID: guard, DC03: _run("main-DC03-no-tool-calls", DC03)}
@@ -722,6 +758,39 @@ def test_a_guard_that_hit_its_turn_limit_with_the_sandbox_held_still_passes(
     out = capsys.readouterr().out
     assert "PASS, no file" in out
     assert "refused sumo-qa tools: writer" in out
+
+
+def test_a_guard_with_no_write_attempt_is_inconclusive_and_stops(tmp_path, monkeypatch, capsys):
+    # A real connected, successful run with no tool calls, as the round-3 guard
+    # ended when the model declined without trying.
+    guard = _run("main-DC03-no-tool-calls", harness.WRITE_GUARD_ID)
+    host = _Host(monkeypatch, {harness.WRITE_GUARD_ID: guard})
+
+    code = harness.main(["a.whl", "--only", DC03, "--out", str(tmp_path / "o")])
+
+    assert code == harness.EXIT_INVALID
+    assert host.log[-1] == f"run {harness.WRITE_GUARD_ID}"
+    captured = capsys.readouterr()
+    assert "INCONCLUSIVE, no file" in captured.out
+    assert "PASS" not in captured.out
+    assert "guard inconclusive: the model made no write attempt" in captured.err
+
+
+def test_only_a_non_lookup_call_naming_the_sentinel_is_a_write_attempt():
+    sentinel = Path("/run/build-0") / harness.GUARD_SENTINEL
+
+    def attempted(*calls):
+        run = harness.HostRun(harness.Transcript(harness.WRITE_GUARD_ID, calls))
+        return harness.guard_attempted(run, sentinel)
+
+    read = harness.ToolCall("Read", {"file_path": str(sentinel)})
+    search = harness.ToolCall("ToolSearch", {"query": "select:Write"})
+    assert not attempted()
+    assert not attempted(read, search)
+    assert not attempted(harness.ToolCall("sumo_qa_load_classifications", {}))
+    assert attempted(read, harness.ToolCall("Write", {"file_path": str(sentinel)}))
+    assert attempted(harness.ToolCall("Agent", {"prompt": f"Create {sentinel}"}))
+    assert attempted(harness.ToolCall("Bash", {"command": "echo hi > ../notes/todo.txt"}))
 
 
 def test_a_quota_stopped_scenario_makes_the_run_invalid_not_a_regression(
