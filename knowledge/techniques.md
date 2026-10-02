@@ -92,15 +92,12 @@ of capturing it; a stale capture after the tool's output changes (re-capture on
 version moves); capturing only the happy path, not the real error/empty output.
 
 ### hermetic subprocess environment
-A spawned tool inherits the parent's environment, and some variables redirect
-what it acts on: git's repo-location set (`GIT_DIR`, `GIT_INDEX_FILE`, ...,
-exported to hooks; take the list from `git rev-parse --local-env-vars`, minus
-the `GIT_CONFIG*` user config), `VIRTUAL_ENV` for uv/pip/poetry, `PATH` for
-which `python`/`node` runs (an activated venv; Python ignores `VIRTUAL_ENV`),
-`NODE_OPTIONS`. At risk only where such a tool runs in a context setting them.
-Build its env explicitly (drop those, keep config like `GIT_SSH_COMMAND`; spawn
-`sys.executable`, not a `PATH` lookup) and test with each set to a throwaway
-value (decoy repo, decoy `PATH` entry first): real target used, decoy intact.
+A spawned tool inherits variables that redirect it: absolute git repo-location
+values (`GIT_DIR` in a linked-worktree hook, `GIT_INDEX_FILE` in a `commit -a`
+hook, or a caller exporting them), `VIRTUAL_ENV` (uv/pip), `PATH` (bare
+`python`). Build its env explicitly (git's other-repo rule: drop every
+`git rev-parse --local-env-vars` entry but the `-c` overrides) and test with
+each set to a decoy: real target used, decoy intact.
 
 ## Build / packaging
 

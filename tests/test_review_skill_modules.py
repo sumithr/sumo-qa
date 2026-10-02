@@ -116,6 +116,11 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "The sweep produces 3–7 named risks",
         "Probe the whole path the diff touches, not the delta",
         "Only a test run with them set to a throwaway value covers it",
+        "`hermetic subprocess environment`",
+        "`GIT_DIR`/`GIT_INDEX_FILE`",
+        "`VIRTUAL_ENV`",
+        "a bare `python` via `PATH`",
+        "without an explicitly constructed env",
         "**The two-pass split (pinned).**",
     ],
     "security-relevance": [

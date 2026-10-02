@@ -694,7 +694,7 @@ tests:
         - Accepts the user's "just a hook, not under src" framing as a reason to apply the trivial-change exemption.
         - Only names generic hook risks without anchoring to the naive token-split command match.
         - Asking another confirmation question instead of delivering the verdict.
-  - description: "FAMILY inherited-subprocess-env: spawned git inherits GIT_DIR/GIT_INDEX_FILE from a hook and acts on the caller's repository (#769, seeded from PR #766)"
+  - description: "FAMILY inherited-subprocess-env: spawned git inherits an absolute GIT_DIR from a linked-worktree hook and acts on the caller's repository (#769, seeded from PR #766)"
     vars:
       user_prompt: >-
         Is this safe to merge?
@@ -721,7 +721,8 @@ tests:
         ```
         Context: `snapshot_source` is called by the `toolkit install` command,
         which teams also run from their own git hooks (a post-checkout hook
-        re-syncs pinned sources).
+        re-syncs pinned sources; most teams work in linked worktrees made
+        with `git worktree add`).
 
         ## Fresh test run
         ```text
@@ -735,11 +736,11 @@ tests:
       expected_shape: >-
         Evidence-led verdict that INDEPENDENTLY flags inherited subprocess
         environment: `_git` passes no `env=`, so the spawned git inherits the
-        caller's environment, and inside a git hook git exports `GIT_DIR` (and
-        `GIT_INDEX_FILE` / `GIT_WORK_TREE`), which redirect the `checkout` and
-        `rev-parse` (`-C dest` does not override an exported `GIT_DIR`) to the
-        hook's own repository: checking out the wrong tree or returning the
-        caller's commit. Anchors to `src/toolkit/snapshot.py` `_git` (lines
+        caller's environment, and a hook in a linked worktree gets an absolute
+        `GIT_DIR` (a `commit -a` hook also an absolute `GIT_INDEX_FILE`), which
+        redirects the `checkout` and `rev-parse` (`-C dest` does not override
+        an exported `GIT_DIR`) to the hook's own repository: checking out the
+        wrong tree or returning the caller's commit. Anchors to `src/toolkit/snapshot.py` `_git` (lines
         19-26). Requires an explicitly constructed subprocess environment and a
         test that runs with `GIT_DIR` / `GIT_INDEX_FILE` set to a throwaway
         value; notes the green tests ran with no git variables set, so they
@@ -772,11 +773,11 @@ tests:
          10     return _git(["-C", str(dest), "rev-parse", "HEAD"])
          11
          12
-        +13 # Repository-location variables: `git rev-parse --local-env-vars` minus the
-        +14 # user's own config entries (GIT_CONFIG*). A git hook exports them, pointing a
-        +15 # spawned git at the hook's repository; other GIT_* settings pass through.
+        +13 # git's own rule for a command run in another repository: drop every
+        +14 # `git rev-parse --local-env-vars` entry but the `-c` overrides. A linked-
+        +15 # worktree hook exports an absolute GIT_DIR, pointing a spawned git at it.
         +16 _REPO_LOCATION = frozenset({
-        +17     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_DIR",
+        +17     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_DIR",
         +18     "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE",
         +19     "GIT_NO_REPLACE_OBJECTS", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX",
         +20     "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_WORK_TREE",
@@ -826,14 +827,14 @@ tests:
          ...
         +40 def test_repo_location_is_gits_canonical_list(tmp_path):
         +41     canonical = set(git(tmp_path, "rev-parse", "--local-env-vars").split())
-        +42     assert _REPO_LOCATION == canonical - {"GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"}
+        +42     assert _REPO_LOCATION == canonical - {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"}
         +43
         +44
         +45 def test_snapshot_ignores_inherited_git_location(tmp_path, monkeypatch):
         +46     shas = make_origin_repo(tmp_path / "origin", ["a", "b"])
         +47     decoy = tmp_path / "decoy"
         +48     decoy_head = make_origin_repo(decoy, ["x"])[0]
-        +49     # The repository-location variables a git hook exports, pointed at the decoy.
+        +49     # The repository-location variables a hook can export, pointed at the decoy.
         +50     for name, value in {
         +51         "GIT_DIR": decoy / ".git",
         +52         "GIT_WORK_TREE": decoy,
@@ -847,7 +848,7 @@ tests:
         +60     assert git(decoy, "status", "--porcelain") == ""
         ```
         Context: a fix for a report that `toolkit install` run from a
-        post-checkout hook checked out the wrong tree. `_git` is the only
+        post-checkout hook in a linked worktree checked out the wrong tree. `_git` is the only
         subprocess call in `src/toolkit/snapshot.py`. Lines 26-39 of the test
         file hold the two existing snapshot tests, unchanged. Reverting the
         `env=env` line makes `test_snapshot_ignores_inherited_git_location`
@@ -860,18 +861,18 @@ tests:
         tests/test_snapshot.py::test_snapshot_rejects_unknown_ref PASSED
         tests/test_snapshot.py::test_repo_location_is_gits_canonical_list PASSED
         tests/test_snapshot.py::test_snapshot_ignores_inherited_git_location PASSED
-        4 passed, 0 skipped in 0.69s
+        4 passed, 0 skipped in 0.78s
         ```
       expected_shape: >-
         Evidence-led verdict that recognises the git subprocess environment is
-        now explicitly constructed: `_REPO_LOCATION` is git's canonical
-        repository-location list (`git rev-parse --local-env-vars` minus the
-        `GIT_CONFIG*` user-config entries, pinned by the fresh passing
-        `test_repo_location_is_gits_canonical_list`), other git config passes
-        through, and `env=env` is passed. The inherited-environment risk is
+        now explicitly constructed: `_REPO_LOCATION` follows git's own
+        other-repository rule (every `git rev-parse --local-env-vars` entry
+        but the `-c` overrides `GIT_CONFIG_PARAMETERS` / `GIT_CONFIG_COUNT`,
+        pinned by the fresh passing `test_repo_location_is_gits_canonical_list`),
+        other git config passes through, and `env=env` is passed. The inherited-environment risk is
         COVERED by the fresh passing
         `test_snapshot_ignores_inherited_git_location`, which sets the
-        hook-exported repository-location variables (`GIT_DIR`,
+        repository-location variables a hook can export (`GIT_DIR`,
         `GIT_INDEX_FILE` and others) to a throwaway decoy repository and
         asserts the snapshot commit, the decoy's unchanged HEAD and its intact
         index. Cites the 4 passed run. Delivers SAFE TO MERGE without
@@ -879,7 +880,7 @@ tests:
         question.
       anti_patterns:
         - Labels the inherited-environment risk UNCOVERED or UNPROVEN although the fresh passing tests pin the drop list to git's canonical list and run snapshot_source with the repo-location variables pointed at a throwaway decoy.
-        - Claims the drop list is incomplete or hand-built, though it equals `git rev-parse --local-env-vars` minus the GIT_CONFIG* entries and a fresh test pins that.
+        - Claims the drop list is incomplete or hand-built, though it equals `git rev-parse --local-env-vars` minus the `-c` overrides (git's own other-repository rule) and a fresh test pins that.
         - Demands a universal allow-list of every environment variable, or a change to every other subprocess call in the repository, before SAFE.
         - Declares NOT SAFE / NEEDS WORK solely for inherited environment on this explicitly constructed git call.
         - Asking another confirmation question instead of delivering the verdict.
@@ -891,24 +892,26 @@ tests:
         ## git diff
         ```diff
         diff --git a/src/toolkit/codegen.py b/src/toolkit/codegen.py
-        @@ src/toolkit/codegen.py:1-17 @@
+        @@ src/toolkit/codegen.py:1-19 @@
           1 import subprocess
-          2 from pathlib import Path
-          3
+        + 2 import sys
+          3 from pathlib import Path
           4
-          5 def write_models(dest: Path, source: str) -> Path:
-          6     """Format generated model source, then write it to dest."""
-        - 7     dest.write_text(source, encoding="utf-8")
-        + 7     dest.write_text(_format(source), encoding="utf-8")
-          8     return dest
-          9
+          5
+          6 def write_models(dest: Path, source: str) -> Path:
+          7     """Format generated model source, then write it to dest."""
+        - 8     dest.write_text(source, encoding="utf-8")
+        + 8     dest.write_text(_format(source), encoding="utf-8")
+          9     return dest
          10
-        +11 def _format(source: str) -> str:
-        +12     """Return source formatted by black; raise if black cannot parse it."""
-        +13     completed = subprocess.run(
-        +14         ["black", "--quiet", "-"], input=source, capture_output=True, text=True, check=True
-        +15     )
-        +16     return completed.stdout
+         11
+        +12 def _format(source: str) -> str:
+        +13     """Return source formatted by black; raise if black cannot parse it."""
+        +14     completed = subprocess.run(
+        +15         [sys.executable, "-m", "black", "--quiet", "-"],
+        +16         input=source, capture_output=True, text=True, check=True,
+        +17     )
+        +18     return completed.stdout
 
         diff --git a/tests/test_codegen.py b/tests/test_codegen.py
         @@ tests/test_codegen.py:1-17 @@
@@ -932,7 +935,8 @@ tests:
         ```
         Context: `write_models` backs the `toolkit generate` command, which
         writes generated model source into a path the caller passes. `black`
-        is a pinned runtime dependency of the package. `_format` is the only
+        is a pinned runtime dependency of the package, so it is installed
+        next to the running interpreter. `_format` is the only
         subprocess call in `src/toolkit/codegen.py`; black reads the source
         from stdin and writes the result to stdout, so it never touches a
         repository or a file.
@@ -942,12 +946,13 @@ tests:
         $ pytest tests/test_codegen.py -q
         tests/test_codegen.py::test_write_models_formats_the_source PASSED
         tests/test_codegen.py::test_write_models_writes_nothing_for_unparseable_source PASSED
-        2 passed, 0 skipped in 0.84s
+        2 passed, 0 skipped in 0.34s
         ```
       expected_shape: >-
         Evidence-led verdict that recognises the black call is a formatter
-        that reads the source from stdin and returns it on stdout: it reads no
-        repository-, virtualenv- or runtime-redirecting variable (no git, no
+        that reads the source from stdin and returns it on stdout, spawned
+        through `sys.executable -m black` rather than a `PATH` lookup: it reads
+        no repository-, virtualenv- or runtime-redirecting variable (no git, no
         uv/pip/poetry, no bare `python`), so the inherited-environment probe
         (`hermetic subprocess environment`) does not apply and needs no
         explicit `env=`. Cites the 2 passed run as covering both the formatted
