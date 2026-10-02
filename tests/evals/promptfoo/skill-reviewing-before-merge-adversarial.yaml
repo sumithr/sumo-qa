@@ -722,9 +722,10 @@ tests:
         +26     return completed.stdout.strip()
         ```
         Context: `snapshot_source` is called by the `toolkit install` command,
-        which teams also run from their own git hooks (a post-checkout hook
-        re-syncs pinned sources; most teams work in linked worktrees made
-        with `git worktree add`).
+        which teams also run from their own git hooks: most teams work in
+        existing linked worktrees (made earlier with `git worktree add`), and
+        a post-checkout hook there re-syncs pinned sources whenever they
+        switch branches with `git checkout`.
 
         ## Fresh test run
         ```text
@@ -738,12 +739,12 @@ tests:
       expected_shape: >-
         Evidence-led verdict that INDEPENDENTLY flags inherited subprocess
         environment: `_git` passes no `env=`, so the spawned git inherits the
-        caller's environment, and a hook in a linked worktree gets an absolute
-        `GIT_DIR` (every commit hook there, a plain staged commit and `--amend`
-        too, also an absolute `GIT_INDEX_FILE`), which
+        caller's environment, and the post-checkout hook a branch switch fires
+        in an existing linked worktree gets an absolute `GIT_DIR`, which
         redirects the `checkout` and `rev-parse` (`-C dest` does not override
-        an exported `GIT_DIR`) to the hook's own repository: checking out the
-        wrong tree or returning the caller's commit. Anchors to `src/toolkit/snapshot.py` `_git` (lines
+        an exported `GIT_DIR`) to the hook's own repository: the checkout
+        moves the caller's HEAD and `snapshot_source` returns the caller's
+        commit, not the source's. Anchors to `src/toolkit/snapshot.py` `_git` (lines
         19-26). Requires an explicitly constructed subprocess environment and a
         test that runs with `GIT_DIR` / `GIT_INDEX_FILE` set to a throwaway
         value; notes the green tests ran with no git variables set, so they
@@ -753,7 +754,7 @@ tests:
         - Declares SAFE because both snapshot tests pass, missing that the spawned git inherits the caller's environment.
         - Misses the inherited-environment defect entirely (never names `GIT_DIR` or another inherited variable that redirects git).
         - Treats the green tests as covering the hook context, though they ran with no git variables set.
-        - Prescribes a universal allow-list for every external tool instead of an explicitly constructed environment for this git call.
+        - Prescribes a repo-wide environment policy for every tool's subprocess calls instead of fixing this `_git` call's environment (a per-call allow-list or drop-list env for `_git` is a correct fix).
         - Asking another confirmation question instead of delivering the verdict.
   - description: "NEGATIVE CONTROL hermetic-subprocess-env: git env built from git's canonical repo-location list and a fresh test sets GIT_DIR/GIT_INDEX_FILE to a throwaway value (#769)"
     vars:
@@ -763,108 +764,180 @@ tests:
         ## git diff
         ```diff
         diff --git a/src/toolkit/snapshot.py b/src/toolkit/snapshot.py
-        @@ src/toolkit/snapshot.py:1-34 @@
-          1 import os
-          2 import subprocess
-          3 from pathlib import Path
-          4
-          5
-          6 def snapshot_source(url: str, dest: Path, ref: str) -> str:
-          7     """Clone url into dest, check out ref, return the resolved commit."""
-          8     _git(["clone", "--quiet", url, str(dest)])
-          9     _git(["-C", str(dest), "checkout", "--quiet", ref])
-         10     return _git(["-C", str(dest), "rev-parse", "HEAD"])
-         11
-         12
-        +13 # git's rule for another repository: drop every `git rev-parse
-        +14 # --local-env-vars` entry but GIT_CONFIG_PARAMETERS (`-c`) and GIT_CONFIG_COUNT
-        +15 # (env config). A linked-worktree hook exports an absolute GIT_DIR.
-        +16 _REPO_LOCATION = frozenset({
-        +17     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_DIR",
-        +18     "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE",
-        +19     "GIT_NO_REPLACE_OBJECTS", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX",
-        +20     "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_WORK_TREE",
-        +21 })
-        +22
-        +23
-         24 def _git(args: list[str]) -> str:
-        +25     env = {k: v for k, v in os.environ.items() if k not in _REPO_LOCATION}
-         26     completed = subprocess.run(
-         27         ["git", *args],
-         28         capture_output=True,
-         29         text=True,
-         30         check=True,
-        +31         env=env,
-         32     )
-         33     return completed.stdout.strip()
+        @@ src/toolkit/snapshot.py:1-44 @@
+           1 import os
+        +  2 import re
+           3 import subprocess
+           4 from pathlib import Path
+           5
+        +  6 # A ref is a name or a revision expression, never an option: it starts with a
+        +  7 # letter or digit and has no `..` range.
+        +  8 _REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/~^-]*")
+        +  9
+          10
+          11 def snapshot_source(url: str, dest: Path, ref: str) -> str:
+        -  7     """Clone url into dest, check out ref, return the resolved commit."""
+        -  8     _git(["clone", "--quiet", url, str(dest)])
+        -  9     _git(["-C", str(dest), "checkout", "--quiet", ref])
+        - 10     return _git(["-C", str(dest), "rev-parse", "HEAD"])
+        + 12     """Clone url into dest, check out ref detached, return the resolved commit."""
+        + 13     if not _REF.fullmatch(ref) or ".." in ref:
+        + 14         raise ValueError(f"ref {ref!r} is not a branch, tag, or commit name")
+        + 15     _git(["clone", "--quiet", "--", url, str(dest)])
+        + 16     commit = _git(
+        + 17         ["-C", str(dest), "rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"]
+        + 18     )
+        + 19     _git(["-C", str(dest), "checkout", "--quiet", "--detach", commit])
+        + 20     return commit
+        + 21
+        + 22
+        + 23 # git's rule for another repository: drop every `git rev-parse
+        + 24 # --local-env-vars` entry but GIT_CONFIG_PARAMETERS (`-c`) and GIT_CONFIG_COUNT
+        + 25 # (env config). A hook or git wrapper can export an absolute GIT_DIR.
+        + 26 _REPO_LOCATION = frozenset({
+        + 27     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_DIR",
+        + 28     "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE",
+        + 29     "GIT_NO_REPLACE_OBJECTS", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX",
+        + 30     "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_WORK_TREE",
+        + 31 })
+          32
+          33
+          34 def _git(args: list[str]) -> str:
+        + 35     env = {k: v for k, v in os.environ.items() if k not in _REPO_LOCATION}
+        + 36     env["GIT_ALLOW_PROTOCOL"] = "file:https:ssh"  # no ext:: command transport
+          37     completed = subprocess.run(
+          38         ["git", *args],
+          39         capture_output=True,
+          40         text=True,
+          41         check=True,
+        + 42         env=env,
+          43     )
+          44     return completed.stdout.strip()
 
         diff --git a/tests/test_snapshot.py b/tests/test_snapshot.py
-        @@ tests/test_snapshot.py:1-60 @@
-          1 import os
-          2 import subprocess
-          3
-          4 import pytest
-          5
-        - 6 from toolkit.snapshot import snapshot_source
-        + 6 from toolkit.snapshot import _REPO_LOCATION, snapshot_source
-          7
-          8
-          9 def git(path, *args):
-        -10     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-        +10     env = {k: v for k, v in os.environ.items() if k not in _REPO_LOCATION}
-         11     return subprocess.run(
-         12         ["git", *args], cwd=path, env=env, check=True, capture_output=True, text=True
-         13     ).stdout.strip()
-         14
-         15
-         16 def make_origin_repo(path, commits):
-         17     path.mkdir(parents=True)
-         18     git(path, "init", "-q")
-         19     shas = []
-         20     for name in commits:
-         21         (path / name).write_text(name)
-         22         git(path, "add", name)
-         23         git(path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", name)
-         24         shas.append(git(path, "rev-parse", "HEAD"))
-         25     return shas
-         ...
-        +40 def test_repo_location_is_gits_canonical_list(tmp_path):
-        +41     canonical = set(git(tmp_path, "rev-parse", "--local-env-vars").split())
-        +42     assert _REPO_LOCATION == canonical - {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"}
-        +43
-        +44
-        +45 def test_snapshot_ignores_inherited_git_location(tmp_path, monkeypatch):
-        +46     shas = make_origin_repo(tmp_path / "origin", ["a", "b"])
-        +47     decoy = tmp_path / "decoy"
-        +48     decoy_head = make_origin_repo(decoy, ["x"])[0]
-        +49     # The repository-location variables a hook can export, pointed at the decoy.
-        +50     for name, value in {
-        +51         "GIT_DIR": decoy / ".git",
-        +52         "GIT_WORK_TREE": decoy,
-        +53         "GIT_INDEX_FILE": decoy / ".git" / "index",
-        +54         "GIT_COMMON_DIR": decoy / ".git",
-        +55         "GIT_OBJECT_DIRECTORY": decoy / ".git" / "objects",
-        +56     }.items():
-        +57         monkeypatch.setenv(name, str(value))
-        +58     assert snapshot_source(str(tmp_path / "origin"), tmp_path / "dest", "HEAD~1") == shas[0]
-        +59     assert git(decoy, "rev-parse", "HEAD") == decoy_head
-        +60     assert git(decoy, "status", "--porcelain") == ""
+        @@ tests/test_snapshot.py:1-94 @@
+           1 import os
+           2 import subprocess
+           3
+           4 import pytest
+           5
+        -  6 from toolkit.snapshot import snapshot_source
+        +  6 from toolkit.snapshot import _REPO_LOCATION, snapshot_source
+           7
+           8
+           9 def git(path, *args):
+        - 10     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        + 10     env = {k: v for k, v in os.environ.items() if k not in _REPO_LOCATION}
+          11     return subprocess.run(
+          12         ["git", *args], cwd=path, env=env, check=True, capture_output=True, text=True
+          13     ).stdout.strip()
+          14
+          15
+          16 def make_origin_repo(path, commits):
+          17     path.mkdir(parents=True)
+          18     git(path, "init", "-q")
+          19     shas = []
+          20     for name in commits:
+          21         (path / name).write_text(name)
+          22         git(path, "add", name)
+          23         git(path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", name)
+          24         shas.append(git(path, "rev-parse", "HEAD"))
+          25     return shas
+          26
+          27
+          28 def test_snapshot_returns_commit_of_ref(tmp_path):
+          29     shas = make_origin_repo(tmp_path / "origin", ["a", "b"])
+          30     dest = tmp_path / "dest"
+          31     assert snapshot_source(str(tmp_path / "origin"), dest, "HEAD~1") == shas[0]
+          32     assert git(dest, "rev-parse", "HEAD") == shas[0]
+          33
+          34
+          35 def test_snapshot_rejects_unknown_ref(tmp_path):
+          36     make_origin_repo(tmp_path / "origin", ["a"])
+          37     with pytest.raises(subprocess.CalledProcessError):
+          38         snapshot_source(str(tmp_path / "origin"), tmp_path / "dest", "no-such-ref")
+        + 39
+        + 40
+        + 41 @pytest.mark.parametrize("ref", ["--orphan=x", "-b", "main..HEAD", ""])
+        + 42 def test_snapshot_rejects_an_option_or_range_shaped_ref(tmp_path, ref):
+        + 43     make_origin_repo(tmp_path / "origin", ["a"])
+        + 44     with pytest.raises(ValueError):
+        + 45         snapshot_source(str(tmp_path / "origin"), tmp_path / "dest", ref)
+        + 46     assert not (tmp_path / "dest").exists()
+        + 47
+        + 48
+        + 49 def test_snapshot_treats_an_option_shaped_url_as_a_url(tmp_path, monkeypatch):
+        + 50     # Without `--`, git would parse the url as --upload-pack and run it while
+        + 51     # cloning the existing repository passed as dest.
+        + 52     make_origin_repo(tmp_path / "origin", ["a"])
+        + 53     (tmp_path / "work").mkdir()
+        + 54     monkeypatch.chdir(tmp_path / "work")
+        + 55     pwned = tmp_path / "pwned"
+        + 56     with pytest.raises(subprocess.CalledProcessError):
+        + 57         snapshot_source(f"--upload-pack=touch {pwned}", tmp_path / "origin", "HEAD")
+        + 58     assert not pwned.exists()
+        + 59
+        + 60
+        + 61 def test_snapshot_refuses_the_ext_transport_even_if_config_allows_it(tmp_path, monkeypatch):
+        + 62     for name, value in {
+        + 63         "GIT_CONFIG_COUNT": "1",
+        + 64         "GIT_CONFIG_KEY_0": "protocol.ext.allow",
+        + 65         "GIT_CONFIG_VALUE_0": "always",
+        + 66     }.items():
+        + 67         monkeypatch.setenv(name, value)
+        + 68     pwned = tmp_path / "pwned"
+        + 69     with pytest.raises(subprocess.CalledProcessError):
+        + 70         snapshot_source(f"ext::touch {pwned}", tmp_path / "dest", "HEAD")
+        + 71     assert not pwned.exists()
+        + 72
+        + 73
+        + 74 def test_repo_location_covers_gits_canonical_list(tmp_path):
+        + 75     canonical = set(git(tmp_path, "rev-parse", "--local-env-vars").split())
+        + 76     assert canonical - {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"} <= _REPO_LOCATION
+        + 77
+        + 78
+        + 79 def test_snapshot_ignores_inherited_git_location(tmp_path, monkeypatch):
+        + 80     shas = make_origin_repo(tmp_path / "origin", ["a", "b"])
+        + 81     decoy = tmp_path / "decoy"
+        + 82     decoy_head = make_origin_repo(decoy, ["x"])[0]
+        + 83     # The repository-location variables a hook can export, pointed at the decoy.
+        + 84     for name, value in {
+        + 85         "GIT_DIR": decoy / ".git",
+        + 86         "GIT_WORK_TREE": decoy,
+        + 87         "GIT_INDEX_FILE": decoy / ".git" / "index",
+        + 88         "GIT_COMMON_DIR": decoy / ".git",
+        + 89         "GIT_OBJECT_DIRECTORY": decoy / ".git" / "objects",
+        + 90     }.items():
+        + 91         monkeypatch.setenv(name, str(value))
+        + 92     assert snapshot_source(str(tmp_path / "origin"), tmp_path / "dest", "HEAD~1") == shas[0]
+        + 93     assert git(decoy, "rev-parse", "HEAD") == decoy_head
+        + 94     assert git(decoy, "status", "--porcelain") == ""
         ```
         Context: a fix for a report that `toolkit install` run from a
-        post-checkout hook in a linked worktree checked out the wrong tree. `_git` is the only
-        subprocess call in `src/toolkit/snapshot.py`. Lines 26-39 of the test
-        file hold the two existing snapshot tests, unchanged. Reverting the
-        `env=env` line makes `test_snapshot_ignores_inherited_git_location`
-        fail.
+        post-checkout hook in a linked worktree checked out the wrong tree; it also
+        hardens the caller-supplied `url` and `ref` the way the repository's other
+        git callers do (`--` before the url, `--end-of-options` and a name check on
+        the ref, the `ext::` command transport refused). `_git` is the only
+        subprocess call in `src/toolkit/snapshot.py`. `dest` is always a fresh path
+        inside a temporary directory the caller creates and removes, whatever the
+        outcome. Reverting the `env=env` line makes
+        `test_snapshot_ignores_inherited_git_location` fail; dropping the `--`, the
+        ref check or the `GIT_ALLOW_PROTOCOL` line fails the matching guard test.
 
         ## Fresh test run
         ```text
-        $ pytest tests/test_snapshot.py -q
-        tests/test_snapshot.py::test_snapshot_returns_commit_of_ref PASSED
-        tests/test_snapshot.py::test_snapshot_rejects_unknown_ref PASSED
-        tests/test_snapshot.py::test_repo_location_is_gits_canonical_list PASSED
-        tests/test_snapshot.py::test_snapshot_ignores_inherited_git_location PASSED
-        4 passed, 0 skipped in 0.78s
+        $ pytest tests/test_snapshot.py -q -rA
+        PASSED tests/test_snapshot.py::test_snapshot_returns_commit_of_ref
+        PASSED tests/test_snapshot.py::test_snapshot_rejects_unknown_ref
+        PASSED tests/test_snapshot.py::test_snapshot_rejects_an_option_or_range_shaped_ref[--orphan=x]
+        PASSED tests/test_snapshot.py::test_snapshot_rejects_an_option_or_range_shaped_ref[-b]
+        PASSED tests/test_snapshot.py::test_snapshot_rejects_an_option_or_range_shaped_ref[main..HEAD]
+        PASSED tests/test_snapshot.py::test_snapshot_rejects_an_option_or_range_shaped_ref[]
+        PASSED tests/test_snapshot.py::test_snapshot_treats_an_option_shaped_url_as_a_url
+        PASSED tests/test_snapshot.py::test_snapshot_refuses_the_ext_transport_even_if_config_allows_it
+        PASSED tests/test_snapshot.py::test_repo_location_covers_gits_canonical_list
+        PASSED tests/test_snapshot.py::test_snapshot_ignores_inherited_git_location
+        10 passed in 1.07s
         ```
       expected_shape: >-
         Evidence-led verdict that recognises the git subprocess environment is
@@ -872,19 +945,22 @@ tests:
         other-repository rule (every `git rev-parse --local-env-vars` entry
         but `GIT_CONFIG_PARAMETERS` (the `-c` config) and `GIT_CONFIG_COUNT`
         (the `GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` env config),
-        pinned by the fresh passing `test_repo_location_is_gits_canonical_list`),
+        pinned by the fresh passing `test_repo_location_covers_gits_canonical_list`),
         other git config passes through, and `env=env` is passed. The inherited-environment risk is
         COVERED by the fresh passing
         `test_snapshot_ignores_inherited_git_location`, which sets the
         repository-location variables a hook can export (`GIT_DIR`,
         `GIT_INDEX_FILE` and others) to a throwaway decoy repository and
         asserts the snapshot commit, the decoy's unchanged HEAD and its intact
-        index. Cites the 4 passed run. Delivers SAFE TO MERGE without
-        inventing an uncovered inherited-env risk. Ends without a confirmation
+        index. The caller-supplied `url` and `ref` cannot inject options or
+        run a command (`--`, the ref check and `--end-of-options`,
+        `GIT_ALLOW_PROTOCOL`), each guard covered by a fresh passing test.
+        Cites the 10 passed run. Delivers SAFE TO MERGE without inventing an
+        uncovered inherited-env or option-injection risk. Ends without a confirmation
         question.
       anti_patterns:
         - Labels the inherited-environment risk UNCOVERED or UNPROVEN although the fresh passing tests pin the drop list to git's canonical list and run snapshot_source with the repo-location variables pointed at a throwaway decoy.
-        - Claims the drop list is incomplete or hand-built, though it equals `git rev-parse --local-env-vars` minus `GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_COUNT` (git's own other-repository rule) and a fresh test pins that.
+        - Claims the drop list is incomplete or hand-built, though it covers every `git rev-parse --local-env-vars` entry but `GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_COUNT` (git's own other-repository rule) and a fresh test pins that.
         - Demands a universal allow-list of every environment variable, or a change to every other subprocess call in the repository, before SAFE.
         - Declares NOT SAFE / NEEDS WORK solely for inherited environment on this explicitly constructed git call.
         - Asking another confirmation question instead of delivering the verdict.
@@ -897,51 +973,42 @@ tests:
         ```diff
         diff --git a/src/toolkit/canon.py b/src/toolkit/canon.py
         new file mode 100644
-        @@ src/toolkit/canon.py:1-19 @@
+        @@ src/toolkit/canon.py:1-13 @@
         + 1 import subprocess
         + 2 import sys
-        + 3 from pathlib import Path
-        + 4
-        + 5 _CANON = "import json,sys; sys.stdout.buffer.write(json.dumps(json.load(sys.stdin.buffer), indent=2, sort_keys=True).encode())"
+        + 3
+        + 4 _CANON = "import json,sys; sys.stdout.buffer.write(json.dumps(json.load(sys.stdin.buffer), indent=2, sort_keys=True).encode())"
+        + 5
         + 6
-        + 7
-        + 8 def write_canonical(dest: Path, payload: bytes) -> Path:
-        + 9     """Canonicalise a JSON payload in an isolated child interpreter, then write it."""
-        +10     dest.write_bytes(_canonical(payload))
-        +11     return dest
-        +12
-        +13
-        +14 def _canonical(payload: bytes) -> bytes:
-        +15     completed = subprocess.run(
-        +16         [sys.executable, "-I", "-c", _CANON],
-        +17         input=payload, capture_output=True, check=True,
-        +18     )
-        +19     return completed.stdout
+        + 7 def canonical(payload: bytes) -> bytes:
+        + 8     """Canonicalise a JSON payload in an isolated child interpreter."""
+        + 9     completed = subprocess.run(
+        +10         [sys.executable, "-I", "-c", _CANON],
+        +11         input=payload, capture_output=True, check=True,
+        +12     )
+        +13     return completed.stdout
 
         diff --git a/tests/test_canon.py b/tests/test_canon.py
         new file mode 100644
-        @@ tests/test_canon.py:1-17 @@
+        @@ tests/test_canon.py:1-14 @@
         + 1 import subprocess
         + 2
         + 3 import pytest
         + 4
-        + 5 from toolkit.canon import write_canonical
+        + 5 from toolkit.canon import canonical
         + 6
         + 7
-        + 8 def test_write_canonical_sorts_and_indents(tmp_path):
-        + 9     dest = write_canonical(tmp_path / "out.json", b'{"b": 1, "a": ["\xc3\xa9"]}')
-        +10     assert dest.read_bytes() == b'{\n  "a": [\n    "\\u00e9"\n  ],\n  "b": 1\n}'
+        + 8 def test_canonical_sorts_and_indents():
+        + 9     assert canonical(b'{"b": 1, "a": ["\xc3\xa9"]}') == b'{\n  "a": [\n    "\\u00e9"\n  ],\n  "b": 1\n}'
+        +10
         +11
-        +12
-        +13 def test_write_canonical_writes_nothing_for_invalid_json(tmp_path):
-        +14     dest = tmp_path / "out.json"
-        +15     with pytest.raises(subprocess.CalledProcessError):
-        +16         write_canonical(dest, b'{"a": ')
-        +17     assert not dest.exists()
+        +12 def test_canonical_raises_for_invalid_json():
+        +13     with pytest.raises(subprocess.CalledProcessError):
+        +14         canonical(b'{"a": ')
         ```
-        Context: `write_canonical` backs the `toolkit canon` command, which
-        writes a canonical copy of a JSON payload to a path the caller passes.
-        `_canonical` is the only subprocess call in `src/toolkit/canon.py`. The
+        Context: `canonical` backs the `toolkit canon` command, which prints
+        the canonical form of a JSON payload to stdout; it writes no file.
+        `canonical` is the only subprocess call in `src/toolkit/canon.py`. The
         child is the running interpreter by absolute path (`sys.executable`,
         no `PATH` lookup) in isolated mode (`-I`: it ignores every `PYTHON*`
         variable and the user site directory, and keeps the cwd off
@@ -952,12 +1019,12 @@ tests:
         ## Fresh test run
         ```text
         $ pytest tests/test_canon.py -v
-        tests/test_canon.py::test_write_canonical_sorts_and_indents PASSED       [ 50%]
-        tests/test_canon.py::test_write_canonical_writes_nothing_for_invalid_json PASSED [100%]
-        ============================== 2 passed in 0.16s ===============================
+        tests/test_canon.py::test_canonical_sorts_and_indents PASSED             [ 50%]
+        tests/test_canon.py::test_canonical_raises_for_invalid_json PASSED       [100%]
+        ============================== 2 passed in 0.13s ===============================
         ```
       expected_shape: >-
-        Evidence-led verdict that recognises the `_canonical` spawn reads no
+        Evidence-led verdict that recognises the `canonical` spawn reads no
         redirecting variable: the child is `sys.executable` (an absolute path,
         so `PATH` cannot redirect it) in isolated mode `-I` (so `PYTHONPATH`,
         `PYTHONHOME` and the other `PYTHON*` variables, the user site and a
@@ -966,10 +1033,10 @@ tests:
         uv/pip or virtualenv involvement. The inherited-environment probe
         (`hermetic subprocess environment`) therefore does not apply and the
         call needs no explicit `env=`. Cites the 2 passed run as covering the
-        canonical output and the nothing-written-on-invalid-JSON path.
+        canonical output and the invalid-JSON error.
         Delivers SAFE TO MERGE. Ends without a confirmation question.
       anti_patterns:
-        - Names an inherited-environment / hermetic-subprocess-environment risk for the `_canonical` call, or demands an explicitly constructed `env=` for it.
+        - Names an inherited-environment / hermetic-subprocess-environment risk for the `canonical` call, or demands an explicitly constructed `env=` for it.
         - Claims `PYTHONPATH`, `PYTHONHOME`, a user site or a module in the cwd can redirect the `-I` child's imports.
         - Labels an inherited-environment risk UNCOVERED or UNPROVEN, or asks for a test that sets GIT_DIR, VIRTUAL_ENV, PYTHONPATH or PATH to a throwaway value for this call.
         - Declares NOT SAFE / NEEDS WORK solely because the code spawns a child process.

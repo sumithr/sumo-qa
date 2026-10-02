@@ -92,12 +92,13 @@ of capturing it; a stale capture after the tool's output changes (re-capture on
 version moves); capturing only the happy path, not the real error/empty output.
 
 ### hermetic subprocess environment
-A spawned tool inherits variables that redirect it: absolute git repo-location
-values (`GIT_DIR` in any linked-worktree hook, `GIT_INDEX_FILE` in its commit
-hooks and a main-worktree `commit -a`/`commit <path>` pre-commit and
-commit-msg, or a caller exporting them), `VIRTUAL_ENV` (uv),
-`PYTHONPATH`/`PYTHONHOME` (python), `PATH` (bare `pip`/`python`). Build its
-env explicitly (git's other-repo rule: drop every
+A spawned tool inherits variables that redirect it. Representative, not
+exhaustive: hooks and git wrappers can export an absolute `GIT_DIR` /
+`GIT_INDEX_FILE` (e.g. hooks in a linked worktree, commit hooks under
+`commit -a`, a `git --git-dir=<absolute>` caller), so treat any git they
+reach as exposed; `VIRTUAL_ENV` (uv), `PYTHONPATH`/`PYTHONHOME` (python),
+`PATH` (bare `pip`/`python`), the tool's own config (`PIP_*`, `UV_*`,
+`npm_config_*`). Build its env explicitly (git's other-repo rule: drop every
 `git rev-parse --local-env-vars` entry but `GIT_CONFIG_PARAMETERS` (`-c`) and
 `GIT_CONFIG_COUNT` (env config)) and test with each set to a decoy: real
 target used, decoy intact.

@@ -508,9 +508,9 @@ tests:
   - description: 'SEED: spawned git inherits the hook environment (#769)'
     vars:
       user_prompt: >-
-        Fix this regression-first. When our post-checkout hook runs
-        `toolkit install` in a linked worktree (made with `git worktree
-        add`), `snapshot_source()` checks out and reports the commit of the
+        Fix this regression-first. When we switch branches in an existing
+        linked worktree and our post-checkout hook runs `toolkit install`,
+        `snapshot_source()` checks out and reports the commit of the
         repository the hook fired in, not the freshly cloned source. From a
         normal shell it works. Logic is in `src/toolkit/snapshot.py`.
       ground_truth_context: |
@@ -572,9 +572,8 @@ tests:
         `tests/test_snapshot.py`, the function under test `snapshot_source`,
         and the triggering input: the hook context reproduced by setting
         `GIT_DIR` (optionally `GIT_INDEX_FILE` too) to an absolute path in a
-        throwaway decoy repository, e.g. with `monkeypatch.setenv`, because a
-        hook in a linked worktree gets an absolute `GIT_DIR` and a spawned git
-        inherits it. The assertion distinguishes broken from fixed: fixed
+        throwaway decoy repository, e.g. with `monkeypatch.setenv`, because
+        that hook gets an absolute `GIT_DIR` and a spawned git inherits it. The assertion distinguishes broken from fixed: fixed
         returns the cloned source's `HEAD~1` commit and leaves the decoy
         intact. The inherited `GIT_DIR` sends `-C dest` git calls to the decoy:
         with `HEAD~1` against a one-commit decoy the broken code raises
