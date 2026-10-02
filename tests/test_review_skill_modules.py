@@ -228,6 +228,9 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Test-only-diff probe (pinned).**",
         "`Test probe: <test name> | Discriminates broken→fixed?",
         "**Test-only-diff (test_change) discipline (pinned):**",
+        # An edge-case guard green on the pre-fix code still discriminates.
+        "Only a regression or contract test also needs red-on-pre-fix evidence",
+        "and passing on the pre-fix code is not a NO for it",
     ],
     "runtime-scope": [
         "**What counts as a runtime change (pinned):**",
@@ -268,6 +271,8 @@ ROOT_ALWAYS_ON_RULES = (
     "Counts appear only in items 5 and 6 and a verifier run's cite on its item-8 line.",
     "no observable run: `Evidence (command): unverified, <the run that clears it>`",
     "none without an observable run.",
+    "None applies → emit nothing for item 8.",
+    "A runtime verdict missing an applicable item is a discipline violation.",
     '"I\'ll ask which test framework / where tests live"',
     "## Checklist",
     "## Process Flow",
@@ -1233,7 +1238,7 @@ def test_representative_paths_name_only_shipped_modules():
 PATH_CONDITIONAL_OBLIGATIONS: dict[str, dict[str, str]] = {
     "ordinary-runtime-change": {"unproven-escalation": "any risk is UNPROVEN"},
     "test-eval-only-change": {
-        "test-only-diff": "any test-tree-only diff",
+        "test-only-diff": "only test code changed",
         "surface-verifier": "ALWAYS for a skill or eval change",
     },
     "docs-config-change": {"inventory-drift": "generated artifact changed"},

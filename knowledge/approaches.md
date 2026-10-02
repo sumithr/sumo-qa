@@ -1,7 +1,7 @@
 # Canonical QA approaches
 
-Twelve canonical approaches the host LLM picks from to shape QA work. It may
-invent a new one only when none of these twelve fit, and must say why.
+Twelve canonical approaches the host LLM picks from to shape QA work; invent
+a new one only when none fit, saying why.
 
 ## strategy-orchestration
 Repo-wide / policy-shaped ask: "design a test strategy", "audit our coverage",
