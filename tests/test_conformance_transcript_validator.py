@@ -907,7 +907,7 @@ def test_find_routing_leaks_is_linear_on_a_label_line_with_trailing_space() -> N
     """A label line padded with spaces and then any character must not
     backtrack quadratically in the line-end match (#248 review)."""
     start = time.perf_counter()
-    assert find_routing_leaks("Approach: n/a" + " " * 40_000 + "x") == ()
+    assert find_routing_leaks("Approach: n/a" + " " * 60_000 + "x") == ()
     assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
 
 
@@ -925,11 +925,11 @@ def test_find_routing_leaks_scans_repeated_next_action_keys_quickly() -> None:
     """Each next_action key rescans the rest of the span for its object; the
     scan must stop at the first object (#248 review)."""
     start = time.perf_counter()
-    text = "{classification:x,approach:y," + "next_action:{a:1}," * 6_000 + "}"
+    text = "{classification:x,approach:y," + "next_action:{a:1}," * 9_000 + "}"
     assert find_routing_leaks(text) == ()
-    nested = "{classification:x,approach:y," + "next_action:{a:" * 6_000 + "1" + "}" * 6_001
+    nested = "{classification:x,approach:y," + "next_action:{a:" * 9_000 + "1" + "}" * 9_001
     assert find_routing_leaks(nested) == ()
-    quoted = '{"classification":"x","approach":"y",' + '"next_action:{":1,' * 6_000 + '"z":1}'
+    quoted = '{"classification":"x","approach":"y",' + '"next_action:{":1,' * 9_000 + '"z":1}'
     assert find_routing_leaks(quoted) == ()
     assert time.perf_counter() - start < _REDOS_BUDGET_SECONDS
 

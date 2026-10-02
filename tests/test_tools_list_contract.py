@@ -49,7 +49,12 @@ from pathlib import Path
 
 import pytest
 
-from sumo_qa.installer import _read_json_rpc_response, _start_stdout_reader, _terminate
+from sumo_qa.installer import (
+    _read_json_rpc_response,
+    _start_stdout_reader,
+    _terminate,
+    _VerifyTimeout,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mcp_tools_list_snapshot.json"
@@ -63,7 +68,9 @@ def _live_tools_list() -> list[dict]:
         [sys.executable, "-m", "sumo_qa"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        # Inherited, not piped: an undrained pipe can deadlock the server, and
+        # pytest's fd capture shows a crashing server's traceback on failure.
+        stderr=None,
         cwd=str(REPO_ROOT),
         env={**os.environ, "PYTHONPATH": pythonpath},
         text=True,
@@ -75,13 +82,16 @@ def _live_tools_list() -> list[dict]:
     pending: deque[dict] = deque()
 
     def response(expected_id: int) -> dict:
-        found = _read_json_rpc_response(
-            line_queue=lines,
-            expected_id=expected_id,
-            deadline=deadline,
-            extra_lines=[],
-            pending_responses=pending,
-        )
+        try:
+            found = _read_json_rpc_response(
+                line_queue=lines,
+                expected_id=expected_id,
+                deadline=deadline,
+                extra_lines=[],
+                pending_responses=pending,
+            )
+        except _VerifyTimeout:
+            pytest.fail(f"the MCP server did not answer request id={expected_id} within 60s")
         assert found is not None, "the MCP server exited before responding"
         return found
 
