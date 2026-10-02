@@ -361,10 +361,9 @@ moves.
 
 ## Executable-behaviour corpus (issue #761)
 
-Routing and review decide whether a changed file is runtime by one rule, stated
-once in `knowledge/classifications.md` (the executable-behaviour rule: a file is
-runtime when something executes, imports, or follows it as instructions,
-whatever its path or extension). Two configs pin it:
+Routing and review decide whether a changed file is runtime by the
+executable-behaviour rule, stated once in `knowledge/classifications.md`. Two
+configs pin it:
 
 - `skill-deciding-approach.yaml` carries three routing seeds: an executable
   runner package under `tests/` routes `infrastructure_change`, not

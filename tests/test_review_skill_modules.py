@@ -480,14 +480,14 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**Test-only-diff (test_change) discipline (pinned):**": PinnedClauses(
-        defining="if the diff touches ONLY test files (no `app`/`src`/`lib` runtime file), the runtime coverage-ledger (item 2) does NOT apply",
+        defining="if only test code changed, by the executable-behaviour rule, the runtime coverage-ledger (item 2) does NOT apply (executable helpers keep their item-2 rows, per step 4)",
         operative=(
             "Any `NO` line is a SAFE-blocker",
             "`Test probe: <test name> | Discriminates broken→fixed?",
         ),
     ),
     "**Test-only-diff probe (pinned).**": PinnedClauses(
-        defining="When the diff is test files ONLY (no `app/`/`src/`/`lib/` runtime file — a `test_change`), the runtime coverage ledger (`coverage-ledger`) has no anchor",
+        defining="When only test code changed, by the executable-behaviour rule (a `test_change`), the runtime coverage ledger (`coverage-ledger`) has no anchor outside an executable helper",
         operative=(
             "A new test whose assertion restates the production code or passes against a broken impl",
             "or a regression/contract test with no evidence it fails on the pre-fix/drift state, is a SAFE-blocker",
@@ -524,7 +524,7 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
     "**Procedure probe (pinned):**": PinnedClauses(
         defining="for each changed command or step in a procedure an agent or operator follows, run three checks, each hit a risk at file:line",
         operative=(
-            "Lint and link checks do not cover these; a dry run through the procedure's branches does, else UNCOVERED.",
+            "Lint and link checks do not cover these; a dry run through the procedure's branches does, else a SAFE-blocker labelled per `coverage-ledger`.",
         ),
     ),
 }
@@ -979,8 +979,8 @@ def test_heading_form_pinned_rules_carry_a_bold_marker_in_their_section(name):
 def test_heading_form_pinned_rule_discovery_rejects_a_marker_less_section():
     """Fault injection through the REAL checker: a `## ... (pinned)` heading
     whose section carries no bold pinned marker must be rejected; a marker in
-    the NEXT section does not count; the real runtime-scope module (four
-    heading-form pinned rules, each with its bold marker) passes."""
+    the NEXT section does not count; the real runtime-scope module (each
+    heading-form pinned rule with its bold marker) passes."""
     trivial = "**Trivial-change exemption (pinned):**"
     runtime = "**What counts as a runtime change (pinned):**"
     scratch = (

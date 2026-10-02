@@ -2,8 +2,7 @@
 """The executable-behaviour rule is stated once and referenced, never restated (issue #761).
 
 Routing (`sumo-qa-deciding-approach`) and review (`sumo-qa-reviewing-before-merge`)
-both decide whether a changed file is runtime. Each used to key on path or file
-type in its own words, so the two drifted apart. The rule now lives once in the
+both decide whether a changed file is runtime. The rule lives once in the
 classifications catalogue, which both skills load, and every place that applies
 it names it instead of rewording it.
 """
@@ -29,6 +28,8 @@ RULE_FRAGMENTS = (
     "not path prefix",
     "behaviour, not path",
     "regardless of path",
+    "no `app/`/`src/`/`lib/` runtime file",
+    "no `app`/`src`/`lib` runtime file",
 )
 # The rule's name as a reference, across a line wrap: not a fragment of a
 # longer hyphenated word, not pluralised.
