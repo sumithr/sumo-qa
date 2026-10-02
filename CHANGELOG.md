@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.70.0](https://github.com/sumithr/sumo-qa/compare/v0.69.1...v0.70.0) (2026-10-02)
+
+
+### Features
+
+* **skills:** name inherited subprocess environment as a TDD and review risk ([#803](https://github.com/sumithr/sumo-qa/issues/803)) ([b40d43b](https://github.com/sumithr/sumo-qa/commit/b40d43bd45e79a7df807faa5ae4c3e931adae896))
+
+
+### Bug Fixes
+
+* **server:** preserve title-named tool arguments when stripping schema title annotations ([#800](https://github.com/sumithr/sumo-qa/issues/800)) ([8dff26f](https://github.com/sumithr/sumo-qa/commit/8dff26f6bc59509df63e925e015455d436f960f3))
+
 ## [0.69.1](https://github.com/sumithr/sumo-qa/compare/v0.69.0...v0.69.1) (2026-10-02)
 
 
