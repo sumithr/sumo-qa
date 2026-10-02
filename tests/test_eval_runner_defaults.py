@@ -52,14 +52,14 @@ _posix_only = pytest.mark.skipif(
     reason="run-eval.sh is a bash script",
 )
 # The real-run cases execute promptfoo itself (it stops before any model call, or
-# calls only the stand-in `claude`). CI's test job installs no Node tooling.
+# calls only the stand-in `claude`) and assert on its exact output, so they need the
+# version package.json pins. run-eval.sh prefers that binary over any promptfoo on
+# PATH, so gating on it here means the runs use it. CI's test job installs no Node
+# tooling.
+_PINNED_PROMPTFOO = REPO_ROOT / "node_modules" / ".bin" / "promptfoo"
 _needs_promptfoo = pytest.mark.skipif(
-    not (
-        os.access(REPO_ROOT / "node_modules" / ".bin" / "promptfoo", os.X_OK)
-        or shutil.which("promptfoo")
-    )
-    or shutil.which("node") is None,
-    reason="promptfoo is not installed (npm ci)",
+    not os.access(_PINNED_PROMPTFOO, os.X_OK) or shutil.which("node") is None,
+    reason=f"the repo-pinned promptfoo ({_PINNED_PROMPTFOO}) is not installed: run npm ci",
 )
 
 
