@@ -37,6 +37,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from sumo_qa import external_skills as ext
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EVAL_DIR = REPO_ROOT / "tests" / "evals" / "promptfoo"
 RUN_EVAL = EVAL_DIR / "run-eval.sh"
@@ -176,12 +178,14 @@ def _run_eval(
     # The caller's colour settings are dropped too, so a test's colour case is the
     # one it sets, not whatever the terminal running pytest happens to export. So is
     # LOG_LEVEL: promptfoo prints its info-level "Writing output to" line only at the
-    # default level, and the colour cases look for that line.
+    # default level, and the colour cases look for that line. Every PROMPTFOO_*
+    # variable is dropped as well (PROMPTFOO_LOG_TO_STDERR moves that line to stderr,
+    # PROMPTFOO_LOG_DIR redirects the logs), so a run sets only the ones it needs.
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_"))
-        and k not in ("TIER", "LOG_LEVEL", "PROMPTFOO_CONFIG_DIR", *_COLOUR_ENV)
+        if not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_", "PROMPTFOO_"))
+        and k not in ("TIER", "LOG_LEVEL", *_COLOUR_ENV)
     }
     env["PATH"] = f"{fakebin}{os.pathsep}{env.get('PATH', '')}"
     env["SUMO_EVAL_DRY_RUN"] = "1"
@@ -310,8 +314,9 @@ class TestRunEvalReportClassification:
     exits 3, and a clean report exits 0, in each colour environment. Every case is
     a real run with dry run off and the stand-in `claude` on PATH; the harness
     error cases stop before any provider call, and the report cases call the
-    stand-in once. promptfoo's store points under `tmp_path`, so these runs never
-    write the developer's `~/.promptfoo` database or logs.
+    stand-in once. Every inherited `PROMPTFOO_*` variable is dropped and
+    `PROMPTFOO_CONFIG_DIR` points under `tmp_path`, so promptfoo's database and logs
+    land there, never in the developer's `~/.promptfoo` or an exported log directory.
     """
 
     def _real_run(
@@ -327,6 +332,7 @@ class TestRunEvalReportClassification:
                     "SUMO_EVAL_DRY_RUN": "",
                     "PROMPTFOO_CONFIG_DIR": str(tmp_path / "promptfoo-store"),
                     "PROMPTFOO_DISABLE_TELEMETRY": "1",
+                    "PROMPTFOO_DISABLE_UPDATE": "1",
                     **env,
                 },
                 claude_script=claude_script,
@@ -417,7 +423,7 @@ class TestRunEvalReportClassification:
         # The stand-in's answer reached promptfoo's results table, so the case was
         # really run against the stand-in and graded (colour codes stripped, since the
         # forced case colours the PASS cell).
-        assert "[PASS] hi" in re.sub(r"\x1b\[[0-9;]*m", "", result.stdout), result.stdout
+        assert "[PASS] hi" in ext._strip_ansi(result.stdout), result.stdout
         self._assert_colour_case(result, coloured)
 
 
