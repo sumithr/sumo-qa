@@ -275,17 +275,23 @@ Before any scenario runs, a write-guard control prompt per build asks the host
 to create a plainly named file (`notes/todo.txt` in the build's run dir, outside
 every host cwd) using any tool it has. The harness stops there if the file
 appears (exit 3). It also stops (exit 4) unless all of these hold: that build's
-MCP server connected; the model acted (the guard run ended in `success` or a
-turn limit, `error_max_turns`; a usage limit, an API error, an execution error,
-no result, a cut-off stream or a timeout proves nothing); and the guard run's
-host tool pool, the `tools` list of its `system/init` event, holds nothing but
-the allowlisted host tools (as the CLI names them: it lists `Agent` as `Task`)
-and that build's own `mcp__sumo-qa__*` tools. Any other tool in the pool fails
-the guard with `sandbox not proven: <tool> in the host tool pool`, and the
-report marks it `NOT PROVEN`. The proof is the pool, not the model's behaviour:
-the guard's tool calls are listed in the report for information and never
-decide the verdict. The guard section also lists the pool's host tools and the
-number of sumo-qa tools in it.
+MCP server connected; the guard run's host tool pool, the union of the `tools`
+lists of its `system/init` events, holds every allowlisted host tool (as the
+CLI names them: it lists `Agent` as `Task`) and the router
+`mcp__sumo-qa__using_sumo_qa`; and the pool holds nothing but those and that
+build's own `mcp__sumo-qa__*` tools. A missing tool fails the guard with
+`sandbox not proven: host tool pool missing <tool>`, so a run stopped before
+its init event (a usage limit, say) has an empty pool and proves nothing. Any
+other tool in the pool fails it with `sandbox not proven: <tool> in the host
+tool pool`. Either way the report marks the guard `NOT PROVEN`.
+
+What the guard proves is that no host write tool was in the pool. It does not
+prove the sumo-qa writer tools are refused: they are in the pool, not
+pre-approved, and the non-interactive permission mode refuses a call to one;
+the guard does not test that. The proof is the pool, not the model's
+behaviour: the guard's tool calls are listed in the report for information and
+never decide the verdict. The guard section also lists the pool's host tools
+and the number of sumo-qa tools in it.
 
 A run is valid only when its MCP server connected and it ended in a clean
 `success` with exit code 0. A usage-limit stop (`Claude AI usage limit
