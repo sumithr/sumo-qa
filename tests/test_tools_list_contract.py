@@ -122,17 +122,21 @@ def _assert_tool_set_matches(snapshot: dict, live_names: set[str]) -> None:
     pinned = set(snapshot["required_tools"])
     removed = sorted(pinned - live_names)
     unpinned = sorted(live_names - pinned)
-    assert not removed and not unpinned, (
-        f"Live tools/list differs from the snapshot. Removed or renamed: {removed}. "
-        f"Registered but missing from the snapshot: {unpinned}.\n{_REGEN_HINT}"
-    )
     schema_names = set(snapshot["schemas"])
     stale_schemas = sorted(schema_names - live_names)
     missing_schemas = sorted(live_names - schema_names)
-    assert not stale_schemas and not missing_schemas, (
-        f"Snapshot schemas keys differ from live tools/list. Schemas for tools not live: "
-        f"{stale_schemas}. Live tools with no schema entry: {missing_schemas}.\n{_REGEN_HINT}"
-    )
+    problems = []
+    if removed or unpinned:
+        problems.append(
+            f"Live tools/list differs from the snapshot. Removed or renamed: {removed}. "
+            f"Registered but missing from the snapshot: {unpinned}."
+        )
+    if stale_schemas or missing_schemas:
+        problems.append(
+            f"Snapshot schemas keys differ from live tools/list. Schemas for tools not live: "
+            f"{stale_schemas}. Live tools with no schema entry: {missing_schemas}."
+        )
+    assert not problems, "\n".join([*problems, _REGEN_HINT])
 
 
 def test_snapshot_tool_set_matches_live(snapshot, live_tools) -> None:
@@ -194,11 +198,19 @@ def test_live_tool_without_schema_entry_fails_the_guard() -> None:
     assert not _listed_under(msg, "Live tools with no schema entry:", "load")
 
 
+def test_unregenerated_snapshot_reports_name_and_schema_drift_together() -> None:
+    with pytest.raises(AssertionError) as exc:
+        _assert_tool_set_matches(_snap({"load"}, {"load"}), _LIVE)
+    msg = str(exc.value)
+    assert _listed_under(msg, "Registered but missing from the snapshot:", "load_more")
+    assert _listed_under(msg, "Live tools with no schema entry:", "load_more")
+
+
 def test_schema_drift_warns(snapshot, live_tools) -> None:
     """Schemas that have changed since the snapshot emit warnings.
 
-    Warn-only initially so the snapshot can land without forcing immediate
-    schema-stability work. Promote to a hard assertion in a follow-up PR.
+    Warn-only: an inputSchema or outputSchema change raises a UserWarning,
+    not a failure.
     """
     live_by_name = {t["name"]: t for t in live_tools}
     for name, pinned in snapshot["schemas"].items():
