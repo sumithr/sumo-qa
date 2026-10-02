@@ -83,7 +83,10 @@ def test_bundle_without_classification_has_no_rules_or_standards():
 
 def test_classification_matching_nothing_returns_envelope_listing_catalogue_ids():
     out = _bundle(classification="made_up_change")
-    assert out["error"].startswith("Unknown classification(s) ['made_up_change'].")
+    assert out["error"] == (
+        "Unknown classification(s) ['made_up_change']. Ids declared only by a "
+        "standards pack are also accepted."
+    )
     assert "business_logic_change" in out["available_classifications"]
     assert out["available_classifications"] == sorted(out["available_classifications"])
 
