@@ -10,6 +10,11 @@ api_contract_change:
     - "Removed or renamed field: a consumer still sending it keeps working, or fails loudly rather than silently dropping the value"
     - "A consumer that omits a newly-required field is rejected with a clear validation error, not an opaque internal failure"
     - "An old-shaped request or message replayed against the new contract is still accepted, or is explicitly version-gated"
+    # Additive public surface (new MCP tool/resource/prompt, new caller-visible
+    # format on an existing tool or exporter). Distinct from breaking drift above.
+    - "Additive surface: the new tool, resource, or format name is unique and discoverable, and is registered in the canonical derived tool surface rather than a hand-kept list"
+    - "Additive surface: input defaults, required fields, and schema validation behave as declared, and the output and error envelope serialize stably"
+    - "Additive surface: a persisted or exchanged versioned format round-trips, and existing tools and formats are preserved unchanged"
   suggested_test_types:
     - contract
     - integration
@@ -19,6 +24,7 @@ api_contract_change:
   risk_templates:
     - Consumer behavior can break if payload shape or validation changes silently.
     - Backward compatibility risk exists until old and new payload examples are verified.
+    - An additive tool or format that collides with an existing name or silently changes an existing envelope turns an additive change into a breaking one for current consumers.
     - A field type widened or narrowed without a contract bump lets values the old boundary accepted silently change meaning for consumers.
   test_design_techniques:
     - equivalence partitioning of valid and invalid payload classes

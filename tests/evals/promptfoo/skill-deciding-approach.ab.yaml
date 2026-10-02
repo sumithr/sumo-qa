@@ -213,6 +213,20 @@ tests:
       expected_classification: api_contract_change
       expected_approach: tdd-scaffold
       expected_next_skill: sumo-qa-implementing-with-tdd
+  - description: PAIR - additive MCP formatter with versioned envelope routes api_contract_change tdd-scaffold
+    vars:
+      user_prompt: >-
+        Add a read-only MCP formatter that returns a versioned JSON envelope
+      expected_classification: api_contract_change
+      expected_approach: tdd-scaffold
+      expected_next_skill: sumo-qa-implementing-with-tdd
+  - description: PAIR - internal serializer refactor with unchanged output routes coverage-first-then-refactor
+    vars:
+      user_prompt: >-
+        Refactor an internal serialization helper without changing emitted output
+      expected_classification: business_logic_change
+      expected_approach: coverage-first-then-refactor
+      expected_next_skill: sumo-qa-implementing-with-tdd
   - description: SEED - mutation-survivors routes strengthen-test-coverage
     vars:
       user_prompt: >-
