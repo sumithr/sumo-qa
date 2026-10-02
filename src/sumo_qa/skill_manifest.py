@@ -430,8 +430,8 @@ def load_skill_context(
       * ``"bundle"``: the skill's working context in ONE call: the body
         (unless ``include_body=False``), the ``modules`` named (comma-separated
         ids), and for ``classification`` (one or more ids, matched exactly)
-        its catalogue entries plus the filtered standards and rules. See
-        ``_bundle``.
+        its catalogue entries (exact id, request order) plus the standards and
+        rules exactly as the single loaders return them. See ``_bundle``.
 
     The partial-load modes (``section``/``module``/``full``/``bundle``) each return a
     ``content_hash`` (sha256 of exactly the returned slice) and
@@ -568,30 +568,47 @@ def _served(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
+def _classification_ids(classification: str | None) -> list[str]:
+    """The ids in *classification*, split and unquoted per part by
+    ``_classification_filter_terms`` (so the set equals the loaders' filter),
+    deduplicated in request order."""
+    parts = re.split(r"[\s,;]+", str(classification or ""))
+    return list(dict.fromkeys(t for p in parts for t in _classification_filter_terms(p) or ()))
+
+
 def _classification_parts(classification: str, ids: list[str]) -> dict[str, Any]:
     """The classification parts of a bundle: the classifications catalogue
-    entries whose id is exactly one of *ids*, and ``sumo_qa_load_standards``
-    and ``sumo_qa_load_rules`` each called once with *classification* as
-    given, so every part equals its single loader by construction.
+    entries for *ids* in request order, looked up by exact id (unlike
+    ``load_catalogue_entry``, which also matches case-insensitively and by
+    heading), and ``sumo_qa_load_standards`` and ``sumo_qa_load_rules`` each
+    called once with *classification* as given, so those parts equal the
+    single loaders called with the same argument, returned exactly as they
+    return them.
 
-    Ids with no catalogue entry are listed in ``unmatched_classifications``
-    (their rules and standards, if any, are still included). When nothing
-    matches at all (no catalogue entry, rules ``{}`` and no standards), or a
-    source cannot be read or parsed, returns an error envelope."""
+    An id is matched when it has a catalogue entry, or
+    ``sumo_qa_load_rules(id)`` is not ``{}``, or ``sumo_qa_load_standards(id)``
+    is non-empty. Any unmatched id returns an error envelope naming the
+    unmatched ids and the catalogue ids; an exception from a loader returns
+    the unreadable envelope."""
     try:
         catalogue = {e["id"]: e["text"] for e in list_catalogue_entries("classifications")}
+        unmatched = [
+            c
+            for c in ids
+            if c not in catalogue
+            and sumo_qa_load_rules(c).strip() == "{}"
+            and not sumo_qa_load_standards(c)
+        ]
+        if unmatched:
+            return _error(
+                f"Unknown classification(s) {unmatched}.",
+                {"available_classifications": sorted(catalogue)},
+            )
         standards = sumo_qa_load_standards(classification)
         rules = sumo_qa_load_rules(classification)
     except Exception as exc:  # noqa: BLE001 -- load_skill_context never raises
         return _error(f"classification context unreadable: {exc}")
-    unmatched = [c for c in ids if c not in catalogue]
-    if len(unmatched) == len(ids) and rules.strip() == "{}" and not standards:
-        return _error(
-            f"Unknown classification(s) {unmatched}.",
-            {"available_classifications": sorted(catalogue)},
-        )
     return {
-        "unmatched_classifications": unmatched,
         "classifications": "".join(catalogue[c] for c in ids if c in catalogue),
         "standards": standards,
         "rules": rules,
@@ -612,9 +629,10 @@ def _bundle(
     Every part equals its separate loader: the full body, the module slice
     (ids split on commas and matched exactly, as in mode='module'), and the
     classification parts (see ``_classification_parts``: ids split as the
-    loaders split them and matched exactly, case-sensitively). An unknown
-    module or classification, or an unreadable source, returns an error
-    envelope.
+    loaders split them, kept in request order, catalogue entries looked up by
+    exact id, rules and standards equal to their single loaders). An unknown
+    module, any classification id that matches nothing, or a loader
+    exception returns an error envelope.
 
     ``content_hash`` and ``estimated_tokens`` describe the served JSON of the
     content fields, and ``known_hash`` works as for the other slices. A payload
@@ -626,7 +644,7 @@ def _bundle(
     if failed is not None:
         return failed
 
-    ids = sorted(_classification_filter_terms(classification) or ())
+    ids = _classification_ids(classification)
     parts: dict[str, Any] = {}
     if ids:
         parts = _classification_parts(str(classification), ids)

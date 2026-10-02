@@ -62,7 +62,7 @@ def test_multiple_classifications_are_split_and_each_entry_included():
     assert out["classification"] == ["business_logic_change", "security_change"]
     assert "## business_logic_change" in out["classifications"]
     assert "## security_change" in out["classifications"]
-    assert out["unmatched_classifications"] == []
+    assert "unmatched_classifications" not in out
     assert out["rules"] == sumo_qa_load_rules(
         classification="`business_logic_change`, security_change"
     )
@@ -88,16 +88,29 @@ def test_classification_matching_nothing_returns_envelope_listing_catalogue_ids(
     assert out["available_classifications"] == sorted(out["available_classifications"])
 
 
-def test_a_partially_unmatched_list_reports_the_unmatched_ids():
-    value = "made_up_change, business_logic_change"
+def test_a_known_id_mixed_with_an_unknown_one_returns_the_envelope():
+    """No partial payload: one unmatched id rejects the whole request."""
+    out = _bundle(classification="business_logic_change, Security_Change")
+    assert out["error"] == "Unknown classification(s) ['Security_Change']."
+    assert "security_change" in out["available_classifications"]
+    assert not {"rules", "standards", "classifications", "body"} & set(out)
+
+
+def test_unmatched_ids_are_named_in_request_order():
+    out = _bundle(classification="zz_change, business_logic_change, aa_change")
+    assert out["error"] == "Unknown classification(s) ['zz_change', 'aa_change']."
+
+
+def test_ids_come_back_in_request_order_with_duplicates_dropped():
+    value = "security_change, business_logic_change; security_change"
     out = _bundle(classification=value)
     assert "error" not in out, out
-    assert out["classification"] == ["business_logic_change", "made_up_change"]
-    assert out["unmatched_classifications"] == ["made_up_change"]
+    assert out["classification"] == ["security_change", "business_logic_change"]
+    security = load_catalogue_entry("classifications", name="security_change")["text"]
+    business = load_catalogue_entry("classifications", name="business_logic_change")["text"]
+    assert out["classifications"] == security + business
     assert out["rules"] == sumo_qa_load_rules(classification=value)
     assert out["standards"] == sumo_qa_load_standards(classification=value)
-    entry = load_catalogue_entry("classifications", name="business_logic_change")
-    assert out["classifications"] == entry["text"]
 
 
 def test_unknown_module_returns_envelope_listing_available():
@@ -137,7 +150,6 @@ def test_rules_only_classification_is_accepted():
     out = _bundle(classification="ui_only_change")
     assert "error" not in out, out
     assert out["classification"] == ["ui_only_change"]
-    assert out["unmatched_classifications"] == ["ui_only_change"]
     assert out["rules"] == sumo_qa_load_rules(classification="ui_only_change")
     assert out["rules"].strip() != "{}"
     assert out["classifications"] == ""
@@ -213,17 +225,12 @@ def _rules_file(monkeypatch, tmp_path, body: str) -> None:
     monkeypatch.setenv("QA_RULES_PATH", str(rules))
 
 
-def test_mixed_case_ids_get_exactly_what_the_single_loaders_return():
-    """Ids match exactly, as in the single loaders: a mixed-case id selects
-    nothing on its own, and alongside a known id it is reported unmatched."""
+def test_mixed_case_ids_match_exactly_as_in_the_single_loaders():
+    """A mixed-case id selects nothing in the single loaders, and has no
+    catalogue entry by exact id, so the bundle rejects it."""
     assert sumo_qa_load_rules(classification="Business_Logic_Change") == "{}\n"
     assert sumo_qa_load_standards(classification="Business_Logic_Change") == ""
     assert "Business_Logic_Change" in _bundle(classification="Business_Logic_Change")["error"]
-    value = "Business_Logic_Change,security_change"
-    out = _bundle(classification=value)
-    assert out["unmatched_classifications"] == ["Business_Logic_Change"]
-    assert out["rules"] == sumo_qa_load_rules(classification=value)
-    assert out["standards"] == sumo_qa_load_standards(classification=value)
 
 
 def test_a_standards_only_id_is_accepted(monkeypatch, tmp_path):
@@ -234,7 +241,6 @@ def test_a_standards_only_id_is_accepted(monkeypatch, tmp_path):
     monkeypatch.setenv("QA_STANDARDS_PATH", str(tmp_path))
     out = _bundle(classification="pack_only_change")
     assert "error" not in out, out
-    assert out["unmatched_classifications"] == ["pack_only_change"]
     assert out["rules"] == "{}\n"
     assert out["standards"] == sumo_qa_load_standards(classification="pack_only_change")
     assert out["standards"].startswith("# p.yaml")
@@ -244,8 +250,8 @@ def test_a_rules_file_the_loader_returns_raw_counts_as_a_match(monkeypatch, tmp_
     """A rules file that is not a mapping comes back from the loader whole."""
     _rules_file(monkeypatch, tmp_path, "- just\n- a list\n")
     out = _bundle(classification="made_up_change")
+    assert "error" not in out, out
     assert out["rules"] == "- just\n- a list\n"
-    assert out["unmatched_classifications"] == ["made_up_change"]
 
 
 def test_module_ids_are_matched_exactly_as_in_module_mode(monkeypatch):

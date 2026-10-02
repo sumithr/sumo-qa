@@ -2049,12 +2049,14 @@ def build_mcp_server(service: QAShiftLeftService | None = None) -> Any:
           - "bundle": a routed skill's working context in ONE call: the
             body (omit with `include_body=false` when you already hold it),
             the `modules` named (comma-separated ids, matched exactly), and
-            for `classification` (comma-separated ids, matched exactly and
-            case-sensitively) its catalogue entries plus the filtered
-            standards and rules. Each part equals its single loader called
-            with the same argument; ids with no catalogue entry are listed in
-            `unmatched_classifications`, and ids matching nothing at all
-            return an error envelope.
+            for `classification` (comma-separated ids, kept in request order)
+            its catalogue entries, looked up by exact id (unlike
+            `load_catalogue_entry`, which also matches case-insensitively and
+            by heading), plus the standards and rules, which equal
+            `sumo_qa_load_standards` / `sumo_qa_load_rules` called with the
+            same argument and are returned exactly as those loaders return
+            them. Any id that matches nothing returns an error envelope; an
+            exception from a loader returns an unreadable envelope.
 
         The section/module/full/bundle slices each return `content_hash` (sha256 of the
         returned text) and `estimated_tokens`. Pass `known_hash` to ask "has this
