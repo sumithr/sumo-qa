@@ -12,7 +12,7 @@ api_contract_change:
     - "An old-shaped request or message replayed against the new contract is still accepted, or is explicitly version-gated"
     # Additive public surface (new public operation, endpoint, tool, or format, or a
     # new caller-visible format on an existing one). Distinct from breaking drift above.
-    - "Additive surface: the new endpoint, operation, tool, or format name is unique and discoverable, and every published listing of the operations (registry, API docs, allowlist of operations) is derived from one source or checked against it by a test"
+    - "Additive surface: the new endpoint, operation, tool, or format name is unique and discoverable, and every published listing of the operations or formats (registry, API docs, allowlist, supported-format list) is derived from one source or checked against it by a test"
     - "Additive surface: input defaults, required fields, and schema validation behave as declared, and the output and error envelope serialize stably"
     - "Additive surface: a persisted or exchanged versioned format round-trips, and existing operations and formats are preserved unchanged"
   suggested_test_types:

@@ -127,7 +127,7 @@ def test_typical_flow_stays_under_token_budget():
     """A typical create-test-plan / prep-for-work flow loads ~3 catalogues.
     Total returned tokens must stay under PER_FLOW_BUDGET.
 
-    Per-flow budget: keeps the routed catalogue flow far below the >10k single-shot path."""
+    Per-flow budget: caps the total catalogue tokens this routed flow returns across its calls."""
     PER_FLOW_BUDGET = 3000
 
     def _tokens(text: str) -> int:

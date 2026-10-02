@@ -227,6 +227,7 @@ SURFACE_PROBE_MARKERS = {
         "omits",
         "old-shaped",
         "discoverable",
+        "derived from one source",
         "serialize stably",
         "round-trips",
         "collides",

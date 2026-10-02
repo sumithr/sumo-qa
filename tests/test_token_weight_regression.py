@@ -14,8 +14,7 @@ Three assertions:
    are split or carry per-classification metadata (Phase 2 concern).
 
 3. A full create-test-plan flow stays under PER_FLOW_BUDGET tokens
-   total. Phase 1: heavy tools still in place dominate the budget,
-   so this is xfail. Phase 4: deletes the heavy path; un-xfail then.
+   total, which caps what one routed flow costs across its calls.
 
 Token estimation here is approximate (length / 4 chars-per-token). For
 exact counts, hosts use their own tokenizers. The budget targets are
@@ -43,7 +42,7 @@ def _approx_tokens(text: str) -> int:
 
 
 PER_CALL_BUDGET = 1500
-# Per-flow budget: keeps the routed catalogue flow far below the >10k single-shot path.
+# Per-flow budget: caps the total catalogue tokens this routed flow returns across its calls.
 PER_FLOW_BUDGET = 3800
 
 
