@@ -161,6 +161,8 @@ _COLOUR_ENV = ("FORCE_COLOR", "NO_COLOR", "NODE_DISABLE_COLORS")
 # promptfoo's info-level output line, coloured yellow when colour is on.
 _PLAIN_LINE = "Writing output to"
 _COLOURED_LINE = f"\x1b[33m{_PLAIN_LINE}"
+# promptfoo variables that select a provider runtime, kept through the scrub.
+_PROMPTFOO_RUNTIME_ENV = ("PROMPTFOO_PYTHON", "PROMPTFOO_RUBY")
 _FAILING_CLAUDE = "#!/bin/sh\necho 'stand-in claude must not be called' >&2\nexit 97\n"
 
 
@@ -181,11 +183,16 @@ def _run_eval(
     # default level, and the colour cases look for that line. Every PROMPTFOO_*
     # variable is dropped as well (PROMPTFOO_LOG_TO_STDERR moves that line to stderr,
     # PROMPTFOO_LOG_DIR redirects the logs), so a run sets only the ones it needs.
+    # The exceptions pick the interpreter for a `python:` or `ruby:` provider, not
+    # where output or storage goes.
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_", "PROMPTFOO_"))
-        and k not in ("TIER", "LOG_LEVEL", *_COLOUR_ENV)
+        if k in _PROMPTFOO_RUNTIME_ENV
+        or (
+            not k.startswith(("SUMO_", "OPENAI_", "OPENWEBUI_", "PROMPTFOO_"))
+            and k not in ("TIER", "LOG_LEVEL", *_COLOUR_ENV)
+        )
     }
     env["PATH"] = f"{fakebin}{os.pathsep}{env.get('PATH', '')}"
     env["SUMO_EVAL_DRY_RUN"] = "1"
@@ -314,7 +321,8 @@ class TestRunEvalReportClassification:
     exits 3, and a clean report exits 0, in each colour environment. Every case is
     a real run with dry run off and the stand-in `claude` on PATH; the harness
     error cases stop before any provider call, and the report cases call the
-    stand-in once. Every inherited `PROMPTFOO_*` variable is dropped and
+    stand-in once. Every inherited `PROMPTFOO_*` variable except the provider
+    runtime ones is dropped and
     `PROMPTFOO_CONFIG_DIR` points under `tmp_path`, so promptfoo's database and logs
     land there, never in the developer's `~/.promptfoo` or an exported log directory.
     """
@@ -333,6 +341,12 @@ class TestRunEvalReportClassification:
                     "PROMPTFOO_CONFIG_DIR": str(tmp_path / "promptfoo-store"),
                     "PROMPTFOO_DISABLE_TELEMETRY": "1",
                     "PROMPTFOO_DISABLE_UPDATE": "1",
+                    # Set, not only scrubbed: promptfoo loads `.env` from its cwd
+                    # (tests/evals/promptfoo, gitignored) without overriding what is
+                    # already set, so these pin what the assertions depend on.
+                    "LOG_LEVEL": "info",
+                    "PROMPTFOO_LOG_TO_STDERR": "false",
+                    "FORCE_COLOR": "0",
                     **env,
                 },
                 claude_script=claude_script,
@@ -378,8 +392,9 @@ class TestRunEvalReportClassification:
 
     # Two classes of colour environment, one case each. Colour forced on: forced
     # colour is the case where node colours a logged number. Colour off: stdout is
-    # a pipe and the caller's colour env is scrubbed, so colour is already off;
-    # NO_COLOR=1 is the opt-out the issue names, and both lead to colour off.
+    # a pipe and the caller's colour env is replaced by FORCE_COLOR=0, so colour is
+    # already off; NO_COLOR=1 is the opt-out the issue names, and both lead to
+    # colour off.
     _COLOUR_CASES = pytest.mark.parametrize(
         ("colour_env", "coloured"),
         [({"FORCE_COLOR": "1"}, True), ({"NO_COLOR": "1"}, False)],
