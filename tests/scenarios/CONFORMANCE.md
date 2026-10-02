@@ -226,6 +226,10 @@ subscription, so follow the promptfoo cost guardrails and narrow the set with
 candidate: stronger models routed every development-framed prompt on both
 builds and so could not tell them apart. Pass `--model` for an extra data point.
 
+The live (billed) mode runs on macOS and Linux only, because it builds POSIX
+venvs (`venv/bin`, `lib/python*/site-packages`) and redirects `HOME`; its
+offline unit tests run on every OS.
+
 Every build is clean-installed into its own venv under the run dir before any
 host runs, so a bad second build fails before anything is billed. The child
 host runs in a throwaway cwd with `--strict-mcp-config`, no settings sources (no

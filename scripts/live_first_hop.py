@@ -10,6 +10,8 @@ Give two builds for a before/after comparison on the same prompts.
 
 Manual, never in PR CI: every prompt is a billed host run. See
 tests/scenarios/CONFORMANCE.md "Running it" for usage and cost.
+The live mode runs on macOS and Linux only (POSIX venvs, redirected `HOME`); its
+offline unit tests run on every OS.
 
 Every build is clean-installed from a wheel into its own venv under the run dir
 (a git ref is archived and built first) before any host runs. The child host
