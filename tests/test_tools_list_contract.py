@@ -141,8 +141,8 @@ def test_snapshot_tool_set_matches_live(snapshot, live_tools) -> None:
 
 
 # Pure-logic regression tests (#500): one per equivalence partition of the guard
-# (match, missing-from-snapshot, missing-from-live, schemas-mismatch). Names share
-# a prefix so a substring match cannot satisfy the positional check.
+# (match, missing-from-snapshot, missing-from-live, stale-schema, missing-schema).
+# Names share a prefix so a substring match cannot satisfy the positional check.
 _LIVE = {"load", "load_more"}
 
 
@@ -178,12 +178,19 @@ def test_pinned_tool_no_longer_live_fails_the_guard() -> None:
     assert not _listed_under(msg, "Removed or renamed:", "load")
 
 
-def test_schema_keys_differing_from_live_fail_the_guard() -> None:
+def test_schema_for_tool_not_live_fails_the_guard() -> None:
     with pytest.raises(AssertionError) as exc:
-        _assert_tool_set_matches(_snap(_LIVE, {"load", "loader"}), _LIVE)
+        _assert_tool_set_matches(_snap(_LIVE, _LIVE | {"loader"}), _LIVE)
+    msg = str(exc.value)
+    assert _listed_under(msg, "Schemas for tools not live:", "loader")
+    assert not _listed_under(msg, "Schemas for tools not live:", "load")
+
+
+def test_live_tool_without_schema_entry_fails_the_guard() -> None:
+    with pytest.raises(AssertionError) as exc:
+        _assert_tool_set_matches(_snap(_LIVE, {"load"}), _LIVE)
     msg = str(exc.value)
     assert _listed_under(msg, "Live tools with no schema entry:", "load_more")
-    assert _listed_under(msg, "Schemas for tools not live:", "loader")
     assert not _listed_under(msg, "Live tools with no schema entry:", "load")
 
 
