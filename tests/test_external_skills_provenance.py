@@ -1211,6 +1211,87 @@ def _tracking_guards(monkeypatch, refuse: Path | None = None) -> dict:
     return state
 
 
+def _lock_reads_under(monkeypatch, state: dict) -> list[int]:
+    """How many guards were held at each read of the lock. On Windows an open
+    read handle fails a concurrent install's os.replace onto the lock, so a
+    read outside the guard is the defect on every OS, not only there."""
+    real_read_lock = ext._read_lock
+    reads_under: list[int] = []
+
+    def tracked(base):
+        reads_under.append(state["held"])
+        return real_read_lock(base)
+
+    monkeypatch.setattr(ext, "_read_lock", tracked)
+    return reads_under
+
+
+@pytest.mark.parametrize("lock_exists", [False, True])
+def test_install_reads_the_lock_only_under_its_guard(monkeypatch, toolchain, lock_exists) -> None:
+    if lock_exists:
+        _install(toolchain)  # the fail-fast pre-check then has a lock to read
+    state = _tracking_guards(monkeypatch)
+    reads_under = _lock_reads_under(monkeypatch, state)
+
+    _install(toolchain)
+
+    # Pre-check (only when a lock exists) plus the merge, each under the guard.
+    assert reads_under == ([1, 1] if lock_exists else [1])
+
+
+@pytest.mark.parametrize("scope", ["project", "global"])
+def test_a_failed_install_leaves_no_lock_folder_behind(monkeypatch, toolchain, scope) -> None:
+    """The fail-fast pre-check must not create .sumo-qa (or its guard file)
+    before a fetch that then fails: a global install would leave it in $HOME."""
+    home = toolchain.cwd.parent / "home"
+
+    def fetch_fails(*_args):
+        raise ext.ExternalSkillError("clone failed")
+
+    monkeypatch.setattr(ext, "_checkout_commit", fetch_fails)
+
+    with pytest.raises(ext.ExternalSkillError, match="clone failed"):
+        _install(toolchain, scope=scope, home=home)
+
+    assert not (toolchain.cwd / ".sumo-qa").exists()
+    assert not (home / ".sumo-qa").exists()
+
+
+def test_execute_reads_the_lock_only_under_its_guard(monkeypatch, tmp_path) -> None:
+    """With no lock folder execute reads unlocked; an install that creates and
+    writes the lock during that read must not have it read outside the guard.
+    The locked retry then reads it and verifies against the new record."""
+    skill = tmp_path / ".agents" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_bytes(b"# x\n")
+    state = _tracking_guards(monkeypatch)
+    reads_under = _lock_reads_under(monkeypatch, state)
+    real_read = ext._read_skill_body
+
+    def install_records_meanwhile(path):
+        body = real_read(path)
+        lock = tmp_path / ".sumo-qa" / "external-skills.lock.json"
+        if not lock.exists():
+            record = {
+                "resolved_ref": SHA,
+                "content_digest": ext.skill_content_digest(skill),
+                "path": ".agents/skills/demo",
+            }
+            lock.parent.mkdir()
+            lock.write_text(
+                json.dumps({"schema_version": 1, "skills": {".agents/skills/demo": record}}),
+                "utf-8",
+            )
+        return body
+
+    monkeypatch.setattr(ext, "_read_skill_body", install_records_meanwhile)
+
+    result = ext.execute_external_skill("demo", scope="project", cwd=tmp_path, home=tmp_path)
+
+    assert result["provenance"]["status"] == "verified"
+    assert reads_under == [1]
+
+
 def test_a_project_skill_never_touches_the_home_lock(monkeypatch, tmp_path) -> None:
     home = tmp_path / "home"
     (home / ".sumo-qa").mkdir(parents=True)
@@ -1407,12 +1488,12 @@ def test_any_filesystem_race_in_the_unlocked_attempt_takes_the_locked_retry(
     state = _tracking_guards(monkeypatch)
     real_find = ext._find_record
 
-    def install_rolls_back_during_lookup(folder, lock_base):
+    def install_rolls_back_during_lookup(folder, lock_base, skills):
         if not state["held"]:
             (tmp_path / ".sumo-qa").mkdir(exist_ok=True)
             shutil.rmtree(skill)
             raise FileNotFoundError(str(folder))
-        return real_find(folder, lock_base)
+        return real_find(folder, lock_base, skills)
 
     monkeypatch.setattr(ext, "_find_record", install_rolls_back_during_lookup)
 
@@ -1909,7 +1990,8 @@ def test_a_lowercase_skill_md_is_verified_against_its_own_entry(tmp_path) -> Non
         json.dumps({"schema_version": 1, "skills": {".agents/skills/x": record}}), "utf-8"
     )
 
-    result = ext._verify_provenance(folder / "SKILL.md", tmp_path, b"# body\n")
+    skills = ext._read_lock(tmp_path)["skills"]
+    result = ext._verify_provenance(folder / "SKILL.md", tmp_path, b"# body\n", skills)
 
     assert result["status"] == "verified"
 
