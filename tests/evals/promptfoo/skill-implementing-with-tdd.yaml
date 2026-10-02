@@ -505,3 +505,88 @@ tests:
         - >-
           Hedging language ('would write...', 'likely named...') instead of
           the concrete test code.
+  - description: 'SEED: spawned git inherits the hook environment (#769)'
+    vars:
+      user_prompt: >-
+        Fix this regression-first. When we switch branches in an existing
+        linked worktree and our post-checkout hook runs `toolkit install`,
+        `snapshot_source()` checks out and reports the commit of the
+        repository the hook fired in, not the freshly cloned source. From a
+        normal shell it works. Logic is in `src/toolkit/snapshot.py`.
+      ground_truth_context: |
+        ## src/toolkit/snapshot.py (production, buggy)
+        ```python
+        import subprocess
+        from pathlib import Path
+
+
+        def snapshot_source(url: str, dest: Path, ref: str) -> str:
+            """Clone url into dest, check out ref, return the resolved commit."""
+            _git(["clone", "--quiet", url, str(dest)])
+            _git(["-C", str(dest), "checkout", "--quiet", ref])
+            return _git(["-C", str(dest), "rev-parse", "HEAD"])
+
+
+        def _git(args: list[str]) -> str:
+            completed = subprocess.run(
+                ["git", *args], capture_output=True, text=True, check=True
+            )
+            return completed.stdout.strip()
+        ```
+
+        ## tests/test_snapshot.py (existing tests)
+        ```python
+        import os
+        import subprocess
+
+        from toolkit.snapshot import snapshot_source
+
+
+        def _clean_env():
+            return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
+        def make_origin_repo(path, commits):
+            path.mkdir(parents=True)
+            run = lambda *a: subprocess.run(
+                ["git", *a], cwd=path, env=_clean_env(), check=True, capture_output=True, text=True
+            ).stdout.strip()
+            run("init", "-q")
+            shas = []
+            for name in commits:
+                (path / name).write_text(name)
+                run("add", name)
+                run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", name)
+                shas.append(run("rev-parse", "HEAD"))
+            return shas
+
+
+        def test_snapshot_returns_commit_of_ref(tmp_path):
+            shas = make_origin_repo(tmp_path / "origin", ["a", "b"])
+            assert snapshot_source(str(tmp_path / "origin"), tmp_path / "dest", "HEAD~1") == shas[0]
+        ```
+        The existing test runs from an ordinary shell with no git variables
+        set.
+      expected_shape: >-
+        Concrete red-phase artefact. Names the target test file
+        `tests/test_snapshot.py`, the function under test `snapshot_source`,
+        and the triggering input: the hook context reproduced by setting
+        `GIT_DIR` (optionally `GIT_INDEX_FILE` too) to an absolute path in a
+        throwaway decoy repository, e.g. with `monkeypatch.setenv`, because
+        that hook gets an absolute `GIT_DIR` and a spawned git inherits it. The assertion distinguishes broken from fixed: fixed
+        returns the cloned source's `HEAD~1` commit and leaves the decoy
+        intact. The inherited `GIT_DIR` sends `-C dest` git calls to the decoy:
+        with `HEAD~1` against a one-commit decoy the broken code raises
+        `CalledProcessError` at `checkout`; with `HEAD` it returns the
+        decoy's commit (with `GIT_INDEX_FILE` also set, `clone` also corrupts
+        the decoy's index). Any test that fails on the broken code (that
+        raise, the decoy's commit, or the decoy damage) discriminates. Cites the catalogue technique `hermetic subprocess environment` verbatim. May
+        name an explicitly constructed environment as the green-phase fix but
+        writes no production code. Writes the complete failing test inline and
+        ends with "I'll run this and surface the assertion failure next."
+      anti_patterns:
+        - Writes or proposes a production-code change to `_git` or `snapshot_source` in this turn.
+        - Never sets `GIT_DIR` or another redirecting variable, so the test runs with a clean environment and passes on the broken code.
+        - Cites a technique other than `hermetic subprocess environment` for the inherited-environment risk.
+        - Presents test output or an assertion failure as if the test had run.
+        - Hedging language ('would write...', 'likely named...') instead of the concrete test code.

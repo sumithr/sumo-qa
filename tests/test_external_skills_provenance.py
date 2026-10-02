@@ -347,6 +347,23 @@ def test_git_ignores_repository_location_variables_from_the_caller(
             assert kwargs["env"]["GIT_CONFIG_COUNT"] == "0"
 
 
+def test_git_drop_list_is_gits_own_other_repository_rule(tmp_path) -> None:
+    """git's prepare_other_repo_env drops every local env var but the two that
+    carry the user's config (`-c` and GIT_CONFIG_KEY_n/VALUE_n). That list
+    includes GIT_CONFIG, which only `git config` reads (clone and rev-parse
+    ignore an alias or core.abbrev in it): dropped to match git, not a redirect.
+    A subset check: a git that lists fewer variables still passes, and one this
+    git lists that the drop list lacks fails."""
+    local = set(_git("rev-parse", "--local-env-vars", cwd=tmp_path).split())
+    missing = (
+        local - {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"} - ext._GIT_REPO_LOCATION_VARIABLES
+    )
+    assert not missing, f"drop list lacks git's repo-location variables {sorted(missing)}"
+    assert ext._GIT_REPO_LOCATION_VARIABLES.isdisjoint(
+        {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"}
+    )
+
+
 def test_a_named_ref_prefers_a_tag_then_a_remote_branch(toolchain) -> None:
     _install(toolchain, source="o/r#main")
 

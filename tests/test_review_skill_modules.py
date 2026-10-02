@@ -115,6 +115,14 @@ LOAD_BEARING_RULES: dict[str, list[str]] = {
         "**Discovery → verdict (pinned).**",
         "The sweep produces 3–7 named risks",
         "Probe the whole path the diff touches, not the delta",
+        "only a test with them set to a throwaway value covers it",
+        "`hermetic subprocess environment`",
+        "hooks and git wrappers can export an absolute `GIT_DIR`/`GIT_INDEX_FILE`, so any git they reach is exposed",
+        "`VIRTUAL_ENV`",
+        "its own config namespace, `PIP_*`, `UV_*`, `npm_config_*`",
+        "without an explicitly constructed env",
+        "No hit only if it reads none of them, its own namespace included",
+        "`-I` strips only `PYTHON*`, `sys.executable` only `PATH`",
         "**The two-pass split (pinned).**",
     ],
     "security-relevance": [
@@ -486,8 +494,11 @@ PINNED_BODY_PHRASES: dict[str, PinnedClauses] = {
         ),
     ),
     "**The two-pass split (pinned).**": PinnedClauses(
-        defining="In the `/work-issue` pipeline this review is pass 1; an adversarial codex pass runs after it",
-        operative=("it prescribes the discriminating input ITSELF (step 9 / 2b)",),
+        defining="In the `/work-issue` pipeline this review is pass 1; a second adversarial pass (`/code-review` in a context that did not write the code) follows",
+        operative=(
+            "it prescribes the discriminating input ITSELF (step 9 / 2b)",
+            "The second pass is never the only source of that input.",
+        ),
     ),
     "**Trivial-change exemption (pinned):**": PinnedClauses(
         defining="A diff qualifies only when it touches solely docs (`docs/`, markdown), static/inert config (YAML/TOML/JSON read as data, not executed — formatter/linter ignore lists, editor config), or other files with **no executable behavioural surface**",

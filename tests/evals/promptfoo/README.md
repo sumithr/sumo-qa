@@ -67,10 +67,14 @@ only a raw diff plus a green-but-non-covering test run — no pre-named risks �
 seeded from real resolved Codex Review findings on closed PRs (generated-artifact
 drift, stale/deleted-file handling, weak assertions, rollback data-loss, partial
 CI gates, cwd/path-root bypass, schema-contract weakening, protocol/timeout
-cleanup, platform-install mismatch). The candidate must name the concrete defect
-class, anchor it to the changed file:line, and reach the correct unsafe/needs-work
-verdict. Two docs-only / config-only **negative controls** verify the workflow
-does not invent runtime risk on trivial diffs.
+cleanup, platform-install mismatch, contract-vs-signature, executable hook
+outside `src/`, inherited subprocess environment). The candidate must name the
+concrete defect class, anchor it to the changed file:line, and reach the correct
+unsafe/needs-work verdict. **Negative controls** verify the workflow does not
+invent risk: a docs-only typo and a config-only ignore entry (no runtime risk),
+a git call whose environment is already hermetic and tested, and a harmless
+isolated-interpreter spawn that reads no redirecting variable (the inherited-environment
+probe must not over-trigger).
 
 **History: the corpus was built on a reasoning candidate.** On the retired OpenAI
 pair, a discovery eval needed a candidate that could reason over a raw diff: the
@@ -92,7 +96,7 @@ measured on the retired OpenAI pair (`gpt-5-mini` candidate, `gpt-5.5` judge): a
 adversarial discovery pass lifted the full corpus from baseline 7/11 → postcut
 10/11 (occasionally 11/11), and the `.ab` to **B 6/6** vs A0/A1 (no-skill /
 catalogues-only) only ~1-4/6 (the discovery pass perfect-scores the hard
-families A0/A1 miss). Both negative controls pass. One *hard* seed flickers
+families A0/A1 miss). Both negative controls of that time (docs-only, config-only) pass. One *hard* seed flickers
 run-to-run on reasoning-model variance — the niche `git ls-files`
 deleted-entry-semantics case the candidate doesn't always surface. (A separate
 flicker — the candidate echoing a loaded change-rule key into its verdict — was

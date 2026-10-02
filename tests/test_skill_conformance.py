@@ -155,3 +155,18 @@ def test_skill_contract_doc_has_no_bare_host_specific_phrase(doc_path, phrase):
         f"{doc_path.name} mentions {phrase!r} in normative prose. Use the "
         f"host-neutral capability term instead (see using-sumo-qa → Shared vocabulary)."
     )
+
+
+def test_tdd_skill_names_the_hermetic_subprocess_technique():
+    """#769: a spawned tool inherits redirecting variables, so the TDD skill must
+    cite the catalogue technique, the variables, the decoy input and the fix."""
+    text = (SKILLS_DIR / "sumo-qa-implementing-with-tdd" / "SKILL.md").read_text(encoding="utf-8")
+    for phrase in [
+        "`hermetic subprocess environment`",
+        "`GIT_DIR`/`GIT_INDEX_FILE`",
+        "`VIRTUAL_ENV`",
+        "`PATH`",
+        "set to a throwaway value",
+        "explicitly constructed env",
+    ]:
+        assert phrase in text, f"TDD SKILL.md lacks {phrase!r}"

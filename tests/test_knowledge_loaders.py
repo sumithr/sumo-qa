@@ -80,6 +80,7 @@ def test_load_techniques_contains_canonical_techniques():
         "property-based testing",
         "mutation testing",
         "build artifact contents verification",
+        "hermetic subprocess environment",
     ]:
         assert entry in text, f"Missing canonical technique: {entry}"
 
