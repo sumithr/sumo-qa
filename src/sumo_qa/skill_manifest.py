@@ -30,6 +30,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from sumo_qa.knowledge_loaders import (
     _classification_filter_terms,
     list_catalogue_entries,
@@ -588,7 +590,8 @@ def _classification_parts(classification: str, ids: list[str]) -> dict[str, Any]
     An id is matched when it has a catalogue entry, or
     ``sumo_qa_load_rules(id)`` is not ``{}``, or ``sumo_qa_load_standards(id)``
     is non-empty. Any unmatched id returns an error envelope naming the
-    unmatched ids and the catalogue ids; an exception from a loader returns
+    unmatched ids and the available ids (the catalogue ids plus the top-level
+    keys of the unfiltered rules); an exception from a loader returns
     the unreadable envelope."""
     try:
         catalogue = {e["id"]: e["text"] for e in list_catalogue_entries("classifications")}
@@ -600,9 +603,17 @@ def _classification_parts(classification: str, ids: list[str]) -> dict[str, Any]
             and not sumo_qa_load_standards(c)
         ]
         if unmatched:
+            available = set(catalogue)
+            try:
+                rules_all = yaml.safe_load(sumo_qa_load_rules())
+                if isinstance(rules_all, dict):
+                    available.update(str(k) for k in rules_all)
+            except Exception:  # noqa: BLE001 -- the rules keys only widen the list
+                pass
             return _error(
-                f"Unknown classification(s) {unmatched}.",
-                {"available_classifications": sorted(catalogue)},
+                f"Unknown classification(s) {unmatched}. Ids declared only by a "
+                "standards pack are also accepted.",
+                {"available_classifications": sorted(available)},
             )
         standards = sumo_qa_load_standards(classification)
         rules = sumo_qa_load_rules(classification)

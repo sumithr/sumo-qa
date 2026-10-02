@@ -83,22 +83,49 @@ def test_bundle_without_classification_has_no_rules_or_standards():
 
 def test_classification_matching_nothing_returns_envelope_listing_catalogue_ids():
     out = _bundle(classification="made_up_change")
-    assert out["error"] == "Unknown classification(s) ['made_up_change']."
+    assert out["error"].startswith("Unknown classification(s) ['made_up_change'].")
     assert "business_logic_change" in out["available_classifications"]
     assert out["available_classifications"] == sorted(out["available_classifications"])
+
+
+def test_rules_only_ids_are_listed_and_accepted_alongside_an_unknown_one():
+    out = _bundle(classification="ui_only_change, nope")
+    assert out["error"].startswith("Unknown classification(s) ['nope'].")
+    assert "ui_only_change" in out["available_classifications"]
+
+
+def test_non_mapping_rules_text_leaves_the_catalogue_ids_only(monkeypatch):
+    monkeypatch.setattr(
+        sm, "sumo_qa_load_rules", lambda c=None: "- a\n- b\n" if c is None else "{}"
+    )
+    out = _bundle(classification="nope")
+    assert "business_logic_change" in out["available_classifications"]
+    assert "a" not in out["available_classifications"]
+
+
+def test_unreadable_unfiltered_rules_leave_the_catalogue_ids_only(monkeypatch):
+    def _rules(c=None):
+        if c is None:
+            raise OSError("boom")
+        return "{}"
+
+    monkeypatch.setattr(sm, "sumo_qa_load_rules", _rules)
+    out = _bundle(classification="nope")
+    assert out["error"].startswith("Unknown classification(s) ['nope'].")
+    assert "business_logic_change" in out["available_classifications"]
 
 
 def test_a_known_id_mixed_with_an_unknown_one_returns_the_envelope():
     """No partial payload: one unmatched id rejects the whole request."""
     out = _bundle(classification="business_logic_change, Security_Change")
-    assert out["error"] == "Unknown classification(s) ['Security_Change']."
+    assert out["error"].startswith("Unknown classification(s) ['Security_Change'].")
     assert "security_change" in out["available_classifications"]
     assert not {"rules", "standards", "classifications", "body"} & set(out)
 
 
 def test_unmatched_ids_are_named_in_request_order():
     out = _bundle(classification="zz_change, business_logic_change, aa_change")
-    assert out["error"] == "Unknown classification(s) ['zz_change', 'aa_change']."
+    assert out["error"].startswith("Unknown classification(s) ['zz_change', 'aa_change'].")
 
 
 def test_ids_come_back_in_request_order_with_duplicates_dropped():
