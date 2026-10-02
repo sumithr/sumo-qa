@@ -31,7 +31,7 @@ For `strengthen-test-coverage` (mutation follow-up), route to `sumo-qa-strengthe
 
 You MUST work through these in order. Steps 1–3 are AI-only homework; the user's confirmation gates step 4 onward.
 
-1. **Name the risk this cycle targets** *(no user question)* — the approach stays internal, never a label (*"Approach restated: …"*). If no risk was named, route to `sumo-qa-preparing-for-work` first.
+1. **Name the risk this cycle targets** *(no user question)* — show the user that named risk in plain words; the approach stays internal, never a label naming it. If no risk was named, route to `sumo-qa-preparing-for-work` first.
 
 2. **Walk the repo for the target** *(no user question)* — use the host's file tools. Find (a) the production file touched, (b) the matching test file (or where one belongs), (c) the existing test style (framework, fixtures, assertions), (d) for regression-first: the failing path that reproduces the bug. Don't ask "what test framework?" — read a sibling test file. For `coverage-first-then-refactor`, if the repo emitted a coverage artifact (any format — `coverage.json`, Cobertura, `lcov.info`), read it with the host's file tools to LOCATE the uncovered CHANGED lines/functions worth characterizing before the refactor; the artifact only points at candidates — coverage % never decides what matters (step 3).
 

@@ -82,6 +82,10 @@ _EXTRA = [
     "Chosen approach: pin the regression-first cases before refactoring.",
     "Approach restated: regression-firstish spikes are not a catalogue entry.",
     "Approach restated: n/a/b",
+    "> **Chosen approach:** _regression-first_ for the payments change.",
+    "Approach restated: _regression-first_",
+    "Chosen approach: regression-first_ish spikes are not a catalogue entry.",
+    "Chosen approach: _regression-first__x",
     "Chosen approach: verify-existing" + " " * 2_000 + "x",
     "I'm routing this QA intent to the review.",
     "Classification: docs_change so no tests.",
@@ -184,6 +188,21 @@ def test_js_blank_string_values_does_not_backtrack_exponentially() -> None:
     start = time.perf_counter()
     assert _node([span], "check.blankStringValues(o)") == [span]
     assert time.perf_counter() - start < 2
+
+
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "skill-closing-qa-gaps.yaml",
+        "skill-triaging-test-failures.yaml",
+        "skill-security-testing.yaml",
+    ],
+)
+def test_downstream_skill_evals_wire_the_assert(config_name) -> None:
+    """#735: the skills deciding-approach routes to must not leak labels either."""
+    config = yaml.safe_load((PROMPTFOO_DIR / config_name).read_text(encoding="utf-8"))
+    refs = [a.get("value") for a in config["defaultTest"]["assert"] if a["type"] == "javascript"]
+    assert ASSERT_REF in refs
 
 
 def test_deciding_approach_user_facing_eval_wires_the_assert() -> None:

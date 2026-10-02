@@ -1,9 +1,10 @@
 # Routing-state leak fixtures (issue #248).
 #
-# The two routing hops, using-sumo-qa and sumo-qa-deciding-approach, are
-# internal orchestration: their routing payload, taxonomy labels, route
-# announcement and checklist bookkeeping must never reach the user. The
-# validator's structured `routing_state_leak` check
+# Routing is internal orchestration: the routing payload, taxonomy labels,
+# route announcement and checklist bookkeeping of the two routing hops
+# (using-sumo-qa, sumo-qa-deciding-approach), and the self-narrating approach
+# labels of the downstream skills they route to (#735), must never reach the
+# user. The validator's structured `routing_state_leak` check
 # (src/sumo_qa/conformance.py `find_routing_leaks`) scores every deterministic
 # scenario's final output for these five leak families.
 #
@@ -112,6 +113,13 @@ transcripts:
       **Approach restated:** Regression-first for infrastructure change to payments service.
       The named risk is traffic still reaching the old load balancer.
 
+  - id: taxonomy-qualified-label-italic-value
+    scenario_id: S11-router-invocation
+    family: taxonomy_label
+    leaks: true
+    output_text: |
+      > **Chosen approach:** _regression-first_ for the payments change.
+
   - id: taxonomy-clean-qualified-prose
     scenario_id: S11-router-invocation
     family: taxonomy_label
@@ -119,6 +127,7 @@ transcripts:
     output_text: |
       We take a regression-first approach here: pin the payments path first.
       Approach chosen with the team: regression-first thinking does not fit yet.
+      Chosen approach: regression-first_ish spikes are not a catalogue entry.
 
   # ---------------------------------------------------------- route_announcement
   - id: announce-picking-approach

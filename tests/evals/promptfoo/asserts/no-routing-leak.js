@@ -1,8 +1,9 @@
 // Deterministic routing-state leak assertion for
 // skill-deciding-approach-user-facing.yaml (issue #248), which grades both
-// routing hops: the entry router and the approach router are internal, so their
-// routing payload, taxonomy labels, route announcement and checklist
-// bookkeeping must never appear in what the user reads.
+// routing hops, and for the downstream skill evals they route to (#735):
+// routing is internal, so its routing payload, taxonomy labels, route
+// announcement and checklist bookkeeping must never appear in what the user
+// reads.
 //
 // Mirrors `find_routing_leaks` in src/sumo_qa/conformance.py family for
 // family; tests/test_eval_no_routing_leak_assert.py runs both over
@@ -247,7 +248,10 @@ function qualifiedLabelRegExp(names) {
       new RegExp(
         `^[ \\t]*(?:(?:[-+*]|>+|#{1,6}|\\d{1,3}[.)])[ \\t]+)*${deco}` +
           `(?:${LABEL_QUALIFIER}[ \\t]+${label}|${label}[ \\t]+${LABEL_QUALIFIER})` +
-          `${deco}[ \\t]*:[ \\t${decoChars}]*(?:${alternatives}|n/a)(?![A-Za-z0-9_/-])`,
+          `${deco}[ \\t]*:[ \\t${decoChars}]*(?:${alternatives}|n/a)` +
+          // An underscore closing italic emphasis ends the value; one glued
+          // to a further word character continues it.
+          '(?![A-Za-z0-9/-]|_[A-Za-z0-9])',
         'im',
       ),
     );

@@ -616,7 +616,10 @@ def _qualified_label_re(names: frozenset[str]) -> re.Pattern[str]:
     return re.compile(
         rf"^[ \t]*(?:(?:[-+*]|>+|#{{1,6}}|\d{{1,3}}[.)])[ \t]+)*{_DECO}*"
         rf"(?:{_LABEL_QUALIFIER}[ \t]+{label}|{label}[ \t]+{_LABEL_QUALIFIER})"
-        rf"{_DECO}*[ \t]*:[ \t{_DECO_SET}]*(?:{alternatives}|n/a)(?![A-Za-z0-9_/-])",
+        rf"{_DECO}*[ \t]*:[ \t{_DECO_SET}]*(?:{alternatives}|n/a)"
+        # An underscore closing italic emphasis ends the value; one glued to a
+        # further word character continues it.
+        r"(?![A-Za-z0-9/-]|_[A-Za-z0-9])",
         re.IGNORECASE | re.MULTILINE | re.ASCII,
     )
 

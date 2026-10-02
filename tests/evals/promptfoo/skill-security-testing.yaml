@@ -18,9 +18,9 @@ defaultTest:
     techniques: file://../../../knowledge/techniques.md
   assert:
     - type: javascript
-      # No scripted opening line (#735): the reply opens on the work, not a
-      # self-narrating preamble.
-      value: '!/^[\s>*_"'']{0,8}focusing the security test evidence/i.test(output)'
+      # No internal routing state (#735): no approach label, route
+      # announcement, routing payload or checklist bookkeeping reaches the user.
+      value: file://asserts/no-routing-leak.js
       threshold: 1
     - type: llm-rubric
       value: |
@@ -152,6 +152,12 @@ prompts:
 
 tests:
   - description: SEED - explicit password-reset security request chooses native token-lifecycle tests first
+    assert:
+      - &brief
+        type: javascript
+        # Checklist 7: an anchored request returns the Security QA Brief, every
+        # field named.
+        value: '[/grounded risk/i, /source anchor/i, /evidence choice/i, /first action/i, /residual risk/i].every((f) => f.test(output))'
     vars:
       user_prompt: "Security-test the new password-reset flow."
       expected_shape: >-
@@ -177,6 +183,8 @@ tests:
         - No scanner, running app URL, credentials, or live target scope is provided.
 
   - description: SEED - routed endpoint ownership gap stays native before tooling
+    assert:
+      - *brief
     vars:
       user_prompt: "A normal review found a material security gap and routed it here: new document raw endpoint lacks an owner check."
       expected_shape: >-
@@ -201,6 +209,8 @@ tests:
         - Existing tests cover owner success only; no non-owner negative-path test.
 
   - description: SEED - dependency/config surface may need external discovery after native checks
+    assert:
+      - *brief
     vars:
       user_prompt: "Security-test this dependency and config change."
       expected_shape: >-
@@ -228,6 +238,10 @@ tests:
         - Network and package-install permission are not granted in this turn.
 
   - description: SEED - low-evidence prompt asks one scope question instead of fabricating risk
+    assert:
+      - type: javascript
+        # Checklist 1: no anchor means note it, ask for the scope, no brief.
+        value: '/\bno (?:source )?anchor\b/i.test(output) && /\?/.test(output) && !/grounded risk|first action|residual risk/i.test(output)'
     vars:
       user_prompt: "Do security testing on the app."
       expected_shape: >-
@@ -246,6 +260,8 @@ tests:
         or user-stated security scope were provided.
 
   - description: SEED - explicit checklist/tool-list request is reframed to grounded evidence
+    assert:
+      - *brief
     vars:
       user_prompt: "Give me the full security checklist and best scanner list for this new webhook signature verifier."
       expected_shape: >-

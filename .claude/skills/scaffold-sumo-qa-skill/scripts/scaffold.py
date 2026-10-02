@@ -94,8 +94,6 @@ SKILL_MD_TEMPLATE = dedent("""\
 
     <INTENT — write a 1–3 sentence paragraph: what this skill does, when it triggers, and why it matters. Do not duplicate the frontmatter `description:` verbatim — that sentence is the trigger; this paragraph is the orientation for the assistant once the skill is active.>
 
-    **Announce at start:** *"<ANNOUNCE — short phrase the assistant says when the skill activates, e.g. 'Walking the eval-design loop.'>"*
-
     ## Output discipline (mandatory)
 
     Inherits the global discipline from `using-sumo-qa` (knowledge authority hierarchy, internal scaffolding stays internal, specialty-tool fit).

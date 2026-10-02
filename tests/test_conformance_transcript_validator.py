@@ -790,6 +790,9 @@ def test_routing_leak_fixture_scores_as_labelled(scenarios, entry) -> None:
             "Classification identified: Infrastructure_Change for the load balancer.",
             "taxonomy_label",
         ),
+        # An underscore-emphasis-wrapped value still leaks (#735).
+        ("> **Chosen approach:** _regression-first_ for the payments change.", "taxonomy_label"),
+        ("Approach restated: _regression-first_", "taxonomy_label"),
     ],
 )
 def test_find_routing_leaks_detects_each_family(text, family) -> None:
@@ -852,6 +855,7 @@ def test_find_routing_leaks_detects_each_family(text, family) -> None:
         "Approach chosen with the team: regression-first thinking does not fit yet.",
         "Chosen approach: pin the regression-first cases before refactoring.",
         "Approach restated: regression-firstish spikes are not a catalogue entry.",
+        "Chosen approach: regression-first_ish spikes are not a catalogue entry.",
     ],
 )
 def test_find_routing_leaks_ignores_ordinary_prose(text) -> None:
