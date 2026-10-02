@@ -6,12 +6,12 @@ These complement [`SCENARIOS.md`](SCENARIOS.md) (which evaluates *skill* behavio
 
 | Layer | Tools | Atomicity |
 |---|---|---|
-| Skill tools | 18 (one per `skills/<name>/SKILL.md`) | Returns the SKILL.md body |
+| Skill tools | One per `skills/<name>/SKILL.md` | Returns the SKILL.md body |
 | Knowledge loaders | 6 (`sumo_qa_load_*`) | Returns a markdown catalogue verbatim |
 | Test-data tools | 4 (`sumo_qa_*_test_data*`) | Reads / writes the local known-good catalogue |
 | External-skill lifecycle | 4 (`sumo_qa_*_external_skill*`) | Searches, installs, locates, and loads external skills |
 
-The 18 skill tools are tested transitively by the scenarios in `SCENARIOS.md` — when the user's intent matches a skill, the host LLM should invoke that skill's tool. They are not duplicated here.
+The skill tools are tested transitively by the scenarios in `SCENARIOS.md`: when the user's intent matches a skill, the host LLM should invoke that skill's tool. They are not duplicated here.
 
 Fifteen of the sixteen atomic non-skill tools each get a dedicated scenario below. `sumo_qa_ingest_knowledge_pack` is a knowledge-management action covered by its own contract tests, not a tool-selection scenario.
 
