@@ -17,7 +17,7 @@ description: MUST be called first for any QA-shaped request. Triggers include te
 - **One question per turn.** Don't follow a question with *"shall I proceed or clarify first?"* — the question IS the gate.
 - **Don't restate the user's input.** They know what they asked.
 - **Structure only when it earns its place.** Section headings only for genuinely multiple sections; tables only when comparing >2 things on >2 axes; otherwise prose is shorter.
-- **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"*.
+- **No closing pleasantries.** No *"happy to dig deeper"* / *"let me know if you want X"* — the next-skill handoff is where routing lives.
 
 ## The Iron Law
 NO QA WORK WITHOUT FIRST DECIDING THE APPROACH.
@@ -70,8 +70,6 @@ Security is a cross-cutting QA quality dimension, not only a standalone user int
 
 Reason internally with citations (which words in the intent, which file paths, which catalogue entries grounded the inference); the user-facing output is the WORK, not a description of how you arrived at it. **Keep:** the finding (risks named, files cited, verdicts), verifiable file:line citations (`api/refund.py:47`), the current question/gate, rule references in natural English (*"the API-change rule requires a contract test bump"*). **Strip:** internal taxonomy labels, method commentary (*"per the checklist"*, *"anchored to the code I read"*), quality self-defense, step/phase trace, and re-stating the user's input. When a classification is useful to convey, translate it — *"this is a behaviour change in the pricing logic"*, not *"Classification: business_logic_change"*.
 
-**Skill-to-skill hand-offs are invocations:** the user sees the next skill's work, never a skill name or a routing line.
-
 ### Confirmation discipline
 
 Confirmation gates prevent driving past wrong assumptions, but applying them to every minor call wastes attention. Hierarchy:
@@ -84,7 +82,7 @@ Rule of thumb: if you'd predict the user's answer with >80% confidence, don't as
 
 ### Shared vocabulary (host-neutral contracts)
 
-The skills use three terms that name a capability, not any one host's API. Map each to the host's equivalent.
+The skills use three terms that name a capability, not any one host's API. Map each to whatever the current host exposes.
 
 - **Ordered work tracker** — an explicit, ordered list the agent maintains and ticks off as work progresses. Use the host's native task primitive when available; otherwise keep a numbered tracker inline and update it visibly as items complete. The tracking obligation is required (except in the silent routing hops); the surface is not.
 - **Structured user-choice prompt** — the host's best primitive for collecting an explicit choice from a small set (option-picker, MCP elicitation, etc.). Reserve for genuine 50/50 forks. If no structured UI exists, ask one concise inline question and wait.
@@ -111,7 +109,7 @@ Follow the Checklist.
 | "This question is too simple to need the approach skill" | Simple intents still need shape (no-tests-recommended is a valid approach). Skip the decision and you skip the safety net. |
 | "I'll cite the principles myself from training data" | Loaded catalogue is authoritative. Use `sumo_qa_load_principles()`. |
 | "I'll announce the route or show my checklist" | Internal state. The routed skill speaks first. |
-| "Let me echo the citation reasoning in the answer for transparency" | Citations belong to internal scratch, not user output. |
+| "Let me echo the citation reasoning in the answer for transparency" | Citations belong to internal scratch, not user output. They burn tokens. |
 | "I'll restrict myself to tool categories I already know" | Wrong. New categories emerge constantly; reason from the surface, web-search current options, recommend with citation. There's no internal catalogue to fall back on. |
 | "`brew install` / `npm i -g` / system `pip` is the quickest way to get the tool running" | No. Global installs are unpinned and invisible to CI/teammates. Repo test tooling MUST land repo-pinned (manifest/lockfile/pinned pre-commit hook) AND CI-reproducible (a CI step runs that pinned tool). Translate any global instruction to its repo-pinned equivalent first. |
 | "Security wasn't asked for, so I'll skip it" / "I'll add a security section to be safe" | Run the grounded security-relevance pass. Grounded gap → name it concretely + map to a next action; not grounded → omit it. Both the silent skip on a grounded change AND the unanchored warning on a low-relevance one are failures. |

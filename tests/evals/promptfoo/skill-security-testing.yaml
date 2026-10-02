@@ -18,9 +18,11 @@ defaultTest:
     techniques: file://../../../knowledge/techniques.md
   assert:
     - type: javascript
-      # No internal routing state (#735): no approach label, route
-      # announcement, routing payload or checklist bookkeeping reaches the user.
+      # No catalogue approach/classification label reaches the user (#735).
+      # A hand-off may name the next skill, so route_announcement is not checked.
       value: file://asserts/no-routing-leak.js
+      config:
+        families: [taxonomy_label]
       threshold: 1
     - type: llm-rubric
       value: |
@@ -220,9 +222,8 @@ tests:
         are `pyproject.toml`, `uv.lock`, and `settings/security.yaml`.
         Chooses dependency check plus config check first: inspect changelog or
         run the repo's dependency audit if present, and verify allowed origins
-        against the consuming middleware. It may move on to finding a
-        specialist external tool (described as the next step, never by skill
-        name) only after saying native evidence is
+        against the consuming middleware. It may route to
+        `sumo-qa-suggesting-external-skill` only after saying native evidence is
         insufficient and naming the package/config surface; it must require
         confirmation before installing/running a new scanner.
       anti_patterns:

@@ -1,6 +1,7 @@
 // Deterministic routing-state leak assertion for
 // skill-deciding-approach-user-facing.yaml (issue #248), which grades both
-// routing hops, and for the downstream skill evals they route to (#735):
+// routing hops, and for the downstream skill evals they route to (#735),
+// which check only taxonomy_label (a downstream hand-off may name a skill):
 // routing is internal, so its routing payload, taxonomy labels, route
 // announcement and checklist bookkeeping must never appear in what the user
 // reads.
@@ -279,8 +280,11 @@ function findRoutingLeaks(text) {
   return Object.keys(CHECKS).filter((family) => CHECKS[family](s));
 }
 
-module.exports = (output) => {
-  const leaks = findRoutingLeaks(output);
+// An optional `config: {families: [...]}` on the assert limits it to those
+// families; omitted, every family is checked.
+module.exports = (output, context) => {
+  const only = context && context.config && context.config.families;
+  const leaks = findRoutingLeaks(output).filter((family) => !only || only.includes(family));
   if (leaks.length) {
     return {
       pass: false,

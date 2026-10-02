@@ -13,9 +13,11 @@ defaultTest:
     skill_content: file://../../../skills/sumo-qa-closing-qa-gaps/SKILL.md
   assert:
     - type: javascript
-      # No internal routing state (#735): no approach label, route
-      # announcement, routing payload or checklist bookkeeping reaches the user.
+      # No catalogue approach/classification label reaches the user (#735).
+      # A hand-off may name the next skill, so route_announcement is not checked.
       value: file://asserts/no-routing-leak.js
+      config:
+        families: [taxonomy_label]
       threshold: 1
     - type: llm-rubric
       value: |
@@ -166,11 +168,9 @@ tests:
   - description: SEED - refuses the loop when repo context cannot be inspected
     assert:
       - type: javascript
-        # HARD-GATE: no test written; every absent prerequisite named: (a) the
-        # gap, (b) the files, (c) a way to run the tests: a runner or test
-        # command, or "run" near tests/suite/locally (either order), never
-        # "run the loop". A named tool alone (an assumed "pytest") is not (c).
-        value: '!/\bdef test_/.test(output) && /\bgap\b/i.test(output) && /\bfiles?\b/i.test(output) && /\b(?:test[- ]?)?runner\b|\btest[- ]?commands?\b|\brun(?:ning|s)?\b(?:(?!\bloop\b)[^.?!\n]){0,25}?\b(?:tests?|suite|locally)\b|\b(?:tests?|suite)\b[^.?!\n]{0,15}?\b(?:are|is|gets?)\s+run\b/i.test(output)'
+        # HARD-GATE: no test written; the absent gap and files are named.
+        # Prerequisite (c), a way to run the tests, is left to the judge.
+        value: '!/\bdef test_/.test(output) && /\bgap\b/i.test(output) && /\bfiles?\b/i.test(output)'
     vars:
       user_prompt: >-
         Close the uncovered gap in the payments service — write the failing
@@ -255,8 +255,7 @@ tests:
         not remain on a passing row — it becomes `mitigated`).
         EXPLICITLY DECLINES to call the change safe to merge — that
         verdict belongs to the merge-review workflow against fresh evidence —
-        and points there as the next step, never by skill name. Does not start
-        another gap unprompted.
+        and routes there instead. Does not start another gap unprompted.
       anti_patterns:
         - Says the change is safe to merge (in any phrasing) instead of routing to the merge-review workflow.
         - Marks the risk covered without citing the supplied red-to-green evidence.

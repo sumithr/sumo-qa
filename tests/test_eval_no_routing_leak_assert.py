@@ -203,10 +203,20 @@ def test_js_blank_string_values_does_not_backtrack_exponentially() -> None:
     ],
 )
 def test_downstream_skill_evals_wire_the_assert(config_name) -> None:
-    """#735: the skills deciding-approach routes to must not leak labels either."""
+    """#735: the skills deciding-approach routes to must not leak labels either.
+    Only the label family is checked: a downstream hand-off may name a skill."""
     config = yaml.safe_load((PROMPTFOO_DIR / config_name).read_text(encoding="utf-8"))
-    refs = [a.get("value") for a in config["defaultTest"]["assert"] if a["type"] == "javascript"]
-    assert ASSERT_REF in refs
+    wired = [a for a in config["defaultTest"]["assert"] if a.get("value") == ASSERT_REF]
+    assert [a.get("config") for a in wired] == [{"families": ["taxonomy_label"]}]
+
+
+def test_js_assert_families_config_limits_the_check() -> None:
+    expr = "check(o, {config: {families: ['taxonomy_label']}}).pass"
+    handoff = "Routing to sumo-qa-reviewing-before-merge."
+    label = "Approach: regression-first"
+    assert _node([handoff, label], expr) == [True, False]
+    # No config checks every family.
+    assert _node([handoff], "check(o).pass") == [False]
 
 
 def test_deciding_approach_user_facing_eval_wires_the_assert() -> None:

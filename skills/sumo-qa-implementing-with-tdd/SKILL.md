@@ -25,13 +25,13 @@ Do NOT write the failing test in the same turn you propose the test idea. Walk: 
 
 `sumo-qa-deciding-approach` routes here for: `tdd-scaffold` (greenfield-ish new behaviour), `regression-first` (bug fix — reproduce as a failing test first), or `coverage-first-then-refactor` (behaviour-preserving refactor — characterization tests pin behaviour BEFORE the refactor).
 
-For `strengthen-test-coverage` (mutation follow-up), invoke `sumo-qa-strengthening-tests` instead — different discipline (production code stays locked).
+For `strengthen-test-coverage` (mutation follow-up), route to `sumo-qa-strengthening-tests` instead — different discipline (production code stays locked).
 
 ## Checklist
 
 You MUST work through these in order. Steps 1–3 are AI-only homework; the user's confirmation gates step 4 onward.
 
-1. **Name the risk this cycle targets** *(no user question)* — show the user that named risk in plain words; the approach stays internal, never a label naming it. If no risk was named, invoke `sumo-qa-preparing-for-work` first.
+1. **Name the risk this cycle targets** *(no user question)* — show the user that named risk in plain words; the approach stays internal, never a label naming it. If no risk was named, route to `sumo-qa-preparing-for-work` first.
 
 2. **Walk the repo for the target** *(no user question)* — use the host's file tools. Find (a) the production file touched, (b) the matching test file (or where one belongs), (c) the existing test style (framework, fixtures, assertions), (d) for regression-first: the failing path that reproduces the bug. Don't ask "what test framework?" — read a sibling test file. For `coverage-first-then-refactor`, if the repo emitted a coverage artifact (any format — `coverage.json`, Cobertura, `lcov.info`), read it with the host's file tools to LOCATE the uncovered CHANGED lines/functions worth characterizing before the refactor; the artifact only points at candidates — coverage % never decides what matters (step 3).
 
@@ -61,7 +61,7 @@ You MUST work through these in order. Steps 1–3 are AI-only homework; the user
 
 9. **Run targeted regression** — run the changed file's test module + closest siblings. Surface pass/fail counts. Confirm no green-to-red elsewhere.
 
-10. **Route to review** — offer a pre-merge review; on yes, invoke `sumo-qa-reviewing-before-merge`. Don't claim "safe to merge" from this skill.
+10. **Route to review** — offer to hand off to `sumo-qa-reviewing-before-merge`. Don't claim "safe to merge" from this skill.
 
 ## Special cases
 

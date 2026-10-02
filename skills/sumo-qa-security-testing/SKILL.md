@@ -56,7 +56,7 @@ Follow the Checklist in order.
 | Config check | Security depends on flags, headers, IAM, CORS, TLS, secrets, or deployment config. | Inspect the config plus the consuming runtime path. |
 | Dependency check | The change adds/upgrades security-sensitive packages or lockfiles. | Run the repo's dependency audit command or inspect advisories for the named package. |
 | Fuzz/property check | Parser/token/claim handling has broad input space. | Add a bounded property or fuzz seed for malformed, oversized, tampered, or replayed inputs. |
-| External tool/skill | Native evidence cannot cover the risk and stack/scope point to specialist tooling. | Invoke `sumo-qa-suggesting-external-skill`; confirm before install/setup/execution. |
+| External tool/skill | Native evidence cannot cover the risk and stack/scope point to specialist tooling. | Route through `sumo-qa-suggesting-external-skill`; confirm before install/setup/execution. |
 
 ## Red Flags
 
@@ -92,4 +92,4 @@ User: "Pen-test our platform." Good: "No source anchor given; which flow, file, 
 
 ## Next skill in the chain
 
-If native evidence fits, invoke the relevant implementation/review skill with the concrete action. If no native sumo-qa path can cover the grounded risk, invoke `sumo-qa-suggesting-external-skill` with `entry_kind: "qa"` and the named security surface.
+If native evidence fits, route to the relevant implementation/review skill with the concrete action. If no native sumo-qa path can cover the grounded risk, route to `sumo-qa-suggesting-external-skill` with `entry_kind: "qa"` and the named security surface.

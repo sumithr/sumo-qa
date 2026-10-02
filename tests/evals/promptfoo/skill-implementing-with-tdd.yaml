@@ -58,9 +58,11 @@ defaultTest:
         check...' — instead of producing the concrete test code.
   assert:
     - type: javascript
-      # No internal routing state (#735): no approach label, route
-      # announcement, routing payload or checklist bookkeeping reaches the user.
+      # No catalogue approach/classification label reaches the user (#735).
+      # A hand-off may name the next skill, so route_announcement is not checked.
       value: file://asserts/no-routing-leak.js
+      config:
+        families: [taxonomy_label]
       threshold: 1
     - type: llm-rubric
       value: |

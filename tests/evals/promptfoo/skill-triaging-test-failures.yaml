@@ -32,9 +32,11 @@ defaultTest:
     skill_content: file://../../../skills/sumo-qa-triaging-test-failures/SKILL.md
   assert:
     - type: javascript
-      # No internal routing state (#735): no approach label, route
-      # announcement, routing payload or checklist bookkeeping reaches the user.
+      # No catalogue approach/classification label reaches the user (#735).
+      # A hand-off may name the next skill, so route_announcement is not checked.
       value: file://asserts/no-routing-leak.js
+      config:
+        families: [taxonomy_label]
       threshold: 1
     - type: llm-rubric
       value: |
@@ -242,9 +244,10 @@ tests:
         against the changed code to reproduce the deterministic failure;
         optionally bisect to the implicated commit). Because this IS a concrete
         product-behaviour gap, it routes the specific wrong behaviour to the
-        regression-first / closed-loop fixing workflow, described as the next
-        step and never by skill name, naming the wrong behaviour being handed
-        over, rather than patching inline in this triage turn.
+        regression-first / closed-loop fixing workflow (e.g.
+        sumo-qa-implementing-with-tdd / sumo-qa-closing-qa-gaps) — naming the
+        wrong behaviour being handed over — rather than patching inline in this
+        triage turn.
       anti_patterns:
         - Patches the production code in THIS turn instead of handing the confirmed regression to the fixing workflow.
         - Classifies it as a flaky / test / environment issue despite a deterministic failure tied to a recent product-code change.
@@ -319,8 +322,8 @@ tests:
         test still asserts the OLD `== 10.0`; the product matching the spec
         while the test asserts the superseded value confirms a stale TEST, not a
         regression. Then names what it would actually do: correct the test's
-        stale expectation (or strengthen the test), with `convert.py` left
-        untouched. Does not
+        stale expectation (or route test-strengthening to
+        sumo-qa-strengthening-tests), with `convert.py` left untouched. Does not
         normalise the failure as acceptable residual risk on its own authority.
       anti_patterns:
         - Adds (or agrees to add) the try/except in `convert.py` — editing PRODUCTION code for a test-bug failure.
